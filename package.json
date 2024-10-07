@@ -1,0 +1,11 @@
+{
+  "name": "mcp-inspector",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "update:mcp": "git subtree pull --prefix=packages/mcp-typescript https://github.com/modelcontextprotocol/typescript-sdk.git main --squash"
+  },
+  "dependencies": {
+    "mcp-typescript": "file:packages/mcp-typescript"
+  }
+}
