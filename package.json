@@ -3,9 +3,13 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "prettier-fix": "prettier --write .",
     "update:mcp": "git subtree pull --prefix=packages/mcp-typescript https://github.com/modelcontextprotocol/typescript-sdk.git main --squash"
   },
   "dependencies": {
     "mcp-typescript": "file:packages/mcp-typescript"
+  },
+  "devDependencies": {
+    "prettier": "3.3.3"
   }
 }
