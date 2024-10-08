@@ -207,7 +207,7 @@ const App = () => {
                     <Bell className="w-4 h-4 mr-2" />
                     Notifications
                   </TabsTrigger>
-                  <TabsTrigger value="tools" disabled>
+                  <TabsTrigger value="tools">
                     <Hammer className="w-4 h-4 mr-2" />
                     Tools
                   </TabsTrigger>
@@ -243,7 +243,10 @@ const App = () => {
                     listTools={listTools}
                     callTool={callTool}
                     selectedTool={selectedTool}
-                    setSelectedTool={setSelectedTool}
+                    setSelectedTool={(tool) => {
+                      setSelectedTool(tool);
+                      setToolResult("");
+                    }}
                     toolResult={toolResult}
                     error={error}
                   />
