@@ -1,4 +1,10 @@
-import { FileText, PlayCircle, ChevronRight, AlertCircle } from "lucide-react";
+import {
+  FileText,
+  PlayCircle,
+  ChevronRight,
+  AlertCircle,
+  RefreshCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { TabsContent } from "@/components/ui/tabs";
@@ -58,10 +64,20 @@ const ResourcesTab = ({
     </div>
 
     <div className="bg-white rounded-lg shadow">
-      <div className="p-4 border-b border-gray-200">
+      <div className="p-4 border-b border-gray-200 flex justify-between items-center">
         <h3 className="font-semibold">
           {selectedResource ? selectedResource.uri : "Select a resource"}
         </h3>
+        {selectedResource && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => readResource(selectedResource.uri)}
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+        )}
       </div>
       <div className="p-4">
         {error ? (
@@ -71,7 +87,7 @@ const ResourcesTab = ({
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : selectedResource ? (
-          <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-96">
+          <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-96 whitespace-pre-wrap break-words">
             {resourceContent}
           </pre>
         ) : (
