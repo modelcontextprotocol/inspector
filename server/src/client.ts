@@ -10,6 +10,10 @@ import {
   ListPromptsResultSchema,
   GetPromptResult,
   GetPromptResultSchema,
+  ListToolsResult,
+  ListToolsResultSchema,
+  CallToolResult,
+  CallToolResultSchema,
 } from "mcp-typescript/types.js";
 
 export class McpClient {
@@ -83,6 +87,29 @@ export class McpClient {
         params: { name },
       },
       GetPromptResultSchema,
+    );
+  }
+
+  // Tool Operations
+  async listTools(): Promise<ListToolsResult> {
+    return await this.client.request(
+      {
+        method: "tools/list",
+      },
+      ListToolsResultSchema,
+    );
+  }
+
+  async callTool(
+    name: string,
+    params: Record<string, unknown>,
+  ): Promise<CallToolResult> {
+    return await this.client.request(
+      {
+        method: "tools/call",
+        params: { name, ...params },
+      },
+      CallToolResultSchema,
     );
   }
 

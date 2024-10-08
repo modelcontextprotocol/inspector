@@ -30,6 +30,19 @@ wss.on("connection", (ws: WebSocket) => {
       } else if (command.type === "getPrompt" && command.name) {
         const prompt = await mcpClient.getPrompt(command.name);
         ws.send(JSON.stringify({ type: "prompt", data: prompt }));
+      } else if (command.type === "listTools") {
+        const tools = await mcpClient.listTools();
+        ws.send(JSON.stringify({ type: "tools", data: tools }));
+      } else if (
+        command.type === "callTool" &&
+        command.name &&
+        command.params
+      ) {
+        const result = await mcpClient.callTool(
+          command.name + "asdf",
+          command.params,
+        );
+        ws.send(JSON.stringify({ type: "toolResult", data: result }));
       }
     } catch (error) {
       console.error("Error:", error);

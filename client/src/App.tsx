@@ -1,5 +1,12 @@
 import { useState, useEffect } from "react";
-import { Send, Bell, Terminal, Files, MessageSquare } from "lucide-react";
+import {
+  Send,
+  Bell,
+  Terminal,
+  Files,
+  MessageSquare,
+  Hammer,
+} from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import ConsoleTab from "./components/ConsoleTab";
@@ -8,6 +15,7 @@ import RequestsTab from "./components/RequestsTabs";
 import ResourcesTab, { Resource } from "./components/ResourcesTab";
 import NotificationsTab from "./components/NotificationsTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
+import ToolsTab, { Tool as ToolType } from "./components/ToolsTab";
 
 const App = () => {
   const [socket, setSocket] = useState<WebSocket | null>(null);
@@ -18,6 +26,8 @@ const App = () => {
   const [resourceContent, setResourceContent] = useState<string>("");
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
+  const [tools, setTools] = useState<ToolType[]>([]);
+  const [toolResult, setToolResult] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,6 +53,12 @@ const App = () => {
         setError(null);
       } else if (message.type === "prompt") {
         setPromptContent(JSON.stringify(message.data, null, 2));
+        setError(null);
+      } else if (message.type === "tools") {
+        setTools(message.data.tools);
+        setError(null);
+      } else if (message.type === "toolResult") {
+        setToolResult(JSON.stringify(message.data, null, 2));
         setError(null);
       } else if (message.type === "error") {
         setError(message.message);
@@ -71,6 +87,7 @@ const App = () => {
     null,
   );
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
+  const [selectedTool, setSelectedTool] = useState<ToolType | null>(null);
 
   const listResources = () => {
     sendWebSocketMessage({ type: "listResources" });
@@ -88,6 +105,14 @@ const App = () => {
     sendWebSocketMessage({ type: "getPrompt", name });
   };
 
+  const listTools = () => {
+    sendWebSocketMessage({ type: "listTools" });
+  };
+
+  const callTool = (name: string, params: Record<string, unknown>) => {
+    sendWebSocketMessage({ type: "callTool", name, params });
+  };
+
   return (
     <div className="flex h-screen bg-gray-100">
       <Sidebar connectionStatus={connectionStatus} />
@@ -96,14 +121,6 @@ const App = () => {
         <div className="flex-1 overflow-auto">
           <Tabs defaultValue="requests" className="w-full p-4">
             <TabsList className="mb-4">
-              <TabsTrigger value="requests">
-                <Send className="w-4 h-4 mr-2" />
-                Requests
-              </TabsTrigger>
-              <TabsTrigger value="notifications">
-                <Bell className="w-4 h-4 mr-2" />
-                Notifications
-              </TabsTrigger>
               <TabsTrigger value="resources">
                 <Files className="w-4 h-4 mr-2" />
                 Resources
@@ -112,7 +129,19 @@ const App = () => {
                 <MessageSquare className="w-4 h-4 mr-2" />
                 Prompts
               </TabsTrigger>
-              <TabsTrigger value="console">
+              <TabsTrigger value="requests" disabled>
+                <Send className="w-4 h-4 mr-2" />
+                Requests
+              </TabsTrigger>
+              <TabsTrigger value="notifications" disabled>
+                <Bell className="w-4 h-4 mr-2" />
+                Notifications
+              </TabsTrigger>
+              <TabsTrigger value="tools" disabled>
+                <Hammer className="w-4 h-4 mr-2" />
+                Tools
+              </TabsTrigger>
+              <TabsTrigger value="console" disabled>
                 <Terminal className="w-4 h-4 mr-2" />
                 Console
               </TabsTrigger>
@@ -137,6 +166,15 @@ const App = () => {
                 selectedPrompt={selectedPrompt}
                 setSelectedPrompt={setSelectedPrompt}
                 promptContent={promptContent}
+                error={error}
+              />
+              <ToolsTab
+                tools={tools}
+                listTools={listTools}
+                callTool={callTool}
+                selectedTool={selectedTool}
+                setSelectedTool={setSelectedTool}
+                toolResult={toolResult}
                 error={error}
               />
               <ConsoleTab />
