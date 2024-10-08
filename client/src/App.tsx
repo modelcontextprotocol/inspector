@@ -6,8 +6,11 @@ import {
   Files,
   MessageSquare,
   Hammer,
+  Play,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 import ConsoleTab from "./components/ConsoleTab";
 import Sidebar from "./components/Sidebar";
@@ -29,6 +32,13 @@ const App = () => {
   const [tools, setTools] = useState<ToolType[]>([]);
   const [toolResult, setToolResult] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [command, setCommand] = useState<string>(
+    "/Users/ashwin/.nvm/versions/node/v18.20.4/bin/node",
+  );
+  const [args, setArgs] = useState<string>(
+    "/Users/ashwin/code/example-servers/build/everything/index.js",
+  );
+  const [mcpConnected, setMcpConnected] = useState<boolean>(false);
 
   useEffect(() => {
     const ws = new WebSocket("ws://localhost:3000");
@@ -62,6 +72,8 @@ const App = () => {
         setError(null);
       } else if (message.type === "error") {
         setError(message.message);
+      } else if (message.type === "connected") {
+        setMcpConnected(true);
       }
     };
 
@@ -71,6 +83,7 @@ const App = () => {
 
     ws.onclose = () => {
       setConnectionStatus("disconnected");
+      setMcpConnected(false);
     };
 
     return () => ws.close();
@@ -113,73 +126,105 @@ const App = () => {
     sendWebSocketMessage({ type: "callTool", name, params });
   };
 
+  const connectMcpServer = () => {
+    const argsArray = args.split(" ").filter((arg) => arg.trim() !== "");
+    sendWebSocketMessage({ type: "connect", command, args: argsArray });
+  };
+
   return (
     <div className="flex h-screen bg-gray-100">
       <Sidebar connectionStatus={connectionStatus} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <h1 className="text-2xl font-bold p-4">MCP Inspector</h1>
         <div className="flex-1 overflow-auto">
-          <Tabs defaultValue="requests" className="w-full p-4">
-            <TabsList className="mb-4">
-              <TabsTrigger value="resources">
-                <Files className="w-4 h-4 mr-2" />
-                Resources
-              </TabsTrigger>
-              <TabsTrigger value="prompts">
-                <MessageSquare className="w-4 h-4 mr-2" />
-                Prompts
-              </TabsTrigger>
-              <TabsTrigger value="requests" disabled>
-                <Send className="w-4 h-4 mr-2" />
-                Requests
-              </TabsTrigger>
-              <TabsTrigger value="notifications" disabled>
-                <Bell className="w-4 h-4 mr-2" />
-                Notifications
-              </TabsTrigger>
-              <TabsTrigger value="tools" disabled>
-                <Hammer className="w-4 h-4 mr-2" />
-                Tools
-              </TabsTrigger>
-              <TabsTrigger value="console" disabled>
-                <Terminal className="w-4 h-4 mr-2" />
-                Console
-              </TabsTrigger>
-            </TabsList>
-
-            <div className="w-full">
-              <RequestsTab />
-              <ResourcesTab
-                resources={resources}
-                listResources={listResources}
-                readResource={readResource}
-                selectedResource={selectedResource}
-                setSelectedResource={setSelectedResource}
-                resourceContent={resourceContent}
-                error={error}
+          <div className="p-4 bg-white shadow-md m-4 rounded-md">
+            <h2 className="text-lg font-semibold mb-2">Connect MCP Server</h2>
+            <div className="flex space-x-2 mb-2">
+              <Input
+                placeholder="Command"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
               />
-              <NotificationsTab />
-              <PromptsTab
-                prompts={prompts}
-                listPrompts={listPrompts}
-                getPrompt={getPrompt}
-                selectedPrompt={selectedPrompt}
-                setSelectedPrompt={setSelectedPrompt}
-                promptContent={promptContent}
-                error={error}
+              <Input
+                placeholder="Arguments (space-separated)"
+                value={args}
+                onChange={(e) => setArgs(e.target.value)}
               />
-              <ToolsTab
-                tools={tools}
-                listTools={listTools}
-                callTool={callTool}
-                selectedTool={selectedTool}
-                setSelectedTool={setSelectedTool}
-                toolResult={toolResult}
-                error={error}
-              />
-              <ConsoleTab />
+              <Button onClick={connectMcpServer}>
+                <Play className="w-4 h-4 mr-2" />
+                Connect
+              </Button>
             </div>
-          </Tabs>
+          </div>
+          {mcpConnected ? (
+            <Tabs defaultValue="resources" className="w-full p-4">
+              <TabsList className="mb-4 p-0">
+                <TabsTrigger value="resources">
+                  <Files className="w-4 h-4 mr-2" />
+                  Resources
+                </TabsTrigger>
+                <TabsTrigger value="prompts">
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Prompts
+                </TabsTrigger>
+                <TabsTrigger value="requests" disabled>
+                  <Send className="w-4 h-4 mr-2" />
+                  Requests
+                </TabsTrigger>
+                <TabsTrigger value="notifications" disabled>
+                  <Bell className="w-4 h-4 mr-2" />
+                  Notifications
+                </TabsTrigger>
+                <TabsTrigger value="tools" disabled>
+                  <Hammer className="w-4 h-4 mr-2" />
+                  Tools
+                </TabsTrigger>
+                <TabsTrigger value="console" disabled>
+                  <Terminal className="w-4 h-4 mr-2" />
+                  Console
+                </TabsTrigger>
+              </TabsList>
+
+              <div className="w-full">
+                <ResourcesTab
+                  resources={resources}
+                  listResources={listResources}
+                  readResource={readResource}
+                  selectedResource={selectedResource}
+                  setSelectedResource={setSelectedResource}
+                  resourceContent={resourceContent}
+                  error={error}
+                />
+                <NotificationsTab />
+                <PromptsTab
+                  prompts={prompts}
+                  listPrompts={listPrompts}
+                  getPrompt={getPrompt}
+                  selectedPrompt={selectedPrompt}
+                  setSelectedPrompt={setSelectedPrompt}
+                  promptContent={promptContent}
+                  error={error}
+                />
+                <RequestsTab />
+                <ToolsTab
+                  tools={tools}
+                  listTools={listTools}
+                  callTool={callTool}
+                  selectedTool={selectedTool}
+                  setSelectedTool={setSelectedTool}
+                  toolResult={toolResult}
+                  error={error}
+                />
+                <ConsoleTab />
+              </div>
+            </Tabs>
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-lg text-gray-500">
+                Connect to an MCP server to start inspecting
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
