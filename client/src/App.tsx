@@ -145,8 +145,8 @@ const App = () => {
     sendWebSocketMessage({ type: "listPrompts" });
   };
 
-  const getPrompt = (name: string) => {
-    sendWebSocketMessage({ type: "getPrompt", name });
+  const getPrompt = (name: string, args: Record<string, unknown> = {}) => {
+    sendWebSocketMessage({ type: "getPrompt", name, args });
   };
 
   const listTools = () => {

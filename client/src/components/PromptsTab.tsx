@@ -1,13 +1,19 @@
-import { Send, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useState } from "react";
 
 export type Prompt = {
-  id: string;
   name: string;
+  description?: string;
+  arguments?: {
+    name: string;
+    description?: string;
+    required?: boolean;
+  }[];
 };
 
 const PromptsTab = ({
@@ -21,12 +27,24 @@ const PromptsTab = ({
 }: {
   prompts: Prompt[];
   listPrompts: () => void;
-  getPrompt: (name: string) => void;
+  getPrompt: (name: string, args: Record<string, string>) => void;
   selectedPrompt: Prompt | null;
   setSelectedPrompt: (prompt: Prompt) => void;
   promptContent: string;
   error: string | null;
 }) => {
+  const [promptArgs, setPromptArgs] = useState<Record<string, string>>({});
+
+  const handleInputChange = (argName: string, value: string) => {
+    setPromptArgs((prev) => ({ ...prev, [argName]: value }));
+  };
+
+  const handleGetPrompt = () => {
+    if (selectedPrompt) {
+      getPrompt(selectedPrompt.name, promptArgs);
+    }
+  };
+
   return (
     <TabsContent value="prompts" className="grid grid-cols-2 gap-4">
       <div className="bg-white rounded-lg shadow">
@@ -44,11 +62,11 @@ const PromptsTab = ({
           <div className="space-y-2">
             {prompts.map((prompt) => (
               <div
-                key={prompt.id}
+                key={prompt.name}
                 className="flex items-center p-2 rounded hover:bg-gray-50 cursor-pointer"
                 onClick={() => {
                   setSelectedPrompt(prompt);
-                  getPrompt(prompt.name);
+                  setPromptArgs({});
                 }}
               >
                 <span className="flex-1">{prompt.name}</span>
@@ -73,18 +91,40 @@ const PromptsTab = ({
             </Alert>
           ) : selectedPrompt ? (
             <div className="space-y-4">
-              <Textarea
-                value={promptContent}
-                readOnly
-                className="h-64 font-mono"
-              />
-              <div className="flex space-x-2">
-                <Input placeholder="Enter your message" />
-                <Button>
-                  <Send className="w-4 h-4 mr-2" />
-                  Send
-                </Button>
-              </div>
+              {selectedPrompt.description && (
+                <p className="text-sm text-gray-600">
+                  {selectedPrompt.description}
+                </p>
+              )}
+              {selectedPrompt.arguments?.map((arg) => (
+                <div key={arg.name}>
+                  <Input
+                    placeholder={`Enter ${arg.name}`}
+                    value={promptArgs[arg.name] || ""}
+                    onChange={(e) =>
+                      handleInputChange(arg.name, e.target.value)
+                    }
+                  />
+                  {arg.description && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {arg.description}
+                      {arg.required && (
+                        <span className="text-xs mt-1 ml-1">(Required)</span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              ))}
+              <Button onClick={handleGetPrompt} className="w-full">
+                Get Prompt
+              </Button>
+              {promptContent && (
+                <Textarea
+                  value={promptContent}
+                  readOnly
+                  className="h-64 font-mono"
+                />
+              )}
             </div>
           ) : (
             <Alert>
