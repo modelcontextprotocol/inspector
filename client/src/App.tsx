@@ -94,7 +94,7 @@ const App = () => {
       <div className="flex-1 flex flex-col overflow-hidden">
         <h1 className="text-2xl font-bold p-4">MCP Inspector</h1>
         <div className="flex-1 overflow-auto">
-          <Tabs defaultValue="requests" className="w-full">
+          <Tabs defaultValue="requests" className="w-full p-4">
             <TabsList className="mb-4">
               <TabsTrigger value="requests">
                 <Send className="w-4 h-4 mr-2" />

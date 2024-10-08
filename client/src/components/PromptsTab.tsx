@@ -27,7 +27,6 @@ const PromptsTab = ({
   promptContent: string;
   error: string | null;
 }) => {
-  console.log("prompts", prompts);
   return (
     <TabsContent value="prompts" className="grid grid-cols-2 gap-4">
       <div className="bg-white rounded-lg shadow">
