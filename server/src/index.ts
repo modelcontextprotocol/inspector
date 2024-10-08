@@ -7,7 +7,6 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Create and connect the MCP client
 const mcpClient = new McpClient("MyApp", "1.0.0");
 await mcpClient.connectStdio(
   "/Users/ashwin/.nvm/versions/node/v18.20.4/bin/node",
@@ -25,6 +24,12 @@ wss.on("connection", (ws: WebSocket) => {
       } else if (command.type === "readResource" && command.uri) {
         const resource = await mcpClient.readResource(command.uri);
         ws.send(JSON.stringify({ type: "resource", data: resource }));
+      } else if (command.type === "listPrompts") {
+        const prompts = await mcpClient.listPrompts();
+        ws.send(JSON.stringify({ type: "prompts", data: prompts }));
+      } else if (command.type === "getPrompt" && command.name) {
+        const prompt = await mcpClient.getPrompt(command.name);
+        ws.send(JSON.stringify({ type: "prompt", data: prompt }));
       }
     } catch (error) {
       console.error("Error:", error);

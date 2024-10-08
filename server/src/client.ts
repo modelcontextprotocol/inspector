@@ -6,6 +6,10 @@ import {
   ReadResourceResult,
   ListResourcesResultSchema,
   ReadResourceResultSchema,
+  ListPromptsResult,
+  ListPromptsResultSchema,
+  GetPromptResult,
+  GetPromptResultSchema,
 } from "mcp-typescript/types.js";
 
 export class McpClient {
@@ -59,6 +63,26 @@ export class McpClient {
         params: { uri },
       },
       ReadResourceResultSchema,
+    );
+  }
+
+  // Prompt Operations
+  async listPrompts(): Promise<ListPromptsResult> {
+    return await this.client.request(
+      {
+        method: "prompts/list",
+      },
+      ListPromptsResultSchema,
+    );
+  }
+
+  async getPrompt(name: string): Promise<GetPromptResult> {
+    return await this.client.request(
+      {
+        method: "prompts/get",
+        params: { name },
+      },
+      GetPromptResultSchema,
     );
   }
 
