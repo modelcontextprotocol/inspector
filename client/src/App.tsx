@@ -19,7 +19,7 @@ import ResourcesTab, { Resource } from "./components/ResourcesTab";
 import NotificationsTab from "./components/NotificationsTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
 import ToolsTab, { Tool as ToolType } from "./components/ToolsTab";
-import CommandHistory from "./components/CommandHistory";
+import History from "./components/CommandHistory";
 
 const App = () => {
   const [socket, setSocket] = useState<WebSocket | null>(null);
@@ -40,8 +40,8 @@ const App = () => {
     "/Users/ashwin/code/example-servers/build/everything/index.js",
   );
   const [mcpConnected, setMcpConnected] = useState<boolean>(false);
-  const [commandHistory, setCommandHistory] = useState<
-    Array<{ command: string; response: string | null }>
+  const [requestHistory, setRequestHistory] = useState<
+    Array<{ request: string; response: string | null }>
   >([]);
 
   useEffect(() => {
@@ -59,34 +59,28 @@ const App = () => {
       if (message.type === "resources") {
         setResources(message.data.resources);
         setError(null);
-        updateCommandHistory(message);
       } else if (message.type === "resource") {
         setResourceContent(JSON.stringify(message.data, null, 2));
         setError(null);
-        updateCommandHistory(message);
       } else if (message.type === "prompts") {
         setPrompts(message.data.prompts);
         setError(null);
-        updateCommandHistory(message);
       } else if (message.type === "prompt") {
         setPromptContent(JSON.stringify(message.data, null, 2));
         setError(null);
-        updateCommandHistory(message);
       } else if (message.type === "tools") {
         setTools(message.data.tools);
         setError(null);
-        updateCommandHistory(message);
       } else if (message.type === "toolResult") {
         setToolResult(JSON.stringify(message.data, null, 2));
         setError(null);
-        updateCommandHistory(message);
       } else if (message.type === "error") {
         setError(message.message);
-        updateCommandHistory(message);
       } else if (message.type === "connected") {
         setMcpConnected(true);
-        updateCommandHistory(message);
       }
+
+      updateRequestHistory(message);
     };
 
     ws.onerror = () => {
@@ -101,13 +95,13 @@ const App = () => {
     return () => ws.close();
   }, []);
 
-  const updateCommandHistory = (response: unknown) => {
-    setCommandHistory((prev) => {
-      const lastCommand = prev[prev.length - 1];
-      if (lastCommand && lastCommand.response === null) {
+  const updateRequestHistory = (response: unknown) => {
+    setRequestHistory((prev) => {
+      const lastRequest = prev[prev.length - 1];
+      if (lastRequest && lastRequest.response === null) {
         const updatedHistory = [...prev];
         updatedHistory[updatedHistory.length - 1] = {
-          ...lastCommand,
+          ...lastRequest,
           response: JSON.stringify(response),
         };
         return updatedHistory;
@@ -120,9 +114,9 @@ const App = () => {
     if (socket) {
       console.log("Sending WebSocket message:", message);
       socket.send(JSON.stringify(message));
-      setCommandHistory((prev) => [
+      setRequestHistory((prev) => [
         ...prev,
-        { command: JSON.stringify(message), response: null },
+        { request: JSON.stringify(message), response: null },
       ]);
     }
   };
@@ -260,7 +254,7 @@ const App = () => {
           </div>
         </div>
       </div>
-      <CommandHistory commandHistory={commandHistory} />
+      <History requestHistory={requestHistory} />
     </div>
   );
 };

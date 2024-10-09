@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { Copy } from "lucide-react";
 
-const CommandHistory = ({
-  commandHistory,
+const History = ({
+  requestHistory,
 }: {
-  commandHistory: Array<{ command: string; response: string | null }>;
+  requestHistory: Array<{ request: string; response: string | null }>;
 }) => {
-  const [expandedCommands, setExpandedCommands] = useState<{
+  const [expandedRequests, setExpandedRequests] = useState<{
     [key: number]: boolean;
   }>({});
 
-  const toggleCommandExpansion = (index: number) => {
-    setExpandedCommands((prev) => ({ ...prev, [index]: !prev[index] }));
+  const toggleRequestExpansion = (index: number) => {
+    setExpandedRequests((prev) => ({ ...prev, [index]: !prev[index] }));
   };
 
   const copyToClipboard = (text: string) => {
@@ -20,12 +20,12 @@ const CommandHistory = ({
 
   return (
     <div className="w-64 bg-white shadow-md p-4 overflow-y-auto">
-      <h2 className="text-lg font-semibold mb-4">Command History</h2>
+      <h2 className="text-lg font-semibold mb-4">History</h2>
       <ul className="space-y-3">
-        {commandHistory
+        {requestHistory
           .slice()
           .reverse()
-          .map((cmd, index) => (
+          .map((request, index) => (
             <li
               key={index}
               className="text-sm text-gray-600 bg-gray-100 p-2 rounded"
@@ -33,52 +33,52 @@ const CommandHistory = ({
               <div
                 className="flex justify-between items-center cursor-pointer"
                 onClick={() =>
-                  toggleCommandExpansion(commandHistory.length - 1 - index)
+                  toggleRequestExpansion(requestHistory.length - 1 - index)
                 }
               >
                 <span className="font-mono">
-                  {commandHistory.length - index}.{" "}
-                  {JSON.parse(cmd.command).type}
+                  {requestHistory.length - index}.{" "}
+                  {JSON.parse(request.request).type}
                 </span>
                 <span>
-                  {expandedCommands[commandHistory.length - 1 - index]
+                  {expandedRequests[requestHistory.length - 1 - index]
                     ? "▼"
                     : "▶"}
                 </span>
               </div>
-              {expandedCommands[commandHistory.length - 1 - index] && (
+              {expandedRequests[requestHistory.length - 1 - index] && (
                 <>
                   <div className="mt-2">
                     <div className="flex justify-between items-center mb-1">
                       <span className="font-semibold text-blue-600">
-                        Command:
+                        Request:
                       </span>
                       <button
-                        onClick={() => copyToClipboard(cmd.command)}
+                        onClick={() => copyToClipboard(request.request)}
                         className="text-blue-500 hover:text-blue-700"
                       >
                         <Copy size={16} />
                       </button>
                     </div>
                     <pre className="whitespace-pre-wrap break-words bg-blue-50 p-2 rounded">
-                      {JSON.stringify(JSON.parse(cmd.command), null, 2)}
+                      {JSON.stringify(JSON.parse(request.request), null, 2)}
                     </pre>
                   </div>
-                  {cmd.response && (
+                  {request.response && (
                     <div className="mt-2">
                       <div className="flex justify-between items-center mb-1">
                         <span className="font-semibold text-green-600">
                           Response:
                         </span>
                         <button
-                          onClick={() => copyToClipboard(cmd.response!)}
+                          onClick={() => copyToClipboard(request.response!)}
                           className="text-blue-500 hover:text-blue-700"
                         >
                           <Copy size={16} />
                         </button>
                       </div>
                       <pre className="whitespace-pre-wrap break-words bg-green-50 p-2 rounded">
-                        {JSON.stringify(JSON.parse(cmd.response), null, 2)}
+                        {JSON.stringify(JSON.parse(request.response), null, 2)}
                       </pre>
                     </div>
                   )}
@@ -91,4 +91,4 @@ const CommandHistory = ({
   );
 };
 
-export default CommandHistory;
+export default History;
