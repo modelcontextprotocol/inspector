@@ -5,6 +5,7 @@ import { Send, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useState } from "react";
 import { Label } from "@/components/ui/label";
+import ListPane from "./ListPane";
 
 export type Tool = {
   name: string;
@@ -36,30 +37,19 @@ const ToolsTab = ({
 
   return (
     <TabsContent value="tools" className="grid grid-cols-2 gap-4">
-      <div className="bg-white rounded-lg shadow">
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="font-semibold">Tools</h3>
-        </div>
-        <div className="p-4">
-          <Button variant="outline" className="w-full mb-4" onClick={listTools}>
-            List Tools
-          </Button>
-          <div className="space-y-2">
-            {tools.map((tool, index) => (
-              <div
-                key={index}
-                className="flex items-center p-2 rounded hover:bg-gray-50 cursor-pointer"
-                onClick={() => setSelectedTool(tool)}
-              >
-                <span className="flex-1">{tool.name}</span>
-                <span className="text-sm text-gray-500">
-                  {tool.description}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      <ListPane
+        items={tools}
+        listItems={listTools}
+        setSelectedItem={setSelectedTool}
+        renderItem={(tool) => (
+          <>
+            <span className="flex-1">{tool.name}</span>
+            <span className="text-sm text-gray-500">{tool.description}</span>
+          </>
+        )}
+        title="Tools"
+        buttonText="List Tools"
+      />
 
       <div className="bg-white rounded-lg shadow">
         <div className="p-4 border-b border-gray-200">

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useState } from "react";
 import { Label } from "@/components/ui/label";
+import ListPane from "./ListPane";
 
 export type Prompt = {
   name: string;
@@ -48,34 +49,22 @@ const PromptsTab = ({
 
   return (
     <TabsContent value="prompts" className="grid grid-cols-2 gap-4">
-      <div className="bg-white rounded-lg shadow">
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="font-semibold">Prompts</h3>
-        </div>
-        <div className="p-4">
-          <Button
-            variant="outline"
-            className="w-full mb-4"
-            onClick={listPrompts}
-          >
-            List Prompts
-          </Button>
-          <div className="space-y-2">
-            {prompts.map((prompt) => (
-              <div
-                key={prompt.name}
-                className="flex items-center p-2 rounded hover:bg-gray-50 cursor-pointer"
-                onClick={() => {
-                  setSelectedPrompt(prompt);
-                  setPromptArgs({});
-                }}
-              >
-                <span className="flex-1">{prompt.name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      <ListPane
+        items={prompts}
+        listItems={listPrompts}
+        setSelectedItem={(prompt) => {
+          setSelectedPrompt(prompt);
+          setPromptArgs({});
+        }}
+        renderItem={(prompt) => (
+          <>
+            <span className="flex-1">{prompt.name}</span>
+            <span className="text-sm text-gray-500">{prompt.description}</span>
+          </>
+        )}
+        title="Prompts"
+        buttonText="List Prompts"
+      />
 
       <div className="bg-white rounded-lg shadow">
         <div className="p-4 border-b border-gray-200">

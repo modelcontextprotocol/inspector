@@ -19,7 +19,7 @@ import ResourcesTab, { Resource } from "./components/ResourcesTab";
 import NotificationsTab from "./components/NotificationsTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
 import ToolsTab, { Tool as ToolType } from "./components/ToolsTab";
-import History from "./components/CommandHistory";
+import History from "./components/History";
 
 const App = () => {
   const [socket, setSocket] = useState<WebSocket | null>(null);

@@ -1,13 +1,8 @@
-import {
-  FileText,
-  PlayCircle,
-  ChevronRight,
-  AlertCircle,
-  RefreshCw,
-} from "lucide-react";
+import { FileText, ChevronRight, AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { TabsContent } from "@/components/ui/tabs";
+import ListPane from "./ListPane";
 
 export type Resource = {
   uri: string;
@@ -31,37 +26,23 @@ const ResourcesTab = ({
   error: string | null;
 }) => (
   <TabsContent value="resources" className="grid grid-cols-2 gap-4">
-    <div className="bg-white rounded-lg shadow">
-      <div className="p-4 border-b border-gray-200">
-        <h3 className="font-semibold">Resources</h3>
-      </div>
-      <div className="p-4">
-        <Button
-          variant="outline"
-          className="w-full mb-4"
-          onClick={listResources}
-        >
-          <PlayCircle className="w-4 h-4 mr-2" />
-          List Resources
-        </Button>
-        <div className="space-y-2">
-          {resources.map((resource, index) => (
-            <div
-              key={index}
-              className="flex items-center p-2 rounded hover:bg-gray-50 cursor-pointer"
-              onClick={() => {
-                setSelectedResource(resource);
-                readResource(resource.uri);
-              }}
-            >
-              <FileText className="w-4 h-4 mr-2 text-gray-500" />
-              <span className="flex-1">{resource.uri}</span>
-              <ChevronRight className="w-4 h-4 text-gray-400" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+    <ListPane
+      items={resources}
+      listItems={listResources}
+      setSelectedItem={(resource) => {
+        setSelectedResource(resource);
+        readResource(resource.uri);
+      }}
+      renderItem={(resource) => (
+        <>
+          <FileText className="w-4 h-4 mr-2 text-gray-500" />
+          <span className="flex-1">{resource.uri}</span>
+          <ChevronRight className="w-4 h-4 text-gray-400" />
+        </>
+      )}
+      title="Resources"
+      buttonText="List Resources"
+    />
 
     <div className="bg-white rounded-lg shadow">
       <div className="p-4 border-b border-gray-200 flex justify-between items-center">
