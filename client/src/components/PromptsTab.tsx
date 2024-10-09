@@ -5,6 +5,7 @@ import { TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useState } from "react";
+import { Label } from "@/components/ui/label";
 
 export type Prompt = {
   name: string;
@@ -98,7 +99,9 @@ const PromptsTab = ({
               )}
               {selectedPrompt.arguments?.map((arg) => (
                 <div key={arg.name}>
+                  <Label htmlFor={arg.name}>{arg.name}</Label>
                   <Input
+                    id={arg.name}
                     placeholder={`Enter ${arg.name}`}
                     value={promptArgs[arg.name] || ""}
                     onChange={(e) =>

@@ -45,11 +45,10 @@ wss.on("connection", (ws: WebSocket) => {
         command.name &&
         command.params
       ) {
-        const result = await mcpClient.callTool(
-          command.name + "asdf",
-          command.params,
+        const result = await mcpClient.callTool(command.name, command.params);
+        ws.send(
+          JSON.stringify({ type: "toolResult", data: result.toolResult }),
         );
-        ws.send(JSON.stringify({ type: "toolResult", data: result }));
       }
     } catch (error) {
       console.error("Error:", error);

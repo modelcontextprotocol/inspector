@@ -109,7 +109,7 @@ export class McpClient {
     return await this.client.request(
       {
         method: "tools/call",
-        params: { name, ...params },
+        params: { name, arguments: params },
       },
       CallToolResultSchema,
     );

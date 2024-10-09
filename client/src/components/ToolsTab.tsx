@@ -1,12 +1,18 @@
 import { TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Send, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useState } from "react";
+import { Label } from "@/components/ui/label";
 
 export type Tool = {
   name: string;
+  description: string;
+  inputSchema: {
+    type: string;
+    properties: Record<string, { type: string; description: string }>;
+  };
 };
 
 const ToolsTab = ({
@@ -26,7 +32,7 @@ const ToolsTab = ({
   toolResult: string;
   error: string | null;
 }) => {
-  const [params, setParams] = useState("");
+  const [params, setParams] = useState<Record<string, unknown>>({});
 
   return (
     <TabsContent value="tools" className="grid grid-cols-2 gap-4">
@@ -46,6 +52,9 @@ const ToolsTab = ({
                 onClick={() => setSelectedTool(tool)}
               >
                 <span className="flex-1">{tool.name}</span>
+                <span className="text-sm text-gray-500">
+                  {tool.description}
+                </span>
               </div>
             ))}
           </div>
@@ -67,22 +76,47 @@ const ToolsTab = ({
             </Alert>
           ) : selectedTool ? (
             <div className="space-y-4">
-              <Textarea
-                placeholder="Tool parameters (JSON)"
-                className="h-32 font-mono"
-                value={params}
-                onChange={(e) => setParams(e.target.value)}
-              />
-              <Button
-                onClick={() => callTool(selectedTool.name, JSON.parse(params))}
-              >
+              <p className="text-sm text-gray-600">
+                {selectedTool.description}
+              </p>
+              {Object.entries(selectedTool.inputSchema.properties).map(
+                ([key, value]) => (
+                  <div key={key}>
+                    <Label
+                      htmlFor={key}
+                      className="block text-sm font-medium text-gray-700"
+                    >
+                      {key}
+                    </Label>
+                    <Input
+                      type={value.type === "number" ? "number" : "text"}
+                      id={key}
+                      name={key}
+                      placeholder={value.description}
+                      onChange={(e) =>
+                        setParams({
+                          ...params,
+                          [key]:
+                            value.type === "number"
+                              ? Number(e.target.value)
+                              : e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                ),
+              )}
+              <Button onClick={() => callTool(selectedTool.name, params)}>
                 <Send className="w-4 h-4 mr-2" />
                 Run Tool
               </Button>
               {toolResult && (
-                <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-64">
-                  {JSON.stringify(toolResult, null, 2)}
-                </pre>
+                <>
+                  <h4 className="font-semibold mb-2">Tool Result:</h4>
+                  <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-64">
+                    {toolResult}
+                  </pre>
+                </>
               )}
             </div>
           ) : (
