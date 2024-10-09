@@ -2,3 +2,4 @@
 node_modules
 server/build
 client/dist
+client/tsconfig.app.tsbuildinfo
