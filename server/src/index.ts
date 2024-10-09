@@ -35,7 +35,7 @@ wss.on("connection", (ws: WebSocket) => {
         const prompts = await mcpClient.listPrompts();
         ws.send(JSON.stringify({ type: "prompts", data: prompts }));
       } else if (command.type === "getPrompt" && command.name) {
-        const prompt = await mcpClient.getPrompt(command.name);
+        const prompt = await mcpClient.getPrompt(command.name, command.args);
         ws.send(JSON.stringify({ type: "prompt", data: prompt }));
       } else if (command.type === "listTools") {
         const tools = await mcpClient.listTools();

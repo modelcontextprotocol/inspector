@@ -80,16 +80,18 @@ export class McpClient {
     );
   }
 
-  async getPrompt(name: string): Promise<GetPromptResult> {
+  async getPrompt(
+    name: string,
+    args?: Record<string, string>,
+  ): Promise<GetPromptResult> {
     return await this.client.request(
       {
         method: "prompts/get",
-        params: { name },
+        params: { name, arguments: args },
       },
       GetPromptResultSchema,
     );
   }
-
   // Tool Operations
   async listTools(): Promise<ListToolsResult> {
     return await this.client.request(
