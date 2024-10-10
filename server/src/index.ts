@@ -1,9 +1,15 @@
 import cors from "cors";
+import EventSource from "eventsource";
 
 import { SSEServerTransport } from "mcp-typescript/server/sse.js";
 import express from "express";
 import { StdioClientTransport } from "mcp-typescript/client/stdio.js";
 import mcpProxy from "./mcpProxy.js";
+import { SSEClientTransport } from "mcp-typescript/client/sse.js";
+
+// Polyfill EventSource for an SSE client in Node.js
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(global as any).EventSource = EventSource;
 
 const app = express();
 app.use(cors());
@@ -12,10 +18,23 @@ let transports: SSEServerTransport[] = [];
 
 app.get("/sse", async (req, res) => {
   console.log("New SSE connection");
-  const command = decodeURIComponent(req.query.command as string);
-  const args = decodeURIComponent(req.query.args as string).split(",");
-  const backingServerTransport = new StdioClientTransport();
-  await backingServerTransport.spawn({ command, args });
+  const transportType = req.query.transportType as string;
+
+  let backingServerTransport;
+  console.log("Query parameters:", req.query);
+
+  if (transportType === "stdio") {
+    const command = decodeURIComponent(req.query.command as string);
+    const args = decodeURIComponent(req.query.args as string).split(",");
+    backingServerTransport = new StdioClientTransport();
+    await backingServerTransport.spawn({ command, args });
+  } else if (transportType === "sse") {
+    const url = decodeURIComponent(req.query.url as string);
+    backingServerTransport = new SSEClientTransport();
+    await backingServerTransport.connect(new URL(url));
+  } else {
+    throw new Error("Invalid transport type specified");
+  }
 
   const webAppTransport = new SSEServerTransport("/message");
   transports.push(webAppTransport);
