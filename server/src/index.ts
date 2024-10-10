@@ -19,6 +19,7 @@ let transports: SSEServerTransport[] = [];
 app.get("/sse", async (req, res) => {
   console.log("New SSE connection");
   const transportType = req.query.transportType as string;
+  console.log(`Transport type: ${transportType}`);
 
   let backingServerTransport;
   console.log("Query parameters:", req.query);
@@ -26,13 +27,18 @@ app.get("/sse", async (req, res) => {
   if (transportType === "stdio") {
     const command = decodeURIComponent(req.query.command as string);
     const args = decodeURIComponent(req.query.args as string).split(",");
+    console.log(`Stdio transport: command=${command}, args=${args}`);
     backingServerTransport = new StdioClientTransport();
     await backingServerTransport.spawn({ command, args });
+    console.log("Spawned stdio transport");
   } else if (transportType === "sse") {
     const url = decodeURIComponent(req.query.url as string);
+    console.log(`SSE transport: url=${url}`);
     backingServerTransport = new SSEClientTransport();
     await backingServerTransport.connect(new URL(url));
+    console.log("Connected to SSE transport");
   } else {
+    console.error(`Invalid transport type: ${transportType}`);
     throw new Error("Invalid transport type specified");
   }
 
@@ -48,6 +54,7 @@ app.get("/sse", async (req, res) => {
       console.error(error);
     },
   });
+  console.log("Set up MCP proxy");
 });
 
 app.post("/message", async (req, res) => {
