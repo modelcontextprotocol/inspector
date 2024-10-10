@@ -16,33 +16,44 @@ app.use(cors());
 
 let webAppTransports: SSEServerTransport[] = [];
 
+const createTransport = async (query: express.Request["query"]) => {
+  console.log("Query parameters:", query);
+
+  const transportType = query.transportType as string;
+
+  if (transportType === "stdio") {
+    const command = decodeURIComponent(query.command as string);
+    const args = decodeURIComponent(query.args as string).split(",");
+    console.log(`Stdio transport: command=${command}, args=${args}`);
+    const transport = new StdioClientTransport();
+    await transport.spawn({ command, args });
+    console.log("Spawned stdio transport");
+    return transport;
+  } else if (transportType === "sse") {
+    const url = decodeURIComponent(query.url as string);
+    console.log(`SSE transport: url=${url}`);
+    const transport = new SSEClientTransport();
+    await transport.connect(new URL(url));
+    console.log("Connected to SSE transport");
+    return transport;
+  } else {
+    console.error(`Invalid transport type: ${transportType}`);
+    throw new Error("Invalid transport type specified");
+  }
+};
+
 app.get("/sse", async (req, res) => {
   console.log("New SSE connection");
   const transportType = req.query.transportType as string;
   console.log(`Transport type: ${transportType}`);
 
-  let backingServerTransport;
-  console.log("Query parameters:", req.query);
+  const backingServerTransport = await createTransport(req.query);
 
-  if (transportType === "stdio") {
-    const command = decodeURIComponent(req.query.command as string);
-    const args = decodeURIComponent(req.query.args as string).split(",");
-    console.log(`Stdio transport: command=${command}, args=${args}`);
-    backingServerTransport = new StdioClientTransport();
-    await backingServerTransport.spawn({ command, args });
-    console.log("Spawned stdio transport");
-  } else if (transportType === "sse") {
-    const url = decodeURIComponent(req.query.url as string);
-    console.log(`SSE transport: url=${url}`);
-    backingServerTransport = new SSEClientTransport();
-    await backingServerTransport.connect(new URL(url));
-    console.log("Connected to SSE transport");
-  } else {
-    console.error(`Invalid transport type: ${transportType}`);
-    throw new Error("Invalid transport type specified");
-  }
+  console.log("Connected MCP client to backing server transport");
 
   const webAppTransport = new SSEServerTransport("/message");
+  console.log("Created web app transport");
+
   webAppTransports.push(webAppTransport);
   console.log("Created web app transport");
 

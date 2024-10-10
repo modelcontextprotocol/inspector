@@ -6,6 +6,7 @@ import ListPane from "./ListPane";
 
 export type Resource = {
   uri: string;
+  name: string;
 };
 
 const ResourcesTab = ({
@@ -37,7 +38,7 @@ const ResourcesTab = ({
         <div className="flex items-center w-full">
           <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
           <span className="flex-1 truncate" title={resource.uri}>
-            {resource.uri}
+            {resource.name}
           </span>
           <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400" />
         </div>
@@ -48,8 +49,8 @@ const ResourcesTab = ({
 
     <div className="bg-white rounded-lg shadow">
       <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-        <h3 className="font-semibold truncate" title={selectedResource?.uri}>
-          {selectedResource ? selectedResource.uri : "Select a resource"}
+        <h3 className="font-semibold truncate" title={selectedResource?.name}>
+          {selectedResource ? selectedResource.name : "Select a resource"}
         </h3>
         {selectedResource && (
           <Button
