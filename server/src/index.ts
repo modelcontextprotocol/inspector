@@ -14,7 +14,7 @@ import { SSEClientTransport } from "mcp-typescript/client/sse.js";
 const app = express();
 app.use(cors());
 
-let transports: SSEServerTransport[] = [];
+let webAppTransports: SSEServerTransport[] = [];
 
 app.get("/sse", async (req, res) => {
   console.log("New SSE connection");
@@ -43,7 +43,8 @@ app.get("/sse", async (req, res) => {
   }
 
   const webAppTransport = new SSEServerTransport("/message");
-  transports.push(webAppTransport);
+  webAppTransports.push(webAppTransport);
+  console.log("Created web app transport");
 
   await webAppTransport.connectSSE(req, res);
 
@@ -58,9 +59,10 @@ app.get("/sse", async (req, res) => {
 });
 
 app.post("/message", async (req, res) => {
-  console.log("Received message");
+  const sessionId = req.query.sessionId;
+  console.log(`Received message for sessionId ${sessionId}`);
 
-  const transport = transports.find((t) => true);
+  const transport = webAppTransports.find((t) => t.sessionId === sessionId);
   if (!transport) {
     res.status(404).send("Session not found");
     return;
