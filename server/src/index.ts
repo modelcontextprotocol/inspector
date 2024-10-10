@@ -1,4 +1,3 @@
-import McpClient from "./client.js";
 import cors from "cors";
 
 import { Server } from "mcp-typescript/server/index.js";
@@ -11,7 +10,15 @@ import {
   ListResourcesRequestSchema,
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
+  ListResourcesResultSchema,
+  ReadResourceResultSchema,
+  ListPromptsResultSchema,
+  GetPromptResultSchema,
+  ListToolsResultSchema,
+  CallToolResultSchema,
 } from "mcp-typescript/types.js";
+import { Client } from "mcp-typescript/client/index.js";
+import { StdioClientTransport } from "mcp-typescript/client/stdio.js";
 
 const app = express();
 app.use(cors());
@@ -22,10 +29,12 @@ app.get("/sse", async (req, res) => {
   console.log("New SSE connection");
   const command = decodeURIComponent(req.query.command as string);
   const args = decodeURIComponent(req.query.args as string).split(",");
-  const mcpClient = new McpClient("MyApp", "1.0.0");
-  await mcpClient.connectStdio(command, args);
+  const mcpClient = new Client({ name: "MyApp", version: "1.0.0" });
+  const backingServerTransport = new StdioClientTransport();
+  await backingServerTransport.spawn({ command, args });
+  await mcpClient.connect(backingServerTransport);
 
-  const transport = new SSEServerTransport("/message");
+  const webAppTransport = new SSEServerTransport("/message");
   const server = new Server({
     name: "mcp-server-inspector",
     version: "0.0.1",
@@ -38,31 +47,65 @@ app.get("/sse", async (req, res) => {
     await mcpClient.close();
   };
 
-  server.setRequestHandler(ListResourcesRequestSchema, () => {
-    return mcpClient.listResources();
-  });
+  server.setRequestHandler(ListResourcesRequestSchema, () =>
+    mcpClient.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    ),
+  );
 
-  server.setRequestHandler(ReadResourceRequestSchema, (params) => {
-    return mcpClient.readResource(params.params);
-  });
+  server.setRequestHandler(ReadResourceRequestSchema, (params) =>
+    mcpClient.request(
+      {
+        method: "resources/read",
+        params: params.params,
+      },
+      ReadResourceResultSchema,
+    ),
+  );
 
-  server.setRequestHandler(ListPromptsRequestSchema, () => {
-    return mcpClient.listPrompts();
-  });
+  server.setRequestHandler(ListPromptsRequestSchema, () =>
+    mcpClient.request(
+      {
+        method: "prompts/list",
+      },
+      ListPromptsResultSchema,
+    ),
+  );
 
   server.setRequestHandler(GetPromptRequestSchema, (params) => {
-    return mcpClient.getPrompt(params.params);
+    return mcpClient.request(
+      {
+        method: "prompts/get",
+        params: params.params,
+      },
+      GetPromptResultSchema,
+    );
   });
 
-  server.setRequestHandler(ListToolsRequestSchema, () => {
-    return mcpClient.listTools();
-  });
+  server.setRequestHandler(ListToolsRequestSchema, () =>
+    mcpClient.request(
+      {
+        method: "tools/list",
+      },
+      ListToolsResultSchema,
+    ),
+  );
 
-  server.setRequestHandler(CallToolRequestSchema, (params) => {
-    return mcpClient.callTool(params.params);
-  });
-  await transport.connectSSE(req, res);
-  await server.connect(transport);
+  server.setRequestHandler(CallToolRequestSchema, (params) =>
+    mcpClient.request(
+      {
+        method: "tools/call",
+        params: params.params,
+      },
+      CallToolResultSchema,
+    ),
+  );
+
+  await webAppTransport.connectSSE(req, res);
+  await server.connect(webAppTransport);
 });
 
 app.post("/message", async (req, res) => {
