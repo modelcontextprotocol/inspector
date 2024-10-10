@@ -3,22 +3,9 @@ import cors from "cors";
 import { Server } from "mcp-typescript/server/index.js";
 import { SSEServerTransport } from "mcp-typescript/server/sse.js";
 import express from "express";
-import {
-  CallToolRequestSchema,
-  GetPromptRequestSchema,
-  ListPromptsRequestSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  ReadResourceRequestSchema,
-  ListResourcesResultSchema,
-  ReadResourceResultSchema,
-  ListPromptsResultSchema,
-  GetPromptResultSchema,
-  ListToolsResultSchema,
-  CallToolResultSchema,
-} from "mcp-typescript/types.js";
 import { Client } from "mcp-typescript/client/index.js";
 import { StdioClientTransport } from "mcp-typescript/client/stdio.js";
+import mcpProxy from "./mcpProxy.js";
 
 const app = express();
 app.use(cors());
@@ -47,65 +34,17 @@ app.get("/sse", async (req, res) => {
     await mcpClient.close();
   };
 
-  server.setRequestHandler(ListResourcesRequestSchema, () =>
-    mcpClient.request(
-      {
-        method: "resources/list",
-      },
-      ListResourcesResultSchema,
-    ),
-  );
-
-  server.setRequestHandler(ReadResourceRequestSchema, (params) =>
-    mcpClient.request(
-      {
-        method: "resources/read",
-        params: params.params,
-      },
-      ReadResourceResultSchema,
-    ),
-  );
-
-  server.setRequestHandler(ListPromptsRequestSchema, () =>
-    mcpClient.request(
-      {
-        method: "prompts/list",
-      },
-      ListPromptsResultSchema,
-    ),
-  );
-
-  server.setRequestHandler(GetPromptRequestSchema, (params) => {
-    return mcpClient.request(
-      {
-        method: "prompts/get",
-        params: params.params,
-      },
-      GetPromptResultSchema,
-    );
-  });
-
-  server.setRequestHandler(ListToolsRequestSchema, () =>
-    mcpClient.request(
-      {
-        method: "tools/list",
-      },
-      ListToolsResultSchema,
-    ),
-  );
-
-  server.setRequestHandler(CallToolRequestSchema, (params) =>
-    mcpClient.request(
-      {
-        method: "tools/call",
-        params: params.params,
-      },
-      CallToolResultSchema,
-    ),
-  );
-
   await webAppTransport.connectSSE(req, res);
   await server.connect(webAppTransport);
+
+  mcpProxy({
+    transportToClient: webAppTransport,
+    transportToServer: backingServerTransport,
+    onerror: (error) => {
+      console.error(error);
+      server.close();
+    },
+  });
 });
 
 app.post("/message", async (req, res) => {
