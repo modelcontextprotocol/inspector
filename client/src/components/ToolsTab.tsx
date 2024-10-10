@@ -9,10 +9,10 @@ import ListPane from "./ListPane";
 
 export type Tool = {
   name: string;
-  description: string;
+  description?: string | undefined;
   inputSchema: {
     type: string;
-    properties: Record<string, { type: string; description: string }>;
+    properties?: Record<string, { type: string; description: string }>;
   };
 };
 

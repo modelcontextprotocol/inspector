@@ -14,6 +14,9 @@ import {
   ListToolsResultSchema,
   CallToolResult,
   CallToolResultSchema,
+  GetPromptRequest,
+  ReadResourceRequest,
+  CallToolRequest,
 } from "mcp-typescript/types.js";
 
 export class McpClient {
@@ -60,11 +63,13 @@ export class McpClient {
     );
   }
 
-  async readResource(uri: string): Promise<ReadResourceResult> {
+  async readResource(
+    params: ReadResourceRequest["params"],
+  ): Promise<ReadResourceResult> {
     return await this.client.request(
       {
         method: "resources/read",
-        params: { uri },
+        params,
       },
       ReadResourceResultSchema,
     );
@@ -81,13 +86,12 @@ export class McpClient {
   }
 
   async getPrompt(
-    name: string,
-    args?: Record<string, string>,
+    params: GetPromptRequest["params"],
   ): Promise<GetPromptResult> {
     return await this.client.request(
       {
         method: "prompts/get",
-        params: { name, arguments: args },
+        params,
       },
       GetPromptResultSchema,
     );
@@ -102,14 +106,11 @@ export class McpClient {
     );
   }
 
-  async callTool(
-    name: string,
-    params: Record<string, unknown>,
-  ): Promise<CallToolResult> {
+  async callTool(params: CallToolRequest["params"]): Promise<CallToolResult> {
     return await this.client.request(
       {
         method: "tools/call",
-        params: { name, arguments: params },
+        params,
       },
       CallToolResultSchema,
     );

@@ -38,7 +38,7 @@ const History = ({
               >
                 <span className="font-mono">
                   {requestHistory.length - index}.{" "}
-                  {JSON.parse(request.request).type}
+                  {JSON.parse(request.request).method}
                 </span>
                 <span>
                   {expandedRequests[requestHistory.length - 1 - index]

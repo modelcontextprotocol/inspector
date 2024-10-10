@@ -1,71 +1,84 @@
 import McpClient from "./client.js";
+import cors from "cors";
+
+import { Server } from "mcp-typescript/server/index.js";
+import { SSEServerTransport } from "mcp-typescript/server/sse.js";
 import express from "express";
-import http from "http";
-import { WebSocket, WebSocketServer } from "ws";
+import {
+  CallToolRequestSchema,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  ReadResourceRequestSchema,
+} from "mcp-typescript/types.js";
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+app.use(cors());
 
-let mcpClient: McpClient | null = null;
+let servers: Server[] = [];
 
-wss.on("connection", (ws: WebSocket) => {
-  ws.on("message", async (message: string) => {
-    try {
-      const command = JSON.parse(message);
+app.get("/sse", async (req, res) => {
+  console.log("New SSE connection");
+  const command = decodeURIComponent(req.query.command as string);
+  const args = decodeURIComponent(req.query.args as string).split(",");
+  const mcpClient = new McpClient("MyApp", "1.0.0");
+  await mcpClient.connectStdio(command, args);
 
-      if (command.type === "connect" && command.command && command.args) {
-        mcpClient = new McpClient("MyApp", "1.0.0");
-        await mcpClient.connectStdio(command.command, command.args);
-        ws.send(JSON.stringify({ type: "connected" }));
-      } else if (!mcpClient) {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: "Not connected to MCP server",
-          }),
-        );
-      } else if (command.type === "listResources") {
-        const resources = await mcpClient.listResources();
-        ws.send(JSON.stringify({ type: "resources", data: resources }));
-      } else if (command.type === "readResource" && command.uri) {
-        const resource = await mcpClient.readResource(command.uri);
-        ws.send(JSON.stringify({ type: "resource", data: resource }));
-      } else if (command.type === "listPrompts") {
-        const prompts = await mcpClient.listPrompts();
-        ws.send(JSON.stringify({ type: "prompts", data: prompts }));
-      } else if (command.type === "getPrompt" && command.name) {
-        const prompt = await mcpClient.getPrompt(command.name, command.args);
-        ws.send(JSON.stringify({ type: "prompt", data: prompt }));
-      } else if (command.type === "listTools") {
-        const tools = await mcpClient.listTools();
-        ws.send(JSON.stringify({ type: "tools", data: tools }));
-      } else if (
-        command.type === "callTool" &&
-        command.name &&
-        command.params
-      ) {
-        const result = await mcpClient.callTool(command.name, command.params);
-        ws.send(
-          JSON.stringify({ type: "toolResult", data: result.toolResult }),
-        );
-      }
-    } catch (error) {
-      console.error("Error:", error);
-      ws.send(JSON.stringify({ type: "error", message: String(error) }));
-    }
+  const transport = new SSEServerTransport("/message");
+  const server = new Server({
+    name: "mcp-server-inspector",
+    version: "0.0.1",
   });
+  servers.push(server);
+
+  server.onclose = async () => {
+    console.log("SSE connection closed");
+    servers = servers.filter((s) => s !== server);
+    await mcpClient.close();
+  };
+
+  server.setRequestHandler(ListResourcesRequestSchema, () => {
+    return mcpClient.listResources();
+  });
+
+  server.setRequestHandler(ReadResourceRequestSchema, (params) => {
+    return mcpClient.readResource(params.params);
+  });
+
+  server.setRequestHandler(ListPromptsRequestSchema, () => {
+    return mcpClient.listPrompts();
+  });
+
+  server.setRequestHandler(GetPromptRequestSchema, (params) => {
+    return mcpClient.getPrompt(params.params);
+  });
+
+  server.setRequestHandler(ListToolsRequestSchema, () => {
+    return mcpClient.listTools();
+  });
+
+  server.setRequestHandler(CallToolRequestSchema, (params) => {
+    return mcpClient.callTool(params.params);
+  });
+  await transport.connectSSE(req, res);
+  await server.connect(transport);
+});
+
+app.post("/message", async (req, res) => {
+  console.log("Received message");
+
+  const transport = servers
+    .map((s) => s.transport as SSEServerTransport)
+    .find((t) => true);
+  if (!transport) {
+    res.status(404).send("Session not found");
+    return;
+  }
+  await transport.handlePostMessage(req, res);
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
-});
-
-// Close the client when the server is shutting down
-process.on("SIGINT", async () => {
-  if (mcpClient) {
-    await mcpClient.close();
-  }
-  process.exit();
 });
