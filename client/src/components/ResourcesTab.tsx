@@ -34,11 +34,13 @@ const ResourcesTab = ({
         readResource(resource.uri);
       }}
       renderItem={(resource) => (
-        <>
-          <FileText className="w-4 h-4 mr-2 text-gray-500" />
-          <span className="flex-1">{resource.uri}</span>
-          <ChevronRight className="w-4 h-4 text-gray-400" />
-        </>
+        <div className="flex items-center w-full">
+          <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
+          <span className="flex-1 truncate" title={resource.uri}>
+            {resource.uri}
+          </span>
+          <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400" />
+        </div>
       )}
       title="Resources"
       buttonText="List Resources"
@@ -46,7 +48,7 @@ const ResourcesTab = ({
 
     <div className="bg-white rounded-lg shadow">
       <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-        <h3 className="font-semibold">
+        <h3 className="font-semibold truncate" title={selectedResource?.uri}>
           {selectedResource ? selectedResource.uri : "Select a resource"}
         </h3>
         {selectedResource && (
