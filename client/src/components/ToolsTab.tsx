@@ -3,18 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Tool } from "mcp-typescript/types.js";
 import { useState } from "react";
 import { Label } from "@/components/ui/label";
 import ListPane from "./ListPane";
-
-export type Tool = {
-  name: string;
-  description?: string | undefined;
-  inputSchema: {
-    type: string;
-    properties?: Record<string, { type: string; description: string }>;
-  };
-};
 
 const ToolsTab = ({
   tools,

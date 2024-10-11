@@ -7,6 +7,8 @@ import {
   ReadResourceResultSchema,
   CallToolResultSchema,
   ListPromptsResultSchema,
+  Tool,
+  ClientRequest,
 } from "mcp-typescript/types.js";
 import { useState } from "react";
 import {
@@ -28,8 +30,9 @@ import RequestsTab from "./components/RequestsTabs";
 import ResourcesTab, { Resource } from "./components/ResourcesTab";
 import NotificationsTab from "./components/NotificationsTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
-import ToolsTab, { Tool as ToolType } from "./components/ToolsTab";
+import ToolsTab from "./components/ToolsTab";
 import History from "./components/History";
+import { AnyZodObject } from "node_modules/zod/lib";
 
 const App = () => {
   const [connectionStatus, setConnectionStatus] = useState<
@@ -39,7 +42,7 @@ const App = () => {
   const [resourceContent, setResourceContent] = useState<string>("");
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
-  const [tools, setTools] = useState<ToolType[]>([]);
+  const [tools, setTools] = useState<Tool[]>([]);
   const [toolResult, setToolResult] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [command, setCommand] = useState<string>(
@@ -57,7 +60,7 @@ const App = () => {
     null,
   );
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
-  const [selectedTool, setSelectedTool] = useState<ToolType | null>(null);
+  const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
 
   const pushHistory = (request: object, response: object) => {
     setRequestHistory((prev) => [
@@ -66,10 +69,10 @@ const App = () => {
     ]);
   };
 
-  const makeRequest = async (
-    request: Parameters<Client["request"]>[0],
-    schema: Parameters<Client["request"]>[1],
-  ): Promise<ReturnType<Client["request"]>> => {
+  const makeRequest = async <T extends AnyZodObject>(
+    request: ClientRequest,
+    schema: T,
+  ) => {
     if (!mcpClient) {
       throw new Error("MCP client not connected");
     }
@@ -114,9 +117,7 @@ const App = () => {
       },
       ListPromptsResultSchema,
     );
-    if (response.prompts) {
-      setPrompts(response.prompts);
-    }
+    setPrompts(response.prompts);
   };
 
   const getPrompt = async (name: string, args: Record<string, string> = {}) => {
@@ -137,9 +138,7 @@ const App = () => {
       },
       ListToolsResultSchema,
     );
-    if (response.tools) {
-      setTools(response.tools);
-    }
+    setTools(response.tools);
   };
 
   const callTool = async (name: string, params: Record<string, unknown>) => {
