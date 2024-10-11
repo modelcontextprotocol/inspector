@@ -22,15 +22,15 @@ const createTransport = async (query: express.Request["query"]) => {
   const transportType = query.transportType as string;
 
   if (transportType === "stdio") {
-    const command = decodeURIComponent(query.command as string);
-    const args = decodeURIComponent(query.args as string).split(",");
+    const command = query.command as string;
+    const args = (query.args as string).split(",");
     console.log(`Stdio transport: command=${command}, args=${args}`);
     const transport = new StdioClientTransport();
     await transport.spawn({ command, args });
     console.log("Spawned stdio transport");
     return transport;
   } else if (transportType === "sse") {
-    const url = decodeURIComponent(query.url as string);
+    const url = query.url as string;
     console.log(`SSE transport: url=${url}`);
     const transport = new SSEClientTransport();
     await transport.connect(new URL(url));

@@ -173,10 +173,10 @@ const App = () => {
 
       backendUrl.searchParams.append("transportType", transportType);
       if (transportType === "stdio") {
-        backendUrl.searchParams.append("command", encodeURIComponent(command));
-        backendUrl.searchParams.append("args", encodeURIComponent(args));
+        backendUrl.searchParams.append("command", command);
+        backendUrl.searchParams.append("args", args);
       } else {
-        backendUrl.searchParams.append("url", encodeURIComponent(url));
+        backendUrl.searchParams.append("url", url);
       }
 
       await clientTransport.connect(backendUrl);
