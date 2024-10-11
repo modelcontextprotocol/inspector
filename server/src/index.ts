@@ -44,8 +44,6 @@ const createTransport = async (query: express.Request["query"]) => {
 
 app.get("/sse", async (req, res) => {
   console.log("New SSE connection");
-  const transportType = req.query.transportType as string;
-  console.log(`Transport type: ${transportType}`);
 
   const backingServerTransport = await createTransport(req.query);
 
