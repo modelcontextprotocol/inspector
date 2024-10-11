@@ -1,4 +1,16 @@
-import { useState, useEffect } from "react";
+import { Client } from "mcp-typescript/client/index.js";
+import { SSEClientTransport } from "mcp-typescript/client/sse.js";
+import {
+  ListResourcesResultSchema,
+  GetPromptResultSchema,
+  ListToolsResultSchema,
+  ReadResourceResultSchema,
+  CallToolResultSchema,
+  ListPromptsResultSchema,
+  Tool,
+  ClientRequest,
+} from "mcp-typescript/types.js";
+import { useState } from "react";
 import {
   Send,
   Bell,
@@ -18,11 +30,11 @@ import RequestsTab from "./components/RequestsTabs";
 import ResourcesTab, { Resource } from "./components/ResourcesTab";
 import NotificationsTab from "./components/NotificationsTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
-import ToolsTab, { Tool as ToolType } from "./components/ToolsTab";
+import ToolsTab from "./components/ToolsTab";
 import History from "./components/History";
+import { AnyZodObject } from "node_modules/zod/lib";
 
 const App = () => {
-  const [socket, setSocket] = useState<WebSocket | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<
     "disconnected" | "connected" | "error"
   >("disconnected");
@@ -30,7 +42,7 @@ const App = () => {
   const [resourceContent, setResourceContent] = useState<string>("");
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
-  const [tools, setTools] = useState<ToolType[]>([]);
+  const [tools, setTools] = useState<Tool[]>([]);
   const [toolResult, setToolResult] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [command, setCommand] = useState<string>(
@@ -39,121 +51,128 @@ const App = () => {
   const [args, setArgs] = useState<string>(
     "/Users/ashwin/code/example-servers/build/everything/index.js",
   );
-  const [mcpConnected, setMcpConnected] = useState<boolean>(false);
   const [requestHistory, setRequestHistory] = useState<
-    Array<{ request: string; response: string | null }>
+    { request: string; response: string }[]
   >([]);
-
-  useEffect(() => {
-    const ws = new WebSocket("ws://localhost:3000");
-
-    ws.onopen = () => {
-      console.log("Connected to WebSocket server");
-      setConnectionStatus("connected");
-      setSocket(ws);
-    };
-
-    ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      console.log("Received message:", message);
-      if (message.type === "resources") {
-        setResources(message.data.resources);
-        setError(null);
-      } else if (message.type === "resource") {
-        setResourceContent(JSON.stringify(message.data, null, 2));
-        setError(null);
-      } else if (message.type === "prompts") {
-        setPrompts(message.data.prompts);
-        setError(null);
-      } else if (message.type === "prompt") {
-        setPromptContent(JSON.stringify(message.data, null, 2));
-        setError(null);
-      } else if (message.type === "tools") {
-        setTools(message.data.tools);
-        setError(null);
-      } else if (message.type === "toolResult") {
-        setToolResult(JSON.stringify(message.data, null, 2));
-        setError(null);
-      } else if (message.type === "error") {
-        setError(message.message);
-      } else if (message.type === "connected") {
-        setMcpConnected(true);
-      }
-
-      updateRequestHistory(message);
-    };
-
-    ws.onerror = () => {
-      setConnectionStatus("error");
-    };
-
-    ws.onclose = () => {
-      setConnectionStatus("disconnected");
-      setMcpConnected(false);
-    };
-
-    return () => ws.close();
-  }, []);
-
-  const updateRequestHistory = (response: unknown) => {
-    setRequestHistory((prev) => {
-      const lastRequest = prev[prev.length - 1];
-      if (lastRequest && lastRequest.response === null) {
-        const updatedHistory = [...prev];
-        updatedHistory[updatedHistory.length - 1] = {
-          ...lastRequest,
-          response: JSON.stringify(response),
-        };
-        return updatedHistory;
-      }
-      return prev;
-    });
-  };
-
-  const sendWebSocketMessage = (message: object) => {
-    if (socket) {
-      console.log("Sending WebSocket message:", message);
-      socket.send(JSON.stringify(message));
-      setRequestHistory((prev) => [
-        ...prev,
-        { request: JSON.stringify(message), response: null },
-      ]);
-    }
-  };
+  const [mcpClient, setMcpClient] = useState<Client | null>(null);
 
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
   );
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
-  const [selectedTool, setSelectedTool] = useState<ToolType | null>(null);
+  const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
 
-  const listResources = () => {
-    sendWebSocketMessage({ type: "listResources" });
+  const pushHistory = (request: object, response: object) => {
+    setRequestHistory((prev) => [
+      ...prev,
+      { request: JSON.stringify(request), response: JSON.stringify(response) },
+    ]);
   };
 
-  const readResource = (uri: string) => {
-    sendWebSocketMessage({ type: "readResource", uri });
+  const makeRequest = async <T extends AnyZodObject>(
+    request: ClientRequest,
+    schema: T,
+  ) => {
+    if (!mcpClient) {
+      throw new Error("MCP client not connected");
+    }
+
+    try {
+      const response = await mcpClient.request(request, schema);
+      pushHistory(request, response);
+      return response;
+    } catch (e: unknown) {
+      setError((e as Error).message);
+      throw e;
+    }
   };
 
-  const listPrompts = () => {
-    sendWebSocketMessage({ type: "listPrompts" });
+  const listResources = async () => {
+    const response = await makeRequest(
+      {
+        method: "resources/list" as const,
+      },
+      ListResourcesResultSchema,
+    );
+    if (response.resources) {
+      setResources(response.resources);
+    }
   };
 
-  const getPrompt = (name: string, args: Record<string, unknown> = {}) => {
-    sendWebSocketMessage({ type: "getPrompt", name, args });
+  const readResource = async (uri: string) => {
+    const response = await makeRequest(
+      {
+        method: "resources/read" as const,
+        params: { uri },
+      },
+      ReadResourceResultSchema,
+    );
+    setResourceContent(JSON.stringify(response, null, 2));
   };
 
-  const listTools = () => {
-    sendWebSocketMessage({ type: "listTools" });
+  const listPrompts = async () => {
+    const response = await makeRequest(
+      {
+        method: "prompts/list" as const,
+      },
+      ListPromptsResultSchema,
+    );
+    setPrompts(response.prompts);
   };
 
-  const callTool = (name: string, params: Record<string, unknown>) => {
-    sendWebSocketMessage({ type: "callTool", name, params });
+  const getPrompt = async (name: string, args: Record<string, string> = {}) => {
+    const response = await makeRequest(
+      {
+        method: "prompts/get" as const,
+        params: { name, arguments: args },
+      },
+      GetPromptResultSchema,
+    );
+    setPromptContent(JSON.stringify(response, null, 2));
   };
 
-  const connectMcpServer = () => {
-    const argsArray = args.split(" ").filter((arg) => arg.trim() !== "");
-    sendWebSocketMessage({ type: "connect", command, args: argsArray });
+  const listTools = async () => {
+    const response = await makeRequest(
+      {
+        method: "tools/list" as const,
+      },
+      ListToolsResultSchema,
+    );
+    setTools(response.tools);
+  };
+
+  const callTool = async (name: string, params: Record<string, unknown>) => {
+    const response = await makeRequest(
+      {
+        method: "tools/call" as const,
+        params: { name, arguments: params },
+      },
+      CallToolResultSchema,
+    );
+    setToolResult(JSON.stringify(response.toolResult, null, 2));
+  };
+
+  const connectMcpServer = async () => {
+    try {
+      const client = new Client({
+        name: "mcp-inspector",
+        version: "0.0.1",
+      });
+
+      const clientTransport = new SSEClientTransport();
+      const url = new URL("http://localhost:3000/sse");
+      url.searchParams.append("command", encodeURIComponent(command));
+      url.searchParams.append("args", encodeURIComponent(args));
+      await clientTransport.connect(url);
+
+      await client.connect(clientTransport);
+
+      setMcpClient(client);
+      setConnectionStatus("connected");
+    } catch (e) {
+      console.error(e);
+      setConnectionStatus("error");
+    }
   };
 
   return (
@@ -182,7 +201,7 @@ const App = () => {
                 </Button>
               </div>
             </div>
-            {mcpConnected ? (
+            {mcpClient ? (
               <Tabs defaultValue="resources" className="w-full p-4">
                 <TabsList className="mb-4 p-0">
                   <TabsTrigger value="resources">
