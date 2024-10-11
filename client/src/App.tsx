@@ -23,6 +23,13 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 import ConsoleTab from "./components/ConsoleTab";
 import Sidebar from "./components/Sidebar";
@@ -49,8 +56,10 @@ const App = () => {
     "/Users/ashwin/.nvm/versions/node/v18.20.4/bin/node",
   );
   const [args, setArgs] = useState<string>(
-    "/Users/ashwin/code/example-servers/build/everything/index.js",
+    "/Users/ashwin/code/example-servers/build/everything/stdio.js",
   );
+  const [url, setUrl] = useState<string>("http://localhost:3001/sse");
+  const [transportType, setTransportType] = useState<"stdio" | "sse">("stdio");
   const [requestHistory, setRequestHistory] = useState<
     { request: string; response: string }[]
   >([]);
@@ -160,11 +169,17 @@ const App = () => {
       });
 
       const clientTransport = new SSEClientTransport();
-      const url = new URL("http://localhost:3000/sse");
-      url.searchParams.append("command", encodeURIComponent(command));
-      url.searchParams.append("args", encodeURIComponent(args));
-      await clientTransport.connect(url);
+      const backendUrl = new URL("http://localhost:3000/sse");
 
+      backendUrl.searchParams.append("transportType", transportType);
+      if (transportType === "stdio") {
+        backendUrl.searchParams.append("command", command);
+        backendUrl.searchParams.append("args", args);
+      } else {
+        backendUrl.searchParams.append("url", url);
+      }
+
+      await clientTransport.connect(backendUrl);
       await client.connect(clientTransport);
 
       setMcpClient(client);
@@ -185,16 +200,40 @@ const App = () => {
             <div className="p-4 bg-white shadow-md m-4 rounded-md">
               <h2 className="text-lg font-semibold mb-2">Connect MCP Server</h2>
               <div className="flex space-x-2 mb-2">
-                <Input
-                  placeholder="Command"
-                  value={command}
-                  onChange={(e) => setCommand(e.target.value)}
-                />
-                <Input
-                  placeholder="Arguments (space-separated)"
-                  value={args}
-                  onChange={(e) => setArgs(e.target.value)}
-                />
+                <Select
+                  value={transportType}
+                  onValueChange={(value: "stdio" | "sse") =>
+                    setTransportType(value)
+                  }
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Select transport type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="stdio">STDIO</SelectItem>
+                    <SelectItem value="sse">SSE</SelectItem>
+                  </SelectContent>
+                </Select>
+                {transportType === "stdio" ? (
+                  <>
+                    <Input
+                      placeholder="Command"
+                      value={command}
+                      onChange={(e) => setCommand(e.target.value)}
+                    />
+                    <Input
+                      placeholder="Arguments (space-separated)"
+                      value={args}
+                      onChange={(e) => setArgs(e.target.value)}
+                    />
+                  </>
+                ) : (
+                  <Input
+                    placeholder="URL"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                  />
+                )}
                 <Button onClick={connectMcpServer}>
                   <Play className="w-4 h-4 mr-2" />
                   Connect
