@@ -6,12 +6,6 @@ Setup:
 
 ```bash
 yarn
-cd client
-yarn
-cd -
-cd server
-yarn
-cd -
 ```
 
 You can run it in dev mode via:
