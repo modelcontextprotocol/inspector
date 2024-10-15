@@ -18,7 +18,7 @@ export class Client extends Protocol {
         const result = await this.request({
             method: "initialize",
             params: {
-                protocolVersion: 1,
+                protocolVersion: PROTOCOL_VERSION,
                 capabilities: {},
                 clientInfo: this._clientInfo,
             },
