@@ -2,6 +2,12 @@
 
 The MCP inspector is a developer tool for testing and debugging MCP servers.
 
+Setup:
+
+```bash
+yarn
+```
+
 You can run it in dev mode via:
 
 ```bash

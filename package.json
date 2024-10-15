@@ -1,7 +1,9 @@
 {
   "name": "mcp-inspector",
+  "private": true,
   "version": "0.0.1",
   "type": "module",
+  "workspaces": ["client", "server"],
   "scripts": {
     "dev": "concurrently \"cd client && yarn dev\" \"cd server && yarn dev\"",
     "build-server": "cd server && yarn build",
