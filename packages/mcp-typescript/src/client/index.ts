@@ -37,7 +37,7 @@ export class Client extends Protocol<
       {
         method: "initialize",
         params: {
-          protocolVersion: 1,
+          protocolVersion: PROTOCOL_VERSION,
           capabilities: {},
           clientInfo: this._clientInfo,
         },

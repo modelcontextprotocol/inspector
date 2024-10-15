@@ -1,10 +1,15 @@
 import { z } from "zod";
+export const PROTOCOL_VERSION = "2024-10-07";
 /* JSON-RPC types */
 export const JSONRPC_VERSION = "2.0";
 /**
  * A progress token, used to associate progress notifications with the original request.
  */
 export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
+/**
+ * An opaque token used to represent a cursor for pagination.
+ */
+export const CursorSchema = z.string();
 export const RequestSchema = z.object({
     method: z.string(),
     params: z.optional(z
@@ -121,7 +126,6 @@ export const JSONRPCMessageSchema = z.union([
  */
 export const EmptyResultSchema = ResultSchema.strict();
 /* Initialization */
-export const PROTOCOL_VERSION = 1;
 /**
  * Text provided to or from an LLM.
  */
@@ -182,7 +186,7 @@ export const InitializeRequestSchema = RequestSchema.extend({
         /**
          * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
          */
-        protocolVersion: z.number().int(),
+        protocolVersion: z.string().or(z.number().int()),
         capabilities: ClientCapabilitiesSchema,
         clientInfo: ImplementationSchema,
     }),
@@ -202,7 +206,14 @@ export const ServerCapabilitiesSchema = z.object({
     /**
      * Present if the server offers any prompt templates.
      */
-    prompts: z.optional(z.object({}).passthrough()),
+    prompts: z.optional(z
+        .object({
+        /**
+         * Whether this server supports notifications for changes to the prompt list.
+         */
+        listChanged: z.optional(z.boolean()),
+    })
+        .passthrough()),
     /**
      * Present if the server offers any resources to read.
      */
@@ -212,12 +223,23 @@ export const ServerCapabilitiesSchema = z.object({
          * Whether this server supports subscribing to resource updates.
          */
         subscribe: z.optional(z.boolean()),
+        /**
+         * Whether this server supports notifications for changes to the resource list.
+         */
+        listChanged: z.optional(z.boolean()),
     })
         .passthrough()),
     /**
      * Present if the server offers any tools to call.
      */
-    tools: z.optional(z.object({}).passthrough()),
+    tools: z.optional(z
+        .object({
+        /**
+         * Whether this server supports notifications for changes to the tool list.
+         */
+        listChanged: z.optional(z.boolean()),
+    })
+        .passthrough()),
 });
 /**
  * After receiving an initialize request from the client, the server sends this response.
@@ -226,7 +248,7 @@ export const InitializeResultSchema = ResultSchema.extend({
     /**
      * The version of the Model Context Protocol that the server wants to use. This may not match the version that the client requested. If the client cannot support this version, it MUST disconnect.
      */
-    protocolVersion: z.number().int(),
+    protocolVersion: z.string().or(z.number().int()),
     capabilities: ServerCapabilitiesSchema,
     serverInfo: ImplementationSchema,
 });
@@ -266,6 +288,23 @@ export const ProgressNotificationSchema = NotificationSchema.extend({
         progressToken: ProgressTokenSchema,
     }),
 });
+/* Pagination */
+export const PaginatedRequestSchema = RequestSchema.extend({
+    params: z.optional(z.object({
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.optional(CursorSchema),
+    })),
+});
+export const PaginatedResultSchema = ResultSchema.extend({
+    /**
+     * An opaque token representing the pagination position after the last returned result.
+     * If present, there may be more results available.
+     */
+    nextCursor: z.optional(CursorSchema),
+});
 /* Resources */
 /**
  * The contents of a specific resource or sub-resource.
@@ -274,7 +313,7 @@ export const ResourceContentsSchema = z.object({
     /**
      * The URI of this resource.
      */
-    uri: z.string().url(),
+    uri: z.string().transform((s) => new URL(s)),
     /**
      * The MIME type of this resource, if known.
      */
@@ -299,7 +338,7 @@ export const ResourceSchema = z.object({
     /**
      * The URI of this resource.
      */
-    uri: z.string().url(),
+    uri: z.string().transform((s) => new URL(s)),
     /**
      * A human-readable name for this resource.
      *
@@ -345,15 +384,26 @@ export const ResourceTemplateSchema = z.object({
 /**
  * Sent from the client to request a list of resources the server has.
  */
-export const ListResourcesRequestSchema = RequestSchema.extend({
+export const ListResourcesRequestSchema = PaginatedRequestSchema.extend({
     method: z.literal("resources/list"),
 });
 /**
  * The server's response to a resources/list request from the client.
  */
-export const ListResourcesResultSchema = ResultSchema.extend({
-    resourceTemplates: z.optional(z.array(ResourceTemplateSchema)),
-    resources: z.optional(z.array(ResourceSchema)),
+export const ListResourcesResultSchema = PaginatedResultSchema.extend({
+    resources: z.array(ResourceSchema),
+});
+/**
+ * Sent from the client to request a list of resource templates the server has.
+ */
+export const ListResourceTemplatesRequestSchema = PaginatedRequestSchema.extend({
+    method: z.literal("resources/templates/list"),
+});
+/**
+ * The server's response to a resources/templates/list request from the client.
+ */
+export const ListResourceTemplatesResultSchema = PaginatedResultSchema.extend({
+    resourceTemplates: z.array(ResourceTemplateSchema),
 });
 /**
  * Sent from the client to the server, to read a specific resource URI.
@@ -364,7 +414,7 @@ export const ReadResourceRequestSchema = RequestSchema.extend({
         /**
          * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.string().url(),
+        uri: z.string().transform((s) => new URL(s)),
     }),
 });
 /**
@@ -388,7 +438,7 @@ export const SubscribeRequestSchema = RequestSchema.extend({
         /**
          * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.string().url(),
+        uri: z.string().transform((s) => new URL(s)),
     }),
 });
 /**
@@ -400,7 +450,7 @@ export const UnsubscribeRequestSchema = RequestSchema.extend({
         /**
          * The URI of the resource to unsubscribe from.
          */
-        uri: z.string().url(),
+        uri: z.string().transform((s) => new URL(s)),
     }),
 });
 /**
@@ -412,7 +462,7 @@ export const ResourceUpdatedNotificationSchema = NotificationSchema.extend({
         /**
          * The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
          */
-        uri: z.string().url(),
+        uri: z.string().transform((s) => new URL(s)),
     }),
 });
 /* Prompts */
@@ -453,13 +503,13 @@ export const PromptSchema = z.object({
 /**
  * Sent from the client to request a list of prompts and prompt templates the server has.
  */
-export const ListPromptsRequestSchema = RequestSchema.extend({
+export const ListPromptsRequestSchema = PaginatedRequestSchema.extend({
     method: z.literal("prompts/list"),
 });
 /**
  * The server's response to a prompts/list request from the client.
  */
-export const ListPromptsResultSchema = ResultSchema.extend({
+export const ListPromptsResultSchema = PaginatedResultSchema.extend({
     prompts: z.array(PromptSchema),
 });
 /**
@@ -488,6 +538,12 @@ export const GetPromptResultSchema = ResultSchema.extend({
     description: z.optional(z.string()),
     messages: z.array(SamplingMessageSchema),
 });
+/**
+ * An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.
+ */
+export const PromptListChangedNotificationSchema = NotificationSchema.extend({
+    method: z.literal("notifications/prompts/list_changed"),
+});
 /* Tools */
 /**
  * Definition for a tool the client can call.
@@ -512,13 +568,13 @@ export const ToolSchema = z.object({
 /**
  * Sent from the client to request a list of tools the server has.
  */
-export const ListToolsRequestSchema = RequestSchema.extend({
+export const ListToolsRequestSchema = PaginatedRequestSchema.extend({
     method: z.literal("tools/list"),
 });
 /**
  * The server's response to a tools/list request from the client.
  */
-export const ListToolsResultSchema = ResultSchema.extend({
+export const ListToolsResultSchema = PaginatedResultSchema.extend({
     tools: z.array(ToolSchema),
 });
 /**
@@ -722,6 +778,7 @@ export const ServerNotificationSchema = z.union([
     ResourceUpdatedNotificationSchema,
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
+    PromptListChangedNotificationSchema,
 ]);
 export const ServerResultSchema = z.union([
     EmptyResultSchema,
