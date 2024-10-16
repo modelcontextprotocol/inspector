@@ -5,11 +5,6 @@ import { TabsContent } from "@/components/ui/tabs";
 import { Resource } from "mcp-typescript/types.js";
 import ListPane from "./ListPane";
 
-export type Resource = {
-  uri: string;
-  name: string;
-};
-
 const ResourcesTab = ({
   resources,
   listResources,
@@ -38,7 +33,7 @@ const ResourcesTab = ({
       renderItem={(resource) => (
         <div className="flex items-center w-full">
           <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
-          <span className="flex-1 truncate" title={resource.uri}>
+          <span className="flex-1 truncate" title={resource.uri.toString()}>
             {resource.name}
           </span>
           <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400" />

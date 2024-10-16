@@ -40,7 +40,7 @@ import NotificationsTab from "./components/NotificationsTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
 import ToolsTab from "./components/ToolsTab";
 import History from "./components/History";
-import { AnyZodObject } from "node_modules/zod/lib";
+import { AnyZodObject } from "zod";
 
 const App = () => {
   const [connectionStatus, setConnectionStatus] = useState<
