@@ -1,6 +1,7 @@
 import { Protocol } from "../shared/protocol.js";
 import {
   ClientCapabilities,
+  ClientRequest,
   Implementation,
   InitializedNotificationSchema,
   InitializeRequest,
@@ -10,6 +11,11 @@ import {
   ServerNotification,
   ServerRequest,
   ServerResult,
+  ServerCapabilities,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  ListPromptsRequestSchema,
+  SetLevelRequestSchema,
 } from "../types.js";
 
 /**
@@ -58,7 +64,7 @@ export class Server extends Protocol<
 
     return {
       protocolVersion: PROTOCOL_VERSION,
-      capabilities: {},
+      capabilities: this.getCapabilities(),
       serverInfo: this._serverInfo,
     };
   }
@@ -75,5 +81,22 @@ export class Server extends Protocol<
    */
   getClientVersion(): Implementation | undefined {
     return this._clientVersion;
+  }
+
+  private getCapability(
+    reqType: ClientRequest["method"],
+  ): ServerCapabilities[keyof ServerCapabilities] {
+    return this._requestHandlers.has(reqType as string) ? {} : undefined;
+  }
+
+  private getCapabilities(): ServerCapabilities {
+    return {
+      prompts: this.getCapability(ListPromptsRequestSchema.shape.method.value),
+      resources: this.getCapability(
+        ListResourcesRequestSchema.shape.method.value,
+      ),
+      tools: this.getCapability(ListToolsRequestSchema.shape.method.value),
+      logging: this.getCapability(SetLevelRequestSchema.shape.method.value),
+    };
   }
 }

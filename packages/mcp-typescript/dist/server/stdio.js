@@ -10,6 +10,7 @@ export class StdioServerTransport {
         this._stdin = _stdin;
         this._stdout = _stdout;
         this._readBuffer = new ReadBuffer();
+        this._started = false;
         // Arrow functions to bind `this` properly, while maintaining function identity.
         this._ondata = (chunk) => {
             this._readBuffer.append(chunk);
@@ -24,6 +25,10 @@ export class StdioServerTransport {
      * Starts listening for messages on stdin.
      */
     async start() {
+        if (this._started) {
+            throw new Error("StdioServerTransport already started! If using Server class, note that connect() calls start() automatically.");
+        }
+        this._started = true;
         this._stdin.on("data", this._ondata);
         this._stdin.on("error", this._onerror);
     }

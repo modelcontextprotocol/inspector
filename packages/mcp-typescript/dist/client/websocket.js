@@ -4,9 +4,15 @@ const SUBPROTOCOL = "mcp";
  * Client transport for WebSocket: this will connect to a server over the WebSocket protocol.
  */
 export class WebSocketClientTransport {
-    connect(url) {
+    constructor(url) {
+        this._url = url;
+    }
+    start() {
+        if (this._socket) {
+            throw new Error("WebSocketClientTransport already started! If using Client class, note that connect() calls start() automatically.");
+        }
         return new Promise((resolve, reject) => {
-            this._socket = new WebSocket(url, SUBPROTOCOL);
+            this._socket = new WebSocket(this._url, SUBPROTOCOL);
             this._socket.onerror = (event) => {
                 var _a;
                 const error = "error" in event

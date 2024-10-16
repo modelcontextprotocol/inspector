@@ -1,5 +1,5 @@
 import { Protocol } from "../shared/protocol.js";
-import { InitializedNotificationSchema, InitializeRequestSchema, PROTOCOL_VERSION, } from "../types.js";
+import { InitializedNotificationSchema, InitializeRequestSchema, PROTOCOL_VERSION, ListResourcesRequestSchema, ListToolsRequestSchema, ListPromptsRequestSchema, SetLevelRequestSchema, } from "../types.js";
 /**
  * An MCP server on top of a pluggable transport.
  *
@@ -23,7 +23,7 @@ export class Server extends Protocol {
         this._clientVersion = request.params.clientInfo;
         return {
             protocolVersion: PROTOCOL_VERSION,
-            capabilities: {},
+            capabilities: this.getCapabilities(),
             serverInfo: this._serverInfo,
         };
     }
@@ -38,6 +38,17 @@ export class Server extends Protocol {
      */
     getClientVersion() {
         return this._clientVersion;
+    }
+    getCapability(reqType) {
+        return this._requestHandlers.has(reqType) ? {} : undefined;
+    }
+    getCapabilities() {
+        return {
+            prompts: this.getCapability(ListPromptsRequestSchema.shape.method.value),
+            resources: this.getCapability(ListResourcesRequestSchema.shape.method.value),
+            tools: this.getCapability(ListToolsRequestSchema.shape.method.value),
+            logging: this.getCapability(SetLevelRequestSchema.shape.method.value),
+        };
     }
 }
 //# sourceMappingURL=index.js.map

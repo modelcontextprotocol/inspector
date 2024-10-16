@@ -6,19 +6,25 @@ import { ReadBuffer, serializeMessage } from "../shared/stdio.js";
  * This transport is only available in Node.js environments.
  */
 export class StdioClientTransport {
-    constructor() {
+    constructor(server) {
         this._abortController = new AbortController();
         this._readBuffer = new ReadBuffer();
+        this._serverParams = server;
     }
     /**
-     * Spawns the server process and prepare to communicate with it.
+     * Starts the server process and prepares to communicate with it.
      */
-    spawn(server) {
+    async start() {
+        if (this._process) {
+            throw new Error("StdioClientTransport already started! If using Client class, note that connect() calls start() automatically.");
+        }
         return new Promise((resolve, reject) => {
             var _a, _b, _c, _d;
-            this._process = spawn(server.command, (_a = server.args) !== null && _a !== void 0 ? _a : [], {
+            this._process = spawn(this._serverParams.command, (_a = this._serverParams.args) !== null && _a !== void 0 ? _a : [], {
                 // The parent process may have sensitive secrets in its env, so don't inherit it automatically.
-                env: server.env === undefined ? {} : { ...server.env },
+                env: this._serverParams.env === undefined
+                    ? {}
+                    : { ...this._serverParams.env },
                 stdio: ["pipe", "pipe", "inherit"],
                 signal: this._abortController.signal,
             });
