@@ -10,8 +10,10 @@ import {
   Resource,
   Tool,
   ClientRequest,
+  ProgressNotificationSchema,
+  ServerNotification,
 } from "mcp-typescript/types.js";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Send,
   Bell,
@@ -36,11 +38,11 @@ import ConsoleTab from "./components/ConsoleTab";
 import Sidebar from "./components/Sidebar";
 import RequestsTab from "./components/RequestsTabs";
 import ResourcesTab from "./components/ResourcesTab";
-import NotificationsTab from "./components/NotificationsTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
 import ToolsTab from "./components/ToolsTab";
-import History from "./components/History";
 import { AnyZodObject } from "zod";
+import HistoryAndNotifications from "./components/History";
+import "./App.css";
 
 const App = () => {
   const [connectionStatus, setConnectionStatus] = useState<
@@ -57,7 +59,7 @@ const App = () => {
     "/Users/ashwin/.nvm/versions/node/v18.20.4/bin/node",
   );
   const [args, setArgs] = useState<string>(
-    "/Users/ashwin/code/example-servers/build/everything/stdio.js",
+    "/Users/ashwin/code/mcp/example-servers/build/everything/stdio.js",
   );
   const [url, setUrl] = useState<string>("http://localhost:3001/sse");
   const [transportType, setTransportType] = useState<"stdio" | "sse">("stdio");
@@ -65,12 +67,14 @@ const App = () => {
     { request: string; response: string }[]
   >([]);
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
+  const [notifications, setNotifications] = useState<ServerNotification[]>([]);
 
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
   );
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
+  const progressTokenRef = useRef(0);
 
   const pushHistory = (request: object, response: object) => {
     setRequestHistory((prev) => [
@@ -155,7 +159,13 @@ const App = () => {
     const response = await makeRequest(
       {
         method: "tools/call" as const,
-        params: { name, arguments: params },
+        params: {
+          name,
+          arguments: params,
+          _meta: {
+            progressToken: progressTokenRef.current++,
+          },
+        },
       },
       CallToolResultSchema,
     );
@@ -181,6 +191,16 @@ const App = () => {
 
       const clientTransport = new SSEClientTransport(backendUrl);
       await client.connect(clientTransport);
+
+      client.setNotificationHandler(
+        ProgressNotificationSchema,
+        (notification) => {
+          setNotifications((prevNotifications) => [
+            ...prevNotifications,
+            notification,
+          ]);
+        },
+      );
 
       setMcpClient(client);
       setConnectionStatus("connected");
@@ -255,10 +275,6 @@ const App = () => {
                     <Send className="w-4 h-4 mr-2" />
                     Requests
                   </TabsTrigger>
-                  <TabsTrigger value="notifications" disabled>
-                    <Bell className="w-4 h-4 mr-2" />
-                    Notifications
-                  </TabsTrigger>
                   <TabsTrigger value="tools">
                     <Hammer className="w-4 h-4 mr-2" />
                     Tools
@@ -279,7 +295,6 @@ const App = () => {
                     resourceContent={resourceContent}
                     error={error}
                   />
-                  <NotificationsTab />
                   <PromptsTab
                     prompts={prompts}
                     listPrompts={listPrompts}
@@ -315,7 +330,10 @@ const App = () => {
           </div>
         </div>
       </div>
-      <History requestHistory={requestHistory} />
+      <HistoryAndNotifications
+        requestHistory={requestHistory}
+        serverNotifications={notifications}
+      />
     </div>
   );
 };

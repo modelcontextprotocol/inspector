@@ -36,7 +36,9 @@ const ToolsTab = ({
         renderItem={(tool) => (
           <>
             <span className="flex-1">{tool.name}</span>
-            <span className="text-sm text-gray-500">{tool.description}</span>
+            <span className="text-sm text-gray-500 text-right">
+              {tool.description}
+            </span>
           </>
         )}
         title="Tools"
