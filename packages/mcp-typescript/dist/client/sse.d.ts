@@ -10,10 +10,12 @@ export declare class SSEClientTransport implements Transport {
     private _eventSource?;
     private _endpoint?;
     private _abortController?;
+    private _url;
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
-    connect(url: URL): Promise<void>;
+    constructor(url: URL);
+    start(): Promise<void>;
     close(): Promise<void>;
     send(message: JSONRPCMessage): Promise<void>;
 }

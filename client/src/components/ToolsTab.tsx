@@ -61,7 +61,7 @@ const ToolsTab = ({
               <p className="text-sm text-gray-600">
                 {selectedTool.description}
               </p>
-              {Object.entries(selectedTool.inputSchema.properties).map(
+              {Object.entries(selectedTool.inputSchema.properties ?? []).map(
                 ([key, value]) => (
                   <div key={key}>
                     <Label
@@ -71,14 +71,17 @@ const ToolsTab = ({
                       {key}
                     </Label>
                     <Input
+                      // @ts-expect-error value type is currently unknown
                       type={value.type === "number" ? "number" : "text"}
                       id={key}
                       name={key}
+                      // @ts-expect-error value type is currently unknown
                       placeholder={value.description}
                       onChange={(e) =>
                         setParams({
                           ...params,
                           [key]:
+                            // @ts-expect-error value type is currently unknown
                             value.type === "number"
                               ? Number(e.target.value)
                               : e.target.value,

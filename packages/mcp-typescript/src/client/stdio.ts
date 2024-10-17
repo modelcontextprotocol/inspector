@@ -31,22 +31,40 @@ export class StdioClientTransport implements Transport {
   private _process?: ChildProcess;
   private _abortController: AbortController = new AbortController();
   private _readBuffer: ReadBuffer = new ReadBuffer();
+  private _serverParams: StdioServerParameters;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
 
+  constructor(server: StdioServerParameters) {
+    this._serverParams = server;
+  }
+
   /**
-   * Spawns the server process and prepare to communicate with it.
+   * Starts the server process and prepares to communicate with it.
    */
-  spawn(server: StdioServerParameters): Promise<void> {
+  async start(): Promise<void> {
+    if (this._process) {
+      throw new Error(
+        "StdioClientTransport already started! If using Client class, note that connect() calls start() automatically.",
+      );
+    }
+
     return new Promise((resolve, reject) => {
-      this._process = spawn(server.command, server.args ?? [], {
-        // The parent process may have sensitive secrets in its env, so don't inherit it automatically.
-        env: server.env === undefined ? {} : { ...server.env },
-        stdio: ["pipe", "pipe", "inherit"],
-        signal: this._abortController.signal,
-      });
+      this._process = spawn(
+        this._serverParams.command,
+        this._serverParams.args ?? [],
+        {
+          // The parent process may have sensitive secrets in its env, so don't inherit it automatically.
+          env:
+            this._serverParams.env === undefined
+              ? {}
+              : { ...this._serverParams.env },
+          stdio: ["pipe", "pipe", "inherit"],
+          signal: this._abortController.signal,
+        },
+      );
 
       this._process.on("error", (error) => {
         if (error.name === "AbortError") {

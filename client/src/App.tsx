@@ -7,6 +7,7 @@ import {
   ReadResourceResultSchema,
   CallToolResultSchema,
   ListPromptsResultSchema,
+  Resource,
   Tool,
   ClientRequest,
 } from "mcp-typescript/types.js";
@@ -34,12 +35,12 @@ import {
 import ConsoleTab from "./components/ConsoleTab";
 import Sidebar from "./components/Sidebar";
 import RequestsTab from "./components/RequestsTabs";
-import ResourcesTab, { Resource } from "./components/ResourcesTab";
+import ResourcesTab from "./components/ResourcesTab";
 import NotificationsTab from "./components/NotificationsTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
 import ToolsTab from "./components/ToolsTab";
 import History from "./components/History";
-import { AnyZodObject } from "node_modules/zod/lib";
+import { AnyZodObject } from "zod";
 
 const App = () => {
   const [connectionStatus, setConnectionStatus] = useState<
@@ -108,7 +109,7 @@ const App = () => {
     }
   };
 
-  const readResource = async (uri: string) => {
+  const readResource = async (uri: URL) => {
     const response = await makeRequest(
       {
         method: "resources/read" as const,
@@ -168,7 +169,6 @@ const App = () => {
         version: "0.0.1",
       });
 
-      const clientTransport = new SSEClientTransport();
       const backendUrl = new URL("http://localhost:3000/sse");
 
       backendUrl.searchParams.append("transportType", transportType);
@@ -179,7 +179,7 @@ const App = () => {
         backendUrl.searchParams.append("url", url);
       }
 
-      await clientTransport.connect(backendUrl);
+      const clientTransport = new SSEClientTransport(backendUrl);
       await client.connect(clientTransport);
 
       setMcpClient(client);

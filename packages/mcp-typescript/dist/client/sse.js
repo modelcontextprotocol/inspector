@@ -6,9 +6,15 @@ import { JSONRPCMessageSchema } from "../types.js";
  * This uses the EventSource API in browsers. You can install the `eventsource` package for Node.js.
  */
 export class SSEClientTransport {
-    connect(url) {
+    constructor(url) {
+        this._url = url;
+    }
+    start() {
+        if (this._eventSource) {
+            throw new Error("SSEClientTransport already started! If using Client class, note that connect() calls start() automatically.");
+        }
         return new Promise((resolve, reject) => {
-            this._eventSource = new EventSource(url.href);
+            this._eventSource = new EventSource(this._url.href);
             this._abortController = new AbortController();
             this._eventSource.onerror = (event) => {
                 var _a;
@@ -23,8 +29,8 @@ export class SSEClientTransport {
                 var _a;
                 const messageEvent = event;
                 try {
-                    this._endpoint = new URL(messageEvent.data, url);
-                    if (this._endpoint.origin !== url.origin) {
+                    this._endpoint = new URL(messageEvent.data, this._url);
+                    if (this._endpoint.origin !== this._url.origin) {
                         throw new Error(`Endpoint origin does not match connection origin: ${this._endpoint.origin}`);
                     }
                 }

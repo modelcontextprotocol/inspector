@@ -8,6 +8,7 @@ import { JSONRPCMessage } from "../types.js";
  */
 export declare class SSEServerTransport implements Transport {
     private _endpoint;
+    private res;
     private _sseResponse?;
     private _sessionId;
     onclose?: () => void;
@@ -16,13 +17,13 @@ export declare class SSEServerTransport implements Transport {
     /**
      * Creates a new SSE server transport, which will direct the client to POST messages to the relative or absolute URL identified by `_endpoint`.
      */
-    constructor(_endpoint: string);
+    constructor(_endpoint: string, res: ServerResponse);
     /**
      * Handles the initial SSE connection request.
      *
      * This should be called when a GET request is made to establish the SSE stream.
      */
-    connectSSE(req: IncomingMessage, res: ServerResponse): Promise<void>;
+    start(): Promise<void>;
     /**
      * Handles incoming POST messages.
      *

@@ -31,14 +31,11 @@ async function runClient(url_or_command: string, args: string[]) {
   }
 
   if (url?.protocol === "http:" || url?.protocol === "https:") {
-    clientTransport = new SSEClientTransport();
-    await clientTransport.connect(new URL(url_or_command));
+    clientTransport = new SSEClientTransport(new URL(url_or_command));
   } else if (url?.protocol === "ws:" || url?.protocol === "wss:") {
-    clientTransport = new WebSocketClientTransport();
-    await clientTransport.connect(new URL(url_or_command));
+    clientTransport = new WebSocketClientTransport(new URL(url_or_command));
   } else {
-    clientTransport = new StdioClientTransport();
-    await clientTransport.spawn({
+    clientTransport = new StdioClientTransport({
       command: url_or_command,
       args,
     });
@@ -62,7 +59,7 @@ async function runServer(port: number | null) {
     app.get("/sse", async (req, res) => {
       console.log("Got new SSE connection");
 
-      const transport = new SSEServerTransport("/message");
+      const transport = new SSEServerTransport("/message", res);
       const server = new Server({
         name: "mcp-typescript test server",
         version: "0.1.0",
@@ -75,7 +72,6 @@ async function runServer(port: number | null) {
         servers = servers.filter((s) => s !== server);
       };
 
-      await transport.connectSSE(req, res);
       await server.connect(transport);
     });
 
@@ -104,7 +100,6 @@ async function runServer(port: number | null) {
     });
 
     const transport = new StdioServerTransport();
-    await transport.start();
     await server.connect(transport);
 
     console.log("Server running on stdio");

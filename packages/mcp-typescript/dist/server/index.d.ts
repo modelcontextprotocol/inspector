@@ -26,5 +26,7 @@ export declare class Server extends Protocol<ServerRequest, ServerNotification, 
      * After initialization has completed, this will be populated with information about the client's name and version.
      */
     getClientVersion(): Implementation | undefined;
+    private getCapability;
+    private getCapabilities;
 }
 //# sourceMappingURL=index.d.ts.map

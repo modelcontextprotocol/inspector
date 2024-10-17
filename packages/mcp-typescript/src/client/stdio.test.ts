@@ -6,7 +6,7 @@ const serverParameters: StdioServerParameters = {
 };
 
 test("should start then close cleanly", async () => {
-  const client = new StdioClientTransport();
+  const client = new StdioClientTransport(serverParameters);
   client.onerror = (error) => {
     throw error;
   };
@@ -16,14 +16,14 @@ test("should start then close cleanly", async () => {
     didClose = true;
   };
 
-  await client.spawn(serverParameters);
+  await client.start();
   expect(didClose).toBeFalsy();
   await client.close();
   expect(didClose).toBeTruthy();
 });
 
 test("should read messages", async () => {
-  const client = new StdioClientTransport();
+  const client = new StdioClientTransport(serverParameters);
   client.onerror = (error) => {
     throw error;
   };
@@ -51,7 +51,7 @@ test("should read messages", async () => {
     };
   });
 
-  await client.spawn(serverParameters);
+  await client.start();
   await client.send(messages[0]);
   await client.send(messages[1]);
   await finished;

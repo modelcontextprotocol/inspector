@@ -12,8 +12,9 @@ export class SSEServerTransport {
     /**
      * Creates a new SSE server transport, which will direct the client to POST messages to the relative or absolute URL identified by `_endpoint`.
      */
-    constructor(_endpoint) {
+    constructor(_endpoint, res) {
         this._endpoint = _endpoint;
+        this.res = res;
         this._sessionId = randomUUID();
     }
     /**
@@ -21,19 +22,19 @@ export class SSEServerTransport {
      *
      * This should be called when a GET request is made to establish the SSE stream.
      */
-    async connectSSE(req, res) {
+    async start() {
         if (this._sseResponse) {
-            throw new Error("Already connected!");
+            throw new Error("SSEServerTransport already started! If using Server class, note that connect() calls start() automatically.");
         }
-        res.writeHead(200, {
+        this.res.writeHead(200, {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             Connection: "keep-alive",
         });
         // Send the endpoint event
-        res.write(`event: endpoint\ndata: ${encodeURI(this._endpoint)}?sessionId=${this._sessionId}\n\n`);
-        this._sseResponse = res;
-        res.on("close", () => {
+        this.res.write(`event: endpoint\ndata: ${encodeURI(this._endpoint)}?sessionId=${this._sessionId}\n\n`);
+        this._sseResponse = this.res;
+        this.res.on("close", () => {
             var _a;
             this._sseResponse = undefined;
             (_a = this.onclose) === null || _a === void 0 ? void 0 : _a.call(this);

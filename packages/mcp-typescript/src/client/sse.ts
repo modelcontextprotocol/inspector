@@ -11,14 +11,25 @@ export class SSEClientTransport implements Transport {
   private _eventSource?: EventSource;
   private _endpoint?: URL;
   private _abortController?: AbortController;
+  private _url: URL;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
 
-  connect(url: URL): Promise<void> {
+  constructor(url: URL) {
+    this._url = url;
+  }
+
+  start(): Promise<void> {
+    if (this._eventSource) {
+      throw new Error(
+        "SSEClientTransport already started! If using Client class, note that connect() calls start() automatically.",
+      );
+    }
+
     return new Promise((resolve, reject) => {
-      this._eventSource = new EventSource(url.href);
+      this._eventSource = new EventSource(this._url.href);
       this._abortController = new AbortController();
 
       this._eventSource.onerror = (event) => {
@@ -35,8 +46,8 @@ export class SSEClientTransport implements Transport {
         const messageEvent = event as MessageEvent;
 
         try {
-          this._endpoint = new URL(messageEvent.data, url);
-          if (this._endpoint.origin !== url.origin) {
+          this._endpoint = new URL(messageEvent.data, this._url);
+          if (this._endpoint.origin !== this._url.origin) {
             throw new Error(
               `Endpoint origin does not match connection origin: ${this._endpoint.origin}`,
             );

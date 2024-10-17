@@ -32,7 +32,7 @@ export class Protocol<
 > {
   private _transport?: Transport;
   private _requestMessageId = 0;
-  private _requestHandlers: Map<
+  protected _requestHandlers: Map<
     string,
     (request: JSONRPCRequest) => Promise<SendResultT>
   > = new Map();
@@ -83,7 +83,7 @@ export class Protocol<
   }
 
   /**
-   * Attaches to the given transport and starts listening for messages.
+   * Attaches to the given transport, starts it, and starts listening for messages.
    *
    * The Protocol object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
    */
@@ -106,6 +106,8 @@ export class Protocol<
         this._onnotification(message);
       }
     };
+
+    await this._transport.start();
   }
 
   private _onclose(): void {

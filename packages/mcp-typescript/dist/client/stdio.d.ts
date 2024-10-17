@@ -25,13 +25,15 @@ export declare class StdioClientTransport implements Transport {
     private _process?;
     private _abortController;
     private _readBuffer;
+    private _serverParams;
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
+    constructor(server: StdioServerParameters);
     /**
-     * Spawns the server process and prepare to communicate with it.
+     * Starts the server process and prepares to communicate with it.
      */
-    spawn(server: StdioServerParameters): Promise<void>;
+    start(): Promise<void>;
     private processReadBuffer;
     close(): Promise<void>;
     send(message: JSONRPCMessage): Promise<void>;

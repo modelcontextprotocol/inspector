@@ -11,6 +11,7 @@ import { Transport } from "../shared/transport.js";
  */
 export class StdioServerTransport implements Transport {
   private _readBuffer: ReadBuffer = new ReadBuffer();
+  private _started = false;
 
   constructor(
     private _stdin: Readable = process.stdin,
@@ -34,6 +35,13 @@ export class StdioServerTransport implements Transport {
    * Starts listening for messages on stdin.
    */
   async start(): Promise<void> {
+    if (this._started) {
+      throw new Error(
+        "StdioServerTransport already started! If using Server class, note that connect() calls start() automatically.",
+      );
+    }
+
+    this._started = true;
     this._stdin.on("data", this._ondata);
     this._stdin.on("error", this._onerror);
   }

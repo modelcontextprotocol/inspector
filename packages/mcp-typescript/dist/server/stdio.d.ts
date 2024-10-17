@@ -10,6 +10,7 @@ export declare class StdioServerTransport implements Transport {
     private _stdin;
     private _stdout;
     private _readBuffer;
+    private _started;
     constructor(_stdin?: Readable, _stdout?: Writable);
     onclose?: () => void;
     onerror?: (error: Error) => void;

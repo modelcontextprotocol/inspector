@@ -5,10 +5,12 @@ import { JSONRPCMessage } from "../types.js";
  */
 export declare class WebSocketClientTransport implements Transport {
     private _socket?;
+    private _url;
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
-    connect(url: URL): Promise<void>;
+    constructor(url: URL);
+    start(): Promise<void>;
     close(): Promise<void>;
     send(message: JSONRPCMessage): Promise<void>;
 }

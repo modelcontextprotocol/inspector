@@ -2,12 +2,8 @@ import { FileText, ChevronRight, AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { TabsContent } from "@/components/ui/tabs";
+import { Resource } from "mcp-typescript/types.js";
 import ListPane from "./ListPane";
-
-export type Resource = {
-  uri: string;
-  name: string;
-};
 
 const ResourcesTab = ({
   resources,
@@ -20,7 +16,7 @@ const ResourcesTab = ({
 }: {
   resources: Resource[];
   listResources: () => void;
-  readResource: (uri: string) => void;
+  readResource: (uri: URL) => void;
   selectedResource: Resource | null;
   setSelectedResource: (resource: Resource) => void;
   resourceContent: string;
@@ -37,7 +33,7 @@ const ResourcesTab = ({
       renderItem={(resource) => (
         <div className="flex items-center w-full">
           <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
-          <span className="flex-1 truncate" title={resource.uri}>
+          <span className="flex-1 truncate" title={resource.uri.toString()}>
             {resource.name}
           </span>
           <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400" />

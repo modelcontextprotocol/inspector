@@ -25,15 +25,15 @@ const createTransport = async (query: express.Request["query"]) => {
     const command = query.command as string;
     const args = (query.args as string).split(",");
     console.log(`Stdio transport: command=${command}, args=${args}`);
-    const transport = new StdioClientTransport();
-    await transport.spawn({ command, args });
+    const transport = new StdioClientTransport({ command, args });
+    await transport.start();
     console.log("Spawned stdio transport");
     return transport;
   } else if (transportType === "sse") {
     const url = query.url as string;
     console.log(`SSE transport: url=${url}`);
-    const transport = new SSEClientTransport();
-    await transport.connect(new URL(url));
+    const transport = new SSEClientTransport(new URL(url));
+    await transport.start();
     console.log("Connected to SSE transport");
     return transport;
   } else {
@@ -49,13 +49,13 @@ app.get("/sse", async (req, res) => {
 
   console.log("Connected MCP client to backing server transport");
 
-  const webAppTransport = new SSEServerTransport("/message");
+  const webAppTransport = new SSEServerTransport("/message", res);
   console.log("Created web app transport");
 
   webAppTransports.push(webAppTransport);
   console.log("Created web app transport");
 
-  await webAppTransport.connectSSE(req, res);
+  await webAppTransport.start();
 
   mcpProxy({
     transportToClient: webAppTransport,

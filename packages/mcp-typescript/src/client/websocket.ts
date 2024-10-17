@@ -8,14 +8,25 @@ const SUBPROTOCOL = "mcp";
  */
 export class WebSocketClientTransport implements Transport {
   private _socket?: WebSocket;
+  private _url: URL;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
 
-  connect(url: URL): Promise<void> {
+  constructor(url: URL) {
+    this._url = url;
+  }
+
+  start(): Promise<void> {
+    if (this._socket) {
+      throw new Error(
+        "WebSocketClientTransport already started! If using Client class, note that connect() calls start() automatically.",
+      );
+    }
+
     return new Promise((resolve, reject) => {
-      this._socket = new WebSocket(url, SUBPROTOCOL);
+      this._socket = new WebSocket(this._url, SUBPROTOCOL);
 
       this._socket.onerror = (event) => {
         const error =
