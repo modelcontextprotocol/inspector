@@ -1,2 +1,1 @@
-yarn.lock linguist-generated=true
-packages/**/* linguist-generated=true
+dist/**/* linguist-generated=true

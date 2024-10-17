@@ -15,24 +15,24 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
  */
 export const CursorSchema = z.string();
 
+const BaseRequestParamsSchema = z
+  .object({
+    _meta: z.optional(
+      z
+        .object({
+          /**
+           * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+           */
+          progressToken: z.optional(ProgressTokenSchema),
+        })
+        .passthrough(),
+    ),
+  })
+  .passthrough();
+
 export const RequestSchema = z.object({
   method: z.string(),
-  params: z.optional(
-    z
-      .object({
-        _meta: z.optional(
-          z
-            .object({
-              /**
-               * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
-               */
-              progressToken: z.optional(ProgressTokenSchema),
-            })
-            .passthrough(),
-        ),
-      })
-      .passthrough(),
-  ),
+  params: z.optional(BaseRequestParamsSchema),
 });
 
 export const NotificationSchema = z.object({
@@ -209,7 +209,7 @@ export const ClientCapabilitiesSchema = z.object({
  */
 export const InitializeRequestSchema = RequestSchema.extend({
   method: z.literal("initialize"),
-  params: z.object({
+  params: BaseRequestParamsSchema.extend({
     /**
      * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
      */
@@ -324,21 +324,19 @@ export const ProgressNotificationSchema = NotificationSchema.extend({
     /**
      * The progress token which was given in the initial request, used to associate this notification with the request that is proceeding.
      */
-    progressToken: ProgressTokenSchema,
+    progressToken: z.optional(ProgressTokenSchema),
   }),
 });
 
 /* Pagination */
 export const PaginatedRequestSchema = RequestSchema.extend({
-  params: z.optional(
-    z.object({
-      /**
-       * An opaque token representing the current pagination position.
-       * If provided, the server should return results starting after this cursor.
-       */
-      cursor: z.optional(CursorSchema),
-    }),
-  ),
+  params: BaseRequestParamsSchema.extend({
+    /**
+     * An opaque token representing the current pagination position.
+     * If provided, the server should return results starting after this cursor.
+     */
+    cursor: z.optional(CursorSchema),
+  }),
 });
 
 export const PaginatedResultSchema = ResultSchema.extend({
@@ -471,7 +469,7 @@ export const ListResourceTemplatesResultSchema = PaginatedResultSchema.extend({
  */
 export const ReadResourceRequestSchema = RequestSchema.extend({
   method: z.literal("resources/read"),
-  params: z.object({
+  params: BaseRequestParamsSchema.extend({
     /**
      * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
      */
@@ -500,7 +498,7 @@ export const ResourceListChangedNotificationSchema = NotificationSchema.extend({
  */
 export const SubscribeRequestSchema = RequestSchema.extend({
   method: z.literal("resources/subscribe"),
-  params: z.object({
+  params: BaseRequestParamsSchema.extend({
     /**
      * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
      */
@@ -513,7 +511,7 @@ export const SubscribeRequestSchema = RequestSchema.extend({
  */
 export const UnsubscribeRequestSchema = RequestSchema.extend({
   method: z.literal("resources/unsubscribe"),
-  params: z.object({
+  params: BaseRequestParamsSchema.extend({
     /**
      * The URI of the resource to unsubscribe from.
      */
@@ -590,7 +588,7 @@ export const ListPromptsResultSchema = PaginatedResultSchema.extend({
  */
 export const GetPromptRequestSchema = RequestSchema.extend({
   method: z.literal("prompts/get"),
-  params: z.object({
+  params: BaseRequestParamsSchema.extend({
     /**
      * The name of the prompt or prompt template.
      */
@@ -668,7 +666,7 @@ export const CallToolResultSchema = ResultSchema.extend({
  */
 export const CallToolRequestSchema = RequestSchema.extend({
   method: z.literal("tools/call"),
-  params: z.object({
+  params: BaseRequestParamsSchema.extend({
     name: z.string(),
     arguments: z.optional(z.record(z.unknown())),
   }),
@@ -692,7 +690,7 @@ export const LoggingLevelSchema = z.enum(["debug", "info", "warning", "error"]);
  */
 export const SetLevelRequestSchema = RequestSchema.extend({
   method: z.literal("logging/setLevel"),
-  params: z.object({
+  params: BaseRequestParamsSchema.extend({
     /**
      * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/logging/message.
      */
@@ -727,7 +725,7 @@ export const LoggingMessageNotificationSchema = NotificationSchema.extend({
  */
 export const CreateMessageRequestSchema = RequestSchema.extend({
   method: z.literal("sampling/createMessage"),
-  params: z.object({
+  params: BaseRequestParamsSchema.extend({
     messages: z.array(SamplingMessageSchema),
     /**
      * An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
@@ -797,7 +795,7 @@ export const PromptReferenceSchema = z.object({
  */
 export const CompleteRequestSchema = RequestSchema.extend({
   method: z.literal("completion/complete"),
-  params: z.object({
+  params: BaseRequestParamsSchema.extend({
     ref: z.union([PromptReferenceSchema, ResourceReferenceSchema]),
     /**
      * The argument's information
