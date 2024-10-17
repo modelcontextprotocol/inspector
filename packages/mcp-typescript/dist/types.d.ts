@@ -816,7 +816,24 @@ export declare const InitializeRequestSchema: z.ZodObject<z.objectUtil.extendSha
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"initialize">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
          */
@@ -847,27 +864,103 @@ export declare const InitializeRequestSchema: z.ZodObject<z.objectUtil.extendSha
             name: string;
             version: string;
         }>;
-    }, "strip", z.ZodTypeAny, {
-        protocolVersion: string | number;
-        capabilities: {
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
+         */
+        protocolVersion: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
+        capabilities: z.ZodObject<{
+            /**
+             * Experimental, non-standard capabilities that the client supports.
+             */
+            experimental: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
+            /**
+             * Present if the client supports sampling from an LLM.
+             */
+            sampling: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
+        }, "strip", z.ZodTypeAny, {
             experimental?: z.objectOutputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
             sampling?: z.objectOutputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
-        };
-        clientInfo: {
-            name: string;
-            version: string;
-        };
-    }, {
-        protocolVersion: string | number;
-        capabilities: {
+        }, {
             experimental?: z.objectInputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
             sampling?: z.objectInputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
-        };
-        clientInfo: {
+        }>;
+        clientInfo: z.ZodObject<{
+            name: z.ZodString;
+            version: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
             name: string;
             version: string;
-        };
-    }>;
+        }, {
+            name: string;
+            version: string;
+        }>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
+         */
+        protocolVersion: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
+        capabilities: z.ZodObject<{
+            /**
+             * Experimental, non-standard capabilities that the client supports.
+             */
+            experimental: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
+            /**
+             * Present if the client supports sampling from an LLM.
+             */
+            sampling: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
+        }, "strip", z.ZodTypeAny, {
+            experimental?: z.objectOutputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+            sampling?: z.objectOutputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+        }, {
+            experimental?: z.objectInputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+            sampling?: z.objectInputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+        }>;
+        clientInfo: z.ZodObject<{
+            name: z.ZodString;
+            version: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            name: string;
+            version: string;
+        }, {
+            name: string;
+            version: string;
+        }>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         protocolVersion: string | number;
@@ -879,6 +972,14 @@ export declare const InitializeRequestSchema: z.ZodObject<z.objectUtil.extendSha
             name: string;
             version: string;
         };
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "initialize";
 }, {
@@ -892,6 +993,14 @@ export declare const InitializeRequestSchema: z.ZodObject<z.objectUtil.extendSha
             name: string;
             version: string;
         };
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "initialize";
 }>;
@@ -1670,27 +1779,27 @@ export declare const ProgressNotificationSchema: z.ZodObject<z.objectUtil.extend
         /**
          * The progress token which was given in the initial request, used to associate this notification with the request that is proceeding.
          */
-        progressToken: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
+        progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
     }>, "strip", z.ZodTypeAny, {
-        progressToken: string | number;
         progress: number;
+        progressToken?: string | number | undefined;
         total?: number | undefined;
     }, {
-        progressToken: string | number;
         progress: number;
+        progressToken?: string | number | undefined;
         total?: number | undefined;
     }>;
 }>, "strip", z.ZodTypeAny, {
     params: {
-        progressToken: string | number;
         progress: number;
+        progressToken?: string | number | undefined;
         total?: number | undefined;
     };
     method: "notifications/progress";
 }, {
     params: {
-        progressToken: string | number;
         progress: number;
+        progressToken?: string | number | undefined;
         total?: number | undefined;
     };
     method: "notifications/progress";
@@ -1750,27 +1859,102 @@ export declare const PaginatedRequestSchema: z.ZodObject<z.objectUtil.extendShap
         }, z.ZodTypeAny, "passthrough">>>;
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
-    params: z.ZodOptional<z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * An opaque token representing the current pagination position.
          * If provided, the server should return results starting after this cursor.
          */
         cursor: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        cursor?: string | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        cursor?: string | undefined;
-    }>>;
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
-    method: string;
-    params?: {
+    params: {
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: string;
 }, {
-    method: string;
-    params?: {
+    params: {
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: string;
 }>;
 export declare const PaginatedResultSchema: z.ZodObject<z.objectUtil.extendShape<{
     /**
@@ -1999,29 +2183,104 @@ export declare const ListResourcesRequestSchema: z.ZodObject<z.objectUtil.extend
         }, z.ZodTypeAny, "passthrough">>>;
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
-    params: z.ZodOptional<z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * An opaque token representing the current pagination position.
          * If provided, the server should return results starting after this cursor.
          */
         cursor: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        cursor?: string | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        cursor?: string | undefined;
-    }>>;
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, {
     method: z.ZodLiteral<"resources/list">;
 }>, "strip", z.ZodTypeAny, {
-    method: "resources/list";
-    params?: {
+    params: {
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "resources/list";
 }, {
-    method: "resources/list";
-    params?: {
+    params: {
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "resources/list";
 }>;
 /**
  * The server's response to a resources/list request from the client.
@@ -2217,29 +2476,104 @@ export declare const ListResourceTemplatesRequestSchema: z.ZodObject<z.objectUti
         }, z.ZodTypeAny, "passthrough">>>;
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
-    params: z.ZodOptional<z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * An opaque token representing the current pagination position.
          * If provided, the server should return results starting after this cursor.
          */
         cursor: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        cursor?: string | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        cursor?: string | undefined;
-    }>>;
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, {
     method: z.ZodLiteral<"resources/templates/list">;
 }>, "strip", z.ZodTypeAny, {
-    method: "resources/templates/list";
-    params?: {
+    params: {
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "resources/templates/list";
 }, {
-    method: "resources/templates/list";
-    params?: {
+    params: {
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "resources/templates/list";
 }>;
 /**
  * The server's response to a resources/templates/list request from the client.
@@ -2436,24 +2770,97 @@ export declare const ReadResourceRequestSchema: z.ZodObject<z.objectUtil.extendS
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"resources/read">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
          */
         uri: z.ZodEffects<z.ZodString, URL, string>;
-    }, "strip", z.ZodTypeAny, {
-        uri: URL;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        uri: string;
-    }>;
+        /**
+         * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
+         */
+        uri: z.ZodEffects<z.ZodString, URL, string>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
+         */
+        uri: z.ZodEffects<z.ZodString, URL, string>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         uri: URL;
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "resources/read";
 }, {
     params: {
         uri: string;
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "resources/read";
 }>;
@@ -2713,24 +3120,97 @@ export declare const SubscribeRequestSchema: z.ZodObject<z.objectUtil.extendShap
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"resources/subscribe">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
          */
         uri: z.ZodEffects<z.ZodString, URL, string>;
-    }, "strip", z.ZodTypeAny, {
-        uri: URL;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        uri: string;
-    }>;
+        /**
+         * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
+         */
+        uri: z.ZodEffects<z.ZodString, URL, string>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
+         */
+        uri: z.ZodEffects<z.ZodString, URL, string>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         uri: URL;
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "resources/subscribe";
 }, {
     params: {
         uri: string;
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "resources/subscribe";
 }>;
@@ -2793,24 +3273,97 @@ export declare const UnsubscribeRequestSchema: z.ZodObject<z.objectUtil.extendSh
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"resources/unsubscribe">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * The URI of the resource to unsubscribe from.
          */
         uri: z.ZodEffects<z.ZodString, URL, string>;
-    }, "strip", z.ZodTypeAny, {
-        uri: URL;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        uri: string;
-    }>;
+        /**
+         * The URI of the resource to unsubscribe from.
+         */
+        uri: z.ZodEffects<z.ZodString, URL, string>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The URI of the resource to unsubscribe from.
+         */
+        uri: z.ZodEffects<z.ZodString, URL, string>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         uri: URL;
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "resources/unsubscribe";
 }, {
     params: {
         uri: string;
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "resources/unsubscribe";
 }>;
@@ -2995,29 +3548,104 @@ export declare const ListPromptsRequestSchema: z.ZodObject<z.objectUtil.extendSh
         }, z.ZodTypeAny, "passthrough">>>;
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
-    params: z.ZodOptional<z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * An opaque token representing the current pagination position.
          * If provided, the server should return results starting after this cursor.
          */
         cursor: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        cursor?: string | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        cursor?: string | undefined;
-    }>>;
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, {
     method: z.ZodLiteral<"prompts/list">;
 }>, "strip", z.ZodTypeAny, {
-    method: "prompts/list";
-    params?: {
+    params: {
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "prompts/list";
 }, {
-    method: "prompts/list";
-    params?: {
+    params: {
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "prompts/list";
 }>;
 /**
  * The server's response to a prompts/list request from the client.
@@ -3271,7 +3899,24 @@ export declare const GetPromptRequestSchema: z.ZodObject<z.objectUtil.extendShap
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"prompts/get">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * The name of the prompt or prompt template.
          */
@@ -3280,23 +3925,85 @@ export declare const GetPromptRequestSchema: z.ZodObject<z.objectUtil.extendShap
          * Arguments to use for templating the prompt.
          */
         arguments: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        arguments?: Record<string, string> | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        name: string;
-        arguments?: Record<string, string> | undefined;
-    }>;
+        /**
+         * The name of the prompt or prompt template.
+         */
+        name: z.ZodString;
+        /**
+         * Arguments to use for templating the prompt.
+         */
+        arguments: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The name of the prompt or prompt template.
+         */
+        name: z.ZodString;
+        /**
+         * Arguments to use for templating the prompt.
+         */
+        arguments: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         name: string;
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         arguments?: Record<string, string> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "prompts/get";
 }, {
     params: {
         name: string;
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         arguments?: Record<string, string> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "prompts/get";
 }>;
@@ -3634,29 +4341,104 @@ export declare const ListToolsRequestSchema: z.ZodObject<z.objectUtil.extendShap
         }, z.ZodTypeAny, "passthrough">>>;
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
-    params: z.ZodOptional<z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * An opaque token representing the current pagination position.
          * If provided, the server should return results starting after this cursor.
          */
         cursor: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        cursor?: string | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        cursor?: string | undefined;
-    }>>;
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, {
     method: z.ZodLiteral<"tools/list">;
 }>, "strip", z.ZodTypeAny, {
-    method: "tools/list";
-    params?: {
+    params: {
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "tools/list";
 }, {
-    method: "tools/list";
-    params?: {
+    params: {
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "tools/list";
 }>;
 /**
  * The server's response to a tools/list request from the client.
@@ -3893,26 +4675,93 @@ export declare const CallToolRequestSchema: z.ZodObject<z.objectUtil.extendShape
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"tools/call">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         name: z.ZodString;
         arguments: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        arguments?: Record<string, unknown> | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        name: string;
-        arguments?: Record<string, unknown> | undefined;
-    }>;
+        name: z.ZodString;
+        arguments: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        name: z.ZodString;
+        arguments: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         name: string;
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         arguments?: Record<string, unknown> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "tools/call";
 }, {
     params: {
         name: string;
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         arguments?: Record<string, unknown> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "tools/call";
 }>;
@@ -4019,24 +4868,97 @@ export declare const SetLevelRequestSchema: z.ZodObject<z.objectUtil.extendShape
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"logging/setLevel">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/logging/message.
          */
         level: z.ZodEnum<["debug", "info", "warning", "error"]>;
-    }, "strip", z.ZodTypeAny, {
-        level: "error" | "debug" | "info" | "warning";
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        level: "error" | "debug" | "info" | "warning";
-    }>;
+        /**
+         * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/logging/message.
+         */
+        level: z.ZodEnum<["debug", "info", "warning", "error"]>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/logging/message.
+         */
+        level: z.ZodEnum<["debug", "info", "warning", "error"]>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         level: "error" | "debug" | "info" | "warning";
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "logging/setLevel";
 }, {
     params: {
         level: "error" | "debug" | "info" | "warning";
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "logging/setLevel";
 }>;
@@ -4159,7 +5081,24 @@ export declare const CreateMessageRequestSchema: z.ZodObject<z.objectUtil.extend
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"sampling/createMessage">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         messages: z.ZodArray<z.ZodObject<{
             role: z.ZodEnum<["user", "assistant"]>;
             content: z.ZodUnion<[z.ZodObject<{
@@ -4232,26 +5171,58 @@ export declare const CreateMessageRequestSchema: z.ZodObject<z.objectUtil.extend
          * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
          */
         metadata: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
-    }, "strip", z.ZodTypeAny, {
-        messages: {
-            role: "user" | "assistant";
-            content: {
-                type: "text";
-                text: string;
-            } | {
-                type: "image";
-                data: string;
-                mimeType: string;
-            };
-        }[];
-        maxTokens: number;
-        systemPrompt?: string | undefined;
-        includeContext?: "none" | "thisServer" | "allServers" | undefined;
-        temperature?: number | undefined;
-        stopSequences?: string[] | undefined;
-        metadata?: z.objectOutputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        messages: {
+        messages: z.ZodArray<z.ZodObject<{
+            role: z.ZodEnum<["user", "assistant"]>;
+            content: z.ZodUnion<[z.ZodObject<{
+                type: z.ZodLiteral<"text">;
+                /**
+                 * The text content of the message.
+                 */
+                text: z.ZodString;
+            }, "strip", z.ZodTypeAny, {
+                type: "text";
+                text: string;
+            }, {
+                type: "text";
+                text: string;
+            }>, z.ZodObject<{
+                type: z.ZodLiteral<"image">;
+                /**
+                 * The base64-encoded image data.
+                 */
+                data: z.ZodString;
+                /**
+                 * The MIME type of the image. Different providers may support different image types.
+                 */
+                mimeType: z.ZodString;
+            }, "strip", z.ZodTypeAny, {
+                type: "image";
+                data: string;
+                mimeType: string;
+            }, {
+                type: "image";
+                data: string;
+                mimeType: string;
+            }>]>;
+        }, "strip", z.ZodTypeAny, {
             role: "user" | "assistant";
             content: {
                 type: "text";
@@ -4261,14 +5232,126 @@ export declare const CreateMessageRequestSchema: z.ZodObject<z.objectUtil.extend
                 data: string;
                 mimeType: string;
             };
-        }[];
-        maxTokens: number;
-        systemPrompt?: string | undefined;
-        includeContext?: "none" | "thisServer" | "allServers" | undefined;
-        temperature?: number | undefined;
-        stopSequences?: string[] | undefined;
-        metadata?: z.objectInputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
-    }>;
+        }, {
+            role: "user" | "assistant";
+            content: {
+                type: "text";
+                text: string;
+            } | {
+                type: "image";
+                data: string;
+                mimeType: string;
+            };
+        }>, "many">;
+        /**
+         * An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
+         */
+        systemPrompt: z.ZodOptional<z.ZodString>;
+        /**
+         * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt. The client MAY ignore this request.
+         */
+        includeContext: z.ZodOptional<z.ZodEnum<["none", "thisServer", "allServers"]>>;
+        temperature: z.ZodOptional<z.ZodNumber>;
+        /**
+         * The maximum number of tokens to sample, as requested by the server. The client MAY choose to sample fewer tokens than requested.
+         */
+        maxTokens: z.ZodNumber;
+        stopSequences: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+        /**
+         * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
+         */
+        metadata: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        messages: z.ZodArray<z.ZodObject<{
+            role: z.ZodEnum<["user", "assistant"]>;
+            content: z.ZodUnion<[z.ZodObject<{
+                type: z.ZodLiteral<"text">;
+                /**
+                 * The text content of the message.
+                 */
+                text: z.ZodString;
+            }, "strip", z.ZodTypeAny, {
+                type: "text";
+                text: string;
+            }, {
+                type: "text";
+                text: string;
+            }>, z.ZodObject<{
+                type: z.ZodLiteral<"image">;
+                /**
+                 * The base64-encoded image data.
+                 */
+                data: z.ZodString;
+                /**
+                 * The MIME type of the image. Different providers may support different image types.
+                 */
+                mimeType: z.ZodString;
+            }, "strip", z.ZodTypeAny, {
+                type: "image";
+                data: string;
+                mimeType: string;
+            }, {
+                type: "image";
+                data: string;
+                mimeType: string;
+            }>]>;
+        }, "strip", z.ZodTypeAny, {
+            role: "user" | "assistant";
+            content: {
+                type: "text";
+                text: string;
+            } | {
+                type: "image";
+                data: string;
+                mimeType: string;
+            };
+        }, {
+            role: "user" | "assistant";
+            content: {
+                type: "text";
+                text: string;
+            } | {
+                type: "image";
+                data: string;
+                mimeType: string;
+            };
+        }>, "many">;
+        /**
+         * An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
+         */
+        systemPrompt: z.ZodOptional<z.ZodString>;
+        /**
+         * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt. The client MAY ignore this request.
+         */
+        includeContext: z.ZodOptional<z.ZodEnum<["none", "thisServer", "allServers"]>>;
+        temperature: z.ZodOptional<z.ZodNumber>;
+        /**
+         * The maximum number of tokens to sample, as requested by the server. The client MAY choose to sample fewer tokens than requested.
+         */
+        maxTokens: z.ZodNumber;
+        stopSequences: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+        /**
+         * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
+         */
+        metadata: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         messages: {
@@ -4283,11 +5366,19 @@ export declare const CreateMessageRequestSchema: z.ZodObject<z.objectUtil.extend
             };
         }[];
         maxTokens: number;
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         systemPrompt?: string | undefined;
         includeContext?: "none" | "thisServer" | "allServers" | undefined;
         temperature?: number | undefined;
         stopSequences?: string[] | undefined;
         metadata?: z.objectOutputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "sampling/createMessage";
 }, {
@@ -4304,11 +5395,19 @@ export declare const CreateMessageRequestSchema: z.ZodObject<z.objectUtil.extend
             };
         }[];
         maxTokens: number;
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         systemPrompt?: string | undefined;
         includeContext?: "none" | "thisServer" | "allServers" | undefined;
         temperature?: number | undefined;
         stopSequences?: string[] | undefined;
         metadata?: z.objectInputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "sampling/createMessage";
 }>;
@@ -4545,7 +5644,24 @@ export declare const CompleteRequestSchema: z.ZodObject<z.objectUtil.extendShape
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"completion/complete">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         ref: z.ZodUnion<[z.ZodObject<{
             type: z.ZodLiteral<"ref/prompt">;
             /**
@@ -4590,31 +5706,131 @@ export declare const CompleteRequestSchema: z.ZodObject<z.objectUtil.extendShape
             value: string;
             name: string;
         }>;
-    }, "strip", z.ZodTypeAny, {
-        ref: {
-            type: "ref/resource";
-            uri: string;
-        } | {
-            type: "ref/prompt";
-            name: string;
-        };
-        argument: {
-            value: string;
-            name: string;
-        };
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        ref: {
-            type: "ref/resource";
-            uri: string;
-        } | {
+        ref: z.ZodUnion<[z.ZodObject<{
+            type: z.ZodLiteral<"ref/prompt">;
+            /**
+             * The name of the prompt or prompt template
+             */
+            name: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
             type: "ref/prompt";
             name: string;
-        };
-        argument: {
+        }, {
+            type: "ref/prompt";
+            name: string;
+        }>, z.ZodObject<{
+            type: z.ZodLiteral<"ref/resource">;
+            /**
+             * The URI or URI template of the resource.
+             */
+            uri: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            type: "ref/resource";
+            uri: string;
+        }, {
+            type: "ref/resource";
+            uri: string;
+        }>]>;
+        /**
+         * The argument's information
+         */
+        argument: z.ZodObject<{
+            /**
+             * The name of the argument
+             */
+            name: z.ZodString;
+            /**
+             * The value of the argument to use for completion matching.
+             */
+            value: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
             value: string;
             name: string;
-        };
-    }>;
+        }, {
+            value: string;
+            name: string;
+        }>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        ref: z.ZodUnion<[z.ZodObject<{
+            type: z.ZodLiteral<"ref/prompt">;
+            /**
+             * The name of the prompt or prompt template
+             */
+            name: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            type: "ref/prompt";
+            name: string;
+        }, {
+            type: "ref/prompt";
+            name: string;
+        }>, z.ZodObject<{
+            type: z.ZodLiteral<"ref/resource">;
+            /**
+             * The URI or URI template of the resource.
+             */
+            uri: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            type: "ref/resource";
+            uri: string;
+        }, {
+            type: "ref/resource";
+            uri: string;
+        }>]>;
+        /**
+         * The argument's information
+         */
+        argument: z.ZodObject<{
+            /**
+             * The name of the argument
+             */
+            name: z.ZodString;
+            /**
+             * The value of the argument to use for completion matching.
+             */
+            value: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            value: string;
+            name: string;
+        }, {
+            value: string;
+            name: string;
+        }>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         ref: {
@@ -4628,6 +5844,14 @@ export declare const CompleteRequestSchema: z.ZodObject<z.objectUtil.extendShape
             value: string;
             name: string;
         };
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "completion/complete";
 }, {
@@ -4643,6 +5867,14 @@ export declare const CompleteRequestSchema: z.ZodObject<z.objectUtil.extendShape
             value: string;
             name: string;
         };
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "completion/complete";
 }>;
@@ -4886,7 +6118,24 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"initialize">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
          */
@@ -4917,27 +6166,103 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
             name: string;
             version: string;
         }>;
-    }, "strip", z.ZodTypeAny, {
-        protocolVersion: string | number;
-        capabilities: {
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
+         */
+        protocolVersion: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
+        capabilities: z.ZodObject<{
+            /**
+             * Experimental, non-standard capabilities that the client supports.
+             */
+            experimental: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
+            /**
+             * Present if the client supports sampling from an LLM.
+             */
+            sampling: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
+        }, "strip", z.ZodTypeAny, {
             experimental?: z.objectOutputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
             sampling?: z.objectOutputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
-        };
-        clientInfo: {
-            name: string;
-            version: string;
-        };
-    }, {
-        protocolVersion: string | number;
-        capabilities: {
+        }, {
             experimental?: z.objectInputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
             sampling?: z.objectInputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
-        };
-        clientInfo: {
+        }>;
+        clientInfo: z.ZodObject<{
+            name: z.ZodString;
+            version: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
             name: string;
             version: string;
-        };
-    }>;
+        }, {
+            name: string;
+            version: string;
+        }>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
+         */
+        protocolVersion: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
+        capabilities: z.ZodObject<{
+            /**
+             * Experimental, non-standard capabilities that the client supports.
+             */
+            experimental: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
+            /**
+             * Present if the client supports sampling from an LLM.
+             */
+            sampling: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
+        }, "strip", z.ZodTypeAny, {
+            experimental?: z.objectOutputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+            sampling?: z.objectOutputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+        }, {
+            experimental?: z.objectInputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+            sampling?: z.objectInputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+        }>;
+        clientInfo: z.ZodObject<{
+            name: z.ZodString;
+            version: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            name: string;
+            version: string;
+        }, {
+            name: string;
+            version: string;
+        }>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         protocolVersion: string | number;
@@ -4949,6 +6274,14 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
             name: string;
             version: string;
         };
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "initialize";
 }, {
@@ -4962,6 +6295,14 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
             name: string;
             version: string;
         };
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "initialize";
 }>, z.ZodObject<z.objectUtil.extendShape<{
@@ -5020,7 +6361,24 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"completion/complete">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         ref: z.ZodUnion<[z.ZodObject<{
             type: z.ZodLiteral<"ref/prompt">;
             /**
@@ -5065,31 +6423,131 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
             value: string;
             name: string;
         }>;
-    }, "strip", z.ZodTypeAny, {
-        ref: {
-            type: "ref/resource";
-            uri: string;
-        } | {
-            type: "ref/prompt";
-            name: string;
-        };
-        argument: {
-            value: string;
-            name: string;
-        };
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        ref: {
-            type: "ref/resource";
-            uri: string;
-        } | {
+        ref: z.ZodUnion<[z.ZodObject<{
+            type: z.ZodLiteral<"ref/prompt">;
+            /**
+             * The name of the prompt or prompt template
+             */
+            name: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
             type: "ref/prompt";
             name: string;
-        };
-        argument: {
+        }, {
+            type: "ref/prompt";
+            name: string;
+        }>, z.ZodObject<{
+            type: z.ZodLiteral<"ref/resource">;
+            /**
+             * The URI or URI template of the resource.
+             */
+            uri: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            type: "ref/resource";
+            uri: string;
+        }, {
+            type: "ref/resource";
+            uri: string;
+        }>]>;
+        /**
+         * The argument's information
+         */
+        argument: z.ZodObject<{
+            /**
+             * The name of the argument
+             */
+            name: z.ZodString;
+            /**
+             * The value of the argument to use for completion matching.
+             */
+            value: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
             value: string;
             name: string;
-        };
-    }>;
+        }, {
+            value: string;
+            name: string;
+        }>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        ref: z.ZodUnion<[z.ZodObject<{
+            type: z.ZodLiteral<"ref/prompt">;
+            /**
+             * The name of the prompt or prompt template
+             */
+            name: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            type: "ref/prompt";
+            name: string;
+        }, {
+            type: "ref/prompt";
+            name: string;
+        }>, z.ZodObject<{
+            type: z.ZodLiteral<"ref/resource">;
+            /**
+             * The URI or URI template of the resource.
+             */
+            uri: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            type: "ref/resource";
+            uri: string;
+        }, {
+            type: "ref/resource";
+            uri: string;
+        }>]>;
+        /**
+         * The argument's information
+         */
+        argument: z.ZodObject<{
+            /**
+             * The name of the argument
+             */
+            name: z.ZodString;
+            /**
+             * The value of the argument to use for completion matching.
+             */
+            value: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            value: string;
+            name: string;
+        }, {
+            value: string;
+            name: string;
+        }>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         ref: {
@@ -5103,6 +6561,14 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
             value: string;
             name: string;
         };
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "completion/complete";
 }, {
@@ -5118,6 +6584,14 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
             value: string;
             name: string;
         };
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "completion/complete";
 }>, z.ZodObject<z.objectUtil.extendShape<{
@@ -5176,24 +6650,97 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"logging/setLevel">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/logging/message.
          */
         level: z.ZodEnum<["debug", "info", "warning", "error"]>;
-    }, "strip", z.ZodTypeAny, {
-        level: "error" | "debug" | "info" | "warning";
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        level: "error" | "debug" | "info" | "warning";
-    }>;
+        /**
+         * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/logging/message.
+         */
+        level: z.ZodEnum<["debug", "info", "warning", "error"]>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/logging/message.
+         */
+        level: z.ZodEnum<["debug", "info", "warning", "error"]>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         level: "error" | "debug" | "info" | "warning";
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "logging/setLevel";
 }, {
     params: {
         level: "error" | "debug" | "info" | "warning";
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "logging/setLevel";
 }>, z.ZodObject<z.objectUtil.extendShape<{
@@ -5252,7 +6799,24 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"prompts/get">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * The name of the prompt or prompt template.
          */
@@ -5261,23 +6825,85 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
          * Arguments to use for templating the prompt.
          */
         arguments: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        arguments?: Record<string, string> | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        name: string;
-        arguments?: Record<string, string> | undefined;
-    }>;
+        /**
+         * The name of the prompt or prompt template.
+         */
+        name: z.ZodString;
+        /**
+         * Arguments to use for templating the prompt.
+         */
+        arguments: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The name of the prompt or prompt template.
+         */
+        name: z.ZodString;
+        /**
+         * Arguments to use for templating the prompt.
+         */
+        arguments: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         name: string;
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         arguments?: Record<string, string> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "prompts/get";
 }, {
     params: {
         name: string;
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         arguments?: Record<string, string> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "prompts/get";
 }>, z.ZodObject<z.objectUtil.extendShape<z.objectUtil.extendShape<{
@@ -5335,29 +6961,104 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
         }, z.ZodTypeAny, "passthrough">>>;
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
-    params: z.ZodOptional<z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * An opaque token representing the current pagination position.
          * If provided, the server should return results starting after this cursor.
          */
         cursor: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        cursor?: string | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        cursor?: string | undefined;
-    }>>;
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, {
     method: z.ZodLiteral<"prompts/list">;
 }>, "strip", z.ZodTypeAny, {
-    method: "prompts/list";
-    params?: {
+    params: {
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "prompts/list";
 }, {
-    method: "prompts/list";
-    params?: {
+    params: {
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "prompts/list";
 }>, z.ZodObject<z.objectUtil.extendShape<z.objectUtil.extendShape<{
     method: z.ZodString;
     params: z.ZodOptional<z.ZodObject<{
@@ -5413,29 +7114,104 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
         }, z.ZodTypeAny, "passthrough">>>;
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
-    params: z.ZodOptional<z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * An opaque token representing the current pagination position.
          * If provided, the server should return results starting after this cursor.
          */
         cursor: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        cursor?: string | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        cursor?: string | undefined;
-    }>>;
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, {
     method: z.ZodLiteral<"resources/list">;
 }>, "strip", z.ZodTypeAny, {
-    method: "resources/list";
-    params?: {
+    params: {
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "resources/list";
 }, {
-    method: "resources/list";
-    params?: {
+    params: {
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "resources/list";
 }>, z.ZodObject<z.objectUtil.extendShape<{
     method: z.ZodString;
     params: z.ZodOptional<z.ZodObject<{
@@ -5492,24 +7268,97 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"resources/read">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
          */
         uri: z.ZodEffects<z.ZodString, URL, string>;
-    }, "strip", z.ZodTypeAny, {
-        uri: URL;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        uri: string;
-    }>;
+        /**
+         * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
+         */
+        uri: z.ZodEffects<z.ZodString, URL, string>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
+         */
+        uri: z.ZodEffects<z.ZodString, URL, string>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         uri: URL;
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "resources/read";
 }, {
     params: {
         uri: string;
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "resources/read";
 }>, z.ZodObject<z.objectUtil.extendShape<{
@@ -5568,24 +7417,97 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"resources/subscribe">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
          */
         uri: z.ZodEffects<z.ZodString, URL, string>;
-    }, "strip", z.ZodTypeAny, {
-        uri: URL;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        uri: string;
-    }>;
+        /**
+         * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
+         */
+        uri: z.ZodEffects<z.ZodString, URL, string>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
+         */
+        uri: z.ZodEffects<z.ZodString, URL, string>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         uri: URL;
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "resources/subscribe";
 }, {
     params: {
         uri: string;
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "resources/subscribe";
 }>, z.ZodObject<z.objectUtil.extendShape<{
@@ -5644,24 +7566,97 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"resources/unsubscribe">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * The URI of the resource to unsubscribe from.
          */
         uri: z.ZodEffects<z.ZodString, URL, string>;
-    }, "strip", z.ZodTypeAny, {
-        uri: URL;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        uri: string;
-    }>;
+        /**
+         * The URI of the resource to unsubscribe from.
+         */
+        uri: z.ZodEffects<z.ZodString, URL, string>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * The URI of the resource to unsubscribe from.
+         */
+        uri: z.ZodEffects<z.ZodString, URL, string>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         uri: URL;
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "resources/unsubscribe";
 }, {
     params: {
         uri: string;
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "resources/unsubscribe";
 }>, z.ZodObject<z.objectUtil.extendShape<{
@@ -5720,26 +7715,93 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"tools/call">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         name: z.ZodString;
         arguments: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        arguments?: Record<string, unknown> | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        name: string;
-        arguments?: Record<string, unknown> | undefined;
-    }>;
+        name: z.ZodString;
+        arguments: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        name: z.ZodString;
+        arguments: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         name: string;
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         arguments?: Record<string, unknown> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "tools/call";
 }, {
     params: {
         name: string;
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         arguments?: Record<string, unknown> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "tools/call";
 }>, z.ZodObject<z.objectUtil.extendShape<z.objectUtil.extendShape<{
@@ -5797,29 +7859,104 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
         }, z.ZodTypeAny, "passthrough">>>;
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
-    params: z.ZodOptional<z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         /**
          * An opaque token representing the current pagination position.
          * If provided, the server should return results starting after this cursor.
          */
         cursor: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        cursor?: string | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        cursor?: string | undefined;
-    }>>;
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        /**
+         * An opaque token representing the current pagination position.
+         * If provided, the server should return results starting after this cursor.
+         */
+        cursor: z.ZodOptional<z.ZodString>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, {
     method: z.ZodLiteral<"tools/list">;
 }>, "strip", z.ZodTypeAny, {
-    method: "tools/list";
-    params?: {
+    params: {
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "tools/list";
 }, {
-    method: "tools/list";
-    params?: {
+    params: {
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         cursor?: string | undefined;
-    } | undefined;
+    } & {
+        [k: string]: unknown;
+    };
+    method: "tools/list";
 }>]>;
 export declare const ClientNotificationSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.extendShape<{
     method: z.ZodString;
@@ -5854,27 +7991,27 @@ export declare const ClientNotificationSchema: z.ZodUnion<[z.ZodObject<z.objectU
         /**
          * The progress token which was given in the initial request, used to associate this notification with the request that is proceeding.
          */
-        progressToken: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
+        progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
     }>, "strip", z.ZodTypeAny, {
-        progressToken: string | number;
         progress: number;
+        progressToken?: string | number | undefined;
         total?: number | undefined;
     }, {
-        progressToken: string | number;
         progress: number;
+        progressToken?: string | number | undefined;
         total?: number | undefined;
     }>;
 }>, "strip", z.ZodTypeAny, {
     params: {
-        progressToken: string | number;
         progress: number;
+        progressToken?: string | number | undefined;
         total?: number | undefined;
     };
     method: "notifications/progress";
 }, {
     params: {
-        progressToken: string | number;
         progress: number;
+        progressToken?: string | number | undefined;
         total?: number | undefined;
     };
     method: "notifications/progress";
@@ -6215,7 +8352,24 @@ export declare const ServerRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
     }, z.ZodTypeAny, "passthrough">>>;
 }, {
     method: z.ZodLiteral<"sampling/createMessage">;
-    params: z.ZodObject<{
+    params: z.ZodObject<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
         messages: z.ZodArray<z.ZodObject<{
             role: z.ZodEnum<["user", "assistant"]>;
             content: z.ZodUnion<[z.ZodObject<{
@@ -6288,26 +8442,58 @@ export declare const ServerRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
          * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
          */
         metadata: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
-    }, "strip", z.ZodTypeAny, {
-        messages: {
-            role: "user" | "assistant";
-            content: {
-                type: "text";
-                text: string;
-            } | {
-                type: "image";
-                data: string;
-                mimeType: string;
-            };
-        }[];
-        maxTokens: number;
-        systemPrompt?: string | undefined;
-        includeContext?: "none" | "thisServer" | "allServers" | undefined;
-        temperature?: number | undefined;
-        stopSequences?: string[] | undefined;
-        metadata?: z.objectOutputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+    }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
     }, {
-        messages: {
+        messages: z.ZodArray<z.ZodObject<{
+            role: z.ZodEnum<["user", "assistant"]>;
+            content: z.ZodUnion<[z.ZodObject<{
+                type: z.ZodLiteral<"text">;
+                /**
+                 * The text content of the message.
+                 */
+                text: z.ZodString;
+            }, "strip", z.ZodTypeAny, {
+                type: "text";
+                text: string;
+            }, {
+                type: "text";
+                text: string;
+            }>, z.ZodObject<{
+                type: z.ZodLiteral<"image">;
+                /**
+                 * The base64-encoded image data.
+                 */
+                data: z.ZodString;
+                /**
+                 * The MIME type of the image. Different providers may support different image types.
+                 */
+                mimeType: z.ZodString;
+            }, "strip", z.ZodTypeAny, {
+                type: "image";
+                data: string;
+                mimeType: string;
+            }, {
+                type: "image";
+                data: string;
+                mimeType: string;
+            }>]>;
+        }, "strip", z.ZodTypeAny, {
             role: "user" | "assistant";
             content: {
                 type: "text";
@@ -6317,14 +8503,126 @@ export declare const ServerRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
                 data: string;
                 mimeType: string;
             };
-        }[];
-        maxTokens: number;
-        systemPrompt?: string | undefined;
-        includeContext?: "none" | "thisServer" | "allServers" | undefined;
-        temperature?: number | undefined;
-        stopSequences?: string[] | undefined;
-        metadata?: z.objectInputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
-    }>;
+        }, {
+            role: "user" | "assistant";
+            content: {
+                type: "text";
+                text: string;
+            } | {
+                type: "image";
+                data: string;
+                mimeType: string;
+            };
+        }>, "many">;
+        /**
+         * An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
+         */
+        systemPrompt: z.ZodOptional<z.ZodString>;
+        /**
+         * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt. The client MAY ignore this request.
+         */
+        includeContext: z.ZodOptional<z.ZodEnum<["none", "thisServer", "allServers"]>>;
+        temperature: z.ZodOptional<z.ZodNumber>;
+        /**
+         * The maximum number of tokens to sample, as requested by the server. The client MAY choose to sample fewer tokens than requested.
+         */
+        maxTokens: z.ZodNumber;
+        stopSequences: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+        /**
+         * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
+         */
+        metadata: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
+    }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough">>>;
+    }, {
+        messages: z.ZodArray<z.ZodObject<{
+            role: z.ZodEnum<["user", "assistant"]>;
+            content: z.ZodUnion<[z.ZodObject<{
+                type: z.ZodLiteral<"text">;
+                /**
+                 * The text content of the message.
+                 */
+                text: z.ZodString;
+            }, "strip", z.ZodTypeAny, {
+                type: "text";
+                text: string;
+            }, {
+                type: "text";
+                text: string;
+            }>, z.ZodObject<{
+                type: z.ZodLiteral<"image">;
+                /**
+                 * The base64-encoded image data.
+                 */
+                data: z.ZodString;
+                /**
+                 * The MIME type of the image. Different providers may support different image types.
+                 */
+                mimeType: z.ZodString;
+            }, "strip", z.ZodTypeAny, {
+                type: "image";
+                data: string;
+                mimeType: string;
+            }, {
+                type: "image";
+                data: string;
+                mimeType: string;
+            }>]>;
+        }, "strip", z.ZodTypeAny, {
+            role: "user" | "assistant";
+            content: {
+                type: "text";
+                text: string;
+            } | {
+                type: "image";
+                data: string;
+                mimeType: string;
+            };
+        }, {
+            role: "user" | "assistant";
+            content: {
+                type: "text";
+                text: string;
+            } | {
+                type: "image";
+                data: string;
+                mimeType: string;
+            };
+        }>, "many">;
+        /**
+         * An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
+         */
+        systemPrompt: z.ZodOptional<z.ZodString>;
+        /**
+         * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt. The client MAY ignore this request.
+         */
+        includeContext: z.ZodOptional<z.ZodEnum<["none", "thisServer", "allServers"]>>;
+        temperature: z.ZodOptional<z.ZodNumber>;
+        /**
+         * The maximum number of tokens to sample, as requested by the server. The client MAY choose to sample fewer tokens than requested.
+         */
+        maxTokens: z.ZodNumber;
+        stopSequences: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+        /**
+         * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
+         */
+        metadata: z.ZodOptional<z.ZodObject<{}, "passthrough", z.ZodTypeAny, z.objectOutputType<{}, z.ZodTypeAny, "passthrough">, z.objectInputType<{}, z.ZodTypeAny, "passthrough">>>;
+    }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
         messages: {
@@ -6339,11 +8637,19 @@ export declare const ServerRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
             };
         }[];
         maxTokens: number;
+        _meta?: z.objectOutputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         systemPrompt?: string | undefined;
         includeContext?: "none" | "thisServer" | "allServers" | undefined;
         temperature?: number | undefined;
         stopSequences?: string[] | undefined;
         metadata?: z.objectOutputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "sampling/createMessage";
 }, {
@@ -6360,11 +8666,19 @@ export declare const ServerRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
             };
         }[];
         maxTokens: number;
+        _meta?: z.objectInputType<{
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
+        }, z.ZodTypeAny, "passthrough"> | undefined;
         systemPrompt?: string | undefined;
         includeContext?: "none" | "thisServer" | "allServers" | undefined;
         temperature?: number | undefined;
         stopSequences?: string[] | undefined;
         metadata?: z.objectInputType<{}, z.ZodTypeAny, "passthrough"> | undefined;
+    } & {
+        [k: string]: unknown;
     };
     method: "sampling/createMessage";
 }>]>;
@@ -6401,27 +8715,27 @@ export declare const ServerNotificationSchema: z.ZodUnion<[z.ZodObject<z.objectU
         /**
          * The progress token which was given in the initial request, used to associate this notification with the request that is proceeding.
          */
-        progressToken: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
+        progressToken: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber]>>;
     }>, "strip", z.ZodTypeAny, {
-        progressToken: string | number;
         progress: number;
+        progressToken?: string | number | undefined;
         total?: number | undefined;
     }, {
-        progressToken: string | number;
         progress: number;
+        progressToken?: string | number | undefined;
         total?: number | undefined;
     }>;
 }>, "strip", z.ZodTypeAny, {
     params: {
-        progressToken: string | number;
         progress: number;
+        progressToken?: string | number | undefined;
         total?: number | undefined;
     };
     method: "notifications/progress";
 }, {
     params: {
-        progressToken: string | number;
         progress: number;
+        progressToken?: string | number | undefined;
         total?: number | undefined;
     };
     method: "notifications/progress";
