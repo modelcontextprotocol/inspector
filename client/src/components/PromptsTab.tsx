@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useState } from "react";
 import { Label } from "@/components/ui/label";
 import ListPane from "./ListPane";
+import { ListPromptsResult } from "mcp-typescript/types.js";
 
 export type Prompt = {
   name: string;
@@ -25,6 +26,7 @@ const PromptsTab = ({
   selectedPrompt,
   setSelectedPrompt,
   promptContent,
+  nextCursor,
   error,
 }: {
   prompts: Prompt[];
@@ -33,6 +35,7 @@ const PromptsTab = ({
   selectedPrompt: Prompt | null;
   setSelectedPrompt: (prompt: Prompt) => void;
   promptContent: string;
+  nextCursor: ListPromptsResult["nextCursor"];
   error: string | null;
 }) => {
   const [promptArgs, setPromptArgs] = useState<Record<string, string>>({});
@@ -63,7 +66,8 @@ const PromptsTab = ({
           </>
         )}
         title="Prompts"
-        buttonText="List Prompts"
+        buttonText={nextCursor ? "List More Prompts" : "List Prompts"}
+        isButtonDisabled={!nextCursor && prompts.length > 0}
       />
 
       <div className="bg-white rounded-lg shadow">

@@ -74,6 +74,13 @@ const App = () => {
   );
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
+  const [nextResourceCursor, setNextResourceCursor] = useState<
+    string | undefined
+  >();
+  const [nextPromptCursor, setNextPromptCursor] = useState<
+    string | undefined
+  >();
+  const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
 
   const pushHistory = (request: object, response: object) => {
@@ -105,12 +112,12 @@ const App = () => {
     const response = await makeRequest(
       {
         method: "resources/list" as const,
+        params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
       },
       ListResourcesResultSchema,
     );
-    if (response.resources) {
-      setResources(response.resources);
-    }
+    setResources(resources.concat(response.resources ?? []));
+    setNextResourceCursor(response.nextCursor);
   };
 
   const readResource = async (uri: URL) => {
@@ -128,10 +135,12 @@ const App = () => {
     const response = await makeRequest(
       {
         method: "prompts/list" as const,
+        params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
       },
       ListPromptsResultSchema,
     );
     setPrompts(response.prompts);
+    setNextPromptCursor(response.nextCursor);
   };
 
   const getPrompt = async (name: string, args: Record<string, string> = {}) => {
@@ -149,10 +158,12 @@ const App = () => {
     const response = await makeRequest(
       {
         method: "tools/list" as const,
+        params: nextToolCursor ? { cursor: nextToolCursor } : {},
       },
       ListToolsResultSchema,
     );
     setTools(response.tools);
+    setNextToolCursor(response.nextCursor);
   };
 
   const callTool = async (name: string, params: Record<string, unknown>) => {
@@ -293,6 +304,7 @@ const App = () => {
                     selectedResource={selectedResource}
                     setSelectedResource={setSelectedResource}
                     resourceContent={resourceContent}
+                    nextCursor={nextResourceCursor}
                     error={error}
                   />
                   <PromptsTab
@@ -302,6 +314,7 @@ const App = () => {
                     selectedPrompt={selectedPrompt}
                     setSelectedPrompt={setSelectedPrompt}
                     promptContent={promptContent}
+                    nextCursor={nextPromptCursor}
                     error={error}
                   />
                   <RequestsTab />
@@ -315,6 +328,7 @@ const App = () => {
                       setToolResult("");
                     }}
                     toolResult={toolResult}
+                    nextCursor={nextToolCursor}
                     error={error}
                   />
                   <ConsoleTab />
