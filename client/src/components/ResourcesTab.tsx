@@ -2,7 +2,7 @@ import { FileText, ChevronRight, AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { TabsContent } from "@/components/ui/tabs";
-import { Resource } from "mcp-typescript/types.js";
+import { ListResourcesResult, Resource } from "mcp-typescript/types.js";
 import ListPane from "./ListPane";
 
 const ResourcesTab = ({
@@ -12,6 +12,7 @@ const ResourcesTab = ({
   selectedResource,
   setSelectedResource,
   resourceContent,
+  nextCursor,
   error,
 }: {
   resources: Resource[];
@@ -20,6 +21,7 @@ const ResourcesTab = ({
   selectedResource: Resource | null;
   setSelectedResource: (resource: Resource) => void;
   resourceContent: string;
+  nextCursor: ListResourcesResult["nextCursor"];
   error: string | null;
 }) => (
   <TabsContent value="resources" className="grid grid-cols-2 gap-4">
@@ -40,7 +42,8 @@ const ResourcesTab = ({
         </div>
       )}
       title="Resources"
-      buttonText="List Resources"
+      buttonText={nextCursor ? "List More Resources" : "List Resources"}
+      isButtonDisabled={!nextCursor && resources.length > 0}
     />
 
     <div className="bg-white rounded-lg shadow">

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Tool } from "mcp-typescript/types.js";
+import { ListToolsResult, Tool } from "mcp-typescript/types.js";
 import { useState } from "react";
 import { Label } from "@/components/ui/label";
 import ListPane from "./ListPane";
@@ -15,6 +15,7 @@ const ToolsTab = ({
   selectedTool,
   setSelectedTool,
   toolResult,
+  nextCursor,
   error,
 }: {
   tools: Tool[];
@@ -23,6 +24,7 @@ const ToolsTab = ({
   selectedTool: Tool | null;
   setSelectedTool: (tool: Tool) => void;
   toolResult: string;
+  nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
@@ -42,7 +44,8 @@ const ToolsTab = ({
           </>
         )}
         title="Tools"
-        buttonText="List Tools"
+        buttonText={nextCursor ? "List More Tools" : "List Tools"}
+        isButtonDisabled={!nextCursor && tools.length > 0}
       />
 
       <div className="bg-white rounded-lg shadow">

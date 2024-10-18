@@ -7,6 +7,7 @@ type ListPaneProps<T> = {
   renderItem: (item: T) => React.ReactNode;
   title: string;
   buttonText: string;
+  isButtonDisabled?: boolean;
 };
 
 const ListPane = <T extends object>({
@@ -16,16 +17,22 @@ const ListPane = <T extends object>({
   renderItem,
   title,
   buttonText,
+  isButtonDisabled,
 }: ListPaneProps<T>) => (
   <div className="bg-white rounded-lg shadow">
     <div className="p-4 border-b border-gray-200">
       <h3 className="font-semibold">{title}</h3>
     </div>
     <div className="p-4">
-      <Button variant="outline" className="w-full mb-4" onClick={listItems}>
+      <Button
+        variant="outline"
+        className="w-full mb-4"
+        onClick={listItems}
+        disabled={isButtonDisabled}
+      >
         {buttonText}
       </Button>
-      <div className="space-y-2">
+      <div className="space-y-2 overflow-y-auto max-h-96">
         {items.map((item, index) => (
           <div
             key={index}
