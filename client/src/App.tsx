@@ -12,6 +12,7 @@ import {
   ClientRequest,
   ProgressNotificationSchema,
   ServerNotification,
+  EmptyResultSchema,
 } from "mcp-typescript/types.js";
 import { useState, useRef } from "react";
 import {
@@ -42,6 +43,7 @@ import ToolsTab from "./components/ToolsTab";
 import { AnyZodObject } from "zod";
 import HistoryAndNotifications from "./components/History";
 import "./App.css";
+import PingTab from "./components/PingTab";
 
 const App = () => {
   const [connectionStatus, setConnectionStatus] = useState<
@@ -293,6 +295,10 @@ const App = () => {
                     <Terminal className="w-4 h-4 mr-2" />
                     Console
                   </TabsTrigger>
+                  <TabsTrigger value="ping">
+                    <Bell className="w-4 h-4 mr-2" />
+                    Ping
+                  </TabsTrigger>
                 </TabsList>
 
                 <div className="w-full">
@@ -331,6 +337,16 @@ const App = () => {
                     error={error}
                   />
                   <ConsoleTab />
+                  <PingTab
+                    onPingClick={() => {
+                      void makeRequest(
+                        {
+                          method: "ping" as const,
+                        },
+                        EmptyResultSchema,
+                      );
+                    }}
+                  />
                 </div>
               </Tabs>
             ) : (
