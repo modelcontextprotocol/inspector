@@ -17,7 +17,7 @@ const ResourcesTab = ({
 }: {
   resources: Resource[];
   listResources: () => void;
-  readResource: (uri: URL) => void;
+  readResource: (uri: string) => void;
   selectedResource: Resource | null;
   setSelectedResource: (resource: Resource) => void;
   resourceContent: string;

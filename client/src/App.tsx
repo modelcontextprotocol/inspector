@@ -16,7 +16,6 @@ import {
 import { useState, useRef } from "react";
 import {
   Send,
-  Bell,
   Terminal,
   Files,
   MessageSquare,
@@ -120,7 +119,7 @@ const App = () => {
     setNextResourceCursor(response.nextCursor);
   };
 
-  const readResource = async (uri: URL) => {
+  const readResource = async (uri: string) => {
     const response = await makeRequest(
       {
         method: "resources/read" as const,
