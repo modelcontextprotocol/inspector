@@ -1997,13 +1997,13 @@ export declare const ResourceContentsSchema: z.ZodObject<{
     /**
      * The URI of this resource.
      */
-    uri: z.ZodEffects<z.ZodString, URL, string>;
+    uri: z.ZodString;
     /**
      * The MIME type of this resource, if known.
      */
     mimeType: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
-    uri: URL;
+    uri: string;
     mimeType?: string | undefined;
 }, {
     uri: string;
@@ -2013,7 +2013,7 @@ export declare const TextResourceContentsSchema: z.ZodObject<z.objectUtil.extend
     /**
      * The URI of this resource.
      */
-    uri: z.ZodEffects<z.ZodString, URL, string>;
+    uri: z.ZodString;
     /**
      * The MIME type of this resource, if known.
      */
@@ -2025,7 +2025,7 @@ export declare const TextResourceContentsSchema: z.ZodObject<z.objectUtil.extend
     text: z.ZodString;
 }>, "strip", z.ZodTypeAny, {
     text: string;
-    uri: URL;
+    uri: string;
     mimeType?: string | undefined;
 }, {
     text: string;
@@ -2036,7 +2036,7 @@ export declare const BlobResourceContentsSchema: z.ZodObject<z.objectUtil.extend
     /**
      * The URI of this resource.
      */
-    uri: z.ZodEffects<z.ZodString, URL, string>;
+    uri: z.ZodString;
     /**
      * The MIME type of this resource, if known.
      */
@@ -2047,7 +2047,7 @@ export declare const BlobResourceContentsSchema: z.ZodObject<z.objectUtil.extend
      */
     blob: z.ZodString;
 }>, "strip", z.ZodTypeAny, {
-    uri: URL;
+    uri: string;
     blob: string;
     mimeType?: string | undefined;
 }, {
@@ -2062,7 +2062,7 @@ export declare const ResourceSchema: z.ZodObject<{
     /**
      * The URI of this resource.
      */
-    uri: z.ZodEffects<z.ZodString, URL, string>;
+    uri: z.ZodString;
     /**
      * A human-readable name for this resource.
      *
@@ -2081,7 +2081,7 @@ export declare const ResourceSchema: z.ZodObject<{
     mimeType: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     name: string;
-    uri: URL;
+    uri: string;
     mimeType?: string | undefined;
     description?: string | undefined;
 }, {
@@ -2301,7 +2301,7 @@ export declare const ListResourcesResultSchema: z.ZodObject<z.objectUtil.extendS
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * A human-readable name for this resource.
          *
@@ -2320,7 +2320,7 @@ export declare const ListResourcesResultSchema: z.ZodObject<z.objectUtil.extendS
         mimeType: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         name: string;
-        uri: URL;
+        uri: string;
         mimeType?: string | undefined;
         description?: string | undefined;
     }, {
@@ -2345,7 +2345,7 @@ export declare const ListResourcesResultSchema: z.ZodObject<z.objectUtil.extendS
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * A human-readable name for this resource.
          *
@@ -2364,7 +2364,7 @@ export declare const ListResourcesResultSchema: z.ZodObject<z.objectUtil.extendS
         mimeType: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         name: string;
-        uri: URL;
+        uri: string;
         mimeType?: string | undefined;
         description?: string | undefined;
     }, {
@@ -2389,7 +2389,7 @@ export declare const ListResourcesResultSchema: z.ZodObject<z.objectUtil.extendS
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * A human-readable name for this resource.
          *
@@ -2408,7 +2408,7 @@ export declare const ListResourcesResultSchema: z.ZodObject<z.objectUtil.extendS
         mimeType: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         name: string;
-        uri: URL;
+        uri: string;
         mimeType?: string | undefined;
         description?: string | undefined;
     }, {
@@ -2791,7 +2791,7 @@ export declare const ReadResourceRequestSchema: z.ZodObject<z.objectUtil.extendS
         /**
          * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
         _meta: z.ZodOptional<z.ZodObject<{
             /**
@@ -2813,7 +2813,7 @@ export declare const ReadResourceRequestSchema: z.ZodObject<z.objectUtil.extendS
         /**
          * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
         _meta: z.ZodOptional<z.ZodObject<{
             /**
@@ -2835,11 +2835,11 @@ export declare const ReadResourceRequestSchema: z.ZodObject<z.objectUtil.extendS
         /**
          * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
-        uri: URL;
+        uri: string;
         _meta?: z.objectOutputType<{
             /**
              * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
@@ -2877,7 +2877,7 @@ export declare const ReadResourceResultSchema: z.ZodObject<z.objectUtil.extendSh
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * The MIME type of this resource, if known.
          */
@@ -2889,7 +2889,7 @@ export declare const ReadResourceResultSchema: z.ZodObject<z.objectUtil.extendSh
         text: z.ZodString;
     }>, "strip", z.ZodTypeAny, {
         text: string;
-        uri: URL;
+        uri: string;
         mimeType?: string | undefined;
     }, {
         text: string;
@@ -2899,7 +2899,7 @@ export declare const ReadResourceResultSchema: z.ZodObject<z.objectUtil.extendSh
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * The MIME type of this resource, if known.
          */
@@ -2910,7 +2910,7 @@ export declare const ReadResourceResultSchema: z.ZodObject<z.objectUtil.extendSh
          */
         blob: z.ZodString;
     }>, "strip", z.ZodTypeAny, {
-        uri: URL;
+        uri: string;
         blob: string;
         mimeType?: string | undefined;
     }, {
@@ -2928,7 +2928,7 @@ export declare const ReadResourceResultSchema: z.ZodObject<z.objectUtil.extendSh
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * The MIME type of this resource, if known.
          */
@@ -2940,7 +2940,7 @@ export declare const ReadResourceResultSchema: z.ZodObject<z.objectUtil.extendSh
         text: z.ZodString;
     }>, "strip", z.ZodTypeAny, {
         text: string;
-        uri: URL;
+        uri: string;
         mimeType?: string | undefined;
     }, {
         text: string;
@@ -2950,7 +2950,7 @@ export declare const ReadResourceResultSchema: z.ZodObject<z.objectUtil.extendSh
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * The MIME type of this resource, if known.
          */
@@ -2961,7 +2961,7 @@ export declare const ReadResourceResultSchema: z.ZodObject<z.objectUtil.extendSh
          */
         blob: z.ZodString;
     }>, "strip", z.ZodTypeAny, {
-        uri: URL;
+        uri: string;
         blob: string;
         mimeType?: string | undefined;
     }, {
@@ -2979,7 +2979,7 @@ export declare const ReadResourceResultSchema: z.ZodObject<z.objectUtil.extendSh
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * The MIME type of this resource, if known.
          */
@@ -2991,7 +2991,7 @@ export declare const ReadResourceResultSchema: z.ZodObject<z.objectUtil.extendSh
         text: z.ZodString;
     }>, "strip", z.ZodTypeAny, {
         text: string;
-        uri: URL;
+        uri: string;
         mimeType?: string | undefined;
     }, {
         text: string;
@@ -3001,7 +3001,7 @@ export declare const ReadResourceResultSchema: z.ZodObject<z.objectUtil.extendSh
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * The MIME type of this resource, if known.
          */
@@ -3012,7 +3012,7 @@ export declare const ReadResourceResultSchema: z.ZodObject<z.objectUtil.extendSh
          */
         blob: z.ZodString;
     }>, "strip", z.ZodTypeAny, {
-        uri: URL;
+        uri: string;
         blob: string;
         mimeType?: string | undefined;
     }, {
@@ -3141,7 +3141,7 @@ export declare const SubscribeRequestSchema: z.ZodObject<z.objectUtil.extendShap
         /**
          * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
         _meta: z.ZodOptional<z.ZodObject<{
             /**
@@ -3163,7 +3163,7 @@ export declare const SubscribeRequestSchema: z.ZodObject<z.objectUtil.extendShap
         /**
          * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
         _meta: z.ZodOptional<z.ZodObject<{
             /**
@@ -3185,11 +3185,11 @@ export declare const SubscribeRequestSchema: z.ZodObject<z.objectUtil.extendShap
         /**
          * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
-        uri: URL;
+        uri: string;
         _meta?: z.objectOutputType<{
             /**
              * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
@@ -3294,7 +3294,7 @@ export declare const UnsubscribeRequestSchema: z.ZodObject<z.objectUtil.extendSh
         /**
          * The URI of the resource to unsubscribe from.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
         _meta: z.ZodOptional<z.ZodObject<{
             /**
@@ -3316,7 +3316,7 @@ export declare const UnsubscribeRequestSchema: z.ZodObject<z.objectUtil.extendSh
         /**
          * The URI of the resource to unsubscribe from.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
         _meta: z.ZodOptional<z.ZodObject<{
             /**
@@ -3338,11 +3338,11 @@ export declare const UnsubscribeRequestSchema: z.ZodObject<z.objectUtil.extendSh
         /**
          * The URI of the resource to unsubscribe from.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
-        uri: URL;
+        uri: string;
         _meta?: z.objectOutputType<{
             /**
              * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
@@ -3394,15 +3394,15 @@ export declare const ResourceUpdatedNotificationSchema: z.ZodObject<z.objectUtil
         /**
          * The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }, "strip", z.ZodTypeAny, {
-        uri: URL;
+        uri: string;
     }, {
         uri: string;
     }>;
 }>, "strip", z.ZodTypeAny, {
     params: {
-        uri: URL;
+        uri: string;
     };
     method: "notifications/resources/updated";
 }, {
@@ -7289,7 +7289,7 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
         /**
          * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
         _meta: z.ZodOptional<z.ZodObject<{
             /**
@@ -7311,7 +7311,7 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
         /**
          * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
         _meta: z.ZodOptional<z.ZodObject<{
             /**
@@ -7333,11 +7333,11 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
         /**
          * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
-        uri: URL;
+        uri: string;
         _meta?: z.objectOutputType<{
             /**
              * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
@@ -7438,7 +7438,7 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
         /**
          * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
         _meta: z.ZodOptional<z.ZodObject<{
             /**
@@ -7460,7 +7460,7 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
         /**
          * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
         _meta: z.ZodOptional<z.ZodObject<{
             /**
@@ -7482,11 +7482,11 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
         /**
          * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
-        uri: URL;
+        uri: string;
         _meta?: z.objectOutputType<{
             /**
              * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
@@ -7587,7 +7587,7 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
         /**
          * The URI of the resource to unsubscribe from.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, "passthrough", z.ZodTypeAny, z.objectOutputType<z.objectUtil.extendShape<{
         _meta: z.ZodOptional<z.ZodObject<{
             /**
@@ -7609,7 +7609,7 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
         /**
          * The URI of the resource to unsubscribe from.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, z.ZodTypeAny, "passthrough">, z.objectInputType<z.objectUtil.extendShape<{
         _meta: z.ZodOptional<z.ZodObject<{
             /**
@@ -7631,11 +7631,11 @@ export declare const ClientRequestSchema: z.ZodUnion<[z.ZodObject<z.objectUtil.e
         /**
          * The URI of the resource to unsubscribe from.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }>, z.ZodTypeAny, "passthrough">>;
 }>, "strip", z.ZodTypeAny, {
     params: {
-        uri: URL;
+        uri: string;
         _meta?: z.objectOutputType<{
             /**
              * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
@@ -8819,15 +8819,15 @@ export declare const ServerNotificationSchema: z.ZodUnion<[z.ZodObject<z.objectU
         /**
          * The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
     }, "strip", z.ZodTypeAny, {
-        uri: URL;
+        uri: string;
     }, {
         uri: string;
     }>;
 }>, "strip", z.ZodTypeAny, {
     params: {
-        uri: URL;
+        uri: string;
     };
     method: "notifications/resources/updated";
 }, {
@@ -9881,7 +9881,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * A human-readable name for this resource.
          *
@@ -9900,7 +9900,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         mimeType: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         name: string;
-        uri: URL;
+        uri: string;
         mimeType?: string | undefined;
         description?: string | undefined;
     }, {
@@ -9925,7 +9925,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * A human-readable name for this resource.
          *
@@ -9944,7 +9944,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         mimeType: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         name: string;
-        uri: URL;
+        uri: string;
         mimeType?: string | undefined;
         description?: string | undefined;
     }, {
@@ -9969,7 +9969,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * A human-readable name for this resource.
          *
@@ -9988,7 +9988,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         mimeType: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         name: string;
-        uri: URL;
+        uri: string;
         mimeType?: string | undefined;
         description?: string | undefined;
     }, {
@@ -10007,7 +10007,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * The MIME type of this resource, if known.
          */
@@ -10019,7 +10019,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         text: z.ZodString;
     }>, "strip", z.ZodTypeAny, {
         text: string;
-        uri: URL;
+        uri: string;
         mimeType?: string | undefined;
     }, {
         text: string;
@@ -10029,7 +10029,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * The MIME type of this resource, if known.
          */
@@ -10040,7 +10040,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
          */
         blob: z.ZodString;
     }>, "strip", z.ZodTypeAny, {
-        uri: URL;
+        uri: string;
         blob: string;
         mimeType?: string | undefined;
     }, {
@@ -10058,7 +10058,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * The MIME type of this resource, if known.
          */
@@ -10070,7 +10070,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         text: z.ZodString;
     }>, "strip", z.ZodTypeAny, {
         text: string;
-        uri: URL;
+        uri: string;
         mimeType?: string | undefined;
     }, {
         text: string;
@@ -10080,7 +10080,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * The MIME type of this resource, if known.
          */
@@ -10091,7 +10091,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
          */
         blob: z.ZodString;
     }>, "strip", z.ZodTypeAny, {
-        uri: URL;
+        uri: string;
         blob: string;
         mimeType?: string | undefined;
     }, {
@@ -10109,7 +10109,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * The MIME type of this resource, if known.
          */
@@ -10121,7 +10121,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         text: z.ZodString;
     }>, "strip", z.ZodTypeAny, {
         text: string;
-        uri: URL;
+        uri: string;
         mimeType?: string | undefined;
     }, {
         text: string;
@@ -10131,7 +10131,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
         /**
          * The URI of this resource.
          */
-        uri: z.ZodEffects<z.ZodString, URL, string>;
+        uri: z.ZodString;
         /**
          * The MIME type of this resource, if known.
          */
@@ -10142,7 +10142,7 @@ export declare const ServerResultSchema: z.ZodUnion<[z.ZodObject<{
          */
         blob: z.ZodString;
     }>, "strip", z.ZodTypeAny, {
-        uri: URL;
+        uri: string;
         blob: string;
         mimeType?: string | undefined;
     }, {
