@@ -19,6 +19,7 @@ import {
   Send,
   Terminal,
   Files,
+  Bell,
   MessageSquare,
   Hammer,
   Play,
