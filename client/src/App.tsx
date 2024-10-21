@@ -18,6 +18,7 @@ import { useState, useRef } from "react";
 import {
   Send,
   Terminal,
+  Bell,
   Files,
   MessageSquare,
   Hammer,
