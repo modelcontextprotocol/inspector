@@ -23,7 +23,7 @@ const createTransport = async (query: express.Request["query"]) => {
 
   if (transportType === "stdio") {
     const command = query.command as string;
-    const args = (query.args as string).split(",");
+    const args = (query.args as string).split(/\s+/);
     console.log(`Stdio transport: command=${command}, args=${args}`);
     const transport = new StdioClientTransport({ command, args });
     await transport.start();
