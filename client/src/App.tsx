@@ -14,7 +14,7 @@ import {
   ServerNotification,
   EmptyResultSchema,
 } from "mcp-typescript/types.js";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Send,
   Terminal,
@@ -57,12 +57,18 @@ const App = () => {
   const [tools, setTools] = useState<Tool[]>([]);
   const [toolResult, setToolResult] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [command, setCommand] = useState<string>(
-    "/Users/ashwin/.nvm/versions/node/v18.20.4/bin/node",
-  );
-  const [args, setArgs] = useState<string>(
-    "/Users/ashwin/code/mcp/example-servers/build/everything/stdio.js",
-  );
+  const [command, setCommand] = useState<string>(() => {
+    return (
+      localStorage.getItem("lastCommand") ||
+      "/Users/ashwin/.nvm/versions/node/v18.20.4/bin/node"
+    );
+  });
+  const [args, setArgs] = useState<string>(() => {
+    return (
+      localStorage.getItem("lastArgs") ||
+      "/Users/ashwin/code/mcp/example-servers/build/everything/stdio.js"
+    );
+  });
   const [url, setUrl] = useState<string>("http://localhost:3001/sse");
   const [transportType, setTransportType] = useState<"stdio" | "sse">("stdio");
   const [requestHistory, setRequestHistory] = useState<
@@ -84,6 +90,14 @@ const App = () => {
   >();
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
+
+  useEffect(() => {
+    localStorage.setItem("lastCommand", command);
+  }, [command]);
+
+  useEffect(() => {
+    localStorage.setItem("lastArgs", args);
+  }, [args]);
 
   const pushHistory = (request: object, response: object) => {
     setRequestHistory((prev) => [
