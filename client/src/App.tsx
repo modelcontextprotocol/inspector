@@ -13,8 +13,12 @@ import {
   ProgressNotificationSchema,
   ServerNotification,
   EmptyResultSchema,
+  CreateMessageRequest,
+  CreateMessageResult,
+  CreateMessageRequestSchema,
 } from "mcp-typescript/types.js";
 import { useState, useRef, useEffect } from "react";
+
 import {
   Send,
   Terminal,
@@ -23,6 +27,7 @@ import {
   MessageSquare,
   Hammer,
   Play,
+  Hash,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -45,6 +50,7 @@ import { AnyZodObject } from "zod";
 import HistoryAndNotifications from "./components/History";
 import "./App.css";
 import PingTab from "./components/PingTab";
+import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 
 const App = () => {
   const [connectionStatus, setConnectionStatus] = useState<
@@ -76,6 +82,32 @@ const App = () => {
   >([]);
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
+
+  const [pendingSampleRequests, setPendingSampleRequests] = useState<
+    Array<
+      PendingRequest & {
+        resolve: (result: CreateMessageResult) => void;
+        reject: (error: Error) => void;
+      }
+    >
+  >([]);
+  const nextRequestId = useRef(0);
+
+  const handleApproveSampling = (id: number, result: CreateMessageResult) => {
+    setPendingSampleRequests((prev) => {
+      const request = prev.find((r) => r.id === id);
+      request?.resolve(result);
+      return prev.filter((r) => r.id !== id);
+    });
+  };
+
+  const handleRejectSampling = (id: number) => {
+    setPendingSampleRequests((prev) => {
+      const request = prev.find((r) => r.id === id);
+      request?.reject(new Error("Sampling request rejected"));
+      return prev.filter((r) => r.id !== id);
+    });
+  };
 
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
@@ -229,6 +261,15 @@ const App = () => {
         },
       );
 
+      client.setRequestHandler(CreateMessageRequestSchema, (request) => {
+        return new Promise<CreateMessageResult>((resolve, reject) => {
+          setPendingSampleRequests((prev) => [
+            ...prev,
+            { id: nextRequestId.current++, request, resolve, reject },
+          ]);
+        });
+      });
+
       setMcpClient(client);
       setConnectionStatus("connected");
     } catch (e) {
@@ -314,6 +355,10 @@ const App = () => {
                     <Bell className="w-4 h-4 mr-2" />
                     Ping
                   </TabsTrigger>
+                  <TabsTrigger value="sampling">
+                    <Hash className="w-4 h-4 mr-2" />
+                    Sampling
+                  </TabsTrigger>
                 </TabsList>
 
                 <div className="w-full">
@@ -361,6 +406,11 @@ const App = () => {
                         EmptyResultSchema,
                       );
                     }}
+                  />
+                  <SamplingTab
+                    pendingRequests={pendingSampleRequests}
+                    onApprove={handleApproveSampling}
+                    onReject={handleRejectSampling}
                   />
                 </div>
               </Tabs>
