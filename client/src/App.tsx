@@ -13,7 +13,6 @@ import {
   ProgressNotificationSchema,
   ServerNotification,
   EmptyResultSchema,
-  CreateMessageRequest,
   CreateMessageResult,
   CreateMessageRequestSchema,
 } from "mcp-typescript/types.js";
@@ -355,9 +354,14 @@ const App = () => {
                     <Bell className="w-4 h-4 mr-2" />
                     Ping
                   </TabsTrigger>
-                  <TabsTrigger value="sampling">
+                  <TabsTrigger value="sampling" className="relative">
                     <Hash className="w-4 h-4 mr-2" />
                     Sampling
+                    {pendingSampleRequests.length > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                        {pendingSampleRequests.length}
+                      </span>
+                    )}
                   </TabsTrigger>
                 </TabsList>
 
