@@ -1,13 +1,13 @@
-import { AlertCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { TabsContent } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { useState } from "react";
 import { Label } from "@/components/ui/label";
+import { TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { ListPromptsResult } from "@modelcontextprotocol/sdk/types.js";
+import { AlertCircle } from "lucide-react";
+import { useState } from "react";
 import ListPane from "./ListPane";
-import { ListPromptsResult } from "mcp-typescript/types.js";
 
 export type Prompt = {
   name: string;

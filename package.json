@@ -3,20 +3,19 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "workspaces": ["client", "server"],
+  "workspaces": [
+    "client",
+    "server"
+  ],
   "scripts": {
-    "dev": "concurrently \"cd client && yarn dev\" \"cd server && yarn dev\"",
-    "build-server": "cd server && yarn build",
-    "build-client": "cd client && yarn build",
-    "build": "yarn build-server && yarn build-client",
-    "start-server": "cd server && yarn start",
-    "start-client": "cd client && yarn preview",
-    "start": "concurrently \"yarn start-server\" \"yarn start-client\"",
-    "prettier-fix": "prettier --write .",
-    "update:mcp": "git subtree pull --prefix=packages/mcp-typescript https://github.com/modelcontextprotocol/typescript-sdk.git main --squash"
-  },
-  "dependencies": {
-    "mcp-typescript": "file:packages/mcp-typescript"
+    "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
+    "build-server": "cd server && npm run build",
+    "build-client": "cd client && npm run build",
+    "build": "npm run build-server && npm run build-client",
+    "start-server": "cd server && npm run start",
+    "start-client": "cd client && npm run preview",
+    "start": "concurrently \"npm run start-server\" \"npm run start-client\"",
+    "prettier-fix": "prettier --write ."
   },
   "devDependencies": {
     "concurrently": "^9.0.1",

@@ -1,11 +1,11 @@
-import { TabsContent } from "@/components/ui/tabs";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, AlertCircle } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ListToolsResult, Tool } from "mcp-typescript/types.js";
-import { useState } from "react";
 import { Label } from "@/components/ui/label";
+import { TabsContent } from "@/components/ui/tabs";
+import { ListToolsResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { AlertCircle, Send } from "lucide-react";
+import { useState } from "react";
 import ListPane from "./ListPane";
 
 const ToolsTab = ({

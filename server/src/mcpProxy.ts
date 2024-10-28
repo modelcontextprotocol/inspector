@@ -1,4 +1,4 @@
-import { Transport } from "mcp-typescript/shared/transport.js";
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 export default function mcpProxy({
   transportToClient,
