@@ -1,10 +1,10 @@
-import { TabsContent } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { TabsContent } from "@/components/ui/tabs";
 import {
   CreateMessageRequest,
   CreateMessageResult,
-} from "mcp-typescript/types.js";
+} from "@modelcontextprotocol/sdk/types.js";
 
 export type PendingRequest = {
   id: number;
