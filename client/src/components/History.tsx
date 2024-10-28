@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 import { Copy } from "lucide-react";
-import { ServerNotification } from "mcp-typescript/types.js";
+import { useState } from "react";
 
 const HistoryAndNotifications = ({
   requestHistory,

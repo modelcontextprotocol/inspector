@@ -1,8 +1,8 @@
-import { FileText, ChevronRight, AlertCircle, RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { TabsContent } from "@/components/ui/tabs";
-import { ListResourcesResult, Resource } from "mcp-typescript/types.js";
+import { ListResourcesResult, Resource } from "@modelcontextprotocol/sdk/types.js";
+import { AlertCircle, ChevronRight, FileText, RefreshCw } from "lucide-react";
 import ListPane from "./ListPane";
 
 const ResourcesTab = ({
