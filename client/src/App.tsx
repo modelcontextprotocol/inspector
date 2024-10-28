@@ -1,18 +1,10 @@
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
   CallToolResultSchema,
   ClientRequest,
+  CreateMessageRequestSchema,
+  CreateMessageResult,
   EmptyResultSchema,
   GetPromptResultSchema,
   ListPromptsResultSchema,
@@ -24,16 +16,28 @@ import {
   ServerNotification,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import { useEffect, useRef, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Bell,
   Files,
   Hammer,
+  Hash,
   MessageSquare,
   Play,
   Send,
   Terminal,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
 
 import { AnyZodObject } from "zod";
 import "./App.css";
@@ -43,6 +47,7 @@ import PingTab from "./components/PingTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
 import RequestsTab from "./components/RequestsTabs";
 import ResourcesTab from "./components/ResourcesTab";
+import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 
@@ -76,6 +81,32 @@ const App = () => {
   >([]);
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
+
+  const [pendingSampleRequests, setPendingSampleRequests] = useState<
+    Array<
+      PendingRequest & {
+        resolve: (result: CreateMessageResult) => void;
+        reject: (error: Error) => void;
+      }
+    >
+  >([]);
+  const nextRequestId = useRef(0);
+
+  const handleApproveSampling = (id: number, result: CreateMessageResult) => {
+    setPendingSampleRequests((prev) => {
+      const request = prev.find((r) => r.id === id);
+      request?.resolve(result);
+      return prev.filter((r) => r.id !== id);
+    });
+  };
+
+  const handleRejectSampling = (id: number) => {
+    setPendingSampleRequests((prev) => {
+      const request = prev.find((r) => r.id === id);
+      request?.reject(new Error("Sampling request rejected"));
+      return prev.filter((r) => r.id !== id);
+    });
+  };
 
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
@@ -229,6 +260,15 @@ const App = () => {
         },
       );
 
+      client.setRequestHandler(CreateMessageRequestSchema, (request) => {
+        return new Promise<CreateMessageResult>((resolve, reject) => {
+          setPendingSampleRequests((prev) => [
+            ...prev,
+            { id: nextRequestId.current++, request, resolve, reject },
+          ]);
+        });
+      });
+
       setMcpClient(client);
       setConnectionStatus("connected");
     } catch (e) {
@@ -314,6 +354,15 @@ const App = () => {
                     <Bell className="w-4 h-4 mr-2" />
                     Ping
                   </TabsTrigger>
+                  <TabsTrigger value="sampling" className="relative">
+                    <Hash className="w-4 h-4 mr-2" />
+                    Sampling
+                    {pendingSampleRequests.length > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                        {pendingSampleRequests.length}
+                      </span>
+                    )}
+                  </TabsTrigger>
                 </TabsList>
 
                 <div className="w-full">
@@ -361,6 +410,11 @@ const App = () => {
                         EmptyResultSchema,
                       );
                     }}
+                  />
+                  <SamplingTab
+                    pendingRequests={pendingSampleRequests}
+                    onApprove={handleApproveSampling}
+                    onReject={handleRejectSampling}
                   />
                 </div>
               </Tabs>
