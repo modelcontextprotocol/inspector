@@ -573,6 +573,15 @@
     "@jridgewell/resolve-uri" "^3.1.0"
     "@jridgewell/sourcemap-codec" "^1.4.14"
 
+"@modelcontextprotocol/sdk@*":
+  version "0.1.0"
+  resolved "https://artifactory.infra.ant.dev:443/artifactory/api/npm/npm-internal/@modelcontextprotocol/sdk/-/@modelcontextprotocol/sdk-0.1.0.tgz#00e62537380b00bbb88c5fe76c38bd37e99fa51f"
+  integrity sha512-46/FTHNZWUWbdFspKsCIixhCKwi9Hub5+HWNXC1DRIL2TSV8cdx5sTsg+Jy6I4Uc8/rd7tLZcVQ6IasIY1g4zg==
+  dependencies:
+    content-type "^1.0.5"
+    raw-body "^3.0.0"
+    zod "^3.23.8"
+
 "@nodelib/fs.scandir@2.1.5":
   version "2.1.5"
   resolved "https://registry.yarnpkg.com/@nodelib/fs.scandir/-/fs.scandir-2.1.5.tgz#7619c2eb21b25483f6d167548b4cfd5a7488c3d5"
@@ -2318,13 +2327,6 @@ lucide-react@^0.447.0:
   version "0.447.0"
   resolved "https://registry.yarnpkg.com/lucide-react/-/lucide-react-0.447.0.tgz#1b2c4044c619517346306d9fae950265aafa76a5"
   integrity sha512-SZ//hQmvi+kDKrNepArVkYK7/jfeZ5uFNEnYmd45RKZcbGD78KLnrcNXmgeg6m+xNHFvTG+CblszXCy4n6DN4w==
-
-"mcp-typescript@file:packages/mcp-typescript":
-  version "0.1.0"
-  dependencies:
-    content-type "^1.0.5"
-    raw-body "^3.0.0"
-    zod "^3.23.8"
 
 media-typer@0.3.0:
   version "0.3.0"

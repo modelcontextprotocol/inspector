@@ -1,11 +1,11 @@
 import cors from "cors";
 import EventSource from "eventsource";
 
-import { SSEServerTransport } from "mcp-typescript/server/sse.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
-import { StdioClientTransport } from "mcp-typescript/client/stdio.js";
 import mcpProxy from "./mcpProxy.js";
-import { SSEClientTransport } from "mcp-typescript/client/sse.js";
 
 // Polyfill EventSource for an SSE client in Node.js
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

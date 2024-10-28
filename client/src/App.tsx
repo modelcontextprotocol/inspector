@@ -1,32 +1,5 @@
-import { Client } from "mcp-typescript/client/index.js";
-import { SSEClientTransport } from "mcp-typescript/client/sse.js";
-import {
-  ListResourcesResultSchema,
-  GetPromptResultSchema,
-  ListToolsResultSchema,
-  ReadResourceResultSchema,
-  CallToolResultSchema,
-  ListPromptsResultSchema,
-  Resource,
-  Tool,
-  ClientRequest,
-  ProgressNotificationSchema,
-  ServerNotification,
-  EmptyResultSchema,
-} from "mcp-typescript/types.js";
-import { useState, useRef, useEffect } from "react";
-import {
-  Send,
-  Terminal,
-  Files,
-  Bell,
-  MessageSquare,
-  Hammer,
-  Play,
-} from "lucide-react";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -34,17 +7,44 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import {
+  CallToolResultSchema,
+  ClientRequest,
+  EmptyResultSchema,
+  GetPromptResultSchema,
+  ListPromptsResultSchema,
+  ListResourcesResultSchema,
+  ListToolsResultSchema,
+  ProgressNotificationSchema,
+  ReadResourceResultSchema,
+  Resource,
+  ServerNotification,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
+import {
+  Bell,
+  Files,
+  Hammer,
+  MessageSquare,
+  Play,
+  Send,
+  Terminal,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
+import { AnyZodObject } from "zod";
+import "./App.css";
 import ConsoleTab from "./components/ConsoleTab";
-import Sidebar from "./components/Sidebar";
+import HistoryAndNotifications from "./components/History";
+import PingTab from "./components/PingTab";
+import PromptsTab, { Prompt } from "./components/PromptsTab";
 import RequestsTab from "./components/RequestsTabs";
 import ResourcesTab from "./components/ResourcesTab";
-import PromptsTab, { Prompt } from "./components/PromptsTab";
+import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
-import { AnyZodObject } from "zod";
-import HistoryAndNotifications from "./components/History";
-import "./App.css";
-import PingTab from "./components/PingTab";
 
 const App = () => {
   const [connectionStatus, setConnectionStatus] = useState<
