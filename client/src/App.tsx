@@ -9,10 +9,12 @@ import {
   GetPromptResultSchema,
   ListPromptsResultSchema,
   ListResourcesResultSchema,
+  ListResourceTemplatesResultSchema,
   ListToolsResultSchema,
   ProgressNotificationSchema,
   ReadResourceResultSchema,
   Resource,
+  ResourceTemplate,
   ServerNotification,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -56,6 +58,9 @@ const App = () => {
     "disconnected" | "connected" | "error"
   >("disconnected");
   const [resources, setResources] = useState<Resource[]>([]);
+  const [resourceTemplates, setResourceTemplates] = useState<
+    ResourceTemplate[]
+  >([]);
   const [resourceContent, setResourceContent] = useState<string>("");
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
@@ -116,6 +121,9 @@ const App = () => {
   const [nextResourceCursor, setNextResourceCursor] = useState<
     string | undefined
   >();
+  const [nextResourceTemplateCursor, setNextResourceTemplateCursor] = useState<
+    string | undefined
+  >();
   const [nextPromptCursor, setNextPromptCursor] = useState<
     string | undefined
   >();
@@ -165,6 +173,22 @@ const App = () => {
     );
     setResources(resources.concat(response.resources ?? []));
     setNextResourceCursor(response.nextCursor);
+  };
+
+  const listResourceTemplates = async () => {
+    const response = await makeRequest(
+      {
+        method: "resources/templates/list" as const,
+        params: nextResourceTemplateCursor
+          ? { cursor: nextResourceTemplateCursor }
+          : {},
+      },
+      ListResourceTemplatesResultSchema,
+    );
+    setResourceTemplates(
+      resourceTemplates.concat(response.resourceTemplates ?? []),
+    );
+    setNextResourceTemplateCursor(response.nextCursor);
   };
 
   const readResource = async (uri: string) => {
@@ -368,12 +392,15 @@ const App = () => {
                 <div className="w-full">
                   <ResourcesTab
                     resources={resources}
+                    resourceTemplates={resourceTemplates}
                     listResources={listResources}
+                    listResourceTemplates={listResourceTemplates}
                     readResource={readResource}
                     selectedResource={selectedResource}
                     setSelectedResource={setSelectedResource}
                     resourceContent={resourceContent}
                     nextCursor={nextResourceCursor}
+                    nextTemplateCursor={nextResourceTemplateCursor}
                     error={error}
                   />
                   <PromptsTab
