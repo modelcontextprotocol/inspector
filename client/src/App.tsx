@@ -10,11 +10,13 @@ import {
   ListPromptsResultSchema,
   ListResourcesResultSchema,
   ListResourceTemplatesResultSchema,
+  ListRootsRequestSchema,
   ListToolsResultSchema,
   ProgressNotificationSchema,
   ReadResourceResultSchema,
   Resource,
   ResourceTemplate,
+  Root,
   ServerNotification,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -39,6 +41,7 @@ import {
   Play,
   Send,
   Terminal,
+  FolderTree,
 } from "lucide-react";
 
 import { AnyZodObject } from "zod";
@@ -49,6 +52,7 @@ import PingTab from "./components/PingTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
 import RequestsTab from "./components/RequestsTabs";
 import ResourcesTab from "./components/ResourcesTab";
+import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
@@ -86,6 +90,7 @@ const App = () => {
   >([]);
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
+  const [roots, setRoots] = useState<Root[]>([]);
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     Array<
@@ -254,6 +259,16 @@ const App = () => {
     setToolResult(JSON.stringify(response.toolResult, null, 2));
   };
 
+  const handleRootsChange = async () => {
+    if (mcpClient) {
+      try {
+        await mcpClient.sendRootsListChanged();
+      } catch (e) {
+        console.error("Failed to send roots list changed notification:", e);
+      }
+    }
+  };
+
   const connectMcpServer = async () => {
     try {
       const client = new Client({
@@ -291,6 +306,10 @@ const App = () => {
             { id: nextRequestId.current++, request, resolve, reject },
           ]);
         });
+      });
+
+      client.setRequestHandler(ListRootsRequestSchema, async () => {
+        return { roots };
       });
 
       setMcpClient(client);
@@ -387,6 +406,10 @@ const App = () => {
                       </span>
                     )}
                   </TabsTrigger>
+                  <TabsTrigger value="roots">
+                    <FolderTree className="w-4 h-4 mr-2" />
+                    Roots
+                  </TabsTrigger>
                 </TabsList>
 
                 <div className="w-full">
@@ -442,6 +465,11 @@ const App = () => {
                     pendingRequests={pendingSampleRequests}
                     onApprove={handleApproveSampling}
                     onReject={handleRejectSampling}
+                  />
+                  <RootsTab
+                    roots={roots}
+                    setRoots={setRoots}
+                    onRootsChange={handleRootsChange}
                   />
                 </div>
               </Tabs>
