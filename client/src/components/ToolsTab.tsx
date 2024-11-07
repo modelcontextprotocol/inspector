@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
-import { ListToolsResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResult, ListToolsResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, Send } from "lucide-react";
 import { useState } from "react";
 import ListPane from "./ListPane";
@@ -35,12 +35,14 @@ const ToolsTab = ({
     if (!toolResult) return null;
 
     if ("content" in toolResult) {
+      const structuredResult = toolResult as CallToolResult;
+
       return (
         <>
           <h4 className="font-semibold mb-2">
-            Tool Result: {toolResult.isError ? "Error" : "Success"}
+            Tool Result: {structuredResult.isError ? "Error" : "Success"}
           </h4>
-          {toolResult.content.map((item, index) => (
+          {structuredResult.content.map((item, index) => (
             <div key={index} className="mb-2">
               {item.type === "text" && (
                 <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-64">
