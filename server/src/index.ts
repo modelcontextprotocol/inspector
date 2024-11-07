@@ -2,7 +2,10 @@ import cors from "cors";
 import EventSource from "eventsource";
 
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import {
+  StdioClientTransport,
+  getDefaultEnvironment,
+} from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
 import mcpProxy from "./mcpProxy.js";
@@ -24,8 +27,11 @@ const createTransport = async (query: express.Request["query"]) => {
   if (transportType === "stdio") {
     const command = query.command as string;
     const args = (query.args as string).split(/\s+/);
-    console.log(`Stdio transport: command=${command}, args=${args}`);
-    const transport = new StdioClientTransport({ command, args });
+    const env = query.env ? JSON.parse(query.env as string) : undefined;
+    console.log(
+      `Stdio transport: command=${command}, args=${args}, env=${JSON.stringify(env)}`,
+    );
+    const transport = new StdioClientTransport({ command, args, env });
     await transport.start();
     console.log("Spawned stdio transport");
     return transport;
@@ -77,6 +83,10 @@ app.post("/message", async (req, res) => {
     return;
   }
   await transport.handlePostMessage(req, res);
+});
+
+app.get("/default-environment", (req, res) => {
+  res.json(getDefaultEnvironment());
 });
 
 const PORT = process.env.PORT || 3000;

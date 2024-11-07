@@ -93,6 +93,7 @@ const App = () => {
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
+  const [env, setEnv] = useState<Record<string, string>>({});
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     Array<
@@ -144,6 +145,15 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastArgs", args);
   }, [args]);
+
+  useEffect(() => {
+    fetch("http://localhost:3000/default-environment")
+      .then((response) => response.json())
+      .then((data) => setEnv(data))
+      .catch((error) =>
+        console.error("Error fetching default environment:", error),
+      );
+  }, []);
 
   const pushHistory = (request: object, response: object) => {
     setRequestHistory((prev) => [
@@ -284,6 +294,7 @@ const App = () => {
       if (transportType === "stdio") {
         backendUrl.searchParams.append("command", command);
         backendUrl.searchParams.append("args", args);
+        backendUrl.searchParams.append("env", JSON.stringify(env));
       } else {
         backendUrl.searchParams.append("url", url);
       }
@@ -371,6 +382,50 @@ const App = () => {
                   Connect
                 </Button>
               </div>
+              {transportType === "stdio" && (
+                <div className="mt-4">
+                  <h3 className="text-md font-semibold mb-2">
+                    Environment Variables
+                  </h3>
+                  {Object.entries(env).map(([key, value]) => (
+                    <div key={key} className="flex space-x-2 mb-2">
+                      <Input
+                        placeholder="Key"
+                        value={key}
+                        onChange={(e) =>
+                          setEnv((prev) => ({
+                            ...prev,
+                            [e.target.value]: value,
+                          }))
+                        }
+                      />
+                      <Input
+                        placeholder="Value"
+                        value={value}
+                        onChange={(e) =>
+                          setEnv((prev) => ({ ...prev, [key]: e.target.value }))
+                        }
+                      />
+                      <Button
+                        onClick={() =>
+                          setEnv((prev) => {
+                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                            const { [key]: _, ...rest } = prev;
+                            return rest;
+                          })
+                        }
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    onClick={() => setEnv((prev) => ({ ...prev, "": "" }))}
+                  >
+                    Add Environment Variable
+                  </Button>
+                </div>
+              )}
             </div>
             {mcpClient ? (
               <Tabs defaultValue="resources" className="w-full p-4">
