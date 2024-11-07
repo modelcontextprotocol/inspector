@@ -43,6 +43,8 @@ import {
   Send,
   Terminal,
   FolderTree,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 import { ZodType } from "zod";
@@ -94,6 +96,7 @@ const App = () => {
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
+  const [showEnvVars, setShowEnvVars] = useState(false);
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     Array<
@@ -384,46 +387,62 @@ const App = () => {
               </div>
               {transportType === "stdio" && (
                 <div className="mt-4">
-                  <h3 className="text-md font-semibold mb-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowEnvVars(!showEnvVars)}
+                    className="flex items-center"
+                  >
+                    {showEnvVars ? (
+                      <ChevronDown className="w-4 h-4 mr-2" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 mr-2" />
+                    )}
                     Environment Variables
-                  </h3>
-                  {Object.entries(env).map(([key, value]) => (
-                    <div key={key} className="flex space-x-2 mb-2">
-                      <Input
-                        placeholder="Key"
-                        value={key}
-                        onChange={(e) =>
-                          setEnv((prev) => ({
-                            ...prev,
-                            [e.target.value]: value,
-                          }))
-                        }
-                      />
-                      <Input
-                        placeholder="Value"
-                        value={value}
-                        onChange={(e) =>
-                          setEnv((prev) => ({ ...prev, [key]: e.target.value }))
-                        }
-                      />
+                  </Button>
+                  {showEnvVars && (
+                    <div className="mt-2">
+                      {Object.entries(env).map(([key, value]) => (
+                        <div key={key} className="flex space-x-2 mb-2">
+                          <Input
+                            placeholder="Key"
+                            value={key}
+                            onChange={(e) =>
+                              setEnv((prev) => ({
+                                ...prev,
+                                [e.target.value]: value,
+                              }))
+                            }
+                          />
+                          <Input
+                            placeholder="Value"
+                            value={value}
+                            onChange={(e) =>
+                              setEnv((prev) => ({
+                                ...prev,
+                                [key]: e.target.value,
+                              }))
+                            }
+                          />
+                          <Button
+                            onClick={() =>
+                              setEnv((prev) => {
+                                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                                const { [key]: _, ...rest } = prev;
+                                return rest;
+                              })
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
                       <Button
-                        onClick={() =>
-                          setEnv((prev) => {
-                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                            const { [key]: _, ...rest } = prev;
-                            return rest;
-                          })
-                        }
+                        onClick={() => setEnv((prev) => ({ ...prev, "": "" }))}
                       >
-                        Remove
+                        Add Environment Variable
                       </Button>
                     </div>
-                  ))}
-                  <Button
-                    onClick={() => setEnv((prev) => ({ ...prev, "": "" }))}
-                  >
-                    Add Environment Variable
-                  </Button>
+                  )}
                 </div>
               )}
             </div>
