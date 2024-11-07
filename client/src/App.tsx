@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
-  CallToolResultSchema,
+  CompatibilityCallToolResultSchema,
   ClientRequest,
   CreateMessageRequestSchema,
   CreateMessageResult,
@@ -19,6 +19,7 @@ import {
   Root,
   ServerNotification,
   Tool,
+  CompatibilityCallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useEffect, useRef, useState } from "react";
 
@@ -44,7 +45,7 @@ import {
   FolderTree,
 } from "lucide-react";
 
-import { AnyZodObject } from "zod";
+import { ZodType } from "zod";
 import "./App.css";
 import ConsoleTab from "./components/ConsoleTab";
 import HistoryAndNotifications from "./components/History";
@@ -69,7 +70,8 @@ const App = () => {
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
   const [tools, setTools] = useState<Tool[]>([]);
-  const [toolResult, setToolResult] = useState<string>("");
+  const [toolResult, setToolResult] =
+    useState<CompatibilityCallToolResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [command, setCommand] = useState<string>(() => {
     return (
@@ -150,7 +152,7 @@ const App = () => {
     ]);
   };
 
-  const makeRequest = async <T extends AnyZodObject>(
+  const makeRequest = async <T extends ZodType<object>>(
     request: ClientRequest,
     schema: T,
   ) => {
@@ -254,9 +256,9 @@ const App = () => {
           },
         },
       },
-      CallToolResultSchema,
+      CompatibilityCallToolResultSchema,
     );
-    setToolResult(JSON.stringify(response.toolResult, null, 2));
+    setToolResult(response);
   };
 
   const handleRootsChange = async () => {
@@ -444,7 +446,7 @@ const App = () => {
                     selectedTool={selectedTool}
                     setSelectedTool={(tool) => {
                       setSelectedTool(tool);
-                      setToolResult("");
+                      setToolResult(null);
                     }}
                     toolResult={toolResult}
                     nextCursor={nextToolCursor}
