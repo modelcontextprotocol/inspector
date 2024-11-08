@@ -4,7 +4,6 @@ import { Input } from "@/components/ui/input";
 import { TabsContent } from "@/components/ui/tabs";
 import { Root } from "@modelcontextprotocol/sdk/types.js";
 import { Plus, Minus, Save } from "lucide-react";
-import { useCallback } from "react";
 
 const RootsTab = ({
   roots,
@@ -15,31 +14,25 @@ const RootsTab = ({
   setRoots: React.Dispatch<React.SetStateAction<Root[]>>;
   onRootsChange: () => void;
 }) => {
-  const addRoot = useCallback(() => {
+  const addRoot = () => {
     setRoots((currentRoots) => [...currentRoots, { uri: "file://", name: "" }]);
-  }, [setRoots]);
+  };
 
-  const removeRoot = useCallback(
-    (index: number) => {
-      setRoots((currentRoots) => currentRoots.filter((_, i) => i !== index));
-    },
-    [setRoots],
-  );
+  const removeRoot = (index: number) => {
+    setRoots((currentRoots) => currentRoots.filter((_, i) => i !== index));
+  };
 
-  const updateRoot = useCallback(
-    (index: number, field: keyof Root, value: string) => {
-      setRoots((currentRoots) =>
-        currentRoots.map((root, i) =>
-          i === index ? { ...root, [field]: value } : root,
-        ),
-      );
-    },
-    [setRoots],
-  );
+  const updateRoot = (index: number, field: keyof Root, value: string) => {
+    setRoots((currentRoots) =>
+      currentRoots.map((root, i) =>
+        i === index ? { ...root, [field]: value } : root,
+      ),
+    );
+  };
 
-  const handleSave = useCallback(() => {
+  const handleSave = () => {
     onRootsChange();
-  }, [onRootsChange]);
+  };
 
   return (
     <TabsContent value="roots" className="space-y-4">
