@@ -20,6 +20,7 @@ import {
   ServerNotification,
   Tool,
   CompatibilityCallToolResult,
+  ClientNotification,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useEffect, useRef, useState } from "react";
 
@@ -90,7 +91,7 @@ const App = () => {
   const [url, setUrl] = useState<string>("http://localhost:3001/sse");
   const [transportType, setTransportType] = useState<"stdio" | "sse">("stdio");
   const [requestHistory, setRequestHistory] = useState<
-    { request: string; response: string }[]
+    { request: string; response?: string }[]
   >([]);
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
@@ -158,10 +159,13 @@ const App = () => {
       );
   }, []);
 
-  const pushHistory = (request: object, response: object) => {
+  const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
       ...prev,
-      { request: JSON.stringify(request), response: JSON.stringify(response) },
+      {
+        request: JSON.stringify(request),
+        response: response !== undefined ? JSON.stringify(response) : undefined,
+      },
     ]);
   };
 
@@ -177,6 +181,20 @@ const App = () => {
       const response = await mcpClient.request(request, schema);
       pushHistory(request, response);
       return response;
+    } catch (e: unknown) {
+      setError((e as Error).message);
+      throw e;
+    }
+  };
+
+  const sendNotification = async (notification: ClientNotification) => {
+    if (!mcpClient) {
+      throw new Error("MCP client not connected");
+    }
+
+    try {
+      await mcpClient.notification(notification);
+      pushHistory(notification);
     } catch (e: unknown) {
       setError((e as Error).message);
       throw e;
@@ -275,13 +293,7 @@ const App = () => {
   };
 
   const handleRootsChange = async () => {
-    if (mcpClient) {
-      try {
-        await mcpClient.sendRootsListChanged();
-      } catch (e) {
-        console.error("Failed to send roots list changed notification:", e);
-      }
-    }
+    sendNotification({ method: "notifications/roots/list_changed" });
   };
 
   const connectMcpServer = async () => {

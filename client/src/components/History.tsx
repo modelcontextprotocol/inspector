@@ -6,7 +6,7 @@ const HistoryAndNotifications = ({
   requestHistory,
   serverNotifications,
 }: {
-  requestHistory: Array<{ request: string; response: string | null }>;
+  requestHistory: Array<{ request: string; response?: string }>;
   serverNotifications: ServerNotification[];
 }) => {
   const [expandedRequests, setExpandedRequests] = useState<{
