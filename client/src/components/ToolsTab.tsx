@@ -3,10 +3,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
-import { ListToolsResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResult, ListToolsResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, Send } from "lucide-react";
 import { useState } from "react";
 import ListPane from "./ListPane";
+
+import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 const ToolsTab = ({
   tools,
@@ -23,11 +25,57 @@ const ToolsTab = ({
   callTool: (name: string, params: Record<string, unknown>) => void;
   selectedTool: Tool | null;
   setSelectedTool: (tool: Tool) => void;
-  toolResult: string;
+  toolResult: CompatibilityCallToolResult | null;
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
+
+  const renderToolResult = () => {
+    if (!toolResult) return null;
+
+    if ("content" in toolResult) {
+      const structuredResult = toolResult as CallToolResult;
+
+      return (
+        <>
+          <h4 className="font-semibold mb-2">
+            Tool Result: {structuredResult.isError ? "Error" : "Success"}
+          </h4>
+          {structuredResult.content.map((item, index) => (
+            <div key={index} className="mb-2">
+              {item.type === "text" && (
+                <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-64">
+                  {item.text}
+                </pre>
+              )}
+              {item.type === "image" && (
+                <img
+                  src={`data:${item.mimeType};base64,${item.data}`}
+                  alt="Tool result image"
+                  className="max-w-full h-auto"
+                />
+              )}
+              {item.type === "resource" && (
+                <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-64">
+                  {JSON.stringify(item.resource, null, 2)}
+                </pre>
+              )}
+            </div>
+          ))}
+        </>
+      );
+    } else if ("toolResult" in toolResult) {
+      return (
+        <>
+          <h4 className="font-semibold mb-2">Tool Result (Legacy):</h4>
+          <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-64">
+            {JSON.stringify(toolResult.toolResult, null, 2)}
+          </pre>
+        </>
+      );
+    }
+  };
 
   return (
     <TabsContent value="tools" className="grid grid-cols-2 gap-4">
@@ -100,14 +148,7 @@ const ToolsTab = ({
                 <Send className="w-4 h-4 mr-2" />
                 Run Tool
               </Button>
-              {toolResult && (
-                <>
-                  <h4 className="font-semibold mb-2">Tool Result:</h4>
-                  <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-64">
-                    {toolResult}
-                  </pre>
-                </>
-              )}
+              {toolResult && renderToolResult()}
             </div>
           ) : (
             <Alert>

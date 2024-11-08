@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
-  CallToolResultSchema,
+  CompatibilityCallToolResultSchema,
   ClientRequest,
   CreateMessageRequestSchema,
   CreateMessageResult,
@@ -9,12 +9,18 @@ import {
   GetPromptResultSchema,
   ListPromptsResultSchema,
   ListResourcesResultSchema,
+  ListResourceTemplatesResultSchema,
+  ListRootsRequestSchema,
   ListToolsResultSchema,
   ProgressNotificationSchema,
   ReadResourceResultSchema,
   Resource,
+  ResourceTemplate,
+  Root,
   ServerNotification,
   Tool,
+  CompatibilityCallToolResult,
+  ClientNotification,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useEffect, useRef, useState } from "react";
 
@@ -37,9 +43,12 @@ import {
   Play,
   Send,
   Terminal,
+  FolderTree,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
-import { AnyZodObject } from "zod";
+import { ZodType } from "zod";
 import "./App.css";
 import ConsoleTab from "./components/ConsoleTab";
 import HistoryAndNotifications from "./components/History";
@@ -47,6 +56,7 @@ import PingTab from "./components/PingTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
 import RequestsTab from "./components/RequestsTabs";
 import ResourcesTab from "./components/ResourcesTab";
+import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
@@ -56,11 +66,15 @@ const App = () => {
     "disconnected" | "connected" | "error"
   >("disconnected");
   const [resources, setResources] = useState<Resource[]>([]);
+  const [resourceTemplates, setResourceTemplates] = useState<
+    ResourceTemplate[]
+  >([]);
   const [resourceContent, setResourceContent] = useState<string>("");
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
   const [tools, setTools] = useState<Tool[]>([]);
-  const [toolResult, setToolResult] = useState<string>("");
+  const [toolResult, setToolResult] =
+    useState<CompatibilityCallToolResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [command, setCommand] = useState<string>(() => {
     return (
@@ -77,10 +91,13 @@ const App = () => {
   const [url, setUrl] = useState<string>("http://localhost:3001/sse");
   const [transportType, setTransportType] = useState<"stdio" | "sse">("stdio");
   const [requestHistory, setRequestHistory] = useState<
-    { request: string; response: string }[]
+    { request: string; response?: string }[]
   >([]);
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
+  const [roots, setRoots] = useState<Root[]>([]);
+  const [env, setEnv] = useState<Record<string, string>>({});
+  const [showEnvVars, setShowEnvVars] = useState(false);
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     Array<
@@ -116,6 +133,9 @@ const App = () => {
   const [nextResourceCursor, setNextResourceCursor] = useState<
     string | undefined
   >();
+  const [nextResourceTemplateCursor, setNextResourceTemplateCursor] = useState<
+    string | undefined
+  >();
   const [nextPromptCursor, setNextPromptCursor] = useState<
     string | undefined
   >();
@@ -130,14 +150,26 @@ const App = () => {
     localStorage.setItem("lastArgs", args);
   }, [args]);
 
-  const pushHistory = (request: object, response: object) => {
+  useEffect(() => {
+    fetch("http://localhost:3000/default-environment")
+      .then((response) => response.json())
+      .then((data) => setEnv(data))
+      .catch((error) =>
+        console.error("Error fetching default environment:", error),
+      );
+  }, []);
+
+  const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
       ...prev,
-      { request: JSON.stringify(request), response: JSON.stringify(response) },
+      {
+        request: JSON.stringify(request),
+        response: response !== undefined ? JSON.stringify(response) : undefined,
+      },
     ]);
   };
 
-  const makeRequest = async <T extends AnyZodObject>(
+  const makeRequest = async <T extends ZodType<object>>(
     request: ClientRequest,
     schema: T,
   ) => {
@@ -155,6 +187,20 @@ const App = () => {
     }
   };
 
+  const sendNotification = async (notification: ClientNotification) => {
+    if (!mcpClient) {
+      throw new Error("MCP client not connected");
+    }
+
+    try {
+      await mcpClient.notification(notification);
+      pushHistory(notification);
+    } catch (e: unknown) {
+      setError((e as Error).message);
+      throw e;
+    }
+  };
+
   const listResources = async () => {
     const response = await makeRequest(
       {
@@ -165,6 +211,22 @@ const App = () => {
     );
     setResources(resources.concat(response.resources ?? []));
     setNextResourceCursor(response.nextCursor);
+  };
+
+  const listResourceTemplates = async () => {
+    const response = await makeRequest(
+      {
+        method: "resources/templates/list" as const,
+        params: nextResourceTemplateCursor
+          ? { cursor: nextResourceTemplateCursor }
+          : {},
+      },
+      ListResourceTemplatesResultSchema,
+    );
+    setResourceTemplates(
+      resourceTemplates.concat(response.resourceTemplates ?? []),
+    );
+    setNextResourceTemplateCursor(response.nextCursor);
   };
 
   const readResource = async (uri: string) => {
@@ -225,9 +287,13 @@ const App = () => {
           },
         },
       },
-      CallToolResultSchema,
+      CompatibilityCallToolResultSchema,
     );
-    setToolResult(JSON.stringify(response.toolResult, null, 2));
+    setToolResult(response);
+  };
+
+  const handleRootsChange = async () => {
+    sendNotification({ method: "notifications/roots/list_changed" });
   };
 
   const connectMcpServer = async () => {
@@ -243,6 +309,7 @@ const App = () => {
       if (transportType === "stdio") {
         backendUrl.searchParams.append("command", command);
         backendUrl.searchParams.append("args", args);
+        backendUrl.searchParams.append("env", JSON.stringify(env));
       } else {
         backendUrl.searchParams.append("url", url);
       }
@@ -267,6 +334,10 @@ const App = () => {
             { id: nextRequestId.current++, request, resolve, reject },
           ]);
         });
+      });
+
+      client.setRequestHandler(ListRootsRequestSchema, async () => {
+        return { roots };
       });
 
       setMcpClient(client);
@@ -326,6 +397,66 @@ const App = () => {
                   Connect
                 </Button>
               </div>
+              {transportType === "stdio" && (
+                <div className="mt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowEnvVars(!showEnvVars)}
+                    className="flex items-center"
+                  >
+                    {showEnvVars ? (
+                      <ChevronDown className="w-4 h-4 mr-2" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 mr-2" />
+                    )}
+                    Environment Variables
+                  </Button>
+                  {showEnvVars && (
+                    <div className="mt-2">
+                      {Object.entries(env).map(([key, value]) => (
+                        <div key={key} className="flex space-x-2 mb-2">
+                          <Input
+                            placeholder="Key"
+                            value={key}
+                            onChange={(e) =>
+                              setEnv((prev) => ({
+                                ...prev,
+                                [e.target.value]: value,
+                              }))
+                            }
+                          />
+                          <Input
+                            placeholder="Value"
+                            value={value}
+                            onChange={(e) =>
+                              setEnv((prev) => ({
+                                ...prev,
+                                [key]: e.target.value,
+                              }))
+                            }
+                          />
+                          <Button
+                            onClick={() =>
+                              setEnv((prev) => {
+                                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                                const { [key]: _, ...rest } = prev;
+                                return rest;
+                              })
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        onClick={() => setEnv((prev) => ({ ...prev, "": "" }))}
+                      >
+                        Add Environment Variable
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             {mcpClient ? (
               <Tabs defaultValue="resources" className="w-full p-4">
@@ -363,17 +494,24 @@ const App = () => {
                       </span>
                     )}
                   </TabsTrigger>
+                  <TabsTrigger value="roots">
+                    <FolderTree className="w-4 h-4 mr-2" />
+                    Roots
+                  </TabsTrigger>
                 </TabsList>
 
                 <div className="w-full">
                   <ResourcesTab
                     resources={resources}
+                    resourceTemplates={resourceTemplates}
                     listResources={listResources}
+                    listResourceTemplates={listResourceTemplates}
                     readResource={readResource}
                     selectedResource={selectedResource}
                     setSelectedResource={setSelectedResource}
                     resourceContent={resourceContent}
                     nextCursor={nextResourceCursor}
+                    nextTemplateCursor={nextResourceTemplateCursor}
                     error={error}
                   />
                   <PromptsTab
@@ -394,7 +532,7 @@ const App = () => {
                     selectedTool={selectedTool}
                     setSelectedTool={(tool) => {
                       setSelectedTool(tool);
-                      setToolResult("");
+                      setToolResult(null);
                     }}
                     toolResult={toolResult}
                     nextCursor={nextToolCursor}
@@ -415,6 +553,11 @@ const App = () => {
                     pendingRequests={pendingSampleRequests}
                     onApprove={handleApproveSampling}
                     onReject={handleRejectSampling}
+                  />
+                  <RootsTab
+                    roots={roots}
+                    setRoots={setRoots}
+                    onRootsChange={handleRootsChange}
                   />
                 </div>
               </Tabs>
