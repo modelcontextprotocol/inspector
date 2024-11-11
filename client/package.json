@@ -1,7 +1,11 @@
 {
-  "name": "client",
-  "private": true,
+  "name": "@modelcontextprotocol/inspector-client",
   "version": "0.0.0",
+  "description": "Client-side application for the Model Context Protocol inspector",
+  "license": "MIT",
+  "author": "Anthropic, PBC (https://anthropic.com)",
+  "homepage": "https://modelcontextprotocol.github.io",
+  "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "type": "module",
   "scripts": {
     "dev": "vite",

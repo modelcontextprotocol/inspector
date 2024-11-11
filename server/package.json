@@ -1,6 +1,11 @@
 {
-  "name": "mcp-inspector",
+  "name": "@modelcontextprotocol/inspector-server",
   "version": "0.0.1",
+  "description": "Server-side application for the Model Context Protocol inspector",
+  "license": "MIT",
+  "author": "Anthropic, PBC (https://anthropic.com)",
+  "homepage": "https://modelcontextprotocol.github.io",
+  "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "main": "build/index.js",
   "type": "module",
   "scripts": {

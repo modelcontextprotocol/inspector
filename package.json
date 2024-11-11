@@ -1,7 +1,11 @@
 {
-  "name": "mcp-inspector",
-  "private": true,
+  "name": "@modelcontextprotocol/inspector",
   "version": "0.0.1",
+  "description": "Model Context Protocol inspector",
+  "license": "MIT",
+  "author": "Anthropic, PBC (https://anthropic.com)",
+  "homepage": "https://modelcontextprotocol.github.io",
+  "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "type": "module",
   "workspaces": [
     "client",
