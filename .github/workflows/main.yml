@@ -17,5 +17,7 @@ jobs:
           node-version: 18
           cache: npm
 
-      - run: npm ci
+      # Working around https://github.com/npm/cli/issues/4828
+      # - run: npm ci
+      - run: npm install --no-package-lock
       - run: npm run build
