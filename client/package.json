@@ -19,8 +19,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "prepare": "npm run build"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "*",
