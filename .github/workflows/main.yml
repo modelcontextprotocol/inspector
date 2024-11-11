@@ -17,20 +17,6 @@ jobs:
           node-version: 18
           cache: npm
 
-      - uses: actions/checkout@v4
-        with:
-          repository: modelcontextprotocol/typescript-sdk
-          ssh-key: ${{ secrets.TYPESCRIPT_SDK_KEY }}
-          path: packages/@modelcontextprotocol/sdk
-
-      - run: npm ci
-        working-directory: packages/@modelcontextprotocol/sdk
-
-      - run: npm pack
-        working-directory: packages/@modelcontextprotocol/sdk
-
-      - run: npm install --save packages/@modelcontextprotocol/sdk/modelcontextprotocol-sdk-*.tgz
-
       # Working around https://github.com/npm/cli/issues/4828
       # - run: npm ci
       - run: npm install --no-package-lock
