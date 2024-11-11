@@ -6,8 +6,13 @@
   "author": "Anthropic, PBC (https://anthropic.com)",
   "homepage": "https://modelcontextprotocol.github.io",
   "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
-  "main": "build/index.js",
   "type": "module",
+  "bin": {
+    "mcp-inspector-server": "build/index.js"
+  },
+  "files": [
+    "build"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
