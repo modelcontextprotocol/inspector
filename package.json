@@ -31,8 +31,10 @@
     "prepare": "npm run build",
     "prettier-fix": "prettier --write ."
   },
+  "dependencies": {
+    "concurrently": "^9.0.1"
+  },
   "devDependencies": {
-    "concurrently": "^9.0.1",
     "prettier": "3.3.3",
     "@types/node": "^22.7.5"
   }
