@@ -1,8 +1,22 @@
 {
-  "name": "mcp-inspector",
+  "name": "@modelcontextprotocol/inspector",
+  "version": "0.1.0",
   "private": true,
-  "version": "0.0.1",
+  "description": "Model Context Protocol inspector",
+  "license": "MIT",
+  "author": "Anthropic, PBC (https://anthropic.com)",
+  "homepage": "https://modelcontextprotocol.github.io",
+  "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "type": "module",
+  "bin": {
+    "mcp-inspector": "./bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "client/bin",
+    "client/dist",
+    "server/build"
+  ],
   "workspaces": [
     "client",
     "server"
@@ -14,11 +28,15 @@
     "build": "npm run build-server && npm run build-client",
     "start-server": "cd server && npm run start",
     "start-client": "cd client && npm run preview",
-    "start": "concurrently \"npm run start-server\" \"npm run start-client\"",
+    "start": "./bin/cli.js",
+    "prepare": "npm run build",
     "prettier-fix": "prettier --write ."
   },
+  "dependencies": {
+    "concurrently": "^9.0.1"
+  },
   "devDependencies": {
-    "concurrently": "^9.0.1",
-    "prettier": "3.3.3"
+    "prettier": "3.3.3",
+    "@types/node": "^22.7.5"
   }
 }
