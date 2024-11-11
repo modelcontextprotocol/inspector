@@ -7,6 +7,14 @@
   "homepage": "https://modelcontextprotocol.github.io",
   "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "type": "module",
+  "bin": {
+    "mcp-inspector": "./bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "client/dist",
+    "server/build"
+  ],
   "workspaces": [
     "client",
     "server"
@@ -18,11 +26,13 @@
     "build": "npm run build-server && npm run build-client",
     "start-server": "cd server && npm run start",
     "start-client": "cd client && npm run preview",
-    "start": "concurrently \"npm run start-server\" \"npm run start-client\"",
+    "start": "./bin/cli.js",
+    "prepare": "npm run build",
     "prettier-fix": "prettier --write ."
   },
   "devDependencies": {
     "concurrently": "^9.0.1",
-    "prettier": "3.3.3"
+    "prettier": "3.3.3",
+    "@types/node": "^22.7.5"
   }
 }
