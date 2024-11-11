@@ -77,16 +77,10 @@ const App = () => {
     useState<CompatibilityCallToolResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [command, setCommand] = useState<string>(() => {
-    return (
-      localStorage.getItem("lastCommand") ||
-      "/Users/ashwin/.nvm/versions/node/v18.20.4/bin/node"
-    );
+    return localStorage.getItem("lastCommand") || "mcp-server-everything";
   });
   const [args, setArgs] = useState<string>(() => {
-    return (
-      localStorage.getItem("lastArgs") ||
-      "/Users/ashwin/code/mcp/example-servers/build/everything/stdio.js"
-    );
+    return localStorage.getItem("lastArgs") || "";
   });
   const [url, setUrl] = useState<string>("http://localhost:3001/sse");
   const [transportType, setTransportType] = useState<"stdio" | "sse">("stdio");
