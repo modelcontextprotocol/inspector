@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -12,6 +12,7 @@
   },
   "files": [
     "bin",
+    "client/bin",
     "client/dist",
     "server/build"
   ],
