@@ -108,6 +108,7 @@ const App = () => {
     >
   >([]);
   const nextRequestId = useRef(0);
+  const rootsRef = useRef<Root[]>([]);
 
   const handleApproveSampling = (id: number, result: CreateMessageResult) => {
     setPendingSampleRequests((prev) => {
@@ -158,6 +159,10 @@ const App = () => {
         console.error("Error fetching default environment:", error),
       );
   }, []);
+
+  useEffect(() => {
+    rootsRef.current = roots;
+  }, [roots]);
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
@@ -293,7 +298,7 @@ const App = () => {
   };
 
   const handleRootsChange = async () => {
-    sendNotification({ method: "notifications/roots/list_changed" });
+    await sendNotification({ method: "notifications/roots/list_changed" });
   };
 
   const connectMcpServer = async () => {
@@ -337,7 +342,7 @@ const App = () => {
       });
 
       client.setRequestHandler(ListRootsRequestSchema, async () => {
-        return { roots };
+        return { roots: rootsRef.current };
       });
 
       setMcpClient(client);
