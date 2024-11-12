@@ -28,15 +28,6 @@ if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
   document.documentElement.classList.add("dark");
 }
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Bell,
@@ -44,12 +35,9 @@ import {
   Hammer,
   Hash,
   MessageSquare,
-  Play,
   Send,
   Terminal,
   FolderTree,
-  ChevronDown,
-  ChevronRight,
 } from "lucide-react";
 
 import { ZodType } from "zod";
@@ -95,7 +83,6 @@ const App = () => {
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
-  const [showEnvVars, setShowEnvVars] = useState(false);
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     Array<
@@ -353,114 +340,24 @@ const App = () => {
 
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar connectionStatus={connectionStatus} />
+      <Sidebar
+        connectionStatus={connectionStatus}
+        transportType={transportType}
+        setTransportType={setTransportType}
+        command={command}
+        setCommand={setCommand}
+        args={args}
+        setArgs={setArgs}
+        url={url}
+        setUrl={setUrl}
+        env={env}
+        setEnv={setEnv}
+        onConnect={connectMcpServer}
+      />
       <div className="flex-1 flex flex-col overflow-hidden">
         <h1 className="text-2xl font-bold p-4">MCP Inspector</h1>
         <div className="flex-1 overflow-auto flex">
           <div className="flex-1">
-            <div className="p-4 bg-card shadow-md m-4 rounded-md">
-              <h2 className="text-lg font-semibold mb-2">Connect MCP Server</h2>
-              <div className="flex space-x-2 mb-2">
-                <Select
-                  value={transportType}
-                  onValueChange={(value: "stdio" | "sse") =>
-                    setTransportType(value)
-                  }
-                >
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Select transport type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="stdio">STDIO</SelectItem>
-                    <SelectItem value="sse">SSE</SelectItem>
-                  </SelectContent>
-                </Select>
-                {transportType === "stdio" ? (
-                  <>
-                    <Input
-                      placeholder="Command"
-                      value={command}
-                      onChange={(e) => setCommand(e.target.value)}
-                    />
-                    <Input
-                      placeholder="Arguments (space-separated)"
-                      value={args}
-                      onChange={(e) => setArgs(e.target.value)}
-                    />
-                  </>
-                ) : (
-                  <Input
-                    placeholder="URL"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                  />
-                )}
-                <Button onClick={connectMcpServer}>
-                  <Play className="w-4 h-4 mr-2" />
-                  Connect
-                </Button>
-              </div>
-              {transportType === "stdio" && (
-                <div className="mt-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowEnvVars(!showEnvVars)}
-                    className="flex items-center"
-                  >
-                    {showEnvVars ? (
-                      <ChevronDown className="w-4 h-4 mr-2" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 mr-2" />
-                    )}
-                    Environment Variables
-                  </Button>
-                  {showEnvVars && (
-                    <div className="mt-2">
-                      {Object.entries(env).map(([key, value]) => (
-                        <div key={key} className="flex space-x-2 mb-2">
-                          <Input
-                            placeholder="Key"
-                            value={key}
-                            onChange={(e) =>
-                              setEnv((prev) => ({
-                                ...prev,
-                                [e.target.value]: value,
-                              }))
-                            }
-                          />
-                          <Input
-                            placeholder="Value"
-                            value={value}
-                            onChange={(e) =>
-                              setEnv((prev) => ({
-                                ...prev,
-                                [key]: e.target.value,
-                              }))
-                            }
-                          />
-                          <Button
-                            onClick={() =>
-                              setEnv((prev) => {
-                                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                                const { [key]: _, ...rest } = prev;
-                                return rest;
-                              })
-                            }
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                      ))}
-                      <Button
-                        onClick={() => setEnv((prev) => ({ ...prev, "": "" }))}
-                      >
-                        Add Environment Variable
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
             {mcpClient ? (
               <Tabs defaultValue="resources" className="w-full p-4">
                 <TabsList className="mb-4 p-0">
