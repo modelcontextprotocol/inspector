@@ -29,7 +29,7 @@ const HistoryAndNotifications = ({
   };
 
   return (
-    <div className="w-64 bg-white shadow-md p-4 overflow-hidden flex flex-col h-full">
+    <div className="w-64 bg-card shadow-md p-4 overflow-hidden flex flex-col h-full">
       <div className="flex-1 overflow-y-auto mb-4 border-b pb-4">
         <h2 className="text-lg font-semibold mb-4">History</h2>
         {requestHistory.length === 0 ? (
@@ -42,7 +42,7 @@ const HistoryAndNotifications = ({
               .map((request, index) => (
                 <li
                   key={index}
-                  className="text-sm text-gray-600 bg-gray-100 p-2 rounded"
+                  className="text-sm text-foreground bg-secondary p-2 rounded"
                 >
                   <div
                     className="flex justify-between items-center cursor-pointer"
@@ -74,7 +74,7 @@ const HistoryAndNotifications = ({
                             <Copy size={16} />
                           </button>
                         </div>
-                        <pre className="whitespace-pre-wrap break-words bg-blue-50 p-2 rounded">
+                        <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded">
                           {JSON.stringify(JSON.parse(request.request), null, 2)}
                         </pre>
                       </div>
@@ -91,7 +91,7 @@ const HistoryAndNotifications = ({
                               <Copy size={16} />
                             </button>
                           </div>
-                          <pre className="whitespace-pre-wrap break-words bg-green-50 p-2 rounded">
+                          <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded">
                             {JSON.stringify(
                               JSON.parse(request.response),
                               null,
@@ -119,7 +119,7 @@ const HistoryAndNotifications = ({
               .map((notification, index) => (
                 <li
                   key={index}
-                  className="text-sm text-gray-600 bg-gray-100 p-2 rounded"
+                  className="text-sm text-foreground bg-secondary p-2 rounded"
                 >
                   <div
                     className="flex justify-between items-center cursor-pointer"
@@ -146,7 +146,7 @@ const HistoryAndNotifications = ({
                           <Copy size={16} />
                         </button>
                       </div>
-                      <pre className="whitespace-pre-wrap break-words bg-purple-50 p-2 rounded">
+                      <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded">
                         {JSON.stringify(notification, null, 2)}
                       </pre>
                     </div>

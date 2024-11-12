@@ -2,7 +2,7 @@ import { Menu, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const Sidebar = ({ connectionStatus }: { connectionStatus: string }) => (
-  <div className="w-64 bg-white border-r border-gray-200">
+  <div className="w-64 bg-card border-r border-border">
     <div className="flex items-center p-4 border-b border-gray-200">
       <Menu className="w-6 h-6 text-gray-500" />
       <h1 className="ml-2 text-lg font-semibold">MCP Inspector</h1>

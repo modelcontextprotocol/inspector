@@ -111,7 +111,7 @@ const ResourcesTab = ({
         isButtonDisabled={!nextTemplateCursor && resourceTemplates.length > 0}
       />
 
-      <div className="bg-white rounded-lg shadow">
+      <div className="bg-card rounded-lg shadow">
         <div className="p-4 border-b border-gray-200 flex justify-between items-center">
           <h3
             className="font-semibold truncate"
