@@ -355,7 +355,6 @@ const App = () => {
         onConnect={connectMcpServer}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <h1 className="text-2xl font-bold p-4">MCP Inspector</h1>
         <div className="flex-1 overflow-auto flex">
           <div className="flex-1">
             {mcpClient ? (
