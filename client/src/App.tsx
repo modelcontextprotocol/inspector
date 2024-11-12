@@ -79,7 +79,11 @@ const App = () => {
   const [tools, setTools] = useState<Tool[]>([]);
   const [toolResult, setToolResult] =
     useState<CompatibilityCallToolResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string | null>>({
+    resources: null,
+    prompts: null,
+    tools: null,
+  });
   const [command, setCommand] = useState<string>(() => {
     return localStorage.getItem("lastCommand") || "mcp-server-everything";
   });
@@ -175,17 +179,19 @@ const App = () => {
   const makeRequest = async <T extends ZodType<object>>(
     request: ClientRequest,
     schema: T,
+    tabKey: keyof typeof errors
   ) => {
     if (!mcpClient) {
       throw new Error("MCP client not connected");
     }
-
+  
     try {
       const response = await mcpClient.request(request, schema);
       pushHistory(request, response);
+      setErrors(prev => ({ ...prev, [tabKey]: null }));
       return response;
     } catch (e: unknown) {
-      setError((e as Error).message);
+      setErrors(prev => ({ ...prev, [tabKey]: (e as Error).message }));
       throw e;
     }
   };
@@ -211,11 +217,12 @@ const App = () => {
         params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
       },
       ListResourcesResultSchema,
+      'resources'
     );
     setResources(resources.concat(response.resources ?? []));
     setNextResourceCursor(response.nextCursor);
   };
-
+  
   const listResourceTemplates = async () => {
     const response = await makeRequest(
       {
@@ -225,13 +232,14 @@ const App = () => {
           : {},
       },
       ListResourceTemplatesResultSchema,
+      'resources'
     );
     setResourceTemplates(
       resourceTemplates.concat(response.resourceTemplates ?? []),
     );
     setNextResourceTemplateCursor(response.nextCursor);
   };
-
+  
   const readResource = async (uri: string) => {
     const response = await makeRequest(
       {
@@ -239,6 +247,7 @@ const App = () => {
         params: { uri },
       },
       ReadResourceResultSchema,
+      'resources'
     );
     setResourceContent(JSON.stringify(response, null, 2));
   };
@@ -250,11 +259,12 @@ const App = () => {
         params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
       },
       ListPromptsResultSchema,
+      'prompts'
     );
     setPrompts(response.prompts);
     setNextPromptCursor(response.nextCursor);
   };
-
+  
   const getPrompt = async (name: string, args: Record<string, string> = {}) => {
     const response = await makeRequest(
       {
@@ -262,6 +272,7 @@ const App = () => {
         params: { name, arguments: args },
       },
       GetPromptResultSchema,
+      'prompts'
     );
     setPromptContent(JSON.stringify(response, null, 2));
   };
@@ -273,11 +284,12 @@ const App = () => {
         params: nextToolCursor ? { cursor: nextToolCursor } : {},
       },
       ListToolsResultSchema,
+      'tools'
     );
     setTools(response.tools);
     setNextToolCursor(response.nextCursor);
   };
-
+  
   const callTool = async (name: string, params: Record<string, unknown>) => {
     const response = await makeRequest(
       {
@@ -291,6 +303,7 @@ const App = () => {
         },
       },
       CompatibilityCallToolResultSchema,
+      'tools'
     );
     setToolResult(response);
   };
@@ -515,7 +528,7 @@ const App = () => {
                     resourceContent={resourceContent}
                     nextCursor={nextResourceCursor}
                     nextTemplateCursor={nextResourceTemplateCursor}
-                    error={error}
+                    error={errors.resources}
                   />
                   <PromptsTab
                     prompts={prompts}
@@ -525,9 +538,8 @@ const App = () => {
                     setSelectedPrompt={setSelectedPrompt}
                     promptContent={promptContent}
                     nextCursor={nextPromptCursor}
-                    error={error}
+                    error={errors.prompts}
                   />
-                  <RequestsTab />
                   <ToolsTab
                     tools={tools}
                     listTools={listTools}
@@ -539,7 +551,7 @@ const App = () => {
                     }}
                     toolResult={toolResult}
                     nextCursor={nextToolCursor}
-                    error={error}
+                    error={errors.tools}
                   />
                   <ConsoleTab />
                   <PingTab
