@@ -3,7 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
-import { CallToolResult, ListToolsResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolResult,
+  ListToolsResult,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, Send } from "lucide-react";
 import { useState } from "react";
 import ListPane from "./ListPane";

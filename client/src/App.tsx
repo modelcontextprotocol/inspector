@@ -84,6 +84,10 @@ const App = () => {
     prompts: null,
     tools: null,
   });
+
+  const clearError = (tabKey: keyof typeof errors) => {
+    setErrors((prev) => ({ ...prev, [tabKey]: null }));
+  };
   const [command, setCommand] = useState<string>(() => {
     return localStorage.getItem("lastCommand") || "mcp-server-everything";
   });
@@ -529,11 +533,23 @@ const App = () => {
                   <ResourcesTab
                     resources={resources}
                     resourceTemplates={resourceTemplates}
-                    listResources={listResources}
-                    listResourceTemplates={listResourceTemplates}
-                    readResource={readResource}
+                    listResources={() => {
+                      clearError("resources");
+                      listResources();
+                    }}
+                    listResourceTemplates={() => {
+                      clearError("resources");
+                      listResourceTemplates();
+                    }}
+                    readResource={(uri) => {
+                      clearError("resources");
+                      readResource(uri);
+                    }}
                     selectedResource={selectedResource}
-                    setSelectedResource={setSelectedResource}
+                    setSelectedResource={(resource) => {
+                      clearError("resources");
+                      setSelectedResource(resource);
+                    }}
                     resourceContent={resourceContent}
                     nextCursor={nextResourceCursor}
                     nextTemplateCursor={nextResourceTemplateCursor}
@@ -541,20 +557,36 @@ const App = () => {
                   />
                   <PromptsTab
                     prompts={prompts}
-                    listPrompts={listPrompts}
-                    getPrompt={getPrompt}
+                    listPrompts={() => {
+                      clearError("prompts");
+                      listPrompts();
+                    }}
+                    getPrompt={(name, args) => {
+                      clearError("prompts");
+                      getPrompt(name, args);
+                    }}
                     selectedPrompt={selectedPrompt}
-                    setSelectedPrompt={setSelectedPrompt}
+                    setSelectedPrompt={(prompt) => {
+                      clearError("prompts");
+                      setSelectedPrompt(prompt);
+                    }}
                     promptContent={promptContent}
                     nextCursor={nextPromptCursor}
                     error={errors.prompts}
                   />
                   <ToolsTab
                     tools={tools}
-                    listTools={listTools}
-                    callTool={callTool}
+                    listTools={() => {
+                      clearError("tools");
+                      listTools();
+                    }}
+                    callTool={(name, params) => {
+                      clearError("tools");
+                      callTool(name, params);
+                    }}
                     selectedTool={selectedTool}
                     setSelectedTool={(tool) => {
+                      clearError("tools");
                       setSelectedTool(tool);
                       setToolResult(null);
                     }}
