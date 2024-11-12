@@ -37,7 +37,7 @@ import {
   Hash,
   MessageSquare,
   Send,
-  Terminal
+  Terminal,
 } from "lucide-react";
 
 import { toast } from "react-toastify";
@@ -72,10 +72,6 @@ const App = () => {
     prompts: null,
     tools: null,
   });
-
-  const clearError = (tabKey: keyof typeof errors) => {
-    setErrors((prev) => ({ ...prev, [tabKey]: null }));
-  };
   const [command, setCommand] = useState<string>(() => {
     return localStorage.getItem("lastCommand") || "mcp-server-everything";
   });
@@ -210,6 +206,10 @@ const App = () => {
     ]);
   };
 
+  const clearError = (tabKey: keyof typeof errors) => {
+    setErrors((prev) => ({ ...prev, [tabKey]: null }));
+  };
+
   const makeRequest = async <T extends ZodType<object>>(
     request: ClientRequest,
     schema: T,
@@ -224,7 +224,7 @@ const App = () => {
       pushHistory(request, response);
 
       if (tabKey !== undefined) {
-        setErrors((prev) => ({ ...prev, [tabKey]: null }));
+        clearError(tabKey);
       }
 
       return response;
