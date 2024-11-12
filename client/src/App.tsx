@@ -1,8 +1,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
-  CompatibilityCallToolResultSchema,
+  ClientNotification,
   ClientRequest,
+  CompatibilityCallToolResult,
+  CompatibilityCallToolResultSchema,
   CreateMessageRequestSchema,
   CreateMessageResult,
   EmptyResultSchema,
@@ -19,8 +21,6 @@ import {
   Root,
   ServerNotification,
   Tool,
-  CompatibilityCallToolResult,
-  ClientNotification,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 // Add dark mode class based on system preference
@@ -32,21 +32,21 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Bell,
   Files,
+  FolderTree,
   Hammer,
   Hash,
   MessageSquare,
   Send,
   Terminal,
-  FolderTree,
 } from "lucide-react";
 
+import { toast } from "react-toastify";
 import { ZodType } from "zod";
 import "./App.css";
 import ConsoleTab from "./components/ConsoleTab";
 import HistoryAndNotifications from "./components/History";
 import PingTab from "./components/PingTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
-import RequestsTab from "./components/RequestsTabs";
 import ResourcesTab from "./components/ResourcesTab";
 import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
@@ -67,7 +67,11 @@ const App = () => {
   const [tools, setTools] = useState<Tool[]>([]);
   const [toolResult, setToolResult] =
     useState<CompatibilityCallToolResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string | null>>({
+    resources: null,
+    prompts: null,
+    tools: null,
+  });
   const [command, setCommand] = useState<string>(() => {
     return localStorage.getItem("lastCommand") || "mcp-server-everything";
   });
@@ -202,9 +206,14 @@ const App = () => {
     ]);
   };
 
+  const clearError = (tabKey: keyof typeof errors) => {
+    setErrors((prev) => ({ ...prev, [tabKey]: null }));
+  };
+
   const makeRequest = async <T extends ZodType<object>>(
     request: ClientRequest,
     schema: T,
+    tabKey?: keyof typeof errors,
   ) => {
     if (!mcpClient) {
       throw new Error("MCP client not connected");
@@ -213,9 +222,19 @@ const App = () => {
     try {
       const response = await mcpClient.request(request, schema);
       pushHistory(request, response);
+
+      if (tabKey !== undefined) {
+        clearError(tabKey);
+      }
+
       return response;
     } catch (e: unknown) {
-      setError((e as Error).message);
+      if (tabKey === undefined) {
+        toast.error((e as Error).message);
+      } else {
+        setErrors((prev) => ({ ...prev, [tabKey]: (e as Error).message }));
+      }
+
       throw e;
     }
   };
@@ -229,7 +248,7 @@ const App = () => {
       await mcpClient.notification(notification);
       pushHistory(notification);
     } catch (e: unknown) {
-      setError((e as Error).message);
+      toast.error((e as Error).message);
       throw e;
     }
   };
@@ -241,6 +260,7 @@ const App = () => {
         params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
       },
       ListResourcesResultSchema,
+      "resources",
     );
     setResources(resources.concat(response.resources ?? []));
     setNextResourceCursor(response.nextCursor);
@@ -255,6 +275,7 @@ const App = () => {
           : {},
       },
       ListResourceTemplatesResultSchema,
+      "resources",
     );
     setResourceTemplates(
       resourceTemplates.concat(response.resourceTemplates ?? []),
@@ -269,6 +290,7 @@ const App = () => {
         params: { uri },
       },
       ReadResourceResultSchema,
+      "resources",
     );
     setResourceContent(JSON.stringify(response, null, 2));
   };
@@ -280,6 +302,7 @@ const App = () => {
         params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
       },
       ListPromptsResultSchema,
+      "prompts",
     );
     setPrompts(response.prompts);
     setNextPromptCursor(response.nextCursor);
@@ -292,6 +315,7 @@ const App = () => {
         params: { name, arguments: args },
       },
       GetPromptResultSchema,
+      "prompts",
     );
     setPromptContent(JSON.stringify(response, null, 2));
   };
@@ -303,6 +327,7 @@ const App = () => {
         params: nextToolCursor ? { cursor: nextToolCursor } : {},
       },
       ListToolsResultSchema,
+      "tools",
     );
     setTools(response.tools);
     setNextToolCursor(response.nextCursor);
@@ -321,6 +346,7 @@ const App = () => {
         },
       },
       CompatibilityCallToolResultSchema,
+      "tools",
     );
     setToolResult(response);
   };
@@ -445,39 +471,66 @@ const App = () => {
                 <ResourcesTab
                   resources={resources}
                   resourceTemplates={resourceTemplates}
-                  listResources={listResources}
-                  listResourceTemplates={listResourceTemplates}
-                  readResource={readResource}
+                  listResources={() => {
+                    clearError("resources");
+                    listResources();
+                  }}
+                  listResourceTemplates={() => {
+                    clearError("resources");
+                    listResourceTemplates();
+                  }}
+                  readResource={(uri) => {
+                    clearError("resources");
+                    readResource(uri);
+                  }}
                   selectedResource={selectedResource}
-                  setSelectedResource={setSelectedResource}
+                  setSelectedResource={(resource) => {
+                    clearError("resources");
+                    setSelectedResource(resource);
+                  }}
                   resourceContent={resourceContent}
                   nextCursor={nextResourceCursor}
                   nextTemplateCursor={nextResourceTemplateCursor}
-                  error={error}
+                  error={errors.resources}
                 />
                 <PromptsTab
                   prompts={prompts}
-                  listPrompts={listPrompts}
-                  getPrompt={getPrompt}
+                  listPrompts={() => {
+                    clearError("prompts");
+                    listPrompts();
+                  }}
+                  getPrompt={(name, args) => {
+                    clearError("prompts");
+                    getPrompt(name, args);
+                  }}
                   selectedPrompt={selectedPrompt}
-                  setSelectedPrompt={setSelectedPrompt}
+                  setSelectedPrompt={(prompt) => {
+                    clearError("prompts");
+                    setSelectedPrompt(prompt);
+                  }}
                   promptContent={promptContent}
                   nextCursor={nextPromptCursor}
-                  error={error}
+                  error={errors.prompts}
                 />
-                <RequestsTab />
                 <ToolsTab
                   tools={tools}
-                  listTools={listTools}
-                  callTool={callTool}
+                  listTools={() => {
+                    clearError("tools");
+                    listTools();
+                  }}
+                  callTool={(name, params) => {
+                    clearError("tools");
+                    callTool(name, params);
+                  }}
                   selectedTool={selectedTool}
                   setSelectedTool={(tool) => {
+                    clearError("tools");
                     setSelectedTool(tool);
                     setToolResult(null);
                   }}
                   toolResult={toolResult}
                   nextCursor={nextToolCursor}
-                  error={error}
+                  error={errors.tools}
                 />
                 <ConsoleTab />
                 <PingTab
