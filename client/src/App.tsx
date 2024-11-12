@@ -1,8 +1,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
-  CompatibilityCallToolResultSchema,
+  ClientNotification,
   ClientRequest,
+  CompatibilityCallToolResult,
+  CompatibilityCallToolResultSchema,
   CreateMessageRequestSchema,
   CreateMessageResult,
   EmptyResultSchema,
@@ -19,8 +21,6 @@ import {
   Root,
   ServerNotification,
   Tool,
-  CompatibilityCallToolResult,
-  ClientNotification,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useEffect, useRef, useState } from "react";
 // Add dark mode class based on system preference
@@ -40,16 +40,16 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Bell,
+  ChevronDown,
+  ChevronRight,
   Files,
+  FolderTree,
   Hammer,
   Hash,
   MessageSquare,
   Play,
   Send,
   Terminal,
-  FolderTree,
-  ChevronDown,
-  ChevronRight,
 } from "lucide-react";
 
 import { ZodType } from "zod";
@@ -58,7 +58,6 @@ import ConsoleTab from "./components/ConsoleTab";
 import HistoryAndNotifications from "./components/History";
 import PingTab from "./components/PingTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
-import RequestsTab from "./components/RequestsTabs";
 import ResourcesTab from "./components/ResourcesTab";
 import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
@@ -184,7 +183,7 @@ const App = () => {
     if (!mcpClient) {
       throw new Error("MCP client not connected");
     }
-  
+
     try {
       const response = await mcpClient.request(request, schema);
       pushHistory(request, response);
@@ -222,7 +221,7 @@ const App = () => {
     setResources(resources.concat(response.resources ?? []));
     setNextResourceCursor(response.nextCursor);
   };
-  
+
   const listResourceTemplates = async () => {
     const response = await makeRequest(
       {
@@ -239,7 +238,7 @@ const App = () => {
     );
     setNextResourceTemplateCursor(response.nextCursor);
   };
-  
+
   const readResource = async (uri: string) => {
     const response = await makeRequest(
       {
@@ -264,7 +263,7 @@ const App = () => {
     setPrompts(response.prompts);
     setNextPromptCursor(response.nextCursor);
   };
-  
+
   const getPrompt = async (name: string, args: Record<string, string> = {}) => {
     const response = await makeRequest(
       {
@@ -289,7 +288,7 @@ const App = () => {
     setTools(response.tools);
     setNextToolCursor(response.nextCursor);
   };
-  
+
   const callTool = async (name: string, params: Record<string, unknown>) => {
     const response = await makeRequest(
       {
