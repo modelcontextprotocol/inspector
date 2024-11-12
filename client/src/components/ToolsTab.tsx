@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
   CallToolResult,
   ListToolsResult,
@@ -127,24 +128,44 @@ const ToolsTab = ({
                     >
                       {key}
                     </Label>
-                    <Input
-                      // @ts-expect-error value type is currently unknown
-                      type={value.type === "number" ? "number" : "text"}
-                      id={key}
-                      name={key}
-                      // @ts-expect-error value type is currently unknown
-                      placeholder={value.description}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          [key]:
-                            // @ts-expect-error value type is currently unknown
-                            value.type === "number"
-                              ? Number(e.target.value)
-                              : e.target.value,
-                        })
-                      }
-                    />
+                    {
+                      /* @ts-expect-error value type is currently unknown */
+                      value.type === "string" ? (
+                        <Textarea
+                          id={key}
+                          name={key}
+                          // @ts-expect-error value type is currently unknown
+                          placeholder={value.description}
+                          onChange={(e) =>
+                            setParams({
+                              ...params,
+                              [key]: e.target.value,
+                            })
+                          }
+                          className="mt-1"
+                        />
+                      ) : (
+                        <Input
+                          // @ts-expect-error value type is currently unknown
+                          type={value.type === "number" ? "number" : "text"}
+                          id={key}
+                          name={key}
+                          // @ts-expect-error value type is currently unknown
+                          placeholder={value.description}
+                          onChange={(e) =>
+                            setParams({
+                              ...params,
+                              [key]:
+                                // @ts-expect-error value type is currently unknown
+                                value.type === "number"
+                                  ? Number(e.target.value)
+                                  : e.target.value,
+                            })
+                          }
+                          className="mt-1"
+                        />
+                      )
+                    }
                   </div>
                 ),
               )}

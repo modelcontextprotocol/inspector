@@ -22,34 +22,22 @@ import {
   ServerNotification,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 // Add dark mode class based on system preference
 if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
   document.documentElement.classList.add("dark");
 }
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Bell,
-  ChevronDown,
-  ChevronRight,
   Files,
   FolderTree,
   Hammer,
   Hash,
   MessageSquare,
-  Play,
   Send,
-  Terminal,
+  Terminal
 } from "lucide-react";
 
 import { toast } from "react-toastify";
@@ -103,7 +91,6 @@ const App = () => {
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
-  const [showEnvVars, setShowEnvVars] = useState(false);
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     Array<
@@ -148,6 +135,49 @@ const App = () => {
   >();
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
+  const [historyPaneHeight, setHistoryPaneHeight] = useState<number>(300);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartY = useRef<number>(0);
+  const dragStartHeight = useRef<number>(0);
+
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      setIsDragging(true);
+      dragStartY.current = e.clientY;
+      dragStartHeight.current = historyPaneHeight;
+      document.body.style.userSelect = "none";
+    },
+    [historyPaneHeight],
+  );
+
+  const handleDragMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isDragging) return;
+      const deltaY = dragStartY.current - e.clientY;
+      const newHeight = Math.max(
+        100,
+        Math.min(800, dragStartHeight.current + deltaY),
+      );
+      setHistoryPaneHeight(newHeight);
+    },
+    [isDragging],
+  );
+
+  const handleDragEnd = useCallback(() => {
+    setIsDragging(false);
+    document.body.style.userSelect = "";
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener("mousemove", handleDragMove);
+      window.addEventListener("mouseup", handleDragEnd);
+      return () => {
+        window.removeEventListener("mousemove", handleDragMove);
+        window.removeEventListener("mouseup", handleDragEnd);
+      };
+    }
+  }, [isDragging, handleDragMove, handleDragEnd]);
 
   useEffect(() => {
     localStorage.setItem("lastCommand", command);
@@ -379,258 +409,180 @@ const App = () => {
 
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar connectionStatus={connectionStatus} />
+      <Sidebar
+        connectionStatus={connectionStatus}
+        transportType={transportType}
+        setTransportType={setTransportType}
+        command={command}
+        setCommand={setCommand}
+        args={args}
+        setArgs={setArgs}
+        url={url}
+        setUrl={setUrl}
+        env={env}
+        setEnv={setEnv}
+        onConnect={connectMcpServer}
+      />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <h1 className="text-2xl font-bold p-4">MCP Inspector</h1>
-        <div className="flex-1 overflow-auto flex">
-          <div className="flex-1">
-            <div className="p-4 bg-card shadow-md m-4 rounded-md">
-              <h2 className="text-lg font-semibold mb-2">Connect MCP Server</h2>
-              <div className="flex space-x-2 mb-2">
-                <Select
-                  value={transportType}
-                  onValueChange={(value: "stdio" | "sse") =>
-                    setTransportType(value)
-                  }
-                >
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Select transport type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="stdio">STDIO</SelectItem>
-                    <SelectItem value="sse">SSE</SelectItem>
-                  </SelectContent>
-                </Select>
-                {transportType === "stdio" ? (
-                  <>
-                    <Input
-                      placeholder="Command"
-                      value={command}
-                      onChange={(e) => setCommand(e.target.value)}
-                    />
-                    <Input
-                      placeholder="Arguments (space-separated)"
-                      value={args}
-                      onChange={(e) => setArgs(e.target.value)}
-                    />
-                  </>
-                ) : (
-                  <Input
-                    placeholder="URL"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                  />
-                )}
-                <Button onClick={connectMcpServer}>
-                  <Play className="w-4 h-4 mr-2" />
-                  Connect
-                </Button>
-              </div>
-              {transportType === "stdio" && (
-                <div className="mt-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowEnvVars(!showEnvVars)}
-                    className="flex items-center"
-                  >
-                    {showEnvVars ? (
-                      <ChevronDown className="w-4 h-4 mr-2" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 mr-2" />
-                    )}
-                    Environment Variables
-                  </Button>
-                  {showEnvVars && (
-                    <div className="mt-2">
-                      {Object.entries(env).map(([key, value]) => (
-                        <div key={key} className="flex space-x-2 mb-2">
-                          <Input
-                            placeholder="Key"
-                            value={key}
-                            onChange={(e) =>
-                              setEnv((prev) => ({
-                                ...prev,
-                                [e.target.value]: value,
-                              }))
-                            }
-                          />
-                          <Input
-                            placeholder="Value"
-                            value={value}
-                            onChange={(e) =>
-                              setEnv((prev) => ({
-                                ...prev,
-                                [key]: e.target.value,
-                              }))
-                            }
-                          />
-                          <Button
-                            onClick={() =>
-                              setEnv((prev) => {
-                                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                                const { [key]: _, ...rest } = prev;
-                                return rest;
-                              })
-                            }
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                      ))}
-                      <Button
-                        onClick={() => setEnv((prev) => ({ ...prev, "": "" }))}
-                      >
-                        Add Environment Variable
-                      </Button>
-                    </div>
+        <div className="flex-1 overflow-auto">
+          {mcpClient ? (
+            <Tabs defaultValue="resources" className="w-full p-4">
+              <TabsList className="mb-4 p-0">
+                <TabsTrigger value="resources">
+                  <Files className="w-4 h-4 mr-2" />
+                  Resources
+                </TabsTrigger>
+                <TabsTrigger value="prompts">
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Prompts
+                </TabsTrigger>
+                <TabsTrigger value="requests" disabled>
+                  <Send className="w-4 h-4 mr-2" />
+                  Requests
+                </TabsTrigger>
+                <TabsTrigger value="tools">
+                  <Hammer className="w-4 h-4 mr-2" />
+                  Tools
+                </TabsTrigger>
+                <TabsTrigger value="console" disabled>
+                  <Terminal className="w-4 h-4 mr-2" />
+                  Console
+                </TabsTrigger>
+                <TabsTrigger value="ping">
+                  <Bell className="w-4 h-4 mr-2" />
+                  Ping
+                </TabsTrigger>
+                <TabsTrigger value="sampling" className="relative">
+                  <Hash className="w-4 h-4 mr-2" />
+                  Sampling
+                  {pendingSampleRequests.length > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                      {pendingSampleRequests.length}
+                    </span>
                   )}
-                </div>
-              )}
-            </div>
-            {mcpClient ? (
-              <Tabs defaultValue="resources" className="w-full p-4">
-                <TabsList className="mb-4 p-0">
-                  <TabsTrigger value="resources">
-                    <Files className="w-4 h-4 mr-2" />
-                    Resources
-                  </TabsTrigger>
-                  <TabsTrigger value="prompts">
-                    <MessageSquare className="w-4 h-4 mr-2" />
-                    Prompts
-                  </TabsTrigger>
-                  <TabsTrigger value="requests" disabled>
-                    <Send className="w-4 h-4 mr-2" />
-                    Requests
-                  </TabsTrigger>
-                  <TabsTrigger value="tools">
-                    <Hammer className="w-4 h-4 mr-2" />
-                    Tools
-                  </TabsTrigger>
-                  <TabsTrigger value="console" disabled>
-                    <Terminal className="w-4 h-4 mr-2" />
-                    Console
-                  </TabsTrigger>
-                  <TabsTrigger value="ping">
-                    <Bell className="w-4 h-4 mr-2" />
-                    Ping
-                  </TabsTrigger>
-                  <TabsTrigger value="sampling" className="relative">
-                    <Hash className="w-4 h-4 mr-2" />
-                    Sampling
-                    {pendingSampleRequests.length > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-                        {pendingSampleRequests.length}
-                      </span>
-                    )}
-                  </TabsTrigger>
-                  <TabsTrigger value="roots">
-                    <FolderTree className="w-4 h-4 mr-2" />
-                    Roots
-                  </TabsTrigger>
-                </TabsList>
+                </TabsTrigger>
+                <TabsTrigger value="roots">
+                  <FolderTree className="w-4 h-4 mr-2" />
+                  Roots
+                </TabsTrigger>
+              </TabsList>
 
-                <div className="w-full">
-                  <ResourcesTab
-                    resources={resources}
-                    resourceTemplates={resourceTemplates}
-                    listResources={() => {
-                      clearError("resources");
-                      listResources();
-                    }}
-                    listResourceTemplates={() => {
-                      clearError("resources");
-                      listResourceTemplates();
-                    }}
-                    readResource={(uri) => {
-                      clearError("resources");
-                      readResource(uri);
-                    }}
-                    selectedResource={selectedResource}
-                    setSelectedResource={(resource) => {
-                      clearError("resources");
-                      setSelectedResource(resource);
-                    }}
-                    resourceContent={resourceContent}
-                    nextCursor={nextResourceCursor}
-                    nextTemplateCursor={nextResourceTemplateCursor}
-                    error={errors.resources}
-                  />
-                  <PromptsTab
-                    prompts={prompts}
-                    listPrompts={() => {
-                      clearError("prompts");
-                      listPrompts();
-                    }}
-                    getPrompt={(name, args) => {
-                      clearError("prompts");
-                      getPrompt(name, args);
-                    }}
-                    selectedPrompt={selectedPrompt}
-                    setSelectedPrompt={(prompt) => {
-                      clearError("prompts");
-                      setSelectedPrompt(prompt);
-                    }}
-                    promptContent={promptContent}
-                    nextCursor={nextPromptCursor}
-                    error={errors.prompts}
-                  />
-                  <ToolsTab
-                    tools={tools}
-                    listTools={() => {
-                      clearError("tools");
-                      listTools();
-                    }}
-                    callTool={(name, params) => {
-                      clearError("tools");
-                      callTool(name, params);
-                    }}
-                    selectedTool={selectedTool}
-                    setSelectedTool={(tool) => {
-                      clearError("tools");
-                      setSelectedTool(tool);
-                      setToolResult(null);
-                    }}
-                    toolResult={toolResult}
-                    nextCursor={nextToolCursor}
-                    error={errors.tools}
-                  />
-                  <ConsoleTab />
-                  <PingTab
-                    onPingClick={() => {
-                      void makeRequest(
-                        {
-                          method: "ping" as const,
-                        },
-                        EmptyResultSchema,
-                      );
-                    }}
-                  />
-                  <SamplingTab
-                    pendingRequests={pendingSampleRequests}
-                    onApprove={handleApproveSampling}
-                    onReject={handleRejectSampling}
-                  />
-                  <RootsTab
-                    roots={roots}
-                    setRoots={setRoots}
-                    onRootsChange={handleRootsChange}
-                  />
-                </div>
-              </Tabs>
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-lg text-gray-500">
-                  Connect to an MCP server to start inspecting
-                </p>
+              <div className="w-full">
+                <ResourcesTab
+                  resources={resources}
+                  resourceTemplates={resourceTemplates}
+                  listResources={() => {
+                    clearError("resources");
+                    listResources();
+                  }}
+                  listResourceTemplates={() => {
+                    clearError("resources");
+                    listResourceTemplates();
+                  }}
+                  readResource={(uri) => {
+                    clearError("resources");
+                    readResource(uri);
+                  }}
+                  selectedResource={selectedResource}
+                  setSelectedResource={(resource) => {
+                    clearError("resources");
+                    setSelectedResource(resource);
+                  }}
+                  resourceContent={resourceContent}
+                  nextCursor={nextResourceCursor}
+                  nextTemplateCursor={nextResourceTemplateCursor}
+                  error={errors.resources}
+                />
+                <PromptsTab
+                  prompts={prompts}
+                  listPrompts={() => {
+                    clearError("prompts");
+                    listPrompts();
+                  }}
+                  getPrompt={(name, args) => {
+                    clearError("prompts");
+                    getPrompt(name, args);
+                  }}
+                  selectedPrompt={selectedPrompt}
+                  setSelectedPrompt={(prompt) => {
+                    clearError("prompts");
+                    setSelectedPrompt(prompt);
+                  }}
+                  promptContent={promptContent}
+                  nextCursor={nextPromptCursor}
+                  error={errors.prompts}
+                />
+                <ToolsTab
+                  tools={tools}
+                  listTools={() => {
+                    clearError("tools");
+                    listTools();
+                  }}
+                  callTool={(name, params) => {
+                    clearError("tools");
+                    callTool(name, params);
+                  }}
+                  selectedTool={selectedTool}
+                  setSelectedTool={(tool) => {
+                    clearError("tools");
+                    setSelectedTool(tool);
+                    setToolResult(null);
+                  }}
+                  toolResult={toolResult}
+                  nextCursor={nextToolCursor}
+                  error={errors.tools}
+                />
+                <ConsoleTab />
+                <PingTab
+                  onPingClick={() => {
+                    void makeRequest(
+                      {
+                        method: "ping" as const,
+                      },
+                      EmptyResultSchema,
+                    );
+                  }}
+                />
+                <SamplingTab
+                  pendingRequests={pendingSampleRequests}
+                  onApprove={handleApproveSampling}
+                  onReject={handleRejectSampling}
+                />
+                <RootsTab
+                  roots={roots}
+                  setRoots={setRoots}
+                  onRootsChange={handleRootsChange}
+                />
               </div>
-            )}
+            </Tabs>
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-lg text-gray-500">
+                Connect to an MCP server to start inspecting
+              </p>
+            </div>
+          )}
+        </div>
+        <div
+          className="relative border-t border-border"
+          style={{
+            height: `${historyPaneHeight}px`,
+          }}
+        >
+          <div
+            className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50"
+            onMouseDown={handleDragStart}
+          >
+            <div className="w-8 h-1 rounded-full bg-border" />
+          </div>
+          <div className="h-full overflow-auto">
+            <HistoryAndNotifications
+              requestHistory={requestHistory}
+              serverNotifications={notifications}
+            />
           </div>
         </div>
       </div>
-      <HistoryAndNotifications
-        requestHistory={requestHistory}
-        serverNotifications={notifications}
-      />
     </div>
   );
 };

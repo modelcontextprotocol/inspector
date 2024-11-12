@@ -51,44 +51,59 @@ const createTransport = async (query: express.Request["query"]) => {
 };
 
 app.get("/sse", async (req, res) => {
-  console.log("New SSE connection");
+  try {
+    console.log("New SSE connection");
 
-  const backingServerTransport = await createTransport(req.query);
+    const backingServerTransport = await createTransport(req.query);
 
-  console.log("Connected MCP client to backing server transport");
+    console.log("Connected MCP client to backing server transport");
 
-  const webAppTransport = new SSEServerTransport("/message", res);
-  console.log("Created web app transport");
+    const webAppTransport = new SSEServerTransport("/message", res);
+    console.log("Created web app transport");
 
-  webAppTransports.push(webAppTransport);
-  console.log("Created web app transport");
+    webAppTransports.push(webAppTransport);
+    console.log("Created web app transport");
 
-  await webAppTransport.start();
+    await webAppTransport.start();
 
-  mcpProxy({
-    transportToClient: webAppTransport,
-    transportToServer: backingServerTransport,
-    onerror: (error) => {
-      console.error(error);
-    },
-  });
-  console.log("Set up MCP proxy");
+    mcpProxy({
+      transportToClient: webAppTransport,
+      transportToServer: backingServerTransport,
+      onerror: (error) => {
+        console.error(error);
+      },
+    });
+    console.log("Set up MCP proxy");
+  } catch (error) {
+    console.error("Error in /sse route:", error);
+    res.status(500).json(error);
+  }
 });
 
 app.post("/message", async (req, res) => {
-  const sessionId = req.query.sessionId;
-  console.log(`Received message for sessionId ${sessionId}`);
+  try {
+    const sessionId = req.query.sessionId;
+    console.log(`Received message for sessionId ${sessionId}`);
 
-  const transport = webAppTransports.find((t) => t.sessionId === sessionId);
-  if (!transport) {
-    res.status(404).send("Session not found");
-    return;
+    const transport = webAppTransports.find((t) => t.sessionId === sessionId);
+    if (!transport) {
+      res.status(404).end("Session not found");
+      return;
+    }
+    await transport.handlePostMessage(req, res);
+  } catch (error) {
+    console.error("Error in /message route:", error);
+    res.status(500).json(error);
   }
-  await transport.handlePostMessage(req, res);
 });
 
 app.get("/default-environment", (req, res) => {
-  res.json(getDefaultEnvironment());
+  try {
+    res.json(getDefaultEnvironment());
+  } catch (error) {
+    console.error("Error in /default-environment route:", error);
+    res.status(500).json(error);
+  }
 });
 
 const PORT = process.env.PORT || 3000;
