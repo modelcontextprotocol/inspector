@@ -52,6 +52,7 @@ import {
   Terminal,
 } from "lucide-react";
 
+import { toast } from "react-toastify";
 import { ZodType } from "zod";
 import "./App.css";
 import ConsoleTab from "./components/ConsoleTab";
@@ -178,7 +179,7 @@ const App = () => {
   const makeRequest = async <T extends ZodType<object>>(
     request: ClientRequest,
     schema: T,
-    tabKey: keyof typeof errors
+    tabKey?: keyof typeof errors,
   ) => {
     if (!mcpClient) {
       throw new Error("MCP client not connected");
@@ -187,10 +188,19 @@ const App = () => {
     try {
       const response = await mcpClient.request(request, schema);
       pushHistory(request, response);
-      setErrors(prev => ({ ...prev, [tabKey]: null }));
+
+      if (tabKey !== undefined) {
+        setErrors((prev) => ({ ...prev, [tabKey]: null }));
+      }
+
       return response;
     } catch (e: unknown) {
-      setErrors(prev => ({ ...prev, [tabKey]: (e as Error).message }));
+      if (tabKey === undefined) {
+        toast.error((e as Error).message);
+      } else {
+        setErrors((prev) => ({ ...prev, [tabKey]: (e as Error).message }));
+      }
+
       throw e;
     }
   };
@@ -204,7 +214,7 @@ const App = () => {
       await mcpClient.notification(notification);
       pushHistory(notification);
     } catch (e: unknown) {
-      setError((e as Error).message);
+      toast.error((e as Error).message);
       throw e;
     }
   };
@@ -216,7 +226,7 @@ const App = () => {
         params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
       },
       ListResourcesResultSchema,
-      'resources'
+      "resources",
     );
     setResources(resources.concat(response.resources ?? []));
     setNextResourceCursor(response.nextCursor);
@@ -231,7 +241,7 @@ const App = () => {
           : {},
       },
       ListResourceTemplatesResultSchema,
-      'resources'
+      "resources",
     );
     setResourceTemplates(
       resourceTemplates.concat(response.resourceTemplates ?? []),
@@ -246,7 +256,7 @@ const App = () => {
         params: { uri },
       },
       ReadResourceResultSchema,
-      'resources'
+      "resources",
     );
     setResourceContent(JSON.stringify(response, null, 2));
   };
@@ -258,7 +268,7 @@ const App = () => {
         params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
       },
       ListPromptsResultSchema,
-      'prompts'
+      "prompts",
     );
     setPrompts(response.prompts);
     setNextPromptCursor(response.nextCursor);
@@ -271,7 +281,7 @@ const App = () => {
         params: { name, arguments: args },
       },
       GetPromptResultSchema,
-      'prompts'
+      "prompts",
     );
     setPromptContent(JSON.stringify(response, null, 2));
   };
@@ -283,7 +293,7 @@ const App = () => {
         params: nextToolCursor ? { cursor: nextToolCursor } : {},
       },
       ListToolsResultSchema,
-      'tools'
+      "tools",
     );
     setTools(response.tools);
     setNextToolCursor(response.nextCursor);
@@ -302,7 +312,7 @@ const App = () => {
         },
       },
       CompatibilityCallToolResultSchema,
-      'tools'
+      "tools",
     );
     setToolResult(response);
   };
