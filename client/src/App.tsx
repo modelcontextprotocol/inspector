@@ -355,125 +355,125 @@ const App = () => {
         onConnect={connectMcpServer}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-auto flex">
-          <div className="flex-1">
-            {mcpClient ? (
-              <Tabs defaultValue="resources" className="w-full p-4">
-                <TabsList className="mb-4 p-0">
-                  <TabsTrigger value="resources">
-                    <Files className="w-4 h-4 mr-2" />
-                    Resources
-                  </TabsTrigger>
-                  <TabsTrigger value="prompts">
-                    <MessageSquare className="w-4 h-4 mr-2" />
-                    Prompts
-                  </TabsTrigger>
-                  <TabsTrigger value="requests" disabled>
-                    <Send className="w-4 h-4 mr-2" />
-                    Requests
-                  </TabsTrigger>
-                  <TabsTrigger value="tools">
-                    <Hammer className="w-4 h-4 mr-2" />
-                    Tools
-                  </TabsTrigger>
-                  <TabsTrigger value="console" disabled>
-                    <Terminal className="w-4 h-4 mr-2" />
-                    Console
-                  </TabsTrigger>
-                  <TabsTrigger value="ping">
-                    <Bell className="w-4 h-4 mr-2" />
-                    Ping
-                  </TabsTrigger>
-                  <TabsTrigger value="sampling" className="relative">
-                    <Hash className="w-4 h-4 mr-2" />
-                    Sampling
-                    {pendingSampleRequests.length > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-                        {pendingSampleRequests.length}
-                      </span>
-                    )}
-                  </TabsTrigger>
-                  <TabsTrigger value="roots">
-                    <FolderTree className="w-4 h-4 mr-2" />
-                    Roots
-                  </TabsTrigger>
-                </TabsList>
+        <div className="flex-1 overflow-auto">
+          {mcpClient ? (
+            <Tabs defaultValue="resources" className="w-full p-4">
+              <TabsList className="mb-4 p-0">
+                <TabsTrigger value="resources">
+                  <Files className="w-4 h-4 mr-2" />
+                  Resources
+                </TabsTrigger>
+                <TabsTrigger value="prompts">
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Prompts
+                </TabsTrigger>
+                <TabsTrigger value="requests" disabled>
+                  <Send className="w-4 h-4 mr-2" />
+                  Requests
+                </TabsTrigger>
+                <TabsTrigger value="tools">
+                  <Hammer className="w-4 h-4 mr-2" />
+                  Tools
+                </TabsTrigger>
+                <TabsTrigger value="console" disabled>
+                  <Terminal className="w-4 h-4 mr-2" />
+                  Console
+                </TabsTrigger>
+                <TabsTrigger value="ping">
+                  <Bell className="w-4 h-4 mr-2" />
+                  Ping
+                </TabsTrigger>
+                <TabsTrigger value="sampling" className="relative">
+                  <Hash className="w-4 h-4 mr-2" />
+                  Sampling
+                  {pendingSampleRequests.length > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                      {pendingSampleRequests.length}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="roots">
+                  <FolderTree className="w-4 h-4 mr-2" />
+                  Roots
+                </TabsTrigger>
+              </TabsList>
 
-                <div className="w-full">
-                  <ResourcesTab
-                    resources={resources}
-                    resourceTemplates={resourceTemplates}
-                    listResources={listResources}
-                    listResourceTemplates={listResourceTemplates}
-                    readResource={readResource}
-                    selectedResource={selectedResource}
-                    setSelectedResource={setSelectedResource}
-                    resourceContent={resourceContent}
-                    nextCursor={nextResourceCursor}
-                    nextTemplateCursor={nextResourceTemplateCursor}
-                    error={error}
-                  />
-                  <PromptsTab
-                    prompts={prompts}
-                    listPrompts={listPrompts}
-                    getPrompt={getPrompt}
-                    selectedPrompt={selectedPrompt}
-                    setSelectedPrompt={setSelectedPrompt}
-                    promptContent={promptContent}
-                    nextCursor={nextPromptCursor}
-                    error={error}
-                  />
-                  <RequestsTab />
-                  <ToolsTab
-                    tools={tools}
-                    listTools={listTools}
-                    callTool={callTool}
-                    selectedTool={selectedTool}
-                    setSelectedTool={(tool) => {
-                      setSelectedTool(tool);
-                      setToolResult(null);
-                    }}
-                    toolResult={toolResult}
-                    nextCursor={nextToolCursor}
-                    error={error}
-                  />
-                  <ConsoleTab />
-                  <PingTab
-                    onPingClick={() => {
-                      void makeRequest(
-                        {
-                          method: "ping" as const,
-                        },
-                        EmptyResultSchema,
-                      );
-                    }}
-                  />
-                  <SamplingTab
-                    pendingRequests={pendingSampleRequests}
-                    onApprove={handleApproveSampling}
-                    onReject={handleRejectSampling}
-                  />
-                  <RootsTab
-                    roots={roots}
-                    setRoots={setRoots}
-                    onRootsChange={handleRootsChange}
-                  />
-                </div>
-              </Tabs>
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-lg text-gray-500">
-                  Connect to an MCP server to start inspecting
-                </p>
+              <div className="w-full">
+                <ResourcesTab
+                  resources={resources}
+                  resourceTemplates={resourceTemplates}
+                  listResources={listResources}
+                  listResourceTemplates={listResourceTemplates}
+                  readResource={readResource}
+                  selectedResource={selectedResource}
+                  setSelectedResource={setSelectedResource}
+                  resourceContent={resourceContent}
+                  nextCursor={nextResourceCursor}
+                  nextTemplateCursor={nextResourceTemplateCursor}
+                  error={error}
+                />
+                <PromptsTab
+                  prompts={prompts}
+                  listPrompts={listPrompts}
+                  getPrompt={getPrompt}
+                  selectedPrompt={selectedPrompt}
+                  setSelectedPrompt={setSelectedPrompt}
+                  promptContent={promptContent}
+                  nextCursor={nextPromptCursor}
+                  error={error}
+                />
+                <RequestsTab />
+                <ToolsTab
+                  tools={tools}
+                  listTools={listTools}
+                  callTool={callTool}
+                  selectedTool={selectedTool}
+                  setSelectedTool={(tool) => {
+                    setSelectedTool(tool);
+                    setToolResult(null);
+                  }}
+                  toolResult={toolResult}
+                  nextCursor={nextToolCursor}
+                  error={error}
+                />
+                <ConsoleTab />
+                <PingTab
+                  onPingClick={() => {
+                    void makeRequest(
+                      {
+                        method: "ping" as const,
+                      },
+                      EmptyResultSchema,
+                    );
+                  }}
+                />
+                <SamplingTab
+                  pendingRequests={pendingSampleRequests}
+                  onApprove={handleApproveSampling}
+                  onReject={handleRejectSampling}
+                />
+                <RootsTab
+                  roots={roots}
+                  setRoots={setRoots}
+                  onRootsChange={handleRootsChange}
+                />
               </div>
-            )}
-          </div>
+            </Tabs>
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-lg text-gray-500">
+                Connect to an MCP server to start inspecting
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="h-1/3 min-h-[200px] border-t border-border">
+          <HistoryAndNotifications
+            requestHistory={requestHistory}
+            serverNotifications={notifications}
+          />
         </div>
       </div>
-      <HistoryAndNotifications
-        requestHistory={requestHistory}
-        serverNotifications={notifications}
-      />
     </div>
   );
 };
