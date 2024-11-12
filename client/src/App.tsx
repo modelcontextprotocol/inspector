@@ -23,6 +23,10 @@ import {
   ClientNotification,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useEffect, useRef, useState } from "react";
+// Add dark mode class based on system preference
+if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+  document.documentElement.classList.add("dark");
+}
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -348,13 +352,13 @@ const App = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen bg-background">
       <Sidebar connectionStatus={connectionStatus} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <h1 className="text-2xl font-bold p-4">MCP Inspector</h1>
         <div className="flex-1 overflow-auto flex">
           <div className="flex-1">
-            <div className="p-4 bg-white shadow-md m-4 rounded-md">
+            <div className="p-4 bg-card shadow-md m-4 rounded-md">
               <h2 className="text-lg font-semibold mb-2">Connect MCP Server</h2>
               <div className="flex space-x-2 mb-2">
                 <Select
