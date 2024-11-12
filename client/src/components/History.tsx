@@ -29,8 +29,8 @@ const HistoryAndNotifications = ({
   };
 
   return (
-    <div className="bg-card p-4 overflow-hidden flex h-full">
-      <div className="flex-1 overflow-y-auto px-4 border-r">
+    <div className="bg-card overflow-hidden flex h-full">
+      <div className="flex-1 overflow-y-auto p-4 border-r">
         <h2 className="text-lg font-semibold mb-4">History</h2>
         {requestHistory.length === 0 ? (
           <p className="text-sm text-gray-500 italic">No history yet</p>
@@ -107,7 +107,7 @@ const HistoryAndNotifications = ({
           </ul>
         )}
       </div>
-      <div className="flex-1 overflow-y-auto px-4">
+      <div className="flex-1 overflow-y-auto p-4">
         <h2 className="text-lg font-semibold mb-4">Server Notifications</h2>
         {serverNotifications.length === 0 ? (
           <p className="text-sm text-gray-500 italic">No notifications yet</p>

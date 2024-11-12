@@ -22,7 +22,7 @@ import {
   CompatibilityCallToolResult,
   ClientNotification,
 } from "@modelcontextprotocol/sdk/types.js";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 // Add dark mode class based on system preference
 if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
   document.documentElement.classList.add("dark");
@@ -127,6 +127,49 @@ const App = () => {
   >();
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
+  const [historyPaneHeight, setHistoryPaneHeight] = useState<number>(300);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartY = useRef<number>(0);
+  const dragStartHeight = useRef<number>(0);
+
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      setIsDragging(true);
+      dragStartY.current = e.clientY;
+      dragStartHeight.current = historyPaneHeight;
+      document.body.style.userSelect = "none";
+    },
+    [historyPaneHeight],
+  );
+
+  const handleDragMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isDragging) return;
+      const deltaY = dragStartY.current - e.clientY;
+      const newHeight = Math.max(
+        100,
+        Math.min(800, dragStartHeight.current + deltaY),
+      );
+      setHistoryPaneHeight(newHeight);
+    },
+    [isDragging],
+  );
+
+  const handleDragEnd = useCallback(() => {
+    setIsDragging(false);
+    document.body.style.userSelect = "";
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener("mousemove", handleDragMove);
+      window.addEventListener("mouseup", handleDragEnd);
+      return () => {
+        window.removeEventListener("mousemove", handleDragMove);
+        window.removeEventListener("mouseup", handleDragEnd);
+      };
+    }
+  }, [isDragging, handleDragMove, handleDragEnd]);
 
   useEffect(() => {
     localStorage.setItem("lastCommand", command);
@@ -467,11 +510,24 @@ const App = () => {
             </div>
           )}
         </div>
-        <div className="h-1/3 min-h-[200px] border-t border-border">
-          <HistoryAndNotifications
-            requestHistory={requestHistory}
-            serverNotifications={notifications}
-          />
+        <div
+          className="relative border-t border-border"
+          style={{
+            height: `${historyPaneHeight}px`,
+          }}
+        >
+          <div
+            className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50"
+            onMouseDown={handleDragStart}
+          >
+            <div className="w-8 h-1 rounded-full bg-border" />
+          </div>
+          <div className="h-full overflow-auto">
+            <HistoryAndNotifications
+              requestHistory={requestHistory}
+              serverNotifications={notifications}
+            />
+          </div>
         </div>
       </div>
     </div>
