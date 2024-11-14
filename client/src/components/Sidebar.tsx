@@ -113,14 +113,15 @@ const Sidebar = ({
               </Button>
               {showEnvVars && (
                 <div className="space-y-2">
-                  {Object.entries(env).map(([key, value]) => (
-                    <div key={key} className="grid grid-cols-[1fr,auto] gap-2">
+                  {Object.entries(env).map(([key, value], idx) => (
+                    <div key={idx} className="grid grid-cols-[1fr,auto] gap-2">
                       <div className="space-y-1">
                         <Input
                           placeholder="Key"
                           value={key}
                           onChange={(e) => {
                             const newEnv = { ...env };
+                            delete newEnv[key];
                             newEnv[e.target.value] = value;
                             setEnv(newEnv);
                           }}
