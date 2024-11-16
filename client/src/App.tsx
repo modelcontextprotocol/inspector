@@ -357,10 +357,21 @@ const App = () => {
 
   const connectMcpServer = async () => {
     try {
-      const client = new Client({
-        name: "mcp-inspector",
-        version: "0.0.1",
-      });
+      const client = new Client(
+        {
+          name: "mcp-inspector",
+          version: "0.0.1",
+        },
+        {
+          capabilities: {
+            // Support all client capabilities since we're an inspector tool
+            sampling: {},
+            roots: {
+              listChanged: true,
+            },
+          },
+        },
+      );
 
       const backendUrl = new URL("http://localhost:3000/sse");
 
