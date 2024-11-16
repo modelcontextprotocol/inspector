@@ -53,6 +53,8 @@ import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 
+const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
+
 const App = () => {
   const [connectionStatus, setConnectionStatus] = useState<
     "disconnected" | "connected" | "error"
@@ -220,7 +222,19 @@ const App = () => {
     }
 
     try {
-      const response = await mcpClient.request(request, schema);
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        abortController.abort("Request timed out");
+      }, DEFAULT_REQUEST_TIMEOUT_MSEC);
+
+      let response;
+      try {
+        response = await mcpClient.request(request, schema, {
+          signal: abortController.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       pushHistory(request, response);
 
       if (tabKey !== undefined) {
@@ -229,10 +243,14 @@ const App = () => {
 
       return response;
     } catch (e: unknown) {
+      const errorString = (e as Error).message ?? String(e);
       if (tabKey === undefined) {
-        toast.error((e as Error).message);
+        toast.error(errorString);
       } else {
-        setErrors((prev) => ({ ...prev, [tabKey]: (e as Error).message }));
+        setErrors((prev) => ({
+          ...prev,
+          [tabKey]: errorString,
+        }));
       }
 
       throw e;
@@ -248,7 +266,7 @@ const App = () => {
       await mcpClient.notification(notification);
       pushHistory(notification);
     } catch (e: unknown) {
-      toast.error((e as Error).message);
+      toast.error((e as Error).message ?? String(e));
       throw e;
     }
   };
