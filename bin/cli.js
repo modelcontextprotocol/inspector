@@ -19,7 +19,7 @@ console.log("Starting MCP inspector...");
 const { result } = concurrently(
   [
     {
-      command: `node ${inspectorServerPath}${command ? ` --env ${command}` : ""}${mcpServerArgs.length ? ` --args "${mcpServerArgs.join(" ")}"` : ""}`,
+      command: `node ${inspectorServerPath}${command ? ` --env ${command}` : ""}${mcpServerArgs.length ? ` --args="${mcpServerArgs.join(" ")}"` : ""}`,
       name: "server",
     },
     {
