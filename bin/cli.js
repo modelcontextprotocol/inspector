@@ -16,10 +16,30 @@ const inspectorClientPath = join(__dirname, "../client/bin/cli.js");
 
 console.log("Starting MCP inspector...");
 
+function escapeArg(arg) {
+  if (arg.includes(" ") || arg.includes("'") || arg.includes('"')) {
+    return `\\"${arg.replace(/"/g, '\\\\\\"')}\\"`;
+  }
+  return arg;
+}
+
+const serverCommand = [
+  `node`,
+  inspectorServerPath,
+  command ? `--env ${escapeArg(command)}` : "",
+  mcpServerArgs.length
+    ? `--args="${mcpServerArgs.map(escapeArg).join(" ")}"`
+    : "",
+]
+  .filter(Boolean)
+  .join(" ");
+
+console.log(serverCommand);
+
 const { result } = concurrently(
   [
     {
-      command: `node ${inspectorServerPath}${command ? ` --env ${command}` : ""}${mcpServerArgs.length ? ` --args="${mcpServerArgs.join(" ")}"` : ""}`,
+      command: serverCommand,
       name: "server",
     },
     {
