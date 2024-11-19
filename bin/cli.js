@@ -7,7 +7,7 @@ import concurrently from "concurrently";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Get command line arguments
-const [, , environment, ...mcpServerArgs] = process.argv;
+const [, , command, ...mcpServerArgs] = process.argv;
 
 const inspectorServerPath = join(__dirname, "../server/build/index.js");
 
@@ -19,7 +19,7 @@ console.log("Starting MCP inspector...");
 const { result } = concurrently(
   [
     {
-      command: `node ${inspectorServerPath}${environment ? ` --env ${environment}` : ""}${mcpServerArgs.length ? ` --args "${mcpServerArgs.join(" ")}"` : ""}`,
+      command: `node ${inspectorServerPath}${command ? ` --env ${command}` : ""}${mcpServerArgs.length ? ` --args "${mcpServerArgs.join(" ")}"` : ""}`,
       name: "server",
     },
     {
