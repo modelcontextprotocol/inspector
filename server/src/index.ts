@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { parseArgs } from "node:util";
 import cors from "cors";
 import EventSource from "eventsource";
 
@@ -15,6 +16,14 @@ import mcpProxy from "./mcpProxy.js";
 // Polyfill EventSource for an SSE client in Node.js
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (global as any).EventSource = EventSource;
+
+const { values } = parseArgs({
+  args: process.argv.slice(2),
+  options: {
+    env: { type: "string", default: "" },
+    args: { type: "string", default: "" },
+  },
+});
 
 const app = express();
 app.use(cors());
@@ -97,11 +106,16 @@ app.post("/message", async (req, res) => {
   }
 });
 
-app.get("/default-environment", (req, res) => {
+app.get("/config", (req, res) => {
   try {
-    res.json(getDefaultEnvironment());
+    const defaultEnvironment = getDefaultEnvironment();
+    res.json({
+      defaultEnvironment,
+      defaultCommand: values.env,
+      defaultArgs: values.args,
+    });
   } catch (error) {
-    console.error("Error in /default-environment route:", error);
+    console.error("Error in /config route:", error);
     res.status(500).json(error);
   }
 });
