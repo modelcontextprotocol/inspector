@@ -190,8 +190,12 @@ const App = () => {
       .then((response) => response.json())
       .then((data) => {
         setEnv(data.defaultEnvironment);
-        setCommand(data.defaultCommand);
-        setArgs(data.defaultArgs);
+        if (data.defaultCommand) {
+          setCommand(data.defaultCommand);
+        }
+        if (data.defaultArgs) {
+          setArgs(data.defaultArgs);
+        }
       })
       .catch((error) =>
         console.error("Error fetching default environment:", error),
