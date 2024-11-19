@@ -3,7 +3,7 @@ Thank you for helping us keep the inspector secure.
 
 ## Reporting Security Issues
 
-This SDK is maintained by [Anthropic](https://www.anthropic.com/) as part of the Model Context Protocol project.
+This interface is maintained by [Anthropic](https://www.anthropic.com/) as part of the Model Context Protocol project.
 Anthropic takes security seriously, and encourages you to report any security vulnerability promptly so that 
 appropriate action can be taken.
 
