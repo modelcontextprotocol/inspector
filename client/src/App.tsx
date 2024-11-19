@@ -186,9 +186,13 @@ const App = () => {
   }, [args]);
 
   useEffect(() => {
-    fetch("http://localhost:3000/default-environment")
+    fetch("http://localhost:3000/config")
       .then((response) => response.json())
-      .then((data) => setEnv(data))
+      .then((data) => {
+        setEnv(data.defaultEnvironment);
+        setCommand(data.defaultCommand);
+        setArgs(data.defaultArgs);
+      })
       .catch((error) =>
         console.error("Error fetching default environment:", error),
       );
