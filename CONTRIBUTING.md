@@ -6,20 +6,19 @@ Thanks for your interest in contributing! This guide explains how to get involve
 
 1. Fork the repository and clone it locally
 2. Install dependencies with `npm install`
-3. Run `npm run build` to verify everything builds correctly
+3. Run `npm run dev` to start both client and server in development mode
+4. Use the web UI at http://localhost:5173 to interact with the inspector
 
-## Development Process
+## Development Process & Pull Requests
 
 1. Create a new branch for your changes
-2. Make your changes
-3. Submit a pull request
-
-## Pull Request Process
-
-1. Update documentation as needed
-2. Follow existing code style and conventions
-3. Include useful commit messages explaining the changes
-4. PRs will be reviewed by maintainers
+2. Make your changes following existing code style and conventions
+3. Test changes locally
+4. Update documentation as needed
+5. Use clear commit messages explaining your changes
+6. Verify all changes work as expected
+7. Submit a pull request
+8. PRs will be reviewed by maintainers
 
 ## Code of Conduct
 
