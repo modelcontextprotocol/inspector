@@ -36,8 +36,6 @@ import {
   Hammer,
   Hash,
   MessageSquare,
-  Send,
-  Terminal,
 } from "lucide-react";
 
 import { toast } from "react-toastify";
@@ -473,17 +471,9 @@ const App = () => {
                   <MessageSquare className="w-4 h-4 mr-2" />
                   Prompts
                 </TabsTrigger>
-                <TabsTrigger value="requests" disabled>
-                  <Send className="w-4 h-4 mr-2" />
-                  Requests
-                </TabsTrigger>
                 <TabsTrigger value="tools">
                   <Hammer className="w-4 h-4 mr-2" />
                   Tools
-                </TabsTrigger>
-                <TabsTrigger value="console" disabled>
-                  <Terminal className="w-4 h-4 mr-2" />
-                  Console
                 </TabsTrigger>
                 <TabsTrigger value="ping">
                   <Bell className="w-4 h-4 mr-2" />
