@@ -13,6 +13,4 @@ const server = http.createServer((request, response) => {
 });
 
 const port = process.env.PORT || 5173;
-server.listen(port, () => {
-  console.log(`MCP inspector client running at http://localhost:${port}`);
-});
+server.listen(port, () => {});

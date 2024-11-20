@@ -34,16 +34,17 @@ const serverCommand = [
   .filter(Boolean)
   .join(" ");
 
-console.log(serverCommand);
+const CLIENT_PORT = process.env.CLIENT_PORT ?? "";
+const SERVER_PORT = process.env.SERVER_PORT ?? "";
 
 const { result } = concurrently(
   [
     {
-      command: serverCommand,
+      command: `PORT=${SERVER_PORT} ${serverCommand}`,
       name: "server",
     },
     {
-      command: `node ${inspectorClientPath}`,
+      command: `PORT=${CLIENT_PORT} node ${inspectorClientPath}`,
       name: "client",
     },
   ],
@@ -52,6 +53,10 @@ const { result } = concurrently(
     killOthers: ["failure", "success"],
     restartTries: 3,
   },
+);
+
+console.log(
+  `\n🔍 MCP Inspector is up and running at http://localhost:${CLIENT_PORT || 5173} 🚀`,
 );
 
 result.catch((err) => {
