@@ -23,10 +23,6 @@ import {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-// Add dark mode class based on system preference
-if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-  document.documentElement.classList.add("dark");
-}
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -52,6 +48,7 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import useDarkModeSync from "./lib/useDarkModeSync";
 
 const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
 
@@ -137,6 +134,8 @@ const App = () => {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartY = useRef<number>(0);
   const dragStartHeight = useRef<number>(0);
+
+  useDarkModeSync();
 
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
