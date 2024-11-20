@@ -31,7 +31,7 @@ If you find a security vulnerability, please refer to our [Security Policy](SECU
 
 ## Questions?
 
-Feel free to [open an issue](https://github.com/justinmahar/mcp-inspector/issues) for questions or create a discussion for general topics.
+Feel free to [open an issue](https://github.com/modelcontextprotocol/mcp-inspector/issues) for questions or create a discussion for general topics.
 
 ## License
 
