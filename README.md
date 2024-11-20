@@ -2,25 +2,18 @@
 
 The MCP inspector is a developer tool for testing and debugging MCP servers.
 
-## Getting started
+It can be run easily from `npx`. For example, in a folder where there's a built JavaScript server at `build/index.js`:
 
-Clone this repository, then install its dependencies:
-
-```sh
-npm install
+```
+npx @modelcontextprotocol/inspector build/index.js
 ```
 
-You can run it in dev mode via:
+You can also pass arguments along to the server:
 
-```bash
-npm run dev
+```
+npx @modelcontextprotocol/inspector build/index.js arg1 arg2 ...
 ```
 
-This will start both the client and server.
+## License
 
-To run in production mode:
-
-```bash
-npm run build
-npm start
-```
+This project is licensed under the MIT License—see the [LICENSE](LICENSE) file for details.
