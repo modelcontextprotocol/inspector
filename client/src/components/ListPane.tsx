@@ -20,8 +20,8 @@ const ListPane = <T extends object>({
   isButtonDisabled,
 }: ListPaneProps<T>) => (
   <div className="bg-card rounded-lg shadow">
-    <div className="p-4 border-b border-gray-200">
-      <h3 className="font-semibold">{title}</h3>
+    <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+      <h3 className="font-semibold dark:text-white">{title}</h3>
     </div>
     <div className="p-4">
       <Button
@@ -36,7 +36,7 @@ const ListPane = <T extends object>({
         {items.map((item, index) => (
           <div
             key={index}
-            className="flex items-center p-2 rounded hover:bg-gray-50 cursor-pointer"
+            className="flex items-center p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
             onClick={() => setSelectedItem(item)}
           >
             {renderItem(item)}
