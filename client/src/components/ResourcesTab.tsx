@@ -142,7 +142,7 @@ const ResourcesTab = ({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : selectedResource ? (
-            <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-96 whitespace-pre-wrap break-words">
+            <pre className="bg-gray-50 dark:bg-gray-800 p-4 rounded text-sm overflow-auto max-h-96 whitespace-pre-wrap break-words text-gray-900 dark:text-gray-100">
               {resourceContent}
             </pre>
           ) : selectedTemplate ? (

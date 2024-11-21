@@ -12,11 +12,11 @@ import {
   ListPromptsResultSchema,
   ListResourcesResultSchema,
   ListResourceTemplatesResultSchema,
-  Request,
   ListRootsRequestSchema,
   ListToolsResultSchema,
   ProgressNotificationSchema,
   ReadResourceResultSchema,
+  Request,
   Resource,
   ResourceTemplate,
   Result,
@@ -27,15 +27,10 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  StderrNotificationSchema,
-  StdErrNotification,
   Notification,
+  StdErrNotification,
+  StderrNotificationSchema,
 } from "./lib/notificationTypes";
-
-// Add dark mode class based on system preference
-if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-  document.documentElement.classList.add("dark");
-}
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -45,8 +40,6 @@ import {
   Hammer,
   Hash,
   MessageSquare,
-  Send,
-  Terminal,
 } from "lucide-react";
 
 import { toast } from "react-toastify";
@@ -61,6 +54,7 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import useDarkModeSync from "./lib/useDarkModeSync";
 
 const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
 
@@ -149,6 +143,8 @@ const App = () => {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartY = useRef<number>(0);
   const dragStartHeight = useRef<number>(0);
+
+  useDarkModeSync();
 
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
@@ -496,17 +492,9 @@ const App = () => {
                   <MessageSquare className="w-4 h-4 mr-2" />
                   Prompts
                 </TabsTrigger>
-                <TabsTrigger value="requests" disabled>
-                  <Send className="w-4 h-4 mr-2" />
-                  Requests
-                </TabsTrigger>
                 <TabsTrigger value="tools">
                   <Hammer className="w-4 h-4 mr-2" />
                   Tools
-                </TabsTrigger>
-                <TabsTrigger value="console" disabled>
-                  <Terminal className="w-4 h-4 mr-2" />
-                  Console
                 </TabsTrigger>
                 <TabsTrigger value="ping">
                   <Bell className="w-4 h-4 mr-2" />
