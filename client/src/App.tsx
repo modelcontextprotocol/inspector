@@ -29,7 +29,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Notification,
   StdErrNotification,
-  StderrNotificationSchema,
+  StdErrNotificationSchema
 } from "./lib/notificationTypes";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -430,7 +430,7 @@ const App = () => {
       );
 
       client.setNotificationHandler(
-        StderrNotificationSchema,
+        StdErrNotificationSchema,
         (notification) => {
           setStdErrNotifications((prevErrorNotifications) => [
             ...prevErrorNotifications,
