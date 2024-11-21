@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { parseArgs } from "node:util";
 import cors from "cors";
 import EventSource from "eventsource";
+import { parseArgs } from "node:util";
 
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
@@ -80,8 +80,8 @@ app.get("/sse", async (req, res) => {
 
     await webAppTransport.start();
 
-    if (backingServerTransport.stderr) {
-      backingServerTransport.stderr.on("data", (chunk) => {
+    if (backingServerTransport instanceof StdioClientTransport) {
+      backingServerTransport.stderr!.on("data", (chunk) => {
         webAppTransport.send({
           jsonrpc: "2.0",
           method: "notifications/stderr",
@@ -138,4 +138,4 @@ app.get("/config", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {});
+app.listen(PORT, () => { });
