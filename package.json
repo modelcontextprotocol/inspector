@@ -29,7 +29,8 @@
     "start-client": "cd client && npm run preview",
     "start": "./bin/cli.js",
     "prepare": "npm run build",
-    "prettier-fix": "prettier --write ."
+    "prettier-fix": "prettier --write .",
+    "publish-all": "npm publish --workspaces --access public && npm publish --access public"
   },
   "dependencies": {
     "@modelcontextprotocol/inspector-client": "0.2.0",
