@@ -42,7 +42,12 @@ const createTransport = async (query: express.Request["query"]) => {
     console.log(
       `Stdio transport: command=${command}, args=${args}, env=${JSON.stringify(env)}`,
     );
-    const transport = new StdioClientTransport({ command, args, env });
+    const transport = new StdioClientTransport({
+      command,
+      args,
+      env,
+      stderr: "pipe",
+    });
     await transport.start();
     console.log("Spawned stdio transport");
     return transport;
@@ -74,6 +79,18 @@ app.get("/sse", async (req, res) => {
     console.log("Created web app transport");
 
     await webAppTransport.start();
+
+    if (backingServerTransport.stderr) {
+      backingServerTransport.stderr.on("data", (chunk) => {
+        webAppTransport.send({
+          jsonrpc: "2.0",
+          method: "notifications/stderr",
+          params: {
+            content: chunk.toString(),
+          },
+        });
+      });
+    }
 
     mcpProxy({
       transportToClient: webAppTransport,

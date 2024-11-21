@@ -12,17 +12,26 @@ import {
   ListPromptsResultSchema,
   ListResourcesResultSchema,
   ListResourceTemplatesResultSchema,
+  Request,
   ListRootsRequestSchema,
   ListToolsResultSchema,
   ProgressNotificationSchema,
   ReadResourceResultSchema,
   Resource,
   ResourceTemplate,
+  Result,
   Root,
   ServerNotification,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import {
+  StderrNotificationSchema,
+  StdErrNotification,
+  Notification,
+} from "./lib/notificationTypes";
+
 // Add dark mode class based on system preference
 if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
   document.documentElement.classList.add("dark");
@@ -87,6 +96,9 @@ const App = () => {
   >([]);
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
+  const [stdErrNotifications, setStdErrNotifications] = useState<
+    StdErrNotification[]
+  >([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
 
@@ -383,7 +395,7 @@ const App = () => {
 
   const connectMcpServer = async () => {
     try {
-      const client = new Client(
+      const client = new Client<Request, Notification, Result>(
         {
           name: "mcp-inspector",
           version: "0.0.1",
@@ -411,8 +423,6 @@ const App = () => {
       }
 
       const clientTransport = new SSEClientTransport(backendUrl);
-      await client.connect(clientTransport);
-
       client.setNotificationHandler(
         ProgressNotificationSchema,
         (notification) => {
@@ -422,6 +432,18 @@ const App = () => {
           ]);
         },
       );
+
+      client.setNotificationHandler(
+        StderrNotificationSchema,
+        (notification) => {
+          setStdErrNotifications((prevErrorNotifications) => [
+            ...prevErrorNotifications,
+            notification,
+          ]);
+        },
+      );
+
+      await client.connect(clientTransport);
 
       client.setRequestHandler(CreateMessageRequestSchema, (request) => {
         return new Promise<CreateMessageResult>((resolve, reject) => {
@@ -459,6 +481,7 @@ const App = () => {
         env={env}
         setEnv={setEnv}
         onConnect={connectMcpServer}
+        stdErrNotifications={stdErrNotifications}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
