@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { StdErrNotification } from "@/lib/notificationTypes";
 
 interface SidebarProps {
   connectionStatus: "disconnected" | "connected" | "error";
@@ -24,6 +25,7 @@ interface SidebarProps {
   env: Record<string, string>;
   setEnv: (env: Record<string, string>) => void;
   onConnect: () => void;
+  stdErrNotifications: StdErrNotification[];
 }
 
 const Sidebar = ({
@@ -39,6 +41,7 @@ const Sidebar = ({
   env,
   setEnv,
   onConnect,
+  stdErrNotifications,
 }: SidebarProps) => {
   const [showEnvVars, setShowEnvVars] = useState(false);
 
@@ -187,6 +190,25 @@ const Sidebar = ({
                     : "Disconnected"}
               </span>
             </div>
+            {stdErrNotifications.length > 0 && (
+              <>
+                <div className="mt-4 border-t border-gray-200 pt-4">
+                  <h3 className="text-sm font-medium">
+                    Error output from MCP server
+                  </h3>
+                  <div className="mt-2 max-h-80 overflow-y-auto">
+                    {stdErrNotifications.map((notification, index) => (
+                      <div
+                        key={index}
+                        className="text-sm text-red-500 font-mono py-2 border-b border-gray-200 last:border-b-0"
+                      >
+                        {notification.params.content}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

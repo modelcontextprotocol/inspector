@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { parseArgs } from "node:util";
 import cors from "cors";
 import EventSource from "eventsource";
+import { parseArgs } from "node:util";
 
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
@@ -42,7 +42,12 @@ const createTransport = async (query: express.Request["query"]) => {
     console.log(
       `Stdio transport: command=${command}, args=${args}, env=${JSON.stringify(env)}`,
     );
-    const transport = new StdioClientTransport({ command, args, env });
+    const transport = new StdioClientTransport({
+      command,
+      args,
+      env,
+      stderr: "pipe",
+    });
     await transport.start();
     console.log("Spawned stdio transport");
     return transport;
@@ -74,6 +79,18 @@ app.get("/sse", async (req, res) => {
     console.log("Created web app transport");
 
     await webAppTransport.start();
+
+    if (backingServerTransport instanceof StdioClientTransport) {
+      backingServerTransport.stderr!.on("data", (chunk) => {
+        webAppTransport.send({
+          jsonrpc: "2.0",
+          method: "notifications/stderr",
+          params: {
+            content: chunk.toString(),
+          },
+        });
+      });
+    }
 
     mcpProxy({
       transportToClient: webAppTransport,
@@ -121,4 +138,4 @@ app.get("/config", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {});
+app.listen(PORT, () => { });

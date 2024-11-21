@@ -16,13 +16,21 @@ import {
   ListToolsResultSchema,
   ProgressNotificationSchema,
   ReadResourceResultSchema,
+  Request,
   Resource,
   ResourceTemplate,
+  Result,
   Root,
   ServerNotification,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import {
+  Notification,
+  StdErrNotification,
+  StdErrNotificationSchema
+} from "./lib/notificationTypes";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -82,6 +90,9 @@ const App = () => {
   >([]);
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
+  const [stdErrNotifications, setStdErrNotifications] = useState<
+    StdErrNotification[]
+  >([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
 
@@ -380,7 +391,7 @@ const App = () => {
 
   const connectMcpServer = async () => {
     try {
-      const client = new Client(
+      const client = new Client<Request, Notification, Result>(
         {
           name: "mcp-inspector",
           version: "0.0.1",
@@ -408,8 +419,6 @@ const App = () => {
       }
 
       const clientTransport = new SSEClientTransport(backendUrl);
-      await client.connect(clientTransport);
-
       client.setNotificationHandler(
         ProgressNotificationSchema,
         (notification) => {
@@ -419,6 +428,18 @@ const App = () => {
           ]);
         },
       );
+
+      client.setNotificationHandler(
+        StdErrNotificationSchema,
+        (notification) => {
+          setStdErrNotifications((prevErrorNotifications) => [
+            ...prevErrorNotifications,
+            notification,
+          ]);
+        },
+      );
+
+      await client.connect(clientTransport);
 
       client.setRequestHandler(CreateMessageRequestSchema, (request) => {
         return new Promise<CreateMessageResult>((resolve, reject) => {
@@ -456,6 +477,7 @@ const App = () => {
         env={env}
         setEnv={setEnv}
         onConnect={connectMcpServer}
+        stdErrNotifications={stdErrNotifications}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
