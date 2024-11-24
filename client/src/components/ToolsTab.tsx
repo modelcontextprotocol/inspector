@@ -51,7 +51,7 @@ const ToolsTab = ({
           {structuredResult.content.map((item, index) => (
             <div key={index} className="mb-2">
               {item.type === "text" && (
-                <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-64">
+                <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
                   {item.text}
                 </pre>
               )}
