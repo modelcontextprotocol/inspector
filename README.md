@@ -2,12 +2,46 @@
 
 The MCP inspector is a developer tool for testing and debugging MCP servers.
 
-It can be run easily from `npx`:
+![MCP Inspector Screenshot](mcp-inspector.png)
+
+## Running the Inspector
+
+### From an MCP server repository
+
+To inspect an MCP server implementation, there's no need to clone this repo. Instead, use `npx`. For example, if your server is built at `build/index.js`:
+
+```bash
+npx @modelcontextprotocol/inspector build/index.js
+```
+
+You can also pass arguments along which will get passed as arguments to your MCP server:
 
 ```
-npx @modelcontextprotocol/inspector
+npx @modelcontextprotocol/inspector build/index.js arg1 arg2 ...
 ```
-This starts a localhost web server on port 5173. You can then visit  http://localhost:5173/ to interact with the tool.
+
+The inspector runs both a client UI (default port 5173) and an MCP proxy server (default port 3000). Open the client UI in your browser to use the inspector. You can customize the ports if needed:
+
+```bash
+CLIENT_PORT=8080 SERVER_PORT=9000 npx @modelcontextprotocol/inspector build/index.js
+```
+
+### From this repository
+
+If you're working on the inspector itself:
+
+Development mode:
+
+```bash
+npm run dev
+```
+
+Production mode:
+
+```bash
+npm run build
+npm start
+```
 
 ## License
 
