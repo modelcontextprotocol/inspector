@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Play, ChevronDown, ChevronRight, Settings } from "lucide-react";
+import { Play, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,6 +11,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StdErrNotification } from "@/lib/notificationTypes";
+
+import useTheme from "../lib/useTheme";
 
 interface SidebarProps {
   connectionStatus: "disconnected" | "connected" | "error";
@@ -43,13 +45,15 @@ const Sidebar = ({
   onConnect,
   stdErrNotifications,
 }: SidebarProps) => {
+  const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
 
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
-      <div className="flex items-center p-4 border-b border-gray-200">
-        <Settings className="w-6 h-6 text-gray-500" />
-        <h1 className="ml-2 text-lg font-semibold">MCP Inspector</h1>
+      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+        <div className="flex items-center">
+          <h1 className="ml-2 text-lg font-semibold">MCP Inspector</h1>
+        </div>
       </div>
 
       <div className="p-4 flex-1 overflow-auto">
@@ -210,6 +214,25 @@ const Sidebar = ({
               </>
             )}
           </div>
+        </div>
+      </div>
+      <div className="p-4 border-t">
+        <div className="flex items-center space-x-2">
+          <Select
+            value={theme}
+            onValueChange={(value: string) =>
+              setTheme(value as "system" | "light" | "dark")
+            }
+          >
+            <SelectTrigger className="w-[120px]" id="theme-select">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="system">System</SelectItem>
+              <SelectItem value="light">Light</SelectItem>
+              <SelectItem value="dark">Dark</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
     </div>
