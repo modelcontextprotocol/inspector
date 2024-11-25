@@ -2,17 +2,12 @@
 
 The MCP inspector is a developer tool for testing and debugging MCP servers.
 
-It can be run easily from `npx`. For example, in a folder where there's a built JavaScript server at `build/index.js`:
+It can be run easily from `npx`:
 
 ```
-npx @modelcontextprotocol/inspector build/index.js
+npx @modelcontextprotocol/inspector
 ```
-
-You can also pass arguments along to the server:
-
-```
-npx @modelcontextprotocol/inspector build/index.js arg1 arg2 ...
-```
+This starts a localhost web server on port 5173. You can then visit  http://localhost:5173/ to interact with the tool.
 
 ## License
 
