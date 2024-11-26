@@ -43,6 +43,12 @@ async function main() {
     signal: abort.signal,
   });
 
+  // Make sure our server/client didn't immediately fail
+  await Promise.any([server, client, delay(2 * 1000)]);
+  console.log(
+    `\n🔍 MCP Inspector is up and running at http://localhost:${CLIENT_PORT} 🚀`,
+  );
+
   try {
     await Promise.any([server, client]);
   } catch (e) {
