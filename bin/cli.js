@@ -27,7 +27,7 @@ function buildCommandWithPort(command, port) {
   if (!port) return command;
   
   if (process.platform === 'win32') {
-    return `set PORT=${port}&& ${command}`;
+    return `set PORT=${port} && ${command}`;
   }
   return `PORT=${port} ${command}`;
 }
