@@ -5,7 +5,6 @@ import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  CallToolResult,
   ListToolsResult,
   Tool,
   CallToolResultSchema,
@@ -41,7 +40,24 @@ const ToolsTab = ({
     if (!toolResult) return null;
 
     if ("content" in toolResult) {
-      const structuredResult = CallToolResultSchema.parse(toolResult);
+      const parsedResult = CallToolResultSchema.safeParse(toolResult);
+      if (!parsedResult.success) {
+        return (
+          <>
+            <h4 className="font-semibold mb-2">Invalid Tool Result:</h4>
+            <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
+              {JSON.stringify(toolResult, null, 2)}
+            </pre>
+            <h4 className="font-semibold mb-2">Errors:</h4>
+            {parsedResult.error.errors.map((error) => (
+              <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
+                {JSON.stringify(error, null, 2)}
+              </pre>
+            ))}
+          </>
+        );
+      }
+      const structuredResult = parsedResult.data;
       const isError = structuredResult.isError ?? false;
 
       return (
