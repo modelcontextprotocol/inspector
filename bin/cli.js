@@ -49,7 +49,7 @@ async function main() {
     [
       inspectorServerPath,
       ...(command ? [`--env`, command] : []),
-      ...(mcpServerArgs ?? []),
+      ...(mcpServerArgs ? ["--args", mcpServerArgs.join(" ")] : []),
     ],
     { env: { PORT: SERVER_PORT }, signal: abort.signal },
   );
