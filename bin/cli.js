@@ -6,6 +6,10 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function main() {
   // Get command line arguments
   const [, , command, ...mcpServerArgs] = process.argv;
@@ -64,7 +68,7 @@ async function main() {
   try {
     await Promise.any([server, client]);
   } catch (e) {
-    if (!cancelled) throw e;
+    if (!cancelled || process.env.DEBUG) throw e;
   }
 
   return 0;

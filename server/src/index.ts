@@ -39,6 +39,7 @@ const createTransport = async (query: express.Request["query"]) => {
     const command = query.command as string;
     const args = (query.args as string).split(/\s+/);
     const env = query.env ? JSON.parse(query.env as string) : undefined;
+
     console.log(
       `Stdio transport: command=${command}, args=${args}, env=${JSON.stringify(env)}`,
     );
@@ -48,14 +49,18 @@ const createTransport = async (query: express.Request["query"]) => {
       env,
       stderr: "pipe",
     });
+
     await transport.start();
+
     console.log("Spawned stdio transport");
     return transport;
   } else if (transportType === "sse") {
     const url = query.url as string;
     console.log(`SSE transport: url=${url}`);
+
     const transport = new SSEClientTransport(new URL(url));
     await transport.start();
+
     console.log("Connected to SSE transport");
     return transport;
   } else {
@@ -99,6 +104,7 @@ app.get("/sse", async (req, res) => {
         console.error(error);
       },
     });
+
     console.log("Set up MCP proxy");
   } catch (error) {
     console.error("Error in /sse route:", error);
@@ -126,6 +132,7 @@ app.post("/message", async (req, res) => {
 app.get("/config", (req, res) => {
   try {
     const defaultEnvironment = getDefaultEnvironment();
+
     res.json({
       defaultEnvironment,
       defaultCommand: values.env,
@@ -138,4 +145,4 @@ app.get("/config", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => { });
+app.listen(PORT, () => {});
