@@ -8,6 +8,7 @@ import {
   CallToolResult,
   ListToolsResult,
   Tool,
+  CallToolResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, Send } from "lucide-react";
 import { useState } from "react";
@@ -40,7 +41,7 @@ const ToolsTab = ({
     if (!toolResult) return null;
 
     if ("content" in toolResult) {
-      const structuredResult = toolResult as CallToolResult;
+      const structuredResult = CallToolResultSchema.parse(toolResult);
       const isError = structuredResult.isError ?? false;
 
       return (
