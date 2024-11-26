@@ -61,8 +61,9 @@ async function main() {
 
   // Make sure our server/client didn't immediately fail
   await Promise.any([server, client, delay(2 * 1000)]);
+  const portParam = SERVER_PORT === "3000" ? "" : `?port=${SERVER_PORT}`;
   console.log(
-    `\n🔍 MCP Inspector is up and running at http://localhost:${CLIENT_PORT} 🚀`,
+    `\n🔍 MCP Inspector is up and running at http://localhost:${CLIENT_PORT}${portParam} 🚀`,
   );
 
   try {

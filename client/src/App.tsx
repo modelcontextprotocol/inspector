@@ -191,7 +191,10 @@ const App = () => {
   }, [args]);
 
   useEffect(() => {
-    fetch("http://localhost:3000/config")
+    const params = new URLSearchParams(window.location.search);
+    const serverPort = params.get('port') || '3000';
+    
+    fetch(`http://localhost:${serverPort}/config`)
       .then((response) => response.json())
       .then((data) => {
         setEnv(data.defaultEnvironment);
@@ -404,7 +407,9 @@ const App = () => {
         },
       );
 
-      const backendUrl = new URL("http://localhost:3000/sse");
+      const params = new URLSearchParams(window.location.search);
+      const serverPort = params.get('port') || '3000';
+      const backendUrl = new URL(`http://localhost:${serverPort}/sse`);
 
       backendUrl.searchParams.append("transportType", transportType);
       if (transportType === "stdio") {
