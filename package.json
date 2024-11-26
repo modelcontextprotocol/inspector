@@ -27,7 +27,7 @@
     "build": "npm run build-server && npm run build-client",
     "start-server": "cd server && npm run start",
     "start-client": "cd client && npm run preview",
-    "start": "node ./bin/cli.ts",
+    "start": "node ./bin/cli.js",
     "prepare": "npm run build",
     "prettier-fix": "prettier --write .",
     "publish-all": "npm publish --workspaces --access public && npm publish --access public"
