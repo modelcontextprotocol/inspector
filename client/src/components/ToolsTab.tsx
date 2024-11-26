@@ -49,8 +49,11 @@ const ToolsTab = ({
               {JSON.stringify(toolResult, null, 2)}
             </pre>
             <h4 className="font-semibold mb-2">Errors:</h4>
-            {parsedResult.error.errors.map((error) => (
-              <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
+            {parsedResult.error.errors.map((error, idx) => (
+              <pre 
+                key={idx}
+                className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64"
+              >
                 {JSON.stringify(error, null, 2)}
               </pre>
             ))}
