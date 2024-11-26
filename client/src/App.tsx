@@ -57,6 +57,10 @@ import ToolsTab from "./components/ToolsTab";
 
 const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
 
+const params = new URLSearchParams(window.location.search);
+const PROXY_PORT = params.get("proxyPort") ?? "3000";
+const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
+
 const App = () => {
   const [connectionStatus, setConnectionStatus] = useState<
     "disconnected" | "connected" | "error"
@@ -82,7 +86,8 @@ const App = () => {
   const [args, setArgs] = useState<string>(() => {
     return localStorage.getItem("lastArgs") || "";
   });
-  const [url, setUrl] = useState<string>("http://localhost:3001/sse");
+
+  const [sseUrl, setSseUrl] = useState<string>("http://localhost:3001/sse");
   const [transportType, setTransportType] = useState<"stdio" | "sse">("stdio");
   const [requestHistory, setRequestHistory] = useState<
     { request: string; response?: string }[]
@@ -191,10 +196,7 @@ const App = () => {
   }, [args]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const serverPort = params.get('port') || '3000';
-    
-    fetch(`http://localhost:${serverPort}/config`)
+    fetch(`${PROXY_SERVER_URL}/config`)
       .then((response) => response.json())
       .then((data) => {
         setEnv(data.defaultEnvironment);
@@ -407,9 +409,7 @@ const App = () => {
         },
       );
 
-      const params = new URLSearchParams(window.location.search);
-      const serverPort = params.get('port') || '3000';
-      const backendUrl = new URL(`http://localhost:${serverPort}/sse`);
+      const backendUrl = new URL(`${PROXY_SERVER_URL}/sse`);
 
       backendUrl.searchParams.append("transportType", transportType);
       if (transportType === "stdio") {
@@ -417,7 +417,7 @@ const App = () => {
         backendUrl.searchParams.append("args", args);
         backendUrl.searchParams.append("env", JSON.stringify(env));
       } else {
-        backendUrl.searchParams.append("url", url);
+        backendUrl.searchParams.append("url", sseUrl);
       }
 
       const clientTransport = new SSEClientTransport(backendUrl);
@@ -474,8 +474,8 @@ const App = () => {
         setCommand={setCommand}
         args={args}
         setArgs={setArgs}
-        url={url}
-        setUrl={setUrl}
+        sseUrl={sseUrl}
+        setSseUrl={setSseUrl}
         env={env}
         setEnv={setEnv}
         onConnect={connectMcpServer}

@@ -22,8 +22,8 @@ interface SidebarProps {
   setCommand: (command: string) => void;
   args: string;
   setArgs: (args: string) => void;
-  url: string;
-  setUrl: (url: string) => void;
+  sseUrl: string;
+  setSseUrl: (url: string) => void;
   env: Record<string, string>;
   setEnv: (env: Record<string, string>) => void;
   onConnect: () => void;
@@ -38,8 +38,8 @@ const Sidebar = ({
   setCommand,
   args,
   setArgs,
-  url,
-  setUrl,
+  sseUrl,
+  setSseUrl,
   env,
   setEnv,
   onConnect,
@@ -75,6 +75,7 @@ const Sidebar = ({
               </SelectContent>
             </Select>
           </div>
+
           {transportType === "stdio" ? (
             <>
               <div className="space-y-2">
@@ -99,8 +100,8 @@ const Sidebar = ({
               <label className="text-sm font-medium">URL</label>
               <Input
                 placeholder="URL"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
+                value={sseUrl}
+                onChange={(e) => setSseUrl(e.target.value)}
               />
             </div>
           )}
