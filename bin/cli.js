@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { join, dirname } from "path";
+import { resolve, dirname } from "path";
 import { spawnPromise } from "spawn-rx";
 import { fileURLToPath } from "url";
 
@@ -10,10 +10,22 @@ async function main() {
   // Get command line arguments
   const [, , command, ...mcpServerArgs] = process.argv;
 
-  const inspectorServerPath = join(__dirname, "../server/build/index.js");
+  const inspectorServerPath = resolve(
+    __dirname,
+    "..",
+    "server",
+    "build",
+    "index.js",
+  );
 
   // Path to the client entry point
-  const inspectorClientPath = join(__dirname, "../client/bin/cli.js");
+  const inspectorClientPath = resolve(
+    __dirname,
+    "..",
+    "client",
+    "bin",
+    "cli.js",
+  );
 
   const CLIENT_PORT = process.env.CLIENT_PORT ?? "5173";
   const SERVER_PORT = process.env.SERVER_PORT ?? "3000";
