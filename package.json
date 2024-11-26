@@ -27,7 +27,7 @@
     "build": "npm run build-server && npm run build-client",
     "start-server": "cd server && npm run start",
     "start-client": "cd client && npm run preview",
-    "start": "./bin/cli.js",
+    "start": "node ./bin/cli.js",
     "prepare": "npm run build",
     "prettier-fix": "prettier --write .",
     "publish-all": "npm publish --workspaces --access public && npm publish --access public"
@@ -35,10 +35,12 @@
   "dependencies": {
     "@modelcontextprotocol/inspector-client": "0.2.1",
     "@modelcontextprotocol/inspector-server": "0.2.1",
-    "concurrently": "^9.0.1"
+    "concurrently": "^9.0.1",
+    "spawn-rx": "^5.0.4",
+    "ts-node": "^10.9.2"
   },
   "devDependencies": {
-    "prettier": "3.3.3",
-    "@types/node": "^22.7.5"
+    "@types/node": "^22.7.5",
+    "prettier": "3.3.3"
   }
 }
