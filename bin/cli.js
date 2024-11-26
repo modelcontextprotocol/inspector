@@ -23,6 +23,15 @@ function escapeArg(arg) {
   return arg;
 }
 
+function buildCommandWithPort(command, port) {
+  if (!port) return command;
+  
+  if (process.platform === 'win32') {
+    return `set PORT=${port}&& ${command}`;
+  }
+  return `PORT=${port} ${command}`;
+}
+
 const serverCommand = [
   `node`,
   inspectorServerPath,
@@ -34,17 +43,18 @@ const serverCommand = [
   .filter(Boolean)
   .join(" ");
 
+const clientCommand = `node ${inspectorClientPath}`;
 const CLIENT_PORT = process.env.CLIENT_PORT ?? "";
 const SERVER_PORT = process.env.SERVER_PORT ?? "";
 
 const { result } = concurrently(
   [
     {
-      command: `PORT=${SERVER_PORT} ${serverCommand}`,
+      command: buildCommandWithPort(serverCommand, SERVER_PORT),
       name: "server",
     },
     {
-      command: `PORT=${CLIENT_PORT} node ${inspectorClientPath}`,
+      command: buildCommandWithPort(clientCommand, CLIENT_PORT),
       name: "client",
     },
   ],
