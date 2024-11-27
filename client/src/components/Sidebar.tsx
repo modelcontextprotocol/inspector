@@ -1,5 +1,4 @@
 import { useState } from "react";
-
 import { Play, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +12,7 @@ import {
 import { StdErrNotification } from "@/lib/notificationTypes";
 
 import useTheme from "../lib/useTheme";
+import { version } from "../../../package.json";
 
 interface SidebarProps {
   connectionStatus: "disconnected" | "connected" | "error";
@@ -52,7 +52,9 @@ const Sidebar = ({
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
       <div className="flex items-center justify-between p-4 border-b border-gray-200">
         <div className="flex items-center">
-          <h1 className="ml-2 text-lg font-semibold">MCP Inspector</h1>
+          <h1 className="ml-2 text-lg font-semibold">
+            MCP Inspector v{version}
+          </h1>
         </div>
       </div>
 
