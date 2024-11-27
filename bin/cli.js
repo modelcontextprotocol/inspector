@@ -51,12 +51,17 @@ async function main() {
       ...(command ? [`--env`, command] : []),
       ...(mcpServerArgs ? ["--args", mcpServerArgs.join(" ")] : []),
     ],
-    { env: { ...process.env, PORT: SERVER_PORT }, signal: abort.signal },
+    {
+      env: { ...process.env, PORT: SERVER_PORT },
+      signal: abort.signal,
+      echoOutput: true,
+    },
   );
 
   const client = spawnPromise("node", [inspectorClientPath], {
     env: { ...process.env, PORT: CLIENT_PORT },
     signal: abort.signal,
+    echoOutput: true,
   });
 
   // Make sure our server/client didn't immediately fail
