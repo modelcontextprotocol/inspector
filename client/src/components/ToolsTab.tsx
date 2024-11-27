@@ -83,7 +83,7 @@ const ToolsTab = ({
                 />
               )}
               {item.type === "resource" && (
-                <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-64">
+                <pre className="bg-gray-50  dark:bg-gray-800 dark:text-gray-100 whitespace-pre-wrap break-words p-4 rounded text-sm overflow-auto max-h-64">
                   {JSON.stringify(item.resource, null, 2)}
                 </pre>
               )}
