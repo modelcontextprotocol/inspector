@@ -12,6 +12,7 @@ import {
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
 import mcpProxy from "./mcpProxy.js";
+import { findActualExecutable } from "spawn-rx";
 
 // Polyfill EventSource for an SSE client in Node.js
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,14 +38,17 @@ const createTransport = async (query: express.Request["query"]) => {
 
   if (transportType === "stdio") {
     const command = query.command as string;
-    const args = (query.args as string).split(/\s+/);
+    const origArgs = (query.args as string).split(/\s+/);
     const env = query.env ? JSON.parse(query.env as string) : undefined;
 
+    const { cmd, args } = findActualExecutable(command, origArgs);
+
     console.log(
-      `Stdio transport: command=${command}, args=${args}, env=${JSON.stringify(env)}`,
+      `Stdio transport: command=${cmd}, args=${args}, env=${JSON.stringify(env)}`,
     );
+
     const transport = new StdioClientTransport({
-      command,
+      command: cmd,
       args,
       env,
       stderr: "pipe",
