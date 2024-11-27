@@ -36,7 +36,7 @@
     "@modelcontextprotocol/inspector-client": "0.2.4",
     "@modelcontextprotocol/inspector-server": "0.2.4",
     "concurrently": "^9.0.1",
-    "spawn-rx": "^5.0.4",
+    "spawn-rx": "^5.1.0",
     "ts-node": "^10.9.2"
   },
   "devDependencies": {
