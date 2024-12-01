@@ -525,9 +525,17 @@ const App = () => {
                     clearError("resources");
                     listResources();
                   }}
+                  clearResources={() => {
+                    setResources([]);
+                    setNextResourceCursor(undefined);
+                  }}
                   listResourceTemplates={() => {
                     clearError("resources");
                     listResourceTemplates();
+                  }}
+                  clearResourceTemplates={() => {
+                    setResourceTemplates([]);
+                    setNextResourceTemplateCursor(undefined);
                   }}
                   readResource={(uri) => {
                     clearError("resources");
@@ -549,6 +557,10 @@ const App = () => {
                     clearError("prompts");
                     listPrompts();
                   }}
+                  clearPrompts={() => {
+                    setPrompts([]);
+                    setNextPromptCursor(undefined);
+                  }}
                   getPrompt={(name, args) => {
                     clearError("prompts");
                     getPrompt(name, args);
@@ -567,6 +579,10 @@ const App = () => {
                   listTools={() => {
                     clearError("tools");
                     listTools();
+                  }}
+                  clearTools={() => {
+                    setTools([]);
+                    setNextToolCursor(undefined);
                   }}
                   callTool={(name, params) => {
                     clearError("tools");
