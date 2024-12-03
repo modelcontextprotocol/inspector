@@ -3,6 +3,7 @@ import { Button } from "./ui/button";
 type ListPaneProps<T> = {
   items: T[];
   listItems: () => void;
+  clearItems: () => void;
   setSelectedItem: (item: T) => void;
   renderItem: (item: T) => React.ReactNode;
   title: string;
@@ -13,6 +14,7 @@ type ListPaneProps<T> = {
 const ListPane = <T extends object>({
   items,
   listItems,
+  clearItems,
   setSelectedItem,
   renderItem,
   title,
@@ -31,6 +33,14 @@ const ListPane = <T extends object>({
         disabled={isButtonDisabled}
       >
         {buttonText}
+      </Button>
+      <Button
+        variant="outline"
+        className="w-full mb-4"
+        onClick={clearItems}
+        disabled={items.length === 0}
+      >
+        Clear
       </Button>
       <div className="space-y-2 overflow-y-auto max-h-96">
         {items.map((item, index) => (

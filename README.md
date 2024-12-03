@@ -26,6 +26,8 @@ The inspector runs both a client UI (default port 5173) and an MCP proxy server 
 CLIENT_PORT=8080 SERVER_PORT=9000 npx @modelcontextprotocol/inspector build/index.js
 ```
 
+For more details on ways to use the inspector, see the [Inspector section of the MCP docs site](https://modelcontextprotocol.io/docs/tools/inspector).
+
 ### From this repository
 
 If you're working on the inspector itself:

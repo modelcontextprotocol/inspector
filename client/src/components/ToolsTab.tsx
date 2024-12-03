@@ -18,6 +18,7 @@ import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js"
 const ToolsTab = ({
   tools,
   listTools,
+  clearTools,
   callTool,
   selectedTool,
   setSelectedTool,
@@ -27,6 +28,7 @@ const ToolsTab = ({
 }: {
   tools: Tool[];
   listTools: () => void;
+  clearTools: () => void;
   callTool: (name: string, params: Record<string, unknown>) => void;
   selectedTool: Tool | null;
   setSelectedTool: (tool: Tool) => void;
@@ -50,7 +52,7 @@ const ToolsTab = ({
             </pre>
             <h4 className="font-semibold mb-2">Errors:</h4>
             {parsedResult.error.errors.map((error, idx) => (
-              <pre 
+              <pre
                 key={idx}
                 className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64"
               >
@@ -118,6 +120,7 @@ const ToolsTab = ({
       <ListPane
         items={tools}
         listItems={listTools}
+        clearItems={clearTools}
         setSelectedItem={setSelectedTool}
         renderItem={(tool) => (
           <>
