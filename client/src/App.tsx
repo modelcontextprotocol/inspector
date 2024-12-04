@@ -3,8 +3,8 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
   ClientNotification,
   ClientRequest,
-  CompatibilityCallToolResult,
-  CompatibilityCallToolResultSchema,
+  CallToolResult,
+  CallToolResultSchema,
   CreateMessageRequestSchema,
   CreateMessageResult,
   EmptyResultSchema,
@@ -74,7 +74,7 @@ const App = () => {
   const [promptContent, setPromptContent] = useState<string>("");
   const [tools, setTools] = useState<Tool[]>([]);
   const [toolResult, setToolResult] =
-    useState<CompatibilityCallToolResult | null>(null);
+    useState<CallToolResult | null>(null);
   const [errors, setErrors] = useState<Record<string, string | null>>({
     resources: null,
     prompts: null,
@@ -381,7 +381,7 @@ const App = () => {
           },
         },
       },
-      CompatibilityCallToolResultSchema,
+      CallToolResultSchema,
       "tools",
     );
     setToolResult(response);

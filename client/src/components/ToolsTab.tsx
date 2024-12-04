@@ -13,7 +13,7 @@ import { AlertCircle, Send } from "lucide-react";
 import { useState } from "react";
 import ListPane from "./ListPane";
 
-import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 const ToolsTab = ({
   tools,
@@ -32,7 +32,7 @@ const ToolsTab = ({
   callTool: (name: string, params: Record<string, unknown>) => void;
   selectedTool: Tool | null;
   setSelectedTool: (tool: Tool) => void;
-  toolResult: CompatibilityCallToolResult | null;
+  toolResult: CallToolResult | null;
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
 }) => {
@@ -91,15 +91,6 @@ const ToolsTab = ({
               )}
             </div>
           ))}
-        </>
-      );
-    } else if ("toolResult" in toolResult) {
-      return (
-        <>
-          <h4 className="font-semibold mb-2">Tool Result (Legacy):</h4>
-          <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-64">
-            {JSON.stringify(toolResult.toolResult, null, 2)}
-          </pre>
         </>
       );
     }
