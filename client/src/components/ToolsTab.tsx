@@ -10,7 +10,7 @@ import {
   CallToolResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, Send } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 
 import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -31,12 +31,15 @@ const ToolsTab = ({
   clearTools: () => void;
   callTool: (name: string, params: Record<string, unknown>) => void;
   selectedTool: Tool | null;
-  setSelectedTool: (tool: Tool) => void;
+  setSelectedTool: (tool: Tool | null) => void;
   toolResult: CompatibilityCallToolResult | null;
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
+  useEffect(() => {
+    setParams({});
+  }, [selectedTool]);
 
   const renderToolResult = () => {
     if (!toolResult) return null;
@@ -110,7 +113,10 @@ const ToolsTab = ({
       <ListPane
         items={tools}
         listItems={listTools}
-        clearItems={clearTools}
+        clearItems={() => {
+          clearTools();
+          setSelectedTool(null);
+        }}
         setSelectedItem={setSelectedTool}
         renderItem={(tool) => (
           <>
