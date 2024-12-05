@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-client",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "description": "Client-side application for the Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -21,7 +21,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.1",
+    "@modelcontextprotocol/sdk": "^1.0.3",
     "@radix-ui/react-icons": "^1.3.0",
     "@radix-ui/react-label": "^2.1.0",
     "@radix-ui/react-select": "^2.1.2",

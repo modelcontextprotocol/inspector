@@ -59,6 +59,7 @@ const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
 
 const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "3000";
+const REQUEST_TIMEOUT = parseInt(params.get("timeout") ?? "") || DEFAULT_REQUEST_TIMEOUT_MSEC;
 const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
 
 const App = () => {
@@ -243,7 +244,7 @@ const App = () => {
       const abortController = new AbortController();
       const timeoutId = setTimeout(() => {
         abortController.abort("Request timed out");
-      }, DEFAULT_REQUEST_TIMEOUT_MSEC);
+      }, REQUEST_TIMEOUT);
 
       let response;
       try {
