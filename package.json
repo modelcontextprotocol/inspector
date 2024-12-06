@@ -41,6 +41,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
-    "prettier": "3.3.3"
+    "@types/shell-quote": "^1.7.5",
+    "prettier": "3.3.3",
+    "shell-quote": "^1.8.2"
   }
 }
