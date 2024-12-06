@@ -14,8 +14,8 @@ export default defineConfig({
     minify: false,
     rollupOptions: {
       output: {
-        manualChunks: undefined,
-      },
-    },
-  },
+        manualChunks: undefined
+      }
+    }
+  }
 });
