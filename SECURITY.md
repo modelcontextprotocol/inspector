@@ -1,4 +1,5 @@
 # Security Policy
+
 Thank you for helping us keep the inspector secure.
 
 ## Reporting Security Issues

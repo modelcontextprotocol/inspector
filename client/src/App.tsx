@@ -59,7 +59,8 @@ const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
 
 const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "3000";
-const REQUEST_TIMEOUT = parseInt(params.get("timeout") ?? "") || DEFAULT_REQUEST_TIMEOUT_MSEC;
+const REQUEST_TIMEOUT =
+  parseInt(params.get("timeout") ?? "") || DEFAULT_REQUEST_TIMEOUT_MSEC;
 const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
 
 const App = () => {

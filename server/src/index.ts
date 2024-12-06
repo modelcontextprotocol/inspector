@@ -3,7 +3,7 @@
 import cors from "cors";
 import EventSource from "eventsource";
 import { parseArgs } from "node:util";
-import { parse as shellParseArgs } from 'shell-quote';
+import { parse as shellParseArgs } from "shell-quote";
 
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
