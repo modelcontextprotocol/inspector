@@ -3,6 +3,7 @@
 import cors from "cors";
 import EventSource from "eventsource";
 import { parseArgs } from "node:util";
+import { parse as shellParseArgs } from "shell-quote";
 
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
@@ -38,7 +39,7 @@ const createTransport = async (query: express.Request["query"]) => {
 
   if (transportType === "stdio") {
     const command = query.command as string;
-    const origArgs = (query.args as string).split(/\s+/);
+    const origArgs = shellParseArgs(query.args as string) as string[];
     const env = query.env ? JSON.parse(query.env as string) : undefined;
 
     const { cmd, args } = findActualExecutable(command, origArgs);
