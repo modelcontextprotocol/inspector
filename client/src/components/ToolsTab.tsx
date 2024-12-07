@@ -10,8 +10,9 @@ import {
   CallToolResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, Send } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import ListPane from "./ListPane";
+import { CapabilityContext } from "@/lib/contexts";
 
 import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
@@ -36,6 +37,7 @@ const ToolsTab = ({
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
 }) => {
+  const capabilities = useContext(CapabilityContext);
   const [params, setParams] = useState<Record<string, unknown>>({});
   useEffect(() => {
     setParams({});
@@ -110,110 +112,122 @@ const ToolsTab = ({
 
   return (
     <TabsContent value="tools" className="grid grid-cols-2 gap-4">
-      <ListPane
-        items={tools}
-        listItems={listTools}
-        clearItems={() => {
-          clearTools();
-          setSelectedTool(null);
-        }}
-        setSelectedItem={setSelectedTool}
-        renderItem={(tool) => (
-          <>
-            <span className="flex-1">{tool.name}</span>
-            <span className="text-sm text-gray-500 text-right">
-              {tool.description}
-            </span>
-          </>
-        )}
-        title="Tools"
-        buttonText={nextCursor ? "List More Tools" : "List Tools"}
-        isButtonDisabled={!nextCursor && tools.length > 0}
-      />
+      {!capabilities?.tools ? (
+        <Alert variant="destructive" className="col-span-2">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Feature Not Available</AlertTitle>
+          <AlertDescription>
+            The connected server does not support tools.
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <>
+          <ListPane
+            items={tools}
+            listItems={listTools}
+            clearItems={() => {
+              clearTools();
+              setSelectedTool(null);
+            }}
+            setSelectedItem={setSelectedTool}
+            renderItem={(tool) => (
+              <>
+                <span className="flex-1">{tool.name}</span>
+                <span className="text-sm text-gray-500 text-right">
+                  {tool.description}
+                </span>
+              </>
+            )}
+            title="Tools"
+            buttonText={nextCursor ? "List More Tools" : "List Tools"}
+            isButtonDisabled={!nextCursor && tools.length > 0}
+          />
 
-      <div className="bg-card rounded-lg shadow">
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="font-semibold">
-            {selectedTool ? selectedTool.name : "Select a tool"}
-          </h3>
-        </div>
-        <div className="p-4">
-          {error ? (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : selectedTool ? (
-            <div className="space-y-4">
-              <p className="text-sm text-gray-600">
-                {selectedTool.description}
-              </p>
-              {Object.entries(selectedTool.inputSchema.properties ?? []).map(
-                ([key, value]) => (
-                  <div key={key}>
-                    <Label
-                      htmlFor={key}
-                      className="block text-sm font-medium text-gray-700"
-                    >
-                      {key}
-                    </Label>
-                    {
-                      /* @ts-expect-error value type is currently unknown */
-                      value.type === "string" ? (
-                        <Textarea
-                          id={key}
-                          name={key}
-                          // @ts-expect-error value type is currently unknown
-                          placeholder={value.description}
-                          onChange={(e) =>
-                            setParams({
-                              ...params,
-                              [key]: e.target.value,
-                            })
-                          }
-                          className="mt-1"
-                        />
-                      ) : (
-                        <Input
-                          // @ts-expect-error value type is currently unknown
-                          type={value.type === "number" ? "number" : "text"}
-                          id={key}
-                          name={key}
-                          // @ts-expect-error value type is currently unknown
-                          placeholder={value.description}
-                          onChange={(e) =>
-                            setParams({
-                              ...params,
-                              [key]:
-                                // @ts-expect-error value type is currently unknown
-                                value.type === "number"
-                                  ? Number(e.target.value)
-                                  : e.target.value,
-                            })
-                          }
-                          className="mt-1"
-                        />
-                      )
-                    }
-                  </div>
-                ),
-              )}
-              <Button onClick={() => callTool(selectedTool.name, params)}>
-                <Send className="w-4 h-4 mr-2" />
-                Run Tool
-              </Button>
-              {toolResult && renderToolResult()}
+          <div className="bg-card rounded-lg shadow">
+            <div className="p-4 border-b border-gray-200">
+              <h3 className="font-semibold">
+                {selectedTool ? selectedTool.name : "Select a tool"}
+              </h3>
             </div>
-          ) : (
-            <Alert>
-              <AlertDescription>
-                Select a tool from the list to view its details and run it
-              </AlertDescription>
-            </Alert>
-          )}
-        </div>
-      </div>
+            <div className="p-4">
+              {error ? (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              ) : selectedTool ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-600">
+                    {selectedTool.description}
+                  </p>
+                  {Object.entries(selectedTool.inputSchema.properties ?? []).map(
+                    ([key, value]) => (
+                      <div key={key}>
+                        <Label
+                          htmlFor={key}
+                          className="block text-sm font-medium text-gray-700"
+                        >
+                          {key}
+                        </Label>
+                        {
+                          /* @ts-expect-error value type is currently unknown */
+                          value.type === "string" ? (
+                            <Textarea
+                              id={key}
+                              name={key}
+                              // @ts-expect-error value type is currently unknown
+                              placeholder={value.description}
+                              onChange={(e) =>
+                                setParams({
+                                  ...params,
+                                  [key]: e.target.value,
+                                })
+                              }
+                              className="mt-1"
+                            />
+                          ) : (
+                            <Input
+                              // @ts-expect-error value type is currently unknown
+                              type={value.type === "number" ? "number" : "text"}
+                              id={key}
+                              name={key}
+                              // @ts-expect-error value type is currently unknown
+                              placeholder={value.description}
+                              onChange={(e) =>
+                                setParams({
+                                  ...params,
+                                  [key]:
+                                    // @ts-expect-error value type is currently unknown
+                                    value.type === "number"
+                                      ? Number(e.target.value)
+                                      : e.target.value,
+                                })
+                              }
+                              className="mt-1"
+                            />
+                          )
+                        }
+                      </div>
+                    ),
+                  )}
+                  <Button onClick={() => callTool(selectedTool.name, params)}>
+                    <Send className="w-4 h-4 mr-2" />
+                    Run Tool
+                  </Button>
+                  {toolResult && renderToolResult()}
+                </div>
+              ) : (
+                <Alert>
+                  <AlertDescription>
+                    Select a tool from the list to view its details and run it
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </TabsContent>
   );
 };
