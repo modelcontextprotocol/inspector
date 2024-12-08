@@ -100,7 +100,7 @@ const ToolsTab = ({
       return (
         <>
           <h4 className="font-semibold mb-2">Tool Result (Legacy):</h4>
-          <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-64">
+          <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
             {JSON.stringify(toolResult.toolResult, null, 2)}
           </pre>
         </>
