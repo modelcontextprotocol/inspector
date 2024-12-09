@@ -561,9 +561,7 @@ const App = () => {
                       resourceTemplates={resourceTemplates}
                       listResources={() => {
                         clearError("resources");
-                        if (serverCapabilities?.resources) {
-                          listResources();
-                        }
+                        listResources();
                       }}
                       clearResources={() => {
                         setResources([]);
@@ -571,9 +569,7 @@ const App = () => {
                       }}
                       listResourceTemplates={() => {
                         clearError("resources");
-                        if (serverCapabilities?.resources) {
-                          listResourceTemplates();
-                        }
+                        listResourceTemplates();
                       }}
                       clearResourceTemplates={() => {
                         setResourceTemplates([]);
@@ -581,9 +577,7 @@ const App = () => {
                       }}
                       readResource={(uri) => {
                         clearError("resources");
-                        if (serverCapabilities?.resources) {
-                          readResource(uri);
-                        }
+                        readResource(uri);
                       }}
                       selectedResource={selectedResource}
                       setSelectedResource={(resource) => {
@@ -599,9 +593,7 @@ const App = () => {
                       prompts={prompts}
                       listPrompts={() => {
                         clearError("prompts");
-                        if (serverCapabilities?.prompts) {
-                          listPrompts();
-                        }
+                        listPrompts();
                       }}
                       clearPrompts={() => {
                         setPrompts([]);
@@ -609,9 +601,7 @@ const App = () => {
                       }}
                       getPrompt={(name, args) => {
                         clearError("prompts");
-                        if (serverCapabilities?.prompts) {
-                          getPrompt(name, args);
-                        }
+                        getPrompt(name, args);
                       }}
                       selectedPrompt={selectedPrompt}
                       setSelectedPrompt={(prompt) => {
@@ -626,9 +616,7 @@ const App = () => {
                       tools={tools}
                       listTools={() => {
                         clearError("tools");
-                        if (serverCapabilities?.tools) {
-                          listTools();
-                        }
+                        listTools();
                       }}
                       clearTools={() => {
                         setTools([]);
@@ -636,9 +624,7 @@ const App = () => {
                       }}
                       callTool={(name, params) => {
                         clearError("tools");
-                        if (serverCapabilities?.tools) {
-                          callTool(name, params);
-                        }
+                        callTool(name, params);
                       }}
                       selectedTool={selectedTool}
                       setSelectedTool={(tool) => {
