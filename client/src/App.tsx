@@ -58,9 +58,6 @@ import ToolsTab from "./components/ToolsTab";
 
 type ServerCapabilities = z.infer<typeof ServerCapabilitiesSchema>;
 
-// PLACEHOLDER: imports and other type definitions
-
-
 const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
 
 const params = new URLSearchParams(window.location.search);
@@ -223,8 +220,6 @@ const App = () => {
   useEffect(() => {
     rootsRef.current = roots;
   }, [roots]);
-
-
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
