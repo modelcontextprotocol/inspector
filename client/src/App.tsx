@@ -523,7 +523,7 @@ const App = () => {
                   <Bell className="w-4 h-4 mr-2" />
                   Ping
                 </TabsTrigger>
-                <TabsTrigger value="sampling" className="relative" disabled={!serverCapabilities?.sampling}>
+                <TabsTrigger value="sampling" className="relative">
                   <Hash className="w-4 h-4 mr-2" />
                   Sampling
                   {pendingSampleRequests.length > 0 && (
@@ -532,7 +532,7 @@ const App = () => {
                     </span>
                   )}
                 </TabsTrigger>
-                <TabsTrigger value="roots" disabled={!serverCapabilities?.roots}>
+                <TabsTrigger value="roots">
                   <FolderTree className="w-4 h-4 mr-2" />
                   Roots
                 </TabsTrigger>
