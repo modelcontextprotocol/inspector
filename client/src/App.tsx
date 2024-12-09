@@ -19,10 +19,11 @@ import {
   Request,
   Resource,
   ResourceTemplate,
-  Result,
   Root,
   ServerNotification,
   Tool,
+  ServerCapabilitiesSchema,
+  Result,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -43,7 +44,7 @@ import {
 } from "lucide-react";
 
 import { toast } from "react-toastify";
-import { ZodType } from "zod";
+import { z, type ZodType } from "zod";
 import "./App.css";
 import ConsoleTab from "./components/ConsoleTab";
 import HistoryAndNotifications from "./components/History";
@@ -55,7 +56,12 @@ import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 
-import { CapabilityContext, ServerCapabilities } from "@/lib/contexts";
+type ServerCapabilities = z.infer<typeof ServerCapabilitiesSchema>;
+
+type ServerCapabilities = z.infer<typeof ServerCapabilitiesSchema>;
+
+type ServerCapabilities = z.infer<typeof ServerCapabilitiesSchema>;
+
 
 const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
 
@@ -220,12 +226,7 @@ const App = () => {
     rootsRef.current = roots;
   }, [roots]);
 
-  useEffect(() => {
-    if (mcpClient) {
-      const capabilities = mcpClient.getServerCapabilities();
-      setServerCapabilities(capabilities ?? null);
-    }
-  }, [mcpClient]);
+
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
@@ -498,145 +499,175 @@ const App = () => {
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
           {mcpClient ? (
-            <CapabilityContext.Provider value={serverCapabilities}>
-              <Tabs defaultValue="resources" className="w-full p-4">
-                <TabsList className="mb-4 p-0">
-                  <TabsTrigger value="resources" disabled={!serverCapabilities?.resources}>
-                    <Files className="w-4 h-4 mr-2" />
-                    Resources
-                  </TabsTrigger>
-                  <TabsTrigger value="prompts" disabled={!serverCapabilities?.prompts}>
-                    <MessageSquare className="w-4 h-4 mr-2" />
-                    Prompts
-                  </TabsTrigger>
-                  <TabsTrigger value="tools" disabled={!serverCapabilities?.tools}>
-                    <Hammer className="w-4 h-4 mr-2" />
-                    Tools
-                  </TabsTrigger>
-                  <TabsTrigger value="ping">
-                    <Bell className="w-4 h-4 mr-2" />
-                    Ping
-                  </TabsTrigger>
-                  <TabsTrigger value="sampling" className="relative">
-                    <Hash className="w-4 h-4 mr-2" />
-                    Sampling
-                    {pendingSampleRequests.length > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-                        {pendingSampleRequests.length}
-                      </span>
-                    )}
-                  </TabsTrigger>
-                  <TabsTrigger value="roots">
-                    <FolderTree className="w-4 h-4 mr-2" />
-                    Roots
-                  </TabsTrigger>
-                </TabsList>
+            <Tabs
+              defaultValue={
+                serverCapabilities?.resources ? "resources" :
+                serverCapabilities?.prompts ? "prompts" :
+                serverCapabilities?.tools ? "tools" :
+                "ping"
+              }
+              className="w-full p-4"
+            >
+              <TabsList className="mb-4 p-0">
+                <TabsTrigger value="resources">
+                  <Files className="w-4 h-4 mr-2" />
+                  Resources
+                </TabsTrigger>
+                <TabsTrigger value="prompts">
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Prompts
+                </TabsTrigger>
+                <TabsTrigger value="tools">
+                  <Hammer className="w-4 h-4 mr-2" />
+                  Tools
+                </TabsTrigger>
+                <TabsTrigger value="ping">
+                  <Bell className="w-4 h-4 mr-2" />
+                  Ping
+                </TabsTrigger>
+                <TabsTrigger value="sampling" className="relative">
+                  <Hash className="w-4 h-4 mr-2" />
+                  Sampling
+                  {pendingSampleRequests.length > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                      {pendingSampleRequests.length}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="roots">
+                  <FolderTree className="w-4 h-4 mr-2" />
+                  Roots
+                </TabsTrigger>
+              </TabsList>
 
-                <div className="w-full">
-                  <ResourcesTab
-                    resources={resources}
-                    resourceTemplates={resourceTemplates}
-                    listResources={() => {
-                      clearError("resources");
-                      listResources();
-                    }}
-                    clearResources={() => {
-                      setResources([]);
-                      setNextResourceCursor(undefined);
-                    }}
-                    listResourceTemplates={() => {
-                      clearError("resources");
-                      listResourceTemplates();
-                    }}
-                    clearResourceTemplates={() => {
-                      setResourceTemplates([]);
-                      setNextResourceTemplateCursor(undefined);
-                    }}
-                    readResource={(uri) => {
-                      clearError("resources");
-                      readResource(uri);
-                    }}
-                    selectedResource={selectedResource}
-                    setSelectedResource={(resource) => {
-                      clearError("resources");
-                      setSelectedResource(resource);
-                    }}
-                    resourceContent={resourceContent}
-                    nextCursor={nextResourceCursor}
-                    nextTemplateCursor={nextResourceTemplateCursor}
-                    error={errors.resources}
-                  />
-                  <PromptsTab
-                    prompts={prompts}
-                    listPrompts={() => {
-                      clearError("prompts");
-                      listPrompts();
-                    }}
-                    clearPrompts={() => {
-                      setPrompts([]);
-                      setNextPromptCursor(undefined);
-                    }}
-                    getPrompt={(name, args) => {
-                      clearError("prompts");
-                      getPrompt(name, args);
-                    }}
-                    selectedPrompt={selectedPrompt}
-                    setSelectedPrompt={(prompt) => {
-                      clearError("prompts");
-                      setSelectedPrompt(prompt);
-                    }}
-                    promptContent={promptContent}
-                    nextCursor={nextPromptCursor}
-                    error={errors.prompts}
-                  />
-                  <ToolsTab
-                    tools={tools}
-                    listTools={() => {
-                      clearError("tools");
-                      listTools();
-                    }}
-                    clearTools={() => {
-                      setTools([]);
-                      setNextToolCursor(undefined);
-                    }}
-                    callTool={(name, params) => {
-                      clearError("tools");
-                      callTool(name, params);
-                    }}
-                    selectedTool={selectedTool}
-                    setSelectedTool={(tool) => {
-                      clearError("tools");
-                      setSelectedTool(tool);
-                      setToolResult(null);
-                    }}
-                    toolResult={toolResult}
-                    nextCursor={nextToolCursor}
-                    error={errors.tools}
-                  />
-                  <ConsoleTab />
-                  <PingTab
-                    onPingClick={() => {
-                      void makeRequest(
-                        {
-                          method: "ping" as const,
-                        },
-                        EmptyResultSchema,
-                      );
-                    }}
-                  />
-                  <SamplingTab
-                    pendingRequests={pendingSampleRequests}
-                    onApprove={handleApproveSampling}
-                    onReject={handleRejectSampling}
-                  />
-                  <RootsTab
-                    roots={roots}
-                    setRoots={setRoots}
-                    onRootsChange={handleRootsChange}
-                  />
-                </div>
-              </Tabs>
-            </CapabilityContext.Provider>
+              <div className="w-full">
+                {!serverCapabilities?.resources && !serverCapabilities?.prompts && !serverCapabilities?.tools ? (
+                  <div className="flex items-center justify-center p-4">
+                    <p className="text-lg text-gray-500">
+                      The connected server does not support any MCP capabilities
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <ResourcesTab
+                      resources={resources}
+                      resourceTemplates={resourceTemplates}
+                      listResources={() => {
+                        clearError("resources");
+                        if (serverCapabilities?.resources) {
+                          listResources();
+                        }
+                      }}
+                      clearResources={() => {
+                        setResources([]);
+                        setNextResourceCursor(undefined);
+                      }}
+                      listResourceTemplates={() => {
+                        clearError("resources");
+                        if (serverCapabilities?.resources) {
+                          listResourceTemplates();
+                        }
+                      }}
+                      clearResourceTemplates={() => {
+                        setResourceTemplates([]);
+                        setNextResourceTemplateCursor(undefined);
+                      }}
+                      readResource={(uri) => {
+                        clearError("resources");
+                        if (serverCapabilities?.resources) {
+                          readResource(uri);
+                        }
+                      }}
+                      selectedResource={selectedResource}
+                      setSelectedResource={(resource) => {
+                        clearError("resources");
+                        setSelectedResource(resource);
+                      }}
+                      resourceContent={resourceContent}
+                      nextCursor={nextResourceCursor}
+                      nextTemplateCursor={nextResourceTemplateCursor}
+                      error={errors.resources}
+                    />
+                    <PromptsTab
+                      prompts={prompts}
+                      listPrompts={() => {
+                        clearError("prompts");
+                        if (serverCapabilities?.prompts) {
+                          listPrompts();
+                        }
+                      }}
+                      clearPrompts={() => {
+                        setPrompts([]);
+                        setNextPromptCursor(undefined);
+                      }}
+                      getPrompt={(name, args) => {
+                        clearError("prompts");
+                        if (serverCapabilities?.prompts) {
+                          getPrompt(name, args);
+                        }
+                      }}
+                      selectedPrompt={selectedPrompt}
+                      setSelectedPrompt={(prompt) => {
+                        clearError("prompts");
+                        setSelectedPrompt(prompt);
+                      }}
+                      promptContent={promptContent}
+                      nextCursor={nextPromptCursor}
+                      error={errors.prompts}
+                    />
+                    <ToolsTab
+                      tools={tools}
+                      listTools={() => {
+                        clearError("tools");
+                        if (serverCapabilities?.tools) {
+                          listTools();
+                        }
+                      }}
+                      clearTools={() => {
+                        setTools([]);
+                        setNextToolCursor(undefined);
+                      }}
+                      callTool={(name, params) => {
+                        clearError("tools");
+                        if (serverCapabilities?.tools) {
+                          callTool(name, params);
+                        }
+                      }}
+                      selectedTool={selectedTool}
+                      setSelectedTool={(tool) => {
+                        clearError("tools");
+                        setSelectedTool(tool);
+                        setToolResult(null);
+                      }}
+                      toolResult={toolResult}
+                      nextCursor={nextToolCursor}
+                      error={errors.tools}
+                    />
+                    <ConsoleTab />
+                    <PingTab
+                      onPingClick={() => {
+                        void makeRequest(
+                          {
+                            method: "ping" as const,
+                          },
+                          EmptyResultSchema,
+                        );
+                      }}
+                    />
+                    <SamplingTab
+                      pendingRequests={pendingSampleRequests}
+                      onApprove={handleApproveSampling}
+                      onReject={handleRejectSampling}
+                    />
+                    <RootsTab
+                      roots={roots}
+                      setRoots={setRoots}
+                      onRootsChange={handleRootsChange}
+                    />
+                  </>
+                )}
+              </div>
+            </Tabs>
           ) : (
             <div className="flex items-center justify-center h-full">
               <p className="text-lg text-gray-500">
