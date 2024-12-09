@@ -58,9 +58,7 @@ import ToolsTab from "./components/ToolsTab";
 
 type ServerCapabilities = z.infer<typeof ServerCapabilitiesSchema>;
 
-type ServerCapabilities = z.infer<typeof ServerCapabilitiesSchema>;
-
-type ServerCapabilities = z.infer<typeof ServerCapabilitiesSchema>;
+// PLACEHOLDER: imports and other type definitions
 
 
 const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
