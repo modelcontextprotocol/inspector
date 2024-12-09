@@ -509,15 +509,15 @@ const App = () => {
               className="w-full p-4"
             >
               <TabsList className="mb-4 p-0">
-                <TabsTrigger value="resources">
+                <TabsTrigger value="resources" disabled={!serverCapabilities?.resources}>
                   <Files className="w-4 h-4 mr-2" />
                   Resources
                 </TabsTrigger>
-                <TabsTrigger value="prompts">
+                <TabsTrigger value="prompts" disabled={!serverCapabilities?.prompts}>
                   <MessageSquare className="w-4 h-4 mr-2" />
                   Prompts
                 </TabsTrigger>
-                <TabsTrigger value="tools">
+                <TabsTrigger value="tools" disabled={!serverCapabilities?.tools}>
                   <Hammer className="w-4 h-4 mr-2" />
                   Tools
                 </TabsTrigger>
@@ -525,7 +525,7 @@ const App = () => {
                   <Bell className="w-4 h-4 mr-2" />
                   Ping
                 </TabsTrigger>
-                <TabsTrigger value="sampling" className="relative">
+                <TabsTrigger value="sampling" className="relative" disabled={!serverCapabilities?.sampling}>
                   <Hash className="w-4 h-4 mr-2" />
                   Sampling
                   {pendingSampleRequests.length > 0 && (
@@ -534,7 +534,7 @@ const App = () => {
                     </span>
                   )}
                 </TabsTrigger>
-                <TabsTrigger value="roots">
+                <TabsTrigger value="roots" disabled={!serverCapabilities?.roots}>
                   <FolderTree className="w-4 h-4 mr-2" />
                   Roots
                 </TabsTrigger>
