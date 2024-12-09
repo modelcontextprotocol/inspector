@@ -505,7 +505,8 @@ const App = () => {
           {mcpClient ? (
             <Tabs
               defaultValue={
-                window.location.hash.slice(1) ||
+                Object.keys(serverCapabilities ?? {}).includes(window.location.hash.slice(1)) ?
+                window.location.hash.slice(1) :
                 serverCapabilities?.resources ? "resources" :
                 serverCapabilities?.prompts ? "prompts" :
                 serverCapabilities?.tools ? "tools" :
