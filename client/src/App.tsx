@@ -62,7 +62,8 @@ const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
 
 const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "3000";
-const REQUEST_TIMEOUT = parseInt(params.get("timeout") ?? "") || DEFAULT_REQUEST_TIMEOUT_MSEC;
+const REQUEST_TIMEOUT =
+  parseInt(params.get("timeout") ?? "") || DEFAULT_REQUEST_TIMEOUT_MSEC;
 const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
 
 const App = () => {
@@ -221,6 +222,12 @@ const App = () => {
     rootsRef.current = roots;
   }, [roots]);
 
+  useEffect(() => {
+    if (!window.location.hash) {
+      window.location.hash = "resources";
+    }
+  }, []);
+
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
       ...prev,
@@ -255,10 +262,14 @@ const App = () => {
         response = await mcpClient.request(request, schema, {
           signal: abortController.signal,
         });
+        pushHistory(request, response);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        pushHistory(request, { error: errorMessage });
+        throw error;
       } finally {
         clearTimeout(timeoutId);
       }
-      pushHistory(request, response);
 
       if (tabKey !== undefined) {
         clearError(tabKey);
@@ -494,12 +505,14 @@ const App = () => {
           {mcpClient ? (
             <Tabs
               defaultValue={
+                window.location.hash.slice(1) ||
                 serverCapabilities?.resources ? "resources" :
                 serverCapabilities?.prompts ? "prompts" :
                 serverCapabilities?.tools ? "tools" :
                 "ping"
               }
               className="w-full p-4"
+              onValueChange={(value) => (window.location.hash = value)}
             >
               <TabsList className="mb-4 p-0">
                 <TabsTrigger value="resources" disabled={!serverCapabilities?.resources}>
