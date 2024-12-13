@@ -159,15 +159,13 @@ const ToolsTab = ({
                       {key}
                     </Label>
                     {
-                      // @ts-expect-error Tool schema types are not fully typed
+                      /* @ts-expect-error value type is currently unknown */
                       value.type === "string" ? (
                         <Textarea
                           id={key}
                           name={key}
-                          placeholder={
-                            // @ts-expect-error Tool schema types are not fully typed
-                            value.description
-                          }
+                          // @ts-expect-error value type is currently unknown
+                          placeholder={value.description}
                           onChange={(e) =>
                             setParams({
                               ...params,
@@ -177,15 +175,13 @@ const ToolsTab = ({
                           className="mt-1"
                         />
                       ) :
-                      // @ts-expect-error Tool schema types are not fully typed
+                      /* @ts-expect-error value type is currently unknown */
                       value.type === "object" ? (
                         <Textarea
                           id={key}
                           name={key}
-                          placeholder={
-                            // @ts-expect-error Tool schema types are not fully typed
-                            value.description
-                          }
+                          // @ts-expect-error value type is currently unknown
+                          placeholder={value.description}
                           onChange={(e) => {
                             try {
                               const parsed = JSON.parse(e.target.value);
@@ -205,21 +201,17 @@ const ToolsTab = ({
                         />
                       ) : (
                         <Input
-                          type={
-                            // @ts-expect-error Tool schema types are not fully typed
-                            value.type === "number" ? "number" : "text"
-                          }
+                          // @ts-expect-error value type is currently unknown
+                          type={value.type === "number" ? "number" : "text"}
                           id={key}
                           name={key}
-                          placeholder={
-                            // @ts-expect-error Tool schema types are not fully typed
-                            value.description
-                          }
+                          // @ts-expect-error value type is currently unknown
+                          placeholder={value.description}
                           onChange={(e) =>
                             setParams({
                               ...params,
                               [key]:
-                                // @ts-expect-error Tool schema types are not fully typed
+                                // @ts-expect-error value type is currently unknown
                                 value.type === "number"
                                   ? Number(e.target.value)
                                   : e.target.value,
