@@ -159,13 +159,15 @@ const ToolsTab = ({
                       {key}
                     </Label>
                     {
-                      /* @ts-expect-error value type is currently unknown */
+                      // @ts-expect-error Tool schema types are not fully typed
                       value.type === "string" ? (
                         <Textarea
                           id={key}
                           name={key}
-                          // @ts-expect-error value type is currently unknown
-                          placeholder={value.description}
+                          placeholder={
+                            // @ts-expect-error Tool schema types are not fully typed
+                            value.description
+                          }
                           onChange={(e) =>
                             setParams({
                               ...params,
@@ -174,19 +176,50 @@ const ToolsTab = ({
                           }
                           className="mt-1"
                         />
-                      ) : (
-                        <Input
-                          // @ts-expect-error value type is currently unknown
-                          type={value.type === "number" ? "number" : "text"}
+                      ) :
+                      // @ts-expect-error Tool schema types are not fully typed
+                      value.type === "object" ? (
+                        <Textarea
                           id={key}
                           name={key}
-                          // @ts-expect-error value type is currently unknown
-                          placeholder={value.description}
+                          placeholder={
+                            // @ts-expect-error Tool schema types are not fully typed
+                            value.description
+                          }
+                          onChange={(e) => {
+                            try {
+                              const parsed = JSON.parse(e.target.value);
+                              setParams({
+                                ...params,
+                                [key]: parsed,
+                              });
+                            } catch (err) {
+                              // If invalid JSON, store as string - will be validated on submit
+                              setParams({
+                                ...params,
+                                [key]: e.target.value,
+                              });
+                            }
+                          }}
+                          className="mt-1"
+                        />
+                      ) : (
+                        <Input
+                          type={
+                            // @ts-expect-error Tool schema types are not fully typed
+                            value.type === "number" ? "number" : "text"
+                          }
+                          id={key}
+                          name={key}
+                          placeholder={
+                            // @ts-expect-error Tool schema types are not fully typed
+                            value.description
+                          }
                           onChange={(e) =>
                             setParams({
                               ...params,
                               [key]:
-                                // @ts-expect-error value type is currently unknown
+                                // @ts-expect-error Tool schema types are not fully typed
                                 value.type === "number"
                                   ? Number(e.target.value)
                                   : e.target.value,
