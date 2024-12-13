@@ -6,6 +6,8 @@ import {
   CircleHelp,
   Bug,
   Github,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +56,7 @@ const Sidebar = ({
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
+  const [shownEnvVars, setShownEnvVars] = useState<Record<string, boolean>>({});
 
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
@@ -134,20 +137,40 @@ const Sidebar = ({
               {showEnvVars && (
                 <div className="space-y-2">
                   {Object.entries(env).map(([key, value], idx) => (
-                    <div key={idx} className="grid grid-cols-[1fr,auto] gap-2">
-                      <div className="space-y-1">
+                    <div key={idx} className="space-y-2 pb-4">
+                      <div className="flex gap-2">
                         <Input
                           placeholder="Key"
                           value={key}
                           onChange={(e) => {
+                            const newKey = e.target.value;
                             const newEnv = { ...env };
                             delete newEnv[key];
-                            newEnv[e.target.value] = value;
+                            newEnv[newKey] = value;
                             setEnv(newEnv);
+                            setShownEnvVars((prev) => {
+                              const { [key]: shown, ...rest } = prev;
+                              return shown ? { ...rest, [newKey]: true } : rest;
+                            });
                           }}
                           className="font-mono"
                         />
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          className="h-9 w-9 p-0 shrink-0"
+                          onClick={() => {
+                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                            const { [key]: _removed, ...rest } = env;
+                            setEnv(rest);
+                          }}
+                        >
+                          ×
+                        </Button>
+                      </div>
+                      <div className="flex gap-2">
                         <Input
+                          type={shownEnvVars[key] ? "text" : "password"}
                           placeholder="Value"
                           value={value}
                           onChange={(e) => {
@@ -157,25 +180,35 @@ const Sidebar = ({
                           }}
                           className="font-mono"
                         />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-9 w-9 p-0 shrink-0"
+                          onClick={() => {
+                            setShownEnvVars((prev) => ({
+                              ...prev,
+                              [key]: !prev[key],
+                            }));
+                          }}
+                        >
+                          {shownEnvVars[key] ? (
+                            <Eye className="h-4 w-4" />
+                          ) : (
+                            <EyeOff className="h-4 w-4" />
+                          )}
+                        </Button>
                       </div>
-                      <Button
-                        variant="destructive"
-                        onClick={() => {
-                          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                          const { [key]: removed, ...rest } = env;
-                          setEnv(rest);
-                        }}
-                      >
-                        Remove
-                      </Button>
                     </div>
                   ))}
                   <Button
                     variant="outline"
+                    className="w-full mt-2"
                     onClick={() => {
+                      const key = "";
                       const newEnv = { ...env };
-                      newEnv[""] = "";
+                      newEnv[key] = "";
                       setEnv(newEnv);
+                      setShownEnvVars({});
                     }}
                   >
                     Add Environment Variable
