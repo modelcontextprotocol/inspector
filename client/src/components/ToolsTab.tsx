@@ -174,6 +174,31 @@ const ToolsTab = ({
                           }
                           className="mt-1"
                         />
+                      ) :
+                      /* @ts-expect-error value type is currently unknown */
+                      value.type === "object" ? (
+                        <Textarea
+                          id={key}
+                          name={key}
+                          // @ts-expect-error value type is currently unknown
+                          placeholder={value.description}
+                          onChange={(e) => {
+                            try {
+                              const parsed = JSON.parse(e.target.value);
+                              setParams({
+                                ...params,
+                                [key]: parsed,
+                              });
+                            } catch (err) {
+                              // If invalid JSON, store as string - will be validated on submit
+                              setParams({
+                                ...params,
+                                [key]: e.target.value,
+                              });
+                            }
+                          }}
+                          className="mt-1"
+                        />
                       ) : (
                         <Input
                           // @ts-expect-error value type is currently unknown
