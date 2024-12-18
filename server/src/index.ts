@@ -4,6 +4,7 @@ import cors from "cors";
 import EventSource from "eventsource";
 import { parseArgs } from "node:util";
 import { parse as shellParseArgs } from "shell-quote";
+import { platform } from "node:os";
 
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
@@ -42,7 +43,12 @@ const createTransport = async (query: express.Request["query"]) => {
     const origArgs = shellParseArgs(query.args as string) as string[];
     const env = query.env ? JSON.parse(query.env as string) : undefined;
 
-    const { cmd, args } = findActualExecutable(command, origArgs);
+    // On Windows, we need to find the actual executable to run
+    // On other platforms, we can just use the command as-is
+    const { cmd, args } =
+      platform() === "win32"
+        ? findActualExecutable(command, origArgs)
+        : { cmd: command, args: origArgs };
 
     console.log(
       `Stdio transport: command=${cmd}, args=${args}, env=${JSON.stringify(env)}`,
