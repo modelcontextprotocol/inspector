@@ -227,7 +227,7 @@ const Sidebar = ({
               setTheme(value as "system" | "light" | "dark")
             }
           >
-            <SelectTrigger className="w-[120px]" id="theme-select">
+            <SelectTrigger className="w-[100px]" id="theme-select">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
