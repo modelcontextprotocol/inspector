@@ -86,6 +86,7 @@ const Sidebar = ({
                   placeholder="Command"
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
+                  className="font-mono"
                 />
               </div>
               <div className="space-y-2">
@@ -94,6 +95,7 @@ const Sidebar = ({
                   placeholder="Arguments (space-separated)"
                   value={args}
                   onChange={(e) => setArgs(e.target.value)}
+                  className="font-mono"
                 />
               </div>
             </>
@@ -104,6 +106,7 @@ const Sidebar = ({
                 placeholder="URL"
                 value={sseUrl}
                 onChange={(e) => setSseUrl(e.target.value)}
+                className="font-mono"
               />
             </div>
           )}
@@ -135,6 +138,7 @@ const Sidebar = ({
                             newEnv[e.target.value] = value;
                             setEnv(newEnv);
                           }}
+                          className="font-mono"
                         />
                         <Input
                           placeholder="Value"
@@ -144,6 +148,7 @@ const Sidebar = ({
                             newEnv[key] = e.target.value;
                             setEnv(newEnv);
                           }}
+                          className="font-mono"
                         />
                       </div>
                       <Button
