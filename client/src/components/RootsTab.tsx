@@ -54,6 +54,7 @@ const RootsTab = ({
             variant="destructive"
             size="sm"
             onClick={() => removeRoot(index)}
+            aria-label="Remove root"
           >
             <Minus className="h-4 w-4" />
           </Button>

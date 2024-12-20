@@ -16,7 +16,7 @@ import {
   ResourceTemplate,
   Root,
   ServerNotification,
-  Tool
+  Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useEffect, useRef, useState } from "react";
 
@@ -124,10 +124,7 @@ const App = () => {
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
 
-  const {
-    height: historyPaneHeight,
-    handleDragStart
-  } = useDraggablePane(300);
+  const { height: historyPaneHeight, handleDragStart } = useDraggablePane(300);
 
   const {
     connectionStatus,
@@ -136,7 +133,7 @@ const App = () => {
     requestHistory,
     makeRequest: makeConnectionRequest,
     sendNotification,
-    connect: connectMcpServer
+    connect: connectMcpServer,
   } = useConnection({
     transportType,
     command,
@@ -145,18 +142,21 @@ const App = () => {
     env,
     proxyServerUrl: PROXY_SERVER_URL,
     onNotification: (notification) => {
-      setNotifications(prev => [...prev, notification as ServerNotification]);
+      setNotifications((prev) => [...prev, notification as ServerNotification]);
     },
     onStdErrNotification: (notification) => {
-      setStdErrNotifications(prev => [...prev, notification as StdErrNotification]);
-    },
-    onPendingRequest: (request, resolve, reject) => {
-      setPendingSampleRequests(prev => [
+      setStdErrNotifications((prev) => [
         ...prev,
-        { id: nextRequestId.current++, request, resolve, reject }
+        notification as StdErrNotification,
       ]);
     },
-    getRoots: () => rootsRef.current
+    onPendingRequest: (request, resolve, reject) => {
+      setPendingSampleRequests((prev) => [
+        ...prev,
+        { id: nextRequestId.current++, request, resolve, reject },
+      ]);
+    },
+    getRoots: () => rootsRef.current,
   });
 
   const makeRequest = async <T extends z.ZodType>(
@@ -345,26 +345,40 @@ const App = () => {
           {mcpClient ? (
             <Tabs
               defaultValue={
-                Object.keys(serverCapabilities ?? {}).includes(window.location.hash.slice(1)) ?
-                window.location.hash.slice(1) :
-                serverCapabilities?.resources ? "resources" :
-                serverCapabilities?.prompts ? "prompts" :
-                serverCapabilities?.tools ? "tools" :
-                "ping"
+                Object.keys(serverCapabilities ?? {}).includes(
+                  window.location.hash.slice(1),
+                )
+                  ? window.location.hash.slice(1)
+                  : serverCapabilities?.resources
+                    ? "resources"
+                    : serverCapabilities?.prompts
+                      ? "prompts"
+                      : serverCapabilities?.tools
+                        ? "tools"
+                        : "ping"
               }
               className="w-full p-4"
               onValueChange={(value) => (window.location.hash = value)}
             >
               <TabsList className="mb-4 p-0">
-                <TabsTrigger value="resources" disabled={!serverCapabilities?.resources}>
+                <TabsTrigger
+                  value="resources"
+                  disabled={!serverCapabilities?.resources}
+                >
                   <Files className="w-4 h-4 mr-2" />
                   Resources
                 </TabsTrigger>
-                <TabsTrigger value="prompts" disabled={!serverCapabilities?.prompts}>
+                <TabsTrigger
+                  value="prompts"
+                  disabled={!serverCapabilities?.prompts}
+                >
                   <MessageSquare className="w-4 h-4 mr-2" />
                   Prompts
                 </TabsTrigger>
-                <TabsTrigger value="tools" disabled={!serverCapabilities?.tools}>
+                <TabsTrigger
+                  value="tools"
+                  disabled={!serverCapabilities?.tools}
+                >
                   <Hammer className="w-4 h-4 mr-2" />
                   Tools
                 </TabsTrigger>
@@ -388,7 +402,9 @@ const App = () => {
               </TabsList>
 
               <div className="w-full">
-                {!serverCapabilities?.resources && !serverCapabilities?.prompts && !serverCapabilities?.tools ? (
+                {!serverCapabilities?.resources &&
+                !serverCapabilities?.prompts &&
+                !serverCapabilities?.tools ? (
                   <div className="flex items-center justify-center p-4">
                     <p className="text-lg text-gray-500">
                       The connected server does not support any MCP capabilities

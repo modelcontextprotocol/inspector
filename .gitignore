@@ -2,5 +2,6 @@
 node_modules
 server/build
 client/dist
+client/coverage
 client/tsconfig.app.tsbuildinfo
 client/tsconfig.node.tsbuildinfo
