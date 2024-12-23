@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Play, ChevronDown, ChevronRight, CircleHelp, Bug } from "lucide-react";
+import { Play, ChevronDown, ChevronRight, CircleHelp, Bug, Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -86,6 +86,7 @@ const Sidebar = ({
                   placeholder="Command"
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
+                  className="font-mono"
                 />
               </div>
               <div className="space-y-2">
@@ -94,6 +95,7 @@ const Sidebar = ({
                   placeholder="Arguments (space-separated)"
                   value={args}
                   onChange={(e) => setArgs(e.target.value)}
+                  className="font-mono"
                 />
               </div>
             </>
@@ -104,6 +106,7 @@ const Sidebar = ({
                 placeholder="URL"
                 value={sseUrl}
                 onChange={(e) => setSseUrl(e.target.value)}
+                className="font-mono"
               />
             </div>
           )}
@@ -135,6 +138,7 @@ const Sidebar = ({
                             newEnv[e.target.value] = value;
                             setEnv(newEnv);
                           }}
+                          className="font-mono"
                         />
                         <Input
                           placeholder="Value"
@@ -144,6 +148,7 @@ const Sidebar = ({
                             newEnv[key] = e.target.value;
                             setEnv(newEnv);
                           }}
+                          className="font-mono"
                         />
                       </div>
                       <Button
@@ -227,7 +232,7 @@ const Sidebar = ({
               setTheme(value as "system" | "light" | "dark")
             }
           >
-            <SelectTrigger className="w-[120px]" id="theme-select">
+            <SelectTrigger className="w-[100px]" id="theme-select">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -246,6 +251,11 @@ const Sidebar = ({
             <a href="https://modelcontextprotocol.io/docs/tools/debugging" target="_blank" rel="noopener noreferrer">
               <Button variant="ghost" title="Debugging Guide">
                 <Bug className="w-4 h-4 text-gray-800" />
+              </Button>
+            </a>
+            <a href="https://github.com/modelcontextprotocol/inspector" target="_blank" rel="noopener noreferrer">
+              <Button variant="ghost" title="Report bugs or contribute on GitHub">
+                <Github className="w-4 h-4 text-gray-800" />
               </Button>
             </a>
           </div>
