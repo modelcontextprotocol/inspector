@@ -11,6 +11,7 @@ import {
   getDefaultEnvironment,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import express from "express";
 import mcpProxy from "./mcpProxy.js";
 import { findActualExecutable } from "spawn-rx";
@@ -24,15 +25,37 @@ const { values } = parseArgs({
   options: {
     env: { type: "string", default: "" },
     args: { type: "string", default: "" },
+    envVars: {
+      type: "string",
+      multiple: true,
+      default: [],
+      short: "e"
+    },
   },
 });
+
+// Parse environment variables from command line
+const envFromArgs = values.envVars.reduce((acc: Record<string, string>, curr: string) => {
+  const [key, value] = curr.split('=');
+  if (key && value) {
+    acc[key] = value;
+  }
+  return acc;
+}, {});
 
 const app = express();
 app.use(cors());
 
 let webAppTransports: SSEServerTransport[] = [];
 
-const createTransport = async (query: express.Request["query"]) => {
+/**
+ * Creates a transport based on query parameters and command line arguments.
+ * Environment variables can be provided in three ways:
+ * 1. Through process.env (base environment)
+ * 2. Through command line using --envVars KEY=VALUE (multiple allowed)
+ * 3. Through query parameters (takes precedence)
+ */
+const createTransport = async (query: express.Request["query"]): Promise<Transport> => {
   console.log("Query parameters:", query);
 
   const transportType = query.transportType as string;
@@ -40,18 +63,24 @@ const createTransport = async (query: express.Request["query"]) => {
   if (transportType === "stdio") {
     const command = query.command as string;
     const origArgs = shellParseArgs(query.args as string) as string[];
-    const env = query.env ? JSON.parse(query.env as string) : undefined;
+    // Merge environment variables from query params and command line
+    const queryEnv = query.env ? JSON.parse(query.env as string) : {};
+    const mergedEnv = {
+      ...process.env, // Include current process env
+      ...envFromArgs, // Add our command line env vars
+      ...queryEnv, // Query params take precedence
+    };
 
     const { cmd, args } = findActualExecutable(command, origArgs);
 
     console.log(
-      `Stdio transport: command=${cmd}, args=${args}, env=${JSON.stringify(env)}`,
+      `Stdio transport: command=${cmd}, args=${args}, env=${JSON.stringify(mergedEnv)}`,
     );
 
     const transport = new StdioClientTransport({
       command: cmd,
       args,
-      env,
+      env: mergedEnv,
       stderr: "pipe",
     });
 
