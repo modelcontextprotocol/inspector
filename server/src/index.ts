@@ -34,11 +34,13 @@ const { values } = parseArgs({
   },
 });
 
-// Parse environment variables from command line
+// Parse environment variables from command line and set them in process.env
 const envFromArgs = values.envVars.reduce((acc: Record<string, string>, curr: string) => {
   const [key, value] = curr.split('=');
   if (key && value) {
     acc[key] = value;
+    // Set in process.env so the main process has access
+    process.env[key] = value;
   }
   return acc;
 }, {});
