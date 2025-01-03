@@ -112,18 +112,50 @@ const Sidebar = ({
           )}
           {transportType === "stdio" && (
             <div className="space-y-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowEnvVars(!showEnvVars)}
-                className="flex items-center w-full"
-              >
-                {showEnvVars ? (
-                  <ChevronDown className="w-4 h-4 mr-2" />
-                ) : (
-                  <ChevronRight className="w-4 h-4 mr-2" />
-                )}
-                Environment Variables
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowEnvVars(!showEnvVars)}
+                  className="flex items-center flex-1"
+                >
+                  {showEnvVars ? (
+                    <ChevronDown className="w-4 h-4 mr-2" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 mr-2" />
+                  )}
+                  Environment Variables
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = '.env';
+                    input.onchange = async (e) => {
+                      const file = (e.target as HTMLInputElement).files?.[0];
+                      if (file) {
+                        try {
+                          const text = await file.text();
+                          const newEnv = text.split('\n').reduce((acc, line) => {
+                            const [key, value] = line.split('=');
+                            if (key && value) {
+                              acc[key.trim()] = value.trim();
+                            }
+                            return acc;
+                          }, {} as Record<string, string>);
+                          setEnv(newEnv);
+                        } catch (error) {
+                          console.error('Error importing .env file:', error);
+                        }
+                      }
+                    };
+                    input.click();
+                  }}
+                  title="Import .env file"
+                >
+                  Import
+                </Button>
+              </div>
               {showEnvVars && (
                 <div className="space-y-2">
                   {Object.entries(env).map(([key, value], idx) => (
