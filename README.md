@@ -13,11 +13,26 @@ To inspect an MCP server implementation, there's no need to clone this repo. Ins
 ```bash
 npx @modelcontextprotocol/inspector build/index.js
 ```
-
 You can also pass arguments along which will get passed as arguments to your MCP server:
 
-```
+```bash
 npx @modelcontextprotocol/inspector build/index.js arg1 arg2 ...
+```
+
+Environment variables can be passed to your MCP server using either the long form `--envVars` or short form `-e` flags:
+
+```bash
+# Long form
+npx @modelcontextprotocol/inspector build/index.js --envVars API_KEY=abc123 --envVars DEBUG=true
+
+# Short form
+npx @modelcontextprotocol/inspector build/index.js -e API_KEY=abc123 -e DEBUG=true
+```
+
+Environment variables are merged with the following precedence:
+- Base: process.env (system environment)
+- Override: Command line envVars (using either --envVars or -e)
+- Final Override: Query parameters
 ```
 
 The inspector runs both a client UI (default port 5173) and an MCP proxy server (default port 3000). Open the client UI in your browser to use the inspector. You can customize the ports if needed:
@@ -44,6 +59,27 @@ Production mode:
 npm run build
 npm start
 ```
+
+## Testing
+
+The inspector includes a comprehensive test suite. To run the tests:
+
+```bash
+cd server
+npm test
+```
+
+### Test Coverage
+
+The test suite includes:
+- Environment variable handling
+  - Single variable with long flag (--envVars)
+  - Single variable with short flag (-e)
+  - Multiple environment variables
+  - Empty environment variables list
+  - Environment variable object merging
+
+To add new tests, place them in the `server/src/__tests__` directory.
 
 ## License
 
