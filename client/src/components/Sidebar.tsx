@@ -56,7 +56,7 @@ const Sidebar = ({
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
-  const [shownEnvVars, setShownEnvVars] = useState<Record<string, boolean>>({});
+  const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
 
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
@@ -149,8 +149,12 @@ const Sidebar = ({
                             newEnv[newKey] = value;
                             setEnv(newEnv);
                             setShownEnvVars((prev) => {
-                              const { [key]: shown, ...rest } = prev;
-                              return shown ? { ...rest, [newKey]: true } : rest;
+                              const next = new Set(prev);
+                              if (next.has(key)) {
+                                next.delete(key);
+                                next.add(newKey);
+                              }
+                              return next;
                             });
                           }}
                           className="font-mono"
@@ -170,7 +174,7 @@ const Sidebar = ({
                       </div>
                       <div className="flex gap-2">
                         <Input
-                          type={shownEnvVars[key] ? "text" : "password"}
+                          type={shownEnvVars.has(key) ? "text" : "password"}
                           placeholder="Value"
                           value={value}
                           onChange={(e) => {
@@ -185,16 +189,24 @@ const Sidebar = ({
                           size="icon"
                           className="h-9 w-9 p-0 shrink-0"
                           onClick={() => {
-                            setShownEnvVars((prev) => ({
-                              ...prev,
-                              [key]: !prev[key],
-                            }));
+                            setShownEnvVars((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(key)) {
+                                next.delete(key);
+                              } else {
+                                next.add(key);
+                              }
+                              return next;
+                            });
                           }}
+                          aria-label={shownEnvVars.has(key) ? "Hide value" : "Show value"}
+                          aria-pressed={shownEnvVars.has(key)}
+                          title={shownEnvVars.has(key) ? "Hide value" : "Show value"}
                         >
-                          {shownEnvVars[key] ? (
-                            <Eye className="h-4 w-4" />
+                          {shownEnvVars.has(key) ? (
+                            <Eye className="h-4 w-4" aria-hidden="true" />
                           ) : (
-                            <EyeOff className="h-4 w-4" />
+                            <EyeOff className="h-4 w-4" aria-hidden="true" />
                           )}
                         </Button>
                       </div>
@@ -208,7 +220,6 @@ const Sidebar = ({
                       const newEnv = { ...env };
                       newEnv[key] = "";
                       setEnv(newEnv);
-                      setShownEnvVars({});
                     }}
                   >
                     Add Environment Variable

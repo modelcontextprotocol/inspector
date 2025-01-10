@@ -16,17 +16,25 @@ async function main() {
   const envVars = {};
   const mcpServerArgs = [];
   let command = null;
+  let parsingFlags = true;
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-e" && i + 1 < args.length) {
+    const arg = args[i];
+
+    if (parsingFlags && arg === "--") {
+      parsingFlags = false;
+      continue;
+    }
+
+    if (parsingFlags && arg === "-e" && i + 1 < args.length) {
       const [key, value] = args[++i].split("=");
       if (key && value) {
         envVars[key] = value;
       }
     } else if (!command) {
-      command = args[i];
+      command = arg;
     } else {
-      mcpServerArgs.push(args[i]);
+      mcpServerArgs.push(arg);
     }
   }
 
