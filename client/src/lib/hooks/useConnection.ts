@@ -44,10 +44,15 @@ export function useConnection({
   onPendingRequest,
   getRoots,
 }: UseConnectionOptions) {
-  const [connectionStatus, setConnectionStatus] = useState<"disconnected" | "connected" | "error">("disconnected");
-  const [serverCapabilities, setServerCapabilities] = useState<ServerCapabilities | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<
+    "disconnected" | "connected" | "error"
+  >("disconnected");
+  const [serverCapabilities, setServerCapabilities] =
+    useState<ServerCapabilities | null>(null);
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
-  const [requestHistory, setRequestHistory] = useState<{ request: string; response?: string }[]>([]);
+  const [requestHistory, setRequestHistory] = useState<
+    { request: string; response?: string }[]
+  >([]);
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
@@ -61,7 +66,7 @@ export function useConnection({
 
   const makeRequest = async <T extends z.ZodType>(
     request: ClientRequest,
-    schema: T
+    schema: T,
   ) => {
     if (!mcpClient) {
       throw new Error("MCP client not connected");
@@ -80,13 +85,13 @@ export function useConnection({
         });
         pushHistory(request, response);
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
         pushHistory(request, { error: errorMessage });
         throw error;
       } finally {
         clearTimeout(timeoutId);
       }
-
 
       return response;
     } catch (e: unknown) {
@@ -140,13 +145,19 @@ export function useConnection({
       }
 
       const clientTransport = new SSEClientTransport(backendUrl);
-      
+
       if (onNotification) {
-        client.setNotificationHandler(ProgressNotificationSchema, onNotification);
+        client.setNotificationHandler(
+          ProgressNotificationSchema,
+          onNotification,
+        );
       }
 
       if (onStdErrNotification) {
-        client.setNotificationHandler(StdErrNotificationSchema, onStdErrNotification);
+        client.setNotificationHandler(
+          StdErrNotificationSchema,
+          onStdErrNotification,
+        );
       }
 
       await client.connect(clientTransport);
@@ -183,6 +194,6 @@ export function useConnection({
     requestHistory,
     makeRequest,
     sendNotification,
-    connect
+    connect,
   };
 }
