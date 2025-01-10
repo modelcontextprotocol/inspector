@@ -199,9 +199,13 @@ const Sidebar = ({
                               return next;
                             });
                           }}
-                          aria-label={shownEnvVars.has(key) ? "Hide value" : "Show value"}
+                          aria-label={
+                            shownEnvVars.has(key) ? "Hide value" : "Show value"
+                          }
                           aria-pressed={shownEnvVars.has(key)}
-                          title={shownEnvVars.has(key) ? "Hide value" : "Show value"}
+                          title={
+                            shownEnvVars.has(key) ? "Hide value" : "Show value"
+                          }
                         >
                           {shownEnvVars.has(key) ? (
                             <Eye className="h-4 w-4" aria-hidden="true" />
