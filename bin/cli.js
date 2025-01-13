@@ -11,8 +11,32 @@ function delay(ms) {
 }
 
 async function main() {
-  // Get command line arguments
-  const [, , command, ...mcpServerArgs] = process.argv;
+  // Parse command line arguments
+  const args = process.argv.slice(2);
+  const envVars = {};
+  const mcpServerArgs = [];
+  let command = null;
+  let parsingFlags = true;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (parsingFlags && arg === "--") {
+      parsingFlags = false;
+      continue;
+    }
+
+    if (parsingFlags && arg === "-e" && i + 1 < args.length) {
+      const [key, value] = args[++i].split("=");
+      if (key && value) {
+        envVars[key] = value;
+      }
+    } else if (!command) {
+      command = arg;
+    } else {
+      mcpServerArgs.push(arg);
+    }
+  }
 
   const inspectorServerPath = resolve(
     __dirname,
@@ -52,7 +76,11 @@ async function main() {
       ...(mcpServerArgs ? [`--args=${mcpServerArgs.join(" ")}`] : []),
     ],
     {
-      env: { ...process.env, PORT: SERVER_PORT },
+      env: {
+        ...process.env,
+        PORT: SERVER_PORT,
+        MCP_ENV_VARS: JSON.stringify(envVars),
+      },
       signal: abort.signal,
       echoOutput: true,
     },
