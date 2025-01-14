@@ -6,19 +6,28 @@ export function useDraggablePane(initialHeight: number) {
   const dragStartY = useRef<number>(0);
   const dragStartHeight = useRef<number>(0);
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    setIsDragging(true);
-    dragStartY.current = e.clientY;
-    dragStartHeight.current = height;
-    document.body.style.userSelect = "none";
-  }, [height]);
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      setIsDragging(true);
+      dragStartY.current = e.clientY;
+      dragStartHeight.current = height;
+      document.body.style.userSelect = "none";
+    },
+    [height],
+  );
 
-  const handleDragMove = useCallback((e: MouseEvent) => {
-    if (!isDragging) return;
-    const deltaY = dragStartY.current - e.clientY;
-    const newHeight = Math.max(100, Math.min(800, dragStartHeight.current + deltaY));
-    setHeight(newHeight);
-  }, [isDragging]);
+  const handleDragMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isDragging) return;
+      const deltaY = dragStartY.current - e.clientY;
+      const newHeight = Math.max(
+        100,
+        Math.min(800, dragStartHeight.current + deltaY),
+      );
+      setHeight(newHeight);
+    },
+    [isDragging],
+  );
 
   const handleDragEnd = useCallback(() => {
     setIsDragging(false);
@@ -39,6 +48,6 @@ export function useDraggablePane(initialHeight: number) {
   return {
     height,
     isDragging,
-    handleDragStart
+    handleDragStart,
   };
 }

@@ -174,8 +174,7 @@ const ToolsTab = ({
                           }
                           className="mt-1"
                         />
-                      ) :
-                      /* @ts-expect-error value type is currently unknown */
+                      ) : /* @ts-expect-error value type is currently unknown */
                       value.type === "object" ? (
                         <Textarea
                           id={key}

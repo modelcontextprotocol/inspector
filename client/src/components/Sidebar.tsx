@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { Play, ChevronDown, ChevronRight, CircleHelp, Bug, Github } from "lucide-react";
+import {
+  Play,
+  ChevronDown,
+  ChevronRight,
+  CircleHelp,
+  Bug,
+  Github,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -47,6 +56,7 @@ const Sidebar = ({
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
+  const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
 
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
@@ -127,20 +137,44 @@ const Sidebar = ({
               {showEnvVars && (
                 <div className="space-y-2">
                   {Object.entries(env).map(([key, value], idx) => (
-                    <div key={idx} className="grid grid-cols-[1fr,auto] gap-2">
-                      <div className="space-y-1">
+                    <div key={idx} className="space-y-2 pb-4">
+                      <div className="flex gap-2">
                         <Input
                           placeholder="Key"
                           value={key}
                           onChange={(e) => {
+                            const newKey = e.target.value;
                             const newEnv = { ...env };
                             delete newEnv[key];
-                            newEnv[e.target.value] = value;
+                            newEnv[newKey] = value;
                             setEnv(newEnv);
+                            setShownEnvVars((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(key)) {
+                                next.delete(key);
+                                next.add(newKey);
+                              }
+                              return next;
+                            });
                           }}
                           className="font-mono"
                         />
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          className="h-9 w-9 p-0 shrink-0"
+                          onClick={() => {
+                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                            const { [key]: _removed, ...rest } = env;
+                            setEnv(rest);
+                          }}
+                        >
+                          ×
+                        </Button>
+                      </div>
+                      <div className="flex gap-2">
                         <Input
+                          type={shownEnvVars.has(key) ? "text" : "password"}
                           placeholder="Value"
                           value={value}
                           onChange={(e) => {
@@ -150,24 +184,45 @@ const Sidebar = ({
                           }}
                           className="font-mono"
                         />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-9 w-9 p-0 shrink-0"
+                          onClick={() => {
+                            setShownEnvVars((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(key)) {
+                                next.delete(key);
+                              } else {
+                                next.add(key);
+                              }
+                              return next;
+                            });
+                          }}
+                          aria-label={
+                            shownEnvVars.has(key) ? "Hide value" : "Show value"
+                          }
+                          aria-pressed={shownEnvVars.has(key)}
+                          title={
+                            shownEnvVars.has(key) ? "Hide value" : "Show value"
+                          }
+                        >
+                          {shownEnvVars.has(key) ? (
+                            <Eye className="h-4 w-4" aria-hidden="true" />
+                          ) : (
+                            <EyeOff className="h-4 w-4" aria-hidden="true" />
+                          )}
+                        </Button>
                       </div>
-                      <Button
-                        variant="destructive"
-                        onClick={() => {
-                          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                          const { [key]: removed, ...rest } = env;
-                          setEnv(rest);
-                        }}
-                      >
-                        Remove
-                      </Button>
                     </div>
                   ))}
                   <Button
                     variant="outline"
+                    className="w-full mt-2"
                     onClick={() => {
+                      const key = "";
                       const newEnv = { ...env };
-                      newEnv[""] = "";
+                      newEnv[key] = "";
                       setEnv(newEnv);
                     }}
                   >
@@ -243,18 +298,33 @@ const Sidebar = ({
           </Select>
 
           <div className="flex items-center space-x-2">
-            <a href="https://modelcontextprotocol.io/docs/tools/inspector" target="_blank" rel="noopener noreferrer">
+            <a
+              href="https://modelcontextprotocol.io/docs/tools/inspector"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               <Button variant="ghost" title="Inspector Documentation">
                 <CircleHelp className="w-4 h-4 text-gray-800" />
               </Button>
             </a>
-            <a href="https://modelcontextprotocol.io/docs/tools/debugging" target="_blank" rel="noopener noreferrer">
+            <a
+              href="https://modelcontextprotocol.io/docs/tools/debugging"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               <Button variant="ghost" title="Debugging Guide">
                 <Bug className="w-4 h-4 text-gray-800" />
               </Button>
             </a>
-            <a href="https://github.com/modelcontextprotocol/inspector" target="_blank" rel="noopener noreferrer">
-              <Button variant="ghost" title="Report bugs or contribute on GitHub">
+            <a
+              href="https://github.com/modelcontextprotocol/inspector"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button
+                variant="ghost"
+                title="Report bugs or contribute on GitHub"
+              >
                 <Github className="w-4 h-4 text-gray-800" />
               </Button>
             </a>

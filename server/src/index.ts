@@ -16,6 +16,11 @@ import express from "express";
 import mcpProxy from "./mcpProxy.js";
 import { findActualExecutable } from "spawn-rx";
 
+const defaultEnvironment = {
+  ...getDefaultEnvironment(),
+  ...(process.env.MCP_ENV_VARS ? JSON.parse(process.env.MCP_ENV_VARS) : {}),
+};
+
 // Polyfill EventSource for an SSE client in Node.js
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (global as any).EventSource = EventSource;
@@ -41,7 +46,8 @@ const createTransport = async (query: express.Request["query"]) => {
   if (transportType === "stdio") {
     const command = query.command as string;
     const origArgs = shellParseArgs(query.args as string) as string[];
-    const env = query.env ? JSON.parse(query.env as string) : undefined;
+    const queryEnv = query.env ? JSON.parse(query.env as string) : {};
+    const env = { ...process.env, ...defaultEnvironment, ...queryEnv };
 
     // On Windows, we need to find the actual executable to run
     // On other platforms, we can just use the command as-is
@@ -50,9 +56,7 @@ const createTransport = async (query: express.Request["query"]) => {
         ? findActualExecutable(command, origArgs)
         : { cmd: command, args: origArgs };
 
-    console.log(
-      `Stdio transport: command=${cmd}, args=${args}, env=${JSON.stringify(env)}`,
-    );
+    console.log(`Stdio transport: command=${cmd}, args=${args}`);
 
     const transport = new StdioClientTransport({
       command: cmd,
@@ -142,8 +146,6 @@ app.post("/message", async (req, res) => {
 
 app.get("/config", (req, res) => {
   try {
-    const defaultEnvironment = getDefaultEnvironment();
-
     res.json({
       defaultEnvironment,
       defaultCommand: values.env,
