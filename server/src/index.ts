@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import cors from "cors";
-import EventSource from "eventsource";
 import { parseArgs } from "node:util";
 import { parse as shellParseArgs } from "shell-quote";
 
@@ -12,17 +11,15 @@ import {
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
-import mcpProxy from "./mcpProxy.js";
 import { findActualExecutable } from "spawn-rx";
+import mcpProxy from "./mcpProxy.js";
+
+const SSE_HEADERS_PASSTHROUGH = ['Authorization'];
 
 const defaultEnvironment = {
   ...getDefaultEnvironment(),
   ...(process.env.MCP_ENV_VARS ? JSON.parse(process.env.MCP_ENV_VARS) : {}),
 };
-
-// Polyfill EventSource for an SSE client in Node.js
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(global as any).EventSource = EventSource;
 
 const { values } = parseArgs({
   args: process.argv.slice(2),
@@ -37,7 +34,8 @@ app.use(cors());
 
 let webAppTransports: SSEServerTransport[] = [];
 
-const createTransport = async (query: express.Request["query"]) => {
+const createTransport = async (req: express.Request) => {
+  const query = req.query;
   console.log("Query parameters:", query);
 
   const transportType = query.transportType as string;
@@ -65,9 +63,27 @@ const createTransport = async (query: express.Request["query"]) => {
     return transport;
   } else if (transportType === "sse") {
     const url = query.url as string;
-    console.log(`SSE transport: url=${url}`);
+    const headers: HeadersInit = {};
+    for (const key of SSE_HEADERS_PASSTHROUGH) {
+      if (req.headers[key] === undefined) {
+        continue;
 
-    const transport = new SSEClientTransport(new URL(url));
+      }
+
+      const value = req.headers[key];
+      headers[key] = Array.isArray(value) ? value[value.length - 1] : value;
+    }
+
+    console.log(`SSE transport: url=${url}, headers=${Object.keys(headers)}`);
+
+    const transport = new SSEClientTransport(new URL(url), {
+      eventSourceInit: {
+        fetch: (url, init) => fetch(url, { ...init, headers }),
+      },
+      requestInit: {
+        headers,
+      },
+    });
     await transport.start();
 
     console.log("Connected to SSE transport");
@@ -82,7 +98,7 @@ app.get("/sse", async (req, res) => {
   try {
     console.log("New SSE connection");
 
-    const backingServerTransport = await createTransport(req.query);
+    const backingServerTransport = await createTransport(req);
 
     console.log("Connected MCP client to backing server transport");
 
@@ -152,4 +168,4 @@ app.get("/config", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {});
+app.listen(PORT, () => { });
