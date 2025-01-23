@@ -125,9 +125,6 @@ app.get("/sse", async (req, res) => {
     mcpProxy({
       transportToClient: webAppTransport,
       transportToServer: backingServerTransport,
-      onerror: (error) => {
-        console.error(error);
-      },
     });
 
     console.log("Set up MCP proxy");
