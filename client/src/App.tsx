@@ -48,7 +48,8 @@ const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "3000";
 const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
 
-const SSE_HOST_PORT = params.get("sseHostPort") ?? "localhost:3001";
+const sseParam = params.get("sseHostPort");
+const SSE_HOST_PORT = sseParam ?? "localhost:3001";
 const SSE_SERVER_URL = `http://${SSE_HOST_PORT}`;
 
 const App = () => {
@@ -75,7 +76,9 @@ const App = () => {
   });
 
   const [sseUrl, setSseUrl] = useState<string>(SSE_SERVER_URL);
-  const [transportType, setTransportType] = useState<"stdio" | "sse">("stdio");
+  const [transportType, setTransportType] = useState<"stdio" | "sse">(
+    sseParam ? "sse" : "stdio",
+  );
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [stdErrNotifications, setStdErrNotifications] = useState<
     StdErrNotification[]
