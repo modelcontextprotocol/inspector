@@ -57,6 +57,7 @@ async function main() {
 
   const CLIENT_PORT = process.env.CLIENT_PORT ?? "5173";
   const SERVER_PORT = process.env.SERVER_PORT ?? "3000";
+  const SSE_HOSTPORT = process.env.SSE_HOSTPORT;
 
   console.log("Starting MCP inspector...");
 
@@ -79,6 +80,7 @@ async function main() {
       env: {
         ...process.env,
         PORT: SERVER_PORT,
+        SSE_HOSTPORT: SSE_HOSTPORT,
         MCP_ENV_VARS: JSON.stringify(envVars),
       },
       signal: abort.signal,
@@ -94,9 +96,17 @@ async function main() {
 
   // Make sure our server/client didn't immediately fail
   await Promise.any([server, client, delay(2 * 1000)]);
-  const portParam = SERVER_PORT === "3000" ? "" : `?proxyPort=${SERVER_PORT}`;
+  const params = new URLSearchParams();
+  if (SERVER_PORT !== "3000") {
+    params.set("proxyPort", SERVER_PORT);
+  }
+  if (SSE_HOSTPORT) {
+    params.set("sseHostPort", SSE_HOSTPORT);
+  }
+  const queryString = params.toString() ? `?${params.toString()}` : "";
+
   console.log(
-    `\n🔍 MCP Inspector is up and running at http://localhost:${CLIENT_PORT}${portParam} 🚀`,
+    `\n🔍 MCP Inspector is up and running at http://localhost:${CLIENT_PORT}${queryString} 🚀`,
   );
 
   try {

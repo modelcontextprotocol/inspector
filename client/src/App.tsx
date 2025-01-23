@@ -48,6 +48,9 @@ const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "3000";
 const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
 
+const SSE_HOST_PORT = params.get("sseHostPort") ?? "localhost:3001";
+const SSE_SERVER_URL = `http://${SSE_HOST_PORT}`;
+
 const App = () => {
   const [resources, setResources] = useState<Resource[]>([]);
   const [resourceTemplates, setResourceTemplates] = useState<
@@ -71,7 +74,7 @@ const App = () => {
     return localStorage.getItem("lastArgs") || "";
   });
 
-  const [sseUrl, setSseUrl] = useState<string>("http://localhost:3001/sse");
+  const [sseUrl, setSseUrl] = useState<string>(SSE_SERVER_URL);
   const [transportType, setTransportType] = useState<"stdio" | "sse">("stdio");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [stdErrNotifications, setStdErrNotifications] = useState<
