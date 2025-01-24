@@ -216,6 +216,21 @@ const App = () => {
     localStorage.setItem("lastTransportType", transportType);
   }, [transportType]);
 
+  // Auto-connect if serverUrl is provided in URL params (e.g. after OAuth callback)
+  useEffect(() => {
+    const serverUrl = params.get("serverUrl");
+    if (serverUrl) {
+      setSseUrl(serverUrl);
+      setTransportType("sse");
+      // Remove serverUrl from URL without reloading the page
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete("serverUrl");
+      window.history.replaceState({}, "", newUrl.toString());
+      // Connect to the server
+      connectMcpServer();
+    }
+  }, []);
+
   useEffect(() => {
     fetch(`${PROXY_SERVER_URL}/config`)
       .then((response) => response.json())

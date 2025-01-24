@@ -19,8 +19,8 @@ const OAuthCallback = () => {
         const accessToken = await handleOAuthCallback(serverUrl, code);
         // Store the access token for future use
         sessionStorage.setItem(SESSION_KEYS.ACCESS_TOKEN, accessToken);
-        // Redirect back to the main app
-        window.location.href = '/';
+        // Redirect back to the main app with server URL to trigger auto-connect
+        window.location.href = `/?serverUrl=${encodeURIComponent(serverUrl)}`;
       } catch (error) {
         console.error('OAuth callback error:', error);
         window.location.href = '/';
