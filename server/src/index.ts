@@ -14,7 +14,7 @@ import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 
-const SSE_HEADERS_PASSTHROUGH = ['Authorization'];
+const SSE_HEADERS_PASSTHROUGH = ['authorization'];
 
 const defaultEnvironment = {
   ...getDefaultEnvironment(),
