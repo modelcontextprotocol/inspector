@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 import { useDraggablePane } from "./lib/hooks/useDraggablePane";
 import { useConnection } from "./lib/hooks/useConnection";
 import {
@@ -51,8 +51,10 @@ const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
 
 const App = () => {
   // Handle OAuth callback route
-  if (window.location.pathname === '/oauth/callback') {
-    const OAuthCallback = React.lazy(() => import('./components/OAuthCallback'));
+  if (window.location.pathname === "/oauth/callback") {
+    const OAuthCallback = React.lazy(
+      () => import("./components/OAuthCallback"),
+    );
     return (
       <Suspense fallback={<div>Loading...</div>}>
         <OAuthCallback />
@@ -81,8 +83,14 @@ const App = () => {
     return localStorage.getItem("lastArgs") || "";
   });
 
-  const [sseUrl, setSseUrl] = useState<string>("http://localhost:3001/sse");
-  const [transportType, setTransportType] = useState<"stdio" | "sse">("stdio");
+  const [sseUrl, setSseUrl] = useState<string>(() => {
+    return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
+  });
+  const [transportType, setTransportType] = useState<"stdio" | "sse">(() => {
+    return (
+      (localStorage.getItem("lastTransportType") as "stdio" | "sse") || "stdio"
+    );
+  });
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [stdErrNotifications, setStdErrNotifications] = useState<
     StdErrNotification[]
@@ -199,6 +207,14 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastArgs", args);
   }, [args]);
+
+  useEffect(() => {
+    localStorage.setItem("lastSseUrl", sseUrl);
+  }, [sseUrl]);
+
+  useEffect(() => {
+    localStorage.setItem("lastTransportType", transportType);
+  }, [transportType]);
 
   useEffect(() => {
     fetch(`${PROXY_SERVER_URL}/config`)
