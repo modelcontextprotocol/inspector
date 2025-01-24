@@ -10,7 +10,7 @@ export async function discoverOAuthMetadata(serverUrl: string): Promise<OAuthMet
   try {
     const url = new URL('/.well-known/oauth-authorization-server', serverUrl);
     const response = await fetch(url.toString());
-    
+
     if (response.ok) {
       const metadata = await response.json();
       return {
@@ -35,20 +35,20 @@ export async function startOAuthFlow(serverUrl: string): Promise<string> {
   const challenge = await pkceChallenge();
   const codeVerifier = challenge.code_verifier;
   const codeChallenge = challenge.code_challenge;
-  
+
   // Store code verifier for later use
   sessionStorage.setItem(SESSION_KEYS.CODE_VERIFIER, codeVerifier);
-  
+
   // Discover OAuth endpoints
   const metadata = await discoverOAuthMetadata(serverUrl);
-  
+
   // Build authorization URL
   const authUrl = new URL(metadata.authorization_endpoint);
   authUrl.searchParams.set('response_type', 'code');
   authUrl.searchParams.set('code_challenge', codeChallenge);
   authUrl.searchParams.set('code_challenge_method', 'S256');
   authUrl.searchParams.set('redirect_uri', window.location.origin + '/oauth/callback');
-  
+
   return authUrl.toString();
 }
 
@@ -58,28 +58,28 @@ export async function handleOAuthCallback(serverUrl: string, code: string): Prom
   if (!codeVerifier) {
     throw new Error('No code verifier found');
   }
-  
+
   // Discover OAuth endpoints
   const metadata = await discoverOAuthMetadata(serverUrl);
-  
+
   // Exchange code for tokens
   const response = await fetch(metadata.token_endpoint, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Type': 'application/json',
     },
-    body: new URLSearchParams({
+    body: JSON.stringify({
       grant_type: 'authorization_code',
       code,
       code_verifier: codeVerifier,
       redirect_uri: window.location.origin + '/oauth/callback'
     })
   });
-  
+
   if (!response.ok) {
     throw new Error('Token exchange failed');
   }
-  
+
   const data = await response.json();
   return data.access_token;
 }
