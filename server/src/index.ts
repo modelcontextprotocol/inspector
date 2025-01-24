@@ -12,6 +12,7 @@ import {
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
 import { findActualExecutable } from "spawn-rx";
+import { isSseError } from "./errors.js";
 import mcpProxy from "./mcpProxy.js";
 
 const SSE_HEADERS_PASSTHROUGH = ['Authorization'];
@@ -98,7 +99,18 @@ app.get("/sse", async (req, res) => {
   try {
     console.log("New SSE connection");
 
-    const backingServerTransport = await createTransport(req);
+    let backingServerTransport;
+    try {
+      backingServerTransport = await createTransport(req);
+    } catch (error) {
+      if (isSseError(error) && error.code === 401) {
+        console.error("Received 401 Unauthorized from MCP server:", error.message);
+        res.status(401).json(error);
+        return;
+      }
+
+      throw error;
+    }
 
     console.log("Connected MCP client to backing server transport");
 
