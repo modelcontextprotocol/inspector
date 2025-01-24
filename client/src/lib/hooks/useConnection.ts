@@ -146,7 +146,20 @@ export function useConnection({
         backendUrl.searchParams.append("url", sseUrl);
       }
 
-      const clientTransport = new SSEClientTransport(backendUrl);
+      const headers: HeadersInit = {};
+      const accessToken = sessionStorage.getItem(SESSION_KEYS.ACCESS_TOKEN);
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+
+      const clientTransport = new SSEClientTransport(backendUrl, {
+        eventSourceInit: {
+          fetch: (url, init) => fetch(url, { ...init, headers }),
+        },
+        requestInit: {
+          headers,
+        },
+      });
 
       if (onNotification) {
         client.setNotificationHandler(
