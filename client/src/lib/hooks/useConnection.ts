@@ -184,6 +184,7 @@ export function useConnection({
           sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
           const redirectUrl = await startOAuthFlow(sseUrl);
           window.location.href = redirectUrl;
+          return;
         }
 
         throw error;
