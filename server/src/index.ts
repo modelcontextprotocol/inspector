@@ -4,7 +4,7 @@ import cors from "cors";
 import { parseArgs } from "node:util";
 import { parse as shellParseArgs } from "shell-quote";
 
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { SSEClientTransport, SseError } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
   StdioClientTransport,
   getDefaultEnvironment,
@@ -12,7 +12,6 @@ import {
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
 import { findActualExecutable } from "spawn-rx";
-import { isSseError } from "./errors.js";
 import mcpProxy from "./mcpProxy.js";
 
 const SSE_HEADERS_PASSTHROUGH = ['Authorization'];
@@ -103,7 +102,7 @@ app.get("/sse", async (req, res) => {
     try {
       backingServerTransport = await createTransport(req);
     } catch (error) {
-      if (isSseError(error) && error.code === 401) {
+      if (error instanceof SseError && error.code === 401) {
         console.error("Received 401 Unauthorized from MCP server:", error.message);
         res.status(401).json(error);
         return;
