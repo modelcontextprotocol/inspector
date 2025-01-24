@@ -1,12 +1,13 @@
 import { useEffect } from 'react';
 import { handleOAuthCallback } from '../lib/auth';
+import { SESSION_KEYS } from '../lib/constants';
 
 const OAuthCallback = () => {
   useEffect(() => {
     const handleCallback = async () => {
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code');
-      const serverUrl = sessionStorage.getItem('mcp_server_url');
+      const serverUrl = sessionStorage.getItem(SESSION_KEYS.SERVER_URL);
 
       if (!code || !serverUrl) {
         console.error('Missing code or server URL');
@@ -17,7 +18,7 @@ const OAuthCallback = () => {
       try {
         const accessToken = await handleOAuthCallback(serverUrl, code);
         // Store the access token for future use
-        sessionStorage.setItem('mcp_access_token', accessToken);
+        sessionStorage.setItem(SESSION_KEYS.ACCESS_TOKEN, accessToken);
         // Redirect back to the main app
         window.location.href = '/';
       } catch (error) {

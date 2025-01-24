@@ -1,4 +1,5 @@
 import pkceChallenge from 'pkce-challenge';
+import { SESSION_KEYS } from './constants';
 
 export interface OAuthMetadata {
   authorization_endpoint: string;
@@ -36,7 +37,7 @@ export async function startOAuthFlow(serverUrl: string): Promise<string> {
   const codeChallenge = challenge.code_challenge;
   
   // Store code verifier for later use
-  sessionStorage.setItem('mcp_code_verifier', codeVerifier);
+  sessionStorage.setItem(SESSION_KEYS.CODE_VERIFIER, codeVerifier);
   
   // Discover OAuth endpoints
   const metadata = await discoverOAuthMetadata(serverUrl);
@@ -53,7 +54,7 @@ export async function startOAuthFlow(serverUrl: string): Promise<string> {
 
 export async function handleOAuthCallback(serverUrl: string, code: string): Promise<string> {
   // Get stored code verifier
-  const codeVerifier = sessionStorage.getItem('mcp_code_verifier');
+  const codeVerifier = sessionStorage.getItem(SESSION_KEYS.CODE_VERIFIER);
   if (!codeVerifier) {
     throw new Error('No code verifier found');
   }

@@ -14,6 +14,7 @@ import { useState } from "react";
 import { toast } from "react-toastify";
 import { z } from "zod";
 import { startOAuthFlow } from "../auth";
+import { SESSION_KEYS } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 
 const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
@@ -167,7 +168,7 @@ export function useConnection({
         console.error("Failed to connect to MCP server:", error);
         if (error instanceof SseError && error.code === 401) {
           // Store the server URL for the callback handler
-          sessionStorage.setItem('mcp_server_url', sseUrl);
+          sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
           const redirectUrl = await startOAuthFlow(sseUrl);
           window.location.href = redirectUrl;
         }
