@@ -1,3 +1,4 @@
+import React from 'react';
 import { useDraggablePane } from "./lib/hooks/useDraggablePane";
 import { useConnection } from "./lib/hooks/useConnection";
 import {
