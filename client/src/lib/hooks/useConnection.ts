@@ -166,6 +166,8 @@ export function useConnection({
       } catch (error) {
         console.error("Failed to connect to MCP server:", error);
         if (error instanceof SseError && error.code === 401) {
+          // Store the server URL for the callback handler
+          sessionStorage.setItem('mcp_server_url', sseUrl);
           const redirectUrl = await startOAuthFlow(sseUrl);
           window.location.href = redirectUrl;
         }

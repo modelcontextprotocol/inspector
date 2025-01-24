@@ -18,7 +18,7 @@ import {
   ServerNotification,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 
 import { StdErrNotification } from "./lib/notificationTypes";
 
@@ -49,6 +49,15 @@ const PROXY_PORT = params.get("proxyPort") ?? "3000";
 const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
 
 const App = () => {
+  // Handle OAuth callback route
+  if (window.location.pathname === '/oauth/callback') {
+    const OAuthCallback = React.lazy(() => import('./components/OAuthCallback'));
+    return (
+      <Suspense fallback={<div>Loading...</div>}>
+        <OAuthCallback />
+      </Suspense>
+    );
+  }
   const [resources, setResources] = useState<Resource[]>([]);
   const [resourceTemplates, setResourceTemplates] = useState<
     ResourceTemplate[]
