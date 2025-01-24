@@ -1,6 +1,3 @@
-import React from "react";
-import { useDraggablePane } from "./lib/hooks/useDraggablePane";
-import { useConnection } from "./lib/hooks/useConnection";
 import {
   ClientRequest,
   CompatibilityCallToolResult,
@@ -11,15 +8,17 @@ import {
   ListPromptsResultSchema,
   ListResourcesResultSchema,
   ListResourceTemplatesResultSchema,
-  ReadResourceResultSchema,
   ListToolsResultSchema,
+  ReadResourceResultSchema,
   Resource,
   ResourceTemplate,
   Root,
   ServerNotification,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { useEffect, useRef, useState, Suspense } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
+import { useConnection } from "./lib/hooks/useConnection";
+import { useDraggablePane } from "./lib/hooks/useDraggablePane";
 
 import { StdErrNotification } from "./lib/notificationTypes";
 
@@ -33,6 +32,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 
+import { toast } from "react-toastify";
 import { z } from "zod";
 import "./App.css";
 import ConsoleTab from "./components/ConsoleTab";
@@ -226,6 +226,8 @@ const App = () => {
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.delete("serverUrl");
       window.history.replaceState({}, "", newUrl.toString());
+      // Show success toast for OAuth
+      toast.success('Successfully authenticated with OAuth');
       // Connect to the server
       connectMcpServer();
     }
@@ -444,8 +446,8 @@ const App = () => {
 
               <div className="w-full">
                 {!serverCapabilities?.resources &&
-                !serverCapabilities?.prompts &&
-                !serverCapabilities?.tools ? (
+                  !serverCapabilities?.prompts &&
+                  !serverCapabilities?.tools ? (
                   <div className="flex items-center justify-center p-4">
                     <p className="text-lg text-gray-500">
                       The connected server does not support any MCP capabilities
