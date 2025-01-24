@@ -1,10 +1,18 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { handleOAuthCallback } from '../lib/auth';
 import { SESSION_KEYS } from '../lib/constants';
 
 const OAuthCallback = () => {
+  const hasProcessedRef = useRef(false);
+
   useEffect(() => {
     const handleCallback = async () => {
+      // Skip if we've already processed this callback
+      if (hasProcessedRef.current) {
+        return;
+      }
+      hasProcessedRef.current = true;
+
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code');
       const serverUrl = sessionStorage.getItem(SESSION_KEYS.SERVER_URL);
