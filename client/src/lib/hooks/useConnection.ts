@@ -1,5 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport, SseError } from "@modelcontextprotocol/sdk/client/sse.js";
+import {
+  SSEClientTransport,
+  SseError,
+} from "@modelcontextprotocol/sdk/client/sse.js";
 import {
   ClientNotification,
   ClientRequest,
@@ -149,7 +152,7 @@ export function useConnection({
       const headers: HeadersInit = {};
       const accessToken = sessionStorage.getItem(SESSION_KEYS.ACCESS_TOKEN);
       if (accessToken) {
-        headers['Authorization'] = `Bearer ${accessToken}`;
+        headers["Authorization"] = `Bearer ${accessToken}`;
       }
 
       const clientTransport = new SSEClientTransport(backendUrl, {

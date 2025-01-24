@@ -227,7 +227,7 @@ const App = () => {
       newUrl.searchParams.delete("serverUrl");
       window.history.replaceState({}, "", newUrl.toString());
       // Show success toast for OAuth
-      toast.success('Successfully authenticated with OAuth');
+      toast.success("Successfully authenticated with OAuth");
       // Connect to the server
       connectMcpServer();
     }
@@ -446,8 +446,8 @@ const App = () => {
 
               <div className="w-full">
                 {!serverCapabilities?.resources &&
-                  !serverCapabilities?.prompts &&
-                  !serverCapabilities?.tools ? (
+                !serverCapabilities?.prompts &&
+                !serverCapabilities?.tools ? (
                   <div className="flex items-center justify-center p-4">
                     <p className="text-lg text-gray-500">
                       The connected server does not support any MCP capabilities

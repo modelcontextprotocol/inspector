@@ -4,7 +4,10 @@ import cors from "cors";
 import { parseArgs } from "node:util";
 import { parse as shellParseArgs } from "shell-quote";
 
-import { SSEClientTransport, SseError } from "@modelcontextprotocol/sdk/client/sse.js";
+import {
+  SSEClientTransport,
+  SseError,
+} from "@modelcontextprotocol/sdk/client/sse.js";
 import {
   StdioClientTransport,
   getDefaultEnvironment,
@@ -14,7 +17,7 @@ import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 
-const SSE_HEADERS_PASSTHROUGH = ['authorization'];
+const SSE_HEADERS_PASSTHROUGH = ["authorization"];
 
 const defaultEnvironment = {
   ...getDefaultEnvironment(),
@@ -67,7 +70,6 @@ const createTransport = async (req: express.Request) => {
     for (const key of SSE_HEADERS_PASSTHROUGH) {
       if (req.headers[key] === undefined) {
         continue;
-
       }
 
       const value = req.headers[key];
@@ -103,7 +105,10 @@ app.get("/sse", async (req, res) => {
       backingServerTransport = await createTransport(req);
     } catch (error) {
       if (error instanceof SseError && error.code === 401) {
-        console.error("Received 401 Unauthorized from MCP server:", error.message);
+        console.error(
+          "Received 401 Unauthorized from MCP server:",
+          error.message,
+        );
         res.status(401).json(error);
         return;
       }
@@ -176,4 +181,4 @@ app.get("/config", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => { });
+app.listen(PORT, () => {});
