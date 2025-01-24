@@ -50,3 +50,35 @@ export async function startOAuthFlow(serverUrl: string): Promise<string> {
   
   return authUrl.toString();
 }
+
+export async function handleOAuthCallback(serverUrl: string, code: string): Promise<string> {
+  // Get stored code verifier
+  const codeVerifier = sessionStorage.getItem('mcp_code_verifier');
+  if (!codeVerifier) {
+    throw new Error('No code verifier found');
+  }
+  
+  // Discover OAuth endpoints
+  const metadata = await discoverOAuthMetadata(serverUrl);
+  
+  // Exchange code for tokens
+  const response = await fetch(metadata.token_endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      code_verifier: codeVerifier,
+      redirect_uri: window.location.origin + '/oauth/callback'
+    })
+  });
+  
+  if (!response.ok) {
+    throw new Error('Token exchange failed');
+  }
+  
+  const data = await response.json();
+  return data.access_token;
+}
