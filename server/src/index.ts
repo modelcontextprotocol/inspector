@@ -161,26 +161,7 @@ try {
     const port = typeof addr === 'string' ? addr : addr?.port;
     console.log(`Server listening on port ${port}`);
   });
-  
-  server.on('error', (error: any) => {
-    if (error.code === 'EADDRINUSE') {
-      console.error(`Port ${PORT} is already in use`);
-      process.exit(1);
-    } else {
-      console.error('Error starting server:', error);
-      process.exit(1);
-    }
-  });
 
-  process.on('uncaughtException', (error) => {
-    console.error('Uncaught exception:', error);
-    process.exit(1);
-  });
-
-  process.on('unhandledRejection', (error) => {
-    console.error('Unhandled rejection:', error);
-    process.exit(1);
-  });
 } catch (error) {
   console.error('Failed to start server:', error);
   process.exit(1);
