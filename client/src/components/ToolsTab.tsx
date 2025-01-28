@@ -10,7 +10,7 @@ import {
   CallToolResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, Send } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 
 import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -31,12 +31,15 @@ const ToolsTab = ({
   clearTools: () => void;
   callTool: (name: string, params: Record<string, unknown>) => void;
   selectedTool: Tool | null;
-  setSelectedTool: (tool: Tool) => void;
+  setSelectedTool: (tool: Tool | null) => void;
   toolResult: CompatibilityCallToolResult | null;
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
+  useEffect(() => {
+    setParams({});
+  }, [selectedTool]);
 
   const renderToolResult = () => {
     if (!toolResult) return null;
@@ -107,7 +110,7 @@ const ToolsTab = ({
       return (
         <>
           <h4 className="font-semibold mb-2">Tool Result (Legacy):</h4>
-          <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-64">
+          <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
             {JSON.stringify(toolResult.toolResult, null, 2)}
           </pre>
         </>
@@ -120,7 +123,10 @@ const ToolsTab = ({
       <ListPane
         items={tools}
         listItems={listTools}
-        clearItems={clearTools}
+        clearItems={() => {
+          clearTools();
+          setSelectedTool(null);
+        }}
         setSelectedItem={setSelectedTool}
         renderItem={(tool) => (
           <>
@@ -176,6 +182,30 @@ const ToolsTab = ({
                               [key]: e.target.value,
                             })
                           }
+                          className="mt-1"
+                        />
+                      ) : /* @ts-expect-error value type is currently unknown */
+                      value.type === "object" ? (
+                        <Textarea
+                          id={key}
+                          name={key}
+                          // @ts-expect-error value type is currently unknown
+                          placeholder={value.description}
+                          onChange={(e) => {
+                            try {
+                              const parsed = JSON.parse(e.target.value);
+                              setParams({
+                                ...params,
+                                [key]: parsed,
+                              });
+                            } catch (err) {
+                              // If invalid JSON, store as string - will be validated on submit
+                              setParams({
+                                ...params,
+                                [key]: e.target.value,
+                              });
+                            }
+                          }}
                           className="mt-1"
                         />
                       ) : (

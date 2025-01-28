@@ -14,10 +14,20 @@ To inspect an MCP server implementation, there's no need to clone this repo. Ins
 npx @modelcontextprotocol/inspector build/index.js
 ```
 
-You can also pass arguments along which will get passed as arguments to your MCP server:
+You can pass both arguments and environment variables to your MCP server. Arguments are passed directly to your server, while environment variables can be set using the `-e` flag:
 
-```
-npx @modelcontextprotocol/inspector build/index.js arg1 arg2 ...
+```bash
+# Pass arguments only
+npx @modelcontextprotocol/inspector build/index.js arg1 arg2
+
+# Pass environment variables only
+npx @modelcontextprotocol/inspector -e KEY=value -e KEY2=$VALUE2 build/index.js
+
+# Pass both environment variables and arguments
+npx @modelcontextprotocol/inspector -e KEY=value -e KEY2=$VALUE2 build/index.js arg1 arg2
+
+# Use -- to separate inspector flags from server arguments
+npx @modelcontextprotocol/inspector -e KEY=$VALUE -- build/index.js -e server-flag
 ```
 
 The inspector runs both a client UI (default port 5173) and an MCP proxy server (default port 3000). Open the client UI in your browser to use the inspector. You can customize the ports if needed:
@@ -26,7 +36,7 @@ The inspector runs both a client UI (default port 5173) and an MCP proxy server 
 CLIENT_PORT=8080 SERVER_PORT=9000 npx @modelcontextprotocol/inspector build/index.js
 ```
 
-For more details on ways to use the inspector, see the [Inspector section of the MCP docs site](https://modelcontextprotocol.io/docs/tools/inspector).
+For more details on ways to use the inspector, see the [Inspector section of the MCP docs site](https://modelcontextprotocol.io/docs/tools/inspector). For help with debugging, see the [Debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
 
 ### From this repository
 
