@@ -20,11 +20,13 @@ import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod";
 
 // Define the AudioContent schema
-export const AudioContentSchema = z.object({
-  type: z.literal("audio"),
-  data: z.string().base64(),
-  mimeType: z.string(),
-}).passthrough();
+export const AudioContentSchema = z
+  .object({
+    type: z.literal("audio"),
+    data: z.string().base64(),
+    mimeType: z.string(),
+  })
+  .passthrough();
 
 // Extend the CallToolResult schema to include audio content
 export const ExtendedCallToolResultSchema = ResultSchema.extend({
@@ -34,14 +36,16 @@ export const ExtendedCallToolResultSchema = ResultSchema.extend({
       ImageContentSchema,
       AudioContentSchema,
       EmbeddedResourceSchema,
-    ])
+    ]),
   ),
   isError: z.boolean().default(false).optional(),
 });
 
 // Export the types
 export type AudioContent = z.infer<typeof AudioContentSchema>;
-export type ExtendedCallToolResult = z.infer<typeof ExtendedCallToolResultSchema>;
+export type ExtendedCallToolResult = z.infer<
+  typeof ExtendedCallToolResultSchema
+>;
 
 const ToolsTab = ({
   tools,
@@ -116,16 +120,16 @@ const ToolsTab = ({
                 />
               )}
               {item.type === "audio" && (
-                  <audio
+                <audio
                   controls
                   src={`data:${item.mimeType};base64,${item.data}`}
                   className="w-full"
                 >
                   <p>Your browser does not support audio playback</p>
-                </audio> 
+                </audio>
               )}
-              {item.type === "resource" && (
-                item.resource?.mimeType?.startsWith("audio/") ? (
+              {item.type === "resource" &&
+                (item.resource?.mimeType?.startsWith("audio/") ? (
                   <audio
                     controls
                     src={`data:${item.resource.mimeType};base64,${item.resource.blob}`}
@@ -137,8 +141,7 @@ const ToolsTab = ({
                   <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 whitespace-pre-wrap break-words p-4 rounded text-sm overflow-auto max-h-64">
                     {JSON.stringify(item.resource, null, 2)}
                   </pre>
-                )
-              )}
+                ))}
             </div>
           ))}
         </>
