@@ -22,6 +22,7 @@ export type Prompt = {
 const PromptsTab = ({
   prompts,
   listPrompts,
+  clearPrompts,
   getPrompt,
   selectedPrompt,
   setSelectedPrompt,
@@ -31,6 +32,7 @@ const PromptsTab = ({
 }: {
   prompts: Prompt[];
   listPrompts: () => void;
+  clearPrompts: () => void;
   getPrompt: (name: string, args: Record<string, string>) => void;
   selectedPrompt: Prompt | null;
   setSelectedPrompt: (prompt: Prompt) => void;
@@ -55,6 +57,7 @@ const PromptsTab = ({
       <ListPane
         items={prompts}
         listItems={listPrompts}
+        clearItems={clearPrompts}
         setSelectedItem={(prompt) => {
           setSelectedPrompt(prompt);
           setPromptArgs({});

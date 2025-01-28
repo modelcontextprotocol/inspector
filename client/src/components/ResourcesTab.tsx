@@ -16,7 +16,9 @@ const ResourcesTab = ({
   resources,
   resourceTemplates,
   listResources,
+  clearResources,
   listResourceTemplates,
+  clearResourceTemplates,
   readResource,
   selectedResource,
   setSelectedResource,
@@ -28,7 +30,9 @@ const ResourcesTab = ({
   resources: Resource[];
   resourceTemplates: ResourceTemplate[];
   listResources: () => void;
+  clearResources: () => void;
   listResourceTemplates: () => void;
+  clearResourceTemplates: () => void;
   readResource: (uri: string) => void;
   selectedResource: Resource | null;
   setSelectedResource: (resource: Resource | null) => void;
@@ -68,6 +72,7 @@ const ResourcesTab = ({
       <ListPane
         items={resources}
         listItems={listResources}
+        clearItems={clearResources}
         setSelectedItem={(resource) => {
           setSelectedResource(resource);
           readResource(resource.uri);
@@ -90,6 +95,7 @@ const ResourcesTab = ({
       <ListPane
         items={resourceTemplates}
         listItems={listResourceTemplates}
+        clearItems={clearResourceTemplates}
         setSelectedItem={(template) => {
           setSelectedTemplate(template);
           setSelectedResource(null);

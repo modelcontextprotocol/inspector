@@ -3,6 +3,7 @@
 import cors from "cors";
 import EventSource from "eventsource";
 import { parseArgs } from "node:util";
+import { parse as shellParseArgs } from "shell-quote";
 
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
@@ -13,6 +14,11 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
 import mcpProxy from "./mcpProxy.js";
 import { findActualExecutable } from "spawn-rx";
+
+const defaultEnvironment = {
+  ...getDefaultEnvironment(),
+  ...(process.env.MCP_ENV_VARS ? JSON.parse(process.env.MCP_ENV_VARS) : {}),
+};
 
 // Polyfill EventSource for an SSE client in Node.js
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,14 +44,13 @@ const createTransport = async (query: express.Request["query"]) => {
 
   if (transportType === "stdio") {
     const command = query.command as string;
-    const origArgs = (query.args as string).split(/\s+/);
-    const env = query.env ? JSON.parse(query.env as string) : undefined;
+    const origArgs = shellParseArgs(query.args as string) as string[];
+    const queryEnv = query.env ? JSON.parse(query.env as string) : {};
+    const env = { ...process.env, ...defaultEnvironment, ...queryEnv };
 
     const { cmd, args } = findActualExecutable(command, origArgs);
 
-    console.log(
-      `Stdio transport: command=${cmd}, args=${args}, env=${JSON.stringify(env)}`,
-    );
+    console.log(`Stdio transport: command=${cmd}, args=${args}`);
 
     const transport = new StdioClientTransport({
       command: cmd,
@@ -135,8 +140,6 @@ app.post("/message", async (req, res) => {
 
 app.get("/config", (req, res) => {
   try {
-    const defaultEnvironment = getDefaultEnvironment();
-
     res.json({
       defaultEnvironment,
       defaultCommand: values.env,
