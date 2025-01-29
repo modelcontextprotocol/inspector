@@ -1,23 +1,29 @@
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
+function onClientError(error: Error) {
+  console.error("Error from inspector client:", error);
+}
+
+function onServerError(error: Error) {
+  console.error("Error from MCP server:", error);
+}
+
 export default function mcpProxy({
   transportToClient,
   transportToServer,
-  onerror,
 }: {
   transportToClient: Transport;
   transportToServer: Transport;
-  onerror: (error: Error) => void;
 }) {
   let transportToClientClosed = false;
   let transportToServerClosed = false;
 
   transportToClient.onmessage = (message) => {
-    transportToServer.send(message).catch(onerror);
+    transportToServer.send(message).catch(onServerError);
   };
 
   transportToServer.onmessage = (message) => {
-    transportToClient.send(message).catch(onerror);
+    transportToClient.send(message).catch(onClientError);
   };
 
   transportToClient.onclose = () => {
@@ -26,7 +32,7 @@ export default function mcpProxy({
     }
 
     transportToClientClosed = true;
-    transportToServer.close().catch(onerror);
+    transportToServer.close().catch(onServerError);
   };
 
   transportToServer.onclose = () => {
@@ -34,10 +40,9 @@ export default function mcpProxy({
       return;
     }
     transportToServerClosed = true;
-
-    transportToClient.close().catch(onerror);
+    transportToClient.close().catch(onClientError);
   };
 
-  transportToClient.onerror = onerror;
-  transportToServer.onerror = onerror;
+  transportToClient.onerror = onClientError;
+  transportToServer.onerror = onServerError;
 }
