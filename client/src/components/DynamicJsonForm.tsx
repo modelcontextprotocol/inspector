@@ -132,8 +132,19 @@ const DynamicJsonForm = ({
         const arrayValue = Array.isArray(currentValue) ? currentValue : [];
         if (!propSchema.items) return null;
         return (
-          <div className="space-y-2">
-            {arrayValue.map((item, index) => (
+          <div className="space-y-4">
+            {propSchema.description && (
+              <p className="text-sm text-gray-600">{propSchema.description}</p>
+            )}
+            
+            {propSchema.items?.description && (
+              <p className="text-sm text-gray-500">
+                Items: {propSchema.items.description}
+              </p>
+            )}
+
+            <div className="space-y-2">
+              {arrayValue.map((item, index) => (
               <div key={index} className="flex items-center gap-2">
                 {renderFormFields(
                   propSchema.items as JsonSchemaType,
@@ -154,18 +165,20 @@ const DynamicJsonForm = ({
                 </Button>
               </div>
             ))}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                handleFieldChange(
-                  path,
-                  [...arrayValue, generateDefaultValue(propSchema.items as JsonSchemaType)]
-                );
-              }}
-            >
-              Add Item
-            </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  handleFieldChange(
+                    path,
+                    [...arrayValue, generateDefaultValue(propSchema.items as JsonSchemaType)]
+                  );
+                }}
+                title={propSchema.items?.description ? `Add new ${propSchema.items.description}` : 'Add new item'}
+              >
+                Add Item
+              </Button>
+            </div>
           </div>
         );
       }
