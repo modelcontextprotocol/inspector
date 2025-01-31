@@ -1,5 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import {
+  SSEClientTransport,
+  SseError,
+} from "@modelcontextprotocol/sdk/client/sse.js";
 import {
   ClientNotification,
   ClientRequest,
@@ -12,8 +15,10 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 import { toast } from "react-toastify";
-import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { z } from "zod";
+import { startOAuthFlow } from "../auth";
+import { SESSION_KEYS } from "../constants";
+import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 
 const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
 
@@ -144,7 +149,20 @@ export function useConnection({
         backendUrl.searchParams.append("url", sseUrl);
       }
 
-      const clientTransport = new SSEClientTransport(backendUrl);
+      const headers: HeadersInit = {};
+      const accessToken = sessionStorage.getItem(SESSION_KEYS.ACCESS_TOKEN);
+      if (accessToken) {
+        headers["Authorization"] = `Bearer ${accessToken}`;
+      }
+
+      const clientTransport = new SSEClientTransport(backendUrl, {
+        eventSourceInit: {
+          fetch: (url, init) => fetch(url, { ...init, headers }),
+        },
+        requestInit: {
+          headers,
+        },
+      });
 
       if (onNotification) {
         client.setNotificationHandler(
@@ -160,7 +178,20 @@ export function useConnection({
         );
       }
 
-      await client.connect(clientTransport);
+      try {
+        await client.connect(clientTransport);
+      } catch (error) {
+        console.error("Failed to connect to MCP server:", error);
+        if (error instanceof SseError && error.code === 401) {
+          // Store the server URL for the callback handler
+          sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
+          const redirectUrl = await startOAuthFlow(sseUrl);
+          window.location.href = redirectUrl;
+          return;
+        }
+
+        throw error;
+      }
 
       const capabilities = client.getServerCapabilities();
       setServerCapabilities(capabilities ?? null);
