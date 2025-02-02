@@ -7,45 +7,13 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ListToolsResult,
   Tool,
-  TextContentSchema,
-  ImageContentSchema,
-  ResultSchema,
-  EmbeddedResourceSchema,
+  CallToolResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 
 import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
-
-// Define the AudioContent schema
-export const AudioContentSchema = z
-  .object({
-    type: z.literal("audio"),
-    data: z.string().base64(),
-    mimeType: z.string(),
-  })
-  .passthrough();
-
-// Extend the CallToolResult schema to include audio content
-export const ExtendedCallToolResultSchema = ResultSchema.extend({
-  content: z.array(
-    z.discriminatedUnion("type", [
-      TextContentSchema,
-      ImageContentSchema,
-      AudioContentSchema,
-      EmbeddedResourceSchema,
-    ]),
-  ),
-  isError: z.boolean().default(false).optional(),
-});
-
-// Export the types
-export type AudioContent = z.infer<typeof AudioContentSchema>;
-export type ExtendedCallToolResult = z.infer<
-  typeof ExtendedCallToolResultSchema
->;
 
 const ToolsTab = ({
   tools,
@@ -77,7 +45,7 @@ const ToolsTab = ({
     if (!toolResult) return null;
 
     if ("content" in toolResult) {
-      const parsedResult = ExtendedCallToolResultSchema.safeParse(toolResult);
+      const parsedResult = CallToolResultSchema.safeParse(toolResult);
       if (!parsedResult.success) {
         return (
           <>
@@ -118,15 +86,6 @@ const ToolsTab = ({
                   alt="Tool result image"
                   className="max-w-full h-auto"
                 />
-              )}
-              {item.type === "audio" && (
-                <audio
-                  controls
-                  src={`data:${item.mimeType};base64,${item.data}`}
-                  className="w-full"
-                >
-                  <p>Your browser does not support audio playback</p>
-                </audio>
               )}
               {item.type === "resource" &&
                 (item.resource?.mimeType?.startsWith("audio/") ? (
