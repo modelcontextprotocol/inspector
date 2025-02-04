@@ -131,10 +131,13 @@ export function useConnection({
       return tokens.access_token;
     } catch (error) {
       console.error("Token refresh failed:", error);
-      // Clear tokens and redirect to home
+      // If refresh token is expired/invalid (401) or any other error,
+      // clear tokens and redirect to home to trigger re-authentication
       sessionStorage.removeItem(SESSION_KEYS.ACCESS_TOKEN);
       sessionStorage.removeItem(SESSION_KEYS.REFRESH_TOKEN);
-      window.location.href = "/";
+      sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
+      const redirectUrl = await startOAuthFlow(sseUrl);
+      window.location.href = redirectUrl;
       throw error;
     }
   };
@@ -178,12 +181,27 @@ export function useConnection({
           fetch: async (url, init) => {
             const response = await fetch(url, { ...init, headers });
             
-            if (response.status === 401 && sessionStorage.getItem(SESSION_KEYS.REFRESH_TOKEN)) {
-              // Try to refresh the token
-              const newAccessToken = await handleTokenRefresh();
-              headers["Authorization"] = `Bearer ${newAccessToken}`;
-              // Retry the request with new token
-              return fetch(url, { ...init, headers });
+            if (response.status === 401) {
+              // First try to refresh if we have a refresh token
+              if (sessionStorage.getItem(SESSION_KEYS.REFRESH_TOKEN)) {
+                try {
+                  const newAccessToken = await handleTokenRefresh();
+                  headers["Authorization"] = `Bearer ${newAccessToken}`;
+                  // Retry the request with new token
+                  return fetch(url, { ...init, headers });
+                } catch (error) {
+                  console.error("Token refresh failed:", error);
+                }
+              }
+              
+              // If we have an access token but refresh failed or wasn't available,
+              // we need to re-authenticate since the token is invalid
+              if (sessionStorage.getItem(SESSION_KEYS.ACCESS_TOKEN)) {
+                sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
+                const redirectUrl = await startOAuthFlow(sseUrl);
+                window.location.href = redirectUrl;
+                return new Response(); // This won't actually be used due to redirect
+              }
             }
             
             return response;
