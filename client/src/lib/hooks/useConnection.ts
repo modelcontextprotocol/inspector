@@ -16,7 +16,7 @@ import {
 import { useState } from "react";
 import { toast } from "react-toastify";
 import { z } from "zod";
-import { startOAuthFlow } from "../auth";
+import { startOAuthFlow, refreshAccessToken } from "../auth";
 import { SESSION_KEYS } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 
@@ -121,6 +121,24 @@ export function useConnection({
     }
   };
 
+  const handleTokenRefresh = async () => {
+    try {
+      const tokens = await refreshAccessToken(sseUrl);
+      sessionStorage.setItem(SESSION_KEYS.ACCESS_TOKEN, tokens.access_token);
+      if (tokens.refresh_token) {
+        sessionStorage.setItem(SESSION_KEYS.REFRESH_TOKEN, tokens.refresh_token);
+      }
+      return tokens.access_token;
+    } catch (error) {
+      console.error("Token refresh failed:", error);
+      // Clear tokens and redirect to home
+      sessionStorage.removeItem(SESSION_KEYS.ACCESS_TOKEN);
+      sessionStorage.removeItem(SESSION_KEYS.REFRESH_TOKEN);
+      window.location.href = "/";
+      throw error;
+    }
+  };
+
   const connect = async () => {
     try {
       const client = new Client<Request, Notification, Result>(
@@ -157,7 +175,19 @@ export function useConnection({
 
       const clientTransport = new SSEClientTransport(backendUrl, {
         eventSourceInit: {
-          fetch: (url, init) => fetch(url, { ...init, headers }),
+          fetch: async (url, init) => {
+            const response = await fetch(url, { ...init, headers });
+            
+            if (response.status === 401 && sessionStorage.getItem(SESSION_KEYS.REFRESH_TOKEN)) {
+              // Try to refresh the token
+              const newAccessToken = await handleTokenRefresh();
+              headers["Authorization"] = `Bearer ${newAccessToken}`;
+              // Retry the request with new token
+              return fetch(url, { ...init, headers });
+            }
+            
+            return response;
+          },
         },
         requestInit: {
           headers,

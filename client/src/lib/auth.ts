@@ -6,6 +6,12 @@ export interface OAuthMetadata {
   token_endpoint: string;
 }
 
+export interface OAuthTokens {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+}
+
 export async function discoverOAuthMetadata(
   serverUrl: string,
 ): Promise<OAuthMetadata> {
@@ -60,7 +66,7 @@ export async function startOAuthFlow(serverUrl: string): Promise<string> {
 export async function handleOAuthCallback(
   serverUrl: string,
   code: string,
-): Promise<string> {
+): Promise<OAuthTokens> {
   // Get stored code verifier
   const codeVerifier = sessionStorage.getItem(SESSION_KEYS.CODE_VERIFIER);
   if (!codeVerifier) {
@@ -69,7 +75,6 @@ export async function handleOAuthCallback(
 
   // Discover OAuth endpoints
   const metadata = await discoverOAuthMetadata(serverUrl);
-
   // Exchange code for tokens
   const response = await fetch(metadata.token_endpoint, {
     method: "POST",
@@ -89,5 +94,32 @@ export async function handleOAuthCallback(
   }
 
   const data = await response.json();
-  return data.access_token;
+  return data;
+}
+
+export async function refreshAccessToken(serverUrl: string): Promise<OAuthTokens> {
+  const refreshToken = sessionStorage.getItem(SESSION_KEYS.REFRESH_TOKEN);
+  if (!refreshToken) {
+    throw new Error("No refresh token available");
+  }
+
+  const metadata = await discoverOAuthMetadata(serverUrl);
+  
+  const response = await fetch(metadata.token_endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Token refresh failed");
+  }
+
+  const data = await response.json();
+  return data;
 }
