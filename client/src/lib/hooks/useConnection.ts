@@ -225,7 +225,12 @@ export function useConnection({
         if (shouldRetry) {
           return connect(undefined, retryCount + 1);
         }
-        return;
+
+        if (error instanceof SseError && error.code === 401) {
+          // Don't set error state if we're about to redirect for auth
+          return;
+        }
+        throw error;
       }
 
       const capabilities = client.getServerCapabilities();
