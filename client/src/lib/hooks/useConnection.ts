@@ -121,6 +121,14 @@ export function useConnection({
     }
   };
 
+  const initiateOAuthFlow = async () => {
+    sessionStorage.removeItem(SESSION_KEYS.ACCESS_TOKEN);
+    sessionStorage.removeItem(SESSION_KEYS.REFRESH_TOKEN);
+    sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
+    const redirectUrl = await startOAuthFlow(sseUrl);
+    window.location.href = redirectUrl;
+  };
+
   const handleTokenRefresh = async () => {
     try {
       const tokens = await refreshAccessToken(sseUrl);
@@ -131,13 +139,7 @@ export function useConnection({
       return tokens.access_token;
     } catch (error) {
       console.error("Token refresh failed:", error);
-      // If refresh token is expired/invalid (401) or any other error,
-      // clear tokens and redirect to home to trigger re-authentication
-      sessionStorage.removeItem(SESSION_KEYS.ACCESS_TOKEN);
-      sessionStorage.removeItem(SESSION_KEYS.REFRESH_TOKEN);
-      sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
-      const redirectUrl = await startOAuthFlow(sseUrl);
-      window.location.href = redirectUrl;
+      await initiateOAuthFlow();
       throw error;
     }
   };
@@ -182,25 +184,19 @@ export function useConnection({
             const response = await fetch(url, { ...init, headers });
             
             if (response.status === 401) {
-              // First try to refresh if we have a refresh token
               if (sessionStorage.getItem(SESSION_KEYS.REFRESH_TOKEN)) {
                 try {
                   const newAccessToken = await handleTokenRefresh();
                   headers["Authorization"] = `Bearer ${newAccessToken}`;
-                  // Retry the request with new token
                   return fetch(url, { ...init, headers });
                 } catch (error) {
                   console.error("Token refresh failed:", error);
                 }
               }
               
-              // If we have an access token but refresh failed or wasn't available,
-              // we need to re-authenticate since the token is invalid
               if (sessionStorage.getItem(SESSION_KEYS.ACCESS_TOKEN)) {
-                sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
-                const redirectUrl = await startOAuthFlow(sseUrl);
-                window.location.href = redirectUrl;
-                return new Response(); // This won't actually be used due to redirect
+                await initiateOAuthFlow();
+                return new Response();
               }
             }
             
@@ -231,13 +227,9 @@ export function useConnection({
       } catch (error) {
         console.error("Failed to connect to MCP server:", error);
         if (error instanceof SseError && error.code === 401) {
-          // Store the server URL for the callback handler
-          sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
-          const redirectUrl = await startOAuthFlow(sseUrl);
-          window.location.href = redirectUrl;
+          await initiateOAuthFlow();
           return;
         }
-
         throw error;
       }
 
