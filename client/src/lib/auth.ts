@@ -1,16 +1,21 @@
 import pkceChallenge from "pkce-challenge";
 import { SESSION_KEYS } from "./constants";
+import { z } from "zod";
 
-export interface OAuthMetadata {
-  authorization_endpoint: string;
-  token_endpoint: string;
-}
+export const OAuthMetadataSchema = z.object({
+  authorization_endpoint: z.string(),
+  token_endpoint: z.string()
+});
 
-export interface OAuthTokens {
-  access_token: string;
-  refresh_token?: string;
-  expires_in?: number;
-}
+export type OAuthMetadata = z.infer<typeof OAuthMetadataSchema>;
+
+export const OAuthTokensSchema = z.object({
+  access_token: z.string(),
+  refresh_token: z.string().optional(),
+  expires_in: z.number().optional()
+});
+
+export type OAuthTokens = z.infer<typeof OAuthTokensSchema>;
 
 export async function discoverOAuthMetadata(
   serverUrl: string,
@@ -93,8 +98,7 @@ export async function handleOAuthCallback(
     throw new Error("Token exchange failed");
   }
 
-  const data = await response.json();
-  return data;
+  return await response.json();
 }
 
 export async function refreshAccessToken(
@@ -122,6 +126,5 @@ export async function refreshAccessToken(
     throw new Error("Token refresh failed");
   }
 
-  const data = await response.json();
-  return data;
+  return await response.json();
 }
