@@ -97,14 +97,16 @@ export async function handleOAuthCallback(
   return data;
 }
 
-export async function refreshAccessToken(serverUrl: string): Promise<OAuthTokens> {
+export async function refreshAccessToken(
+  serverUrl: string,
+): Promise<OAuthTokens> {
   const refreshToken = sessionStorage.getItem(SESSION_KEYS.REFRESH_TOKEN);
   if (!refreshToken) {
     throw new Error("No refresh token available");
   }
 
   const metadata = await discoverOAuthMetadata(serverUrl);
-  
+
   const response = await fetch(metadata.token_endpoint, {
     method: "POST",
     headers: {
@@ -112,7 +114,7 @@ export async function refreshAccessToken(serverUrl: string): Promise<OAuthTokens
     },
     body: JSON.stringify({
       grant_type: "refresh_token",
-      refresh_token: refreshToken
+      refresh_token: refreshToken,
     }),
   });
 

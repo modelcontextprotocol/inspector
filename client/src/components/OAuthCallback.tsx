@@ -28,7 +28,10 @@ const OAuthCallback = () => {
         // Store both access and refresh tokens
         sessionStorage.setItem(SESSION_KEYS.ACCESS_TOKEN, tokens.access_token);
         if (tokens.refresh_token) {
-          sessionStorage.setItem(SESSION_KEYS.REFRESH_TOKEN, tokens.refresh_token);
+          sessionStorage.setItem(
+            SESSION_KEYS.REFRESH_TOKEN,
+            tokens.refresh_token,
+          );
         }
         // Redirect back to the main app with server URL to trigger auto-connect
         window.location.href = `/?serverUrl=${encodeURIComponent(serverUrl)}`;

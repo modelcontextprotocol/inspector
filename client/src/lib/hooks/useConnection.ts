@@ -134,7 +134,10 @@ export function useConnection({
       const tokens = await refreshAccessToken(sseUrl);
       sessionStorage.setItem(SESSION_KEYS.ACCESS_TOKEN, tokens.access_token);
       if (tokens.refresh_token) {
-        sessionStorage.setItem(SESSION_KEYS.REFRESH_TOKEN, tokens.refresh_token);
+        sessionStorage.setItem(
+          SESSION_KEYS.REFRESH_TOKEN,
+          tokens.refresh_token,
+        );
       }
       return tokens.access_token;
     } catch (error) {
