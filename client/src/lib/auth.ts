@@ -26,10 +26,11 @@ export async function discoverOAuthMetadata(
 
     if (response.ok) {
       const metadata = await response.json();
-      return {
+      const validatedMetadata = OAuthMetadataSchema.parse({
         authorization_endpoint: metadata.authorization_endpoint,
         token_endpoint: metadata.token_endpoint,
-      };
+      });
+      return validatedMetadata;
     }
   } catch (error) {
     console.warn("OAuth metadata discovery failed:", error);
@@ -37,10 +38,11 @@ export async function discoverOAuthMetadata(
 
   // Fall back to default endpoints
   const baseUrl = new URL(serverUrl);
-  return {
+  const defaultMetadata = {
     authorization_endpoint: new URL("/authorize", baseUrl).toString(),
     token_endpoint: new URL("/token", baseUrl).toString(),
   };
+  return OAuthMetadataSchema.parse(defaultMetadata);
 }
 
 export async function startOAuthFlow(serverUrl: string): Promise<string> {
@@ -98,7 +100,8 @@ export async function handleOAuthCallback(
     throw new Error("Token exchange failed");
   }
 
-  return await response.json();
+  const tokens = await response.json();
+  return OAuthTokensSchema.parse(tokens);
 }
 
 export async function refreshAccessToken(
@@ -126,5 +129,6 @@ export async function refreshAccessToken(
     throw new Error("Token refresh failed");
   }
 
-  return await response.json();
+  const tokens = await response.json();
+  return OAuthTokensSchema.parse(tokens);
 }
