@@ -4,7 +4,7 @@ import { z } from "zod";
 
 export const OAuthMetadataSchema = z.object({
   authorization_endpoint: z.string(),
-  token_endpoint: z.string()
+  token_endpoint: z.string(),
 });
 
 export type OAuthMetadata = z.infer<typeof OAuthMetadataSchema>;
@@ -12,7 +12,7 @@ export type OAuthMetadata = z.infer<typeof OAuthMetadataSchema>;
 export const OAuthTokensSchema = z.object({
   access_token: z.string(),
   refresh_token: z.string().optional(),
-  expires_in: z.number().optional()
+  expires_in: z.number().optional(),
 });
 
 export type OAuthTokens = z.infer<typeof OAuthTokensSchema>;
