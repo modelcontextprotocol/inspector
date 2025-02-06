@@ -16,7 +16,7 @@ import {
 import { useState } from "react";
 import { toast } from "react-toastify";
 import { z } from "zod";
-import { startOAuthFlow } from "../auth";
+import { startOAuthFlow, refreshAccessToken } from "../auth";
 import { SESSION_KEYS } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 
@@ -121,7 +121,49 @@ export function useConnection({
     }
   };
 
-  const connect = async () => {
+  const initiateOAuthFlow = async () => {
+    sessionStorage.removeItem(SESSION_KEYS.ACCESS_TOKEN);
+    sessionStorage.removeItem(SESSION_KEYS.REFRESH_TOKEN);
+    sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
+    const redirectUrl = await startOAuthFlow(sseUrl);
+    window.location.href = redirectUrl;
+  };
+
+  const handleTokenRefresh = async () => {
+    try {
+      const tokens = await refreshAccessToken(sseUrl);
+      sessionStorage.setItem(SESSION_KEYS.ACCESS_TOKEN, tokens.access_token);
+      if (tokens.refresh_token) {
+        sessionStorage.setItem(
+          SESSION_KEYS.REFRESH_TOKEN,
+          tokens.refresh_token,
+        );
+      }
+      return tokens.access_token;
+    } catch (error) {
+      console.error("Token refresh failed:", error);
+      await initiateOAuthFlow();
+      throw error;
+    }
+  };
+
+  const handleAuthError = async (error: unknown) => {
+    if (error instanceof SseError && error.code === 401) {
+      if (sessionStorage.getItem(SESSION_KEYS.REFRESH_TOKEN)) {
+        try {
+          await handleTokenRefresh();
+          return true;
+        } catch (error) {
+          console.error("Token refresh failed:", error);
+        }
+      } else {
+        await initiateOAuthFlow();
+      }
+    }
+    return false;
+  };
+
+  const connect = async (_e?: unknown, retryCount: number = 0) => {
     try {
       const client = new Client<Request, Notification, Result>(
         {
@@ -182,14 +224,15 @@ export function useConnection({
         await client.connect(clientTransport);
       } catch (error) {
         console.error("Failed to connect to MCP server:", error);
-        if (error instanceof SseError && error.code === 401) {
-          // Store the server URL for the callback handler
-          sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
-          const redirectUrl = await startOAuthFlow(sseUrl);
-          window.location.href = redirectUrl;
-          return;
+        const shouldRetry = await handleAuthError(error);
+        if (shouldRetry) {
+          return connect(undefined, retryCount + 1);
         }
 
+        if (error instanceof SseError && error.code === 401) {
+          // Don't set error state if we're about to redirect for auth
+          return;
+        }
         throw error;
       }
 
