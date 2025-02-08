@@ -1,5 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import {
+  SSEClientTransport,
+  SseError,
+} from "@modelcontextprotocol/sdk/client/sse.js";
 import {
   ClientNotification,
   ClientRequest,
@@ -12,8 +15,10 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 import { toast } from "react-toastify";
-import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { z } from "zod";
+import { startOAuthFlow, refreshAccessToken } from "../auth";
+import { SESSION_KEYS } from "../constants";
+import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 
 const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
 
@@ -116,7 +121,49 @@ export function useConnection({
     }
   };
 
-  const connect = async () => {
+  const initiateOAuthFlow = async () => {
+    sessionStorage.removeItem(SESSION_KEYS.ACCESS_TOKEN);
+    sessionStorage.removeItem(SESSION_KEYS.REFRESH_TOKEN);
+    sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
+    const redirectUrl = await startOAuthFlow(sseUrl);
+    window.location.href = redirectUrl;
+  };
+
+  const handleTokenRefresh = async () => {
+    try {
+      const tokens = await refreshAccessToken(sseUrl);
+      sessionStorage.setItem(SESSION_KEYS.ACCESS_TOKEN, tokens.access_token);
+      if (tokens.refresh_token) {
+        sessionStorage.setItem(
+          SESSION_KEYS.REFRESH_TOKEN,
+          tokens.refresh_token,
+        );
+      }
+      return tokens.access_token;
+    } catch (error) {
+      console.error("Token refresh failed:", error);
+      await initiateOAuthFlow();
+      throw error;
+    }
+  };
+
+  const handleAuthError = async (error: unknown) => {
+    if (error instanceof SseError && error.code === 401) {
+      if (sessionStorage.getItem(SESSION_KEYS.REFRESH_TOKEN)) {
+        try {
+          await handleTokenRefresh();
+          return true;
+        } catch (error) {
+          console.error("Token refresh failed:", error);
+        }
+      } else {
+        await initiateOAuthFlow();
+      }
+    }
+    return false;
+  };
+
+  const connect = async (_e?: unknown, retryCount: number = 0) => {
     try {
       const client = new Client<Request, Notification, Result>(
         {
@@ -144,7 +191,20 @@ export function useConnection({
         backendUrl.searchParams.append("url", sseUrl);
       }
 
-      const clientTransport = new SSEClientTransport(backendUrl);
+      const headers: HeadersInit = {};
+      const accessToken = sessionStorage.getItem(SESSION_KEYS.ACCESS_TOKEN);
+      if (accessToken) {
+        headers["Authorization"] = `Bearer ${accessToken}`;
+      }
+
+      const clientTransport = new SSEClientTransport(backendUrl, {
+        eventSourceInit: {
+          fetch: (url, init) => fetch(url, { ...init, headers }),
+        },
+        requestInit: {
+          headers,
+        },
+      });
 
       if (onNotification) {
         client.setNotificationHandler(
@@ -160,7 +220,21 @@ export function useConnection({
         );
       }
 
-      await client.connect(clientTransport);
+      try {
+        await client.connect(clientTransport);
+      } catch (error) {
+        console.error("Failed to connect to MCP server:", error);
+        const shouldRetry = await handleAuthError(error);
+        if (shouldRetry) {
+          return connect(undefined, retryCount + 1);
+        }
+
+        if (error instanceof SseError && error.code === 401) {
+          // Don't set error state if we're about to redirect for auth
+          return;
+        }
+        throw error;
+      }
 
       const capabilities = client.getServerCapabilities();
       setServerCapabilities(capabilities ?? null);
