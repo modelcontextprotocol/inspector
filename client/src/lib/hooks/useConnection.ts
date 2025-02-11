@@ -161,6 +161,8 @@ export function useConnection({
         backendUrl.searchParams.append("url", sseUrl);
       }
 
+      // Inject auth manually instead of using SSEClientTransport, because we're
+      // proxying through the inspector server first.
       const headers: HeadersInit = {};
       const tokens = await authProvider.tokens();
       if (tokens) {
