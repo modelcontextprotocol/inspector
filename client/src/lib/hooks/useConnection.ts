@@ -16,9 +16,10 @@ import {
 import { useState } from "react";
 import { toast } from "react-toastify";
 import { z } from "zod";
-import { startOAuthFlow, refreshAccessToken } from "../auth";
 import { SESSION_KEYS } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import { InspectorOAuthClientProvider } from "../auth";
 
 const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
 
@@ -121,45 +122,15 @@ export function useConnection({
     }
   };
 
-  const initiateOAuthFlow = async () => {
-    sessionStorage.removeItem(SESSION_KEYS.ACCESS_TOKEN);
-    sessionStorage.removeItem(SESSION_KEYS.REFRESH_TOKEN);
-    sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
-    const redirectUrl = await startOAuthFlow(sseUrl);
-    window.location.href = redirectUrl;
-  };
-
-  const handleTokenRefresh = async () => {
-    try {
-      const tokens = await refreshAccessToken(sseUrl);
-      sessionStorage.setItem(SESSION_KEYS.ACCESS_TOKEN, tokens.access_token);
-      if (tokens.refresh_token) {
-        sessionStorage.setItem(
-          SESSION_KEYS.REFRESH_TOKEN,
-          tokens.refresh_token,
-        );
-      }
-      return tokens.access_token;
-    } catch (error) {
-      console.error("Token refresh failed:", error);
-      await initiateOAuthFlow();
-      throw error;
-    }
-  };
-
+  const authProvider = new InspectorOAuthClientProvider();
   const handleAuthError = async (error: unknown) => {
     if (error instanceof SseError && error.code === 401) {
-      if (sessionStorage.getItem(SESSION_KEYS.REFRESH_TOKEN)) {
-        try {
-          await handleTokenRefresh();
-          return true;
-        } catch (error) {
-          console.error("Token refresh failed:", error);
-        }
-      } else {
-        await initiateOAuthFlow();
-      }
+      sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
+
+      const result = await auth(authProvider, { serverUrl: sseUrl })
+      return result === "AUTHORIZED";
     }
+
     return false;
   };
 
@@ -192,9 +163,9 @@ export function useConnection({
       }
 
       const headers: HeadersInit = {};
-      const accessToken = sessionStorage.getItem(SESSION_KEYS.ACCESS_TOKEN);
-      if (accessToken) {
-        headers["Authorization"] = `Bearer ${accessToken}`;
+      const tokens = await authProvider.tokens();
+      if (tokens) {
+        headers["Authorization"] = `Bearer ${tokens.access_token}`;
       }
 
       const clientTransport = new SSEClientTransport(backendUrl, {
