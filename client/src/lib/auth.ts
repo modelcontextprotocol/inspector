@@ -1,7 +1,7 @@
 import { OAuthClientInformation, OAuthClientInformationSchema, OAuthClientProvider, OAuthTokens, OAuthTokensSchema } from "@modelcontextprotocol/sdk/client/auth.js";
 import { SESSION_KEYS } from "./constants";
 
-export class InspectorOAuthClientProvider implements OAuthClientProvider {
+class InspectorOAuthClientProvider implements OAuthClientProvider {
   get redirectUrl() {
     return window.location.origin + "/oauth/callback";
   }
@@ -69,3 +69,5 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
     return verifier;
   }
 }
+
+export const authProvider = new InspectorOAuthClientProvider();

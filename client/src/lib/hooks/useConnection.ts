@@ -19,7 +19,7 @@ import { z } from "zod";
 import { SESSION_KEYS } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
-import { InspectorOAuthClientProvider } from "../auth";
+import { authProvider } from "../auth";
 
 const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
 
@@ -122,12 +122,11 @@ export function useConnection({
     }
   };
 
-  const authProvider = new InspectorOAuthClientProvider();
   const handleAuthError = async (error: unknown) => {
     if (error instanceof SseError && error.code === 401) {
       sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
 
-      const result = await auth(authProvider, { serverUrl: sseUrl })
+      const result = await auth(authProvider, { serverUrl: sseUrl });
       return result === "AUTHORIZED";
     }
 

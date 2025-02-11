@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { handleOAuthCallback } from "../lib/auth";
+import { authProvider } from "../lib/auth";
 import { SESSION_KEYS } from "../lib/constants";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 
 const OAuthCallback = () => {
   const hasProcessedRef = useRef(false);
@@ -24,15 +25,11 @@ const OAuthCallback = () => {
       }
 
       try {
-        const tokens = await handleOAuthCallback(serverUrl, code);
-        // Store both access and refresh tokens
-        sessionStorage.setItem(SESSION_KEYS.ACCESS_TOKEN, tokens.access_token);
-        if (tokens.refresh_token) {
-          sessionStorage.setItem(
-            SESSION_KEYS.REFRESH_TOKEN,
-            tokens.refresh_token,
-          );
+        const result = await auth(authProvider, { serverUrl, authorizationCode: code });
+        if (result !== "AUTHORIZED") {
+          throw new Error(`Expected to be authorized after providing auth code, got: ${result}`);
         }
+
         // Redirect back to the main app with server URL to trigger auto-connect
         window.location.href = `/?serverUrl=${encodeURIComponent(serverUrl)}`;
       } catch (error) {
