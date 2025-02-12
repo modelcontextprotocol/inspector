@@ -184,14 +184,13 @@ const PORT = process.env.PORT || 3000;
 
 try {
   const server = app.listen(PORT);
-  
-  server.on('listening', () => {
+
+  server.on("listening", () => {
     const addr = server.address();
-    const port = typeof addr === 'string' ? addr : addr?.port;
+    const port = typeof addr === "string" ? addr : addr?.port;
     console.log(`Proxy server listening on port ${port}`);
   });
-
 } catch (error) {
-  console.error('Failed to start server:', error);
+  console.error("Failed to start server:", error);
   process.exit(1);
 }
