@@ -229,8 +229,8 @@ export function useConnection({
       } catch (error) {
         console.error("Failed to connect to MCP server:", error);
 
-        // Extract detailed error message from SSE error response
-        if (error instanceof SseError) {
+        // Extract detailed error message from SSE error response when we use stdio transport
+        if (error instanceof SseError && transportType === "stdio") {
           try {
             const response = await fetch(backendUrl.toString(), { headers });
             const errorData = await response.text();
