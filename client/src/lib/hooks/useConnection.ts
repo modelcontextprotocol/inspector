@@ -16,6 +16,7 @@ import {
   ResourceReference,
   McpError,
   CompleteResultSchema,
+  ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 import { toast } from "react-toastify";
@@ -43,6 +44,7 @@ interface UseConnectionOptions {
 interface RequestOptions {
   signal?: AbortSignal;
   timeout?: number;
+  suppressToast?: boolean;
 }
 
 export function useConnection({
@@ -111,18 +113,10 @@ export function useConnection({
 
       return response;
     } catch (e: unknown) {
-      // Check for Method not found error specifically for completions
-      if (
-        request.method === "completion/complete" &&
-        e instanceof McpError &&
-        e.code === -32601
-      ) {
-        setCompletionsSupported(false);
-        return { completion: { values: [] } } as z.output<T>;
+      if (!options?.suppressToast) {
+        const errorString = (e as Error).message ?? String(e);
+        toast.error(errorString);
       }
-
-      const errorString = (e as Error).message ?? String(e);
-      toast.error(errorString);
       throw e;
     }
   };
@@ -151,32 +145,40 @@ export function useConnection({
     try {
       const response = await makeRequest(request, CompleteResultSchema, {
         signal,
+        suppressToast: true,
       });
       return response?.completion.values || [];
     } catch (e: unknown) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      pushHistory(request, { error: errorMessage });
-
-      if (e instanceof McpError && e.code === -32601) {
+      // Disable completions silently if the server doesn't support them.
+      // See https://github.com/modelcontextprotocol/specification/discussions/122
+      if (e instanceof McpError && e.code === ErrorCode.MethodNotFound) {
         setCompletionsSupported(false);
         return [];
       }
 
-      toast.error(errorMessage);
+      // Unexpected errors - show toast and rethrow
+      toast.error(e instanceof Error ? e.message : String(e));
       throw e;
     }
   };
 
   const sendNotification = async (notification: ClientNotification) => {
     if (!mcpClient) {
-      throw new Error("MCP client not connected");
+      const error = new Error("MCP client not connected");
+      toast.error(error.message);
+      throw error;
     }
 
     try {
       await mcpClient.notification(notification);
+      // Log successful notifications
       pushHistory(notification);
     } catch (e: unknown) {
-      toast.error((e as Error).message ?? String(e));
+      if (e instanceof McpError) {
+        // Log MCP protocol errors
+        pushHistory(notification, { error: e.message });
+      }
+      toast.error(e instanceof Error ? e.message : String(e));
       throw e;
     }
   };
