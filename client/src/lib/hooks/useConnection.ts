@@ -32,8 +32,12 @@ interface UseConnectionOptions {
   requestTimeout?: number;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
-  onPendingRequest?: (request: any, resolve: any, reject: any) => void;
-  getRoots?: () => any[];
+  onPendingRequest?: (
+    request: z.infer<typeof CreateMessageRequestSchema>,
+    resolve: (value: z.infer<typeof CreateMessageRequestSchema>) => void,
+    reject: (reason?: Error) => void,
+  ) => void;
+  getRoots?: () => Array<{ id: string; name: string }>;
 }
 
 export function useConnection({
@@ -224,6 +228,19 @@ export function useConnection({
         await client.connect(clientTransport);
       } catch (error) {
         console.error("Failed to connect to MCP server:", error);
+
+        // Extract detailed error message from SSE error response
+        if (error instanceof SseError) {
+          try {
+            const response = await fetch(backendUrl.toString(), { headers });
+            const errorData = await response.text();
+            console.error("Server error details:", errorData);
+            toast.error(`Connection failed: ${errorData}`);
+          } catch (fetchError) {
+            console.error("Failed to fetch error details:", fetchError);
+          }
+        }
+
         const shouldRetry = await handleAuthError(error);
         if (shouldRetry) {
           return connect(undefined, retryCount + 1);
