@@ -7,11 +7,12 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ListPromptsResult,
   PromptReference,
+  ResourceReference,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
-import { useCompletions } from "@/lib/useCompletion";
+import { useCompletionState } from "@/lib/hooks/useCompletionState";
 
 export type Prompt = {
   name: string;
@@ -30,7 +31,8 @@ const PromptsTab = ({
   getPrompt,
   selectedPrompt,
   setSelectedPrompt,
-  onComplete,
+  handleCompletion,
+  completionsSupported,
   promptContent,
   nextCursor,
   error,
@@ -41,19 +43,19 @@ const PromptsTab = ({
   getPrompt: (name: string, args: Record<string, string>) => void;
   selectedPrompt: Prompt | null;
   setSelectedPrompt: (prompt: Prompt) => void;
-  onComplete: (
-    ref: PromptReference,
+  handleCompletion: (
+    ref: PromptReference | ResourceReference,
     argName: string,
     value: string,
   ) => Promise<string[]>;
+  completionsSupported: boolean;
   promptContent: string;
   nextCursor: ListPromptsResult["nextCursor"];
   error: string | null;
 }) => {
   const [promptArgs, setPromptArgs] = useState<Record<string, string>>({});
-  const { completions, clearCompletions, requestCompletions } = useCompletions({
-    onComplete,
-  });
+  const { completions, clearCompletions, requestCompletions } =
+    useCompletionState(handleCompletion, completionsSupported);
 
   useEffect(() => {
     clearCompletions();

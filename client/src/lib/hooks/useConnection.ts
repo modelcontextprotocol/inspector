@@ -12,6 +12,10 @@ import {
   Request,
   Result,
   ServerCapabilities,
+  PromptReference,
+  ResourceReference,
+  McpError,
+  CompleteResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 import { toast } from "react-toastify";
@@ -36,6 +40,11 @@ interface UseConnectionOptions {
   getRoots?: () => any[];
 }
 
+interface RequestOptions {
+  signal?: AbortSignal;
+  timeout?: number;
+}
+
 export function useConnection({
   transportType,
   command,
@@ -58,6 +67,7 @@ export function useConnection({
   const [requestHistory, setRequestHistory] = useState<
     { request: string; response?: string }[]
   >([]);
+  const [completionsSupported, setCompletionsSupported] = useState(true);
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
@@ -72,7 +82,8 @@ export function useConnection({
   const makeRequest = async <T extends z.ZodType>(
     request: ClientRequest,
     schema: T,
-  ) => {
+    options?: RequestOptions,
+  ): Promise<z.output<T>> => {
     if (!mcpClient) {
       throw new Error("MCP client not connected");
     }
@@ -81,12 +92,12 @@ export function useConnection({
       const abortController = new AbortController();
       const timeoutId = setTimeout(() => {
         abortController.abort("Request timed out");
-      }, requestTimeout);
+      }, options?.timeout ?? requestTimeout);
 
       let response;
       try {
         response = await mcpClient.request(request, schema, {
-          signal: abortController.signal,
+          signal: options?.signal ?? abortController.signal,
         });
         pushHistory(request, response);
       } catch (error) {
@@ -100,9 +111,58 @@ export function useConnection({
 
       return response;
     } catch (e: unknown) {
+      // Check for Method not found error specifically for completions
+      if (
+        request.method === "completion/complete" &&
+        e instanceof McpError &&
+        e.code === -32601
+      ) {
+        setCompletionsSupported(false);
+        return { completion: { values: [] } } as z.output<T>;
+      }
+
       const errorString = (e as Error).message ?? String(e);
       toast.error(errorString);
+      throw e;
+    }
+  };
 
+  const handleCompletion = async (
+    ref: ResourceReference | PromptReference,
+    argName: string,
+    value: string,
+    signal?: AbortSignal,
+  ): Promise<string[]> => {
+    if (!mcpClient || !completionsSupported) {
+      return [];
+    }
+
+    const request: ClientRequest = {
+      method: "completion/complete",
+      params: {
+        argument: {
+          name: argName,
+          value,
+        },
+        ref,
+      },
+    };
+
+    try {
+      const response = await makeRequest(request, CompleteResultSchema, {
+        signal,
+      });
+      return response?.completion.values || [];
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      pushHistory(request, { error: errorMessage });
+
+      if (e instanceof McpError && e.code === -32601) {
+        setCompletionsSupported(false);
+        return [];
+      }
+
+      toast.error(errorMessage);
       throw e;
     }
   };
@@ -238,6 +298,7 @@ export function useConnection({
 
       const capabilities = client.getServerCapabilities();
       setServerCapabilities(capabilities ?? null);
+      setCompletionsSupported(true); // Reset completions support on new connection
 
       if (onPendingRequest) {
         client.setRequestHandler(CreateMessageRequestSchema, (request) => {
@@ -268,6 +329,8 @@ export function useConnection({
     requestHistory,
     makeRequest,
     sendNotification,
+    handleCompletion,
+    completionsSupported,
     connect,
   };
 }

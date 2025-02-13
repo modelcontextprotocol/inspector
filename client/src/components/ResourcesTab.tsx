@@ -9,11 +9,12 @@ import {
   ResourceTemplate,
   ListResourceTemplatesResult,
   ResourceReference,
+  PromptReference,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, ChevronRight, FileText, RefreshCw } from "lucide-react";
 import ListPane from "./ListPane";
 import { useEffect, useState } from "react";
-import { useCompletions } from "@/lib/useCompletion";
+import { useCompletionState } from "@/lib/hooks/useCompletionState";
 
 const ResourcesTab = ({
   resources,
@@ -25,7 +26,8 @@ const ResourcesTab = ({
   readResource,
   selectedResource,
   setSelectedResource,
-  onComplete,
+  handleCompletion,
+  completionsSupported,
   resourceContent,
   nextCursor,
   nextTemplateCursor,
@@ -40,11 +42,12 @@ const ResourcesTab = ({
   readResource: (uri: string) => void;
   selectedResource: Resource | null;
   setSelectedResource: (resource: Resource | null) => void;
-  onComplete: (
-    ref: ResourceReference,
+  handleCompletion: (
+    ref: ResourceReference | PromptReference,
     argName: string,
     value: string,
   ) => Promise<string[]>;
+  completionsSupported: boolean;
   resourceContent: string;
   nextCursor: ListResourcesResult["nextCursor"];
   nextTemplateCursor: ListResourceTemplatesResult["nextCursor"];
@@ -56,9 +59,8 @@ const ResourcesTab = ({
     {},
   );
 
-  const { clearCompletions, completions, requestCompletions } = useCompletions({
-    onComplete,
-  });
+  const { completions, clearCompletions, requestCompletions } =
+    useCompletionState(handleCompletion, completionsSupported);
 
   useEffect(() => {
     clearCompletions();

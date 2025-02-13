@@ -15,9 +15,6 @@ import {
   Root,
   ServerNotification,
   Tool,
-  PromptReference,
-  ResourceReference,
-  CompleteResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useConnection } from "./lib/hooks/useConnection";
@@ -154,6 +151,8 @@ const App = () => {
     requestHistory,
     makeRequest: makeConnectionRequest,
     sendNotification,
+    handleCompletion,
+    completionsSupported,
     connect: connectMcpServer,
   } = useConnection({
     transportType,
@@ -263,38 +262,6 @@ const App = () => {
           [tabKey]: errorString,
         }));
       }
-      throw e;
-    }
-  };
-
-  const handleCompletion = async (
-    ref: ResourceReference | PromptReference,
-    argName: string,
-    value: string,
-    signal?: AbortSignal,
-  ) => {
-    if (!mcpClient) {
-      throw new Error("MCP client not connected");
-    }
-
-    const request: ClientRequest = {
-      method: "completion/complete",
-      params: {
-        argument: {
-          name: argName,
-          value,
-        },
-        ref,
-      },
-    };
-
-    try {
-      const result = await makeRequest(request, CompleteResultSchema);
-      return result.completion.values;
-    } catch (e: unknown) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-
-      toast.error(errorMessage);
       throw e;
     }
   };
@@ -518,7 +485,8 @@ const App = () => {
                         clearError("resources");
                         setSelectedResource(resource);
                       }}
-                      onComplete={handleCompletion}
+                      handleCompletion={handleCompletion}
+                      completionsSupported={completionsSupported}
                       resourceContent={resourceContent}
                       nextCursor={nextResourceCursor}
                       nextTemplateCursor={nextResourceTemplateCursor}
@@ -543,7 +511,8 @@ const App = () => {
                         clearError("prompts");
                         setSelectedPrompt(prompt);
                       }}
-                      onComplete={handleCompletion}
+                      handleCompletion={handleCompletion}
+                      completionsSupported={completionsSupported}
                       promptContent={promptContent}
                       nextCursor={nextPromptCursor}
                       error={errors.prompts}
