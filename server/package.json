@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
-    "dev": "node --import tsx --watch --watch-preserve-output src/index.ts"
+    "dev": "tsx watch --clear-screen=false src/index.ts"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
