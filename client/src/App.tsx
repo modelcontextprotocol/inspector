@@ -1,5 +1,3 @@
-import { useDraggablePane } from "./lib/hooks/useDraggablePane";
-import { useConnection } from "./lib/hooks/useConnection";
 import {
   ClientRequest,
   CompatibilityCallToolResult,
@@ -10,15 +8,17 @@ import {
   ListPromptsResultSchema,
   ListResourcesResultSchema,
   ListResourceTemplatesResultSchema,
-  ReadResourceResultSchema,
   ListToolsResultSchema,
+  ReadResourceResultSchema,
   Resource,
   ResourceTemplate,
   Root,
   ServerNotification,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { useEffect, useRef, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
+import { useConnection } from "./lib/hooks/useConnection";
+import { useDraggablePane } from "./lib/hooks/useDraggablePane";
 
 import { StdErrNotification } from "./lib/notificationTypes";
 
@@ -32,6 +32,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 
+import { toast } from "react-toastify";
 import { z } from "zod";
 import "./App.css";
 import ConsoleTab from "./components/ConsoleTab";
@@ -49,6 +50,17 @@ const PROXY_PORT = params.get("proxyPort") ?? "3000";
 const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
 
 const App = () => {
+  // Handle OAuth callback route
+  if (window.location.pathname === "/oauth/callback") {
+    const OAuthCallback = React.lazy(
+      () => import("./components/OAuthCallback"),
+    );
+    return (
+      <Suspense fallback={<div>Loading...</div>}>
+        <OAuthCallback />
+      </Suspense>
+    );
+  }
   const [resources, setResources] = useState<Resource[]>([]);
   const [resourceTemplates, setResourceTemplates] = useState<
     ResourceTemplate[]
@@ -71,8 +83,14 @@ const App = () => {
     return localStorage.getItem("lastArgs") || "";
   });
 
-  const [sseUrl, setSseUrl] = useState<string>("http://localhost:3001/sse");
-  const [transportType, setTransportType] = useState<"stdio" | "sse">("stdio");
+  const [sseUrl, setSseUrl] = useState<string>(() => {
+    return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
+  });
+  const [transportType, setTransportType] = useState<"stdio" | "sse">(() => {
+    return (
+      (localStorage.getItem("lastTransportType") as "stdio" | "sse") || "stdio"
+    );
+  });
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [stdErrNotifications, setStdErrNotifications] = useState<
     StdErrNotification[]
@@ -189,6 +207,31 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastArgs", args);
   }, [args]);
+
+  useEffect(() => {
+    localStorage.setItem("lastSseUrl", sseUrl);
+  }, [sseUrl]);
+
+  useEffect(() => {
+    localStorage.setItem("lastTransportType", transportType);
+  }, [transportType]);
+
+  // Auto-connect if serverUrl is provided in URL params (e.g. after OAuth callback)
+  useEffect(() => {
+    const serverUrl = params.get("serverUrl");
+    if (serverUrl) {
+      setSseUrl(serverUrl);
+      setTransportType("sse");
+      // Remove serverUrl from URL without reloading the page
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete("serverUrl");
+      window.history.replaceState({}, "", newUrl.toString());
+      // Show success toast for OAuth
+      toast.success("Successfully authenticated with OAuth");
+      // Connect to the server
+      connectMcpServer();
+    }
+  }, []);
 
   useEffect(() => {
     fetch(`${PROXY_SERVER_URL}/config`)

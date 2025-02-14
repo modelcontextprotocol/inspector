@@ -94,11 +94,20 @@ const ToolsTab = ({
                   className="max-w-full h-auto"
                 />
               )}
-              {item.type === "resource" && (
-                <pre className="bg-gray-50  dark:bg-gray-800 dark:text-gray-100 whitespace-pre-wrap break-words p-4 rounded text-sm overflow-auto max-h-64">
-                  {JSON.stringify(item.resource, null, 2)}
-                </pre>
-              )}
+              {item.type === "resource" &&
+                (item.resource?.mimeType?.startsWith("audio/") ? (
+                  <audio
+                    controls
+                    src={`data:${item.resource.mimeType};base64,${item.resource.blob}`}
+                    className="w-full"
+                  >
+                    <p>Your browser does not support audio playback</p>
+                  </audio>
+                ) : (
+                  <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 whitespace-pre-wrap break-words p-4 rounded text-sm overflow-auto max-h-64">
+                    {JSON.stringify(item.resource, null, 2)}
+                  </pre>
+                ))}
             </div>
           ))}
         </>
