@@ -192,12 +192,14 @@ const ToolsTab = ({
                       ) : prop.type === "object" ? (
                         <div className="mt-1">
                           <DynamicJsonForm
-                            schema={{
-                              type: 'object',
-                              properties: prop.properties,
-                              description: prop.description,
-                            } as JsonSchemaType}
-                            value={params[key] as JsonValue ?? {}}
+                            schema={
+                              {
+                                type: "object",
+                                properties: prop.properties,
+                                description: prop.description,
+                              } as JsonSchemaType
+                            }
+                            value={(params[key] as JsonValue) ?? {}}
                             onChange={(newValue: JsonValue) => {
                               setParams({
                                 ...params,
@@ -226,7 +228,7 @@ const ToolsTab = ({
                       )}
                     </div>
                   );
-                }
+                },
               )}
               <Button onClick={() => callTool(selectedTool.name, params)}>
                 <Send className="w-4 h-4 mr-2" />

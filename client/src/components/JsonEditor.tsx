@@ -1,7 +1,7 @@
-import Editor from 'react-simple-code-editor';
-import Prism from 'prismjs';
-import 'prismjs/components/prism-json';
-import 'prismjs/themes/prism.css';
+import Editor from "react-simple-code-editor";
+import Prism from "prismjs";
+import "prismjs/components/prism-json";
+import "prismjs/themes/prism.css";
 import { Button } from "@/components/ui/button";
 
 interface JsonEditorProps {
@@ -32,28 +32,26 @@ const JsonEditor = ({ value, onChange, error }: JsonEditorProps) => {
       </div>
       <div
         className={`border rounded-md ${
-          error ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'
+          error ? "border-red-500" : "border-gray-200 dark:border-gray-800"
         }`}
       >
         <Editor
           value={value}
           onValueChange={onChange}
-          highlight={code =>
-            Prism.highlight(code, Prism.languages.json, 'json')
+          highlight={(code) =>
+            Prism.highlight(code, Prism.languages.json, "json")
           }
           padding={10}
           style={{
             fontFamily: '"Fira code", "Fira Mono", monospace',
             fontSize: 14,
-            backgroundColor: 'transparent',
-            minHeight: '100px',
+            backgroundColor: "transparent",
+            minHeight: "100px",
           }}
           className="w-full"
         />
       </div>
-      {error && (
-        <p className="text-sm text-red-500 mt-1">{error}</p>
-      )}
+      {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
     </div>
   );
 };
