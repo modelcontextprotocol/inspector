@@ -32,12 +32,8 @@ interface UseConnectionOptions {
   requestTimeout?: number;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
-  onPendingRequest?: (
-    request: z.infer<typeof CreateMessageRequestSchema>,
-    resolve: (value: z.infer<typeof CreateMessageRequestSchema>) => void,
-    reject: (reason?: Error) => void,
-  ) => void;
-  getRoots?: () => Array<{ id: string; name: string }>;
+  onPendingRequest?: (request: any, resolve: any, reject: any) => void;
+  getRoots?: () => any[];
 }
 
 export function useConnection({
