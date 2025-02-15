@@ -179,7 +179,7 @@ const ToolsTab = ({
                             onCheckedChange={(checked: boolean) =>
                               setParams({
                                 ...params,
-                                [key]: checked
+                                [key]: checked,
                               })
                             }
                           />
