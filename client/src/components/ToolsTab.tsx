@@ -1,5 +1,6 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
@@ -169,6 +170,28 @@ const ToolsTab = ({
                     </Label>
                     {
                       /* @ts-expect-error value type is currently unknown */
+                      value.type === "boolean" ? (
+                        <div className="flex items-center space-x-2 mt-2">
+                          <Checkbox
+                            id={key}
+                            name={key}
+                            checked={!!params[key]}
+                            onCheckedChange={(checked: boolean) =>
+                              setParams({
+                                ...params,
+                                [key]: checked
+                              })
+                            }
+                          />
+                          <label
+                            htmlFor={key}
+                            className="text-sm font-medium text-gray-700 dark:text-gray-300"
+                          >
+                            {/* @ts-expect-error value type is currently unknown */}
+                            {value.description || "Toggle this option"}
+                          </label>
+                        </div>
+                      ) : /* @ts-expect-error value type is currently unknown */
                       value.type === "string" ? (
                         <Textarea
                           id={key}
@@ -197,7 +220,7 @@ const ToolsTab = ({
                                 ...params,
                                 [key]: parsed,
                               });
-                            } catch (err) {
+                            } catch {
                               // If invalid JSON, store as string - will be validated on submit
                               setParams({
                                 ...params,
