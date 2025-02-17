@@ -32,8 +32,8 @@ interface UseConnectionOptions {
   requestTimeout?: number;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
-  onPendingRequest?: (request: any, resolve: any, reject: any) => void;
-  getRoots?: () => any[];
+  onPendingRequest?: (request: Request, resolve: (value: Result) => void, reject: (reason: Error) => void) => void;
+  getRoots?: () => string[];
 }
 
 export function useConnection({
