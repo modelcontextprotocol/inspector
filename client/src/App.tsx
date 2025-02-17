@@ -49,7 +49,7 @@ const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "3000";
 const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
 
-const App = () => {
+const AppWrapper = () => {
   // Handle OAuth callback route
   if (window.location.pathname === "/oauth/callback") {
     const OAuthCallback = React.lazy(
@@ -61,6 +61,11 @@ const App = () => {
       </Suspense>
     );
   }
+
+  return <App />;
+};
+
+const App = () => {
   const [resources, setResources] = useState<Resource[]>([]);
   const [resourceTemplates, setResourceTemplates] = useState<
     ResourceTemplate[]
@@ -592,4 +597,4 @@ const App = () => {
   );
 };
 
-export default App;
+export default AppWrapper;
