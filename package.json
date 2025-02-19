@@ -22,7 +22,7 @@
   ],
   "scripts": {
     "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
-    "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && tsx watch --clear-screen=false src/index.ts < NUL\"",
+    "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows",
     "build-server": "cd server && npm run build",
     "build-client": "cd client && npm run build",
     "build": "npm run build-server && npm run build-client",

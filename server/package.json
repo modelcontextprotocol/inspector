@@ -16,7 +16,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
-    "dev": "tsx watch --clear-screen=false src/index.ts"
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "dev:windows": "tsx watch --clear-screen=false src/index.ts < NUL"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
