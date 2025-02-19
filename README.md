@@ -48,6 +48,13 @@ Development mode:
 npm run dev
 ```
 
+> **Note for Windows users:**  
+> On Windows, use the following command instead:
+>
+> ```bash
+> npm run dev:windows
+> ```
+
 Production mode:
 
 ```bash
