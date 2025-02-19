@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import DynamicJsonForm, { JsonSchemaType, JsonValue } from "./DynamicJsonForm";
 import {
   ListToolsResult,
   Tool,
@@ -14,6 +15,12 @@ import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 
 import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
+
+type SchemaProperty = {
+  type: string;
+  description?: string;
+  properties?: Record<string, SchemaProperty>;
+};
 
 const ToolsTab = ({
   tools,
@@ -159,22 +166,21 @@ const ToolsTab = ({
                 {selectedTool.description}
               </p>
               {Object.entries(selectedTool.inputSchema.properties ?? []).map(
-                ([key, value]) => (
-                  <div key={key}>
-                    <Label
-                      htmlFor={key}
-                      className="block text-sm font-medium text-gray-700"
-                    >
-                      {key}
-                    </Label>
-                    {
-                      /* @ts-expect-error value type is currently unknown */
-                      value.type === "string" ? (
+                ([key, value]) => {
+                  const prop = value as SchemaProperty;
+                  return (
+                    <div key={key}>
+                      <Label
+                        htmlFor={key}
+                        className="block text-sm font-medium text-gray-700"
+                      >
+                        {key}
+                      </Label>
+                      {prop.type === "string" ? (
                         <Textarea
                           id={key}
                           name={key}
-                          // @ts-expect-error value type is currently unknown
-                          placeholder={value.description}
+                          placeholder={prop.description}
                           onChange={(e) =>
                             setParams({
                               ...params,
@@ -183,54 +189,46 @@ const ToolsTab = ({
                           }
                           className="mt-1"
                         />
-                      ) : /* @ts-expect-error value type is currently unknown */
-                      value.type === "object" ? (
-                        <Textarea
-                          id={key}
-                          name={key}
-                          // @ts-expect-error value type is currently unknown
-                          placeholder={value.description}
-                          onChange={(e) => {
-                            try {
-                              const parsed = JSON.parse(e.target.value);
-                              setParams({
-                                ...params,
-                                [key]: parsed,
-                              });
-                            } catch (err) {
-                              // If invalid JSON, store as string - will be validated on submit
-                              setParams({
-                                ...params,
-                                [key]: e.target.value,
-                              });
+                      ) : prop.type === "object" ? (
+                        <div className="mt-1">
+                          <DynamicJsonForm
+                            schema={
+                              {
+                                type: "object",
+                                properties: prop.properties,
+                                description: prop.description,
+                              } as JsonSchemaType
                             }
-                          }}
-                          className="mt-1"
-                        />
+                            value={(params[key] as JsonValue) ?? {}}
+                            onChange={(newValue: JsonValue) => {
+                              setParams({
+                                ...params,
+                                [key]: newValue,
+                              });
+                            }}
+                          />
+                        </div>
                       ) : (
                         <Input
-                          // @ts-expect-error value type is currently unknown
-                          type={value.type === "number" ? "number" : "text"}
+                          type={prop.type === "number" ? "number" : "text"}
                           id={key}
                           name={key}
-                          // @ts-expect-error value type is currently unknown
-                          placeholder={value.description}
+                          placeholder={prop.description}
                           onChange={(e) =>
                             setParams({
                               ...params,
                               [key]:
-                                // @ts-expect-error value type is currently unknown
-                                value.type === "number"
+                                prop.type === "number"
                                   ? Number(e.target.value)
                                   : e.target.value,
                             })
                           }
                           className="mt-1"
                         />
-                      )
-                    }
-                  </div>
-                ),
+                      )}
+                    </div>
+                  );
+                },
               )}
               <Button onClick={() => callTool(selectedTool.name, params)}>
                 <Send className="w-4 h-4 mr-2" />
