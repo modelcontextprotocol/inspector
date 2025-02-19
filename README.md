@@ -49,12 +49,9 @@ npm run dev
 ```
 
 > **Note for Windows users:**  
-> On Windows, you may experience an issue where the proxy server fails to start when running the `npm run dev` command. This is due to TSX's watch mode not properly handling standard input on Windows.
->
-> To work around this, you can append `< NUL` to the `dev` script in `/server/package.json`:
->
+> On Windows, use the following command instead:
 > ```bash
-> tsx watch --clear-screen=false src/index.ts < NUL
+> npm run dev:windows
 > ```
 
 Production mode:
