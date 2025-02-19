@@ -249,7 +249,7 @@ const ToolsTab = ({
                       )}
                     </div>
                   );
-                }
+                },
               )}
               <Button onClick={() => callTool(selectedTool.name, params)}>
                 <Send className="w-4 h-4 mr-2" />
