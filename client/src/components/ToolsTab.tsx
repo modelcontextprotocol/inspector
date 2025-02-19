@@ -1,5 +1,6 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
@@ -176,7 +177,27 @@ const ToolsTab = ({
                       >
                         {key}
                       </Label>
-                      {prop.type === "string" ? (
+                      {prop.type === "boolean" ? (
+                        <div className="flex items-center space-x-2 mt-2">
+                          <Checkbox
+                            id={key}
+                            name={key}
+                            checked={!!params[key]}
+                            onCheckedChange={(checked: boolean) =>
+                              setParams({
+                                ...params,
+                                [key]: checked,
+                              })
+                            }
+                          />
+                          <label
+                            htmlFor={key}
+                            className="text-sm font-medium text-gray-700 dark:text-gray-300"
+                          >
+                            {prop.description || "Toggle this option"}
+                          </label>
+                        </div>
+                      ) : prop.type === "string" ? (
                         <Textarea
                           id={key}
                           name={key}
