@@ -86,9 +86,9 @@ export async function handleOAuthCallback(
   const response = await fetch(metadata.token_endpoint, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: JSON.stringify({
+    body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
       code_verifier: codeVerifier,
@@ -117,9 +117,9 @@ export async function refreshAccessToken(
   const response = await fetch(metadata.token_endpoint, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: JSON.stringify({
+    body: new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: refreshToken,
     }),
