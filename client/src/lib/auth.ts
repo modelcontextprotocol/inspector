@@ -1,4 +1,5 @@
-import { OAuthClientInformation, OAuthClientInformationSchema, OAuthClientProvider, OAuthTokens, OAuthTokensSchema } from "@modelcontextprotocol/sdk/client/auth.js";
+import { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import { OAuthClientInformationSchema, OAuthClientInformation, OAuthTokens, OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS } from "./constants";
 
 class InspectorOAuthClientProvider implements OAuthClientProvider {
