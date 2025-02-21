@@ -9,7 +9,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const distPath = join(__dirname, "../dist");
 
 const server = http.createServer((request, response) => {
-  return handler(request, response, { public: distPath });
+  return handler(request, response, {
+    public: distPath,
+    rewrites: [{ source: "/**", destination: "/index.html" }],
+  });
 });
 
 const port = process.env.PORT || 5173;
