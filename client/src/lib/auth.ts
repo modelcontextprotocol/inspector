@@ -1,5 +1,10 @@
 import { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
-import { OAuthClientInformationSchema, OAuthClientInformation, OAuthTokens, OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
+import {
+  OAuthClientInformationSchema,
+  OAuthClientInformation,
+  OAuthTokens,
+  OAuthTokensSchema,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS } from "./constants";
 
 class InspectorOAuthClientProvider implements OAuthClientProvider {
@@ -44,10 +49,7 @@ class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   saveTokens(tokens: OAuthTokens) {
-    sessionStorage.setItem(
-      SESSION_KEYS.TOKENS,
-      JSON.stringify(tokens),
-    );
+    sessionStorage.setItem(SESSION_KEYS.TOKENS, JSON.stringify(tokens));
   }
 
   redirectToAuthorization(authorizationUrl: URL) {
@@ -55,10 +57,7 @@ class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   saveCodeVerifier(codeVerifier: string) {
-    sessionStorage.setItem(
-      SESSION_KEYS.CODE_VERIFIER,
-      codeVerifier,
-    );
+    sessionStorage.setItem(SESSION_KEYS.CODE_VERIFIER, codeVerifier);
   }
 
   codeVerifier() {

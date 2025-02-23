@@ -25,9 +25,14 @@ const OAuthCallback = () => {
       }
 
       try {
-        const result = await auth(authProvider, { serverUrl, authorizationCode: code });
+        const result = await auth(authProvider, {
+          serverUrl,
+          authorizationCode: code,
+        });
         if (result !== "AUTHORIZED") {
-          throw new Error(`Expected to be authorized after providing auth code, got: ${result}`);
+          throw new Error(
+            `Expected to be authorized after providing auth code, got: ${result}`,
+          );
         }
 
         // Redirect back to the main app with server URL to trigger auto-connect
