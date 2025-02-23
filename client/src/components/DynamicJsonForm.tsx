@@ -215,23 +215,48 @@ const DynamicJsonForm = ({
       return;
     }
 
-    const newValue = {
-      ...(typeof value === "object" && value !== null && !Array.isArray(value)
-        ? value
-        : {}),
-    } as JsonObject;
-    let current: JsonObject = newValue;
-
-    for (let i = 0; i < path.length - 1; i++) {
-      const key = path[i];
-      if (!(key in current)) {
-        current[key] = {};
+    const updateArray = (array: JsonValue[], path: string[], value: JsonValue): JsonValue[] => {
+      const [index, ...restPath] = path;
+      const arrayIndex = Number(index);
+      const newArray = [...array];
+      
+      if (restPath.length === 0) {
+        newArray[arrayIndex] = value;
+      } else {
+        newArray[arrayIndex] = updateValue(newArray[arrayIndex], restPath, value);
       }
-      current = current[key] as JsonObject;
-    }
+      return newArray;
+    };
 
-    current[path[path.length - 1]] = fieldValue;
-    onChange(newValue);
+    const updateObject = (obj: JsonObject, path: string[], value: JsonValue): JsonObject => {
+      const [key, ...restPath] = path;
+      const newObj = { ...obj };
+      
+      if (restPath.length === 0) {
+        newObj[key] = value;
+      } else {
+        newObj[key] = updateValue(newObj[key], restPath, value);
+      }
+      return newObj;
+    };
+
+    const updateValue = (current: JsonValue, path: string[], value: JsonValue): JsonValue => {
+      if (path.length === 0) return value;
+
+      if (!current) {
+        current = !isNaN(Number(path[0])) ? [] : {};
+      }
+
+      if (Array.isArray(current)) {
+        return updateArray(current, path, value);
+      } else if (typeof current === 'object' && current !== null) {
+        return updateObject(current, path, value);
+      }
+      
+      return current;
+    };
+
+    onChange(updateValue(value, path, fieldValue));
   };
 
   return (
