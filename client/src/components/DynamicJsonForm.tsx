@@ -215,23 +215,112 @@ const DynamicJsonForm = ({
       return;
     }
 
-    const newValue = {
-      ...(typeof value === "object" && value !== null && !Array.isArray(value)
-        ? value
-        : {}),
-    } as JsonObject;
-    let current: JsonObject = newValue;
+    const updateArray = (
+      array: JsonValue[],
+      path: string[],
+      value: JsonValue,
+    ): JsonValue[] => {
+      const [index, ...restPath] = path;
+      const arrayIndex = Number(index);
 
-    for (let i = 0; i < path.length - 1; i++) {
-      const key = path[i];
-      if (!(key in current)) {
-        current[key] = {};
+      // Validate array index
+      if (isNaN(arrayIndex)) {
+        console.error(`Invalid array index: ${index}`);
+        return array;
       }
-      current = current[key] as JsonObject;
-    }
 
-    current[path[path.length - 1]] = fieldValue;
-    onChange(newValue);
+      // Check array bounds
+      if (arrayIndex < 0) {
+        console.error(`Array index out of bounds: ${arrayIndex} < 0`);
+        return array;
+      }
+
+      const newArray = [...array];
+
+      if (restPath.length === 0) {
+        newArray[arrayIndex] = value;
+      } else {
+        // Ensure index position exists
+        if (arrayIndex >= array.length) {
+          console.warn(`Extending array to index ${arrayIndex}`);
+          newArray.length = arrayIndex + 1;
+          newArray.fill(null, array.length, arrayIndex);
+        }
+        newArray[arrayIndex] = updateValue(
+          newArray[arrayIndex],
+          restPath,
+          value,
+        );
+      }
+      return newArray;
+    };
+
+    const updateObject = (
+      obj: JsonObject,
+      path: string[],
+      value: JsonValue,
+    ): JsonObject => {
+      const [key, ...restPath] = path;
+
+      // Validate object key
+      if (typeof key !== "string") {
+        console.error(`Invalid object key: ${key}`);
+        return obj;
+      }
+
+      const newObj = { ...obj };
+
+      if (restPath.length === 0) {
+        newObj[key] = value;
+      } else {
+        // Ensure key exists
+        if (!(key in newObj)) {
+          console.warn(`Creating new key in object: ${key}`);
+          newObj[key] = {};
+        }
+        newObj[key] = updateValue(newObj[key], restPath, value);
+      }
+      return newObj;
+    };
+
+    const updateValue = (
+      current: JsonValue,
+      path: string[],
+      value: JsonValue,
+    ): JsonValue => {
+      if (path.length === 0) return value;
+
+      try {
+        if (!current) {
+          current = !isNaN(Number(path[0])) ? [] : {};
+        }
+
+        // Type checking
+        if (Array.isArray(current)) {
+          return updateArray(current, path, value);
+        } else if (typeof current === "object" && current !== null) {
+          return updateObject(current, path, value);
+        } else {
+          console.error(
+            `Cannot update path ${path.join(".")} in non-object/array value:`,
+            current,
+          );
+          return current;
+        }
+      } catch (error) {
+        console.error(`Error updating value at path ${path.join(".")}:`, error);
+        return current;
+      }
+    };
+
+    try {
+      const newValue = updateValue(value, path, fieldValue);
+      onChange(newValue);
+    } catch (error) {
+      console.error("Failed to update form value:", error);
+      // Keep the original value unchanged
+      onChange(value);
+    }
   };
 
   return (
