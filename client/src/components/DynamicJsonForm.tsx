@@ -215,7 +215,11 @@ const DynamicJsonForm = ({
       return;
     }
 
-    const updateArray = (array: JsonValue[], path: string[], value: JsonValue): JsonValue[] => {
+    const updateArray = (
+      array: JsonValue[],
+      path: string[],
+      value: JsonValue,
+    ): JsonValue[] => {
       const [index, ...restPath] = path;
       const arrayIndex = Number(index);
 
@@ -232,7 +236,7 @@ const DynamicJsonForm = ({
       }
 
       const newArray = [...array];
-      
+
       if (restPath.length === 0) {
         newArray[arrayIndex] = value;
       } else {
@@ -242,22 +246,30 @@ const DynamicJsonForm = ({
           newArray.length = arrayIndex + 1;
           newArray.fill(null, array.length, arrayIndex);
         }
-        newArray[arrayIndex] = updateValue(newArray[arrayIndex], restPath, value);
+        newArray[arrayIndex] = updateValue(
+          newArray[arrayIndex],
+          restPath,
+          value,
+        );
       }
       return newArray;
     };
 
-    const updateObject = (obj: JsonObject, path: string[], value: JsonValue): JsonObject => {
+    const updateObject = (
+      obj: JsonObject,
+      path: string[],
+      value: JsonValue,
+    ): JsonObject => {
       const [key, ...restPath] = path;
-      
+
       // Validate object key
-      if (typeof key !== 'string') {
+      if (typeof key !== "string") {
         console.error(`Invalid object key: ${key}`);
         return obj;
       }
 
       const newObj = { ...obj };
-      
+
       if (restPath.length === 0) {
         newObj[key] = value;
       } else {
@@ -271,7 +283,11 @@ const DynamicJsonForm = ({
       return newObj;
     };
 
-    const updateValue = (current: JsonValue, path: string[], value: JsonValue): JsonValue => {
+    const updateValue = (
+      current: JsonValue,
+      path: string[],
+      value: JsonValue,
+    ): JsonValue => {
       if (path.length === 0) return value;
 
       try {
@@ -282,14 +298,17 @@ const DynamicJsonForm = ({
         // Type checking
         if (Array.isArray(current)) {
           return updateArray(current, path, value);
-        } else if (typeof current === 'object' && current !== null) {
+        } else if (typeof current === "object" && current !== null) {
           return updateObject(current, path, value);
         } else {
-          console.error(`Cannot update path ${path.join('.')} in non-object/array value:`, current);
+          console.error(
+            `Cannot update path ${path.join(".")} in non-object/array value:`,
+            current,
+          );
           return current;
         }
       } catch (error) {
-        console.error(`Error updating value at path ${path.join('.')}:`, error);
+        console.error(`Error updating value at path ${path.join(".")}:`, error);
         return current;
       }
     };
@@ -298,7 +317,7 @@ const DynamicJsonForm = ({
       const newValue = updateValue(value, path, fieldValue);
       onChange(newValue);
     } catch (error) {
-      console.error('Failed to update form value:', error);
+      console.error("Failed to update form value:", error);
       // Keep the original value unchanged
       onChange(value);
     }

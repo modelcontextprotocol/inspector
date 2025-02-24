@@ -17,7 +17,6 @@ import ListPane from "./ListPane";
 
 import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
-
 const ToolsTab = ({
   tools,
   listTools,
@@ -206,17 +205,15 @@ const ToolsTab = ({
                           }
                           className="mt-1"
                         />
-                      ) : prop.type === "object"|| prop.type === "array" ? (
+                      ) : prop.type === "object" || prop.type === "array" ? (
                         <div className="mt-1">
                           <DynamicJsonForm
-                            schema={
-                              {
-                                type: prop.type,
-                                properties: prop.properties,
-                                description: prop.description,
-                                items:prop.items
-                              } 
-                            }
+                            schema={{
+                              type: prop.type,
+                              properties: prop.properties,
+                              description: prop.description,
+                              items: prop.items,
+                            }}
                             value={(params[key] as JsonValue) ?? {}}
                             onChange={(newValue: JsonValue) => {
                               setParams({
