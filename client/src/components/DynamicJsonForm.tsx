@@ -9,12 +9,22 @@ export type JsonValue =
   | number
   | boolean
   | null
+  | undefined
   | JsonValue[]
   | { [key: string]: JsonValue };
 
 export type JsonSchemaType = {
-  type: "string" | "number" | "integer" | "boolean" | "array" | "object";
+  type:
+    | "string"
+    | "number"
+    | "integer"
+    | "boolean"
+    | "array"
+    | "object"
+    | "null";
   description?: string;
+  required?: boolean;
+  default?: JsonValue;
   properties?: Record<string, JsonSchemaType>;
   items?: JsonSchemaType;
 };
@@ -44,7 +54,18 @@ const DynamicJsonForm = ({
   const [isJsonMode, setIsJsonMode] = useState(false);
   const [jsonError, setJsonError] = useState<string>();
 
-  const generateDefaultValue = (propSchema: JsonSchemaType): JsonValue => {
+  const generateDefaultValue = (
+    propSchema: JsonSchemaType,
+  ): JsonValue | undefined => {
+    // Return schema default if provided
+    if ("default" in propSchema) {
+      return propSchema.default;
+    }
+
+    if (!propSchema.required) {
+      return undefined;
+    }
+
     switch (propSchema.type) {
       case "string":
         return "";
@@ -56,16 +77,20 @@ const DynamicJsonForm = ({
       case "array":
         return [];
       case "object": {
+        if (!propSchema.properties) return {};
         const obj: JsonObject = {};
-        if (propSchema.properties) {
-          Object.entries(propSchema.properties).forEach(([key, prop]) => {
-            obj[key] = generateDefaultValue(prop);
+        Object.entries(propSchema.properties)
+          .filter(([, prop]) => prop.required)
+          .forEach(([key, prop]) => {
+            const value = generateDefaultValue(prop);
+            if (value !== undefined) {
+              obj[key] = value;
+            }
           });
-        }
         return obj;
       }
       default:
-        return null;
+        return undefined;
     }
   };
 
@@ -103,21 +128,61 @@ const DynamicJsonForm = ({
 
     switch (propSchema.type) {
       case "string":
+        return (
+          <Input
+            type="text"
+            value={(currentValue as string) ?? ""}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (!val) {
+                handleFieldChange(path, undefined);
+              } else {
+                handleFieldChange(path, val);
+              }
+            }}
+            placeholder={propSchema.description}
+            required={propSchema.required}
+          />
+        );
       case "number":
+        return (
+          <Input
+            type="number"
+            value={(currentValue as number)?.toString() ?? ""}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (!val) {
+                handleFieldChange(path, undefined);
+              } else {
+                const num = Number(val);
+                if (!isNaN(num)) {
+                  handleFieldChange(path, num);
+                }
+              }
+            }}
+            placeholder={propSchema.description}
+            required={propSchema.required}
+          />
+        );
       case "integer":
         return (
           <Input
-            type={propSchema.type === "string" ? "text" : "number"}
-            value={(currentValue as string | number) ?? ""}
-            onChange={(e) =>
-              handleFieldChange(
-                path,
-                propSchema.type === "string"
-                  ? e.target.value
-                  : Number(e.target.value),
-              )
-            }
+            type="number"
+            step="1"
+            value={(currentValue as number)?.toString() ?? ""}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (!val) {
+                handleFieldChange(path, undefined);
+              } else {
+                const num = Number(val);
+                if (!isNaN(num)) {
+                  handleFieldChange(path, num);
+                }
+              }
+            }}
             placeholder={propSchema.description}
+            required={propSchema.required}
           />
         );
       case "boolean":
@@ -125,8 +190,11 @@ const DynamicJsonForm = ({
           <Input
             type="checkbox"
             checked={(currentValue as boolean) ?? false}
-            onChange={(e) => handleFieldChange(path, e.target.checked)}
+            onChange={(e) => {
+              handleFieldChange(path, e.target.checked);
+            }}
             className="w-4 h-4"
+            required={propSchema.required}
           />
         );
       case "object":
@@ -187,9 +255,12 @@ const DynamicJsonForm = ({
                 variant="outline"
                 size="sm"
                 onClick={() => {
+                  const defaultValue = generateDefaultValue(
+                    propSchema.items as JsonSchemaType,
+                  );
                   handleFieldChange(path, [
                     ...arrayValue,
-                    generateDefaultValue(propSchema.items as JsonSchemaType),
+                    defaultValue ?? null,
                   ]);
                 }}
                 title={
