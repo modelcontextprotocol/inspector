@@ -151,6 +151,8 @@ const App = () => {
     requestHistory,
     makeRequest: makeConnectionRequest,
     sendNotification,
+    handleCompletion,
+    completionsSupported,
     connect: connectMcpServer,
   } = useConnection({
     transportType,
@@ -176,29 +178,6 @@ const App = () => {
     },
     getRoots: () => rootsRef.current,
   });
-
-  const makeRequest = async <T extends z.ZodType>(
-    request: ClientRequest,
-    schema: T,
-    tabKey?: keyof typeof errors,
-  ) => {
-    try {
-      const response = await makeConnectionRequest(request, schema);
-      if (tabKey !== undefined) {
-        clearError(tabKey);
-      }
-      return response;
-    } catch (e) {
-      const errorString = (e as Error).message ?? String(e);
-      if (tabKey !== undefined) {
-        setErrors((prev) => ({
-          ...prev,
-          [tabKey]: errorString,
-        }));
-      }
-      throw e;
-    }
-  };
 
   useEffect(() => {
     localStorage.setItem("lastCommand", command);
@@ -262,6 +241,29 @@ const App = () => {
 
   const clearError = (tabKey: keyof typeof errors) => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
+  };
+
+  const makeRequest = async <T extends z.ZodType>(
+    request: ClientRequest,
+    schema: T,
+    tabKey?: keyof typeof errors,
+  ) => {
+    try {
+      const response = await makeConnectionRequest(request, schema);
+      if (tabKey !== undefined) {
+        clearError(tabKey);
+      }
+      return response;
+    } catch (e) {
+      const errorString = (e as Error).message ?? String(e);
+      if (tabKey !== undefined) {
+        setErrors((prev) => ({
+          ...prev,
+          [tabKey]: errorString,
+        }));
+      }
+      throw e;
+    }
   };
 
   const listResources = async () => {
@@ -483,6 +485,8 @@ const App = () => {
                         clearError("resources");
                         setSelectedResource(resource);
                       }}
+                      handleCompletion={handleCompletion}
+                      completionsSupported={completionsSupported}
                       resourceContent={resourceContent}
                       nextCursor={nextResourceCursor}
                       nextTemplateCursor={nextResourceTemplateCursor}
@@ -507,6 +511,8 @@ const App = () => {
                         clearError("prompts");
                         setSelectedPrompt(prompt);
                       }}
+                      handleCompletion={handleCompletion}
+                      completionsSupported={completionsSupported}
                       promptContent={promptContent}
                       nextCursor={nextPromptCursor}
                       error={errors.prompts}
