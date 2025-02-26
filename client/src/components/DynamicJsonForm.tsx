@@ -41,9 +41,6 @@ const DynamicJsonForm = ({
   onChange,
   maxDepth = 3,
 }: DynamicJsonFormProps) => {
-  const [isJsonMode, setIsJsonMode] = useState(false);
-  const [jsonError, setJsonError] = useState<string>();
-
   const generateDefaultValue = (propSchema: JsonSchemaType): JsonValue => {
     switch (propSchema.type) {
       case "string":
@@ -66,6 +63,40 @@ const DynamicJsonForm = ({
       }
       default:
         return null;
+    }
+  };
+
+  const [isJsonMode, setIsJsonMode] = useState(false);
+  const [jsonError, setJsonError] = useState<string>();
+  // Add state for storing raw JSON value
+  const [rawJsonValue, setRawJsonValue] = useState<string>(
+    JSON.stringify(value ?? generateDefaultValue(schema), null, 2)
+  );
+
+  const validateJsonBeforeSubmit = () => {
+    if (isJsonMode && rawJsonValue) {
+      try {
+        const parsed = JSON.parse(rawJsonValue);
+        onChange(parsed);
+        setJsonError(undefined);
+        return true;
+      } catch (err) {
+        setJsonError(err instanceof Error ? err.message : "Invalid JSON");
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const handleSwitchToFormMode = () => {
+    if (isJsonMode) {
+      if (validateJsonBeforeSubmit()) {
+        setIsJsonMode(false);
+      }
+    } else {
+      // Update raw JSON value when switching to JSON mode
+      setRawJsonValue(JSON.stringify(value ?? generateDefaultValue(schema), null, 2));
+      setIsJsonMode(true);
     }
   };
 
@@ -329,7 +360,7 @@ const DynamicJsonForm = ({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setIsJsonMode(!isJsonMode)}
+          onClick={handleSwitchToFormMode}
         >
           {isJsonMode ? "Switch to Form" : "Switch to JSON"}
         </Button>
@@ -337,13 +368,18 @@ const DynamicJsonForm = ({
 
       {isJsonMode ? (
         <JsonEditor
-          value={JSON.stringify(value ?? generateDefaultValue(schema), null, 2)}
+          value={rawJsonValue}
           onChange={(newValue) => {
+            setRawJsonValue(newValue);
             try {
-              onChange(JSON.parse(newValue));
-              setJsonError(undefined);
-            } catch (err) {
-              setJsonError(err instanceof Error ? err.message : "Invalid JSON");
+              if (/^\s*[{[].*[}\]]\s*$/.test(newValue)) {
+                const parsed = JSON.parse(newValue);
+                onChange(parsed);
+                setJsonError(undefined);
+              }
+            } catch {
+              // Don't set an error during typing - that will happen when the user
+              // tries to save or submit the form
             }
           }}
           error={jsonError}
