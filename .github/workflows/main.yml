@@ -25,6 +25,12 @@ jobs:
       # Working around https://github.com/npm/cli/issues/4828
       # - run: npm ci
       - run: npm install --no-package-lock
+      
+      - name: Run client tests
+        run: |
+          cd inspector/client
+          npm test
+          
       - run: npm run build
 
   publish:
