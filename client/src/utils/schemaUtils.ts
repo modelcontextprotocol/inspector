@@ -50,8 +50,8 @@ export function formatFieldLabel(key: string): string {
  * @returns True if valid, false otherwise
  */
 export function validateValueAgainstSchema(
-  value: JsonValue, 
-  schema: JsonSchemaType
+  value: JsonValue,
+  schema: JsonSchemaType,
 ): boolean {
   // Basic type validation
   switch (schema.type) {
@@ -65,7 +65,9 @@ export function validateValueAgainstSchema(
     case "array":
       return Array.isArray(value);
     case "object":
-      return typeof value === "object" && value !== null && !Array.isArray(value);
+      return (
+        typeof value === "object" && value !== null && !Array.isArray(value)
+      );
     default:
       return true;
   }

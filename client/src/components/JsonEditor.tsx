@@ -11,10 +11,16 @@ interface JsonEditorProps {
   error?: string;
 }
 
-const JsonEditor = ({ value, onChange, error: externalError }: JsonEditorProps) => {
+const JsonEditor = ({
+  value,
+  onChange,
+  error: externalError,
+}: JsonEditorProps) => {
   const [editorContent, setEditorContent] = useState(value);
-  const [internalError, setInternalError] = useState<string | undefined>(undefined);
-  
+  const [internalError, setInternalError] = useState<string | undefined>(
+    undefined,
+  );
+
   useEffect(() => {
     setEditorContent(value);
   }, [value]);
@@ -22,8 +28,8 @@ const JsonEditor = ({ value, onChange, error: externalError }: JsonEditorProps) 
   const formatJson = (json: string): string => {
     try {
       // Handle empty arrays and objects specifically
-      if (json.trim() === '[]') return '[]';
-      if (json.trim() === '{}') return '{}';
+      if (json.trim() === "[]") return "[]";
+      if (json.trim() === "{}") return "{}";
       return JSON.stringify(JSON.parse(json), null, 2);
     } catch {
       return json;
@@ -52,17 +58,15 @@ const JsonEditor = ({ value, onChange, error: externalError }: JsonEditorProps) 
   return (
     <div className="relative space-y-2">
       <div className="flex justify-end">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleFormatJson}
-        >
+        <Button variant="outline" size="sm" onClick={handleFormatJson}>
           Format JSON
         </Button>
       </div>
       <div
         className={`border rounded-md ${
-          displayError ? "border-red-500" : "border-gray-200 dark:border-gray-800"
+          displayError
+            ? "border-red-500"
+            : "border-gray-200 dark:border-gray-800"
         }`}
       >
         <Editor
@@ -81,7 +85,9 @@ const JsonEditor = ({ value, onChange, error: externalError }: JsonEditorProps) 
           className="w-full"
         />
       </div>
-      {displayError && <p className="text-sm text-red-500 mt-1">{displayError}</p>}
+      {displayError && (
+        <p className="text-sm text-red-500 mt-1">{displayError}</p>
+      )}
     </div>
   );
 };

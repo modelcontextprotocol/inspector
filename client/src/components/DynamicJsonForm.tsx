@@ -28,25 +28,25 @@ interface DynamicJsonFormProps {
   maxDepth?: number;
 }
 
-
 const DynamicJsonForm = ({
   schema,
   value,
   onChange,
   maxDepth = 3,
 }: DynamicJsonFormProps) => {
-
   const [isJsonMode, setIsJsonMode] = useState(false);
   const [jsonError, setJsonError] = useState<string>();
   // Add state for storing raw JSON value
   const [rawJsonValue, setRawJsonValue] = useState<string>(
-    JSON.stringify(value ?? generateDefaultValue(schema), null, 2)
+    JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
   );
 
   // Update rawJsonValue when value prop changes
   useEffect(() => {
     if (!isJsonMode) {
-      setRawJsonValue(JSON.stringify(value ?? generateDefaultValue(schema), null, 2));
+      setRawJsonValue(
+        JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
+      );
     }
   }, [value, schema, isJsonMode]);
 
@@ -64,7 +64,9 @@ const DynamicJsonForm = ({
       }
     } else {
       // Update raw JSON value when switching to JSON mode
-      setRawJsonValue(JSON.stringify(value ?? generateDefaultValue(schema), null, 2));
+      setRawJsonValue(
+        JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
+      );
       setIsJsonMode(true);
     }
   };
@@ -131,8 +133,8 @@ const DynamicJsonForm = ({
         );
       case "object": {
         // Handle case where we have a value but no schema properties
-        const objectValue = currentValue as JsonObject || {};
-        
+        const objectValue = (currentValue as JsonObject) || {};
+
         // If we have schema properties, use them to render fields
         if (propSchema.properties) {
           return (
@@ -150,7 +152,7 @@ const DynamicJsonForm = ({
               ))}
             </div>
           );
-        } 
+        }
         // If we have a value but no schema properties, render fields based on the value
         else if (Object.keys(objectValue).length > 0) {
           return (
@@ -161,7 +163,7 @@ const DynamicJsonForm = ({
                   <Input
                     type="text"
                     value={String(value)}
-                    onChange={(e) => 
+                    onChange={(e) =>
                       handleFieldChange([...path, key], e.target.value)
                     }
                   />
@@ -254,11 +256,7 @@ const DynamicJsonForm = ({
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleSwitchToFormMode}
-        >
+        <Button variant="outline" size="sm" onClick={handleSwitchToFormMode}>
           {isJsonMode ? "Switch to Form" : "Switch to JSON"}
         </Button>
       </div>
@@ -281,23 +279,28 @@ const DynamicJsonForm = ({
           }}
           error={jsonError}
         />
-      ) : (
-        // If schema type is object but value is not an object or is empty, and we have actual JSON data,
-        // render a simple representation of the JSON data
-        schema.type === "object" && 
-        (typeof value !== "object" || value === null || Object.keys(value).length === 0) && 
-        rawJsonValue && 
+      ) : // If schema type is object but value is not an object or is empty, and we have actual JSON data,
+      // render a simple representation of the JSON data
+      schema.type === "object" &&
+        (typeof value !== "object" ||
+          value === null ||
+          Object.keys(value).length === 0) &&
+        rawJsonValue &&
         rawJsonValue !== "{}" ? (
-          <div className="space-y-4 border rounded-md p-4">
-            <p className="text-sm text-gray-500">Form view not available for this JSON structure. Using simplified view:</p>
-            <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto">
-              {rawJsonValue}
-            </pre>
-            <p className="text-sm text-gray-500">Use JSON mode for full editing capabilities.</p>
-          </div>
-        ) : (
-          renderFormFields(schema, value)
-        )
+        <div className="space-y-4 border rounded-md p-4">
+          <p className="text-sm text-gray-500">
+            Form view not available for this JSON structure. Using simplified
+            view:
+          </p>
+          <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto">
+            {rawJsonValue}
+          </pre>
+          <p className="text-sm text-gray-500">
+            Use JSON mode for full editing capabilities.
+          </p>
+        </div>
+      ) : (
+        renderFormFields(schema, value)
       )}
     </div>
   );

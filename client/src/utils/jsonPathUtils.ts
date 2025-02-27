@@ -10,9 +10,9 @@ export type JsonObject = { [key: string]: JsonValue };
  * @returns A new JSON value with the updated path
  */
 export function updateValueAtPath(
-  obj: JsonValue, 
-  path: string[], 
-  value: JsonValue
+  obj: JsonValue,
+  path: string[],
+  value: JsonValue,
 ): JsonValue {
   if (path.length === 0) return value;
 
@@ -24,16 +24,16 @@ export function updateValueAtPath(
   // Handle arrays
   if (Array.isArray(obj)) {
     return updateArray(obj, path, value);
-  } 
+  }
   // Handle objects
   else if (typeof obj === "object" && obj !== null) {
     return updateObject(obj as JsonObject, path, value);
-  } 
+  }
   // Cannot update primitives
   else {
     console.error(
       `Cannot update path ${path.join(".")} in non-object/array value:`,
-      obj
+      obj,
     );
     return obj;
   }
@@ -43,9 +43,9 @@ export function updateValueAtPath(
  * Updates an array at a specific path
  */
 function updateArray(
-  array: JsonValue[], 
-  path: string[], 
-  value: JsonValue
+  array: JsonValue[],
+  path: string[],
+  value: JsonValue,
 ): JsonValue[] {
   const [index, ...restPath] = path;
   const arrayIndex = Number(index);
@@ -82,7 +82,11 @@ function updateArray(
   if (restPath.length === 0) {
     newArray[arrayIndex] = value;
   } else {
-    newArray[arrayIndex] = updateValueAtPath(newArray[arrayIndex], restPath, value);
+    newArray[arrayIndex] = updateValueAtPath(
+      newArray[arrayIndex],
+      restPath,
+      value,
+    );
   }
   return newArray;
 }
@@ -91,9 +95,9 @@ function updateArray(
  * Updates an object at a specific path
  */
 function updateObject(
-  obj: JsonObject, 
-  path: string[], 
-  value: JsonValue
+  obj: JsonObject,
+  path: string[],
+  value: JsonValue,
 ): JsonObject {
   const [key, ...restPath] = path;
 
@@ -125,18 +129,18 @@ function updateObject(
  * @returns The value at the path, or defaultValue if not found
  */
 export function getValueAtPath(
-  obj: JsonValue, 
-  path: string[], 
-  defaultValue: JsonValue = null
+  obj: JsonValue,
+  path: string[],
+  defaultValue: JsonValue = null,
 ): JsonValue {
   if (path.length === 0) return obj;
-  
+
   const [first, ...rest] = path;
-  
+
   if (obj === null || obj === undefined) {
     return defaultValue;
   }
-  
+
   if (Array.isArray(obj)) {
     const index = Number(first);
     if (isNaN(index) || index < 0 || index >= obj.length) {
@@ -144,13 +148,13 @@ export function getValueAtPath(
     }
     return getValueAtPath(obj[index], rest, defaultValue);
   }
-  
+
   if (typeof obj === "object" && obj !== null) {
     if (!(first in obj)) {
       return defaultValue;
     }
     return getValueAtPath((obj as JsonObject)[first], rest, defaultValue);
   }
-  
+
   return defaultValue;
 }
