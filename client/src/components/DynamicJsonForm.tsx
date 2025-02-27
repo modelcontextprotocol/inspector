@@ -247,7 +247,6 @@ const DynamicJsonForm = ({
       onChange(newValue);
     } catch (error) {
       console.error("Failed to update form value:", error);
-      // Keep the original value unchanged
       onChange(value);
     }
   };
