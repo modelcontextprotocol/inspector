@@ -62,22 +62,27 @@ function updateArray(
     return array;
   }
 
-  const newArray = [...array];
+  // Create a dense copy of the array, filling holes with null
+  let newArray: JsonValue[] = [];
+  for (let i = 0; i < array.length; i++) {
+    newArray[i] = i in array ? array[i] : null;
+  }
+
+  // If the desired index is out of bounds, build a new array explicitly filled with nulls
+  if (arrayIndex >= newArray.length) {
+    console.warn(`Extending array to index ${arrayIndex}`);
+    const extendedArray: JsonValue[] = new Array(arrayIndex).fill(null);
+    // Copy over the existing elements (now guaranteed to be dense)
+    for (let i = 0; i < newArray.length; i++) {
+      extendedArray[i] = newArray[i];
+    }
+    newArray = extendedArray;
+  }
 
   if (restPath.length === 0) {
     newArray[arrayIndex] = value;
   } else {
-    // Ensure index position exists
-    if (arrayIndex >= array.length) {
-      console.warn(`Extending array to index ${arrayIndex}`);
-      newArray.length = arrayIndex + 1;
-      newArray.fill(null, array.length, arrayIndex);
-    }
-    newArray[arrayIndex] = updateValueAtPath(
-      newArray[arrayIndex],
-      restPath,
-      value
-    );
+    newArray[arrayIndex] = updateValueAtPath(newArray[arrayIndex], restPath, value);
   }
   return newArray;
 }
@@ -105,7 +110,6 @@ function updateObject(
   } else {
     // Ensure key exists
     if (!(key in newObj)) {
-      console.warn(`Creating new key in object: ${key}`);
       newObj[key] = {};
     }
     newObj[key] = updateValueAtPath(newObj[key], restPath, value);
