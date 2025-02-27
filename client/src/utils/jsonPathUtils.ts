@@ -16,20 +16,16 @@ export function updateValueAtPath(
 ): JsonValue {
   if (path.length === 0) return value;
 
-  // Initialize if null/undefined
   if (obj === null || obj === undefined) {
     obj = !isNaN(Number(path[0])) ? [] : {};
   }
 
-  // Handle arrays
   if (Array.isArray(obj)) {
     return updateArray(obj, path, value);
   }
-  // Handle objects
   else if (typeof obj === "object" && obj !== null) {
     return updateObject(obj as JsonObject, path, value);
   }
-  // Cannot update primitives
   else {
     console.error(
       `Cannot update path ${path.join(".")} in non-object/array value:`,
@@ -50,27 +46,22 @@ function updateArray(
   const [index, ...restPath] = path;
   const arrayIndex = Number(index);
 
-  // Validate array index
   if (isNaN(arrayIndex)) {
     console.error(`Invalid array index: ${index}`);
     return array;
   }
 
-  // Check array bounds
   if (arrayIndex < 0) {
     console.error(`Array index out of bounds: ${arrayIndex} < 0`);
     return array;
   }
 
-  // Create a dense copy of the array, filling holes with null
   let newArray: JsonValue[] = [];
   for (let i = 0; i < array.length; i++) {
     newArray[i] = i in array ? array[i] : null;
   }
 
-  // If the desired index is out of bounds, build a new array explicitly filled with nulls
   if (arrayIndex >= newArray.length) {
-    console.warn(`Extending array to index ${arrayIndex}`);
     const extendedArray: JsonValue[] = new Array(arrayIndex).fill(null);
     // Copy over the existing elements (now guaranteed to be dense)
     for (let i = 0; i < newArray.length; i++) {
