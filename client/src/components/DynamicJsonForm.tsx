@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -73,25 +73,24 @@ const DynamicJsonForm = ({
     JSON.stringify(value ?? generateDefaultValue(schema), null, 2)
   );
 
-  const validateJsonBeforeSubmit = () => {
-    if (isJsonMode && rawJsonValue) {
-      try {
-        const parsed = JSON.parse(rawJsonValue);
-        onChange(parsed);
-        setJsonError(undefined);
-        return true;
-      } catch (err) {
-        setJsonError(err instanceof Error ? err.message : "Invalid JSON");
-        return false;
-      }
+  // Update rawJsonValue when value prop changes
+  useEffect(() => {
+    if (!isJsonMode) {
+      setRawJsonValue(JSON.stringify(value ?? generateDefaultValue(schema), null, 2));
     }
-    return true;
-  };
+  }, [value, schema, isJsonMode]);
 
   const handleSwitchToFormMode = () => {
     if (isJsonMode) {
-      if (validateJsonBeforeSubmit()) {
+      // When switching to Form mode, ensure we have valid JSON
+      try {
+        const parsed = JSON.parse(rawJsonValue);
+        // Update the parent component's state with the parsed value
+        onChange(parsed);
+        // Switch to form mode
         setIsJsonMode(false);
+      } catch (err) {
+        setJsonError(err instanceof Error ? err.message : "Invalid JSON");
       }
     } else {
       // Update raw JSON value when switching to JSON mode
@@ -160,23 +159,50 @@ const DynamicJsonForm = ({
             className="w-4 h-4"
           />
         );
-      case "object":
-        if (!propSchema.properties) return null;
-        return (
-          <div className="space-y-4 border rounded-md p-4">
-            {Object.entries(propSchema.properties).map(([key, prop]) => (
-              <div key={key} className="space-y-2">
-                <Label>{formatFieldLabel(key)}</Label>
-                {renderFormFields(
-                  prop,
-                  (currentValue as JsonObject)?.[key],
-                  [...path, key],
-                  depth + 1,
-                )}
-              </div>
-            ))}
-          </div>
-        );
+      case "object": {
+        // Handle case where we have a value but no schema properties
+        const objectValue = currentValue as JsonObject || {};
+        
+        // If we have schema properties, use them to render fields
+        if (propSchema.properties) {
+          return (
+            <div className="space-y-4 border rounded-md p-4">
+              {Object.entries(propSchema.properties).map(([key, prop]) => (
+                <div key={key} className="space-y-2">
+                  <Label>{formatFieldLabel(key)}</Label>
+                  {renderFormFields(
+                    prop,
+                    objectValue[key],
+                    [...path, key],
+                    depth + 1,
+                  )}
+                </div>
+              ))}
+            </div>
+          );
+        } 
+        // If we have a value but no schema properties, render fields based on the value
+        else if (Object.keys(objectValue).length > 0) {
+          return (
+            <div className="space-y-4 border rounded-md p-4">
+              {Object.entries(objectValue).map(([key, value]) => (
+                <div key={key} className="space-y-2">
+                  <Label>{formatFieldLabel(key)}</Label>
+                  <Input
+                    type="text"
+                    value={String(value)}
+                    onChange={(e) => 
+                      handleFieldChange([...path, key], e.target.value)
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          );
+        }
+        // If we have neither schema properties nor value, return null
+        return null;
+      }
       case "array": {
         const arrayValue = Array.isArray(currentValue) ? currentValue : [];
         if (!propSchema.items) return null;
@@ -385,7 +411,22 @@ const DynamicJsonForm = ({
           error={jsonError}
         />
       ) : (
-        renderFormFields(schema, value)
+        // If schema type is object but value is not an object or is empty, and we have actual JSON data,
+        // render a simple representation of the JSON data
+        schema.type === "object" && 
+        (typeof value !== "object" || value === null || Object.keys(value).length === 0) && 
+        rawJsonValue && 
+        rawJsonValue !== "{}" ? (
+          <div className="space-y-4 border rounded-md p-4">
+            <p className="text-sm text-gray-500">Form view not available for this JSON structure. Using simplified view:</p>
+            <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto">
+              {rawJsonValue}
+            </pre>
+            <p className="text-sm text-gray-500">Use JSON mode for full editing capabilities.</p>
+          </div>
+        ) : (
+          renderFormFields(schema, value)
+        )
       )}
     </div>
   );
