@@ -22,11 +22,9 @@ export function updateValueAtPath(
 
   if (Array.isArray(obj)) {
     return updateArray(obj, path, value);
-  }
-  else if (typeof obj === "object" && obj !== null) {
+  } else if (typeof obj === "object" && obj !== null) {
     return updateObject(obj as JsonObject, path, value);
-  }
-  else {
+  } else {
     console.error(
       `Cannot update path ${path.join(".")} in non-object/array value:`,
       obj,
