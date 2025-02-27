@@ -27,9 +27,6 @@ const JsonEditor = ({
 
   const formatJson = (json: string): string => {
     try {
-      // Handle empty arrays and objects specifically
-      if (json.trim() === "[]") return "[]";
-      if (json.trim() === "{}") return "{}";
       return JSON.stringify(JSON.parse(json), null, 2);
     } catch {
       return json;
