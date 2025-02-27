@@ -1,13 +1,18 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Combobox } from "@/components/ui/combobox";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { ListPromptsResult } from "@modelcontextprotocol/sdk/types.js";
+import {
+  ListPromptsResult,
+  PromptReference,
+  ResourceReference,
+} from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
+import { useCompletionState } from "@/lib/hooks/useCompletionState";
 
 export type Prompt = {
   name: string;
@@ -26,6 +31,8 @@ const PromptsTab = ({
   getPrompt,
   selectedPrompt,
   setSelectedPrompt,
+  handleCompletion,
+  completionsSupported,
   promptContent,
   nextCursor,
   error,
@@ -36,14 +43,37 @@ const PromptsTab = ({
   getPrompt: (name: string, args: Record<string, string>) => void;
   selectedPrompt: Prompt | null;
   setSelectedPrompt: (prompt: Prompt) => void;
+  handleCompletion: (
+    ref: PromptReference | ResourceReference,
+    argName: string,
+    value: string,
+  ) => Promise<string[]>;
+  completionsSupported: boolean;
   promptContent: string;
   nextCursor: ListPromptsResult["nextCursor"];
   error: string | null;
 }) => {
   const [promptArgs, setPromptArgs] = useState<Record<string, string>>({});
+  const { completions, clearCompletions, requestCompletions } =
+    useCompletionState(handleCompletion, completionsSupported);
 
-  const handleInputChange = (argName: string, value: string) => {
+  useEffect(() => {
+    clearCompletions();
+  }, [clearCompletions, selectedPrompt]);
+
+  const handleInputChange = async (argName: string, value: string) => {
     setPromptArgs((prev) => ({ ...prev, [argName]: value }));
+
+    if (selectedPrompt) {
+      requestCompletions(
+        {
+          type: "ref/prompt",
+          name: selectedPrompt.name,
+        },
+        argName,
+        value,
+      );
+    }
   };
 
   const handleGetPrompt = () => {
@@ -96,14 +126,17 @@ const PromptsTab = ({
               {selectedPrompt.arguments?.map((arg) => (
                 <div key={arg.name}>
                   <Label htmlFor={arg.name}>{arg.name}</Label>
-                  <Input
+                  <Combobox
                     id={arg.name}
                     placeholder={`Enter ${arg.name}`}
                     value={promptArgs[arg.name] || ""}
-                    onChange={(e) =>
-                      handleInputChange(arg.name, e.target.value)
+                    onChange={(value) => handleInputChange(arg.name, value)}
+                    onInputChange={(value) =>
+                      handleInputChange(arg.name, value)
                     }
+                    options={completions[arg.name] || []}
                   />
+
                   {arg.description && (
                     <p className="text-xs text-gray-500 mt-1">
                       {arg.description}
