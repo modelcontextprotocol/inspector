@@ -1,6 +1,8 @@
 on:
-  # TODO: Revert to only running on main branch pushes after testing
   push:
+    branches:
+      - main
+
   pull_request:
   release:
     types: [published]
