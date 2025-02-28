@@ -16,7 +16,14 @@ export type JsonValue =
   | { [key: string]: JsonValue };
 
 export type JsonSchemaType = {
-  type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "null";
+  type:
+    | "string"
+    | "number"
+    | "integer"
+    | "boolean"
+    | "array"
+    | "object"
+    | "null";
   description?: string;
   required?: boolean;
   default?: JsonValue;
@@ -261,11 +268,11 @@ const DynamicJsonForm = ({
                 size="sm"
                 onClick={() => {
                   const defaultValue = generateDefaultValue(
-                    propSchema.items as JsonSchemaType
+                    propSchema.items as JsonSchemaType,
                   );
                   handleFieldChange(path, [
                     ...arrayValue,
-                    defaultValue ?? null
+                    defaultValue ?? null,
                   ]);
                 }}
                 title={

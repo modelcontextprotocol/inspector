@@ -19,7 +19,9 @@ describe("generateDefaultValue", () => {
   });
 
   test("generates default boolean", () => {
-    expect(generateDefaultValue({ type: "boolean", required: true })).toBe(false);
+    expect(generateDefaultValue({ type: "boolean", required: true })).toBe(
+      false,
+    );
   });
 
   test("generates default array", () => {
@@ -27,12 +29,16 @@ describe("generateDefaultValue", () => {
   });
 
   test("generates default empty object", () => {
-    expect(generateDefaultValue({ type: "object", required: true })).toEqual({});
+    expect(generateDefaultValue({ type: "object", required: true })).toEqual(
+      {},
+    );
   });
 
   test("generates default null for unknown types", () => {
     // @ts-expect-error Testing with invalid type
-    expect(generateDefaultValue({ type: "unknown", required: true })).toBe(null);
+    expect(generateDefaultValue({ type: "unknown", required: true })).toBe(
+      null,
+    );
   });
 
   test("generates object with properties", () => {

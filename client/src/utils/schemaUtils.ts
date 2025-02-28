@@ -7,7 +7,6 @@ import { JsonObject } from "./jsonPathUtils";
  * @returns A default value matching the schema type, or null for non-required fields
  */
 export function generateDefaultValue(schema: JsonSchemaType): JsonValue {
-
   if ("default" in schema) {
     // Ensure we don't return undefined even if schema.default is undefined
     return schema.default === undefined ? null : schema.default;
@@ -29,7 +28,7 @@ export function generateDefaultValue(schema: JsonSchemaType): JsonValue {
       return [];
     case "object": {
       if (!schema.properties) return {};
-      
+
       const obj: JsonObject = {};
       Object.entries(schema.properties)
         .filter(([, prop]) => prop.required)
