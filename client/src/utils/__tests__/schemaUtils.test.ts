@@ -1,7 +1,4 @@
-import {
-  generateDefaultValue,
-  formatFieldLabel,
-} from "../schemaUtils";
+import { generateDefaultValue, formatFieldLabel } from "../schemaUtils";
 import { JsonSchemaType } from "../../components/DynamicJsonForm";
 
 describe("generateDefaultValue", () => {
