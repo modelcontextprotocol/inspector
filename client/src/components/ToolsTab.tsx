@@ -214,7 +214,7 @@ const ToolsTab = ({
                               description: prop.description,
                               items: prop.items,
                             }}
-                            value={(params[key] as JsonValue) ?? {}}
+                            value={(params[key] as JsonValue) ?? (prop.type === "array" ? [] : {})}
                             onChange={(newValue: JsonValue) => {
                               setParams({
                                 ...params,
