@@ -307,6 +307,16 @@ const DynamicJsonForm = ({
     }
   };
 
+  const shouldUseJsonMode = 
+    schema.type === "object" && 
+    (!schema.properties || Object.keys(schema.properties).length === 0);
+
+  useEffect(() => {
+    if (shouldUseJsonMode && !isJsonMode) {
+      setIsJsonMode(true);
+    }
+  }, [shouldUseJsonMode, isJsonMode]);
+
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
