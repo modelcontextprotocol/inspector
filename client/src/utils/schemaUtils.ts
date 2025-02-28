@@ -4,9 +4,19 @@ import { JsonObject } from "./jsonPathUtils";
 /**
  * Generates a default value based on a JSON schema type
  * @param schema The JSON schema definition
- * @returns A default value matching the schema type
+ * @returns A default value matching the schema type, or null for non-required fields
  */
 export function generateDefaultValue(schema: JsonSchemaType): JsonValue {
+
+  if ("default" in schema) {
+    // Ensure we don't return undefined even if schema.default is undefined
+    return schema.default === undefined ? null : schema.default;
+  }
+
+  if (!schema.required) {
+    return null;
+  }
+
   switch (schema.type) {
     case "string":
       return "";
@@ -18,12 +28,15 @@ export function generateDefaultValue(schema: JsonSchemaType): JsonValue {
     case "array":
       return [];
     case "object": {
+      if (!schema.properties) return {};
+      
       const obj: JsonObject = {};
-      if (schema.properties) {
-        Object.entries(schema.properties).forEach(([key, prop]) => {
-          obj[key] = generateDefaultValue(prop);
+      Object.entries(schema.properties)
+        .filter(([, prop]) => prop.required)
+        .forEach(([key, prop]) => {
+          const value = generateDefaultValue(prop);
+          obj[key] = value;
         });
-      }
       return obj;
     }
     default:
@@ -53,13 +66,19 @@ export function validateValueAgainstSchema(
   value: JsonValue,
   schema: JsonSchemaType,
 ): boolean {
+  // Handle undefined values for non-required fields
+  if (value === undefined && !schema.required) {
+    return true;
+  }
+
   // Basic type validation
   switch (schema.type) {
     case "string":
       return typeof value === "string";
     case "number":
-    case "integer":
       return typeof value === "number";
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
     case "boolean":
       return typeof value === "boolean";
     case "array":
@@ -68,6 +87,8 @@ export function validateValueAgainstSchema(
       return (
         typeof value === "object" && value !== null && !Array.isArray(value)
       );
+    case "null":
+      return value === null;
     default:
       return true;
   }

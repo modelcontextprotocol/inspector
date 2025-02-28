@@ -7,40 +7,42 @@ import { JsonSchemaType } from "../../components/DynamicJsonForm";
 
 describe("generateDefaultValue", () => {
   test("generates default string", () => {
-    expect(generateDefaultValue({ type: "string" })).toBe("");
+    expect(generateDefaultValue({ type: "string", required: true })).toBe("");
   });
 
   test("generates default number", () => {
-    expect(generateDefaultValue({ type: "number" })).toBe(0);
+    expect(generateDefaultValue({ type: "number", required: true })).toBe(0);
   });
 
   test("generates default integer", () => {
-    expect(generateDefaultValue({ type: "integer" })).toBe(0);
+    expect(generateDefaultValue({ type: "integer", required: true })).toBe(0);
   });
 
   test("generates default boolean", () => {
-    expect(generateDefaultValue({ type: "boolean" })).toBe(false);
+    expect(generateDefaultValue({ type: "boolean", required: true })).toBe(false);
   });
 
   test("generates default array", () => {
-    expect(generateDefaultValue({ type: "array" })).toEqual([]);
+    expect(generateDefaultValue({ type: "array", required: true })).toEqual([]);
   });
 
   test("generates default empty object", () => {
-    expect(generateDefaultValue({ type: "object" })).toEqual({});
+    expect(generateDefaultValue({ type: "object", required: true })).toEqual({});
   });
 
   test("generates default null for unknown types", () => {
-    expect(generateDefaultValue({ type: "unknown" as any })).toBe(null);
+    // @ts-expect-error Testing with invalid type
+    expect(generateDefaultValue({ type: "unknown", required: true })).toBe(null);
   });
 
   test("generates object with properties", () => {
     const schema: JsonSchemaType = {
       type: "object",
+      required: true,
       properties: {
-        name: { type: "string" },
-        age: { type: "number" },
-        isActive: { type: "boolean" },
+        name: { type: "string", required: true },
+        age: { type: "number", required: true },
+        isActive: { type: "boolean", required: true },
       },
     };
     expect(generateDefaultValue(schema)).toEqual({
@@ -53,15 +55,18 @@ describe("generateDefaultValue", () => {
   test("handles nested objects", () => {
     const schema: JsonSchemaType = {
       type: "object",
+      required: true,
       properties: {
         user: {
           type: "object",
+          required: true,
           properties: {
-            name: { type: "string" },
+            name: { type: "string", required: true },
             address: {
               type: "object",
+              required: true,
               properties: {
-                city: { type: "string" },
+                city: { type: "string", required: true },
               },
             },
           },
@@ -135,7 +140,8 @@ describe("validateValueAgainstSchema", () => {
 
   test("returns true for unknown types", () => {
     expect(
-      validateValueAgainstSchema("anything", { type: "unknown" as any }),
+      // @ts-expect-error Testing with invalid type
+      validateValueAgainstSchema("anything", { type: "unknown" }),
     ).toBe(true);
   });
 });
