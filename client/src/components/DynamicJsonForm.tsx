@@ -307,8 +307,8 @@ const DynamicJsonForm = ({
     }
   };
 
-  const shouldUseJsonMode = 
-    schema.type === "object" && 
+  const shouldUseJsonMode =
+    schema.type === "object" &&
     (!schema.properties || Object.keys(schema.properties).length === 0);
 
   useEffect(() => {
