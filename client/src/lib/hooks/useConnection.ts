@@ -26,7 +26,9 @@ import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { authProvider } from "../auth";
 
-const DEFAULT_REQUEST_TIMEOUT_MSEC = 10000;
+const params = new URLSearchParams(window.location.search);
+const DEFAULT_REQUEST_TIMEOUT_MSEC =
+  parseInt(params.get("timeout") ?? "") || 10000;
 
 interface UseConnectionOptions {
   transportType: "stdio" | "sse";
