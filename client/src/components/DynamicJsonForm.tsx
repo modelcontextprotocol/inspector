@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,6 +50,28 @@ const DynamicJsonForm = ({
   const [rawJsonValue, setRawJsonValue] = useState<string>(
     JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
   );
+
+  // Create a ref to store the timeout ID
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Create a debounced function to update parent state
+  const debouncedUpdateParent = useCallback((jsonString: string) => {
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    
+    // Set a new timeout
+    timeoutRef.current = setTimeout(() => {
+      try {
+        const parsed = JSON.parse(jsonString);
+        onChange(parsed);
+        setJsonError(undefined);
+      } catch {
+        // Don't set error during normal typing
+      }
+    }, 300);
+  }, [onChange, setJsonError]);
 
   // Update rawJsonValue when value prop changes
   useEffect(() => {
@@ -329,17 +351,11 @@ const DynamicJsonForm = ({
         <JsonEditor
           value={rawJsonValue}
           onChange={(newValue) => {
+            // Always update local state
             setRawJsonValue(newValue);
-            try {
-              if (/^\s*[{[].*[}\]]\s*$/.test(newValue)) {
-                const parsed = JSON.parse(newValue);
-                onChange(parsed);
-                setJsonError(undefined);
-              }
-            } catch {
-              // Don't set an error during typing - that will happen when the user
-              // tries to save or submit the form
-            }
+            
+            // Use the debounced function to attempt parsing and updating parent
+            debouncedUpdateParent(newValue);
           }}
           error={jsonError}
         />
