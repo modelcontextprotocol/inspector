@@ -55,23 +55,26 @@ const DynamicJsonForm = ({
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Create a debounced function to update parent state
-  const debouncedUpdateParent = useCallback((jsonString: string) => {
-    // Clear any existing timeout
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    
-    // Set a new timeout
-    timeoutRef.current = setTimeout(() => {
-      try {
-        const parsed = JSON.parse(jsonString);
-        onChange(parsed);
-        setJsonError(undefined);
-      } catch {
-        // Don't set error during normal typing
+  const debouncedUpdateParent = useCallback(
+    (jsonString: string) => {
+      // Clear any existing timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
       }
-    }, 300);
-  }, [onChange, setJsonError]);
+
+      // Set a new timeout
+      timeoutRef.current = setTimeout(() => {
+        try {
+          const parsed = JSON.parse(jsonString);
+          onChange(parsed);
+          setJsonError(undefined);
+        } catch {
+          // Don't set error during normal typing
+        }
+      }, 300);
+    },
+    [onChange, setJsonError],
+  );
 
   // Update rawJsonValue when value prop changes
   useEffect(() => {
@@ -353,7 +356,7 @@ const DynamicJsonForm = ({
           onChange={(newValue) => {
             // Always update local state
             setRawJsonValue(newValue);
-            
+
             // Use the debounced function to attempt parsing and updating parent
             debouncedUpdateParent(newValue);
           }}
