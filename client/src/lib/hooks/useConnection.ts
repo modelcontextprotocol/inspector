@@ -12,6 +12,11 @@ import {
   Request,
   Result,
   ServerCapabilities,
+  PromptReference,
+  ResourceReference,
+  McpError,
+  CompleteResultSchema,
+  ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 import { toast } from "react-toastify";
@@ -37,6 +42,12 @@ interface UseConnectionOptions {
   getRoots?: () => any[];
 }
 
+interface RequestOptions {
+  signal?: AbortSignal;
+  timeout?: number;
+  suppressToast?: boolean;
+}
+
 export function useConnection({
   transportType,
   command,
@@ -59,6 +70,7 @@ export function useConnection({
   const [requestHistory, setRequestHistory] = useState<
     { request: string; response?: string }[]
   >([]);
+  const [completionsSupported, setCompletionsSupported] = useState(true);
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
@@ -73,7 +85,8 @@ export function useConnection({
   const makeRequest = async <T extends z.ZodType>(
     request: ClientRequest,
     schema: T,
-  ) => {
+    options?: RequestOptions,
+  ): Promise<z.output<T>> => {
     if (!mcpClient) {
       throw new Error("MCP client not connected");
     }
@@ -82,12 +95,12 @@ export function useConnection({
       const abortController = new AbortController();
       const timeoutId = setTimeout(() => {
         abortController.abort("Request timed out");
-      }, requestTimeout);
+      }, options?.timeout ?? requestTimeout);
 
       let response;
       try {
         response = await mcpClient.request(request, schema, {
-          signal: abortController.signal,
+          signal: options?.signal ?? abortController.signal,
         });
         pushHistory(request, response);
       } catch (error) {
@@ -101,23 +114,72 @@ export function useConnection({
 
       return response;
     } catch (e: unknown) {
-      const errorString = (e as Error).message ?? String(e);
-      toast.error(errorString);
+      if (!options?.suppressToast) {
+        const errorString = (e as Error).message ?? String(e);
+        toast.error(errorString);
+      }
+      throw e;
+    }
+  };
 
+  const handleCompletion = async (
+    ref: ResourceReference | PromptReference,
+    argName: string,
+    value: string,
+    signal?: AbortSignal,
+  ): Promise<string[]> => {
+    if (!mcpClient || !completionsSupported) {
+      return [];
+    }
+
+    const request: ClientRequest = {
+      method: "completion/complete",
+      params: {
+        argument: {
+          name: argName,
+          value,
+        },
+        ref,
+      },
+    };
+
+    try {
+      const response = await makeRequest(request, CompleteResultSchema, {
+        signal,
+        suppressToast: true,
+      });
+      return response?.completion.values || [];
+    } catch (e: unknown) {
+      // Disable completions silently if the server doesn't support them.
+      // See https://github.com/modelcontextprotocol/specification/discussions/122
+      if (e instanceof McpError && e.code === ErrorCode.MethodNotFound) {
+        setCompletionsSupported(false);
+        return [];
+      }
+
+      // Unexpected errors - show toast and rethrow
+      toast.error(e instanceof Error ? e.message : String(e));
       throw e;
     }
   };
 
   const sendNotification = async (notification: ClientNotification) => {
     if (!mcpClient) {
-      throw new Error("MCP client not connected");
+      const error = new Error("MCP client not connected");
+      toast.error(error.message);
+      throw error;
     }
 
     try {
       await mcpClient.notification(notification);
+      // Log successful notifications
       pushHistory(notification);
     } catch (e: unknown) {
-      toast.error((e as Error).message ?? String(e));
+      if (e instanceof McpError) {
+        // Log MCP protocol errors
+        pushHistory(notification, { error: e.message });
+      }
+      toast.error(e instanceof Error ? e.message : String(e));
       throw e;
     }
   };
@@ -210,6 +272,7 @@ export function useConnection({
 
       const capabilities = client.getServerCapabilities();
       setServerCapabilities(capabilities ?? null);
+      setCompletionsSupported(true); // Reset completions support on new connection
 
       if (onPendingRequest) {
         client.setRequestHandler(CreateMessageRequestSchema, (request) => {
@@ -240,6 +303,8 @@ export function useConnection({
     requestHistory,
     makeRequest,
     sendNotification,
+    handleCompletion,
+    completionsSupported,
     connect,
   };
 }

@@ -1,16 +1,20 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Combobox } from "@/components/ui/combobox";
 import { TabsContent } from "@/components/ui/tabs";
 import {
   ListResourcesResult,
   Resource,
   ResourceTemplate,
   ListResourceTemplatesResult,
+  ResourceReference,
+  PromptReference,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, ChevronRight, FileText, RefreshCw } from "lucide-react";
 import ListPane from "./ListPane";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useCompletionState } from "@/lib/hooks/useCompletionState";
 
 const ResourcesTab = ({
   resources,
@@ -22,6 +26,8 @@ const ResourcesTab = ({
   readResource,
   selectedResource,
   setSelectedResource,
+  handleCompletion,
+  completionsSupported,
   resourceContent,
   nextCursor,
   nextTemplateCursor,
@@ -36,6 +42,12 @@ const ResourcesTab = ({
   readResource: (uri: string) => void;
   selectedResource: Resource | null;
   setSelectedResource: (resource: Resource | null) => void;
+  handleCompletion: (
+    ref: ResourceReference | PromptReference,
+    argName: string,
+    value: string,
+  ) => Promise<string[]>;
+  completionsSupported: boolean;
   resourceContent: string;
   nextCursor: ListResourcesResult["nextCursor"];
   nextTemplateCursor: ListResourceTemplatesResult["nextCursor"];
@@ -47,6 +59,13 @@ const ResourcesTab = ({
     {},
   );
 
+  const { completions, clearCompletions, requestCompletions } =
+    useCompletionState(handleCompletion, completionsSupported);
+
+  useEffect(() => {
+    clearCompletions();
+  }, [clearCompletions]);
+
   const fillTemplate = (
     template: string,
     values: Record<string, string>,
@@ -55,6 +74,21 @@ const ResourcesTab = ({
       /{([^}]+)}/g,
       (_, key) => values[key] || `{${key}}`,
     );
+  };
+
+  const handleTemplateValueChange = async (key: string, value: string) => {
+    setTemplateValues((prev) => ({ ...prev, [key]: value }));
+
+    if (selectedTemplate?.uriTemplate) {
+      requestCompletions(
+        {
+          type: "ref/resource",
+          uri: selectedTemplate.uriTemplate,
+        },
+        key,
+        value,
+      );
+    }
   };
 
   const handleReadTemplateResource = () => {
@@ -162,22 +196,18 @@ const ResourcesTab = ({
                   const key = param.slice(1, -1);
                   return (
                     <div key={key}>
-                      <label
-                        htmlFor={key}
-                        className="block text-sm font-medium text-gray-700"
-                      >
-                        {key}
-                      </label>
-                      <Input
+                      <Label htmlFor={key}>{key}</Label>
+                      <Combobox
                         id={key}
+                        placeholder={`Enter ${key}`}
                         value={templateValues[key] || ""}
-                        onChange={(e) =>
-                          setTemplateValues({
-                            ...templateValues,
-                            [key]: e.target.value,
-                          })
+                        onChange={(value) =>
+                          handleTemplateValueChange(key, value)
                         }
-                        className="mt-1"
+                        onInputChange={(value) =>
+                          handleTemplateValueChange(key, value)
+                        }
+                        options={completions[key] || []}
                       />
                     </div>
                   );
