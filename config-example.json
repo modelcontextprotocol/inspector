@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "localDemo": {
+      "command": "node",
+      "args": ["demo-server.js"],
+      "env": {
+        "PORT": "8080",
+        "DEBUG": "true"
+      }
+    },
+    "pythonDemo": {
+      "command": "python",
+      "args": ["-m", "mcp_demo_server"],
+      "env": {
+        "MCP_PORT": "8000",
+        "LOG_LEVEL": "debug"
+      }
+    }
+  }
+} 
