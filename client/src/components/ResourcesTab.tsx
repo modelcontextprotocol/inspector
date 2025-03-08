@@ -26,6 +26,8 @@ const ResourcesTab = ({
   readResource,
   selectedResource,
   setSelectedResource,
+  subscribeToResource,
+  unsubscribeFromResource,
   handleCompletion,
   completionsSupported,
   resourceContent,
@@ -52,6 +54,8 @@ const ResourcesTab = ({
   nextCursor: ListResourcesResult["nextCursor"];
   nextTemplateCursor: ListResourceTemplatesResult["nextCursor"];
   error: string | null;
+  subscribeToResource: (uri: string) => void;
+  unsubscribeFromResource: (uri: string) => void;
 }) => {
   const [selectedTemplate, setSelectedTemplate] =
     useState<ResourceTemplate | null>(null);
@@ -164,14 +168,30 @@ const ResourcesTab = ({
                 : "Select a resource or template"}
           </h3>
           {selectedResource && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => readResource(selectedResource.uri)}
-            >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Refresh
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => subscribeToResource(selectedResource.uri)}
+              >
+                Subscribe
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => unsubscribeFromResource(selectedResource.uri)}
+              >
+                Unsubscribe
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => readResource(selectedResource.uri)}
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Refresh
+              </Button>
+            </>
           )}
         </div>
         <div className="p-4">

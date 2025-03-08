@@ -308,6 +308,31 @@ const App = () => {
     setResourceContent(JSON.stringify(response, null, 2));
   };
 
+  const subscribeToResource = async (uri: string) => {
+
+    await makeRequest(
+      {
+        method: "resources/subscribe" as const,
+        params: { uri },
+      },
+      z.object({}),
+      "resources",
+    );
+  };
+
+  const unsubscribeFromResource = async (uri: string) => {
+
+    await makeRequest(
+      {
+        method: "resources/unsubscribe" as const,
+        params: { uri },
+      },
+      z.object({}),
+      "resources",
+    );
+  };
+
+
   const listPrompts = async () => {
     const response = await makeRequest(
       {
@@ -484,6 +509,14 @@ const App = () => {
                       setSelectedResource={(resource) => {
                         clearError("resources");
                         setSelectedResource(resource);
+                      }}
+                      subscribeToResource={(uri) => {
+                        clearError("resources");
+                        subscribeToResource(uri);
+                      }}
+                      unsubscribeFromResource={(uri) => {
+                        clearError("resources");
+                        unsubscribeFromResource(uri);
                       }}
                       handleCompletion={handleCompletion}
                       completionsSupported={completionsSupported}
