@@ -3,6 +3,8 @@
 import { resolve, dirname } from "path";
 import { spawnPromise } from "spawn-rx";
 import { fileURLToPath } from "url";
+import fs from "node:fs";
+import path from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -17,24 +19,107 @@ async function main() {
   const mcpServerArgs = [];
   let command = null;
   let parsingFlags = true;
+  let configPath = null;
+  let serverName = null;
 
+  // First pass to extract --config and --server flags
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    
+    if (arg === "--config" && i + 1 < args.length) {
+      configPath = args[++i];
+    } else if (arg === "--server" && i + 1 < args.length) {
+      serverName = args[++i];
+    }
+  }
 
-    if (parsingFlags && arg === "--") {
-      parsingFlags = false;
-      continue;
+  // Check if we're using config-based approach
+  if (configPath !== null || serverName !== null) {
+    // Both --config and --server must be present
+    if (!configPath || !serverName) {
+      console.error("Error: Both --config and --server flags must be provided together");
+      process.exit(1);
     }
 
-    if (parsingFlags && arg === "-e" && i + 1 < args.length) {
-      const [key, value] = args[++i].split("=");
-      if (key && value) {
-        envVars[key] = value;
+    // Check if there are any other arguments besides --config and --server
+    const otherArgs = args.filter((arg, i) => {
+      if (arg === "--config" || arg === "--server") {
+        return false;
       }
-    } else if (!command) {
-      command = arg;
-    } else {
-      mcpServerArgs.push(arg);
+      if ((args[i-1] === "--config" || args[i-1] === "--server")) {
+        return false;
+      }
+      return true;
+    });
+
+    if (otherArgs.length > 0) {
+      console.error("Error: When using --config and --server flags, no other arguments are allowed");
+      console.error("Please choose either file-based configuration (--config and --server) or argument-based configuration");
+      process.exit(1);
+    }
+
+    // Process the config file
+    try {
+      const resolvedConfigPath = path.isAbsolute(configPath)
+        ? configPath
+        : path.resolve(process.cwd(), configPath);
+
+      if (!fs.existsSync(resolvedConfigPath)) {
+        console.error(`Error: Config file not found: ${resolvedConfigPath}`);
+        process.exit(1);
+      }
+
+      const configContent = fs.readFileSync(resolvedConfigPath, "utf8");
+      const parsedConfig = JSON.parse(configContent);
+      
+      if (!parsedConfig.mcpServers || !parsedConfig.mcpServers[serverName]) {
+        console.error(`Error: Server '${serverName}' not found in config file`);
+        console.error(`Available servers: ${Object.keys(parsedConfig.mcpServers || {}).join(", ")}`);
+        process.exit(1);
+      }
+
+      const serverConfig = parsedConfig.mcpServers[serverName];
+      
+      // Set command and args from config
+      command = serverConfig.command;
+      if (serverConfig.args) {
+        mcpServerArgs.push(...serverConfig.args);
+      }
+      
+      // Set environment variables from config
+      if (serverConfig.env) {
+        Object.assign(envVars, serverConfig.env);
+      }
+      
+      console.log(`Using server configuration '${serverName}' from ${configPath}`);
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        console.error(`Error: Invalid JSON in config file: ${err.message}`);
+      } else {
+        console.error(`Error processing config file: ${err.message}`);
+      }
+      process.exit(1);
+    }
+  } else {
+    // Standard argument parsing (as before)
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+
+      if (parsingFlags && arg === "--") {
+        parsingFlags = false;
+        continue;
+      }
+
+      if (parsingFlags && arg === "-e" && i + 1 < args.length) {
+        const [key, value] = args[++i].split("=");
+        if (key && value) {
+          envVars[key] = value;
+        }
+      } else if (!command) {
+        command = arg;
+      } else {
+        mcpServerArgs.push(arg);
+      }
     }
   }
 
@@ -73,7 +158,7 @@ async function main() {
     [
       inspectorServerPath,
       ...(command ? [`--env`, command] : []),
-      ...(mcpServerArgs ? [`--args=${mcpServerArgs.join(" ")}`] : []),
+      ...(mcpServerArgs.length > 0 ? [`--args=${mcpServerArgs.join(" ")}`] : []),
     ],
     {
       env: {
