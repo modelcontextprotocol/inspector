@@ -173,23 +173,28 @@ const ResourcesTab = ({
           </h3>
           {selectedResource && (
             <div className="flex row-auto gap-1 justify-end w-2/5">
-            { resourceSubscriptionsSupported && !resourceSubscriptions.has(selectedResource.uri) && <Button
-                variant="outline"
-                size="sm"
-                onClick={() => subscribeToResource(selectedResource.uri)}
-              >
-                Subscribe
-              </Button>
-            }
-            { resourceSubscriptionsSupported && resourceSubscriptions.has(selectedResource.uri) &&
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => unsubscribeFromResource(selectedResource.uri)}
-              >
-                Unsubscribe
-              </Button>
-            }
+              {resourceSubscriptionsSupported &&
+                !resourceSubscriptions.has(selectedResource.uri) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => subscribeToResource(selectedResource.uri)}
+                  >
+                    Subscribe
+                  </Button>
+                )}
+              {resourceSubscriptionsSupported &&
+                resourceSubscriptions.has(selectedResource.uri) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      unsubscribeFromResource(selectedResource.uri)
+                    }
+                  >
+                    Unsubscribe
+                  </Button>
+                )}
               <Button
                 variant="outline"
                 size="sm"

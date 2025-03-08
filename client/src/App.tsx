@@ -128,7 +128,9 @@ const App = () => {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
   );
-  const [resourceSubscriptions, setResourceSubscriptions] = useState<Set<string>>(new Set<string>());
+  const [resourceSubscriptions, setResourceSubscriptions] = useState<
+    Set<string>
+  >(new Set<string>());
 
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
@@ -311,7 +313,6 @@ const App = () => {
   };
 
   const subscribeToResource = async (uri: string) => {
-
     if (!resourceSubscriptions.has(uri)) {
       await makeRequest(
         {
@@ -325,11 +326,9 @@ const App = () => {
       clone.add(uri);
       setResourceSubscriptions(clone);
     }
-
   };
 
   const unsubscribeFromResource = async (uri: string) => {
-
     if (resourceSubscriptions.has(uri)) {
       await makeRequest(
         {
@@ -344,7 +343,6 @@ const App = () => {
       setResourceSubscriptions(clone);
     }
   };
-
 
   const listPrompts = async () => {
     const response = await makeRequest(
@@ -523,7 +521,9 @@ const App = () => {
                         clearError("resources");
                         setSelectedResource(resource);
                       }}
-                      resourceSubscriptionsSupported={serverCapabilities?.resources?.subscribe || false}
+                      resourceSubscriptionsSupported={
+                        serverCapabilities?.resources?.subscribe || false
+                      }
                       resourceSubscriptions={resourceSubscriptions}
                       subscribeToResource={(uri) => {
                         clearError("resources");
