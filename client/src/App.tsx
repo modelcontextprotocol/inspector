@@ -128,6 +128,8 @@ const App = () => {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
   );
+  const [resourceSubscriptions, setResourceSubscriptions] = useState<Set<string>>(new Set<string>());
+
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [nextResourceCursor, setNextResourceCursor] = useState<
@@ -310,26 +312,37 @@ const App = () => {
 
   const subscribeToResource = async (uri: string) => {
 
-    await makeRequest(
-      {
-        method: "resources/subscribe" as const,
-        params: { uri },
-      },
-      z.object({}),
-      "resources",
-    );
+    if (!resourceSubscriptions.has(uri)) {
+      await makeRequest(
+        {
+          method: "resources/subscribe" as const,
+          params: { uri },
+        },
+        z.object({}),
+        "resources",
+      );
+      const clone = new Set(resourceSubscriptions);
+      clone.add(uri);
+      setResourceSubscriptions(clone);
+    }
+
   };
 
   const unsubscribeFromResource = async (uri: string) => {
 
-    await makeRequest(
-      {
-        method: "resources/unsubscribe" as const,
-        params: { uri },
-      },
-      z.object({}),
-      "resources",
-    );
+    if (resourceSubscriptions.has(uri)) {
+      await makeRequest(
+        {
+          method: "resources/unsubscribe" as const,
+          params: { uri },
+        },
+        z.object({}),
+        "resources",
+      );
+      const clone = new Set(resourceSubscriptions);
+      clone.delete(uri);
+      setResourceSubscriptions(clone);
+    }
   };
 
 
@@ -510,6 +523,8 @@ const App = () => {
                         clearError("resources");
                         setSelectedResource(resource);
                       }}
+                      resourceSubscriptionsSupported={serverCapabilities?.resources?.subscribe || false}
+                      resourceSubscriptions={resourceSubscriptions}
                       subscribeToResource={(uri) => {
                         clearError("resources");
                         subscribeToResource(uri);

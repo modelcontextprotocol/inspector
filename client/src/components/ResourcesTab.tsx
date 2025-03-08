@@ -26,6 +26,8 @@ const ResourcesTab = ({
   readResource,
   selectedResource,
   setSelectedResource,
+  resourceSubscriptionsSupported,
+  resourceSubscriptions,
   subscribeToResource,
   unsubscribeFromResource,
   handleCompletion,
@@ -54,6 +56,8 @@ const ResourcesTab = ({
   nextCursor: ListResourcesResult["nextCursor"];
   nextTemplateCursor: ListResourceTemplatesResult["nextCursor"];
   error: string | null;
+  resourceSubscriptionsSupported: boolean;
+  resourceSubscriptions: Set<string>;
   subscribeToResource: (uri: string) => void;
   unsubscribeFromResource: (uri: string) => void;
 }) => {
@@ -168,14 +172,16 @@ const ResourcesTab = ({
                 : "Select a resource or template"}
           </h3>
           {selectedResource && (
-            <>
-              <Button
+            <div className="flex row-auto gap-1 justify-end w-2/5">
+            { resourceSubscriptionsSupported && !resourceSubscriptions.has(selectedResource.uri) && <Button
                 variant="outline"
                 size="sm"
                 onClick={() => subscribeToResource(selectedResource.uri)}
               >
                 Subscribe
               </Button>
+            }
+            { resourceSubscriptionsSupported && resourceSubscriptions.has(selectedResource.uri) &&
               <Button
                 variant="outline"
                 size="sm"
@@ -183,6 +189,7 @@ const ResourcesTab = ({
               >
                 Unsubscribe
               </Button>
+            }
               <Button
                 variant="outline"
                 size="sm"
@@ -191,7 +198,7 @@ const ResourcesTab = ({
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Refresh
               </Button>
-            </>
+            </div>
           )}
         </div>
         <div className="p-4">
