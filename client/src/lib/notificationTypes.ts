@@ -1,6 +1,7 @@
 import {
   NotificationSchema as BaseNotificationSchema,
   ClientNotificationSchema,
+  ServerNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
@@ -11,9 +12,9 @@ export const StdErrNotificationSchema = BaseNotificationSchema.extend({
   }),
 });
 
-export const NotificationSchema = ClientNotificationSchema.or(
-  StdErrNotificationSchema,
-);
+export const NotificationSchema = ClientNotificationSchema
+  .or(StdErrNotificationSchema)
+  .or(ServerNotificationSchema);
 
 export type StdErrNotification = z.infer<typeof StdErrNotificationSchema>;
 export type Notification = z.infer<typeof NotificationSchema>;
