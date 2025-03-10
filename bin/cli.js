@@ -27,9 +27,21 @@ async function main() {
     }
 
     if (parsingFlags && arg === "-e" && i + 1 < args.length) {
-      const [key, value] = args[++i].split("=");
-      if (key && value) {
+      // Parse environment variables passed with -e flag
+      // Format: -e KEY=VALUE
+      // Example: -e MY_VAR=my_value
+      // Handles env vars where VALUE can contain "=" signs (e.g., var1=sample=value)
+      const envVar = args[++i];
+      const equalsIndex = envVar.indexOf("=");
+      
+      if (equalsIndex !== -1) {
+        // Split only at the first equals sign
+        const key = envVar.substring(0, equalsIndex);
+        const value = envVar.substring(equalsIndex + 1);
         envVars[key] = value;
+      } else {
+        // No equals sign found, use the whole string as key with empty value
+        envVars[envVar] = "";
       }
     } else if (!command) {
       command = arg;
