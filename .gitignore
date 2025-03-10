@@ -1,0 +1,22 @@
+.DS_Store
+node_modules
+bin/build
+bin/tests/output
+server/build
+client/dist
+client/tsconfig.app.tsbuildinfo
+client/tsconfig.node.tsbuildinfo
+cli/build
+
+# Local development/editor configuration files
+.cursor/
+.cursorignore
+.windsurfrules
+dprint.jsonc
+inspector.code-workspace
+mcp_config.json
+everything/
+.eslintrc.json
+.eslintrc.json.no
+.prettierrc
+.cursorindexingignore
