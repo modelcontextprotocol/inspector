@@ -37,6 +37,7 @@ interface UseConnectionOptions {
   sseUrl: string;
   env: Record<string, string>;
   proxyServerUrl: string;
+  bearerToken?: string;
   requestTimeout?: number;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
@@ -57,6 +58,7 @@ export function useConnection({
   sseUrl,
   env,
   proxyServerUrl,
+  bearerToken,
   requestTimeout = DEFAULT_REQUEST_TIMEOUT_MSEC,
   onNotification,
   onStdErrNotification,
@@ -228,9 +230,11 @@ export function useConnection({
       // Inject auth manually instead of using SSEClientTransport, because we're
       // proxying through the inspector server first.
       const headers: HeadersInit = {};
-      const tokens = await authProvider.tokens();
-      if (tokens) {
-        headers["Authorization"] = `Bearer ${tokens.access_token}`;
+
+      // Use manually provided bearer token if available, otherwise use OAuth tokens
+      const token = bearerToken || (await authProvider.tokens())?.access_token;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
       }
 
       const clientTransport = new SSEClientTransport(backendUrl, {

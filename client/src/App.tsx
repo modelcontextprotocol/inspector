@@ -97,6 +97,9 @@ const App = () => {
   >([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
+  const [bearerToken, setBearerToken] = useState<string>(() => {
+    return localStorage.getItem("lastBearerToken") || "";
+  });
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     Array<
@@ -160,6 +163,7 @@ const App = () => {
     args,
     sseUrl,
     env,
+    bearerToken,
     proxyServerUrl: PROXY_SERVER_URL,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
@@ -194,6 +198,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastTransportType", transportType);
   }, [transportType]);
+
+  useEffect(() => {
+    localStorage.setItem("lastBearerToken", bearerToken);
+  }, [bearerToken]);
 
   // Auto-connect if serverUrl is provided in URL params (e.g. after OAuth callback)
   useEffect(() => {
@@ -382,6 +390,8 @@ const App = () => {
         setSseUrl={setSseUrl}
         env={env}
         setEnv={setEnv}
+        bearerToken={bearerToken}
+        setBearerToken={setBearerToken}
         onConnect={connectMcpServer}
         stdErrNotifications={stdErrNotifications}
       />
