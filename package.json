@@ -8,24 +8,31 @@
   "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "type": "module",
   "bin": {
-    "mcp-inspector": "./bin/cli.js"
+    "mcp-inspector": "./bin/cli.js",
+    "mcp-inspector-cli": "./cli/bin/cli.js"
   },
   "files": [
     "bin",
     "client/bin",
     "client/dist",
-    "server/build"
+    "server/build",
+    "cli/bin",
+    "cli/build"
   ],
   "workspaces": [
     "client",
-    "server"
+    "server",
+    "cli",
+    "bin"
   ],
   "scripts": {
     "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
     "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows",
+    "build-bin": "cd bin && npm run build",
     "build-server": "cd server && npm run build",
     "build-client": "cd client && npm run build",
-    "build": "npm run build-server && npm run build-client",
+    "build-cli": "cd cli && npm run build",
+    "build": "npm run build-bin && npm run build-server && npm run build-client && npm run build-cli",
     "start-server": "cd server && npm run start",
     "start-client": "cd client && npm run preview",
     "start": "node ./bin/cli.js",
@@ -34,16 +41,22 @@
     "publish-all": "npm publish --workspaces --access public && npm publish --access public"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-client": "0.4.1",
-    "@modelcontextprotocol/inspector-server": "0.4.1",
+    "@modelcontextprotocol/inspector-bin": "0.5.1",
+    "@modelcontextprotocol/inspector-cli": "0.5.1",
+    "@modelcontextprotocol/inspector-client": "0.5.1",
+    "@modelcontextprotocol/inspector-server": "0.5.1",
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "commander": "^13.1.0",
     "concurrently": "^9.0.1",
     "shell-quote": "^1.8.2",
     "spawn-rx": "^5.1.2",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
     "@types/shell-quote": "^1.7.5",
-    "prettier": "3.3.3"
+    "prettier": "3.3.3",
+    "typescript": "^5.4.2"
   }
 }
