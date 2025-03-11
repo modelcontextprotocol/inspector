@@ -18,7 +18,6 @@ import {
   validLogLevels,
 } from "./client/index.js";
 import { handleError } from "./error-handler.js";
-import { packageInfo } from "./package-info.js";
 import { createTransport, TransportOptions } from "./transport.js";
 
 type Args = {
@@ -63,8 +62,8 @@ async function callMethod(args: Args): Promise<void> {
   const transportOptions = createTransportOptions(args.target);
   const transport = createTransport(transportOptions);
   const client = new Client({
-    name: packageInfo.name,
-    version: packageInfo.version,
+    name: "inspector-cli",
+    version: "0.5.1",
   });
 
   try {
