@@ -1,0 +1,24 @@
+{
+  "name": "@modelcontextprotocol/inspector-cli",
+  "version": "0.5.1",
+  "description": "CLI for the Model Context Protocol inspector",
+  "license": "MIT",
+  "author": "Nicolas Barraud",
+  "homepage": "https://github.com/nbarraud",
+  "main": "build/index.js",
+  "type": "module",
+  "bin": {
+    "mcp-inspector-cli": "build/index.js"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {},
+  "dependencies": {
+    "commander": "^13.1.0",
+    "spawn-rx": "^5.1.2"
+  }
+}
