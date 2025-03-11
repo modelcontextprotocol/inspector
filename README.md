@@ -89,7 +89,7 @@ npx @modelcontextprotocol/inspector --cli --config path/to/config.json --server 
 npx @modelcontextprotocol/inspector --cli node build/index.js --method tools/list
 
 # Call a specific tool
-npx @modelcontextprotocol/inspector --cli node build/index.js --method tools/call --tool-name mytool --tool-args key=value --tool-args another=value2
+npx @modelcontextprotocol/inspector --cli node build/index.js --method tools/call --tool-name mytool --tool-arg key=value --tool-arg another=value2
 
 # List available resources
 npx @modelcontextprotocol/inspector --cli node build/index.js --method resources/list
@@ -101,38 +101,8 @@ npx @modelcontextprotocol/inspector --cli node build/index.js --method prompts/l
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com
 
 # Call a tool on a remote server
-npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --method tools/call --tool-name remotetool --tool-args param=value
+npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --method tools/call --tool-name remotetool --tool-arg param=value
 
 # List resources from a remote server
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --method resources/list
 ```
-
-For more details on ways to use the inspector, see the [Inspector section of the MCP docs site](https://modelcontextprotocol.io/docs/tools/inspector). For help with debugging, see the [Debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
-
-### From this repository
-
-If you're working on the inspector itself:
-
-Development mode:
-
-```bash
-npm run dev
-```
-
-> **Note for Windows users:**  
-> On Windows, use the following command instead:
->
-> ```bash
-> npm run dev:windows
-> ```
-
-Production mode:
-
-```bash
-npm run build
-npm start
-```
-
-## License
-
-This project is licensed under the MIT License—see the [LICENSE](LICENSE) file for details.

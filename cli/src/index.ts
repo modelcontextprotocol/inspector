@@ -28,7 +28,7 @@ type Args = {
   uri?: string;
   logLevel?: LogLevel;
   toolName?: string;
-  toolArgs?: Record<string, string>;
+  toolArg?: Record<string, string>;
 };
 
 function createTransportOptions(target: string[]): TransportOptions {
@@ -81,7 +81,7 @@ async function callMethod(args: Args): Promise<void> {
         );
       }
 
-      result = await callTool(client, args.toolName, args.toolArgs || {});
+      result = await callTool(client, args.toolName, args.toolArg || {});
     }
     // Resources methods
     else if (args.method === "resources/list") {
@@ -177,8 +177,8 @@ function parseArgs(): Args {
     //
     .option("--tool-name <toolName>", "Tool name (for tools/call method)")
     .option(
-      "--tool-args <pairs...>",
-      "Tool arguments as key=value pairs",
+      "--tool-arg <pairs...>",
+      "Tool argument as key=value pair",
       parseKeyValuePair,
       {},
     )

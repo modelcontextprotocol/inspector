@@ -21,7 +21,7 @@ echo -e "${BLUE}- Environment variables (-e)${NC}"
 echo -e "${BLUE}- Config file (--config)${NC}"
 echo -e "${BLUE}- Server selection (--server)${NC}"
 echo -e "${BLUE}- Method selection (--method)${NC}"
-echo -e "${BLUE}- Tool-related options (--tool-name, --tool-args)${NC}"
+echo -e "${BLUE}- Tool-related options (--tool-name, --tool-arg)${NC}"
 echo -e "${BLUE}- Resource-related options (--uri)${NC}"
 echo -e "${BLUE}- Prompt-related options (--prompt-name, --prompt-args)${NC}"
 echo -e "${BLUE}- Logging options (--log-level)${NC}"
@@ -171,16 +171,16 @@ run_error_test "nonexistent_server" "--config" "$PROJECT_ROOT/sample-config.json
 echo -e "\n${YELLOW}=== Running Tool-Related Tests ===${NC}"
 
 # Test 12: CLI mode with tool call
-run_basic_test "tool_call" "${TEST_CMD}" "${TEST_ARGS[@]}" "--cli" "--method" "tools/call" "--tool-name" "echo" "--tool-args" "message=Hello"
+run_basic_test "tool_call" "${TEST_CMD}" "${TEST_ARGS[@]}" "--cli" "--method" "tools/call" "--tool-name" "echo" "--tool-arg" "message=Hello"
 
 # Test 13: CLI mode with tool call but missing tool name (should fail)
-run_error_test "missing_tool_name" "${TEST_CMD}" "${TEST_ARGS[@]}" "--cli" "--method" "tools/call" "--tool-args" "message=Hello"
+run_error_test "missing_tool_name" "${TEST_CMD}" "${TEST_ARGS[@]}" "--cli" "--method" "tools/call" "--tool-arg" "message=Hello"
 
 # Test 14: CLI mode with tool call but invalid tool args format (should fail)
-run_error_test "invalid_tool_args" "${TEST_CMD}" "${TEST_ARGS[@]}" "--cli" "--method" "tools/call" "--tool-name" "echo" "--tool-args" "invalid_format"
+run_error_test "invalid_tool_args" "${TEST_CMD}" "${TEST_ARGS[@]}" "--cli" "--method" "tools/call" "--tool-name" "echo" "--tool-arg" "invalid_format"
 
 # Test 15: CLI mode with multiple tool args
-run_basic_test "multiple_tool_args" "${TEST_CMD}" "${TEST_ARGS[@]}" "--cli" "--method" "tools/call" "--tool-name" "add" "--tool-args" "a=1" "b=2"
+run_basic_test "multiple_tool_args" "${TEST_CMD}" "${TEST_ARGS[@]}" "--cli" "--method" "tools/call" "--tool-name" "add" "--tool-arg" "a=1" "b=2"
 
 echo -e "\n${YELLOW}=== Running Resource-Related Tests ===${NC}"
 
@@ -218,7 +218,7 @@ echo -e "${BLUE}Testing combined options with environment variables and config f
 run_basic_test "combined_options" "--config" "$PROJECT_ROOT/sample-config.json" "--server" "everything" "-e" "CLI_ENV_VAR=cli_value" "--cli" "--method" "tools/list"
 
 # Test 24: CLI mode with all possible options (that make sense together)
-run_basic_test "all_options" "--config" "$PROJECT_ROOT/sample-config.json" "--server" "everything" "-e" "CLI_ENV_VAR=cli_value" "--cli" "--method" "tools/call" "--tool-name" "echo" "--tool-args" "message=Hello" "--log-level" "debug"
+run_basic_test "all_options" "--config" "$PROJECT_ROOT/sample-config.json" "--server" "everything" "-e" "CLI_ENV_VAR=cli_value" "--cli" "--method" "tools/call" "--tool-name" "echo" "--tool-arg" "message=Hello" "--log-level" "debug"
 
 # Print test summary
 echo -e "\n${YELLOW}=== Test Summary ===${NC}"
