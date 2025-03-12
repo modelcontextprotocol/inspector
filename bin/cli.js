@@ -29,7 +29,7 @@ async function main() {
     if (parsingFlags && arg === "-e" && i + 1 < args.length) {
       const envVar = args[++i];
       const equalsIndex = envVar.indexOf("=");
-      
+
       if (equalsIndex !== -1) {
         const key = envVar.substring(0, equalsIndex);
         const value = envVar.substring(equalsIndex + 1);
