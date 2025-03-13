@@ -35,6 +35,8 @@ interface SidebarProps {
   setSseUrl: (url: string) => void;
   env: Record<string, string>;
   setEnv: (env: Record<string, string>) => void;
+  bearerToken: string;
+  setBearerToken: (token: string) => void;
   onConnect: () => void;
   stdErrNotifications: StdErrNotification[];
 }
@@ -51,11 +53,14 @@ const Sidebar = ({
   setSseUrl,
   env,
   setEnv,
+  bearerToken,
+  setBearerToken,
   onConnect,
   stdErrNotifications,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
+  const [showBearerToken, setShowBearerToken] = useState(false);
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
 
   return (
@@ -110,15 +115,43 @@ const Sidebar = ({
               </div>
             </>
           ) : (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">URL</label>
-              <Input
-                placeholder="URL"
-                value={sseUrl}
-                onChange={(e) => setSseUrl(e.target.value)}
-                className="font-mono"
-              />
-            </div>
+            <>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">URL</label>
+                <Input
+                  placeholder="URL"
+                  value={sseUrl}
+                  onChange={(e) => setSseUrl(e.target.value)}
+                  className="font-mono"
+                />
+              </div>
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowBearerToken(!showBearerToken)}
+                  className="flex items-center w-full"
+                >
+                  {showBearerToken ? (
+                    <ChevronDown className="w-4 h-4 mr-2" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 mr-2" />
+                  )}
+                  Authentication
+                </Button>
+                {showBearerToken && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Bearer Token</label>
+                    <Input
+                      placeholder="Bearer Token"
+                      value={bearerToken}
+                      onChange={(e) => setBearerToken(e.target.value)}
+                      className="font-mono"
+                      type="password"
+                    />
+                  </div>
+                )}
+              </div>
+            </>
           )}
           {transportType === "stdio" && (
             <div className="space-y-2">

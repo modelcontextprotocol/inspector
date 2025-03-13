@@ -97,6 +97,9 @@ const App = () => {
   >([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
+  const [bearerToken, setBearerToken] = useState<string>(() => {
+    return localStorage.getItem("lastBearerToken") || "";
+  });
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     Array<
@@ -128,6 +131,10 @@ const App = () => {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
   );
+  const [resourceSubscriptions, setResourceSubscriptions] = useState<
+    Set<string>
+  >(new Set<string>());
+
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [nextResourceCursor, setNextResourceCursor] = useState<
@@ -160,6 +167,7 @@ const App = () => {
     args,
     sseUrl,
     env,
+    bearerToken,
     proxyServerUrl: PROXY_SERVER_URL,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
@@ -194,6 +202,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastTransportType", transportType);
   }, [transportType]);
+
+  useEffect(() => {
+    localStorage.setItem("lastBearerToken", bearerToken);
+  }, [bearerToken]);
 
   // Auto-connect if serverUrl is provided in URL params (e.g. after OAuth callback)
   useEffect(() => {
@@ -308,6 +320,38 @@ const App = () => {
     setResourceContent(JSON.stringify(response, null, 2));
   };
 
+  const subscribeToResource = async (uri: string) => {
+    if (!resourceSubscriptions.has(uri)) {
+      await makeRequest(
+        {
+          method: "resources/subscribe" as const,
+          params: { uri },
+        },
+        z.object({}),
+        "resources",
+      );
+      const clone = new Set(resourceSubscriptions);
+      clone.add(uri);
+      setResourceSubscriptions(clone);
+    }
+  };
+
+  const unsubscribeFromResource = async (uri: string) => {
+    if (resourceSubscriptions.has(uri)) {
+      await makeRequest(
+        {
+          method: "resources/unsubscribe" as const,
+          params: { uri },
+        },
+        z.object({}),
+        "resources",
+      );
+      const clone = new Set(resourceSubscriptions);
+      clone.delete(uri);
+      setResourceSubscriptions(clone);
+    }
+  };
+
   const listPrompts = async () => {
     const response = await makeRequest(
       {
@@ -382,6 +426,8 @@ const App = () => {
         setSseUrl={setSseUrl}
         env={env}
         setEnv={setEnv}
+        bearerToken={bearerToken}
+        setBearerToken={setBearerToken}
         onConnect={connectMcpServer}
         stdErrNotifications={stdErrNotifications}
       />
@@ -484,6 +530,18 @@ const App = () => {
                       setSelectedResource={(resource) => {
                         clearError("resources");
                         setSelectedResource(resource);
+                      }}
+                      resourceSubscriptionsSupported={
+                        serverCapabilities?.resources?.subscribe || false
+                      }
+                      resourceSubscriptions={resourceSubscriptions}
+                      subscribeToResource={(uri) => {
+                        clearError("resources");
+                        subscribeToResource(uri);
+                      }}
+                      unsubscribeFromResource={(uri) => {
+                        clearError("resources");
+                        unsubscribeFromResource(uri);
                       }}
                       handleCompletion={handleCompletion}
                       completionsSupported={completionsSupported}

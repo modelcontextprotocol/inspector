@@ -9,6 +9,7 @@ import {
   CreateMessageRequestSchema,
   ListRootsRequestSchema,
   ProgressNotificationSchema,
+  ResourceUpdatedNotificationSchema,
   Request,
   Result,
   ServerCapabilities,
@@ -25,6 +26,7 @@ import { SESSION_KEYS } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { authProvider } from "../auth";
+import packageJson from "../../../package.json";
 
 const params = new URLSearchParams(window.location.search);
 const DEFAULT_REQUEST_TIMEOUT_MSEC =
@@ -37,6 +39,7 @@ interface UseConnectionOptions {
   sseUrl: string;
   env: Record<string, string>;
   proxyServerUrl: string;
+  bearerToken?: string;
   requestTimeout?: number;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
@@ -57,6 +60,7 @@ export function useConnection({
   sseUrl,
   env,
   proxyServerUrl,
+  bearerToken,
   requestTimeout = DEFAULT_REQUEST_TIMEOUT_MSEC,
   onNotification,
   onStdErrNotification,
@@ -202,7 +206,7 @@ export function useConnection({
       const client = new Client<Request, Notification, Result>(
         {
           name: "mcp-inspector",
-          version: "0.0.1",
+          version: packageJson.version,
         },
         {
           capabilities: {
@@ -228,9 +232,11 @@ export function useConnection({
       // Inject auth manually instead of using SSEClientTransport, because we're
       // proxying through the inspector server first.
       const headers: HeadersInit = {};
-      const tokens = await authProvider.tokens();
-      if (tokens) {
-        headers["Authorization"] = `Bearer ${tokens.access_token}`;
+
+      // Use manually provided bearer token if available, otherwise use OAuth tokens
+      const token = bearerToken || (await authProvider.tokens())?.access_token;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
       }
 
       const clientTransport = new SSEClientTransport(backendUrl, {
@@ -245,6 +251,11 @@ export function useConnection({
       if (onNotification) {
         client.setNotificationHandler(
           ProgressNotificationSchema,
+          onNotification,
+        );
+
+        client.setNotificationHandler(
+          ResourceUpdatedNotificationSchema,
           onNotification,
         );
       }

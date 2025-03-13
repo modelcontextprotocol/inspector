@@ -43,7 +43,7 @@ const SamplingTab = ({ pendingRequests, onApprove, onReject }: Props) => {
         <h3 className="text-lg font-semibold">Recent Requests</h3>
         {pendingRequests.map((request) => (
           <div key={request.id} className="p-4 border rounded-lg space-y-4">
-            <pre className="bg-gray-50 p-2 rounded">
+            <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-2 rounded">
               {JSON.stringify(request.request, null, 2)}
             </pre>
             <div className="flex space-x-2">
