@@ -4,3 +4,4 @@ server/build
 client/dist
 client/tsconfig.app.tsbuildinfo
 client/tsconfig.node.tsbuildinfo
+.vscode
