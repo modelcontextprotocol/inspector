@@ -10,6 +10,7 @@ import {
   ListRootsRequestSchema,
   ProgressNotificationSchema,
   ResourceUpdatedNotificationSchema,
+  LoggingMessageNotificationSchema,
   Request,
   Result,
   ServerCapabilities,
@@ -26,6 +27,7 @@ import { SESSION_KEYS } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { authProvider } from "../auth";
+import packageJson from "../../../package.json";
 
 const params = new URLSearchParams(window.location.search);
 const DEFAULT_REQUEST_TIMEOUT_MSEC =
@@ -205,7 +207,7 @@ export function useConnection({
       const client = new Client<Request, Notification, Result>(
         {
           name: "mcp-inspector",
-          version: "0.0.1",
+          version: packageJson.version,
         },
         {
           capabilities: {
@@ -255,6 +257,11 @@ export function useConnection({
 
         client.setNotificationHandler(
           ResourceUpdatedNotificationSchema,
+          onNotification,
+        );
+
+        client.setNotificationHandler(
+          LoggingMessageNotificationSchema,
           onNotification,
         );
       }
