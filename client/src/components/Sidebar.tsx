@@ -19,6 +19,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StdErrNotification } from "@/lib/notificationTypes";
+import {
+  LoggingLevel,
+  LoggingLevelSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 
 import useTheme from "../lib/useTheme";
 import { version } from "../../../package.json";
@@ -39,6 +43,9 @@ interface SidebarProps {
   setBearerToken: (token: string) => void;
   onConnect: () => void;
   stdErrNotifications: StdErrNotification[];
+  logLevel: LoggingLevel;
+  sendLogLevelRequest: (level: LoggingLevel) => void;
+  loggingSupported: boolean;
 }
 
 const Sidebar = ({
@@ -57,6 +64,9 @@ const Sidebar = ({
   setBearerToken,
   onConnect,
   stdErrNotifications,
+  logLevel,
+  sendLogLevelRequest,
+  loggingSupported,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
@@ -290,6 +300,28 @@ const Sidebar = ({
                     : "Disconnected"}
               </span>
             </div>
+
+            {loggingSupported && connectionStatus === "connected" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Logging Level</label>
+                <Select
+                  value={logLevel}
+                  onValueChange={(value: LoggingLevel) =>
+                    sendLogLevelRequest(value)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select logging level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.values(LoggingLevelSchema.enum).map((level) => (
+                      <SelectItem value={level}>{level}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             {stdErrNotifications.length > 0 && (
               <>
                 <div className="mt-4 border-t border-gray-200 pt-4">

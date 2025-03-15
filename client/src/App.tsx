@@ -15,6 +15,7 @@ import {
   Root,
   ServerNotification,
   Tool,
+  LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useConnection } from "./lib/hooks/useConnection";
@@ -91,6 +92,7 @@ const App = () => {
       (localStorage.getItem("lastTransportType") as "stdio" | "sse") || "stdio"
     );
   });
+  const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [stdErrNotifications, setStdErrNotifications] = useState<
     StdErrNotification[]
@@ -412,6 +414,17 @@ const App = () => {
     await sendNotification({ method: "notifications/roots/list_changed" });
   };
 
+  const sendLogLevelRequest = async (level: LoggingLevel) => {
+    await makeRequest(
+      {
+        method: "logging/setLevel" as const,
+        params: { level },
+      },
+      z.object({}),
+    );
+    setLogLevel(level);
+  };
+
   return (
     <div className="flex h-screen bg-background">
       <Sidebar
@@ -430,6 +443,9 @@ const App = () => {
         setBearerToken={setBearerToken}
         onConnect={connectMcpServer}
         stdErrNotifications={stdErrNotifications}
+        logLevel={logLevel}
+        sendLogLevelRequest={sendLogLevelRequest}
+        loggingSupported={!!serverCapabilities?.logging || false}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
