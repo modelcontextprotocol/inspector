@@ -10,6 +10,7 @@ import {
   ListRootsRequestSchema,
   ProgressNotificationSchema,
   ResourceUpdatedNotificationSchema,
+  LoggingMessageNotificationSchema,
   Request,
   Result,
   ServerCapabilities,
@@ -256,6 +257,11 @@ export function useConnection({
 
         client.setNotificationHandler(
           ResourceUpdatedNotificationSchema,
+          onNotification,
+        );
+
+        client.setNotificationHandler(
+          LoggingMessageNotificationSchema,
           onNotification,
         );
       }
