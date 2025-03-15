@@ -67,7 +67,7 @@ const createTransport = async (req: express.Request) => {
   } else if (transportType === "sse") {
     const url = query.url as string;
     const headers: HeadersInit = {
-      'Accept': 'text/event-stream',
+      Accept: "text/event-stream",
     };
     for (const key of SSE_HEADERS_PASSTHROUGH) {
       if (req.headers[key] === undefined) {
