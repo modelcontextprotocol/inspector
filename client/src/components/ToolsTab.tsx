@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import DynamicJsonForm, { JsonSchemaType, JsonValue } from "./DynamicJsonForm";
+import { generateDefaultValue } from "@/utils/schemaUtils";
 import {
   ListToolsResult,
   Tool,
@@ -215,8 +216,7 @@ const ToolsTab = ({
                               items: prop.items,
                             }}
                             value={
-                              (params[key] as JsonValue) ??
-                              (prop.type === "array" ? [] : {})
+                              (params[key] as JsonValue) ?? generateDefaultValue(prop)
                             }
                             onChange={(newValue: JsonValue) => {
                               setParams({
