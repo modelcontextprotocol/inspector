@@ -27,9 +27,8 @@ jobs:
       - run: npm install --no-package-lock
 
       - name: Run client tests
-        run: |
-          cd client
-          npm test
+        working-directory: ./client
+        run: npm test
 
       - run: npm run build
 
