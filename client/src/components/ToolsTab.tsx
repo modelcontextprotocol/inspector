@@ -216,7 +216,8 @@ const ToolsTab = ({
                               items: prop.items,
                             }}
                             value={
-                              (params[key] as JsonValue) ?? generateDefaultValue(prop)
+                              (params[key] as JsonValue) ??
+                              generateDefaultValue(prop)
                             }
                             onChange={(newValue: JsonValue) => {
                               setParams({
