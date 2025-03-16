@@ -46,15 +46,17 @@ const DynamicJsonForm = ({
 }: DynamicJsonFormProps) => {
   const [isJsonMode, setIsJsonMode] = useState(false);
   const [jsonError, setJsonError] = useState<string>();
-  // Add state for storing raw JSON value
+  // Store the raw JSON string to allow immediate feedback during typing
+  // while deferring parsing until the user stops typing
   const [rawJsonValue, setRawJsonValue] = useState<string>(
     JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
   );
 
-  // Create a ref to store the timeout ID
+  // Use a ref to manage debouncing timeouts to avoid parsing JSON
+  // on every keystroke which would be inefficient and error-prone
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Create a debounced function to update parent state
+  // Debounce JSON parsing and parent updates to handle typing gracefully
   const debouncedUpdateParent = useCallback(
     (jsonString: string) => {
       // Clear any existing timeout
@@ -146,6 +148,8 @@ const DynamicJsonForm = ({
             value={(currentValue as string) ?? ""}
             onChange={(e) => {
               const val = e.target.value;
+              // Allow clearing non-required fields by setting undefined
+              // This preserves the distinction between empty string and unset
               if (!val && !propSchema.required) {
                 handleFieldChange(path, undefined);
               } else {
@@ -163,6 +167,8 @@ const DynamicJsonForm = ({
             value={(currentValue as number)?.toString() ?? ""}
             onChange={(e) => {
               const val = e.target.value;
+              // Allow clearing non-required number fields
+              // This preserves the distinction between 0 and unset
               if (!val && !propSchema.required) {
                 handleFieldChange(path, undefined);
               } else {
@@ -184,10 +190,13 @@ const DynamicJsonForm = ({
             value={(currentValue as number)?.toString() ?? ""}
             onChange={(e) => {
               const val = e.target.value;
+              // Allow clearing non-required integer fields
+              // This preserves the distinction between 0 and unset
               if (!val && !propSchema.required) {
                 handleFieldChange(path, undefined);
               } else {
                 const num = Number(val);
+                // Only update if it's a valid integer
                 if (!isNaN(num) && Number.isInteger(num)) {
                   handleFieldChange(path, num);
                 }
