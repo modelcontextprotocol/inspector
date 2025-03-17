@@ -38,17 +38,27 @@ describe("generateDefaultValue", () => {
   });
 
   test("generates empty array for non-required array", () => {
-    expect(generateDefaultValue({ type: "array", required: false })).toEqual([]);
+    expect(generateDefaultValue({ type: "array", required: false })).toEqual(
+      [],
+    );
   });
 
   test("generates empty object for non-required object", () => {
-    expect(generateDefaultValue({ type: "object", required: false })).toEqual({});
+    expect(generateDefaultValue({ type: "object", required: false })).toEqual(
+      {},
+    );
   });
 
   test("generates null for non-required primitive types", () => {
-    expect(generateDefaultValue({ type: "string", required: false })).toBe(null);
-    expect(generateDefaultValue({ type: "number", required: false })).toBe(null);
-    expect(generateDefaultValue({ type: "boolean", required: false })).toBe(null);
+    expect(generateDefaultValue({ type: "string", required: false })).toBe(
+      null,
+    );
+    expect(generateDefaultValue({ type: "number", required: false })).toBe(
+      null,
+    );
+    expect(generateDefaultValue({ type: "boolean", required: false })).toBe(
+      null,
+    );
   });
 
   test("generates object with properties", () => {
