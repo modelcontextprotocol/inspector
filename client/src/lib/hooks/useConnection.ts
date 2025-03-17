@@ -8,9 +8,6 @@ import {
   ClientRequest,
   CreateMessageRequestSchema,
   ListRootsRequestSchema,
-  ProgressNotificationSchema,
-  ResourceUpdatedNotificationSchema,
-  LoggingMessageNotificationSchema,
   Request,
   Result,
   ServerCapabilities,
@@ -250,20 +247,12 @@ export function useConnection({
       });
 
       if (onNotification) {
-        client.setNotificationHandler(
-          ProgressNotificationSchema,
-          onNotification,
-        );
-
-        client.setNotificationHandler(
-          ResourceUpdatedNotificationSchema,
-          onNotification,
-        );
-
-        client.setNotificationHandler(
-          LoggingMessageNotificationSchema,
-          onNotification,
-        );
+        client.fallbackNotificationHandler = (
+          notification: Notification,
+        ): Promise<void> => {
+          onNotification(notification);
+          return Promise.resolve();
+        };
       }
 
       if (onStdErrNotification) {
