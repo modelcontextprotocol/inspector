@@ -8,15 +8,31 @@ import { Textarea } from "@/components/ui/textarea";
 import DynamicJsonForm, { JsonSchemaType, JsonValue } from "./DynamicJsonForm";
 import { generateDefaultValue } from "@/utils/schemaUtils";
 import {
+  CallToolResultSchema,
+  CompatibilityCallToolResult,
   ListToolsResult,
   Tool,
-  CallToolResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 
-import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
+// Utility function to escape Unicode characters
+function escapeUnicode(obj: any): string {
+  return JSON.stringify(
+    obj,
+    (_key: string, value) => {
+      if (typeof value === "string") {
+        // Replace non-ASCII characters with their Unicode escape sequences
+        return value.replace(/[^\0-\x7F]/g, (char) => {
+          return "\\u" + ("0000" + char.charCodeAt(0).toString(16)).slice(-4);
+        });
+      }
+      return value;
+    },
+    2,
+  );
+}
 
 const ToolsTab = ({
   tools,
@@ -54,7 +70,7 @@ const ToolsTab = ({
           <>
             <h4 className="font-semibold mb-2">Invalid Tool Result:</h4>
             <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
-              {JSON.stringify(toolResult, null, 2)}
+              {escapeUnicode(toolResult)}
             </pre>
             <h4 className="font-semibold mb-2">Errors:</h4>
             {parsedResult.error.errors.map((error, idx) => (
@@ -62,7 +78,7 @@ const ToolsTab = ({
                 key={idx}
                 className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64"
               >
-                {JSON.stringify(error, null, 2)}
+                {escapeUnicode(error)}
               </pre>
             ))}
           </>
@@ -101,7 +117,7 @@ const ToolsTab = ({
                   </audio>
                 ) : (
                   <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 whitespace-pre-wrap break-words p-4 rounded text-sm overflow-auto max-h-64">
-                    {JSON.stringify(item.resource, null, 2)}
+                    {escapeUnicode(item.resource)}
                   </pre>
                 ))}
             </div>
@@ -113,7 +129,7 @@ const ToolsTab = ({
         <>
           <h4 className="font-semibold mb-2">Tool Result (Legacy):</h4>
           <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
-            {JSON.stringify(toolResult.toolResult, null, 2)}
+            {escapeUnicode(toolResult.toolResult)}
           </pre>
         </>
       );
