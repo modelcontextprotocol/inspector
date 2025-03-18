@@ -108,6 +108,12 @@ describe("generateDefaultValue", () => {
       },
     });
   });
+
+  test("uses schema default value when provided", () => {
+    expect(generateDefaultValue({ type: "string", default: "test" })).toBe(
+      "test",
+    );
+  });
 });
 
 describe("formatFieldLabel", () => {

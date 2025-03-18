@@ -8,8 +8,7 @@ import { JsonObject } from "./jsonPathUtils";
  */
 export function generateDefaultValue(schema: JsonSchemaType): JsonValue {
   if ("default" in schema) {
-    // Ensure we don't return undefined even if schema.default is undefined
-    return schema.default === undefined ? null : schema.default;
+    return schema.default;
   }
 
   if (!schema.required) {
