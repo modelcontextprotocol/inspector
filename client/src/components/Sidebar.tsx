@@ -39,6 +39,8 @@ interface SidebarProps {
   setBearerToken: (token: string) => void;
   onConnect: () => void;
   stdErrNotifications: StdErrNotification[];
+  proxyServerUrl: string;
+  setProxyServerUrl: (url: string) => void;
 }
 
 const Sidebar = ({
@@ -57,6 +59,8 @@ const Sidebar = ({
   setBearerToken,
   onConnect,
   stdErrNotifications,
+  proxyServerUrl,
+  setProxyServerUrl,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
@@ -265,6 +269,16 @@ const Sidebar = ({
               )}
             </div>
           )}
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Proxy Server URL</label>
+            <Input
+              placeholder="Proxy Server URL"
+              value={proxyServerUrl}
+              onChange={(e) => setProxyServerUrl(e.target.value)}
+              className="font-mono"
+            />
+          </div>
 
           <div className="space-y-2">
             <Button className="w-full" onClick={onConnect}>
