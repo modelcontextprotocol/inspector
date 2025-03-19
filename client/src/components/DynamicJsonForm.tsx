@@ -17,6 +17,7 @@ export type JsonSchemaType = {
   description?: string;
   properties?: Record<string, JsonSchemaType>;
   items?: JsonSchemaType;
+  enum?: string[];
 };
 
 type JsonObject = { [key: string]: JsonValue };

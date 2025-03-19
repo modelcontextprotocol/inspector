@@ -4,7 +4,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import DynamicJsonForm, { JsonSchemaType, JsonValue } from "./DynamicJsonForm";
 import {
   ListToolsResult,
@@ -16,6 +15,7 @@ import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 
 import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { StringInput } from "./StringInput";
 
 const ToolsTab = ({
   tools,
@@ -192,19 +192,17 @@ const ToolsTab = ({
                           </label>
                         </div>
                       ) : prop.type === "string" ? (
-                        <Textarea
-                          id={key}
-                          name={key}
-                          placeholder={prop.description}
-                          value={(params[key] as string) ?? ""}
-                          onChange={(e) =>
-                            setParams({
-                              ...params,
-                              [key]: e.target.value,
-                            })
-                          }
-                          className="mt-1"
-                        />
+                        <div className="mt-1">
+                          <StringInput
+                            id={key}
+                            name={key}
+                            property={prop}
+                            value={(params[key] as string) ?? ""}
+                            onChange={(value) =>
+                              setParams({ ...params, [key]: value })
+                            }
+                          />
+                        </div>
                       ) : prop.type === "object" || prop.type === "array" ? (
                         <div className="mt-1">
                           <DynamicJsonForm
