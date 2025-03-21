@@ -29,6 +29,7 @@ export type JsonSchemaType = {
   default?: JsonValue;
   properties?: Record<string, JsonSchemaType>;
   items?: JsonSchemaType;
+  enum?: string[];
 };
 
 interface DynamicJsonFormProps {
