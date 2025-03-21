@@ -96,7 +96,7 @@ async function main() {
   await Promise.any([server, client, delay(2 * 1000)]);
   const portParam = SERVER_PORT === "3000" ? "" : `?proxyPort=${SERVER_PORT}`;
   console.log(
-    `\n🔍 MCP Inspector is up and running at http://localhost:${CLIENT_PORT}${portParam} 🚀`,
+    `\n🔍 MCP Inspector is up and running at http://127.0.0.1:${CLIENT_PORT}${portParam} 🚀`,
   );
 
   try {
