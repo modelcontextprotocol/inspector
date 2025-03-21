@@ -233,6 +233,7 @@ const ToolsTab = ({
                           id={key}
                           name={key}
                           placeholder={prop.description}
+                          value={(params[key] as string) ?? ""}
                           onChange={(e) =>
                             setParams({
                               ...params,
