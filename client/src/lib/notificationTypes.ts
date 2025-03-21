@@ -14,7 +14,9 @@ export const StdErrNotificationSchema = BaseNotificationSchema.extend({
 
 export const NotificationSchema = ClientNotificationSchema.or(
   StdErrNotificationSchema,
-).or(ServerNotificationSchema);
+)
+  .or(ServerNotificationSchema)
+  .or(BaseNotificationSchema);
 
 export type StdErrNotification = z.infer<typeof StdErrNotificationSchema>;
 export type Notification = z.infer<typeof NotificationSchema>;
