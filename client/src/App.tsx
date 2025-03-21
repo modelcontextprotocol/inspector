@@ -47,7 +47,7 @@ import ToolsTab from "./components/ToolsTab";
 
 const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "3000";
-const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
+const PROXY_SERVER_URL = `${params.get("proxyServerUrl") ?? "http://localhost"}:${PROXY_PORT}`;
 
 const App = () => {
   // Handle OAuth callback route
@@ -112,6 +112,10 @@ const App = () => {
   const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
 
+  const [proxyServerUrl, setProxyServerUrl] = useState<string>(() => {
+    return `${params.get("proxyServerUrl") ?? "http://localhost"}:${PROXY_PORT}`;
+  });
+
   const handleApproveSampling = (id: number, result: CreateMessageResult) => {
     setPendingSampleRequests((prev) => {
       const request = prev.find((r) => r.id === id);
@@ -168,7 +172,7 @@ const App = () => {
     sseUrl,
     env,
     bearerToken,
-    proxyServerUrl: PROXY_SERVER_URL,
+    proxyServerUrl,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
     },
@@ -428,6 +432,8 @@ const App = () => {
         setEnv={setEnv}
         bearerToken={bearerToken}
         setBearerToken={setBearerToken}
+        proxyServerUrl={proxyServerUrl}
+        setProxyServerUrl={setProxyServerUrl}
         onConnect={connectMcpServer}
         stdErrNotifications={stdErrNotifications}
       />
