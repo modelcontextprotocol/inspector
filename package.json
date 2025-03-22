@@ -42,6 +42,7 @@
     "ts-node": "^10.9.2"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.14",
     "@types/node": "^22.7.5",
     "@types/shell-quote": "^1.7.5",
     "prettier": "3.3.3"
