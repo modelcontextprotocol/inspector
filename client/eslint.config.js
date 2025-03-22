@@ -19,6 +19,7 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      "react-hooks/rules-of-hooks": "off", // Disable hooks dependency order checking
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },

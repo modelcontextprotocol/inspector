@@ -45,10 +45,13 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
+import { InspectorConfig } from "./lib/configurationTypes";
 
 const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "3000";
 const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
+const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
 const App = () => {
   // Handle OAuth callback route
@@ -99,6 +102,11 @@ const App = () => {
   >([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
+
+  const [config, setConfig] = useState<InspectorConfig>(() => {
+    const savedConfig = localStorage.getItem(CONFIG_LOCAL_STORAGE_KEY);
+    return savedConfig ? JSON.parse(savedConfig) : DEFAULT_INSPECTOR_CONFIG;
+  });
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
   });
@@ -171,6 +179,7 @@ const App = () => {
     env,
     bearerToken,
     proxyServerUrl: PROXY_SERVER_URL,
+    requestTimeout: config.MCP_SERVER_REQUEST_TIMEOUT.value as number,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
     },
@@ -208,6 +217,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastBearerToken", bearerToken);
   }, [bearerToken]);
+
+  useEffect(() => {
+    localStorage.setItem(CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
+  }, [config]);
 
   // Auto-connect if serverUrl is provided in URL params (e.g. after OAuth callback)
   useEffect(() => {
@@ -439,6 +452,8 @@ const App = () => {
         setSseUrl={setSseUrl}
         env={env}
         setEnv={setEnv}
+        config={config}
+        setConfig={setConfig}
         bearerToken={bearerToken}
         setBearerToken={setBearerToken}
         onConnect={connectMcpServer}
