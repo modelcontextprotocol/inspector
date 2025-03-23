@@ -11,7 +11,6 @@ module.exports = {
     "^.+\\.tsx?$": [
       "ts-jest",
       {
-        useESM: true,
         jsx: "react-jsx",
         tsconfig: "tsconfig.jest.json"
       }
