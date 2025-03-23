@@ -1,12 +1,11 @@
 module.exports = {
   preset: "ts-jest",
   testEnvironment: "jsdom",
+  setupFilesAfterEnv: [
+    '<rootDir>/src/setupTests.ts'
+  ],
   moduleNameMapper: {
-    "^@/(.*)$": "<rootDir>/src/$1",
-    "^../components/DynamicJsonForm$":
-      "<rootDir>/src/utils/__mocks__/DynamicJsonForm.ts",
-    "^../../components/DynamicJsonForm$":
-      "<rootDir>/src/utils/__mocks__/DynamicJsonForm.ts",
+    "^@/(.*)$": "<rootDir>/src/$1"
   },
   transform: {
     "^.+\\.tsx?$": [
@@ -14,9 +13,9 @@ module.exports = {
       {
         useESM: true,
         jsx: "react-jsx",
-        tsconfig: "tsconfig.jest.json",
-      },
-    ],
+        tsconfig: "tsconfig.jest.json"
+      }
+    ]
   },
   extensionsToTreatAsEsm: [".ts", ".tsx"],
   testRegex: "(/__tests__/.*|(\\.|/)(test|spec))\\.(jsx?|tsx?)$",
@@ -25,13 +24,13 @@ module.exports = {
     "/node_modules/",
     "/dist/",
     "/bin/",
-    "\\.config\\.(js|ts|cjs|mjs)$",
+    "\\.config\\.(js|ts|cjs|mjs)$"
   ],
   // Exclude the same patterns from coverage reports
   coveragePathIgnorePatterns: [
     "/node_modules/",
     "/dist/",
     "/bin/",
-    "\\.config\\.(js|ts|cjs|mjs)$",
-  ],
+    "\\.config\\.(js|ts|cjs|mjs)$"
+  ]
 };
