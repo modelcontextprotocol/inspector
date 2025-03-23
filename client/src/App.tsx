@@ -48,7 +48,7 @@ import ToolsTab from "./components/ToolsTab";
 
 const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "3000";
-const PROXY_SERVER_URL = `http://localhost:${PROXY_PORT}`;
+const PROXY_SERVER_URL = `http://${window.location.hostname}:${PROXY_PORT}`;
 
 const App = () => {
   // Handle OAuth callback route
