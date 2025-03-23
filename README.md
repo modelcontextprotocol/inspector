@@ -44,7 +44,7 @@ The inspector supports bearer token authentication for SSE connections. Enter yo
 
 ### Security Considerations
 
-The MCP Inspector includes a proxy server that can run and communicate with local MCP processes.  The proxy server should not be exposed to untrusted networks as it has permissions to spawn local processes and can connect to any specified MCP server.
+The MCP Inspector includes a proxy server that can run and communicate with local MCP processes. The proxy server should not be exposed to untrusted networks as it has permissions to spawn local processes and can connect to any specified MCP server.
 
 ### From this repository
 
