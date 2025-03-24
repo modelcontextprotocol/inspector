@@ -12,9 +12,9 @@ describe("ToolsTab", () => {
       inputSchema: {
         type: "object" as const,
         properties: {
-          num: { type: "number" as const }
-        }
-      }
+          num: { type: "number" as const },
+        },
+      },
     },
     {
       name: "tool2",
@@ -22,10 +22,10 @@ describe("ToolsTab", () => {
       inputSchema: {
         type: "object" as const,
         properties: {
-          num: { type: "number" as const }
-        }
-      }
-    }
+          num: { type: "number" as const },
+        },
+      },
+    },
   ];
 
   const defaultProps = {
@@ -37,20 +37,20 @@ describe("ToolsTab", () => {
     setSelectedTool: jest.fn(),
     toolResult: null,
     nextCursor: "",
-    error: null
+    error: null,
   };
 
   const renderToolsTab = (props = {}) => {
     return render(
       <Tabs defaultValue="tools">
         <ToolsTab {...defaultProps} {...props} />
-      </Tabs>
+      </Tabs>,
     );
   };
 
   it("should reset input values when switching tools", () => {
     const { rerender } = renderToolsTab({
-      selectedTool: mockTools[0]
+      selectedTool: mockTools[0],
     });
 
     // Enter a value in the first tool's input
@@ -62,7 +62,7 @@ describe("ToolsTab", () => {
     rerender(
       <Tabs defaultValue="tools">
         <ToolsTab {...defaultProps} selectedTool={mockTools[1]} />
-      </Tabs>
+      </Tabs>,
     );
 
     // Verify input is reset
