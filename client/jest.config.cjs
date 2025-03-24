@@ -3,16 +3,16 @@ module.exports = {
   testEnvironment: "jsdom",
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
-    "\\.css$": "<rootDir>/src/__mocks__/styleMock.js"
+    "\\.css$": "<rootDir>/src/__mocks__/styleMock.js",
   },
   transform: {
     "^.+\\.tsx?$": [
       "ts-jest",
       {
         jsx: "react-jsx",
-        tsconfig: "tsconfig.jest.json"
-      }
-    ]
+        tsconfig: "tsconfig.jest.json",
+      },
+    ],
   },
   extensionsToTreatAsEsm: [".ts", ".tsx"],
   testRegex: "(/__tests__/.*|(\\.|/)(test|spec))\\.(jsx?|tsx?)$",
@@ -21,13 +21,13 @@ module.exports = {
     "/node_modules/",
     "/dist/",
     "/bin/",
-    "\\.config\\.(js|ts|cjs|mjs)$"
+    "\\.config\\.(js|ts|cjs|mjs)$",
   ],
   // Exclude the same patterns from coverage reports
   coveragePathIgnorePatterns: [
     "/node_modules/",
     "/dist/",
     "/bin/",
-    "\\.config\\.(js|ts|cjs|mjs)$"
-  ]
+    "\\.config\\.(js|ts|cjs|mjs)$",
+  ],
 };
