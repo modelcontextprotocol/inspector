@@ -17,6 +17,7 @@ import { AlertCircle, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import { escapeUnicode } from "@/utils/escapeUnicode";
+import JsonView from "./JsonView";
 
 const ToolsTab = ({
   tools,
@@ -54,7 +55,7 @@ const ToolsTab = ({
           <>
             <h4 className="font-semibold mb-2">Invalid Tool Result:</h4>
             <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
-              {escapeUnicode(toolResult)}
+              <JsonView data={escapeUnicode(toolResult)} />
             </pre>
             <h4 className="font-semibold mb-2">Errors:</h4>
             {parsedResult.error.errors.map((error, idx) => (
@@ -62,7 +63,7 @@ const ToolsTab = ({
                 key={idx}
                 className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64"
               >
-                {escapeUnicode(error)}
+                <JsonView data={escapeUnicode(error)} />
               </pre>
             ))}
           </>
@@ -80,7 +81,7 @@ const ToolsTab = ({
             <div key={index} className="mb-2">
               {item.type === "text" && (
                 <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
-                  {item.text}
+                  <JsonView data={item.text} />
                 </pre>
               )}
               {item.type === "image" && (
@@ -101,7 +102,7 @@ const ToolsTab = ({
                   </audio>
                 ) : (
                   <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 whitespace-pre-wrap break-words p-4 rounded text-sm overflow-auto max-h-64">
-                    {escapeUnicode(item.resource)}
+                    <JsonView data={escapeUnicode(item.resource)} />
                   </pre>
                 ))}
             </div>
@@ -113,7 +114,7 @@ const ToolsTab = ({
         <>
           <h4 className="font-semibold mb-2">Tool Result (Legacy):</h4>
           <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
-            {escapeUnicode(toolResult.toolResult)}
+            <JsonView data={escapeUnicode(toolResult.toolResult)} />
           </pre>
         </>
       );

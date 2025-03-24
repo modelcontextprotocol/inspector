@@ -5,6 +5,7 @@ import {
   CreateMessageRequest,
   CreateMessageResult,
 } from "@modelcontextprotocol/sdk/types.js";
+import JsonView from "./JsonView";
 
 export type PendingRequest = {
   id: number;
@@ -44,7 +45,7 @@ const SamplingTab = ({ pendingRequests, onApprove, onReject }: Props) => {
         {pendingRequests.map((request) => (
           <div key={request.id} className="p-4 border rounded-lg space-y-4">
             <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-2 rounded">
-              {JSON.stringify(request.request, null, 2)}
+              <JsonView data={JSON.stringify(request.request)} />
             </pre>
             <div className="flex space-x-2">
               <Button onClick={() => handleApprove(request.id)}>Approve</Button>

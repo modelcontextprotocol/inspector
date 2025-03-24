@@ -1,6 +1,7 @@
 import { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 import { Copy } from "lucide-react";
 import { useState } from "react";
+import JsonView from "./JsonView";
 
 const HistoryAndNotifications = ({
   requestHistory,
@@ -75,7 +76,7 @@ const HistoryAndNotifications = ({
                           </button>
                         </div>
                         <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded">
-                          {JSON.stringify(JSON.parse(request.request), null, 2)}
+                          <JsonView data={request.request} />
                         </pre>
                       </div>
                       {request.response && (
@@ -92,11 +93,7 @@ const HistoryAndNotifications = ({
                             </button>
                           </div>
                           <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded">
-                            {JSON.stringify(
-                              JSON.parse(request.response),
-                              null,
-                              2,
-                            )}
+                            <JsonView data={request.response} />
                           </pre>
                         </div>
                       )}
@@ -147,7 +144,9 @@ const HistoryAndNotifications = ({
                         </button>
                       </div>
                       <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded">
-                        {JSON.stringify(notification, null, 2)}
+                        <JsonView
+                          data={JSON.stringify(notification, null, 2)}
+                        />
                       </pre>
                     </div>
                   )}
