@@ -166,7 +166,7 @@ describe("Sidebar Environment Variables", () => {
       const setEnv = jest.fn();
       const initialEnv = {
         KEY1: "value1",
-        KEY2: "value2"
+        KEY2: "value2",
       };
       renderSidebar({ env: initialEnv, setEnv });
 
@@ -175,13 +175,17 @@ describe("Sidebar Environment Variables", () => {
       // Type "NEW_" one character at a time
       const key1Input = screen.getByDisplayValue("KEY1");
       "NEW_".split("").forEach((char) => {
-        fireEvent.change(key1Input, { target: { value: char + "KEY1".slice(1) } });
+        fireEvent.change(key1Input, {
+          target: { value: char + "KEY1".slice(1) },
+        });
       });
 
       // Verify the last setEnv call maintains the order
-      const lastCall = setEnv.mock.calls[setEnv.mock.calls.length - 1][0] as Record<string, string>;
+      const lastCall = setEnv.mock.calls[
+        setEnv.mock.calls.length - 1
+      ][0] as Record<string, string>;
       const entries = Object.entries(lastCall);
-      
+
       // The values should stay with their original keys
       expect(entries[0][1]).toBe("value1"); // First entry should still have value1
       expect(entries[1][1]).toBe("value2"); // Second entry should still have value2
