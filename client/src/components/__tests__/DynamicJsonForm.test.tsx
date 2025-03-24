@@ -3,6 +3,40 @@ import { describe, it, expect, jest } from '@jest/globals';
 import DynamicJsonForm from '../DynamicJsonForm';
 import type { JsonSchemaType } from '../DynamicJsonForm';
 
+describe('DynamicJsonForm String Fields', () => {
+  const renderForm = (props = {}) => {
+    const defaultProps = {
+      schema: {
+        type: "string" as const,
+        description: "Test string field"
+      } satisfies JsonSchemaType,
+      value: undefined,
+      onChange: jest.fn()
+    };
+    return render(<DynamicJsonForm {...defaultProps} {...props} />);
+  };
+
+  describe('Type Validation', () => {
+    it('should handle numeric input as string type', () => {
+      const onChange = jest.fn();
+      renderForm({ onChange });
+      
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: '123321' } });
+      
+      expect(onChange).toHaveBeenCalledWith('123321');
+      // Verify the value is a string, not a number
+      expect(typeof onChange.mock.calls[0][0]).toBe('string');
+    });
+
+    it('should render as text input, not number input', () => {
+      renderForm();
+      const input = screen.getByRole('textbox');
+      expect(input).toHaveProperty('type', 'text');
+    });
+  });
+});
+
 describe('DynamicJsonForm Integer Fields', () => {
   const renderForm = (props = {}) => {
     const defaultProps = {
