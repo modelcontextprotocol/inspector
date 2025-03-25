@@ -188,7 +188,7 @@ const JsonNode = memo(
           <span
             className={`${typeStyleMap.string} cursor-pointer group-hover:text-green-500`}
             onClick={() => setIsExpanded(!isExpanded)}
-            title={isExpanded ? "클릭하여 축소" : "클릭하여 전체 보기"}
+            title={isExpanded ? "Click to collapse" : "Click to expand"}
           >
             {isExpanded ? `"${value}"` : `"${value.slice(0, maxLength)}..."`}
           </span>
