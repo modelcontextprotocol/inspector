@@ -3,16 +3,12 @@ module.exports = {
   testEnvironment: "jsdom",
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
-    "^../components/DynamicJsonForm$":
-      "<rootDir>/src/utils/__mocks__/DynamicJsonForm.ts",
-    "^../../components/DynamicJsonForm$":
-      "<rootDir>/src/utils/__mocks__/DynamicJsonForm.ts",
+    "\\.css$": "<rootDir>/src/__mocks__/styleMock.js",
   },
   transform: {
     "^.+\\.tsx?$": [
       "ts-jest",
       {
-        useESM: true,
         jsx: "react-jsx",
         tsconfig: "tsconfig.jest.json",
       },
