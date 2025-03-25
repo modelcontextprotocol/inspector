@@ -24,7 +24,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "types": ["jest", "@testing-library/jest-dom", "node"]
   },
   "include": ["src"]
 }

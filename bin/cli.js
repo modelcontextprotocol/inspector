@@ -27,9 +27,15 @@ async function main() {
     }
 
     if (parsingFlags && arg === "-e" && i + 1 < args.length) {
-      const [key, value] = args[++i].split("=");
-      if (key && value) {
+      const envVar = args[++i];
+      const equalsIndex = envVar.indexOf("=");
+
+      if (equalsIndex !== -1) {
+        const key = envVar.substring(0, equalsIndex);
+        const value = envVar.substring(equalsIndex + 1);
         envVars[key] = value;
+      } else {
+        envVars[envVar] = "";
       }
     } else if (!command) {
       command = arg;
