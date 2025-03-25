@@ -23,7 +23,7 @@ function tryParseJson(str: string): { success: boolean; data: JsonValue } {
 }
 
 const JsonView = memo(
-  ({ data, name, initialExpandDepth = 2 }: JsonViewProps) => {
+  ({ data, name, initialExpandDepth = 3 }: JsonViewProps) => {
     const normalizedData =
       typeof data === "string"
         ? tryParseJson(data).success
