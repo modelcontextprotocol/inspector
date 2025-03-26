@@ -27,9 +27,15 @@ async function main() {
     }
 
     if (parsingFlags && arg === "-e" && i + 1 < args.length) {
-      const [key, value] = args[++i].split("=");
-      if (key && value) {
+      const envVar = args[++i];
+      const equalsIndex = envVar.indexOf("=");
+
+      if (equalsIndex !== -1) {
+        const key = envVar.substring(0, equalsIndex);
+        const value = envVar.substring(equalsIndex + 1);
         envVars[key] = value;
+      } else {
+        envVars[envVar] = "";
       }
     } else if (!command) {
       command = arg;
@@ -96,7 +102,7 @@ async function main() {
   await Promise.any([server, client, delay(2 * 1000)]);
   const portParam = SERVER_PORT === "3000" ? "" : `?proxyPort=${SERVER_PORT}`;
   console.log(
-    `\n🔍 MCP Inspector is up and running at http://localhost:${CLIENT_PORT}${portParam} 🚀`,
+    `\n🔍 MCP Inspector is up and running at http://127.0.0.1:${CLIENT_PORT}${portParam} 🚀`,
   );
 
   try {
