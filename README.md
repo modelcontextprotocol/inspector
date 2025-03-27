@@ -1,3 +1,37 @@
+# MCP Debug Inspector (Fork)
+
+This is a fork of the MCP Inspector with experimental support for the latest features:
+
+- **Streamable HTTP Protocol Support**: Full implementation of the Streamable HTTP transport protocol as specified in the MCP 2025-03-26 revision
+- **Direct Connection Mode**: Connect directly to MCP servers without proxy intermediation for lower latency and real-world client simulation
+- **Enhanced Debugging**: Improved error handling and diagnostic information for HTTP transport development
+
+## How to Use the New Features
+
+### Streamable HTTP
+
+The inspector now fully supports the Streamable HTTP protocol. To use it:
+
+1. Select "Streamable HTTP" from the transport type dropdown
+2. Enter the URL of your MCP server (ensure the path ends with `/mcp`)
+3. Click "Connect"
+
+### Direct Connection Mode
+
+For SSE and Streamable HTTP transports, you can now bypass the inspector's proxy server and connect directly to the MCP server:
+
+1. Select either "SSE" or "Streamable HTTP" from the transport type dropdown
+2. Check the "Direct connection (no proxy)" checkbox
+3. Enter the URL of your MCP server
+4. Click "Connect"
+
+Direct connection mode provides:
+- Lower latency - no proxy intermediation
+- More realistic client behavior - connecting directly as a browser client would
+- Better testing of actual CORS configurations
+
+Note that some debugging capabilities (like request/response inspection at the proxy level) are not available in direct mode.
+
 # MCP Inspector
 
 The MCP inspector is a developer tool for testing and debugging MCP servers.
