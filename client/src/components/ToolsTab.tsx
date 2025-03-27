@@ -54,17 +54,14 @@ const ToolsTab = ({
         return (
           <>
             <h4 className="font-semibold mb-2">Invalid Tool Result:</h4>
-            <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
+            <div className="p-4 border rounded">
               <JsonView data={escapeUnicode(toolResult)} />
-            </pre>
+            </div>
             <h4 className="font-semibold mb-2">Errors:</h4>
             {parsedResult.error.errors.map((error, idx) => (
-              <pre
-                key={idx}
-                className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64"
-              >
+              <div key={idx} className="p-4 border rounded">
                 <JsonView data={escapeUnicode(error)} />
-              </pre>
+              </div>
             ))}
           </>
         );
@@ -80,9 +77,9 @@ const ToolsTab = ({
           {structuredResult.content.map((item, index) => (
             <div key={index} className="mb-2">
               {item.type === "text" && (
-                <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
+                <div className="p-4 border rounded">
                   <JsonView data={item.text} />
-                </pre>
+                </div>
               )}
               {item.type === "image" && (
                 <img
@@ -101,9 +98,9 @@ const ToolsTab = ({
                     <p>Your browser does not support audio playback</p>
                   </audio>
                 ) : (
-                  <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 whitespace-pre-wrap break-words p-4 rounded text-sm overflow-auto max-h-64">
+                  <div className="p-4 border rounded">
                     <JsonView data={escapeUnicode(item.resource)} />
-                  </pre>
+                  </div>
                 ))}
             </div>
           ))}
@@ -113,9 +110,9 @@ const ToolsTab = ({
       return (
         <>
           <h4 className="font-semibold mb-2">Tool Result (Legacy):</h4>
-          <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
+          <div className="p-4 border rounded">
             <JsonView data={escapeUnicode(toolResult.toolResult)} />
-          </pre>
+          </div>
         </>
       );
     }

@@ -1,5 +1,6 @@
 import { useState, memo } from "react";
 import { JsonValue } from "./DynamicJsonForm";
+import clsx from "clsx";
 
 interface JsonViewProps {
   data: JsonValue;
@@ -70,7 +71,7 @@ const JsonNode = memo(
       boolean: "text-amber-600",
       null: "text-purple-600",
       undefined: "text-gray-600",
-      string: "text-green-600",
+      string: "text-green-600 break-all",
       default: "text-gray-700",
     };
 
@@ -173,7 +174,7 @@ const JsonNode = memo(
                 {name}:
               </span>
             )}
-            <span className={typeStyleMap.string}>"{value}"</span>
+            <p className={typeStyleMap.string}>"{value}"</p>
           </div>
         );
       }
@@ -186,7 +187,10 @@ const JsonNode = memo(
             </span>
           )}
           <span
-            className={`${typeStyleMap.string} cursor-pointer group-hover:text-green-500`}
+            className={clsx(
+              typeStyleMap.string,
+              "cursor-pointer group-hover:text-green-500",
+            )}
             onClick={() => setIsExpanded(!isExpanded)}
             title={isExpanded ? "Click to collapse" : "Click to expand"}
           >
