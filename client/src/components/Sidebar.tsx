@@ -187,9 +187,17 @@ const Sidebar = ({
                           value={key}
                           onChange={(e) => {
                             const newKey = e.target.value;
-                            const newEnv = { ...env };
-                            delete newEnv[key];
-                            newEnv[newKey] = value;
+                            const newEnv = Object.entries(env).reduce(
+                              (acc, [k, v]) => {
+                                if (k === key) {
+                                  acc[newKey] = value;
+                                } else {
+                                  acc[k] = v;
+                                }
+                                return acc;
+                              },
+                              {} as Record<string, string>,
+                            );
                             setEnv(newEnv);
                             setShownEnvVars((prev) => {
                               const next = new Set(prev);
