@@ -3,7 +3,7 @@ import { JsonValue } from "./DynamicJsonForm";
 import clsx from "clsx";
 
 interface JsonViewProps {
-  data: JsonValue;
+  data: unknown;
   name?: string;
   initialExpandDepth?: number;
 }
@@ -33,9 +33,9 @@ const JsonView = memo(
         : data;
 
     return (
-      <div className="font-mono text-sm transition-all duration-300">
+      <div className="font-mono text-sm transition-all duration-300 ">
         <JsonNode
-          data={normalizedData}
+          data={normalizedData as JsonValue}
           name={name}
           depth={0}
           initialExpandDepth={initialExpandDepth}

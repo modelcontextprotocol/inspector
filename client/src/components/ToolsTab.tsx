@@ -16,7 +16,6 @@ import {
 import { AlertCircle, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
-import { escapeUnicode } from "@/utils/escapeUnicode";
 import JsonView from "./JsonView";
 
 const ToolsTab = ({
@@ -55,12 +54,12 @@ const ToolsTab = ({
           <>
             <h4 className="font-semibold mb-2">Invalid Tool Result:</h4>
             <div className="p-4 border rounded">
-              <JsonView data={escapeUnicode(toolResult)} />
+              <JsonView data={toolResult} />
             </div>
             <h4 className="font-semibold mb-2">Errors:</h4>
             {parsedResult.error.errors.map((error, idx) => (
               <div key={idx} className="p-4 border rounded">
-                <JsonView data={escapeUnicode(error)} />
+                <JsonView data={error} />
               </div>
             ))}
           </>
@@ -99,7 +98,7 @@ const ToolsTab = ({
                   </audio>
                 ) : (
                   <div className="p-4 border rounded">
-                    <JsonView data={escapeUnicode(item.resource)} />
+                    <JsonView data={item.resource} />
                   </div>
                 ))}
             </div>
@@ -111,7 +110,7 @@ const ToolsTab = ({
         <>
           <h4 className="font-semibold mb-2">Tool Result (Legacy):</h4>
           <div className="p-4 border rounded">
-            <JsonView data={escapeUnicode(toolResult.toolResult)} />
+            <JsonView data={toolResult.toolResult} />
           </div>
         </>
       );
