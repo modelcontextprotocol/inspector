@@ -215,9 +215,9 @@ const ResourcesTab = ({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : selectedResource ? (
-            <pre className="bg-gray-50 dark:bg-gray-800 p-4 rounded text-sm overflow-auto max-h-96 whitespace-pre-wrap break-words text-gray-900 dark:text-gray-100">
+            <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded text-sm overflow-auto max-h-96 text-gray-900 dark:text-gray-100">
               <JsonView data={resourceContent} />
-            </pre>
+            </div>
           ) : selectedTemplate ? (
             <div className="space-y-4">
               <p className="text-sm text-gray-600">

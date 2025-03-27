@@ -75,9 +75,9 @@ const HistoryAndNotifications = ({
                             <Copy size={16} />
                           </button>
                         </div>
-                        <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded">
+                        <div className="bg-background p-2 rounded">
                           <JsonView data={request.request} />
-                        </pre>
+                        </div>
                       </div>
                       {request.response && (
                         <div className="mt-2">
@@ -92,9 +92,9 @@ const HistoryAndNotifications = ({
                               <Copy size={16} />
                             </button>
                           </div>
-                          <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded">
+                          <div className="bg-background p-2 rounded">
                             <JsonView data={request.response} />
-                          </pre>
+                          </div>
                         </div>
                       )}
                     </>
@@ -143,11 +143,11 @@ const HistoryAndNotifications = ({
                           <Copy size={16} />
                         </button>
                       </div>
-                      <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded">
+                      <div className="bg-background p-2 rounded">
                         <JsonView
                           data={JSON.stringify(notification, null, 2)}
                         />
-                      </pre>
+                      </div>
                     </div>
                   )}
                 </li>

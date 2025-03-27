@@ -71,7 +71,7 @@ const JsonNode = memo(
       boolean: "text-amber-600",
       null: "text-purple-600",
       undefined: "text-gray-600",
-      string: "text-green-600 break-all",
+      string: "text-green-600 break-all whitespace-pre-wrap",
       default: "text-gray-700",
     };
 
@@ -174,7 +174,7 @@ const JsonNode = memo(
                 {name}:
               </span>
             )}
-            <p className={typeStyleMap.string}>"{value}"</p>
+            <pre className={typeStyleMap.string}>"{value}"</pre>
           </div>
         );
       }
@@ -186,7 +186,7 @@ const JsonNode = memo(
               {name}:
             </span>
           )}
-          <span
+          <pre
             className={clsx(
               typeStyleMap.string,
               "cursor-pointer group-hover:text-green-500",
@@ -195,7 +195,7 @@ const JsonNode = memo(
             title={isExpanded ? "Click to collapse" : "Click to expand"}
           >
             {isExpanded ? `"${value}"` : `"${value.slice(0, maxLength)}..."`}
-          </span>
+          </pre>
         </div>
       );
     };
