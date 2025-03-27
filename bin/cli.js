@@ -80,7 +80,7 @@ async function main() {
     [
       inspectorServerPath,
       ...(command ? [`--env`, command] : []),
-      ...(mcpServerArgs ? [`--args=${mcpServerArgs.join(" ")}`] : []),
+      ...(mcpServerArgs.length > 0 ? [`--args=${mcpServerArgs.join(" ")}`] : []),
     ],
     {
       env: {

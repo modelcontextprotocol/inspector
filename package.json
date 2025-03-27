@@ -32,11 +32,9 @@
     "start": "node ./bin/cli.js",
     "prepare": "npm run build",
     "prettier-fix": "prettier --write .",
-    "publish-all": "npm publish --workspaces --access public && npm publish --access public"
+    "publish-package": "npm run build && npm publish --access public"
   },
   "dependencies": {
-    "mcp-debug-client": "^0.7.0",
-    "mcp-debug-server": "^0.7.0",
     "concurrently": "^9.0.1",
     "shell-quote": "^1.8.2",
     "spawn-rx": "^5.1.2",
