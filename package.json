@@ -1,14 +1,15 @@
 {
-  "name": "@modelcontextprotocol/inspector",
+  "name": "mcp-debug",
   "version": "0.7.0",
-  "description": "Model Context Protocol inspector",
+  "description": "Model Context Protocol inspector with enhanced HTTP streaming and direct connection support",
   "license": "MIT",
-  "author": "Anthropic, PBC (https://anthropic.com)",
+  "author": "Anthropic, PBC (https://anthropic.com) and contributors",
   "homepage": "https://modelcontextprotocol.io",
-  "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
+  "bugs": "https://github.com/QuantGeekDev/mcp-debug/issues",
   "type": "module",
   "bin": {
-    "mcp-inspector": "./bin/cli.js"
+    "mcp-inspector": "./bin/cli.js",
+    "mcp-debug": "./bin/cli.js"
   },
   "files": [
     "bin",
@@ -34,8 +35,8 @@
     "publish-all": "npm publish --workspaces --access public && npm publish --access public"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-client": "^0.7.0",
-    "@modelcontextprotocol/inspector-server": "^0.7.0",
+    "mcp-debug-client": "^0.7.0",
+    "mcp-debug-server": "^0.7.0",
     "concurrently": "^9.0.1",
     "shell-quote": "^1.8.2",
     "spawn-rx": "^5.1.2",
