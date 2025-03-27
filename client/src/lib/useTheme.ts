@@ -35,7 +35,7 @@ const useTheme = (): [Theme, (mode: Theme) => void] => {
       darkModeMediaQuery.removeEventListener("change", handleDarkModeChange);
     };
   }, [theme]);
-  
+
   const setThemeWithSideEffect = useCallback((newTheme: Theme) => {
     setTheme(newTheme);
     localStorage.setItem("theme", newTheme);
@@ -43,10 +43,7 @@ const useTheme = (): [Theme, (mode: Theme) => void] => {
       document.documentElement.classList.toggle("dark", newTheme === "dark");
     }
   }, []);
-  return useMemo(() => [
-    theme,
-    setThemeWithSideEffect,
-  ], [theme]);
+  return useMemo(() => [theme, setThemeWithSideEffect], [theme]);
 };
 
 export default useTheme;
