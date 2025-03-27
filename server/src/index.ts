@@ -16,6 +16,7 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
+import { StreamableHttpClientTransport, StreamableHttpError } from "./streamableHttpTransport.js";
 
 const SSE_HEADERS_PASSTHROUGH = ["authorization"];
 
@@ -92,6 +93,30 @@ const createTransport = async (req: express.Request) => {
 
     console.log("Connected to SSE transport");
     return transport;
+  } else if (transportType === "streamableHttp") {
+    const url = query.url as string;
+    const headers: HeadersInit = {
+      Accept: "application/json, text/event-stream",
+    };
+    for (const key of SSE_HEADERS_PASSTHROUGH) {
+      if (req.headers[key] === undefined) {
+        continue;
+      }
+
+      const value = req.headers[key];
+      headers[key] = Array.isArray(value) ? value[value.length - 1] : value;
+    }
+
+    console.log(`Streamable HTTP transport: url=${url}, headers=${Object.keys(headers)}`);
+
+    const transport = new StreamableHttpClientTransport(new URL(url), {
+      headers,
+    });
+    
+    await transport.start();
+    
+    console.log("Connected to Streamable HTTP transport");
+    return transport;
   } else {
     console.error(`Invalid transport type: ${transportType}`);
     throw new Error("Invalid transport type specified");
@@ -100,31 +125,37 @@ const createTransport = async (req: express.Request) => {
 
 app.get("/sse", async (req, res) => {
   try {
-    console.log("New SSE connection");
+    console.log("New browser-inspector SSE connection");
 
     let backingServerTransport;
     try {
       backingServerTransport = await createTransport(req);
     } catch (error) {
-      if (error instanceof SseError && error.code === 401) {
+      if ((error instanceof SseError || error instanceof StreamableHttpError) && error.code === 401) {
         console.error(
           "Received 401 Unauthorized from MCP server:",
           error.message,
         );
-        res.status(401).json(error);
+        res.status(401).json({
+          jsonrpc: "2.0",
+          id: "auth_error",
+          error: {
+            code: -32001,
+            message: `Authentication failed: ${error.message}`,
+          }
+        });
         return;
       }
 
       throw error;
     }
 
-    console.log("Connected MCP client to backing server transport");
+    console.log("Inspector successfully connected to MCP server");
 
     const webAppTransport = new SSEServerTransport("/message", res);
-    console.log("Created web app transport");
+    console.log("Created browser-inspector transport channel");
 
     webAppTransports.push(webAppTransport);
-    console.log("Created web app transport");
 
     await webAppTransport.start();
 
@@ -145,10 +176,21 @@ app.get("/sse", async (req, res) => {
       transportToServer: backingServerTransport,
     });
 
-    console.log("Set up MCP proxy");
+    console.log("Set up MCP proxy between browser and server");
+    
+    res.on("close", () => {
+      console.log("Browser-inspector connection closed by client");
+    });
   } catch (error) {
-    console.error("Error in /sse route:", error);
-    res.status(500).json(error);
+    console.error("Error in browser-inspector connection:", error);
+    res.status(500).json({
+      jsonrpc: "2.0",
+      id: "error",
+      error: {
+        code: -32603,
+        message: `Internal error: ${error instanceof Error ? error.message : String(error)}`,
+      },
+    });
   }
 });
 
@@ -162,10 +204,18 @@ app.post("/message", async (req, res) => {
       res.status(404).end("Session not found");
       return;
     }
+    
     await transport.handlePostMessage(req, res);
   } catch (error) {
     console.error("Error in /message route:", error);
-    res.status(500).json(error);
+    res.status(500).json({
+      jsonrpc: "2.0",
+      id: "error",
+      error: {
+        code: -32603,
+        message: `Internal error: ${error instanceof Error ? error.message : String(error)}`,
+      },
+    });
   }
 });
 
@@ -175,11 +225,31 @@ app.get("/config", (req, res) => {
       defaultEnvironment,
       defaultCommand: values.env,
       defaultArgs: values.args,
+      supportedTransports: ["stdio", "sse", "streamableHttp"]
     });
   } catch (error) {
     console.error("Error in /config route:", error);
-    res.status(500).json(error);
+    res.status(500).json({
+      jsonrpc: "2.0",
+      id: "error",
+      error: {
+        code: -32603,
+        message: `Internal error: ${error instanceof Error ? error.message : String(error)}`,
+      },
+    });
   }
+});
+
+process.on('SIGINT', async () => {
+  console.log('Shutting down gracefully...');
+  for (const transport of webAppTransports) {
+    try {
+      await transport.close();
+    } catch (error) {
+      console.error('Error closing transport:', error);
+    }
+  }
+  process.exit(0);
 });
 
 const PORT = process.env.PORT || 3000;

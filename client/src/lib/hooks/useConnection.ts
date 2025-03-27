@@ -20,7 +20,7 @@ import {
   CompleteResultSchema,
   ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { toast } from "react-toastify";
 import { z } from "zod";
 import { SESSION_KEYS } from "../constants";
@@ -29,12 +29,23 @@ import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { authProvider } from "../auth";
 import packageJson from "../../../package.json";
 
+import { 
+  DirectSseTransport as RealDirectSseTransport, 
+  DirectStreamableHttpTransport as RealDirectStreamableHttpTransport,
+  DirectTransportError as RealDirectTransportError
+} from "../directTransports";
+
+// Use the imported classes
+const DirectSseTransport = RealDirectSseTransport;
+const DirectStreamableHttpTransport = RealDirectStreamableHttpTransport;
+const DirectTransportError = RealDirectTransportError;
+
 const params = new URLSearchParams(window.location.search);
 const DEFAULT_REQUEST_TIMEOUT_MSEC =
   parseInt(params.get("timeout") ?? "") || 10000;
 
 interface UseConnectionOptions {
-  transportType: "stdio" | "sse";
+  transportType: "stdio" | "sse" | "streamableHttp";
   command: string;
   args: string;
   sseUrl: string;
@@ -42,16 +53,46 @@ interface UseConnectionOptions {
   proxyServerUrl: string;
   bearerToken?: string;
   requestTimeout?: number;
+  directConnection?: boolean;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
-  onPendingRequest?: (request: any, resolve: any, reject: any) => void;
-  getRoots?: () => any[];
+  onPendingRequest?: (request: unknown, resolve: unknown, reject: unknown) => void;
+  getRoots?: () => unknown[];
 }
 
 interface RequestOptions {
   signal?: AbortSignal;
   timeout?: number;
   suppressToast?: boolean;
+}
+
+async function testCORSWithServer(serverUrl: URL): Promise<boolean> {
+  try {
+    console.log(`Testing CORS settings with server at ${serverUrl.toString()}`);
+    
+    console.log(`Sending preflight OPTIONS request to ${serverUrl.toString()}`);
+    const preflightResponse = await fetch(serverUrl.toString(), {
+      method: 'OPTIONS',
+      headers: {
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'Content-Type, Mcp-Session-Id',
+        'Origin': window.location.origin
+      }
+    });
+    
+    console.log(`CORS preflight response status: ${preflightResponse.status}`);
+    console.log(`CORS headers in preflight response:`, {
+      'Access-Control-Allow-Origin': preflightResponse.headers.get('Access-Control-Allow-Origin'),
+      'Access-Control-Allow-Methods': preflightResponse.headers.get('Access-Control-Allow-Methods'),
+      'Access-Control-Allow-Headers': preflightResponse.headers.get('Access-Control-Allow-Headers'),
+      'Access-Control-Expose-Headers': preflightResponse.headers.get('Access-Control-Expose-Headers')
+    });
+    
+    return preflightResponse.ok;
+  } catch (error) {
+    console.error(`Error testing CORS settings: ${(error as Error).message}`);
+    return false;
+  }
 }
 
 export function useConnection({
@@ -63,6 +104,7 @@ export function useConnection({
   proxyServerUrl,
   bearerToken,
   requestTimeout = DEFAULT_REQUEST_TIMEOUT_MSEC,
+  directConnection = false,
   onNotification,
   onStdErrNotification,
   onPendingRequest,
@@ -78,6 +120,7 @@ export function useConnection({
     { request: string; response?: string }[]
   >([]);
   const [completionsSupported, setCompletionsSupported] = useState(true);
+  const connectAttempts = useRef(0);
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
@@ -157,14 +200,11 @@ export function useConnection({
       });
       return response?.completion.values || [];
     } catch (e: unknown) {
-      // Disable completions silently if the server doesn't support them.
-      // See https://github.com/modelcontextprotocol/specification/discussions/122
       if (e instanceof McpError && e.code === ErrorCode.MethodNotFound) {
         setCompletionsSupported(false);
         return [];
       }
 
-      // Unexpected errors - show toast and rethrow
       toast.error(e instanceof Error ? e.message : String(e));
       throw e;
     }
@@ -179,11 +219,9 @@ export function useConnection({
 
     try {
       await mcpClient.notification(notification);
-      // Log successful notifications
       pushHistory(notification);
     } catch (e: unknown) {
       if (e instanceof McpError) {
-        // Log MCP protocol errors
         pushHistory(notification, { error: e.message });
       }
       toast.error(e instanceof Error ? e.message : String(e));
@@ -204,6 +242,9 @@ export function useConnection({
 
   const connect = async (_e?: unknown, retryCount: number = 0) => {
     try {
+      setConnectionStatus("disconnected");
+      connectAttempts.current++;
+      
       const client = new Client<Request, Notification, Result>(
         {
           name: "mcp-inspector",
@@ -219,22 +260,125 @@ export function useConnection({
         },
       );
 
+      if (directConnection && transportType !== "stdio") {
+        console.log(`Connecting directly to MCP server using ${transportType} transport`);
+        
+        const serverUrl = new URL(sseUrl);
+        
+        if (transportType === "streamableHttp" && !serverUrl.pathname.endsWith("/mcp")) {
+          if (serverUrl.pathname === "/" || !serverUrl.pathname) {
+            serverUrl.pathname = "/mcp";
+          }
+        }
+        
+        const corsOk = await testCORSWithServer(serverUrl);
+        if (!corsOk) {
+          console.warn("CORS preflight test failed. Connection might still work, but be prepared for CORS errors.");
+        }
+        
+        const directHeaders: Record<string, string> = {};
+        if (bearerToken) {
+          directHeaders["Authorization"] = `Bearer ${bearerToken}`;
+        }
+        directHeaders["Content-Type"] = "application/json";
+        
+        const origin = window.location.origin;
+        console.log(`Creating direct connection from origin: ${origin} to ${serverUrl.toString()}`);
+        
+        let clientTransport;
+        if (transportType === "sse") {
+          clientTransport = new DirectSseTransport(serverUrl, {
+            headers: directHeaders,
+            useCredentials: false 
+          });
+        } else if (transportType === "streamableHttp") {
+          clientTransport = new DirectStreamableHttpTransport(serverUrl, {
+            headers: directHeaders,
+            useCredentials: false 
+          });
+        } else {
+          throw new Error(`Unsupported transport type for direct connection: ${transportType}`);
+        }
+        
+        if (onNotification) {
+          client.setNotificationHandler(ProgressNotificationSchema, onNotification);
+          client.setNotificationHandler(ResourceUpdatedNotificationSchema, onNotification);
+          client.setNotificationHandler(LoggingMessageNotificationSchema, onNotification);
+        }
+        
+        if (onStdErrNotification) {
+          client.setNotificationHandler(StdErrNotificationSchema, onStdErrNotification);
+        }
+        
+        if (onPendingRequest) {
+          client.setRequestHandler(CreateMessageRequestSchema, (request) => {
+            return new Promise((resolve, reject) => {
+              onPendingRequest(request, resolve, reject);
+            });
+          });
+        }
+        
+        if (getRoots) {
+          client.setRequestHandler(ListRootsRequestSchema, async () => {
+            return { roots: getRoots() };
+          });
+        }
+        
+        try {
+          console.log("Connecting to MCP server directly...");
+          await client.connect(clientTransport);
+          console.log("Connected directly to MCP server");
+          
+          const capabilities = client.getServerCapabilities();
+          setServerCapabilities(capabilities ?? null);
+          setCompletionsSupported(true);
+          
+          setMcpClient(client);
+          setConnectionStatus("connected");
+          return;
+        } catch (error) {
+          console.error("Failed to connect directly to MCP server:", error);
+          
+          if (error instanceof DirectTransportError) {
+            console.error("DirectTransportError details:", {
+              code: error.code,
+              message: error.message,
+              response: error.response ? {
+                status: error.response.status,
+                statusText: error.response.statusText,
+              } : undefined
+            });
+          }
+          
+          const shouldRetry = await handleAuthError(error);
+          if (shouldRetry && retryCount < 3) {
+            return connect(undefined, retryCount + 1);
+          }
+          
+          throw error;
+        }
+      }
+
       const backendUrl = new URL(`${proxyServerUrl}/sse`);
 
       backendUrl.searchParams.append("transportType", transportType);
+      
       if (transportType === "stdio") {
         backendUrl.searchParams.append("command", command);
         backendUrl.searchParams.append("args", args);
         backendUrl.searchParams.append("env", JSON.stringify(env));
       } else {
-        backendUrl.searchParams.append("url", sseUrl);
+        const url = new URL(sseUrl);
+        
+        if (transportType === "streamableHttp" && !url.pathname) {
+          url.pathname = "/mcp";
+        }
+        
+        backendUrl.searchParams.append("url", url.toString());
       }
 
-      // Inject auth manually instead of using SSEClientTransport, because we're
-      // proxying through the inspector server first.
       const headers: HeadersInit = {};
 
-      // Use manually provided bearer token if available, otherwise use OAuth tokens
       const token = bearerToken || (await authProvider.tokens())?.access_token;
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
@@ -278,12 +422,11 @@ export function useConnection({
       } catch (error) {
         console.error("Failed to connect to MCP server:", error);
         const shouldRetry = await handleAuthError(error);
-        if (shouldRetry) {
+        if (shouldRetry && retryCount < 3) {
           return connect(undefined, retryCount + 1);
         }
 
         if (error instanceof SseError && error.code === 401) {
-          // Don't set error state if we're about to redirect for auth
           return;
         }
         throw error;
@@ -291,7 +434,7 @@ export function useConnection({
 
       const capabilities = client.getServerCapabilities();
       setServerCapabilities(capabilities ?? null);
-      setCompletionsSupported(true); // Reset completions support on new connection
+      setCompletionsSupported(true);
 
       if (onPendingRequest) {
         client.setRequestHandler(CreateMessageRequestSchema, (request) => {
@@ -310,8 +453,16 @@ export function useConnection({
       setMcpClient(client);
       setConnectionStatus("connected");
     } catch (e) {
-      console.error(e);
+      console.error("Connection error:", e);
       setConnectionStatus("error");
+      
+      if (retryCount < 2) {
+        setTimeout(() => {
+          connect(undefined, retryCount + 1);
+        }, 1000);
+      } else {
+        toast.error("Failed to connect to MCP server after multiple attempts");
+      }
     }
   };
 

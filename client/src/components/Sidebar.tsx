@@ -29,8 +29,8 @@ import { version } from "../../../package.json";
 
 interface SidebarProps {
   connectionStatus: "disconnected" | "connected" | "error";
-  transportType: "stdio" | "sse";
-  setTransportType: (type: "stdio" | "sse") => void;
+  transportType: "stdio" | "sse" | "streamableHttp";
+  setTransportType: (type: "stdio" | "sse" | "streamableHttp") => void;
   command: string;
   setCommand: (command: string) => void;
   args: string;
@@ -41,6 +41,8 @@ interface SidebarProps {
   setEnv: (env: Record<string, string>) => void;
   bearerToken: string;
   setBearerToken: (token: string) => void;
+  directConnection: boolean;
+  setDirectConnection: (direct: boolean) => void;
   onConnect: () => void;
   stdErrNotifications: StdErrNotification[];
   logLevel: LoggingLevel;
@@ -62,6 +64,8 @@ const Sidebar = ({
   setEnv,
   bearerToken,
   setBearerToken,
+  directConnection,
+  setDirectConnection,
   onConnect,
   stdErrNotifications,
   logLevel,
@@ -72,6 +76,15 @@ const Sidebar = ({
   const [showEnvVars, setShowEnvVars] = useState(false);
   const [showBearerToken, setShowBearerToken] = useState(false);
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
+
+  const handleTransportTypeChange = (type: "stdio" | "sse" | "streamableHttp") => {
+    setTransportType(type);
+    if (type === "streamableHttp" && !sseUrl.includes("/mcp")) {
+      const url = new URL(sseUrl || "http://localhost:3001");
+      url.pathname = "/mcp";
+      setSseUrl(url.toString());
+    }
+  };
 
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
@@ -89,9 +102,7 @@ const Sidebar = ({
             <label className="text-sm font-medium">Transport Type</label>
             <Select
               value={transportType}
-              onValueChange={(value: "stdio" | "sse") =>
-                setTransportType(value)
-              }
+              onValueChange={handleTransportTypeChange}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select transport type" />
@@ -99,9 +110,33 @@ const Sidebar = ({
               <SelectContent>
                 <SelectItem value="stdio">STDIO</SelectItem>
                 <SelectItem value="sse">SSE</SelectItem>
+                <SelectItem value="streamableHttp">Streamable HTTP</SelectItem>
               </SelectContent>
             </Select>
+            {transportType === "streamableHttp" && (
+              <div className="text-xs text-muted-foreground">
+                For Streamable HTTP, use a URL with the MCP endpoint path. Example: https://example.com/mcp
+              </div>
+            )}
           </div>
+
+          {transportType !== "stdio" && (
+            <div className="flex items-center space-x-2 py-2">
+              <input
+                type="checkbox"
+                id="direct-connection"
+                className="h-4 w-4"
+                checked={directConnection}
+                onChange={(e) => setDirectConnection(e.target.checked)}
+              />
+              <label htmlFor="direct-connection" className="text-sm font-medium cursor-pointer">
+                Direct connection (no proxy)
+              </label>
+              <div title="Connect directly to the MCP server without using the inspector proxy. This provides lower latency but fewer debugging capabilities.">
+                <CircleHelp className="h-4 w-4 text-muted-foreground cursor-help" />
+              </div>
+            </div>
+          )}
 
           {transportType === "stdio" ? (
             <>
@@ -129,11 +164,18 @@ const Sidebar = ({
               <div className="space-y-2">
                 <label className="text-sm font-medium">URL</label>
                 <Input
-                  placeholder="URL"
+                  placeholder={transportType === "streamableHttp" 
+                    ? "https://example.com/mcp" 
+                    : "URL"}
                   value={sseUrl}
                   onChange={(e) => setSseUrl(e.target.value)}
                   className="font-mono"
                 />
+                {transportType === "streamableHttp" && !sseUrl.includes("/") && (
+                  <div className="text-xs text-red-500">
+                    The URL should include a path (e.g., /mcp) for Streamable HTTP transport
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <Button

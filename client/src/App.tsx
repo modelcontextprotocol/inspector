@@ -51,17 +51,23 @@ const PROXY_PORT = params.get("proxyPort") ?? "3000";
 const PROXY_SERVER_URL = `http://${window.location.hostname}:${PROXY_PORT}`;
 
 const App = () => {
-  // Handle OAuth callback route
   if (window.location.pathname === "/oauth/callback") {
-    const OAuthCallback = React.lazy(
-      () => import("./components/OAuthCallback"),
-    );
-    return (
-      <Suspense fallback={<div>Loading...</div>}>
-        <OAuthCallback />
-      </Suspense>
-    );
+    return <OAuthCallbackRoute />;
   }
+  
+  return <MainApp />;
+};
+
+const OAuthCallbackRoute = () => {
+  const OAuthCallback = React.lazy(() => import("./components/OAuthCallback"));
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <OAuthCallback />
+    </Suspense>
+  );
+};
+
+const MainApp = () => {
   const [resources, setResources] = useState<Resource[]>([]);
   const [resourceTemplates, setResourceTemplates] = useState<
     ResourceTemplate[]
@@ -87,9 +93,9 @@ const App = () => {
   const [sseUrl, setSseUrl] = useState<string>(() => {
     return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
   });
-  const [transportType, setTransportType] = useState<"stdio" | "sse">(() => {
+  const [transportType, setTransportType] = useState<"stdio" | "sse" | "streamableHttp">(() => {
     return (
-      (localStorage.getItem("lastTransportType") as "stdio" | "sse") || "stdio"
+      (localStorage.getItem("lastTransportType") as "stdio" | "sse" | "streamableHttp") || "stdio"
     );
   });
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
@@ -101,6 +107,9 @@ const App = () => {
   const [env, setEnv] = useState<Record<string, string>>({});
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
+  });
+  const [directConnection, setDirectConnection] = useState<boolean>(() => {
+    return localStorage.getItem("lastDirectConnection") === "true" || false;
   });
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
@@ -170,6 +179,7 @@ const App = () => {
     sseUrl,
     env,
     bearerToken,
+    directConnection,
     proxyServerUrl: PROXY_SERVER_URL,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
@@ -183,7 +193,15 @@ const App = () => {
     onPendingRequest: (request, resolve, reject) => {
       setPendingSampleRequests((prev) => [
         ...prev,
-        { id: nextRequestId.current++, request, resolve, reject },
+        {
+          id: nextRequestId.current++,
+          request: request as any,
+          resolve: resolve as (result: CreateMessageResult) => void,
+          reject: reject as (error: Error) => void
+        } as PendingRequest & {
+          resolve: (result: CreateMessageResult) => void;
+          reject: (error: Error) => void;
+        },
       ]);
     },
     getRoots: () => rootsRef.current,
@@ -209,19 +227,19 @@ const App = () => {
     localStorage.setItem("lastBearerToken", bearerToken);
   }, [bearerToken]);
 
-  // Auto-connect if serverUrl is provided in URL params (e.g. after OAuth callback)
+  useEffect(() => {
+    localStorage.setItem("lastDirectConnection", directConnection.toString());
+  }, [directConnection]);
+
   useEffect(() => {
     const serverUrl = params.get("serverUrl");
     if (serverUrl) {
       setSseUrl(serverUrl);
       setTransportType("sse");
-      // Remove serverUrl from URL without reloading the page
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.delete("serverUrl");
       window.history.replaceState({}, "", newUrl.toString());
-      // Show success toast for OAuth
       toast.success("Successfully authenticated with OAuth");
-      // Connect to the server
       connectMcpServer();
     }
   }, []);
@@ -441,6 +459,8 @@ const App = () => {
         setEnv={setEnv}
         bearerToken={bearerToken}
         setBearerToken={setBearerToken}
+        directConnection={directConnection}
+        setDirectConnection={setDirectConnection}
         onConnect={connectMcpServer}
         stdErrNotifications={stdErrNotifications}
         logLevel={logLevel}
