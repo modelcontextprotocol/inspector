@@ -35,10 +35,16 @@
     "publish-package": "npm run build && npm publish --access public"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
     "concurrently": "^9.0.1",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "serve-handler": "^6.1.6",
     "shell-quote": "^1.8.2",
     "spawn-rx": "^5.1.2",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/content-type": "^1.1.8",
