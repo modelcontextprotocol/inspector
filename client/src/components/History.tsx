@@ -1,6 +1,7 @@
 import { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 import { Copy } from "lucide-react";
 import { useState } from "react";
+import JsonView from "./JsonView";
 
 const HistoryAndNotifications = ({
   requestHistory,
@@ -74,9 +75,9 @@ const HistoryAndNotifications = ({
                             <Copy size={16} />
                           </button>
                         </div>
-                        <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded">
-                          {JSON.stringify(JSON.parse(request.request), null, 2)}
-                        </pre>
+                        <div className="bg-background p-2 rounded">
+                          <JsonView data={request.request} />
+                        </div>
                       </div>
                       {request.response && (
                         <div className="mt-2">
@@ -91,13 +92,9 @@ const HistoryAndNotifications = ({
                               <Copy size={16} />
                             </button>
                           </div>
-                          <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded">
-                            {JSON.stringify(
-                              JSON.parse(request.response),
-                              null,
-                              2,
-                            )}
-                          </pre>
+                          <div className="bg-background p-2 rounded">
+                            <JsonView data={request.response} />
+                          </div>
                         </div>
                       )}
                     </>
@@ -146,9 +143,11 @@ const HistoryAndNotifications = ({
                           <Copy size={16} />
                         </button>
                       </div>
-                      <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded">
-                        {JSON.stringify(notification, null, 2)}
-                      </pre>
+                      <div className="bg-background p-2 rounded">
+                        <JsonView
+                          data={JSON.stringify(notification, null, 2)}
+                        />
+                      </div>
                     </div>
                   )}
                 </li>
