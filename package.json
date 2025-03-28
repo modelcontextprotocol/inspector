@@ -1,6 +1,6 @@
 {
   "name": "mcp-debug",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Model Context Protocol inspector with enhanced HTTP streaming and direct connection support",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com) and contributors",
