@@ -377,7 +377,7 @@ const Sidebar = ({
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <CircleHelp className="w-4 h-4 text-gray-800" />
+                <CircleHelp className="w-4 h-4 text-foreground" />
               </a>
             </Button>
             <Button variant="ghost" title="Debugging Guide" asChild>
@@ -386,7 +386,7 @@ const Sidebar = ({
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <Bug className="w-4 h-4 text-gray-800" />
+                <Bug className="w-4 h-4 text-foreground" />
               </a>
             </Button>
             <Button
@@ -399,7 +399,7 @@ const Sidebar = ({
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <Github className="w-4 h-4 text-gray-800" />
+                <Github className="w-4 h-4 text-foreground" />
               </a>
             </Button>
           </div>
