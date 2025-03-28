@@ -65,7 +65,6 @@ async function main() {
   const SERVER_PORT = process.env.SERVER_PORT ?? "3000";
 
   console.log("Starting MCP Debug inspector...");
-  console.log("Enhanced with Streamable HTTP and Direct Connection support");
 
   const abort = new AbortController();
 
