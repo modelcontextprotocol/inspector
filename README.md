@@ -42,6 +42,10 @@ For more details on ways to use the inspector, see the [Inspector section of the
 
 The inspector supports bearer token authentication for SSE connections. Enter your token in the UI when connecting to an MCP server, and it will be sent in the Authorization header.
 
+### Security Considerations
+
+The MCP Inspector includes a proxy server that can run and communicate with local MCP processes. The proxy server should not be exposed to untrusted networks as it has permissions to spawn local processes and can connect to any specified MCP server.
+
 ### From this repository
 
 If you're working on the inspector itself:
