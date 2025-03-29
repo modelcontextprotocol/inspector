@@ -31,6 +31,7 @@ import {
   Hammer,
   Hash,
   MessageSquare,
+  BarChart,
 } from "lucide-react";
 
 import { toast } from "react-toastify";
@@ -45,6 +46,7 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import StatsTab from "./components/StatsTab";
 
 const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "3000";
@@ -123,22 +125,6 @@ const MainApp = () => {
   const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
 
-  const handleApproveSampling = (id: number, result: CreateMessageResult) => {
-    setPendingSampleRequests((prev) => {
-      const request = prev.find((r) => r.id === id);
-      request?.resolve(result);
-      return prev.filter((r) => r.id !== id);
-    });
-  };
-
-  const handleRejectSampling = (id: number) => {
-    setPendingSampleRequests((prev) => {
-      const request = prev.find((r) => r.id === id);
-      request?.reject(new Error("Sampling request rejected"));
-      return prev.filter((r) => r.id !== id);
-    });
-  };
-
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
   );
@@ -195,7 +181,7 @@ const MainApp = () => {
         ...prev,
         {
           id: nextRequestId.current++,
-          request: request as any,
+          request: request as unknown,
           resolve: resolve as (result: CreateMessageResult) => void,
           reject: reject as (error: Error) => void
         } as PendingRequest & {
@@ -248,7 +234,7 @@ const MainApp = () => {
     fetch(`${PROXY_SERVER_URL}/config`)
       .then((response) => response.json())
       .then((data) => {
-        setEnv(data.defaultEnvironment);
+        setEnv(data.defaultEnvironment || {});
         if (data.defaultCommand) {
           setCommand(data.defaultCommand);
         }
@@ -256,14 +242,33 @@ const MainApp = () => {
           setArgs(data.defaultArgs);
         }
       })
-      .catch((error) =>
-        console.error("Error fetching default environment:", error),
-      );
+      .catch((error) => {
+        console.error("Error fetching default environment:", error);
+        // Set default empty environment to prevent UI blocking
+        setEnv({});
+      });
   }, []);
 
   useEffect(() => {
     rootsRef.current = roots;
   }, [roots]);
+
+  useEffect(() => {
+    console.log(`[App] Connection status changed to: ${connectionStatus}`);
+    console.log(`[App] Connection details - status: ${connectionStatus}, serverCapabilities: ${!!serverCapabilities}, mcpClient: ${!!mcpClient}`);
+    
+    if (connectionStatus === "connected" && mcpClient && !serverCapabilities) {
+      console.log("[App] Connection is established, but missing capabilities");
+      try {
+        // Only log capabilities here, don't attempt to set them 
+        // as we don't have the setter in this component
+        const caps = mcpClient.getServerCapabilities();
+        console.log("[App] Retrieved capabilities directly:", caps);
+      } catch (e) {
+        console.error("[App] Error retrieving capabilities:", e);
+      }
+    }
+  }, [connectionStatus, serverCapabilities, mcpClient]);
 
   useEffect(() => {
     if (!window.location.hash) {
@@ -443,6 +448,23 @@ const MainApp = () => {
     setLogLevel(level);
   };
 
+  const handleApproveSampling = (id: number, result: CreateMessageResult) => {
+    setPendingSampleRequests((prev) => {
+      const request = prev.find((r) => r.id === id);
+      request?.resolve(result);
+      return prev.filter((r) => r.id !== id);
+    });
+  };
+
+  const handleRejectSampling = (id: number) => {
+    setPendingSampleRequests((prev) => {
+      const request = prev.find((r) => r.id === id);
+      request?.reject(new Error("Sampling request rejected"));
+      return prev.filter((r) => r.id !== id);
+    });
+  };
+  
+
   return (
     <div className="flex h-screen bg-background">
       <Sidebar
@@ -469,10 +491,10 @@ const MainApp = () => {
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
-          {mcpClient ? (
+          {connectionStatus === "connected" && serverCapabilities ? (
             <Tabs
               defaultValue={
-                Object.keys(serverCapabilities ?? {}).includes(
+                Object.keys(serverCapabilities).includes(
                   window.location.hash.slice(1),
                 )
                   ? window.location.hash.slice(1)
@@ -525,6 +547,10 @@ const MainApp = () => {
                 <TabsTrigger value="roots">
                   <FolderTree className="w-4 h-4 mr-2" />
                   Roots
+                </TabsTrigger>
+                <TabsTrigger value="stats">
+                  <BarChart className="w-4 h-4 mr-2" />
+                  Stats
                 </TabsTrigger>
               </TabsList>
 
@@ -656,10 +682,27 @@ const MainApp = () => {
                       setRoots={setRoots}
                       onRootsChange={handleRootsChange}
                     />
+                    <StatsTab mcpClient={mcpClient} />
                   </>
                 )}
               </div>
             </Tabs>
+          ) : connectionStatus === "connected" && mcpClient ? (
+            <div className="flex flex-col items-center justify-center h-full gap-4">
+              <p className="text-lg text-gray-500">
+                Connected to MCP server but waiting for capabilities...
+              </p>
+              <button 
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                onClick={() => {
+                  // Attempt to reconnect instead of directly setting capabilities
+                  toast.info("Attempting to reconnect...");
+                  connectMcpServer();
+                }}
+              >
+                Reconnect
+              </button>
+            </div>
           ) : (
             <div className="flex items-center justify-center h-full">
               <p className="text-lg text-gray-500">

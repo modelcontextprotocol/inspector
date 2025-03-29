@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.1",
+    "@radix-ui/react-accordion": "^1.2.3",
     "concurrently": "^9.0.1",
     "cors": "^2.8.5",
     "express": "^4.21.0",
@@ -43,6 +44,7 @@
     "shell-quote": "^1.8.2",
     "spawn-rx": "^5.1.2",
     "ts-node": "^10.9.2",
+    "uuid": "^11.1.0",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
   },
@@ -51,6 +53,7 @@
     "@types/jest": "^29.5.14",
     "@types/node": "^22.7.5",
     "@types/shell-quote": "^1.7.5",
+    "@types/uuid": "^10.0.0",
     "prettier": "3.3.3"
   }
 }

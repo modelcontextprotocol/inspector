@@ -240,10 +240,17 @@ export function useConnection({
     return false;
   };
 
+  const setConnectionStatusWithLog = (status: "disconnected" | "connected" | "error") => {
+    console.log(`[Connection Status] Changing status from ${connectionStatus} to ${status}`);
+    setConnectionStatus(status);
+  };
+
   const connect = async (_e?: unknown, retryCount: number = 0) => {
     try {
-      setConnectionStatus("disconnected");
+      setConnectionStatusWithLog("disconnected");
       connectAttempts.current++;
+      
+      console.log("Starting connection with transportType:", transportType, "directConnection:", directConnection);
       
       const client = new Client<Request, Notification, Result>(
         {
@@ -324,17 +331,48 @@ export function useConnection({
           });
         }
         
+        console.log("Connecting to MCP server directly...");
+        
         try {
+          const transport = clientTransport;
+          
+          transport.onerror = (error) => {
+            console.error("Transport error:", error);
+            if (connectionStatus !== "connected" && 
+                (error.message?.includes("session expired") || 
+                 error.message?.includes("connection closed") ||
+                 error.message?.includes("aborted"))) {
+              setConnectionStatusWithLog("error");
+              toast.error(`Connection error: ${error.message}`);
+            }
+          };
+          
           console.log("Connecting to MCP server directly...");
-          await client.connect(clientTransport);
+          await client.connect(transport);
           console.log("Connected directly to MCP server");
           
-          const capabilities = client.getServerCapabilities();
-          setServerCapabilities(capabilities ?? null);
-          setCompletionsSupported(true);
+          try {
+            const capabilities = client.getServerCapabilities();
+            console.log("Server capabilities received:", capabilities);
+            
+            console.log("Updating connection state directly");
+            
+            setMcpClient(() => client);
+            setServerCapabilities(() => capabilities ?? {} as ServerCapabilities);
+            setCompletionsSupported(() => true);
+            setConnectionStatusWithLog("connected");
+            
+            console.log("Connection successful - UI should update now");
+            
+            if (transportType === "streamableHttp") {
+              console.log("Attempting to start server message listener...");
+            }
+            
+            return;
+          } catch (err) {
+            console.error("Error updating state:", err);
+          }
           
-          setMcpClient(client);
-          setConnectionStatus("connected");
           return;
         } catch (error) {
           console.error("Failed to connect directly to MCP server:", error);
@@ -451,10 +489,10 @@ export function useConnection({
       }
 
       setMcpClient(client);
-      setConnectionStatus("connected");
+      setConnectionStatusWithLog("connected");
     } catch (e) {
       console.error("Connection error:", e);
-      setConnectionStatus("error");
+      setConnectionStatusWithLog("error");
       
       if (retryCount < 2) {
         setTimeout(() => {
@@ -476,5 +514,6 @@ export function useConnection({
     handleCompletion,
     completionsSupported,
     connect,
+    setServerCapabilities,
   };
 }
