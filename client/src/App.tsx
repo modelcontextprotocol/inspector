@@ -53,33 +53,14 @@ const PROXY_PORT = params.get("proxyPort") ?? "3000";
 const PROXY_SERVER_URL = `http://${window.location.hostname}:${PROXY_PORT}`;
 
 const App = () => {
-  if (window.location.pathname === "/oauth/callback") {
-    return <OAuthCallbackRoute />;
-  }
-  
-  return <MainApp />;
-};
-
-const OAuthCallbackRoute = () => {
-  const OAuthCallback = React.lazy(() => import("./components/OAuthCallback"));
-  return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <OAuthCallback />
-    </Suspense>
-  );
-};
-
-const MainApp = () => {
+  // Handle OAuth callback route
   const [resources, setResources] = useState<Resource[]>([]);
-  const [resourceTemplates, setResourceTemplates] = useState<
-    ResourceTemplate[]
-  >([]);
+  const [resourceTemplates, setResourceTemplates] = useState<ResourceTemplate[]>([]);
   const [resourceContent, setResourceContent] = useState<string>("");
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
   const [tools, setTools] = useState<Tool[]>([]);
-  const [toolResult, setToolResult] =
-    useState<CompatibilityCallToolResult | null>(null);
+  const [toolResult, setToolResult] = useState<CompatibilityCallToolResult | null>(null);
   const [errors, setErrors] = useState<Record<string, string | null>>({
     resources: null,
     prompts: null,
@@ -102,9 +83,7 @@ const MainApp = () => {
   });
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
-  const [stdErrNotifications, setStdErrNotifications] = useState<
-    StdErrNotification[]
-  >([]);
+  const [stdErrNotifications, setStdErrNotifications] = useState<StdErrNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
   const [bearerToken, setBearerToken] = useState<string>(() => {
@@ -125,24 +104,14 @@ const MainApp = () => {
   const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
 
-  const [selectedResource, setSelectedResource] = useState<Resource | null>(
-    null,
-  );
-  const [resourceSubscriptions, setResourceSubscriptions] = useState<
-    Set<string>
-  >(new Set<string>());
+  const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+  const [resourceSubscriptions, setResourceSubscriptions] = useState<Set<string>>(new Set<string>());
 
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
-  const [nextResourceCursor, setNextResourceCursor] = useState<
-    string | undefined
-  >();
-  const [nextResourceTemplateCursor, setNextResourceTemplateCursor] = useState<
-    string | undefined
-  >();
-  const [nextPromptCursor, setNextPromptCursor] = useState<
-    string | undefined
-  >();
+  const [nextResourceCursor, setNextResourceCursor] = useState<string | undefined>();
+  const [nextResourceTemplateCursor, setNextResourceTemplateCursor] = useState<string | undefined>();
+  const [nextPromptCursor, setNextPromptCursor] = useState<string | undefined>();
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
 
@@ -228,7 +197,7 @@ const MainApp = () => {
       toast.success("Successfully authenticated with OAuth");
       connectMcpServer();
     }
-  }, []);
+  }, [connectMcpServer]);
 
   useEffect(() => {
     fetch(`${PROXY_SERVER_URL}/config`)
@@ -255,8 +224,10 @@ const MainApp = () => {
 
   useEffect(() => {
     console.log(`[App] Connection status changed to: ${connectionStatus}`);
-    console.log(`[App] Connection details - status: ${connectionStatus}, serverCapabilities: ${!!serverCapabilities}, mcpClient: ${!!mcpClient}`);
-    
+    console.log(
+      `[App] Connection details - status: ${connectionStatus}, serverCapabilities: ${!!serverCapabilities}, mcpClient: ${!!mcpClient}`
+    );
+
     if (connectionStatus === "connected" && mcpClient && !serverCapabilities) {
       console.log("[App] Connection is established, but missing capabilities");
       try {
@@ -280,80 +251,53 @@ const MainApp = () => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
   };
 
-  const makeRequest = async <T extends z.ZodType>(
-    request: ClientRequest,
-    schema: T,
-    tabKey?: keyof typeof errors,
-  ) => {
-    try {
-      const response = await makeConnectionRequest(request, schema);
-      if (tabKey !== undefined) {
-        clearError(tabKey);
-      }
-      return response;
-    } catch (e) {
-      const errorString = (e as Error).message ?? String(e);
-      if (tabKey !== undefined) {
-        setErrors((prev) => ({
-          ...prev,
-          [tabKey]: errorString,
-        }));
-      }
-      throw e;
-    }
-  };
-
   const listResources = async () => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "resources/list" as const,
         params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
       },
       ListResourcesResultSchema,
-      "resources",
+      "resources"
     );
     setResources(resources.concat(response.resources ?? []));
     setNextResourceCursor(response.nextCursor);
   };
 
   const listResourceTemplates = async () => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "resources/templates/list" as const,
-        params: nextResourceTemplateCursor
-          ? { cursor: nextResourceTemplateCursor }
-          : {},
+        params: nextResourceTemplateCursor ? { cursor: nextResourceTemplateCursor } : {},
       },
       ListResourceTemplatesResultSchema,
-      "resources",
+      "resources"
     );
-    setResourceTemplates(
-      resourceTemplates.concat(response.resourceTemplates ?? []),
-    );
+    setResourceTemplates(resourceTemplates.concat(response.resourceTemplates ?? []));
     setNextResourceTemplateCursor(response.nextCursor);
   };
 
   const readResource = async (uri: string) => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "resources/read" as const,
         params: { uri },
       },
       ReadResourceResultSchema,
-      "resources",
+      "resources"
     );
     setResourceContent(JSON.stringify(response, null, 2));
   };
 
   const subscribeToResource = async (uri: string) => {
     if (!resourceSubscriptions.has(uri)) {
-      await makeRequest(
+      await makeConnectionRequest(
         {
           method: "resources/subscribe" as const,
           params: { uri },
         },
         z.object({}),
-        "resources",
+        "resources"
       );
       const clone = new Set(resourceSubscriptions);
       clone.add(uri);
@@ -363,13 +307,13 @@ const MainApp = () => {
 
   const unsubscribeFromResource = async (uri: string) => {
     if (resourceSubscriptions.has(uri)) {
-      await makeRequest(
+      await makeConnectionRequest(
         {
           method: "resources/unsubscribe" as const,
           params: { uri },
         },
         z.object({}),
-        "resources",
+        "resources"
       );
       const clone = new Set(resourceSubscriptions);
       clone.delete(uri);
@@ -378,45 +322,45 @@ const MainApp = () => {
   };
 
   const listPrompts = async () => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "prompts/list" as const,
         params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
       },
       ListPromptsResultSchema,
-      "prompts",
+      "prompts"
     );
     setPrompts(response.prompts);
     setNextPromptCursor(response.nextCursor);
   };
 
   const getPrompt = async (name: string, args: Record<string, string> = {}) => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "prompts/get" as const,
         params: { name, arguments: args },
       },
       GetPromptResultSchema,
-      "prompts",
+      "prompts"
     );
     setPromptContent(JSON.stringify(response, null, 2));
   };
 
   const listTools = async () => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "tools/list" as const,
         params: nextToolCursor ? { cursor: nextToolCursor } : {},
       },
       ListToolsResultSchema,
-      "tools",
+      "tools"
     );
     setTools(response.tools);
     setNextToolCursor(response.nextCursor);
   };
 
   const callTool = async (name: string, params: Record<string, unknown>) => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "tools/call" as const,
         params: {
@@ -428,7 +372,7 @@ const MainApp = () => {
         },
       },
       CompatibilityCallToolResultSchema,
-      "tools",
+      "tools"
     );
     setToolResult(response);
   };
@@ -438,7 +382,7 @@ const MainApp = () => {
   };
 
   const sendLogLevelRequest = async (level: LoggingLevel) => {
-    await makeRequest(
+    await makeConnectionRequest(
       {
         method: "logging/setLevel" as const,
         params: { level },
@@ -448,22 +392,14 @@ const MainApp = () => {
     setLogLevel(level);
   };
 
-  const handleApproveSampling = (id: number, result: CreateMessageResult) => {
-    setPendingSampleRequests((prev) => {
-      const request = prev.find((r) => r.id === id);
-      request?.resolve(result);
-      return prev.filter((r) => r.id !== id);
-    });
-  };
-
-  const handleRejectSampling = (id: number) => {
-    setPendingSampleRequests((prev) => {
-      const request = prev.find((r) => r.id === id);
-      request?.reject(new Error("Sampling request rejected"));
-      return prev.filter((r) => r.id !== id);
-    });
-  };
-  
+  if (window.location.pathname === "/oauth/callback") {
+    const OAuthCallback = React.lazy(() => import("./components/OAuthCallback"));
+    return (
+      <Suspense fallback={<div>Loading...</div>}>
+        <OAuthCallback />
+      </Suspense>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-background">
@@ -494,9 +430,7 @@ const MainApp = () => {
           {connectionStatus === "connected" && serverCapabilities ? (
             <Tabs
               defaultValue={
-                Object.keys(serverCapabilities).includes(
-                  window.location.hash.slice(1),
-                )
+                Object.keys(serverCapabilities).includes(window.location.hash.slice(1))
                   ? window.location.hash.slice(1)
                   : serverCapabilities?.resources
                     ? "resources"
@@ -510,24 +444,15 @@ const MainApp = () => {
               onValueChange={(value) => (window.location.hash = value)}
             >
               <TabsList className="mb-4 p-0">
-                <TabsTrigger
-                  value="resources"
-                  disabled={!serverCapabilities?.resources}
-                >
+                <TabsTrigger value="resources" disabled={!serverCapabilities?.resources}>
                   <Files className="w-4 h-4 mr-2" />
                   Resources
                 </TabsTrigger>
-                <TabsTrigger
-                  value="prompts"
-                  disabled={!serverCapabilities?.prompts}
-                >
+                <TabsTrigger value="prompts" disabled={!serverCapabilities?.prompts}>
                   <MessageSquare className="w-4 h-4 mr-2" />
                   Prompts
                 </TabsTrigger>
-                <TabsTrigger
-                  value="tools"
-                  disabled={!serverCapabilities?.tools}
-                >
+                <TabsTrigger value="tools" disabled={!serverCapabilities?.tools}>
                   <Hammer className="w-4 h-4 mr-2" />
                   Tools
                 </TabsTrigger>
@@ -593,9 +518,7 @@ const MainApp = () => {
                         clearError("resources");
                         setSelectedResource(resource);
                       }}
-                      resourceSubscriptionsSupported={
-                        serverCapabilities?.resources?.subscribe || false
-                      }
+                      resourceSubscriptionsSupported={serverCapabilities?.resources?.subscribe || false}
                       resourceSubscriptions={resourceSubscriptions}
                       subscribeToResource={(uri) => {
                         clearError("resources");
@@ -664,11 +587,11 @@ const MainApp = () => {
                     <ConsoleTab />
                     <PingTab
                       onPingClick={() => {
-                        void makeRequest(
+                        void makeConnectionRequest(
                           {
                             method: "ping" as const,
                           },
-                          EmptyResultSchema,
+                          EmptyResultSchema
                         );
                       }}
                     />
