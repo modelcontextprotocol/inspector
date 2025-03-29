@@ -16,4 +16,18 @@ const server = http.createServer((request, response) => {
 });
 
 const port = process.env.PORT || 5173;
-server.listen(port, () => {});
+server.on("listening", () => {
+  console.log(
+    `🔍 MCP Inspector is up and running at http://127.0.0.1:${port} 🚀`,
+  );
+});
+server.on("error", (err) => {
+  if (err.message.includes(`EADDRINUSE`)) {
+    console.error(
+      `❌  MCP Inspector PORT IS IN USE at http://127.0.0.1:${port} ❌ `,
+    );
+  } else {
+    throw err;
+  }
+});
+server.listen(port);
