@@ -1,6 +1,8 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, beforeEach, jest } from "@jest/globals";
 import Sidebar from "../Sidebar";
+import { DEFAULT_INSPECTOR_CONFIG } from "../../lib/constants";
+import { InspectorConfig } from "../../lib/configurationTypes";
 
 // Mock theme hook
 jest.mock("../../lib/useTheme", () => ({
@@ -28,6 +30,8 @@ describe("Sidebar Environment Variables", () => {
     logLevel: "info" as const,
     sendLogLevelRequest: jest.fn(),
     loggingSupported: true,
+    config: DEFAULT_INSPECTOR_CONFIG,
+    setConfig: jest.fn(),
   };
 
   const renderSidebar = (props = {}) => {
@@ -302,6 +306,76 @@ describe("Sidebar Environment Variables", () => {
       fireEvent.change(keyInput, { target: { value: longKey } });
 
       expect(setEnv).toHaveBeenCalledWith({ [longKey]: "test_value" });
+    });
+  });
+
+  describe("Configuration Operations", () => {
+    const openConfigSection = () => {
+      const button = screen.getByText("Configuration");
+      fireEvent.click(button);
+    };
+
+    it("should update MCP server request timeout", () => {
+      const setConfig = jest.fn();
+      renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });
+
+      openConfigSection();
+
+      const timeoutInput = screen.getByTestId("MCP_SERVER_REQUEST_TIMEOUT-input");
+      fireEvent.change(timeoutInput, { target: { value: "5000" } });
+
+      expect(setConfig).toHaveBeenCalledWith({
+        MCP_SERVER_REQUEST_TIMEOUT: {
+          description: "Timeout for requests to the MCP server (ms)",
+          value: 5000,
+        },
+      });
+    });
+
+    it("should handle invalid timeout values entered by user", () => {
+      const setConfig = jest.fn();
+      renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });
+
+      openConfigSection();
+
+      const timeoutInput = screen.getByTestId("MCP_SERVER_REQUEST_TIMEOUT-input");
+      fireEvent.change(timeoutInput, { target: { value: "abc1" } });
+
+      expect(setConfig).toHaveBeenCalledWith({
+        MCP_SERVER_REQUEST_TIMEOUT: {
+          description: "Timeout for requests to the MCP server (ms)",
+          value: 0,
+        },
+      });
+    });
+
+    it("should maintain configuration state after multiple updates", () => {
+      const setConfig = jest.fn();
+      const { rerender } = renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });
+
+      openConfigSection();
+
+      // First update
+      const timeoutInput = screen.getByTestId("MCP_SERVER_REQUEST_TIMEOUT-input");
+      fireEvent.change(timeoutInput, { target: { value: "5000" } });
+
+      // Get the updated config from the first setConfig call
+      const updatedConfig = setConfig.mock.calls[0][0] as InspectorConfig;
+
+      // Rerender with the updated config
+      rerender(<Sidebar {...defaultProps} config={updatedConfig} setConfig={setConfig} />);
+
+      // Second update
+      const updatedTimeoutInput = screen.getByTestId("MCP_SERVER_REQUEST_TIMEOUT-input");
+      fireEvent.change(updatedTimeoutInput, { target: { value: "3000" } });
+
+      // Verify the final state matches what we expect
+      expect(setConfig).toHaveBeenLastCalledWith({
+        MCP_SERVER_REQUEST_TIMEOUT: {
+          description: "Timeout for requests to the MCP server (ms)",
+          value: 3000,
+        },
+      });
     });
   });
 });

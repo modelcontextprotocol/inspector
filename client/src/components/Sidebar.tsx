@@ -318,6 +318,7 @@ const Sidebar = ({
                       {typeof configItem.value === "number" ? (
                         <Input
                           type="number"
+                          data-testid={`${configKey}-input`}
                           value={configItem.value}
                           onChange={(e) => {
                             const newConfig = { ...config };
@@ -331,6 +332,7 @@ const Sidebar = ({
                         />
                       ) : typeof configItem.value === "boolean" ? (
                         <Select
+                          data-testid={`${configKey}-select`}
                           value={configItem.value.toString()}
                           onValueChange={(val) => {
                             const newConfig = { ...config };
@@ -351,6 +353,7 @@ const Sidebar = ({
                         </Select>
                       ) : (
                         <Input
+                          data-testid={`${configKey}-input`}
                           value={configItem.value}
                           onChange={(e) => {
                             const newConfig = { ...config };
