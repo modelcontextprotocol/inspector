@@ -321,7 +321,9 @@ describe("Sidebar Environment Variables", () => {
 
       openConfigSection();
 
-      const timeoutInput = screen.getByTestId("MCP_SERVER_REQUEST_TIMEOUT-input");
+      const timeoutInput = screen.getByTestId(
+        "MCP_SERVER_REQUEST_TIMEOUT-input",
+      );
       fireEvent.change(timeoutInput, { target: { value: "5000" } });
 
       expect(setConfig).toHaveBeenCalledWith({
@@ -338,7 +340,9 @@ describe("Sidebar Environment Variables", () => {
 
       openConfigSection();
 
-      const timeoutInput = screen.getByTestId("MCP_SERVER_REQUEST_TIMEOUT-input");
+      const timeoutInput = screen.getByTestId(
+        "MCP_SERVER_REQUEST_TIMEOUT-input",
+      );
       fireEvent.change(timeoutInput, { target: { value: "abc1" } });
 
       expect(setConfig).toHaveBeenCalledWith({
@@ -351,22 +355,35 @@ describe("Sidebar Environment Variables", () => {
 
     it("should maintain configuration state after multiple updates", () => {
       const setConfig = jest.fn();
-      const { rerender } = renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });
+      const { rerender } = renderSidebar({
+        config: DEFAULT_INSPECTOR_CONFIG,
+        setConfig,
+      });
 
       openConfigSection();
 
       // First update
-      const timeoutInput = screen.getByTestId("MCP_SERVER_REQUEST_TIMEOUT-input");
+      const timeoutInput = screen.getByTestId(
+        "MCP_SERVER_REQUEST_TIMEOUT-input",
+      );
       fireEvent.change(timeoutInput, { target: { value: "5000" } });
 
       // Get the updated config from the first setConfig call
       const updatedConfig = setConfig.mock.calls[0][0] as InspectorConfig;
 
       // Rerender with the updated config
-      rerender(<Sidebar {...defaultProps} config={updatedConfig} setConfig={setConfig} />);
+      rerender(
+        <Sidebar
+          {...defaultProps}
+          config={updatedConfig}
+          setConfig={setConfig}
+        />,
+      );
 
       // Second update
-      const updatedTimeoutInput = screen.getByTestId("MCP_SERVER_REQUEST_TIMEOUT-input");
+      const updatedTimeoutInput = screen.getByTestId(
+        "MCP_SERVER_REQUEST_TIMEOUT-input",
+      );
       fireEvent.change(updatedTimeoutInput, { target: { value: "3000" } });
 
       // Verify the final state matches what we expect
