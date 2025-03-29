@@ -33,10 +33,6 @@ import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { authProvider } from "../auth";
 import packageJson from "../../../package.json";
 
-const params = new URLSearchParams(window.location.search);
-const DEFAULT_REQUEST_TIMEOUT_MSEC =
-  parseInt(params.get("timeout") ?? "") || 10000;
-
 interface UseConnectionOptions {
   transportType: "stdio" | "sse";
   command: string;
@@ -48,7 +44,9 @@ interface UseConnectionOptions {
   requestTimeout?: number;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onPendingRequest?: (request: any, resolve: any, reject: any) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getRoots?: () => any[];
 }
 
@@ -66,7 +64,7 @@ export function useConnection({
   env,
   proxyServerUrl,
   bearerToken,
-  requestTimeout = DEFAULT_REQUEST_TIMEOUT_MSEC,
+  requestTimeout,
   onNotification,
   onStdErrNotification,
   onPendingRequest,
