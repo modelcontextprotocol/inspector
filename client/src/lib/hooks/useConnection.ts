@@ -176,7 +176,6 @@ export function useConnection({
     }
   };
 
-  // Backward compatibility wrapper for old code using string options
   const makeConnectionRequest = async <T extends z.ZodType>(
     request: ClientRequest,
     schema: T,
