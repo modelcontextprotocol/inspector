@@ -4,7 +4,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
-// Define the shape of the transport stats
 interface TransportStats {
   sessionId?: string;
   lastRequestTime: number;
@@ -18,7 +17,6 @@ interface TransportStats {
   connectionEstablished: boolean;
 }
 
-// Interface for JSON-RPC message structure
 interface JsonRpcMessage {
   jsonrpc: string;
   id?: string | number;
@@ -32,7 +30,6 @@ interface JsonRpcMessage {
   };
 }
 
-// Interface for enhanced transport events
 interface TransportLogEntry {
   type: string;
   timestamp: number;
@@ -50,7 +47,6 @@ interface TransportLogEntry {
   [key: string]: unknown;
 }
 
-// Interface for tool tracking
 interface ToolEvent {
   id: string | number;
   name: string;
@@ -84,11 +80,9 @@ const StreamableHttpStats: React.FC<StreamableHttpStatsProps> = ({ mcpClient }) 
   const transportRef = useRef<TransportWithStats | null>(null);
   const logCallbackRegistered = useRef(false);
 
-  // Function to identify tool-related requests in logs
   const processToolLogs = (logs: TransportLogEntry[]) => {
     const toolCalls: ToolEvent[] = [];
     
-    // Find all tool call requests
     const toolRequests = logs.filter(log => {
       const body = log.body as Record<string, unknown> | undefined;
       return log.type === 'request' && 
@@ -99,7 +93,6 @@ const StreamableHttpStats: React.FC<StreamableHttpStatsProps> = ({ mcpClient }) 
         'id' in body;
     });
     
-    // Process each tool request and find matching responses
     toolRequests.forEach(request => {
       const body = request.body as Record<string, unknown> | undefined;
       if (!body || !('id' in body) || !('params' in body)) return;
@@ -108,7 +101,6 @@ const StreamableHttpStats: React.FC<StreamableHttpStatsProps> = ({ mcpClient }) 
       const params = body.params as Record<string, unknown> | undefined;
       const toolName = params?.name as string || 'unknown';
       
-      // Find matching response from the logs
       const responseLog = logs.find(log => {
         const data = log.data as Record<string, unknown> | undefined;
         return (log.type === 'response' || log.type === 'sseMessage') && 
@@ -143,11 +135,9 @@ const StreamableHttpStats: React.FC<StreamableHttpStatsProps> = ({ mcpClient }) 
     return toolCalls;
   };
 
-  // Function to check for spec violations
   const checkSpecViolations = (logs: TransportLogEntry[], stats: TransportStats) => {
     const violations: string[] = [];
     
-    // Check for HTTP status codes that might indicate spec violations
     if (httpStatus['404'] && httpStatus['404'] > 0) {
       if (stats.sessionId) {
         violations.push("Session expired or not recognized (HTTP 404) while using a valid session ID");
@@ -158,7 +148,6 @@ const StreamableHttpStats: React.FC<StreamableHttpStatsProps> = ({ mcpClient }) 
       violations.push("Server returned HTTP 405 - Method Not Allowed. Server must support both GET and POST methods.");
     }
     
-    // Check for notification responses that aren't 202 Accepted
     const notificationLogs = logs.filter(log => {
       const body = log.body as Record<string, unknown> | undefined;
       return log.type === 'request' && 
@@ -180,7 +169,6 @@ const StreamableHttpStats: React.FC<StreamableHttpStatsProps> = ({ mcpClient }) 
       }
     });
     
-    // Check for responses containing JSON-RPC errors
     const errorResponseLogs = logs.filter(log => {
       const data = log.data as Record<string, unknown> | undefined;
       return (log.type === 'response' || log.type === 'sseMessage') && 
@@ -201,7 +189,6 @@ const StreamableHttpStats: React.FC<StreamableHttpStatsProps> = ({ mcpClient }) 
       if (!mcpClient) return;
       
       try {
-        // Access private _transport property using type cast
         const client = mcpClient as unknown as { _transport?: unknown };
         const transport = client._transport as unknown as TransportWithStats;
         
@@ -210,36 +197,31 @@ const StreamableHttpStats: React.FC<StreamableHttpStatsProps> = ({ mcpClient }) 
           const transportStats = transport.getTransportStats();
           setStats(transportStats);
           
-          // Get active streams if available
           if (transport.getActiveStreams && typeof transport.getActiveStreams === 'function') {
             setActiveStreams(transport.getActiveStreams());
           }
           
-          // Register log callback if not already done
           if (transport.registerLogCallback && typeof transport.registerLogCallback === 'function' && !logCallbackRegistered.current) {
             transport.registerLogCallback((logEntry: TransportLogEntry) => {
               setLogs(prevLogs => {
                 const newLogs = [...prevLogs, logEntry];
                 
-                // Update tool events based on logs
                 const updatedToolEvents = processToolLogs(newLogs);
                 setToolEvents(updatedToolEvents);
                 
-                // Track HTTP status codes
-                if (logEntry.type === 'response' && logEntry.statusCode) {
+                if (logEntry.type === 'response' && typeof logEntry.statusCode === 'number') {
+                  const statusCodeStr = logEntry.statusCode.toString();
                   setHttpStatus(prev => ({
                     ...prev,
-                    [logEntry.statusCode.toString()]: (prev[logEntry.statusCode.toString()] || 0) + 1
+                    [statusCodeStr]: (prev[statusCodeStr] || 0) + 1
                   }));
                 }
                 
-                // Check for spec violations with updated logs and stats
                 if (transportStats) {
                   const violations = checkSpecViolations(newLogs, transportStats);
                   setSpecViolations(violations);
                 }
                 
-                // Keep last 100 logs for memory efficiency
                 return newLogs.slice(-100);
               });
             });
@@ -253,7 +235,6 @@ const StreamableHttpStats: React.FC<StreamableHttpStatsProps> = ({ mcpClient }) 
 
     fetchStats();
     
-    // Refresh stats every 2 seconds
     const interval = setInterval(fetchStats, 2000);
     
     return () => clearInterval(interval);
@@ -280,7 +261,7 @@ const StreamableHttpStats: React.FC<StreamableHttpStatsProps> = ({ mcpClient }) 
   const formatJson = (data: unknown) => {
     try {
       return JSON.stringify(data, null, 2);
-    } catch (_) {
+    } catch {
       return 'Unable to format data';
     }
   };
