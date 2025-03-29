@@ -176,6 +176,16 @@ export function useConnection({
     }
   };
 
+  // Backward compatibility wrapper for old code using string options
+  const makeConnectionRequest = async <T extends z.ZodType>(
+    request: ClientRequest,
+    schema: T,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _tabName?: string, // Ignored parameter for backward compatibility
+  ): Promise<z.output<T>> => {
+    return makeRequest(request, schema, {});
+  };
+
   const handleCompletion = async (
     ref: ResourceReference | PromptReference,
     argName: string,
@@ -518,6 +528,7 @@ export function useConnection({
     mcpClient,
     requestHistory,
     makeRequest,
+    makeConnectionRequest,
     sendNotification,
     handleCompletion,
     completionsSupported,
