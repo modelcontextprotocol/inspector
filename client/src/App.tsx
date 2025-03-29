@@ -31,6 +31,7 @@ import {
   Hammer,
   Hash,
   MessageSquare,
+  BarChart,
 } from "lucide-react";
 
 import { toast } from "react-toastify";
@@ -45,6 +46,7 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import StatsTab from "./components/StatsTab";
 
 const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "3000";
@@ -53,15 +55,12 @@ const PROXY_SERVER_URL = `http://${window.location.hostname}:${PROXY_PORT}`;
 const App = () => {
   // Handle OAuth callback route
   const [resources, setResources] = useState<Resource[]>([]);
-  const [resourceTemplates, setResourceTemplates] = useState<
-    ResourceTemplate[]
-  >([]);
+  const [resourceTemplates, setResourceTemplates] = useState<ResourceTemplate[]>([]);
   const [resourceContent, setResourceContent] = useState<string>("");
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
   const [tools, setTools] = useState<Tool[]>([]);
-  const [toolResult, setToolResult] =
-    useState<CompatibilityCallToolResult | null>(null);
+  const [toolResult, setToolResult] = useState<CompatibilityCallToolResult | null>(null);
   const [errors, setErrors] = useState<Record<string, string | null>>({
     resources: null,
     prompts: null,
@@ -77,20 +76,21 @@ const App = () => {
   const [sseUrl, setSseUrl] = useState<string>(() => {
     return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
   });
-  const [transportType, setTransportType] = useState<"stdio" | "sse">(() => {
+  const [transportType, setTransportType] = useState<"stdio" | "sse" | "streamableHttp">(() => {
     return (
-      (localStorage.getItem("lastTransportType") as "stdio" | "sse") || "stdio"
+      (localStorage.getItem("lastTransportType") as "stdio" | "sse" | "streamableHttp") || "stdio"
     );
   });
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
-  const [stdErrNotifications, setStdErrNotifications] = useState<
-    StdErrNotification[]
-  >([]);
+  const [stdErrNotifications, setStdErrNotifications] = useState<StdErrNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
+  });
+  const [directConnection, setDirectConnection] = useState<boolean>(() => {
+    return localStorage.getItem("lastDirectConnection") === "true" || false;
   });
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
@@ -104,24 +104,14 @@ const App = () => {
   const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
 
-  const [selectedResource, setSelectedResource] = useState<Resource | null>(
-    null,
-  );
-  const [resourceSubscriptions, setResourceSubscriptions] = useState<
-    Set<string>
-  >(new Set<string>());
+  const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+  const [resourceSubscriptions, setResourceSubscriptions] = useState<Set<string>>(new Set<string>());
 
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
-  const [nextResourceCursor, setNextResourceCursor] = useState<
-    string | undefined
-  >();
-  const [nextResourceTemplateCursor, setNextResourceTemplateCursor] = useState<
-    string | undefined
-  >();
-  const [nextPromptCursor, setNextPromptCursor] = useState<
-    string | undefined
-  >();
+  const [nextResourceCursor, setNextResourceCursor] = useState<string | undefined>();
+  const [nextResourceTemplateCursor, setNextResourceTemplateCursor] = useState<string | undefined>();
+  const [nextPromptCursor, setNextPromptCursor] = useState<string | undefined>();
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
 
@@ -132,7 +122,7 @@ const App = () => {
     serverCapabilities,
     mcpClient,
     requestHistory,
-    makeRequest: makeConnectionRequest,
+    makeRequest,
     sendNotification,
     handleCompletion,
     completionsSupported,
@@ -144,6 +134,7 @@ const App = () => {
     sseUrl,
     env,
     bearerToken,
+    directConnection,
     proxyServerUrl: PROXY_SERVER_URL,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
@@ -157,7 +148,15 @@ const App = () => {
     onPendingRequest: (request, resolve, reject) => {
       setPendingSampleRequests((prev) => [
         ...prev,
-        { id: nextRequestId.current++, request, resolve, reject },
+        {
+          id: nextRequestId.current++,
+          request: request as unknown,
+          resolve: resolve as (result: CreateMessageResult) => void,
+          reject: reject as (error: Error) => void
+        } as PendingRequest & {
+          resolve: (result: CreateMessageResult) => void;
+          reject: (error: Error) => void;
+        },
       ]);
     },
     getRoots: () => rootsRef.current,
@@ -183,19 +182,19 @@ const App = () => {
     localStorage.setItem("lastBearerToken", bearerToken);
   }, [bearerToken]);
 
-  // Auto-connect if serverUrl is provided in URL params (e.g. after OAuth callback)
+  useEffect(() => {
+    localStorage.setItem("lastDirectConnection", directConnection.toString());
+  }, [directConnection]);
+
   useEffect(() => {
     const serverUrl = params.get("serverUrl");
     if (serverUrl) {
       setSseUrl(serverUrl);
       setTransportType("sse");
-      // Remove serverUrl from URL without reloading the page
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.delete("serverUrl");
       window.history.replaceState({}, "", newUrl.toString());
-      // Show success toast for OAuth
       toast.success("Successfully authenticated with OAuth");
-      // Connect to the server
       connectMcpServer();
     }
   }, [connectMcpServer]);
@@ -204,7 +203,7 @@ const App = () => {
     fetch(`${PROXY_SERVER_URL}/config`)
       .then((response) => response.json())
       .then((data) => {
-        setEnv(data.defaultEnvironment);
+        setEnv(data.defaultEnvironment || {});
         if (data.defaultCommand) {
           setCommand(data.defaultCommand);
         }
@@ -212,9 +211,11 @@ const App = () => {
           setArgs(data.defaultArgs);
         }
       })
-      .catch((error) =>
-        console.error("Error fetching default environment:", error),
-      );
+      .catch((error) => {
+        console.error("Error fetching default environment:", error);
+        // Set default empty environment to prevent UI blocking
+        setEnv({});
+      });
   }, []);
 
   useEffect(() => {
@@ -222,38 +223,60 @@ const App = () => {
   }, [roots]);
 
   useEffect(() => {
+    console.log(`[App] Connection status changed to: ${connectionStatus}`);
+    console.log(
+      `[App] Connection details - status: ${connectionStatus}, serverCapabilities: ${!!serverCapabilities}, mcpClient: ${!!mcpClient}`
+    );
+
+    if (connectionStatus === "connected" && mcpClient && !serverCapabilities) {
+      console.log("[App] Connection is established, but missing capabilities");
+      try {
+        // Only log capabilities here, don't attempt to set them 
+        // as we don't have the setter in this component
+        const caps = mcpClient.getServerCapabilities();
+        console.log("[App] Retrieved capabilities directly:", caps);
+      } catch (e) {
+        console.error("[App] Error retrieving capabilities:", e);
+      }
+    }
+  }, [connectionStatus, serverCapabilities, mcpClient]);
+
+  useEffect(() => {
     if (!window.location.hash) {
       window.location.hash = "resources";
     }
   }, []);
 
-  const handleApproveSampling = (id: number, result: CreateMessageResult) => {
-    setPendingSampleRequests((prev) => {
-      const request = prev.find((r) => r.id === id);
-      request?.resolve(result);
-      return prev.filter((r) => r.id !== id);
-    });
-  };
-
-  const handleRejectSampling = (id: number) => {
-    setPendingSampleRequests((prev) => {
-      const request = prev.find((r) => r.id === id);
-      request?.reject(new Error("Sampling request rejected"));
-      return prev.filter((r) => r.id !== id);
-    });
-  };
-
   const clearError = (tabKey: keyof typeof errors) => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
   };
 
-  const makeRequest = async <T extends z.ZodType>(
+  // Add sampling handlers
+  const handleApproveSampling = (id: number, result: CreateMessageResult) => {
+    const pendingRequest = pendingSampleRequests.find((req) => req.id === id);
+    if (pendingRequest) {
+      pendingRequest.resolve(result);
+      setPendingSampleRequests((prev) => prev.filter((req) => req.id !== id));
+    }
+  };
+
+  const handleRejectSampling = (id: number) => {
+    const pendingRequest = pendingSampleRequests.find((req) => req.id === id);
+    if (pendingRequest) {
+      pendingRequest.reject(new Error("Request rejected by user"));
+      setPendingSampleRequests((prev) => prev.filter((req) => req.id !== id));
+    }
+  };
+
+  // Properly wrap makeRequest to handle tab error management
+  const makeRequestWrapper = async <T extends z.ZodType>(
     request: ClientRequest,
     schema: T,
     tabKey?: keyof typeof errors,
-  ) => {
+  ): Promise<z.output<T>> => {
     try {
-      const response = await makeConnectionRequest(request, schema);
+      // Pass an options object instead of directly passing tabKey
+      const response = await makeRequest(request, schema);
       if (tabKey !== undefined) {
         clearError(tabKey);
       }
@@ -271,56 +294,52 @@ const App = () => {
   };
 
   const listResources = async () => {
-    const response = await makeRequest(
+    const response = await makeRequestWrapper(
       {
         method: "resources/list" as const,
         params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
       },
       ListResourcesResultSchema,
-      "resources",
+      "resources"
     );
     setResources(resources.concat(response.resources ?? []));
     setNextResourceCursor(response.nextCursor);
   };
 
   const listResourceTemplates = async () => {
-    const response = await makeRequest(
+    const response = await makeRequestWrapper(
       {
         method: "resources/templates/list" as const,
-        params: nextResourceTemplateCursor
-          ? { cursor: nextResourceTemplateCursor }
-          : {},
+        params: nextResourceTemplateCursor ? { cursor: nextResourceTemplateCursor } : {},
       },
       ListResourceTemplatesResultSchema,
-      "resources",
+      "resources"
     );
-    setResourceTemplates(
-      resourceTemplates.concat(response.resourceTemplates ?? []),
-    );
+    setResourceTemplates(resourceTemplates.concat(response.resourceTemplates ?? []));
     setNextResourceTemplateCursor(response.nextCursor);
   };
 
   const readResource = async (uri: string) => {
-    const response = await makeRequest(
+    const response = await makeRequestWrapper(
       {
         method: "resources/read" as const,
         params: { uri },
       },
       ReadResourceResultSchema,
-      "resources",
+      "resources"
     );
     setResourceContent(JSON.stringify(response, null, 2));
   };
 
   const subscribeToResource = async (uri: string) => {
     if (!resourceSubscriptions.has(uri)) {
-      await makeRequest(
+      await makeRequestWrapper(
         {
           method: "resources/subscribe" as const,
           params: { uri },
         },
         z.object({}),
-        "resources",
+        "resources"
       );
       const clone = new Set(resourceSubscriptions);
       clone.add(uri);
@@ -330,13 +349,13 @@ const App = () => {
 
   const unsubscribeFromResource = async (uri: string) => {
     if (resourceSubscriptions.has(uri)) {
-      await makeRequest(
+      await makeRequestWrapper(
         {
           method: "resources/unsubscribe" as const,
           params: { uri },
         },
         z.object({}),
-        "resources",
+        "resources"
       );
       const clone = new Set(resourceSubscriptions);
       clone.delete(uri);
@@ -345,45 +364,45 @@ const App = () => {
   };
 
   const listPrompts = async () => {
-    const response = await makeRequest(
+    const response = await makeRequestWrapper(
       {
         method: "prompts/list" as const,
         params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
       },
       ListPromptsResultSchema,
-      "prompts",
+      "prompts"
     );
     setPrompts(response.prompts);
     setNextPromptCursor(response.nextCursor);
   };
 
   const getPrompt = async (name: string, args: Record<string, string> = {}) => {
-    const response = await makeRequest(
+    const response = await makeRequestWrapper(
       {
         method: "prompts/get" as const,
         params: { name, arguments: args },
       },
       GetPromptResultSchema,
-      "prompts",
+      "prompts"
     );
     setPromptContent(JSON.stringify(response, null, 2));
   };
 
   const listTools = async () => {
-    const response = await makeRequest(
+    const response = await makeRequestWrapper(
       {
         method: "tools/list" as const,
         params: nextToolCursor ? { cursor: nextToolCursor } : {},
       },
       ListToolsResultSchema,
-      "tools",
+      "tools"
     );
     setTools(response.tools);
     setNextToolCursor(response.nextCursor);
   };
 
   const callTool = async (name: string, params: Record<string, unknown>) => {
-    const response = await makeRequest(
+    const response = await makeRequestWrapper(
       {
         method: "tools/call" as const,
         params: {
@@ -395,7 +414,7 @@ const App = () => {
         },
       },
       CompatibilityCallToolResultSchema,
-      "tools",
+      "tools"
     );
     setToolResult(response);
   };
@@ -416,9 +435,7 @@ const App = () => {
   };
 
   if (window.location.pathname === "/oauth/callback") {
-    const OAuthCallback = React.lazy(
-      () => import("./components/OAuthCallback"),
-    );
+    const OAuthCallback = React.lazy(() => import("./components/OAuthCallback"));
     return (
       <Suspense fallback={<div>Loading...</div>}>
         <OAuthCallback />
@@ -442,6 +459,8 @@ const App = () => {
         setEnv={setEnv}
         bearerToken={bearerToken}
         setBearerToken={setBearerToken}
+        directConnection={directConnection}
+        setDirectConnection={setDirectConnection}
         onConnect={connectMcpServer}
         stdErrNotifications={stdErrNotifications}
         logLevel={logLevel}
@@ -450,12 +469,10 @@ const App = () => {
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
-          {mcpClient ? (
+          {connectionStatus === "connected" && serverCapabilities ? (
             <Tabs
               defaultValue={
-                Object.keys(serverCapabilities ?? {}).includes(
-                  window.location.hash.slice(1),
-                )
+                Object.keys(serverCapabilities).includes(window.location.hash.slice(1))
                   ? window.location.hash.slice(1)
                   : serverCapabilities?.resources
                     ? "resources"
@@ -469,24 +486,15 @@ const App = () => {
               onValueChange={(value) => (window.location.hash = value)}
             >
               <TabsList className="mb-4 p-0">
-                <TabsTrigger
-                  value="resources"
-                  disabled={!serverCapabilities?.resources}
-                >
+                <TabsTrigger value="resources" disabled={!serverCapabilities?.resources}>
                   <Files className="w-4 h-4 mr-2" />
                   Resources
                 </TabsTrigger>
-                <TabsTrigger
-                  value="prompts"
-                  disabled={!serverCapabilities?.prompts}
-                >
+                <TabsTrigger value="prompts" disabled={!serverCapabilities?.prompts}>
                   <MessageSquare className="w-4 h-4 mr-2" />
                   Prompts
                 </TabsTrigger>
-                <TabsTrigger
-                  value="tools"
-                  disabled={!serverCapabilities?.tools}
-                >
+                <TabsTrigger value="tools" disabled={!serverCapabilities?.tools}>
                   <Hammer className="w-4 h-4 mr-2" />
                   Tools
                 </TabsTrigger>
@@ -506,6 +514,10 @@ const App = () => {
                 <TabsTrigger value="roots">
                   <FolderTree className="w-4 h-4 mr-2" />
                   Roots
+                </TabsTrigger>
+                <TabsTrigger value="stats">
+                  <BarChart className="w-4 h-4 mr-2" />
+                  Stats
                 </TabsTrigger>
               </TabsList>
 
@@ -548,9 +560,7 @@ const App = () => {
                         clearError("resources");
                         setSelectedResource(resource);
                       }}
-                      resourceSubscriptionsSupported={
-                        serverCapabilities?.resources?.subscribe || false
-                      }
+                      resourceSubscriptionsSupported={serverCapabilities?.resources?.subscribe || false}
                       resourceSubscriptions={resourceSubscriptions}
                       subscribeToResource={(uri) => {
                         clearError("resources");
@@ -619,11 +629,11 @@ const App = () => {
                     <ConsoleTab />
                     <PingTab
                       onPingClick={() => {
-                        void makeRequest(
+                        void makeRequestWrapper(
                           {
                             method: "ping" as const,
                           },
-                          EmptyResultSchema,
+                          EmptyResultSchema
                         );
                       }}
                     />
@@ -637,10 +647,27 @@ const App = () => {
                       setRoots={setRoots}
                       onRootsChange={handleRootsChange}
                     />
+                    <StatsTab mcpClient={mcpClient} />
                   </>
                 )}
               </div>
             </Tabs>
+          ) : connectionStatus === "connected" && mcpClient ? (
+            <div className="flex flex-col items-center justify-center h-full gap-4">
+              <p className="text-lg text-gray-500">
+                Connected to MCP server but waiting for capabilities...
+              </p>
+              <button 
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                onClick={() => {
+                  // Attempt to reconnect instead of directly setting capabilities
+                  toast.info("Attempting to reconnect...");
+                  connectMcpServer();
+                }}
+              >
+                Reconnect
+              </button>
+            </div>
           ) : (
             <div className="flex items-center justify-center h-full">
               <p className="text-lg text-gray-500">

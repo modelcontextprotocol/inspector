@@ -23,6 +23,8 @@ describe("Sidebar Environment Variables", () => {
     setEnv: jest.fn(),
     bearerToken: "",
     setBearerToken: jest.fn(),
+    directConnection: false,
+    setDirectConnection: jest.fn(),
     onConnect: jest.fn(),
     stdErrNotifications: [],
     logLevel: "info" as const,

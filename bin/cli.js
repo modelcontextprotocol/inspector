@@ -64,7 +64,7 @@ async function main() {
   const CLIENT_PORT = process.env.CLIENT_PORT ?? "5173";
   const SERVER_PORT = process.env.SERVER_PORT ?? "3000";
 
-  console.log("Starting MCP inspector...");
+  console.log("Starting MCP Debug inspector...");
 
   const abort = new AbortController();
 
@@ -79,7 +79,7 @@ async function main() {
     [
       inspectorServerPath,
       ...(command ? [`--env`, command] : []),
-      ...(mcpServerArgs ? [`--args=${mcpServerArgs.join(" ")}`] : []),
+      ...(mcpServerArgs.length > 0 ? [`--args=${mcpServerArgs.join(" ")}`] : []),
     ],
     {
       env: {
@@ -102,7 +102,7 @@ async function main() {
   await Promise.any([server, client, delay(2 * 1000)]);
   const portParam = SERVER_PORT === "3000" ? "" : `?proxyPort=${SERVER_PORT}`;
   console.log(
-    `\n🔍 MCP Inspector is up and running at http://127.0.0.1:${CLIENT_PORT}${portParam} 🚀`,
+    `\n🔍 MCP Debug Inspector is up and running at http://127.0.0.1:${CLIENT_PORT}${portParam} 🚀`,
   );
 
   try {

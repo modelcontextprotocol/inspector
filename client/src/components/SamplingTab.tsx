@@ -14,11 +14,15 @@ export type PendingRequest = {
 
 export type Props = {
   pendingRequests: PendingRequest[];
-  onApprove: (id: number, result: CreateMessageResult) => void;
-  onReject: (id: number) => void;
+  onApprove?: (id: number, result: CreateMessageResult) => void;
+  onReject?: (id: number) => void;
 };
 
-const SamplingTab = ({ pendingRequests, onApprove, onReject }: Props) => {
+const SamplingTab = ({ 
+  pendingRequests, 
+  onApprove = () => {}, 
+  onReject = () => {}
+}: Props) => {
   const handleApprove = (id: number) => {
     // For now, just return a stub response
     onApprove(id, {
