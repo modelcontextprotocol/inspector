@@ -12,6 +12,7 @@ import {
   StdioClientTransport,
   getDefaultEnvironment,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
 import { findActualExecutable } from "spawn-rx";
@@ -98,12 +99,14 @@ const createTransport = async (req: express.Request) => {
   }
 };
 
+let backingServerTransport: Transport | undefined;
+
 app.get("/sse", async (req, res) => {
   try {
     console.log("New SSE connection");
 
-    let backingServerTransport;
     try {
+      await backingServerTransport?.close();
       backingServerTransport = await createTransport(req);
     } catch (error) {
       if (error instanceof SseError && error.code === 401) {
