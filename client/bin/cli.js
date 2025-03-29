@@ -20,7 +20,7 @@ server.on("listening", () => {
   console.log(
     `🔍 MCP Inspector is up and running at http://127.0.0.1:${port} 🚀`,
   );
-})
+});
 server.on("error", (err) => {
   if (err.message.includes(`EADDRINUSE`)) {
     console.error(
@@ -29,5 +29,5 @@ server.on("error", (err) => {
   } else {
     throw err;
   }
-})
+});
 server.listen(port);

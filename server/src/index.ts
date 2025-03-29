@@ -190,12 +190,9 @@ server.on("listening", () => {
 });
 server.on("error", (err) => {
   if (err.message.includes(`EADDRINUSE`)) {
-    console.error(
-      `❌  Proxy Server PORT IS IN USE at port ${PORT} ❌ `,
-    );
+    console.error(`❌  Proxy Server PORT IS IN USE at port ${PORT} ❌ `);
   } else {
     console.error(err.message);
   }
   process.exit(1);
-})
-
+});

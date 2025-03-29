@@ -75,7 +75,6 @@ async function main() {
   });
   let server, serverOk;
   try {
-
     server = spawnPromise(
       "node",
       [
@@ -92,26 +91,22 @@ async function main() {
         signal: abort.signal,
         echoOutput: true,
       },
-    )
+    );
 
     // Make sure server started before starting client
     serverOk = await Promise.race([server, delay(2 * 1000)]);
-
-  } catch(error) {}
+  } catch (error) {}
 
   if (serverOk) {
     try {
-
       await spawnPromise("node", [inspectorClientPath], {
         env: { ...process.env, PORT: CLIENT_PORT },
         signal: abort.signal,
         echoOutput: true,
       });
-
     } catch (e) {
       if (!cancelled || process.env.DEBUG) throw e;
     }
-
   }
 
   return 0;
