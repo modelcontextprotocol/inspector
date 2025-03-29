@@ -294,7 +294,7 @@ const Sidebar = ({
           {/* Configuration */}
           <div className="space-y-2">
             <Button
-              variant="secondary"
+              variant="outline"
               onClick={() => setShowConfig(!showConfig)}
               className="flex items-center w-full"
             >

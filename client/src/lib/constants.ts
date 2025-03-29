@@ -1,6 +1,5 @@
 import { InspectorConfig } from "./configurationTypes";
 
-
 // OAuth-related session storage keys
 export const SESSION_KEYS = {
   CODE_VERIFIER: "mcp_code_verifier",

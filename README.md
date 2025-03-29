@@ -46,6 +46,14 @@ The inspector supports bearer token authentication for SSE connections. Enter yo
 
 The MCP Inspector includes a proxy server that can run and communicate with local MCP processes. The proxy server should not be exposed to untrusted networks as it has permissions to spawn local processes and can connect to any specified MCP server.
 
+### Configuration
+
+The MCP Inspector supports the following configuration settings. To change them click on the `Configuration` button in the MCP Inspector UI :
+
+| Name                       | Purpose                                                                                   | Default Value |
+| -------------------------- | ----------------------------------------------------------------------------------------- | ------------- |
+| MCP_SERVER_REQUEST_TIMEOUT | Maximum time in milliseconds to wait for a response from the MCP server before timing out | 10000         |
+
 ### From this repository
 
 If you're working on the inspector itself:
