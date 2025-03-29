@@ -122,7 +122,7 @@ const App = () => {
     serverCapabilities,
     mcpClient,
     requestHistory,
-    makeRequest: makeConnectionRequest,
+    makeRequest,
     sendNotification,
     handleCompletion,
     completionsSupported,
@@ -251,8 +251,50 @@ const App = () => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
   };
 
+  // Add sampling handlers
+  const handleApproveSampling = (id: number, result: CreateMessageResult) => {
+    const pendingRequest = pendingSampleRequests.find((req) => req.id === id);
+    if (pendingRequest) {
+      pendingRequest.resolve(result);
+      setPendingSampleRequests((prev) => prev.filter((req) => req.id !== id));
+    }
+  };
+
+  const handleRejectSampling = (id: number) => {
+    const pendingRequest = pendingSampleRequests.find((req) => req.id === id);
+    if (pendingRequest) {
+      pendingRequest.reject(new Error("Request rejected by user"));
+      setPendingSampleRequests((prev) => prev.filter((req) => req.id !== id));
+    }
+  };
+
+  // Properly wrap makeRequest to handle tab error management
+  const makeRequestWrapper = async <T extends z.ZodType>(
+    request: ClientRequest,
+    schema: T,
+    tabKey?: keyof typeof errors,
+  ): Promise<z.output<T>> => {
+    try {
+      // Pass an options object instead of directly passing tabKey
+      const response = await makeRequest(request, schema);
+      if (tabKey !== undefined) {
+        clearError(tabKey);
+      }
+      return response;
+    } catch (e) {
+      const errorString = (e as Error).message ?? String(e);
+      if (tabKey !== undefined) {
+        setErrors((prev) => ({
+          ...prev,
+          [tabKey]: errorString,
+        }));
+      }
+      throw e;
+    }
+  };
+
   const listResources = async () => {
-    const response = await makeConnectionRequest(
+    const response = await makeRequestWrapper(
       {
         method: "resources/list" as const,
         params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
@@ -265,7 +307,7 @@ const App = () => {
   };
 
   const listResourceTemplates = async () => {
-    const response = await makeConnectionRequest(
+    const response = await makeRequestWrapper(
       {
         method: "resources/templates/list" as const,
         params: nextResourceTemplateCursor ? { cursor: nextResourceTemplateCursor } : {},
@@ -278,7 +320,7 @@ const App = () => {
   };
 
   const readResource = async (uri: string) => {
-    const response = await makeConnectionRequest(
+    const response = await makeRequestWrapper(
       {
         method: "resources/read" as const,
         params: { uri },
@@ -291,7 +333,7 @@ const App = () => {
 
   const subscribeToResource = async (uri: string) => {
     if (!resourceSubscriptions.has(uri)) {
-      await makeConnectionRequest(
+      await makeRequestWrapper(
         {
           method: "resources/subscribe" as const,
           params: { uri },
@@ -307,7 +349,7 @@ const App = () => {
 
   const unsubscribeFromResource = async (uri: string) => {
     if (resourceSubscriptions.has(uri)) {
-      await makeConnectionRequest(
+      await makeRequestWrapper(
         {
           method: "resources/unsubscribe" as const,
           params: { uri },
@@ -322,7 +364,7 @@ const App = () => {
   };
 
   const listPrompts = async () => {
-    const response = await makeConnectionRequest(
+    const response = await makeRequestWrapper(
       {
         method: "prompts/list" as const,
         params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
@@ -335,7 +377,7 @@ const App = () => {
   };
 
   const getPrompt = async (name: string, args: Record<string, string> = {}) => {
-    const response = await makeConnectionRequest(
+    const response = await makeRequestWrapper(
       {
         method: "prompts/get" as const,
         params: { name, arguments: args },
@@ -347,7 +389,7 @@ const App = () => {
   };
 
   const listTools = async () => {
-    const response = await makeConnectionRequest(
+    const response = await makeRequestWrapper(
       {
         method: "tools/list" as const,
         params: nextToolCursor ? { cursor: nextToolCursor } : {},
@@ -360,7 +402,7 @@ const App = () => {
   };
 
   const callTool = async (name: string, params: Record<string, unknown>) => {
-    const response = await makeConnectionRequest(
+    const response = await makeRequestWrapper(
       {
         method: "tools/call" as const,
         params: {
@@ -382,7 +424,7 @@ const App = () => {
   };
 
   const sendLogLevelRequest = async (level: LoggingLevel) => {
-    await makeConnectionRequest(
+    await makeRequest(
       {
         method: "logging/setLevel" as const,
         params: { level },
@@ -587,7 +629,7 @@ const App = () => {
                     <ConsoleTab />
                     <PingTab
                       onPingClick={() => {
-                        void makeConnectionRequest(
+                        void makeRequestWrapper(
                           {
                             method: "ping" as const,
                           },
