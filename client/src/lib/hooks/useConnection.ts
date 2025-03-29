@@ -19,6 +19,10 @@ import {
   McpError,
   CompleteResultSchema,
   ErrorCode,
+  CancelledNotificationSchema,
+  ResourceListChangedNotificationSchema,
+  ToolListChangedNotificationSchema,
+  PromptListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useState, useRef } from "react";
 import { toast } from "react-toastify";
@@ -170,6 +174,15 @@ export function useConnection({
       }
       throw e;
     }
+  };
+
+  const makeConnectionRequest = async <T extends z.ZodType>(
+    request: ClientRequest,
+    schema: T,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _tabName?: string, // Ignored parameter for backward compatibility
+  ): Promise<z.output<T>> => {
+    return makeRequest(request, schema, {});
   };
 
   const handleCompletion = async (
@@ -432,20 +445,24 @@ export function useConnection({
       });
 
       if (onNotification) {
-        client.setNotificationHandler(
+        [
+          CancelledNotificationSchema,
           ProgressNotificationSchema,
-          onNotification,
-        );
-
-        client.setNotificationHandler(
-          ResourceUpdatedNotificationSchema,
-          onNotification,
-        );
-
-        client.setNotificationHandler(
           LoggingMessageNotificationSchema,
-          onNotification,
-        );
+          ResourceUpdatedNotificationSchema,
+          ResourceListChangedNotificationSchema,
+          ToolListChangedNotificationSchema,
+          PromptListChangedNotificationSchema,
+        ].forEach((notificationSchema) => {
+          client.setNotificationHandler(notificationSchema, onNotification);
+        });
+
+        client.fallbackNotificationHandler = (
+          notification: Notification,
+        ): Promise<void> => {
+          onNotification(notification);
+          return Promise.resolve();
+        };
       }
 
       if (onStdErrNotification) {
@@ -510,6 +527,7 @@ export function useConnection({
     mcpClient,
     requestHistory,
     makeRequest,
+    makeConnectionRequest,
     sendNotification,
     handleCompletion,
     completionsSupported,
