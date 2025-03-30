@@ -6,16 +6,17 @@ import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import DynamicJsonForm, { JsonSchemaType, JsonValue } from "./DynamicJsonForm";
+import { generateDefaultValue } from "@/utils/schemaUtils";
 import {
+  CallToolResultSchema,
+  CompatibilityCallToolResult,
   ListToolsResult,
   Tool,
-  CallToolResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
-
-import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import JsonView from "./JsonView";
 
 const ToolsTab = ({
   tools,
@@ -52,17 +53,14 @@ const ToolsTab = ({
         return (
           <>
             <h4 className="font-semibold mb-2">Invalid Tool Result:</h4>
-            <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
-              {JSON.stringify(toolResult, null, 2)}
-            </pre>
+            <div className="p-4 border rounded">
+              <JsonView data={toolResult} />
+            </div>
             <h4 className="font-semibold mb-2">Errors:</h4>
             {parsedResult.error.errors.map((error, idx) => (
-              <pre
-                key={idx}
-                className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64"
-              >
-                {JSON.stringify(error, null, 2)}
-              </pre>
+              <div key={idx} className="p-4 border rounded">
+                <JsonView data={error} />
+              </div>
             ))}
           </>
         );
@@ -78,9 +76,9 @@ const ToolsTab = ({
           {structuredResult.content.map((item, index) => (
             <div key={index} className="mb-2">
               {item.type === "text" && (
-                <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
-                  {item.text}
-                </pre>
+                <div className="p-4 border rounded">
+                  <JsonView data={item.text} />
+                </div>
               )}
               {item.type === "image" && (
                 <img
@@ -99,9 +97,9 @@ const ToolsTab = ({
                     <p>Your browser does not support audio playback</p>
                   </audio>
                 ) : (
-                  <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 whitespace-pre-wrap break-words p-4 rounded text-sm overflow-auto max-h-64">
-                    {JSON.stringify(item.resource, null, 2)}
-                  </pre>
+                  <div className="p-4 border rounded">
+                    <JsonView data={item.resource} />
+                  </div>
                 ))}
             </div>
           ))}
@@ -111,9 +109,9 @@ const ToolsTab = ({
       return (
         <>
           <h4 className="font-semibold mb-2">Tool Result (Legacy):</h4>
-          <pre className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-4 rounded text-sm overflow-auto max-h-64">
-            {JSON.stringify(toolResult.toolResult, null, 2)}
-          </pre>
+          <div className="p-4 border rounded">
+            <JsonView data={toolResult.toolResult} />
+          </div>
         </>
       );
     }
@@ -214,7 +212,10 @@ const ToolsTab = ({
                               description: prop.description,
                               items: prop.items,
                             }}
-                            value={(params[key] as JsonValue) ?? {}}
+                            value={
+                              (params[key] as JsonValue) ??
+                              generateDefaultValue(prop)
+                            }
                             onChange={(newValue: JsonValue) => {
                               setParams({
                                 ...params,
@@ -229,6 +230,7 @@ const ToolsTab = ({
                           id={key}
                           name={key}
                           placeholder={prop.description}
+                          value={(params[key] as string) ?? ""}
                           onChange={(e) =>
                             setParams({
                               ...params,

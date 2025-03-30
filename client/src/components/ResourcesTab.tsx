@@ -15,6 +15,7 @@ import { AlertCircle, ChevronRight, FileText, RefreshCw } from "lucide-react";
 import ListPane from "./ListPane";
 import { useEffect, useState } from "react";
 import { useCompletionState } from "@/lib/hooks/useCompletionState";
+import JsonView from "./JsonView";
 
 const ResourcesTab = ({
   resources,
@@ -26,6 +27,10 @@ const ResourcesTab = ({
   readResource,
   selectedResource,
   setSelectedResource,
+  resourceSubscriptionsSupported,
+  resourceSubscriptions,
+  subscribeToResource,
+  unsubscribeFromResource,
   handleCompletion,
   completionsSupported,
   resourceContent,
@@ -52,6 +57,10 @@ const ResourcesTab = ({
   nextCursor: ListResourcesResult["nextCursor"];
   nextTemplateCursor: ListResourceTemplatesResult["nextCursor"];
   error: string | null;
+  resourceSubscriptionsSupported: boolean;
+  resourceSubscriptions: Set<string>;
+  subscribeToResource: (uri: string) => void;
+  unsubscribeFromResource: (uri: string) => void;
 }) => {
   const [selectedTemplate, setSelectedTemplate] =
     useState<ResourceTemplate | null>(null);
@@ -164,14 +173,38 @@ const ResourcesTab = ({
                 : "Select a resource or template"}
           </h3>
           {selectedResource && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => readResource(selectedResource.uri)}
-            >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Refresh
-            </Button>
+            <div className="flex row-auto gap-1 justify-end w-2/5">
+              {resourceSubscriptionsSupported &&
+                !resourceSubscriptions.has(selectedResource.uri) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => subscribeToResource(selectedResource.uri)}
+                  >
+                    Subscribe
+                  </Button>
+                )}
+              {resourceSubscriptionsSupported &&
+                resourceSubscriptions.has(selectedResource.uri) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      unsubscribeFromResource(selectedResource.uri)
+                    }
+                  >
+                    Unsubscribe
+                  </Button>
+                )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => readResource(selectedResource.uri)}
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Refresh
+              </Button>
+            </div>
           )}
         </div>
         <div className="p-4">
@@ -182,9 +215,9 @@ const ResourcesTab = ({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : selectedResource ? (
-            <pre className="bg-gray-50 dark:bg-gray-800 p-4 rounded text-sm overflow-auto max-h-96 whitespace-pre-wrap break-words text-gray-900 dark:text-gray-100">
-              {resourceContent}
-            </pre>
+            <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded text-sm overflow-auto max-h-96 text-gray-900 dark:text-gray-100">
+              <JsonView data={resourceContent} />
+            </div>
           ) : selectedTemplate ? (
             <div className="space-y-4">
               <p className="text-sm text-gray-600">

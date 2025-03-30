@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Theme = "light" | "dark" | "system";
 
@@ -36,16 +36,14 @@ const useTheme = (): [Theme, (mode: Theme) => void] => {
     };
   }, [theme]);
 
-  return [
-    theme,
-    useCallback((newTheme: Theme) => {
-      setTheme(newTheme);
-      localStorage.setItem("theme", newTheme);
-      if (newTheme !== "system") {
-        document.documentElement.classList.toggle("dark", newTheme === "dark");
-      }
-    }, []),
-  ];
+  const setThemeWithSideEffect = useCallback((newTheme: Theme) => {
+    setTheme(newTheme);
+    localStorage.setItem("theme", newTheme);
+    if (newTheme !== "system") {
+      document.documentElement.classList.toggle("dark", newTheme === "dark");
+    }
+  }, []);
+  return useMemo(() => [theme, setThemeWithSideEffect], [theme]);
 };
 
 export default useTheme;

@@ -1,8 +1,8 @@
+import { useState, useEffect } from "react";
 import Editor from "react-simple-code-editor";
 import Prism from "prismjs";
 import "prismjs/components/prism-json";
 import "prismjs/themes/prism.css";
-import { Button } from "@/components/ui/button";
 
 interface JsonEditorProps {
   value: string;
@@ -10,34 +10,40 @@ interface JsonEditorProps {
   error?: string;
 }
 
-const JsonEditor = ({ value, onChange, error }: JsonEditorProps) => {
-  const formatJson = (json: string): string => {
-    try {
-      return JSON.stringify(JSON.parse(json), null, 2);
-    } catch {
-      return json;
-    }
+const JsonEditor = ({
+  value,
+  onChange,
+  error: externalError,
+}: JsonEditorProps) => {
+  const [editorContent, setEditorContent] = useState(value || "");
+  const [internalError, setInternalError] = useState<string | undefined>(
+    undefined,
+  );
+
+  useEffect(() => {
+    setEditorContent(value || "");
+  }, [value]);
+
+  const handleEditorChange = (newContent: string) => {
+    setEditorContent(newContent);
+    setInternalError(undefined);
+    onChange(newContent);
   };
 
+  const displayError = internalError || externalError;
+
   return (
-    <div className="relative space-y-2">
-      <div className="flex justify-end">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => onChange(formatJson(value))}
-        >
-          Format JSON
-        </Button>
-      </div>
+    <div className="relative">
       <div
         className={`border rounded-md ${
-          error ? "border-red-500" : "border-gray-200 dark:border-gray-800"
+          displayError
+            ? "border-red-500"
+            : "border-gray-200 dark:border-gray-800"
         }`}
       >
         <Editor
-          value={value}
-          onValueChange={onChange}
+          value={editorContent}
+          onValueChange={handleEditorChange}
           highlight={(code) =>
             Prism.highlight(code, Prism.languages.json, "json")
           }
@@ -51,7 +57,9 @@ const JsonEditor = ({ value, onChange, error }: JsonEditorProps) => {
           className="w-full"
         />
       </div>
-      {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
+      {displayError && (
+        <p className="text-sm text-red-500 mt-1">{displayError}</p>
+      )}
     </div>
   );
 };

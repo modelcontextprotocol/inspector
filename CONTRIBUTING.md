@@ -7,13 +7,13 @@ Thanks for your interest in contributing! This guide explains how to get involve
 1. Fork the repository and clone it locally
 2. Install dependencies with `npm install`
 3. Run `npm run dev` to start both client and server in development mode
-4. Use the web UI at http://localhost:5173 to interact with the inspector
+4. Use the web UI at http://127.0.0.1:5173 to interact with the inspector
 
 ## Development Process & Pull Requests
 
 1. Create a new branch for your changes
-2. Make your changes following existing code style and conventions
-3. Test changes locally
+2. Make your changes following existing code style and conventions. You can run `npm run prettier-check` and `npm run prettier-fix` as applicable.
+3. Test changes locally by running `npm test`
 4. Update documentation as needed
 5. Use clear commit messages explaining your changes
 6. Verify all changes work as expected

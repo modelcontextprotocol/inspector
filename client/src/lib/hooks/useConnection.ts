@@ -9,6 +9,8 @@ import {
   CreateMessageRequestSchema,
   ListRootsRequestSchema,
   ProgressNotificationSchema,
+  ResourceUpdatedNotificationSchema,
+  LoggingMessageNotificationSchema,
   Request,
   Result,
   ServerCapabilities,
@@ -17,6 +19,10 @@ import {
   McpError,
   CompleteResultSchema,
   ErrorCode,
+  CancelledNotificationSchema,
+  ResourceListChangedNotificationSchema,
+  ToolListChangedNotificationSchema,
+  PromptListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 import { toast } from "react-toastify";
@@ -25,10 +31,7 @@ import { SESSION_KEYS } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { authProvider } from "../auth";
-
-const params = new URLSearchParams(window.location.search);
-const DEFAULT_REQUEST_TIMEOUT_MSEC =
-  parseInt(params.get("timeout") ?? "") || 10000;
+import packageJson from "../../../package.json";
 
 interface UseConnectionOptions {
   transportType: "stdio" | "sse";
@@ -37,10 +40,13 @@ interface UseConnectionOptions {
   sseUrl: string;
   env: Record<string, string>;
   proxyServerUrl: string;
+  bearerToken?: string;
   requestTimeout?: number;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onPendingRequest?: (request: any, resolve: any, reject: any) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getRoots?: () => any[];
 }
 
@@ -57,7 +63,8 @@ export function useConnection({
   sseUrl,
   env,
   proxyServerUrl,
-  requestTimeout = DEFAULT_REQUEST_TIMEOUT_MSEC,
+  bearerToken,
+  requestTimeout,
   onNotification,
   onStdErrNotification,
   onPendingRequest,
@@ -202,7 +209,7 @@ export function useConnection({
       const client = new Client<Request, Notification, Result>(
         {
           name: "mcp-inspector",
-          version: "0.0.1",
+          version: packageJson.version,
         },
         {
           capabilities: {
@@ -228,9 +235,11 @@ export function useConnection({
       // Inject auth manually instead of using SSEClientTransport, because we're
       // proxying through the inspector server first.
       const headers: HeadersInit = {};
-      const tokens = await authProvider.tokens();
-      if (tokens) {
-        headers["Authorization"] = `Bearer ${tokens.access_token}`;
+
+      // Use manually provided bearer token if available, otherwise use OAuth tokens
+      const token = bearerToken || (await authProvider.tokens())?.access_token;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
       }
 
       const clientTransport = new SSEClientTransport(backendUrl, {
@@ -243,10 +252,24 @@ export function useConnection({
       });
 
       if (onNotification) {
-        client.setNotificationHandler(
+        [
+          CancelledNotificationSchema,
           ProgressNotificationSchema,
-          onNotification,
-        );
+          LoggingMessageNotificationSchema,
+          ResourceUpdatedNotificationSchema,
+          ResourceListChangedNotificationSchema,
+          ToolListChangedNotificationSchema,
+          PromptListChangedNotificationSchema,
+        ].forEach((notificationSchema) => {
+          client.setNotificationHandler(notificationSchema, onNotification);
+        });
+
+        client.fallbackNotificationHandler = (
+          notification: Notification,
+        ): Promise<void> => {
+          onNotification(notification);
+          return Promise.resolve();
+        };
       }
 
       if (onStdErrNotification) {
