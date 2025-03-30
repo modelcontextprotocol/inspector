@@ -36,15 +36,31 @@ The inspector runs both a client UI (default port 5173) and an MCP proxy server 
 CLIENT_PORT=8080 SERVER_PORT=9000 npx @modelcontextprotocol/inspector node build/index.js
 ```
 
-### Using a Configuration File
+For more details on ways to use the inspector, see the [Inspector section of the MCP docs site](https://modelcontextprotocol.io/docs/tools/inspector). For help with debugging, see the [Debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
 
-The inspector supports configuration files to store settings for different MCP servers. This is useful when working with multiple servers or complex configurations:
+### Authentication
+
+The inspector supports bearer token authentication for SSE connections. Enter your token in the UI when connecting to an MCP server, and it will be sent in the Authorization header.
+
+### Security Considerations
+
+The MCP Inspector includes a proxy server that can run and communicate with local MCP processes. The proxy server should not be exposed to untrusted networks as it has permissions to spawn local processes and can connect to any specified MCP server.
+
+### Configuration
+
+The MCP Inspector supports the following configuration settings. To change them click on the `Configuration` button in the MCP Inspector UI:
+
+| Name                       | Purpose                                                                     | Default Value |
+| -------------------------- | --------------------------------------------------------------------------- | ------------- |
+| MCP_SERVER_REQUEST_TIMEOUT | Maximum time in milliseconds to wait for a response from the MCP server before timing out | 10000         |
+
+The inspector also supports configuration files to store settings for different MCP servers. This is useful when working with multiple servers or complex configurations:
 
 ```bash
 npx @modelcontextprotocol/inspector --config path/to/config.json --server everything
 ```
 
-Example configuration file:
+Example server configuration file:
 
 ```json
 {
@@ -66,6 +82,30 @@ Example configuration file:
     }
   }
 }
+```
+
+### From this repository
+
+If you're working on the inspector itself:
+
+Development mode:
+
+```bash
+npm run dev
+```
+
+> **Note for Windows users:**  
+> On Windows, use the following command instead:
+>
+> ```bash
+> npm run dev:windows
+> ```
+
+Production mode:
+
+```bash
+npm run build
+npm start
 ```
 
 ### CLI Mode
@@ -106,3 +146,19 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --me
 # List resources from a remote server
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --method resources/list
 ```
+
+### UI Mode vs CLI Mode: When to Use Each
+
+| Use Case | UI Mode | CLI Mode |
+|----------|---------|----------|
+| **Server Development** | Visual interface for interactive testing and debugging during development | Scriptable commands for quick testing and continuous integration; creates feedback loops with AI coding assistants like Cursor for rapid development |
+| **Resource Exploration** | Interactive browser with hierarchical navigation and JSON visualization | Programmatic listing and reading for automation and scripting |
+| **Tool Testing** | Form-based parameter input with real-time response visualization | Command-line tool execution with JSON output for scripting |
+| **Prompt Engineering** | Interactive sampling with streaming responses and visual comparison | Batch processing of prompts with machine-readable output |
+| **Debugging** | Request history, visualized errors, and real-time notifications | Direct JSON output for log analysis and integration with other tools |
+| **Automation** | N/A | Ideal for CI/CD pipelines, batch processing, and integration with coding assistants |
+| **Learning MCP** | Rich visual interface helps new users understand server capabilities | Simplified commands for focused learning of specific endpoints |
+
+## License
+
+This project is licensed under the MIT License—see the [LICENSE](LICENSE) file for details.

@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-cli",
-  "version": "0.5.1",
+  "version": "0.7.0",
   "description": "CLI for the Model Context Protocol inspector",
   "license": "MIT",
   "author": "Nicolas Barraud",

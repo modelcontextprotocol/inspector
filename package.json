@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector",
-  "version": "0.5.1",
+  "version": "0.7.0",
   "description": "Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -27,7 +27,7 @@
   ],
   "scripts": {
     "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
-    "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows",
+    "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows\"",
     "build-bin": "cd bin && npm run build",
     "build-server": "cd server && npm run build",
     "build-client": "cd client && npm run build",
@@ -38,13 +38,14 @@
     "start": "node ./bin/cli.js",
     "prepare": "npm run build",
     "prettier-fix": "prettier --write .",
-    "publish-all": "npm publish --workspaces --access public && npm publish --access public"
+    "publish-all": "npm publish --workspaces --access public && npm publish --access public",
+    "test:cli": "cd bin && npm run test"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-bin": "0.5.1",
-    "@modelcontextprotocol/inspector-cli": "0.5.1",
-    "@modelcontextprotocol/inspector-client": "0.5.1",
-    "@modelcontextprotocol/inspector-server": "0.5.1",
+    "@modelcontextprotocol/inspector-bin": "0.7.0",
+    "@modelcontextprotocol/inspector-cli": "0.7.0",
+    "@modelcontextprotocol/inspector-client": "0.7.0",
+    "@modelcontextprotocol/inspector-server": "0.7.0",
     "@modelcontextprotocol/sdk": "^1.6.1",
     "commander": "^13.1.0",
     "concurrently": "^9.0.1",
