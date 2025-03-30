@@ -26,4 +26,4 @@ async function makeExecutable() {
   }
 }
 
-makeExecutable(); 
+makeExecutable();

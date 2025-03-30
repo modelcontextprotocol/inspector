@@ -17,4 +17,4 @@ async function copyFile() {
   }
 }
 
-copyFile(); 
+copyFile();

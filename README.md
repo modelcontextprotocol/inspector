@@ -50,8 +50,8 @@ The MCP Inspector includes a proxy server that can run and communicate with loca
 
 The MCP Inspector supports the following configuration settings. To change them click on the `Configuration` button in the MCP Inspector UI:
 
-| Name                       | Purpose                                                                     | Default Value |
-| -------------------------- | --------------------------------------------------------------------------- | ------------- |
+| Name                       | Purpose                                                                                   | Default Value |
+| -------------------------- | ----------------------------------------------------------------------------------------- | ------------- |
 | MCP_SERVER_REQUEST_TIMEOUT | Maximum time in milliseconds to wait for a response from the MCP server before timing out | 10000         |
 
 The inspector also supports configuration files to store settings for different MCP servers. This is useful when working with multiple servers or complex configurations:
@@ -149,15 +149,15 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --me
 
 ### UI Mode vs CLI Mode: When to Use Each
 
-| Use Case | UI Mode | CLI Mode |
-|----------|---------|----------|
-| **Server Development** | Visual interface for interactive testing and debugging during development | Scriptable commands for quick testing and continuous integration; creates feedback loops with AI coding assistants like Cursor for rapid development |
-| **Resource Exploration** | Interactive browser with hierarchical navigation and JSON visualization | Programmatic listing and reading for automation and scripting |
-| **Tool Testing** | Form-based parameter input with real-time response visualization | Command-line tool execution with JSON output for scripting |
-| **Prompt Engineering** | Interactive sampling with streaming responses and visual comparison | Batch processing of prompts with machine-readable output |
-| **Debugging** | Request history, visualized errors, and real-time notifications | Direct JSON output for log analysis and integration with other tools |
-| **Automation** | N/A | Ideal for CI/CD pipelines, batch processing, and integration with coding assistants |
-| **Learning MCP** | Rich visual interface helps new users understand server capabilities | Simplified commands for focused learning of specific endpoints |
+| Use Case                 | UI Mode                                                                   | CLI Mode                                                                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Server Development**   | Visual interface for interactive testing and debugging during development | Scriptable commands for quick testing and continuous integration; creates feedback loops with AI coding assistants like Cursor for rapid development |
+| **Resource Exploration** | Interactive browser with hierarchical navigation and JSON visualization   | Programmatic listing and reading for automation and scripting                                                                                        |
+| **Tool Testing**         | Form-based parameter input with real-time response visualization          | Command-line tool execution with JSON output for scripting                                                                                           |
+| **Prompt Engineering**   | Interactive sampling with streaming responses and visual comparison       | Batch processing of prompts with machine-readable output                                                                                             |
+| **Debugging**            | Request history, visualized errors, and real-time notifications           | Direct JSON output for log analysis and integration with other tools                                                                                 |
+| **Automation**           | N/A                                                                       | Ideal for CI/CD pipelines, batch processing, and integration with coding assistants                                                                  |
+| **Learning MCP**         | Rich visual interface helps new users understand server capabilities      | Simplified commands for focused learning of specific endpoints                                                                                       |
 
 ## License
 
