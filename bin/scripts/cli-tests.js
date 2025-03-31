@@ -337,6 +337,30 @@ async function runTests() {
     "tools/list",
   );
 
+  // Test 5b: CLI mode with environment variable containing equals sign in value
+  await runBasicTest(
+    "env_variable_with_equals",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "-e",
+    "API_KEY=abc123=xyz789==",
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  // Test 5c: CLI mode with environment variable containing base64-encoded value
+  await runBasicTest(
+    "env_variable_with_base64",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "-e",
+    "JWT_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0=",
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
   console.log(
     `\n${colors.YELLOW}=== Running Config File Tests ===${colors.NC}`,
   );
