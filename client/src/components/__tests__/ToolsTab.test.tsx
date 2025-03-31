@@ -85,17 +85,18 @@ describe("ToolsTab", () => {
       selectedTool: mockTools[1], // Use the tool with integer type
     });
 
-    const input = screen.getByRole("textbox", { name: /count/i }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", {
+      name: /count/i,
+    }) as HTMLInputElement;
     expect(input).toHaveProperty("type", "number");
     fireEvent.change(input, { target: { value: "42" } });
     expect(input.value).toBe("42");
 
     const submitButton = screen.getByRole("button", { name: /run tool/i });
     fireEvent.click(submitButton);
-    
-    expect(defaultProps.callTool).toHaveBeenCalledWith(
-      mockTools[1].name,
-      { count: 42 }
-    );
+
+    expect(defaultProps.callTool).toHaveBeenCalledWith(mockTools[1].name, {
+      count: 42,
+    });
   });
 });
