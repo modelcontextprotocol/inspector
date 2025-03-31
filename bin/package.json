@@ -18,6 +18,9 @@
     "postbuild": "node scripts/make-executable.js && node scripts/copy-cli.js",
     "test": "node scripts/cli-tests.js"
   },
-  "dependencies": {},
+  "dependencies": {
+    "commander": "^13.1.0",
+    "spawn-rx": "^5.1.2"
+  },
   "devDependencies": {}
 }
