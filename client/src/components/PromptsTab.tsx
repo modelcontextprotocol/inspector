@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+
 import {
   ListPromptsResult,
   PromptReference,
@@ -13,6 +13,7 @@ import { AlertCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import { useCompletionState } from "@/lib/hooks/useCompletionState";
+import JsonView from "./JsonView";
 
 export type Prompt = {
   name: string;
@@ -151,11 +152,9 @@ const PromptsTab = ({
                 Get Prompt
               </Button>
               {promptContent && (
-                <Textarea
-                  value={promptContent}
-                  readOnly
-                  className="h-64 font-mono"
-                />
+                <div className="p-4 border rounded">
+                  <JsonView data={promptContent} />
+                </div>
               )}
             </div>
           ) : (

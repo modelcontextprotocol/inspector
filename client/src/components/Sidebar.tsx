@@ -9,6 +9,7 @@ import {
   Eye,
   EyeOff,
   RotateCcw,
+  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,7 @@ import {
   LoggingLevel,
   LoggingLevelSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { InspectorConfig } from "@/lib/configurationTypes";
 
 import useTheme from "../lib/useTheme";
 import { version } from "../../../package.json";
@@ -47,6 +49,8 @@ interface SidebarProps {
   logLevel: LoggingLevel;
   sendLogLevelRequest: (level: LoggingLevel) => void;
   loggingSupported: boolean;
+  config: InspectorConfig;
+  setConfig: (config: InspectorConfig) => void;
 }
 
 const Sidebar = ({
@@ -68,10 +72,13 @@ const Sidebar = ({
   logLevel,
   sendLogLevelRequest,
   loggingSupported,
+  config,
+  setConfig,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
   const [showBearerToken, setShowBearerToken] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
 
   return (
@@ -284,6 +291,88 @@ const Sidebar = ({
               )}
             </div>
           )}
+
+          {/* Configuration */}
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowConfig(!showConfig)}
+              className="flex items-center w-full"
+            >
+              {showConfig ? (
+                <ChevronDown className="w-4 h-4 mr-2" />
+              ) : (
+                <ChevronRight className="w-4 h-4 mr-2" />
+              )}
+              <Settings className="w-4 h-4 mr-2" />
+              Configuration
+            </Button>
+            {showConfig && (
+              <div className="space-y-2">
+                {Object.entries(config).map(([key, configItem]) => {
+                  const configKey = key as keyof InspectorConfig;
+                  return (
+                    <div key={key} className="space-y-2">
+                      <label className="text-sm font-medium">
+                        {configItem.description}
+                      </label>
+                      {typeof configItem.value === "number" ? (
+                        <Input
+                          type="number"
+                          data-testid={`${configKey}-input`}
+                          value={configItem.value}
+                          onChange={(e) => {
+                            const newConfig = { ...config };
+                            newConfig[configKey] = {
+                              ...configItem,
+                              value: Number(e.target.value),
+                            };
+                            setConfig(newConfig);
+                          }}
+                          className="font-mono"
+                        />
+                      ) : typeof configItem.value === "boolean" ? (
+                        <Select
+                          data-testid={`${configKey}-select`}
+                          value={configItem.value.toString()}
+                          onValueChange={(val) => {
+                            const newConfig = { ...config };
+                            newConfig[configKey] = {
+                              ...configItem,
+                              value: val === "true",
+                            };
+                            setConfig(newConfig);
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="true">True</SelectItem>
+                            <SelectItem value="false">False</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          data-testid={`${configKey}-input`}
+                          value={configItem.value}
+                          onChange={(e) => {
+                            const newConfig = { ...config };
+                            newConfig[configKey] = {
+                              ...configItem,
+                              value: e.target.value,
+                            };
+                            setConfig(newConfig);
+                          }}
+                          className="font-mono"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           <div className="space-y-2">
             <Button className="w-full" onClick={onConnect}>

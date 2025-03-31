@@ -108,6 +108,21 @@ const DynamicJsonForm = ({
     }
   };
 
+  const formatJson = () => {
+    try {
+      const jsonStr = rawJsonValue.trim();
+      if (!jsonStr) {
+        return;
+      }
+      const formatted = JSON.stringify(JSON.parse(jsonStr), null, 2);
+      setRawJsonValue(formatted);
+      debouncedUpdateParent(formatted);
+      setJsonError(undefined);
+    } catch (err) {
+      setJsonError(err instanceof Error ? err.message : "Invalid JSON");
+    }
+  };
+
   const renderFormFields = (
     propSchema: JsonSchemaType,
     currentValue: JsonValue,
@@ -353,7 +368,12 @@ const DynamicJsonForm = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end space-x-2">
+        {isJsonMode && (
+          <Button variant="outline" size="sm" onClick={formatJson}>
+            Format JSON
+          </Button>
+        )}
         <Button variant="outline" size="sm" onClick={handleSwitchToFormMode}>
           {isJsonMode ? "Switch to Form" : "Switch to JSON"}
         </Button>

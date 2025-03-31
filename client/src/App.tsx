@@ -45,23 +45,16 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
+import { InspectorConfig } from "./lib/configurationTypes";
 
 const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "3000";
 const PROXY_SERVER_URL = `http://${window.location.hostname}:${PROXY_PORT}`;
+const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
 const App = () => {
   // Handle OAuth callback route
-  if (window.location.pathname === "/oauth/callback") {
-    const OAuthCallback = React.lazy(
-      () => import("./components/OAuthCallback"),
-    );
-    return (
-      <Suspense fallback={<div>Loading...</div>}>
-        <OAuthCallback />
-      </Suspense>
-    );
-  }
   const [resources, setResources] = useState<Resource[]>([]);
   const [resourceTemplates, setResourceTemplates] = useState<
     ResourceTemplate[]
@@ -99,6 +92,11 @@ const App = () => {
   >([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
+
+  const [config, setConfig] = useState<InspectorConfig>(() => {
+    const savedConfig = localStorage.getItem(CONFIG_LOCAL_STORAGE_KEY);
+    return savedConfig ? JSON.parse(savedConfig) : DEFAULT_INSPECTOR_CONFIG;
+  });
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
   });
@@ -113,22 +111,6 @@ const App = () => {
   >([]);
   const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
-
-  const handleApproveSampling = (id: number, result: CreateMessageResult) => {
-    setPendingSampleRequests((prev) => {
-      const request = prev.find((r) => r.id === id);
-      request?.resolve(result);
-      return prev.filter((r) => r.id !== id);
-    });
-  };
-
-  const handleRejectSampling = (id: number) => {
-    setPendingSampleRequests((prev) => {
-      const request = prev.find((r) => r.id === id);
-      request?.reject(new Error("Sampling request rejected"));
-      return prev.filter((r) => r.id !== id);
-    });
-  };
 
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
@@ -171,6 +153,7 @@ const App = () => {
     env,
     bearerToken,
     proxyServerUrl: PROXY_SERVER_URL,
+    requestTimeout: config.MCP_SERVER_REQUEST_TIMEOUT.value as number,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
     },
@@ -209,6 +192,10 @@ const App = () => {
     localStorage.setItem("lastBearerToken", bearerToken);
   }, [bearerToken]);
 
+  useEffect(() => {
+    localStorage.setItem(CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
+  }, [config]);
+
   // Auto-connect if serverUrl is provided in URL params (e.g. after OAuth callback)
   useEffect(() => {
     const serverUrl = params.get("serverUrl");
@@ -224,7 +211,7 @@ const App = () => {
       // Connect to the server
       connectMcpServer();
     }
-  }, []);
+  }, [connectMcpServer]);
 
   useEffect(() => {
     fetch(`${PROXY_SERVER_URL}/config`)
@@ -252,6 +239,22 @@ const App = () => {
       window.location.hash = "resources";
     }
   }, []);
+
+  const handleApproveSampling = (id: number, result: CreateMessageResult) => {
+    setPendingSampleRequests((prev) => {
+      const request = prev.find((r) => r.id === id);
+      request?.resolve(result);
+      return prev.filter((r) => r.id !== id);
+    });
+  };
+
+  const handleRejectSampling = (id: number) => {
+    setPendingSampleRequests((prev) => {
+      const request = prev.find((r) => r.id === id);
+      request?.reject(new Error("Sampling request rejected"));
+      return prev.filter((r) => r.id !== id);
+    });
+  };
 
   const clearError = (tabKey: keyof typeof errors) => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
@@ -425,6 +428,17 @@ const App = () => {
     setLogLevel(level);
   };
 
+  if (window.location.pathname === "/oauth/callback") {
+    const OAuthCallback = React.lazy(
+      () => import("./components/OAuthCallback"),
+    );
+    return (
+      <Suspense fallback={<div>Loading...</div>}>
+        <OAuthCallback />
+      </Suspense>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-background">
       <Sidebar
@@ -439,6 +453,8 @@ const App = () => {
         setSseUrl={setSseUrl}
         env={env}
         setEnv={setEnv}
+        config={config}
+        setConfig={setConfig}
         bearerToken={bearerToken}
         setBearerToken={setBearerToken}
         onConnect={connectMcpServer}
