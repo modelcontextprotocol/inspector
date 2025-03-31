@@ -379,7 +379,7 @@ const Sidebar = ({
               {connectionStatus === "connected" ? (
                 <>
                   <RotateCcw className="w-4 h-4 mr-2" />
-                  {transportType === 'stdio' ? 'Restart' : 'Reconnect'}
+                  {transportType === "stdio" ? "Restart" : "Reconnect"}
                 </>
               ) : (
                 <>
