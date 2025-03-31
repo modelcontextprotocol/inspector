@@ -226,7 +226,7 @@ const ToolsTab = ({
                         </div>
                       ) : (
                         <Input
-                          type={prop.type === "number" ? "number" : "text"}
+                          type={prop.type === "number" || prop.type === "integer" ? "number" : "text"}
                           id={key}
                           name={key}
                           placeholder={prop.description}
@@ -235,7 +235,7 @@ const ToolsTab = ({
                             setParams({
                               ...params,
                               [key]:
-                                prop.type === "number"
+                                prop.type === "number" || prop.type === "integer"
                                   ? Number(e.target.value)
                                   : e.target.value,
                             })
