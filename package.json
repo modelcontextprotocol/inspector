@@ -28,7 +28,7 @@
     "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
     "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows\"",
     "test": "npm run prettier-check && cd client && npm test",
-    "test:cli": "cd bin && npm run test", 
+    "test-cli": "cd bin && npm run test",
     "build-bin": "cd bin && npm run build",
     "build-server": "cd server && npm run build",
     "build-client": "cd client && npm run build",
