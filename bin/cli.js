@@ -61,8 +61,8 @@ async function main() {
     "cli.js",
   );
 
-  const CLIENT_PORT = process.env.CLIENT_PORT ?? "5173";
-  const SERVER_PORT = process.env.SERVER_PORT ?? "3000";
+  const CLIENT_PORT = process.env.CLIENT_PORT ?? "6274";
+  const SERVER_PORT = process.env.SERVER_PORT ?? "6277";
 
   console.log("Starting MCP inspector...");
 

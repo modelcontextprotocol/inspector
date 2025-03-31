@@ -15,7 +15,7 @@ const server = http.createServer((request, response) => {
   });
 });
 
-const port = process.env.PORT || 5173;
+const port = process.env.PORT || 6274;
 server.on("listening", () => {
   console.log(
     `🔍 MCP Inspector is up and running at http://127.0.0.1:${port} 🚀`,
