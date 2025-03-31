@@ -8,8 +8,7 @@
   "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "type": "module",
   "bin": {
-    "mcp-inspector": "./bin/cli.js",
-    "mcp-inspector-cli": "./cli/bin/cli.js"
+    "mcp-inspector": "./bin/cli.js"
   },
   "files": [
     "bin",
@@ -44,11 +43,11 @@
     "publish-all": "npm publish --workspaces --access public && npm publish --access public"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-bin": "0.7.0",
-    "@modelcontextprotocol/inspector-cli": "0.7.0",
-    "@modelcontextprotocol/inspector-client": "0.7.0",
-    "@modelcontextprotocol/inspector-server": "0.7.0",
-    "@modelcontextprotocol/sdk": "^1.6.1",
+    "@modelcontextprotocol/inspector-bin": "^0.7.0",
+    "@modelcontextprotocol/inspector-cli": "^0.7.0",
+    "@modelcontextprotocol/inspector-client": "^0.7.0",
+    "@modelcontextprotocol/inspector-server": "^0.7.0",
+    "@modelcontextprotocol/sdk": "^1.8.0",
     "commander": "^13.1.0",
     "concurrently": "^9.0.1",
     "shell-quote": "^1.8.2",
@@ -57,6 +56,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.14",
     "@types/node": "^22.7.5",
     "@types/shell-quote": "^1.7.5",
     "prettier": "3.3.3",
