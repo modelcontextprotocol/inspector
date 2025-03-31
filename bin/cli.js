@@ -62,7 +62,7 @@ async function main() {
   );
 
   const CLIENT_PORT = process.env.CLIENT_PORT ?? "6274";
-  const SERVER_PORT = process.env.SERVER_PORT ?? "6727";
+  const SERVER_PORT = process.env.SERVER_PORT ?? "6277";
 
   console.log("Starting MCP inspector...");
 
@@ -100,7 +100,7 @@ async function main() {
 
   // Make sure our server/client didn't immediately fail
   await Promise.any([server, client, delay(2 * 1000)]);
-  const portParam = SERVER_PORT === "6727" ? "" : `?proxyPort=${SERVER_PORT}`;
+  const portParam = SERVER_PORT === "6277" ? "" : `?proxyPort=${SERVER_PORT}`;
   console.log(
     `\n🔍 MCP Inspector is up and running at http://127.0.0.1:${CLIENT_PORT}${portParam} 🚀`,
   );
