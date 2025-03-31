@@ -182,7 +182,7 @@ app.get("/config", (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 6727;
 
 try {
   const server = app.listen(PORT);

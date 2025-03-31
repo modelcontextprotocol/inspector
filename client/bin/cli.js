@@ -15,5 +15,5 @@ const server = http.createServer((request, response) => {
   });
 });
 
-const port = process.env.PORT || 5173;
+const port = process.env.PORT || 6274;
 server.listen(port, () => {});
