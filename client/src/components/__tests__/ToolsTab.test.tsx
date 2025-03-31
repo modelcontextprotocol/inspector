@@ -17,6 +17,16 @@ describe("ToolsTab", () => {
       },
     },
     {
+      name: "tool3",
+      description: "Integer tool",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          count: { type: "integer" as const },
+        },
+      },
+    },
+    {
       name: "tool2",
       description: "Second tool",
       inputSchema: {
@@ -68,5 +78,29 @@ describe("ToolsTab", () => {
     // Verify input is reset
     const newInput = screen.getByRole("spinbutton") as HTMLInputElement;
     expect(newInput.value).toBe("");
+  });
+
+  it("should handle integer type inputs", () => {
+    renderToolsTab({
+      selectedTool: mockTools[2],
+    });
+
+    // Verify input is rendered as a number input
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    expect(input.type).toBe("text"); // This will fail - should be "number"
+
+    // Enter an integer value
+    fireEvent.change(input, { target: { value: "42" } });
+    expect(input.value).toBe("42");
+
+    // Verify the callTool function receives the value as a number
+    const submitButton = screen.getByRole("button", { name: /submit/i });
+    fireEvent.click(submitButton);
+    
+    expect(defaultProps.callTool).toHaveBeenCalledWith(
+      mockTools[2].name,
+      { count: 42 }, // Should be number 42, not string "42"
+      expect.any(Function)
+    );
   });
 });
