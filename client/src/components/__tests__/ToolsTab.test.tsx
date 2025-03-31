@@ -71,7 +71,7 @@ describe("ToolsTab", () => {
     // Switch to second tool
     rerender(
       <Tabs defaultValue="tools">
-        <ToolsTab {...defaultProps} selectedTool={mockTools[1]} />
+        <ToolsTab {...defaultProps} selectedTool={mockTools[2]} />
       </Tabs>,
     );
 
@@ -82,25 +82,24 @@ describe("ToolsTab", () => {
 
   it("should handle integer type inputs", () => {
     renderToolsTab({
-      selectedTool: mockTools[2],
+      selectedTool: mockTools[1], // Use the tool with integer type
     });
 
     // Verify input is rendered as a number input
     const input = screen.getByRole("spinbutton") as HTMLInputElement;
-    expect(input.type).toBe("text"); // This will fail - should be "number"
+    expect(input.type).toBe("number"); // Integer type should be treated as number
 
     // Enter an integer value
     fireEvent.change(input, { target: { value: "42" } });
     expect(input.value).toBe("42");
 
     // Verify the callTool function receives the value as a number
-    const submitButton = screen.getByRole("button", { name: /submit/i });
+    const submitButton = screen.getByRole("button", { name: /run tool/i });
     fireEvent.click(submitButton);
     
     expect(defaultProps.callTool).toHaveBeenCalledWith(
-      mockTools[2].name,
-      { count: 42 }, // Should be number 42, not string "42"
-      expect.any(Function)
+      mockTools[1].name,
+      { count: 42 }
     );
   });
 });
