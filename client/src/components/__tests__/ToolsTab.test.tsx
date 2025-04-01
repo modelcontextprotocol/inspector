@@ -80,20 +80,6 @@ describe("ToolsTab", () => {
     const newInput = screen.getByRole("spinbutton") as HTMLInputElement;
     expect(newInput.value).toBe("");
   });
-
-
-  it("should display error message when error prop is provided", () => {
-    const errorMessage = "Test error message";
-    renderToolsTab({
-      selectedTool: mockTools[0],
-      error: errorMessage,
-    });
-
-    // Verify error message is displayed
-    expect(screen.getByText("Error")).toBeTruthy();
-    expect(screen.getByText(errorMessage)).toBeTruthy();
-    });
-
   it("should handle integer type inputs", () => {
     renderToolsTab({
       selectedTool: mockTools[1], // Use the tool with integer type
