@@ -33,7 +33,6 @@ import {
   MessageSquare,
 } from "lucide-react";
 
-import { toast } from "react-toastify";
 import { z } from "zod";
 import "./App.css";
 import ConsoleTab from "./components/ConsoleTab";
@@ -47,13 +46,14 @@ import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
-
+import { useToast } from "@/hooks/use-toast";
 const params = new URLSearchParams(window.location.search);
 const PROXY_PORT = params.get("proxyPort") ?? "6277";
 const PROXY_SERVER_URL = `http://${window.location.hostname}:${PROXY_PORT}`;
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
 const App = () => {
+  const { toast } = useToast();
   // Handle OAuth callback route
   const [resources, setResources] = useState<Resource[]>([]);
   const [resourceTemplates, setResourceTemplates] = useState<
@@ -208,11 +208,14 @@ const App = () => {
       newUrl.searchParams.delete("serverUrl");
       window.history.replaceState({}, "", newUrl.toString());
       // Show success toast for OAuth
-      toast.success("Successfully authenticated with OAuth");
+      toast({
+        title: "Success",
+        description: "Successfully authenticated with OAuth",
+      });
       // Connect to the server
       connectMcpServer();
     }
-  }, [connectMcpServer]);
+  }, [connectMcpServer, toast]);
 
   useEffect(() => {
     fetch(`${PROXY_SERVER_URL}/config`)

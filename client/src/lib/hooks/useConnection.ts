@@ -25,7 +25,7 @@ import {
   PromptListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
-import { toast } from "react-toastify";
+import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import { SESSION_KEYS } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
@@ -70,6 +70,7 @@ export function useConnection({
   onPendingRequest,
   getRoots,
 }: UseConnectionOptions) {
+  const { toast } = useToast();
   const [connectionStatus, setConnectionStatus] = useState<
     "disconnected" | "connected" | "error"
   >("disconnected");
@@ -125,7 +126,11 @@ export function useConnection({
     } catch (e: unknown) {
       if (!options?.suppressToast) {
         const errorString = (e as Error).message ?? String(e);
-        toast.error(errorString);
+        toast({
+          title: "Error",
+          description: errorString,
+          variant: "destructive",
+        });
       }
       throw e;
     }
@@ -167,7 +172,11 @@ export function useConnection({
       }
 
       // Unexpected errors - show toast and rethrow
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast({
+        title: "Error",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
       throw e;
     }
   };
@@ -175,7 +184,11 @@ export function useConnection({
   const sendNotification = async (notification: ClientNotification) => {
     if (!mcpClient) {
       const error = new Error("MCP client not connected");
-      toast.error(error.message);
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
       throw error;
     }
 
@@ -188,7 +201,11 @@ export function useConnection({
         // Log MCP protocol errors
         pushHistory(notification, { error: e.message });
       }
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast({
+        title: "Error",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
       throw e;
     }
   };

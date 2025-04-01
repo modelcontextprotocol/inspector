@@ -17,7 +17,7 @@ import { Copy, Send, CheckCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
-import { toast } from "react-toastify";
+import { useToast } from "@/hooks/use-toast";
 
 const ToolsTab = ({
   tools,
@@ -39,6 +39,7 @@ const ToolsTab = ({
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
 }) => {
+  const { toast } = useToast();
   const [params, setParams] = useState<Record<string, unknown>>({});
   useEffect(() => {
     setParams({});
@@ -54,11 +55,13 @@ const ToolsTab = ({
         setCopied(false);
       }, 500);
     } catch (error) {
-      toast.error(
-        `There was an error coping result into the clipboard: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toast({
+        title: "Error",
+        description: `There was an error coping result into the clipboard: ${error instanceof Error ? error.message : String(error)}`,
+        variant: "destructive",
+      });
     }
-  }, [toolResult]);
+  }, [toast, toolResult]);
 
   const renderToolResult = () => {
     if (!toolResult) return null;
