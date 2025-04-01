@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, jest } from "@jest/globals";
+import "@testing-library/jest-dom";
 import ToolsTab from "../ToolsTab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Tabs } from "@/components/ui/tabs";
@@ -68,5 +69,17 @@ describe("ToolsTab", () => {
     // Verify input is reset
     const newInput = screen.getByRole("spinbutton") as HTMLInputElement;
     expect(newInput.value).toBe("");
+  });
+
+  it("should display error message when error prop is provided", () => {
+    const errorMessage = "Test error message";
+    renderToolsTab({
+      selectedTool: mockTools[0],
+      error: errorMessage,
+    });
+
+    // Verify error message is displayed
+    expect(screen.getByText("Error")).toBeTruthy();
+    expect(screen.getByText(errorMessage)).toBeTruthy();
   });
 });
