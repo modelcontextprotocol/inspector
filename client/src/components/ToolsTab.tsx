@@ -1,4 +1,4 @@
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import {
   ListToolsResult,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { AlertCircle, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
@@ -27,7 +27,6 @@ const ToolsTab = ({
   setSelectedTool,
   toolResult,
   nextCursor,
-  error,
 }: {
   tools: Tool[];
   listTools: () => void;
@@ -251,13 +250,6 @@ const ToolsTab = ({
                 Run Tool
               </Button>
               {toolResult && renderToolResult()}
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Error</AlertTitle>
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
             </div>
           ) : (
             <Alert>
