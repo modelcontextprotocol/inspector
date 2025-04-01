@@ -10,6 +10,7 @@ import {
   EyeOff,
   RotateCcw,
   Settings,
+  RefreshCwOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +46,7 @@ interface SidebarProps {
   bearerToken: string;
   setBearerToken: (token: string) => void;
   onConnect: () => void;
+  onDisconnect: () => void;
   stdErrNotifications: StdErrNotification[];
   logLevel: LoggingLevel;
   sendLogLevelRequest: (level: LoggingLevel) => void;
@@ -68,6 +70,7 @@ const Sidebar = ({
   bearerToken,
   setBearerToken,
   onConnect,
+  onDisconnect,
   stdErrNotifications,
   logLevel,
   sendLogLevelRequest,
@@ -375,19 +378,24 @@ const Sidebar = ({
           </div>
 
           <div className="space-y-2">
-            <Button className="w-full" onClick={onConnect}>
-              {connectionStatus === "connected" ? (
-                <>
+            {connectionStatus === "connected" && (
+              <div className="grid grid-cols-2 gap-4">
+                <Button onClick={onConnect}>
                   <RotateCcw className="w-4 h-4 mr-2" />
                   {transportType === "stdio" ? "Restart" : "Reconnect"}
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 mr-2" />
-                  Connect
-                </>
-              )}
-            </Button>
+                </Button>
+                <Button onClick={onDisconnect}>
+                  <RefreshCwOff className="w-4 h-4 mr-2" />
+                  Disconnect
+                </Button>
+              </div>
+            )}
+            {connectionStatus !== "connected" && (
+              <Button className="w-full" onClick={onConnect}>
+                <Play className="w-4 h-4 mr-2" />
+                Connect
+              </Button>
+            )}
 
             <div className="flex items-center justify-center space-x-2 mb-4">
               <div
