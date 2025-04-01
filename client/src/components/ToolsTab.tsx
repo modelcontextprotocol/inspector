@@ -13,10 +13,11 @@ import {
   ListToolsResult,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { AlertCircle, Send } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertCircle, Copy, Send, CheckCheck } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
+import { toast } from 'react-toastify'
 
 const ToolsTab = ({
   tools,
@@ -44,6 +45,20 @@ const ToolsTab = ({
     setParams({});
   }, [selectedTool]);
 
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(() => {
+    try {
+      navigator.clipboard.writeText(JSON.stringify(toolResult))
+      setCopied(true)
+      setTimeout(() => {
+        setCopied(false)
+      }, 500)
+    } catch (error) {
+      toast.error(`There was an error coping result into the clipboard: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [toolResult])
+
   const renderToolResult = () => {
     if (!toolResult) return null;
 
@@ -53,7 +68,8 @@ const ToolsTab = ({
         return (
           <>
             <h4 className="font-semibold mb-2">Invalid Tool Result:</h4>
-            <div className="p-4 border rounded">
+            <div className="p-4 border rounded relative">
+              <Copy className="size-4 text-primary" />
               <JsonView data={toolResult} />
             </div>
             <h4 className="font-semibold mb-2">Errors:</h4>
@@ -76,7 +92,12 @@ const ToolsTab = ({
           {structuredResult.content.map((item, index) => (
             <div key={index} className="mb-2">
               {item.type === "text" && (
-                <div className="p-4 border rounded">
+                <div className="p-4 border rounded relative">
+                  <Button size="icon" variant="ghost" className="absolute top-2 right-2" onClick={handleCopy}>
+                    {copied ?
+                      <CheckCheck className="size-4 dark:text-green-700 text-green-600" />
+                      : <Copy className="size-4 text-foreground" />}
+                  </Button>
                   <JsonView data={item.text} />
                 </div>
               )}
@@ -234,7 +255,7 @@ const ToolsTab = ({
                               ...params,
                               [key]:
                                 prop.type === "number" ||
-                                prop.type === "integer"
+                                  prop.type === "integer"
                                   ? Number(e.target.value)
                                   : e.target.value,
                             })
