@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, jest } from "@jest/globals";
+import "@testing-library/jest-dom";
 import ToolsTab from "../ToolsTab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Tabs } from "@/components/ui/tabs";
@@ -79,7 +80,6 @@ describe("ToolsTab", () => {
     const newInput = screen.getByRole("spinbutton") as HTMLInputElement;
     expect(newInput.value).toBe("");
   });
-
   it("should handle integer type inputs", () => {
     renderToolsTab({
       selectedTool: mockTools[1], // Use the tool with integer type
