@@ -81,6 +81,7 @@ describe("ToolsTab", () => {
     expect(newInput.value).toBe("");
   });
 
+
   it("should display error message when error prop is provided", () => {
     const errorMessage = "Test error message";
     renderToolsTab({
