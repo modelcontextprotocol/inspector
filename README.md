@@ -53,6 +53,7 @@ The MCP Inspector supports the following configuration settings. To change them 
 | Name                       | Purpose                                                                                   | Default Value |
 | -------------------------- | ----------------------------------------------------------------------------------------- | ------------- |
 | MCP_SERVER_REQUEST_TIMEOUT | Maximum time in milliseconds to wait for a response from the MCP server before timing out | 10000         |
+| MCP_PROXY_FULL_ADDRESS     | The full URL of the MCP Inspector proxy server (e.g. `http://10.2.1.14:2277`)             | `null`        |
 
 ### From this repository
 

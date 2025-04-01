@@ -233,14 +233,13 @@ export function useConnection({
       },
     );
 
-    const mcpProxyServerUrl = new URL(`${proxyServerUrl}/sse`);
     try {
       await checkProxyHealth();
     } catch {
       setConnectionStatus("error-connecting-to-proxy");
       return;
     }
-
+    const mcpProxyServerUrl = new URL(`${proxyServerUrl}/sse`);
     mcpProxyServerUrl.searchParams.append("transportType", transportType);
     if (transportType === "stdio") {
       mcpProxyServerUrl.searchParams.append("command", command);
