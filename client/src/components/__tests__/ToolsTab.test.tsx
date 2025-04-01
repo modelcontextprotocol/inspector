@@ -17,6 +17,16 @@ describe("ToolsTab", () => {
       },
     },
     {
+      name: "tool3",
+      description: "Integer tool",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          count: { type: "integer" as const },
+        },
+      },
+    },
+    {
       name: "tool2",
       description: "Second tool",
       inputSchema: {
@@ -61,12 +71,32 @@ describe("ToolsTab", () => {
     // Switch to second tool
     rerender(
       <Tabs defaultValue="tools">
-        <ToolsTab {...defaultProps} selectedTool={mockTools[1]} />
+        <ToolsTab {...defaultProps} selectedTool={mockTools[2]} />
       </Tabs>,
     );
 
     // Verify input is reset
     const newInput = screen.getByRole("spinbutton") as HTMLInputElement;
     expect(newInput.value).toBe("");
+  });
+
+  it("should handle integer type inputs", () => {
+    renderToolsTab({
+      selectedTool: mockTools[1], // Use the tool with integer type
+    });
+
+    const input = screen.getByRole("spinbutton", {
+      name: /count/i,
+    }) as HTMLInputElement;
+    expect(input).toHaveProperty("type", "number");
+    fireEvent.change(input, { target: { value: "42" } });
+    expect(input.value).toBe("42");
+
+    const submitButton = screen.getByRole("button", { name: /run tool/i });
+    fireEvent.click(submitButton);
+
+    expect(defaultProps.callTool).toHaveBeenCalledWith(mockTools[1].name, {
+      count: 42,
+    });
   });
 });
