@@ -149,9 +149,9 @@ const ToolsTab = ({
         <div className="p-4">
           {selectedTool ? (
             <div className="space-y-4">
-            <p className="text-sm text-gray-600">
-              {selectedTool.description}
-            </p>
+              <p className="text-sm text-gray-600">
+                {selectedTool.description}
+              </p>
               {Object.entries(selectedTool.inputSchema.properties ?? []).map(
                 ([key, value]) => {
                   const prop = value as JsonSchemaType;
