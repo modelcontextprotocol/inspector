@@ -8,6 +8,7 @@ import {
   Github,
   Eye,
   EyeOff,
+  RotateCcw,
   Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -375,8 +376,17 @@ const Sidebar = ({
 
           <div className="space-y-2">
             <Button className="w-full" onClick={onConnect}>
-              <Play className="w-4 h-4 mr-2" />
-              Connect
+              {connectionStatus === "connected" ? (
+                <>
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  {transportType === "stdio" ? "Restart" : "Reconnect"}
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 mr-2" />
+                  Connect
+                </>
+              )}
             </Button>
 
             <div className="flex items-center justify-center space-x-2 mb-4">
