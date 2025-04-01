@@ -27,7 +27,7 @@ import {
 import { useState } from "react";
 import { toast } from "react-toastify";
 import { z } from "zod";
-import { SESSION_KEYS } from "../constants";
+import { ConnectionStatus, SESSION_KEYS } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { authProvider } from "../auth";
@@ -70,9 +70,8 @@ export function useConnection({
   onPendingRequest,
   getRoots,
 }: UseConnectionOptions) {
-  const [connectionStatus, setConnectionStatus] = useState<
-    "disconnected" | "connected" | "error"
-  >("disconnected");
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>("disconnected");
   const [serverCapabilities, setServerCapabilities] =
     useState<ServerCapabilities | null>(null);
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
@@ -193,6 +192,20 @@ export function useConnection({
     }
   };
 
+  const checkProxyHealth = async () => {
+    try {
+      const proxyHealthUrl = new URL(`${proxyServerUrl}/health`);
+      const proxyHealthResponse = await fetch(proxyHealthUrl);
+      const proxyHealth = await proxyHealthResponse.json();
+      if (proxyHealth?.status !== "ok") {
+        throw new Error("MCP Proxy Server is not healthy");
+      }
+    } catch (e) {
+      console.error("Couldn't connect to MCP Proxy Server", e);
+      throw e;
+    }
+  };
+
   const handleAuthError = async (error: unknown) => {
     if (error instanceof SseError && error.code === 401) {
       sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
@@ -205,33 +218,39 @@ export function useConnection({
   };
 
   const connect = async (_e?: unknown, retryCount: number = 0) => {
-    try {
-      const client = new Client<Request, Notification, Result>(
-        {
-          name: "mcp-inspector",
-          version: packageJson.version,
-        },
-        {
-          capabilities: {
-            sampling: {},
-            roots: {
-              listChanged: true,
-            },
+    const client = new Client<Request, Notification, Result>(
+      {
+        name: "mcp-inspector",
+        version: packageJson.version,
+      },
+      {
+        capabilities: {
+          sampling: {},
+          roots: {
+            listChanged: true,
           },
         },
-      );
+      },
+    );
 
-      const backendUrl = new URL(`${proxyServerUrl}/sse`);
+    const mcpProxyServerUrl = new URL(`${proxyServerUrl}/sse`);
+    try {
+      await checkProxyHealth();
+    } catch {
+      setConnectionStatus("error-connecting-to-proxy");
+      return;
+    }
 
-      backendUrl.searchParams.append("transportType", transportType);
-      if (transportType === "stdio") {
-        backendUrl.searchParams.append("command", command);
-        backendUrl.searchParams.append("args", args);
-        backendUrl.searchParams.append("env", JSON.stringify(env));
-      } else {
-        backendUrl.searchParams.append("url", sseUrl);
-      }
+    mcpProxyServerUrl.searchParams.append("transportType", transportType);
+    if (transportType === "stdio") {
+      mcpProxyServerUrl.searchParams.append("command", command);
+      mcpProxyServerUrl.searchParams.append("args", args);
+      mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
+    } else {
+      mcpProxyServerUrl.searchParams.append("url", sseUrl);
+    }
 
+    try {
       // Inject auth manually instead of using SSEClientTransport, because we're
       // proxying through the inspector server first.
       const headers: HeadersInit = {};
@@ -242,7 +261,7 @@ export function useConnection({
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const clientTransport = new SSEClientTransport(backendUrl, {
+      const clientTransport = new SSEClientTransport(mcpProxyServerUrl, {
         eventSourceInit: {
           fetch: (url, init) => fetch(url, { ...init, headers }),
         },
@@ -282,7 +301,10 @@ export function useConnection({
       try {
         await client.connect(clientTransport);
       } catch (error) {
-        console.error("Failed to connect to MCP server:", error);
+        console.error(
+          `Failed to connect to MCP Server via the MCP Inspector Proxy: ${mcpProxyServerUrl}:`,
+          error,
+        );
         const shouldRetry = await handleAuthError(error);
         if (shouldRetry) {
           return connect(undefined, retryCount + 1);

@@ -38,7 +38,7 @@ app.use(cors());
 
 let webAppTransports: SSEServerTransport[] = [];
 
-const createTransport = async (req: express.Request) => {
+const createTransport = async (req: express.Request): Promise<Transport> => {
   const query = req.query;
   console.log("Query parameters:", query);
 
@@ -70,6 +70,7 @@ const createTransport = async (req: express.Request) => {
     const headers: HeadersInit = {
       Accept: "text/event-stream",
     };
+
     for (const key of SSE_HEADERS_PASSTHROUGH) {
       if (req.headers[key] === undefined) {
         continue;
@@ -170,6 +171,12 @@ app.post("/message", async (req, res) => {
     console.error("Error in /message route:", error);
     res.status(500).json(error);
   }
+});
+
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+  });
 });
 
 app.get("/config", (req, res) => {

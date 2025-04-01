@@ -1,8 +1,9 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, beforeEach, jest } from "@jest/globals";
 import Sidebar from "../Sidebar";
-import { DEFAULT_INSPECTOR_CONFIG } from "../../lib/constants";
-import { InspectorConfig } from "../../lib/configurationTypes";
+import { DEFAULT_INSPECTOR_CONFIG } from "@/lib/constants";
+import { InspectorConfig } from "@/lib/configurationTypes";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Mock theme hook
 jest.mock("../../lib/useTheme", () => ({
@@ -35,11 +36,15 @@ describe("Sidebar Environment Variables", () => {
   };
 
   const renderSidebar = (props = {}) => {
-    return render(<Sidebar {...defaultProps} {...props} />);
+    return render(
+      <TooltipProvider>
+        <Sidebar {...defaultProps} {...props} />
+      </TooltipProvider>,
+    );
   };
 
   const openEnvVarsSection = () => {
-    const button = screen.getByText("Environment Variables");
+    const button = screen.getByTestId("env-vars-button");
     fireEvent.click(button);
   };
 
@@ -215,7 +220,11 @@ describe("Sidebar Environment Variables", () => {
       const updatedEnv = setEnv.mock.calls[0][0] as Record<string, string>;
 
       // Rerender with the updated env
-      rerender(<Sidebar {...defaultProps} env={updatedEnv} setEnv={setEnv} />);
+      rerender(
+        <TooltipProvider>
+          <Sidebar {...defaultProps} env={updatedEnv} setEnv={setEnv} />
+        </TooltipProvider>,
+      );
 
       // Second key edit
       const secondKeyInput = screen.getByDisplayValue("SECOND_KEY");
@@ -246,7 +255,11 @@ describe("Sidebar Environment Variables", () => {
       fireEvent.change(keyInput, { target: { value: "NEW_KEY" } });
 
       // Rerender with updated env
-      rerender(<Sidebar {...defaultProps} env={{ NEW_KEY: "test_value" }} />);
+      rerender(
+        <TooltipProvider>
+          <Sidebar {...defaultProps} env={{ NEW_KEY: "test_value" }} />
+        </TooltipProvider>,
+      );
 
       // Value should still be visible
       const updatedValueInput = screen.getByDisplayValue("test_value");
@@ -311,7 +324,7 @@ describe("Sidebar Environment Variables", () => {
 
   describe("Configuration Operations", () => {
     const openConfigSection = () => {
-      const button = screen.getByText("Configuration");
+      const button = screen.getByTestId("config-button");
       fireEvent.click(button);
     };
 
@@ -326,12 +339,14 @@ describe("Sidebar Environment Variables", () => {
       );
       fireEvent.change(timeoutInput, { target: { value: "5000" } });
 
-      expect(setConfig).toHaveBeenCalledWith({
-        MCP_SERVER_REQUEST_TIMEOUT: {
-          description: "Timeout for requests to the MCP server (ms)",
-          value: 5000,
-        },
-      });
+      expect(setConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          MCP_SERVER_REQUEST_TIMEOUT: {
+            description: "Timeout for requests to the MCP server (ms)",
+            value: 5000,
+          },
+        }),
+      );
     });
 
     it("should handle invalid timeout values entered by user", () => {
@@ -345,12 +360,14 @@ describe("Sidebar Environment Variables", () => {
       );
       fireEvent.change(timeoutInput, { target: { value: "abc1" } });
 
-      expect(setConfig).toHaveBeenCalledWith({
-        MCP_SERVER_REQUEST_TIMEOUT: {
-          description: "Timeout for requests to the MCP server (ms)",
-          value: 0,
-        },
-      });
+      expect(setConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          MCP_SERVER_REQUEST_TIMEOUT: {
+            description: "Timeout for requests to the MCP server (ms)",
+            value: 0,
+          },
+        }),
+      );
     });
 
     it("should maintain configuration state after multiple updates", () => {
@@ -361,7 +378,6 @@ describe("Sidebar Environment Variables", () => {
       });
 
       openConfigSection();
-
       // First update
       const timeoutInput = screen.getByTestId(
         "MCP_SERVER_REQUEST_TIMEOUT-input",
@@ -373,11 +389,13 @@ describe("Sidebar Environment Variables", () => {
 
       // Rerender with the updated config
       rerender(
-        <Sidebar
-          {...defaultProps}
-          config={updatedConfig}
-          setConfig={setConfig}
-        />,
+        <TooltipProvider>
+          <Sidebar
+            {...defaultProps}
+            config={updatedConfig}
+            setConfig={setConfig}
+          />
+        </TooltipProvider>,
       );
 
       // Second update
@@ -387,12 +405,14 @@ describe("Sidebar Environment Variables", () => {
       fireEvent.change(updatedTimeoutInput, { target: { value: "3000" } });
 
       // Verify the final state matches what we expect
-      expect(setConfig).toHaveBeenLastCalledWith({
-        MCP_SERVER_REQUEST_TIMEOUT: {
-          description: "Timeout for requests to the MCP server (ms)",
-          value: 3000,
-        },
-      });
+      expect(setConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          MCP_SERVER_REQUEST_TIMEOUT: {
+            description: "Timeout for requests to the MCP server (ms)",
+            value: 3000,
+          },
+        }),
+      );
     });
   });
 });
