@@ -85,9 +85,7 @@ describe("ToolsTab", () => {
       selectedTool: mockTools[1], // Use the tool with integer type
     });
 
-    const input = screen.getByRole("textbox", {
-      name: /count/i,
-    }) as HTMLInputElement;
+    const input = screen.getByRole("spinbutton", { name: /count/i }) as HTMLInputElement;
     expect(input).toHaveProperty("type", "number");
     fireEvent.change(input, { target: { value: "42" } });
     expect(input.value).toBe("42");
