@@ -30,7 +30,7 @@ npx @modelcontextprotocol/inspector -e KEY=value -e KEY2=$VALUE2 node build/inde
 npx @modelcontextprotocol/inspector -e KEY=$VALUE -- node build/index.js -e server-flag
 ```
 
-The inspector runs both a client UI (default port 5173) and an MCP proxy server (default port 3000). Open the client UI in your browser to use the inspector. You can customize the ports if needed:
+The inspector runs both an MCP Inspector (MCPI) client UI (default port 6274) and an MCP Proxy (MCPP) server (default port 6277). Open the MCPI client UI in your browser to use the inspector. (These ports are derived from the T9 dialpad mapping of MCPI and MCPP respectively, as a mnemonic). You can customize the ports if needed:
 
 ```bash
 CLIENT_PORT=8080 SERVER_PORT=9000 npx @modelcontextprotocol/inspector node build/index.js
