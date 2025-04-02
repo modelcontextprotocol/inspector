@@ -1,4 +1,4 @@
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import {
   ListToolsResult,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { AlertCircle, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
@@ -27,7 +27,6 @@ const ToolsTab = ({
   setSelectedTool,
   toolResult,
   nextCursor,
-  error,
 }: {
   tools: Tool[];
   listTools: () => void;
@@ -147,13 +146,7 @@ const ToolsTab = ({
           </h3>
         </div>
         <div className="p-4">
-          {error ? (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : selectedTool ? (
+          {selectedTool ? (
             <div className="space-y-4">
               <p className="text-sm text-gray-600">
                 {selectedTool.description}
@@ -226,7 +219,11 @@ const ToolsTab = ({
                         </div>
                       ) : (
                         <Input
-                          type={prop.type === "number" ? "number" : "text"}
+                          type={
+                            prop.type === "number" || prop.type === "integer"
+                              ? "number"
+                              : "text"
+                          }
                           id={key}
                           name={key}
                           placeholder={prop.description}
@@ -235,7 +232,8 @@ const ToolsTab = ({
                             setParams({
                               ...params,
                               [key]:
-                                prop.type === "number"
+                                prop.type === "number" ||
+                                prop.type === "integer"
                                   ? Number(e.target.value)
                                   : e.target.value,
                             })

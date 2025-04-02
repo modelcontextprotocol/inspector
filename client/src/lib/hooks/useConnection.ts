@@ -342,6 +342,14 @@ export function useConnection({
     }
   };
 
+  const disconnect = async () => {
+    await mcpClient?.close();
+    setMcpClient(null);
+    setConnectionStatus("disconnected");
+    setCompletionsSupported(false);
+    setServerCapabilities(null);
+  };
+
   return {
     connectionStatus,
     serverCapabilities,
@@ -352,5 +360,6 @@ export function useConnection({
     handleCompletion,
     completionsSupported,
     connect,
+    disconnect,
   };
 }

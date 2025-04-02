@@ -152,6 +152,7 @@ const App = () => {
     handleCompletion,
     completionsSupported,
     connect: connectMcpServer,
+    disconnect: disconnectMcpServer,
   } = useConnection({
     transportType,
     command,
@@ -466,6 +467,7 @@ const App = () => {
         bearerToken={bearerToken}
         setBearerToken={setBearerToken}
         onConnect={connectMcpServer}
+        onDisconnect={disconnectMcpServer}
         stdErrNotifications={stdErrNotifications}
         logLevel={logLevel}
         sendLogLevelRequest={sendLogLevelRequest}
