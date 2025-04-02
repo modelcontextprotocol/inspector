@@ -1,11 +1,16 @@
-import { useState, memo } from "react";
+import { useState, memo, useMemo, useCallback, useEffect } from "react";
 import { JsonValue } from "./DynamicJsonForm";
 import clsx from "clsx";
+import { Copy, CheckCheck } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 
 interface JsonViewProps {
   data: unknown;
   name?: string;
   initialExpandDepth?: number;
+  className?: string;
+  withCopyButton?: boolean;
 }
 
 function tryParseJson(str: string): { success: boolean; data: JsonValue } {
@@ -24,22 +29,75 @@ function tryParseJson(str: string): { success: boolean; data: JsonValue } {
 }
 
 const JsonView = memo(
-  ({ data, name, initialExpandDepth = 3 }: JsonViewProps) => {
-    const normalizedData =
-      typeof data === "string"
+  ({
+    data,
+    name,
+    initialExpandDepth = 3,
+    className,
+    withCopyButton = true,
+  }: JsonViewProps) => {
+    const { toast } = useToast();
+    const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+      let timeoutId: NodeJS.Timeout;
+      if (copied) {
+        timeoutId = setTimeout(() => {
+          setCopied(false);
+        }, 500);
+      }
+      return () => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      };
+    }, [copied]);
+
+    const normalizedData = useMemo(() => {
+      return typeof data === "string"
         ? tryParseJson(data).success
           ? tryParseJson(data).data
           : data
         : data;
+    }, [data]);
+
+    const handleCopy = useCallback(() => {
+      try {
+        navigator.clipboard.writeText(JSON.stringify(normalizedData, null, 2));
+        setCopied(true);
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: `There was an error coping result into the clipboard: ${error instanceof Error ? error.message : String(error)}`,
+          variant: "destructive",
+        });
+      }
+    }, [toast, normalizedData]);
 
     return (
-      <div className="font-mono text-sm transition-all duration-300">
-        <JsonNode
-          data={normalizedData as JsonValue}
-          name={name}
-          depth={0}
-          initialExpandDepth={initialExpandDepth}
-        />
+      <div className={clsx("p-4 border rounded relative", className)}>
+        {withCopyButton && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="absolute top-2 right-2"
+            onClick={handleCopy}
+          >
+            {copied ? (
+              <CheckCheck className="size-4 dark:text-green-700 text-green-600" />
+            ) : (
+              <Copy className="size-4 text-foreground" />
+            )}
+          </Button>
+        )}
+        <div className="font-mono text-sm transition-all duration-300">
+          <JsonNode
+            data={normalizedData as JsonValue}
+            name={name}
+            depth={0}
+            initialExpandDepth={initialExpandDepth}
+          />
+        </div>
       </div>
     );
   },

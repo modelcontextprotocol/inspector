@@ -13,11 +13,10 @@ import {
   ListToolsResult,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Copy, Send, CheckCheck } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Send } from "lucide-react";
+import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
-import { useToast } from "@/hooks/use-toast";
 
 const ToolsTab = ({
   tools,
@@ -39,29 +38,10 @@ const ToolsTab = ({
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
 }) => {
-  const { toast } = useToast();
   const [params, setParams] = useState<Record<string, unknown>>({});
   useEffect(() => {
     setParams({});
   }, [selectedTool]);
-
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(() => {
-    try {
-      navigator.clipboard.writeText(JSON.stringify(toolResult));
-      setCopied(true);
-      setTimeout(() => {
-        setCopied(false);
-      }, 500);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: `There was an error coping result into the clipboard: ${error instanceof Error ? error.message : String(error)}`,
-        variant: "destructive",
-      });
-    }
-  }, [toast, toolResult]);
 
   const renderToolResult = () => {
     if (!toolResult) return null;
@@ -72,15 +52,10 @@ const ToolsTab = ({
         return (
           <>
             <h4 className="font-semibold mb-2">Invalid Tool Result:</h4>
-            <div className="p-4 border rounded relative">
-              <Copy className="size-4 text-primary" />
-              <JsonView data={toolResult} />
-            </div>
+            <JsonView data={toolResult} />
             <h4 className="font-semibold mb-2">Errors:</h4>
             {parsedResult.error.errors.map((error, idx) => (
-              <div key={idx} className="p-4 border rounded">
-                <JsonView data={error} />
-              </div>
+              <JsonView data={error} key={idx} />
             ))}
           </>
         );
@@ -95,23 +70,7 @@ const ToolsTab = ({
           </h4>
           {structuredResult.content.map((item, index) => (
             <div key={index} className="mb-2">
-              {item.type === "text" && (
-                <div className="p-4 border rounded relative">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="absolute top-2 right-2"
-                    onClick={handleCopy}
-                  >
-                    {copied ? (
-                      <CheckCheck className="size-4 dark:text-green-700 text-green-600" />
-                    ) : (
-                      <Copy className="size-4 text-foreground" />
-                    )}
-                  </Button>
-                  <JsonView data={item.text} />
-                </div>
-              )}
+              {item.type === "text" && <JsonView data={item.text} />}
               {item.type === "image" && (
                 <img
                   src={`data:${item.mimeType};base64,${item.data}`}
@@ -129,9 +88,7 @@ const ToolsTab = ({
                     <p>Your browser does not support audio playback</p>
                   </audio>
                 ) : (
-                  <div className="p-4 border rounded">
-                    <JsonView data={item.resource} />
-                  </div>
+                  <JsonView data={item.resource} />
                 ))}
             </div>
           ))}
@@ -141,9 +98,8 @@ const ToolsTab = ({
       return (
         <>
           <h4 className="font-semibold mb-2">Tool Result (Legacy):</h4>
-          <div className="p-4 border rounded">
-            <JsonView data={toolResult.toolResult} />
-          </div>
+
+          <JsonView data={toolResult.toolResult} />
         </>
       );
     }
