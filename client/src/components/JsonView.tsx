@@ -63,7 +63,7 @@ const JsonView = memo(
 
     const handleCopy = useCallback(() => {
       try {
-        navigator.clipboard.writeText(JSON.stringify(normalizedData, null, 2));
+        navigator.clipboard.writeText(typeof normalizedData === "string" ? normalizedData : JSON.stringify(normalizedData, null, 2));
         setCopied(true);
       } catch (error) {
         toast({
