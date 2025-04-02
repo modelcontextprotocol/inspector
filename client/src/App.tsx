@@ -20,7 +20,6 @@ import {
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useConnection } from "./lib/hooks/useConnection";
 import { useDraggablePane } from "./lib/hooks/useDraggablePane";
-
 import { StdErrNotification } from "./lib/notificationTypes";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -46,10 +45,12 @@ import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
+import {
+  getMCPProxyAddress,
+  getMCPServerRequestTimeout,
+} from "./utils/configUtils";
 import { useToast } from "@/hooks/use-toast";
 const params = new URLSearchParams(window.location.search);
-const PROXY_PORT = params.get("proxyPort") ?? "6277";
-const PROXY_SERVER_URL = `http://${window.location.hostname}:${PROXY_PORT}`;
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
 const App = () => {
@@ -95,7 +96,13 @@ const App = () => {
 
   const [config, setConfig] = useState<InspectorConfig>(() => {
     const savedConfig = localStorage.getItem(CONFIG_LOCAL_STORAGE_KEY);
-    return savedConfig ? JSON.parse(savedConfig) : DEFAULT_INSPECTOR_CONFIG;
+    if (savedConfig) {
+      return {
+        ...DEFAULT_INSPECTOR_CONFIG,
+        ...JSON.parse(savedConfig),
+      } as InspectorConfig;
+    }
+    return DEFAULT_INSPECTOR_CONFIG;
   });
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
@@ -153,8 +160,8 @@ const App = () => {
     sseUrl,
     env,
     bearerToken,
-    proxyServerUrl: PROXY_SERVER_URL,
-    requestTimeout: config.MCP_SERVER_REQUEST_TIMEOUT.value as number,
+    proxyServerUrl: getMCPProxyAddress(config),
+    requestTimeout: getMCPServerRequestTimeout(config),
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
     },
@@ -218,7 +225,7 @@ const App = () => {
   }, [connectMcpServer, toast]);
 
   useEffect(() => {
-    fetch(`${PROXY_SERVER_URL}/config`)
+    fetch(`${getMCPProxyAddress(config)}/config`)
       .then((response) => response.json())
       .then((data) => {
         setEnv(data.defaultEnvironment);
@@ -232,6 +239,7 @@ const App = () => {
       .catch((error) =>
         console.error("Error fetching default environment:", error),
       );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

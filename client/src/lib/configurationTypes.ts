@@ -15,4 +15,5 @@ export type InspectorConfig = {
    * Maximum time in milliseconds to wait for a response from the MCP server before timing out.
    */
   MCP_SERVER_REQUEST_TIMEOUT: ConfigItem;
+  MCP_PROXY_FULL_ADDRESS: ConfigItem;
 };
