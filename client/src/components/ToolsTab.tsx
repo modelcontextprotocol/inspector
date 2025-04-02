@@ -52,14 +52,10 @@ const ToolsTab = ({
         return (
           <>
             <h4 className="font-semibold mb-2">Invalid Tool Result:</h4>
-            <div className="p-4 border rounded">
-              <JsonView data={toolResult} />
-            </div>
+            <JsonView data={toolResult} />
             <h4 className="font-semibold mb-2">Errors:</h4>
             {parsedResult.error.errors.map((error, idx) => (
-              <div key={idx} className="p-4 border rounded">
-                <JsonView data={error} />
-              </div>
+              <JsonView data={error} key={idx} />
             ))}
           </>
         );
@@ -74,11 +70,7 @@ const ToolsTab = ({
           </h4>
           {structuredResult.content.map((item, index) => (
             <div key={index} className="mb-2">
-              {item.type === "text" && (
-                <div className="p-4 border rounded">
-                  <JsonView data={item.text} />
-                </div>
-              )}
+              {item.type === "text" && <JsonView data={item.text} />}
               {item.type === "image" && (
                 <img
                   src={`data:${item.mimeType};base64,${item.data}`}
@@ -96,9 +88,7 @@ const ToolsTab = ({
                     <p>Your browser does not support audio playback</p>
                   </audio>
                 ) : (
-                  <div className="p-4 border rounded">
-                    <JsonView data={item.resource} />
-                  </div>
+                  <JsonView data={item.resource} />
                 ))}
             </div>
           ))}
@@ -108,9 +98,8 @@ const ToolsTab = ({
       return (
         <>
           <h4 className="font-semibold mb-2">Tool Result (Legacy):</h4>
-          <div className="p-4 border rounded">
-            <JsonView data={toolResult.toolResult} />
-          </div>
+
+          <JsonView data={toolResult.toolResult} />
         </>
       );
     }

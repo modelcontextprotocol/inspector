@@ -152,9 +152,7 @@ const PromptsTab = ({
                 Get Prompt
               </Button>
               {promptContent && (
-                <div className="p-4 border rounded">
-                  <JsonView data={promptContent} />
-                </div>
+                <JsonView data={promptContent} withCopyButton={false} />
               )}
             </div>
           ) : (
