@@ -398,7 +398,7 @@ const Sidebar = ({
           <div className="space-y-2">
             {connectionStatus === "connected" && (
               <div className="grid grid-cols-2 gap-4">
-                <Button  data-testid="connect-button" onClick={onConnect}>
+                <Button data-testid="connect-button" onClick={onConnect}>
                   <RotateCcw className="w-4 h-4 mr-2" />
                   {transportType === "stdio" ? "Restart" : "Reconnect"}
                 </Button>
