@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { resolve, dirname } from "path";
+import { dirname, resolve } from "path";
 import { spawnPromise } from "spawn-rx";
 import { fileURLToPath } from "url";
 
@@ -63,6 +63,7 @@ async function main() {
 
   const CLIENT_PORT = process.env.CLIENT_PORT ?? "6274";
   const SERVER_PORT = process.env.SERVER_PORT ?? "6277";
+  const MCP_PROXY_FULL_ADDRESS = process.env.MCP_PROXY_FULL_ADDRESS ?? "";
 
   console.log("Starting MCP inspector...");
 
@@ -100,7 +101,12 @@ async function main() {
   if (serverOk) {
     try {
       await spawnPromise("node", [inspectorClientPath], {
-        env: { ...process.env, PORT: CLIENT_PORT },
+        env: {
+          ...process.env,
+          PORT: CLIENT_PORT,
+          MCP_PROXY_FULL_ADDRESS: MCP_PROXY_FULL_ADDRESS,
+          SERVER_PORT: SERVER_PORT,
+        },
         signal: abort.signal,
         echoOutput: true,
       });
