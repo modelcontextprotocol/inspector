@@ -6,7 +6,7 @@ export const getMCPProxyAddress = (config: InspectorConfig): string => {
   if (proxyFullAddress) {
     return proxyFullAddress;
   }
-  return `http://${window.location.hostname}:${DEFAULT_MCP_PROXY_LISTEN_PORT}`;
+  return `${window.location.protocol}//${window.location.hostname}:${DEFAULT_MCP_PROXY_LISTEN_PORT}`;
 };
 
 export const getMCPServerRequestTimeout = (config: InspectorConfig): number => {
