@@ -94,15 +94,30 @@ const App = () => {
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
 
+  // Check for runtime config injected by the server
+  const runtimeConfig = window.__RUNTIME_CONFIG__ || {};
+
   const [config, setConfig] = useState<InspectorConfig>(() => {
     const savedConfig = localStorage.getItem(CONFIG_LOCAL_STORAGE_KEY);
-    if (savedConfig) {
-      return {
-        ...DEFAULT_INSPECTOR_CONFIG,
-        ...JSON.parse(savedConfig),
-      } as InspectorConfig;
+    let configFromStorage = savedConfig
+      ? ({
+          ...DEFAULT_INSPECTOR_CONFIG,
+          ...JSON.parse(savedConfig),
+        } as InspectorConfig)
+      : DEFAULT_INSPECTOR_CONFIG;
+
+    // Override with runtime injected values if available
+    if (runtimeConfig.MCP_PROXY_FULL_ADDRESS) {
+      configFromStorage = {
+        ...configFromStorage,
+        MCP_PROXY_FULL_ADDRESS: {
+          ...configFromStorage.MCP_PROXY_FULL_ADDRESS,
+          value: runtimeConfig.MCP_PROXY_FULL_ADDRESS,
+        },
+      };
     }
-    return DEFAULT_INSPECTOR_CONFIG;
+
+    return configFromStorage;
   });
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
