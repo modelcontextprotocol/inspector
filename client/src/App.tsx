@@ -45,10 +45,7 @@ import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
-import {
-  getMCPProxyAddress,
-  getMCPServerRequestTimeout,
-} from "./utils/configUtils";
+import { getMCPProxyAddress } from "./utils/configUtils";
 import { useToast } from "@/hooks/use-toast";
 
 const params = new URLSearchParams(window.location.search);
@@ -148,7 +145,7 @@ const App = () => {
     serverCapabilities,
     mcpClient,
     requestHistory,
-    makeRequest: makeConnectionRequest,
+    makeRequest,
     sendNotification,
     handleCompletion,
     completionsSupported,
@@ -161,8 +158,7 @@ const App = () => {
     sseUrl,
     env,
     bearerToken,
-    proxyServerUrl: getMCPProxyAddress(config),
-    requestTimeout: getMCPServerRequestTimeout(config),
+    config,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
     },
@@ -279,13 +275,13 @@ const App = () => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
   };
 
-  const makeRequest = async <T extends z.ZodType>(
+  const makeConnectionRequest = async <T extends z.ZodType>(
     request: ClientRequest,
     schema: T,
     tabKey?: keyof typeof errors,
   ) => {
     try {
-      const response = await makeConnectionRequest(request, schema);
+      const response = await makeRequest(request, schema);
       if (tabKey !== undefined) {
         clearError(tabKey);
       }
@@ -303,7 +299,7 @@ const App = () => {
   };
 
   const listResources = async () => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "resources/list" as const,
         params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
@@ -316,7 +312,7 @@ const App = () => {
   };
 
   const listResourceTemplates = async () => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "resources/templates/list" as const,
         params: nextResourceTemplateCursor
@@ -333,7 +329,7 @@ const App = () => {
   };
 
   const readResource = async (uri: string) => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "resources/read" as const,
         params: { uri },
@@ -346,7 +342,7 @@ const App = () => {
 
   const subscribeToResource = async (uri: string) => {
     if (!resourceSubscriptions.has(uri)) {
-      await makeRequest(
+      await makeConnectionRequest(
         {
           method: "resources/subscribe" as const,
           params: { uri },
@@ -362,7 +358,7 @@ const App = () => {
 
   const unsubscribeFromResource = async (uri: string) => {
     if (resourceSubscriptions.has(uri)) {
-      await makeRequest(
+      await makeConnectionRequest(
         {
           method: "resources/unsubscribe" as const,
           params: { uri },
@@ -377,7 +373,7 @@ const App = () => {
   };
 
   const listPrompts = async () => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "prompts/list" as const,
         params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
@@ -390,7 +386,7 @@ const App = () => {
   };
 
   const getPrompt = async (name: string, args: Record<string, string> = {}) => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "prompts/get" as const,
         params: { name, arguments: args },
@@ -402,7 +398,7 @@ const App = () => {
   };
 
   const listTools = async () => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "tools/list" as const,
         params: nextToolCursor ? { cursor: nextToolCursor } : {},
@@ -415,7 +411,7 @@ const App = () => {
   };
 
   const callTool = async (name: string, params: Record<string, unknown>) => {
-    const response = await makeRequest(
+    const response = await makeConnectionRequest(
       {
         method: "tools/call" as const,
         params: {
@@ -437,7 +433,7 @@ const App = () => {
   };
 
   const sendLogLevelRequest = async (level: LoggingLevel) => {
-    await makeRequest(
+    await makeConnectionRequest(
       {
         method: "logging/setLevel" as const,
         params: { level },
@@ -654,7 +650,7 @@ const App = () => {
                     <ConsoleTab />
                     <PingTab
                       onPingClick={() => {
-                        void makeRequest(
+                        void makeConnectionRequest(
                           {
                             method: "ping" as const,
                           },

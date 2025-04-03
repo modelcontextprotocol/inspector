@@ -25,6 +25,14 @@ export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
     description: "Timeout for requests to the MCP server (ms)",
     value: 10000,
   },
+  MCP_SERVER_REQUEST_TIMEOUT_RESET_ON_PROGRESS: {
+    description: "Reset timeout on progress notifications",
+    value: true,
+  },
+  MCP_SERVER_REQUEST_TIMEOUT_MAX_TOTAL_TIMEOUT: {
+    description: "Maximum total timeout for requests sent to the MCP server (ms)",
+    value: 60000,
+  },
   MCP_PROXY_FULL_ADDRESS: {
     description:
       "Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577",

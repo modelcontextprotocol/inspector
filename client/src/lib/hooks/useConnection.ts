@@ -24,6 +24,7 @@ import {
   ToolListChangedNotificationSchema,
   PromptListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
@@ -32,6 +33,13 @@ import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { authProvider } from "../auth";
 import packageJson from "../../../package.json";
+import {
+  getMCPProxyAddress,
+  getMCPServerRequestMaxTotalTimeout,
+  resetRequestTimeoutOnProgress,
+} from "@/utils/configUtils";
+import { getMCPServerRequestTimeout } from "@/utils/configUtils";
+import { InspectorConfig } from "../configurationTypes";
 
 interface UseConnectionOptions {
   transportType: "stdio" | "sse";
@@ -39,9 +47,8 @@ interface UseConnectionOptions {
   args: string;
   sseUrl: string;
   env: Record<string, string>;
-  proxyServerUrl: string;
   bearerToken?: string;
-  requestTimeout?: number;
+  config: InspectorConfig;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,21 +57,14 @@ interface UseConnectionOptions {
   getRoots?: () => any[];
 }
 
-interface RequestOptions {
-  signal?: AbortSignal;
-  timeout?: number;
-  suppressToast?: boolean;
-}
-
 export function useConnection({
   transportType,
   command,
   args,
   sseUrl,
   env,
-  proxyServerUrl,
   bearerToken,
-  requestTimeout,
+  config,
   onNotification,
   onStdErrNotification,
   onPendingRequest,
@@ -94,7 +94,7 @@ export function useConnection({
   const makeRequest = async <T extends z.ZodType>(
     request: ClientRequest,
     schema: T,
-    options?: RequestOptions,
+    options?: RequestOptions & { suppressToast?: boolean },
   ): Promise<z.output<T>> => {
     if (!mcpClient) {
       throw new Error("MCP client not connected");
@@ -102,23 +102,25 @@ export function useConnection({
 
     try {
       const abortController = new AbortController();
-      const timeoutId = setTimeout(() => {
-        abortController.abort("Request timed out");
-      }, options?.timeout ?? requestTimeout);
-
       let response;
       try {
         response = await mcpClient.request(request, schema, {
           signal: options?.signal ?? abortController.signal,
+          resetTimeoutOnProgress:
+            options?.resetTimeoutOnProgress ??
+            resetRequestTimeoutOnProgress(config),
+          timeout: options?.timeout ?? getMCPServerRequestTimeout(config),
+          maxTotalTimeout:
+            options?.maxTotalTimeout ??
+            getMCPServerRequestMaxTotalTimeout(config),
         });
+
         pushHistory(request, response);
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         pushHistory(request, { error: errorMessage });
         throw error;
-      } finally {
-        clearTimeout(timeoutId);
       }
 
       return response;
@@ -211,7 +213,7 @@ export function useConnection({
 
   const checkProxyHealth = async () => {
     try {
-      const proxyHealthUrl = new URL(`${proxyServerUrl}/health`);
+      const proxyHealthUrl = new URL(`${getMCPProxyAddress(config)}/health`);
       const proxyHealthResponse = await fetch(proxyHealthUrl);
       const proxyHealth = await proxyHealthResponse.json();
       if (proxyHealth?.status !== "ok") {
@@ -256,7 +258,7 @@ export function useConnection({
       setConnectionStatus("error-connecting-to-proxy");
       return;
     }
-    const mcpProxyServerUrl = new URL(`${proxyServerUrl}/sse`);
+    const mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
     mcpProxyServerUrl.searchParams.append("transportType", transportType);
     if (transportType === "stdio") {
       mcpProxyServerUrl.searchParams.append("command", command);
