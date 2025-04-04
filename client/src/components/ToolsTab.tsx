@@ -106,147 +106,149 @@ const ToolsTab = ({
   };
 
   return (
-    <TabsContent value="tools" className="grid grid-cols-2 gap-4">
-      <ListPane
-        items={tools}
-        listItems={listTools}
-        clearItems={() => {
-          clearTools();
-          setSelectedTool(null);
-        }}
-        setSelectedItem={setSelectedTool}
-        renderItem={(tool) => (
-          <>
-            <span className="flex-1">{tool.name}</span>
-            <span className="text-sm text-gray-500 text-right">
-              {tool.description}
-            </span>
-          </>
-        )}
-        title="Tools"
-        buttonText={nextCursor ? "List More Tools" : "List Tools"}
-        isButtonDisabled={!nextCursor && tools.length > 0}
-      />
+    <TabsContent value="tools">
+      <div className="grid grid-cols-2 gap-4">
+        <ListPane
+          items={tools}
+          listItems={listTools}
+          clearItems={() => {
+            clearTools();
+            setSelectedTool(null);
+          }}
+          setSelectedItem={setSelectedTool}
+          renderItem={(tool) => (
+            <>
+              <span className="flex-1">{tool.name}</span>
+              <span className="text-sm text-gray-500 text-right">
+                {tool.description}
+              </span>
+            </>
+          )}
+          title="Tools"
+          buttonText={nextCursor ? "List More Tools" : "List Tools"}
+          isButtonDisabled={!nextCursor && tools.length > 0}
+        />
 
-      <div className="bg-card rounded-lg shadow">
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="font-semibold">
-            {selectedTool ? selectedTool.name : "Select a tool"}
-          </h3>
-        </div>
-        <div className="p-4">
-          {selectedTool ? (
-            <div className="space-y-4">
-              <p className="text-sm text-gray-600">
-                {selectedTool.description}
-              </p>
-              {Object.entries(selectedTool.inputSchema.properties ?? []).map(
-                ([key, value]) => {
-                  const prop = value as JsonSchemaType;
-                  return (
-                    <div key={key}>
-                      <Label
-                        htmlFor={key}
-                        className="block text-sm font-medium text-gray-700"
-                      >
-                        {key}
-                      </Label>
-                      {prop.type === "boolean" ? (
-                        <div className="flex items-center space-x-2 mt-2">
-                          <Checkbox
+        <div className="bg-card rounded-lg shadow">
+          <div className="p-4 border-b border-gray-200">
+            <h3 className="font-semibold">
+              {selectedTool ? selectedTool.name : "Select a tool"}
+            </h3>
+          </div>
+          <div className="p-4">
+            {selectedTool ? (
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  {selectedTool.description}
+                </p>
+                {Object.entries(selectedTool.inputSchema.properties ?? []).map(
+                  ([key, value]) => {
+                    const prop = value as JsonSchemaType;
+                    return (
+                      <div key={key}>
+                        <Label
+                          htmlFor={key}
+                          className="block text-sm font-medium text-gray-700"
+                        >
+                          {key}
+                        </Label>
+                        {prop.type === "boolean" ? (
+                          <div className="flex items-center space-x-2 mt-2">
+                            <Checkbox
+                              id={key}
+                              name={key}
+                              checked={!!params[key]}
+                              onCheckedChange={(checked: boolean) =>
+                                setParams({
+                                  ...params,
+                                  [key]: checked,
+                                })
+                              }
+                            />
+                            <label
+                              htmlFor={key}
+                              className="text-sm font-medium text-gray-700 dark:text-gray-300"
+                            >
+                              {prop.description || "Toggle this option"}
+                            </label>
+                          </div>
+                        ) : prop.type === "string" ? (
+                          <Textarea
                             id={key}
                             name={key}
-                            checked={!!params[key]}
-                            onCheckedChange={(checked: boolean) =>
+                            placeholder={prop.description}
+                            value={(params[key] as string) ?? ""}
+                            onChange={(e) =>
                               setParams({
                                 ...params,
-                                [key]: checked,
+                                [key]: e.target.value,
                               })
                             }
+                            className="mt-1"
                           />
-                          <label
-                            htmlFor={key}
-                            className="text-sm font-medium text-gray-700 dark:text-gray-300"
-                          >
-                            {prop.description || "Toggle this option"}
-                          </label>
-                        </div>
-                      ) : prop.type === "string" ? (
-                        <Textarea
-                          id={key}
-                          name={key}
-                          placeholder={prop.description}
-                          value={(params[key] as string) ?? ""}
-                          onChange={(e) =>
-                            setParams({
-                              ...params,
-                              [key]: e.target.value,
-                            })
-                          }
-                          className="mt-1"
-                        />
-                      ) : prop.type === "object" || prop.type === "array" ? (
-                        <div className="mt-1">
-                          <DynamicJsonForm
-                            schema={{
-                              type: prop.type,
-                              properties: prop.properties,
-                              description: prop.description,
-                              items: prop.items,
-                            }}
-                            value={
-                              (params[key] as JsonValue) ??
-                              generateDefaultValue(prop)
+                        ) : prop.type === "object" || prop.type === "array" ? (
+                          <div className="mt-1">
+                            <DynamicJsonForm
+                              schema={{
+                                type: prop.type,
+                                properties: prop.properties,
+                                description: prop.description,
+                                items: prop.items,
+                              }}
+                              value={
+                                (params[key] as JsonValue) ??
+                                generateDefaultValue(prop)
+                              }
+                              onChange={(newValue: JsonValue) => {
+                                setParams({
+                                  ...params,
+                                  [key]: newValue,
+                                });
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <Input
+                            type={
+                              prop.type === "number" || prop.type === "integer"
+                                ? "number"
+                                : "text"
                             }
-                            onChange={(newValue: JsonValue) => {
+                            id={key}
+                            name={key}
+                            placeholder={prop.description}
+                            value={(params[key] as string) ?? ""}
+                            onChange={(e) =>
                               setParams({
                                 ...params,
-                                [key]: newValue,
-                              });
-                            }}
+                                [key]:
+                                  prop.type === "number" ||
+                                  prop.type === "integer"
+                                    ? Number(e.target.value)
+                                    : e.target.value,
+                              })
+                            }
+                            className="mt-1"
                           />
-                        </div>
-                      ) : (
-                        <Input
-                          type={
-                            prop.type === "number" || prop.type === "integer"
-                              ? "number"
-                              : "text"
-                          }
-                          id={key}
-                          name={key}
-                          placeholder={prop.description}
-                          value={(params[key] as string) ?? ""}
-                          onChange={(e) =>
-                            setParams({
-                              ...params,
-                              [key]:
-                                prop.type === "number" ||
-                                prop.type === "integer"
-                                  ? Number(e.target.value)
-                                  : e.target.value,
-                            })
-                          }
-                          className="mt-1"
-                        />
-                      )}
-                    </div>
-                  );
-                },
-              )}
-              <Button onClick={() => callTool(selectedTool.name, params)}>
-                <Send className="w-4 h-4 mr-2" />
-                Run Tool
-              </Button>
-              {toolResult && renderToolResult()}
-            </div>
-          ) : (
-            <Alert>
-              <AlertDescription>
-                Select a tool from the list to view its details and run it
-              </AlertDescription>
-            </Alert>
-          )}
+                        )}
+                      </div>
+                    );
+                  },
+                )}
+                <Button onClick={() => callTool(selectedTool.name, params)}>
+                  <Send className="w-4 h-4 mr-2" />
+                  Run Tool
+                </Button>
+                {toolResult && renderToolResult()}
+              </div>
+            ) : (
+              <Alert>
+                <AlertDescription>
+                  Select a tool from the list to view its details and run it
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
         </div>
       </div>
     </TabsContent>
