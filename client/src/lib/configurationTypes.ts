@@ -20,13 +20,13 @@ export type InspectorConfig = {
    * Whether to reset the timeout on progress notifications. Useful for long-running operations that send periodic progress updates.
    * Refer: https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/utilities/progress/#progress-flow
    */
-  MCP_SERVER_REQUEST_TIMEOUT_RESET_ON_PROGRESS: ConfigItem;
+  MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS: ConfigItem;
 
   /**
    * Maximum total time in milliseconds to wait for a response from the MCP server before timing out. Used in conjunction with MCP_SERVER_REQUEST_TIMEOUT_RESET_ON_PROGRESS.
    * Refer: https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/utilities/progress/#progress-flow
    */
-  MCP_SERVER_REQUEST_TIMEOUT_MAX_TOTAL_TIMEOUT: ConfigItem;
+  MCP_REQUEST_MAX_TOTAL_TIMEOUT: ConfigItem;
 
   /**
    * The full address of the MCP Proxy Server, in case it is running on a non-default address. Example: http://10.1.1.22:5577

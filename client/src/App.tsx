@@ -411,21 +411,34 @@ const App = () => {
   };
 
   const callTool = async (name: string, params: Record<string, unknown>) => {
-    const response = await makeConnectionRequest(
-      {
-        method: "tools/call" as const,
-        params: {
-          name,
-          arguments: params,
-          _meta: {
-            progressToken: progressTokenRef.current++,
+    try {
+      const response = await makeConnectionRequest(
+        {
+          method: "tools/call" as const,
+          params: {
+            name,
+            arguments: params,
+            _meta: {
+              progressToken: progressTokenRef.current++,
+            },
           },
         },
-      },
-      CompatibilityCallToolResultSchema,
-      "tools",
-    );
-    setToolResult(response);
+        CompatibilityCallToolResultSchema,
+        "tools",
+      );
+      setToolResult(response);
+    } catch (e) {
+      const toolResult: CompatibilityCallToolResult = {
+        content: [
+          {
+            type: "text",
+            text: (e as Error).message ?? String(e),
+          },
+        ],
+        isError: true,
+      };
+      setToolResult(toolResult);
+    }
   };
 
   const handleRootsChange = async () => {
@@ -633,9 +646,10 @@ const App = () => {
                         setTools([]);
                         setNextToolCursor(undefined);
                       }}
-                      callTool={(name, params) => {
+                      callTool={async (name, params) => {
                         clearError("tools");
-                        callTool(name, params);
+                        setToolResult(null);
+                        await callTool(name, params);
                       }}
                       selectedTool={selectedTool}
                       setSelectedTool={(tool) => {

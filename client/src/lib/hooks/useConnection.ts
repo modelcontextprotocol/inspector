@@ -8,7 +8,6 @@ import {
   ClientRequest,
   CreateMessageRequestSchema,
   ListRootsRequestSchema,
-  ProgressNotificationSchema,
   ResourceUpdatedNotificationSchema,
   LoggingMessageNotificationSchema,
   Request,
@@ -23,6 +22,7 @@ import {
   ResourceListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
   PromptListChangedNotificationSchema,
+  Progress,
 } from "@modelcontextprotocol/sdk/types.js";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useState } from "react";
@@ -99,21 +99,38 @@ export function useConnection({
     if (!mcpClient) {
       throw new Error("MCP client not connected");
     }
-
     try {
       const abortController = new AbortController();
+
+      // prepare MCP Client request options
+      const mcpRequestOptions: RequestOptions = {
+        signal: options?.signal ?? abortController.signal,
+        resetTimeoutOnProgress:
+          options?.resetTimeoutOnProgress ??
+          resetRequestTimeoutOnProgress(config),
+        timeout: options?.timeout ?? getMCPServerRequestTimeout(config),
+        maxTotalTimeout:
+          options?.maxTotalTimeout ??
+          getMCPServerRequestMaxTotalTimeout(config),
+      };
+
+      // If progress notifications are enabled, add an onprogress hook to the MCP Client request options
+      // This is required by SDK to reset the timeout on progress notifications
+      if (mcpRequestOptions.resetTimeoutOnProgress) {
+        mcpRequestOptions.onprogress = (params: Progress) => {
+          // Add progress notification to `Server Notification` window in the UI
+          if (onNotification) {
+            onNotification({
+              method: "notification/progress",
+              params,
+            });
+          }
+        };
+      }
+
       let response;
       try {
-        response = await mcpClient.request(request, schema, {
-          signal: options?.signal ?? abortController.signal,
-          resetTimeoutOnProgress:
-            options?.resetTimeoutOnProgress ??
-            resetRequestTimeoutOnProgress(config),
-          timeout: options?.timeout ?? getMCPServerRequestTimeout(config),
-          maxTotalTimeout:
-            options?.maxTotalTimeout ??
-            getMCPServerRequestMaxTotalTimeout(config),
-        });
+        response = await mcpClient.request(request, schema, mcpRequestOptions);
 
         pushHistory(request, response);
       } catch (error) {
@@ -291,7 +308,6 @@ export function useConnection({
       if (onNotification) {
         [
           CancelledNotificationSchema,
-          ProgressNotificationSchema,
           LoggingMessageNotificationSchema,
           ResourceUpdatedNotificationSchema,
           ResourceListChangedNotificationSchema,

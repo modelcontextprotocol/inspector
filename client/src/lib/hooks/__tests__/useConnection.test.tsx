@@ -95,11 +95,10 @@ describe("useConnection", () => {
         expect.objectContaining({
           timeout: DEFAULT_INSPECTOR_CONFIG.MCP_SERVER_REQUEST_TIMEOUT.value,
           maxTotalTimeout:
-            DEFAULT_INSPECTOR_CONFIG
-              .MCP_SERVER_REQUEST_TIMEOUT_MAX_TOTAL_TIMEOUT.value,
+            DEFAULT_INSPECTOR_CONFIG.MCP_REQUEST_MAX_TOTAL_TIMEOUT.value,
           resetTimeoutOnProgress:
-            DEFAULT_INSPECTOR_CONFIG
-              .MCP_SERVER_REQUEST_TIMEOUT_RESET_ON_PROGRESS.value,
+            DEFAULT_INSPECTOR_CONFIG.MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS
+              .value,
         }),
       );
     });
