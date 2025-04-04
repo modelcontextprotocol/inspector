@@ -34,10 +34,11 @@ import { authProvider } from "../auth";
 import packageJson from "../../../package.json";
 
 interface UseConnectionOptions {
-  transportType: "stdio" | "sse";
+  transportType: "stdio" | "sse" | "ws";
   command: string;
   args: string;
   sseUrl: string;
+  wsUrl: string;
   env: Record<string, string>;
   proxyServerUrl: string;
   bearerToken?: string;
@@ -61,6 +62,7 @@ export function useConnection({
   command,
   args,
   sseUrl,
+  wsUrl,
   env,
   proxyServerUrl,
   bearerToken,
@@ -262,8 +264,12 @@ export function useConnection({
       mcpProxyServerUrl.searchParams.append("command", command);
       mcpProxyServerUrl.searchParams.append("args", args);
       mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
-    } else {
+    } else if (transportType === "sse") {
       mcpProxyServerUrl.searchParams.append("url", sseUrl);
+    } else if (transportType === "ws") {
+      mcpProxyServerUrl.searchParams.append("url", wsUrl);
+    } else {
+      throw new Error(`Unsupported transport type: ${transportType}`);
     }
 
     try {
@@ -316,6 +322,7 @@ export function useConnection({
 
       try {
         await client.connect(clientTransport);
+        console.log("Connected to MCP Server via the MCP Inspector Proxy");
       } catch (error) {
         console.error(
           `Failed to connect to MCP Server via the MCP Inspector Proxy: ${mcpProxyServerUrl}:`,

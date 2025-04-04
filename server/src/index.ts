@@ -14,6 +14,7 @@ import {
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { WebSocketClientTransport } from "@modelcontextprotocol/sdk/client/websocket.js";
 import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
@@ -37,6 +38,10 @@ const app = express();
 app.use(cors());
 
 let webAppTransports: SSEServerTransport[] = [];
+
+const getSessionIds = () => {
+  return webAppTransports.map((t) => t.sessionId);
+};
 
 const createTransport = async (req: express.Request): Promise<Transport> => {
   const query = req.query;
@@ -93,6 +98,13 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
     await transport.start();
 
     console.log("Connected to SSE transport");
+    return transport;
+  } else if (transportType === "ws") {
+    const url = query.url as string;
+    const transport = new WebSocketClientTransport(new URL(url));
+    await transport.start();
+
+    console.log("Connected to WS transport");
     return transport;
   } else {
     console.error(`Invalid transport type: ${transportType}`);
