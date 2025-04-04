@@ -82,11 +82,17 @@ const App = () => {
   const [sseUrl, setSseUrl] = useState<string>(() => {
     return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
   });
-  const [transportType, setTransportType] = useState<"stdio" | "sse">(() => {
-    return (
-      (localStorage.getItem("lastTransportType") as "stdio" | "sse") || "stdio"
-    );
+  const [wsUrl, setWsUrl] = useState<string>(() => {
+    return localStorage.getItem("lastWsUrl") || "ws://localhost:3002/ws";
   });
+  const [transportType, setTransportType] = useState<"stdio" | "sse" | "ws">(
+    () => {
+      return (
+        (localStorage.getItem("lastTransportType") as "stdio" | "sse" | "ws") ||
+        "stdio"
+      );
+    },
+  );
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [stdErrNotifications, setStdErrNotifications] = useState<
@@ -159,6 +165,7 @@ const App = () => {
     command,
     args,
     sseUrl,
+    wsUrl,
     env,
     bearerToken,
     proxyServerUrl: getMCPProxyAddress(config),
@@ -470,6 +477,8 @@ const App = () => {
         setArgs={setArgs}
         sseUrl={sseUrl}
         setSseUrl={setSseUrl}
+        wsUrl={wsUrl}
+        setWsUrl={setWsUrl}
         env={env}
         setEnv={setEnv}
         config={config}

@@ -39,14 +39,16 @@ import {
 
 interface SidebarProps {
   connectionStatus: ConnectionStatus;
-  transportType: "stdio" | "sse";
-  setTransportType: (type: "stdio" | "sse") => void;
+  transportType: "stdio" | "sse" | "ws";
+  setTransportType: (type: "stdio" | "sse" | "ws") => void;
   command: string;
   setCommand: (command: string) => void;
   args: string;
   setArgs: (args: string) => void;
   sseUrl: string;
   setSseUrl: (url: string) => void;
+  wsUrl: string;
+  setWsUrl: (url: string) => void;
   env: Record<string, string>;
   setEnv: (env: Record<string, string>) => void;
   bearerToken: string;
@@ -71,6 +73,8 @@ const Sidebar = ({
   setArgs,
   sseUrl,
   setSseUrl,
+  wsUrl,
+  setWsUrl,
   env,
   setEnv,
   bearerToken,
@@ -106,7 +110,7 @@ const Sidebar = ({
             <label className="text-sm font-medium">Transport Type</label>
             <Select
               value={transportType}
-              onValueChange={(value: "stdio" | "sse") =>
+              onValueChange={(value: "stdio" | "sse" | "ws") =>
                 setTransportType(value)
               }
             >
@@ -116,6 +120,7 @@ const Sidebar = ({
               <SelectContent>
                 <SelectItem value="stdio">STDIO</SelectItem>
                 <SelectItem value="sse">SSE</SelectItem>
+                <SelectItem value="ws">WebSocket</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -141,7 +146,7 @@ const Sidebar = ({
                 />
               </div>
             </>
-          ) : (
+          ) : transportType === "sse" ? (
             <>
               <div className="space-y-2">
                 <label className="text-sm font-medium">URL</label>
@@ -179,7 +184,19 @@ const Sidebar = ({
                 )}
               </div>
             </>
-          )}
+          ) : transportType === "ws" ? (
+            <>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">URL</label>
+                <Input
+                  placeholder="URL"
+                  value={wsUrl}
+                  onChange={(e) => setWsUrl(e.target.value)}
+                  className="font-mono"
+                />
+              </div>
+            </>
+          ) : null}
           {transportType === "stdio" && (
             <div className="space-y-2">
               <Button
