@@ -36,7 +36,7 @@ const JsonView = memo(
     initialExpandDepth = 3,
     className,
     withCopyButton = true,
-    isError = false
+    isError = false,
   }: JsonViewProps) => {
     const { toast } = useToast();
     const [copied, setCopied] = useState(false);
@@ -102,7 +102,7 @@ const JsonView = memo(
             name={name}
             depth={0}
             initialExpandDepth={initialExpandDepth}
-            isError = {isError}
+            isError={isError}
           />
         </div>
       </div>
@@ -121,7 +121,13 @@ interface JsonNodeProps {
 }
 
 const JsonNode = memo(
-  ({ data, name, depth = 0, initialExpandDepth, isError = false }: JsonNodeProps) => {
+  ({
+    data,
+    name,
+    depth = 0,
+    initialExpandDepth,
+    isError = false,
+  }: JsonNodeProps) => {
     const [isExpanded, setIsExpanded] = useState(depth < initialExpandDepth);
 
     const getDataType = (value: JsonValue): string => {
@@ -241,7 +247,14 @@ const JsonNode = memo(
                 {name}:
               </span>
             )}
-            <pre className={clsx(typeStyleMap.string, "break-all whitespace-pre-wrap")}>"{value}"</pre>
+            <pre
+              className={clsx(
+                typeStyleMap.string,
+                "break-all whitespace-pre-wrap",
+              )}
+            >
+              "{value}"
+            </pre>
           </div>
         );
       }
