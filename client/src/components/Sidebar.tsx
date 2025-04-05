@@ -51,6 +51,8 @@ interface SidebarProps {
   setEnv: (env: Record<string, string>) => void;
   bearerToken: string;
   setBearerToken: (token: string) => void;
+  headerName?: string;
+  setHeaderName?: (name: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
   stdErrNotifications: StdErrNotification[];
@@ -75,6 +77,8 @@ const Sidebar = ({
   setEnv,
   bearerToken,
   setBearerToken,
+  headerName,
+  setHeaderName,
   onConnect,
   onDisconnect,
   stdErrNotifications,
@@ -167,6 +171,14 @@ const Sidebar = ({
                 </Button>
                 {showBearerToken && (
                   <div className="space-y-2">
+                    <label className="text-sm font-medium">Header Name</label>
+                    <Input
+                      placeholder="Authorization"
+                      defaultValue="Authorization"
+                      onChange={(e) => setHeaderName && setHeaderName(e.target.value)}
+                      className="font-mono"
+                      value={headerName}
+                    />
                     <label className="text-sm font-medium">Bearer Token</label>
                     <Input
                       placeholder="Bearer Token"

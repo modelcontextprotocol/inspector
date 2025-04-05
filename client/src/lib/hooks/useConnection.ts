@@ -41,6 +41,7 @@ interface UseConnectionOptions {
   env: Record<string, string>;
   proxyServerUrl: string;
   bearerToken?: string;
+  headerName?: string;
   requestTimeout?: number;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
@@ -64,6 +65,7 @@ export function useConnection({
   env,
   proxyServerUrl,
   bearerToken,
+  headerName,
   requestTimeout,
   onNotification,
   onStdErrNotification,
@@ -274,7 +276,8 @@ export function useConnection({
       // Use manually provided bearer token if available, otherwise use OAuth tokens
       const token = bearerToken || (await authProvider.tokens())?.access_token;
       if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
+        const authHeaderName = headerName || "Authorization";
+        headers[authHeaderName] = `${token}`;
       }
 
       const clientTransport = new SSEClientTransport(mcpProxyServerUrl, {
