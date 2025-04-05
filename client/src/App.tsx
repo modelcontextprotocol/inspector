@@ -108,8 +108,13 @@ const App = () => {
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
   });
+  
+  const [headerName, setHeaderName] = useState<string>(() => {
+    return localStorage.getItem("lastHeaderName") || "Authorization";
+  });
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
+
     Array<
       PendingRequest & {
         resolve: (result: CreateMessageResult) => void;
@@ -161,6 +166,7 @@ const App = () => {
     sseUrl,
     env,
     bearerToken,
+    headerName,
     proxyServerUrl: getMCPProxyAddress(config),
     requestTimeout: getMCPServerRequestTimeout(config),
     onNotification: (notification) => {
@@ -200,6 +206,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastBearerToken", bearerToken);
   }, [bearerToken]);
+
+  useEffect(() => {
+    localStorage.setItem("lastHeaderName", headerName);
+  }, [headerName]);
 
   useEffect(() => {
     localStorage.setItem(CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
@@ -476,6 +486,8 @@ const App = () => {
         setConfig={setConfig}
         bearerToken={bearerToken}
         setBearerToken={setBearerToken}
+        headerName={headerName}
+        setHeaderName={setHeaderName}
         onConnect={connectMcpServer}
         onDisconnect={disconnectMcpServer}
         stdErrNotifications={stdErrNotifications}
