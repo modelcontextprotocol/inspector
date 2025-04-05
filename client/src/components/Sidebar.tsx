@@ -174,7 +174,6 @@ const Sidebar = ({
                     <label className="text-sm font-medium">Header Name</label>
                     <Input
                       placeholder="Authorization"
-                      defaultValue="Authorization"
                       onChange={(e) => setHeaderName && setHeaderName(e.target.value)}
                       className="font-mono"
                       value={headerName}
