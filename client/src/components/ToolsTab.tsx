@@ -13,7 +13,7 @@ import {
   ListToolsResult,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Send } from "lucide-react";
+import { Loader2, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
@@ -31,7 +31,7 @@ const ToolsTab = ({
   tools: Tool[];
   listTools: () => void;
   clearTools: () => void;
-  callTool: (name: string, params: Record<string, unknown>) => void;
+  callTool: (name: string, params: Record<string, unknown>) => Promise<void>;
   selectedTool: Tool | null;
   setSelectedTool: (tool: Tool | null) => void;
   toolResult: CompatibilityCallToolResult | null;
@@ -39,6 +39,8 @@ const ToolsTab = ({
   error: string | null;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
+  const [isToolRunning, setIsToolRunning] = useState(false);
+
   useEffect(() => {
     setParams({});
   }, [selectedTool]);
@@ -234,9 +236,28 @@ const ToolsTab = ({
                   );
                 },
               )}
-              <Button onClick={() => callTool(selectedTool.name, params)}>
-                <Send className="w-4 h-4 mr-2" />
-                Run Tool
+              <Button
+                onClick={async () => {
+                  try {
+                    setIsToolRunning(true);
+                    await callTool(selectedTool.name, params);
+                  } finally {
+                    setIsToolRunning(false);
+                  }
+                }}
+                disabled={isToolRunning}
+              >
+                {isToolRunning ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Running...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4 mr-2" />
+                    Run Tool
+                  </>
+                )}
               </Button>
               {toolResult && renderToolResult()}
             </div>

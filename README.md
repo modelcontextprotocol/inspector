@@ -48,12 +48,16 @@ The MCP Inspector includes a proxy server that can run and communicate with loca
 
 ### Configuration
 
-The MCP Inspector supports the following configuration settings. To change them click on the `Configuration` button in the MCP Inspector UI :
+The MCP Inspector supports the following configuration settings. To change them, click on the `Configuration` button in the MCP Inspector UI:
 
-| Name                       | Purpose                                                                                   | Default Value |
-| -------------------------- | ----------------------------------------------------------------------------------------- | ------------- |
-| MCP_SERVER_REQUEST_TIMEOUT | Maximum time in milliseconds to wait for a response from the MCP server before timing out | 10000         |
-| MCP_PROXY_FULL_ADDRESS     | The full URL of the MCP Inspector proxy server (e.g. `http://10.2.1.14:2277`)             | `null`        |
+| Setting                                 | Description                                                                                                  | Default |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------- |
+| `MCP_SERVER_REQUEST_TIMEOUT`            | Timeout for requests to the MCP server (ms)                                                                  | 10000   |
+| `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                      | true    |
+| `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)             | 60000   |
+| `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577 | ""      |
+
+These settings can be adjusted in real-time through the UI and will persist across sessions.
 
 ### From this repository
 
