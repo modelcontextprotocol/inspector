@@ -335,8 +335,19 @@ export function useConnection({
         );
       }
 
+      let capabilities;
       try {
         await client.connect(clientTransport);
+
+        capabilities = client.getServerCapabilities();
+        const initializeRequest = {
+          method: "initialize",
+        };
+        pushHistory(initializeRequest, {
+          capabilities,
+          serverInfo: client.getServerVersion(),
+          instructions: client.getInstructions(),
+        });
       } catch (error) {
         console.error(
           `Failed to connect to MCP Server via the MCP Inspector Proxy: ${mcpProxyServerUrl}:`,
@@ -353,8 +364,6 @@ export function useConnection({
         }
         throw error;
       }
-
-      const capabilities = client.getServerCapabilities();
       setServerCapabilities(capabilities ?? null);
       setCompletionsSupported(true); // Reset completions support on new connection
 
