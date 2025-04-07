@@ -68,6 +68,12 @@ class InspectorOAuthClientProvider implements OAuthClientProvider {
 
     return verifier;
   }
+
+  clear() {
+    sessionStorage.removeItem(SESSION_KEYS.CLIENT_INFORMATION);
+    sessionStorage.removeItem(SESSION_KEYS.TOKENS);
+    sessionStorage.removeItem(SESSION_KEYS.CODE_VERIFIER);
+  }
 }
 
 export const authProvider = new InspectorOAuthClientProvider();
