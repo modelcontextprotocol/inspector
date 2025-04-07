@@ -104,8 +104,8 @@ async function main() {
         env: {
           ...process.env,
           PORT: CLIENT_PORT,
-          MCP_PROXY_FULL_ADDRESS: MCP_PROXY_FULL_ADDRESS,
-          SERVER_PORT: SERVER_PORT,
+          MCP_PROXY_FULL_ADDRESS,
+          SERVER_PORT,
         },
         signal: abort.signal,
         echoOutput: true,

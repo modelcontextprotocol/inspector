@@ -25,7 +25,7 @@ export const getMCPProxyAddress = (config: InspectorConfig): string => {
   // Finally use the runtime port if available, otherwise default port
   const proxyPort =
     window.__RUNTIME_CONFIG__?.MCP_PROXY_PORT || DEFAULT_MCP_PROXY_LISTEN_PORT;
-  return `http://${window.location.hostname}:${proxyPort}`;
+  return `${window.location.protocol]://${window.location.hostname}:${proxyPort}`;
 };
 
 export const getMCPServerRequestTimeout = (config: InspectorConfig): number => {
