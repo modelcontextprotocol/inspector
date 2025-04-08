@@ -35,40 +35,42 @@ const RootsTab = ({
   };
 
   return (
-    <TabsContent value="roots" className="space-y-4">
-      <Alert>
-        <AlertDescription>
-          Configure the root directories that the server can access
-        </AlertDescription>
-      </Alert>
+    <TabsContent value="roots">
+      <div className="space-y-4">
+        <Alert>
+          <AlertDescription>
+            Configure the root directories that the server can access
+          </AlertDescription>
+        </Alert>
 
-      {roots.map((root, index) => (
-        <div key={index} className="flex gap-2 items-center">
-          <Input
-            placeholder="file:// URI"
-            value={root.uri}
-            onChange={(e) => updateRoot(index, "uri", e.target.value)}
-            className="flex-1"
-          />
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => removeRoot(index)}
-          >
-            <Minus className="h-4 w-4" />
+        {roots.map((root, index) => (
+          <div key={index} className="flex gap-2 items-center">
+            <Input
+              placeholder="file:// URI"
+              value={root.uri}
+              onChange={(e) => updateRoot(index, "uri", e.target.value)}
+              className="flex-1"
+            />
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => removeRoot(index)}
+            >
+              <Minus className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={addRoot}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Root
+          </Button>
+          <Button onClick={handleSave}>
+            <Save className="h-4 w-4 mr-2" />
+            Save Changes
           </Button>
         </div>
-      ))}
-
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={addRoot}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Root
-        </Button>
-        <Button onClick={handleSave}>
-          <Save className="h-4 w-4 mr-2" />
-          Save Changes
-        </Button>
       </div>
     </TabsContent>
   );
