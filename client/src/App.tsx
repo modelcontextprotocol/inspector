@@ -275,7 +275,7 @@ const App = () => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
   };
 
-  const makeConnectionRequest = async <T extends z.ZodType>(
+  const sendMCPRequest = async <T extends z.ZodType>(
     request: ClientRequest,
     schema: T,
     tabKey?: keyof typeof errors,
@@ -299,7 +299,7 @@ const App = () => {
   };
 
   const listResources = async () => {
-    const response = await makeConnectionRequest(
+    const response = await sendMCPRequest(
       {
         method: "resources/list" as const,
         params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
@@ -312,7 +312,7 @@ const App = () => {
   };
 
   const listResourceTemplates = async () => {
-    const response = await makeConnectionRequest(
+    const response = await sendMCPRequest(
       {
         method: "resources/templates/list" as const,
         params: nextResourceTemplateCursor
@@ -329,7 +329,7 @@ const App = () => {
   };
 
   const readResource = async (uri: string) => {
-    const response = await makeConnectionRequest(
+    const response = await sendMCPRequest(
       {
         method: "resources/read" as const,
         params: { uri },
@@ -342,7 +342,7 @@ const App = () => {
 
   const subscribeToResource = async (uri: string) => {
     if (!resourceSubscriptions.has(uri)) {
-      await makeConnectionRequest(
+      await sendMCPRequest(
         {
           method: "resources/subscribe" as const,
           params: { uri },
@@ -358,7 +358,7 @@ const App = () => {
 
   const unsubscribeFromResource = async (uri: string) => {
     if (resourceSubscriptions.has(uri)) {
-      await makeConnectionRequest(
+      await sendMCPRequest(
         {
           method: "resources/unsubscribe" as const,
           params: { uri },
@@ -373,7 +373,7 @@ const App = () => {
   };
 
   const listPrompts = async () => {
-    const response = await makeConnectionRequest(
+    const response = await sendMCPRequest(
       {
         method: "prompts/list" as const,
         params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
@@ -386,7 +386,7 @@ const App = () => {
   };
 
   const getPrompt = async (name: string, args: Record<string, string> = {}) => {
-    const response = await makeConnectionRequest(
+    const response = await sendMCPRequest(
       {
         method: "prompts/get" as const,
         params: { name, arguments: args },
@@ -398,7 +398,7 @@ const App = () => {
   };
 
   const listTools = async () => {
-    const response = await makeConnectionRequest(
+    const response = await sendMCPRequest(
       {
         method: "tools/list" as const,
         params: nextToolCursor ? { cursor: nextToolCursor } : {},
@@ -412,7 +412,7 @@ const App = () => {
 
   const callTool = async (name: string, params: Record<string, unknown>) => {
     try {
-      const response = await makeConnectionRequest(
+      const response = await sendMCPRequest(
         {
           method: "tools/call" as const,
           params: {
@@ -446,7 +446,7 @@ const App = () => {
   };
 
   const sendLogLevelRequest = async (level: LoggingLevel) => {
-    await makeConnectionRequest(
+    await sendMCPRequest(
       {
         method: "logging/setLevel" as const,
         params: { level },
@@ -664,7 +664,7 @@ const App = () => {
                     <ConsoleTab />
                     <PingTab
                       onPingClick={() => {
-                        void makeConnectionRequest(
+                        void sendMCPRequest(
                           {
                             method: "ping" as const,
                           },
