@@ -36,6 +36,7 @@ interface DynamicJsonFormProps {
   value: JsonValue;
   onChange: (value: JsonValue) => void;
   maxDepth?: number;
+  onlyJSON?: boolean;
 }
 
 const DynamicJsonForm = ({
@@ -43,8 +44,9 @@ const DynamicJsonForm = ({
   value,
   onChange,
   maxDepth = 3,
+  onlyJSON = false,
 }: DynamicJsonFormProps) => {
-  const [isJsonMode, setIsJsonMode] = useState(false);
+  const [isJsonMode, setIsJsonMode] = useState(onlyJSON);
   const [jsonError, setJsonError] = useState<string>();
   // Store the raw JSON string to allow immediate feedback during typing
   // while deferring parsing until the user stops typing
@@ -374,9 +376,11 @@ const DynamicJsonForm = ({
             Format JSON
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={handleSwitchToFormMode}>
-          {isJsonMode ? "Switch to Form" : "Switch to JSON"}
-        </Button>
+        {!onlyJSON && (
+          <Button variant="outline" size="sm" onClick={handleSwitchToFormMode}>
+            {isJsonMode ? "Switch to Form" : "Switch to JSON"}
+          </Button>
+        )}
       </div>
 
       {isJsonMode ? (

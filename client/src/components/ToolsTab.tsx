@@ -40,7 +40,13 @@ const ToolsTab = ({
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   useEffect(() => {
-    setParams({});
+    const params = Object.entries(
+      selectedTool?.inputSchema.properties ?? [],
+    ).map(([key, value]) => [
+      key,
+      generateDefaultValue(value as JsonSchemaType),
+    ]);
+    setParams(Object.fromEntries(params));
   }, [selectedTool]);
 
   const renderToolResult = () => {
@@ -194,10 +200,7 @@ const ToolsTab = ({
                               description: prop.description,
                               items: prop.items,
                             }}
-                            value={
-                              (params[key] as JsonValue) ??
-                              generateDefaultValue(prop)
-                            }
+                            value={params[key] as JsonValue}
                             onChange={(newValue: JsonValue) => {
                               setParams({
                                 ...params,
@@ -206,13 +209,9 @@ const ToolsTab = ({
                             }}
                           />
                         </div>
-                      ) : (
+                      ) : prop.type === "number" || prop.type === "integer" ? (
                         <Input
-                          type={
-                            prop.type === "number" || prop.type === "integer"
-                              ? "number"
-                              : "text"
-                          }
+                          type="number"
                           id={key}
                           name={key}
                           placeholder={prop.description}
@@ -220,15 +219,30 @@ const ToolsTab = ({
                           onChange={(e) =>
                             setParams({
                               ...params,
-                              [key]:
-                                prop.type === "number" ||
-                                prop.type === "integer"
-                                  ? Number(e.target.value)
-                                  : e.target.value,
+                              [key]: Number(e.target.value),
                             })
                           }
                           className="mt-1"
                         />
+                      ) : (
+                        <div className="mt-1">
+                          <DynamicJsonForm
+                            onlyJSON
+                            schema={{
+                              type: prop.type,
+                              properties: prop.properties,
+                              description: prop.description,
+                              items: prop.items,
+                            }}
+                            value={params[key] as JsonValue}
+                            onChange={(newValue: JsonValue) => {
+                              setParams({
+                                ...params,
+                                [key]: newValue,
+                              });
+                            }}
+                          />
+                        </div>
                       )}
                     </div>
                   );
