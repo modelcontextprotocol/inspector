@@ -22,19 +22,25 @@ export const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
  **/
 export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
   MCP_SERVER_REQUEST_TIMEOUT: {
-    description: "Request Timeout",
+    label: "Request Timeout",
+    description: "Timeout for requests to the MCP server (ms)",
     value: 10000,
   },
   MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS: {
-    description: "Reset Timeout on Progress",
+    label: "Reset Timeout on Progress",
+    description: "Reset timeout on progress notifications",
     value: true,
   },
   MCP_REQUEST_MAX_TOTAL_TIMEOUT: {
-    description: "Maximum Total Timeout",
+    label: "Maximum Total Timeout",
+    description:
+      "Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)",
     value: 60000,
   },
   MCP_PROXY_FULL_ADDRESS: {
-    description: "Inspector Proxy Address",
+    label: "Inspector Proxy Address",
+    description:
+      "Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577",
     value: "",
   },
 } as const;

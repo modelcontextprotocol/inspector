@@ -105,8 +105,7 @@ const App = () => {
       Object.entries(mergedConfig).forEach(([key, value]) => {
         mergedConfig[key as keyof InspectorConfig] = {
           ...value,
-          description:
-            DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].description,
+          label: DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].label,
         };
       });
 

@@ -326,7 +326,7 @@ const Sidebar = ({
                     <div key={key} className="space-y-2">
                       <div className="flex items-center gap-1">
                         <label className="text-sm font-medium text-green-600 break-all">
-                          {configItem.description}
+                          {configItem.label}
                         </label>
                         <Tooltip>
                           <TooltipTrigger asChild>

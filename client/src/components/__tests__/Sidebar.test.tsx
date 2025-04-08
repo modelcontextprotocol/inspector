@@ -343,7 +343,8 @@ describe("Sidebar Environment Variables", () => {
       expect(setConfig).toHaveBeenCalledWith(
         expect.objectContaining({
           MCP_SERVER_REQUEST_TIMEOUT: {
-            description: "Request Timeout",
+            label: "Request Timeout",
+            description: "Timeout for requests to the MCP server (ms)",
             value: 5000,
           },
         }),
@@ -366,7 +367,9 @@ describe("Sidebar Environment Variables", () => {
       expect(setConfig).toHaveBeenCalledWith(
         expect.objectContaining({
           MCP_PROXY_FULL_ADDRESS: {
-            description: "Inspector Proxy Address",
+            label: "Inspector Proxy Address",
+            description:
+              "Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577",
             value: "http://localhost:8080",
           },
         }),
@@ -389,7 +392,9 @@ describe("Sidebar Environment Variables", () => {
       expect(setConfig).toHaveBeenCalledWith(
         expect.objectContaining({
           MCP_REQUEST_MAX_TOTAL_TIMEOUT: {
-            description: "Maximum Total Timeout",
+            label: "Maximum Total Timeout",
+            description:
+              "Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)",
             value: 10000,
           },
         }),
@@ -410,7 +415,8 @@ describe("Sidebar Environment Variables", () => {
       expect(setConfig).toHaveBeenCalledWith(
         expect.objectContaining({
           MCP_SERVER_REQUEST_TIMEOUT: {
-            description: "Request Timeout",
+            label: "Request Timeout",
+            description: "Timeout for requests to the MCP server (ms)",
             value: 0,
           },
         }),
@@ -455,7 +461,8 @@ describe("Sidebar Environment Variables", () => {
       expect(setConfig).toHaveBeenLastCalledWith(
         expect.objectContaining({
           MCP_SERVER_REQUEST_TIMEOUT: {
-            description: "Request Timeout",
+            label: "Request Timeout",
+            description: "Timeout for requests to the MCP server (ms)",
             value: 3000,
           },
         }),
