@@ -45,10 +45,7 @@ import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
-import {
-  getMCPProxyAddress,
-  getMCPServerRequestTimeout,
-} from "./utils/configUtils";
+import { getMCPServerRequestTimeout } from "./utils/configUtils";
 import { useToast } from "@/hooks/use-toast";
 const params = new URLSearchParams(window.location.search);
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
@@ -94,9 +91,6 @@ const App = () => {
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
 
-  // Check for runtime config injected by the server
-  const runtimeConfig = window.__RUNTIME_CONFIG__ || {};
-
   const [config, setConfig] = useState<InspectorConfig>(() => {
     const savedConfig = localStorage.getItem(CONFIG_LOCAL_STORAGE_KEY);
     let configFromStorage = savedConfig
@@ -105,17 +99,6 @@ const App = () => {
           ...JSON.parse(savedConfig),
         } as InspectorConfig)
       : DEFAULT_INSPECTOR_CONFIG;
-
-    // Override with runtime injected values if available
-    if (runtimeConfig.MCP_PROXY_FULL_ADDRESS) {
-      configFromStorage = {
-        ...configFromStorage,
-        MCP_PROXY_FULL_ADDRESS: {
-          ...configFromStorage.MCP_PROXY_FULL_ADDRESS,
-          value: runtimeConfig.MCP_PROXY_FULL_ADDRESS,
-        },
-      };
-    }
 
     return configFromStorage;
   });
@@ -175,7 +158,7 @@ const App = () => {
     sseUrl,
     env,
     bearerToken,
-    proxyServerUrl: getMCPProxyAddress(config),
+    proxyServerUrl: config.MCP_PROXY_FULL_ADDRESS.value as string,
     requestTimeout: getMCPServerRequestTimeout(config),
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
@@ -240,10 +223,16 @@ const App = () => {
   }, [connectMcpServer, toast]);
 
   useEffect(() => {
-    fetch(`${getMCPProxyAddress(config)}/config`)
+    fetch(`/config`)
       .then((response) => response.json())
       .then((data) => {
         setEnv(data.defaultEnvironment);
+        setConfig((prev) => {
+          return {
+            ...prev,
+            ...data.config,
+          };
+        });
         if (data.defaultCommand) {
           setCommand(data.defaultCommand);
         }

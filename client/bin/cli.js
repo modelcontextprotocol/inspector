@@ -2,6 +2,7 @@
 
 import fs from "fs";
 import http from "http";
+import https from "https";
 import { dirname, join } from "path";
 import handler from "serve-handler";
 import { fileURLToPath } from "url";
@@ -9,9 +10,83 @@ import { fileURLToPath } from "url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const distPath = join(__dirname, "../dist");
 
+// Function to determine the MCP server URL
+const getMcpServerUrl = () => {
+  if (process.env.MCP_PROXY_FULL_ADDRESS) {
+    return process.env.MCP_PROXY_FULL_ADDRESS;
+  }
+
+  // Use current host with custom port if specified
+  const port = process.env.SERVER_PORT || "6277";
+  // Default to http://localhost:port
+  return `http://localhost:${port}`;
+};
+
 const server = http.createServer((request, response) => {
+  // Handle the /config endpoint as a proxy to the MCP server
+  if (request.url === "/config") {
+    const mcpServerUrl = getMcpServerUrl();
+    const configUrl = `${mcpServerUrl}/config`;
+
+    try {
+      const clientModule = mcpServerUrl.startsWith("https:") ? https : http;
+      const proxyReq = clientModule.request(configUrl, (proxyRes) => {
+        // Capture the response data to modify it
+        let data = "";
+        proxyRes.on("data", (chunk) => {
+          data += chunk;
+        });
+
+        proxyRes.on("end", () => {
+          try {
+            // Parse the JSON response
+            const jsonResponse = JSON.parse(data);
+
+            // Add the MCP_PROXY_FULL_ADDRESS to the response
+            jsonResponse.config = {
+              MCP_PROXY_FULL_ADDRESS: { value: mcpServerUrl },
+            };
+
+            // Send the modified response
+            response.writeHead(proxyRes.statusCode, {
+              "Content-Type": "application/json",
+            });
+            response.end(JSON.stringify(jsonResponse));
+          } catch (e) {
+            // If parsing fails, just forward the original response
+            response.writeHead(proxyRes.statusCode, proxyRes.headers);
+            response.end(data);
+          }
+        });
+      });
+
+      proxyReq.on("error", (err) => {
+        console.error(`Error proxying request to ${configUrl}:`, err.message);
+        response.statusCode = 500;
+        response.end(
+          JSON.stringify({
+            error: "Failed to connect to MCP server",
+            defaultEnvironment: {},
+            mcpServerUrl: mcpServerUrl,
+          }),
+        );
+      });
+
+      request.pipe(proxyReq);
+    } catch (error) {
+      console.error(`Error setting up proxy to ${configUrl}:`, error.message);
+      response.statusCode = 500;
+      response.end(
+        JSON.stringify({
+          error: "Failed to connect to MCP server",
+          defaultEnvironment: {},
+          mcpServerUrl: mcpServerUrl,
+        }),
+      );
+    }
+  }
   // Check if this is a request for index.html (either directly or via SPA routing)
-  if (
+  else if (
     request.url === "/" ||
     request.url === "/index.html" ||
     !request.url.includes(".")
@@ -24,18 +99,8 @@ const server = http.createServer((request, response) => {
         return;
       }
 
-      // Create a runtime config object with environment variables
-      const runtimeConfig = {
-        MCP_PROXY_FULL_ADDRESS: process.env.MCP_PROXY_FULL_ADDRESS || "",
-        MCP_PROXY_PORT: process.env.SERVER_PORT || "6277",
-      };
-
-      // Inject the runtime config as a global object in the HTML
-      const scriptTag = `<script>window.__RUNTIME_CONFIG__ = ${JSON.stringify(runtimeConfig)};</script>`;
-      const injectedData = data.replace("</head>", `${scriptTag}</head>`);
-
       response.setHeader("Content-Type", "text/html");
-      response.end(injectedData);
+      response.end(data);
     });
   } else {
     // For all other assets, use serve-handler as before
