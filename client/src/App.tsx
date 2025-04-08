@@ -45,10 +45,7 @@ import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
-import {
-  getMCPProxyAddress,
-  getMCPServerRequestTimeout,
-} from "./utils/configUtils";
+import { getMCPServerRequestTimeout } from "./utils/configUtils";
 import { useToast } from "@/hooks/use-toast";
 
 const params = new URLSearchParams(window.location.search);
@@ -97,13 +94,14 @@ const App = () => {
 
   const [config, setConfig] = useState<InspectorConfig>(() => {
     const savedConfig = localStorage.getItem(CONFIG_LOCAL_STORAGE_KEY);
-    if (savedConfig) {
-      return {
-        ...DEFAULT_INSPECTOR_CONFIG,
-        ...JSON.parse(savedConfig),
-      } as InspectorConfig;
-    }
-    return DEFAULT_INSPECTOR_CONFIG;
+    let configFromStorage = savedConfig
+      ? ({
+          ...DEFAULT_INSPECTOR_CONFIG,
+          ...JSON.parse(savedConfig),
+        } as InspectorConfig)
+      : DEFAULT_INSPECTOR_CONFIG;
+
+    return configFromStorage;
   });
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
@@ -161,7 +159,7 @@ const App = () => {
     sseUrl,
     env,
     bearerToken,
-    proxyServerUrl: getMCPProxyAddress(config),
+    proxyServerUrl: config.MCP_PROXY_FULL_ADDRESS.value as string,
     requestTimeout: getMCPServerRequestTimeout(config),
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
@@ -232,15 +230,28 @@ const App = () => {
   }, [connectMcpServer, toast]);
 
   useEffect(() => {
-    fetch(`${getMCPProxyAddress(config)}/config`)
+    fetch(`/config`)
       .then((response) => response.json())
       .then((data) => {
         setEnv(data.defaultEnvironment);
+        setConfig((prev) => {
+          return {
+            ...prev,
+            ...data.config,
+          };
+        });
         if (data.defaultCommand) {
           setCommand(data.defaultCommand);
         }
         if (data.defaultArgs) {
           setArgs(data.defaultArgs);
+        }
+
+        if (data.defaultTransportType) {
+          setTransportType(data.defaultTransportType);
+          if (data.defaultTransportType === "sse") {
+            setSseUrl(data.defaultCommand);
+          }
         }
       })
       .catch((error) =>

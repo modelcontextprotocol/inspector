@@ -185,6 +185,7 @@ app.get("/config", (req, res) => {
       defaultEnvironment,
       defaultCommand: values.env,
       defaultArgs: values.args,
+      defaultTransportType: isSSETransport(values.env) ? "sse" : "stdio",
     });
   } catch (error) {
     console.error("Error in /config route:", error);
@@ -206,3 +207,12 @@ server.on("error", (err) => {
   }
   process.exit(1);
 });
+
+function isSSETransport(command: string | undefined): boolean {
+  if (!command) {
+    return false;
+  }
+
+  // check if the command is a url, which would indicate an SSE transport
+  return command.startsWith("https://") || command.startsWith("http://");
+}
