@@ -47,6 +47,7 @@ import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
 import { getMCPServerRequestTimeout } from "./utils/configUtils";
 import { useToast } from "@/hooks/use-toast";
+
 const params = new URLSearchParams(window.location.search);
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
@@ -202,8 +203,13 @@ const App = () => {
     localStorage.setItem(CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
   }, [config]);
 
+  const hasProcessedRef = useRef(false);
   // Auto-connect if serverUrl is provided in URL params (e.g. after OAuth callback)
   useEffect(() => {
+    if (hasProcessedRef.current) {
+      // Only try to connect once
+      return;
+    }
     const serverUrl = params.get("serverUrl");
     if (serverUrl) {
       setSseUrl(serverUrl);
@@ -217,6 +223,7 @@ const App = () => {
         title: "Success",
         description: "Successfully authenticated with OAuth",
       });
+      hasProcessedRef.current = true;
       // Connect to the server
       connectMcpServer();
     }
