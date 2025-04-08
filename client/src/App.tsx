@@ -239,6 +239,13 @@ const App = () => {
         if (data.defaultArgs) {
           setArgs(data.defaultArgs);
         }
+
+        if (data.defaultTransportType) {
+          setTransportType(data.defaultTransportType);
+          if (data.defaultTransportType === "sse") {
+            setSseUrl(data.defaultCommand);
+          }
+        }
       })
       .catch((error) =>
         console.error("Error fetching default environment:", error),
