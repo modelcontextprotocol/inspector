@@ -95,10 +95,22 @@ const App = () => {
   const [config, setConfig] = useState<InspectorConfig>(() => {
     const savedConfig = localStorage.getItem(CONFIG_LOCAL_STORAGE_KEY);
     if (savedConfig) {
-      return {
+      // merge default config with saved config
+      const mergedConfig = {
         ...DEFAULT_INSPECTOR_CONFIG,
         ...JSON.parse(savedConfig),
       } as InspectorConfig;
+
+      // update description of keys to match the new description (in case of any updates to the default config description)
+      Object.entries(mergedConfig).forEach(([key, value]) => {
+        mergedConfig[key as keyof InspectorConfig] = {
+          ...value,
+          description:
+            DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].description,
+        };
+      });
+
+      return mergedConfig;
     }
     return DEFAULT_INSPECTOR_CONFIG;
   });
