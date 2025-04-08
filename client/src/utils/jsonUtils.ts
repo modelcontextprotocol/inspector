@@ -1,6 +1,56 @@
-import { JsonValue } from "../components/DynamicJsonForm";
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export type JsonSchemaType = {
+  type:
+    | "string"
+    | "number"
+    | "integer"
+    | "boolean"
+    | "array"
+    | "object"
+    | "null";
+  description?: string;
+  required?: boolean;
+  default?: JsonValue;
+  properties?: Record<string, JsonSchemaType>;
+  items?: JsonSchemaType;
+};
 
 export type JsonObject = { [key: string]: JsonValue };
+
+const typeofVariable = typeof "random variable";
+export function getDataType(
+  value: JsonValue,
+): typeof typeofVariable | "array" | "null" {
+  if (Array.isArray(value)) return "array";
+  if (value === null) return "null";
+  return typeof value;
+}
+
+export function tryParseJson(str: string): {
+  success: boolean;
+  data: JsonValue;
+} {
+  const trimmed = str.trim();
+  if (
+    !(trimmed.startsWith("{") && trimmed.endsWith("}")) &&
+    !(trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    return { success: false, data: str };
+  }
+  try {
+    return { success: true, data: JSON.parse(str) };
+  } catch {
+    return { success: false, data: str };
+  }
+}
 
 /**
  * Updates a value at a specific path in a nested JSON structure
