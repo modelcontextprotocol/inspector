@@ -354,10 +354,10 @@ const Sidebar = ({
                     <div key={key} className="space-y-2">
                       <div className="flex items-center gap-1">
                         <label
-                          className="text-sm font-medium text-green-600"
+                          className="text-sm font-medium text-green-600 break-all"
                           htmlFor={`${configKey}-input`}
                         >
-                          {configKey}
+                          {configItem.label}
                         </label>
                         <Tooltip>
                           <TooltipTrigger asChild>
