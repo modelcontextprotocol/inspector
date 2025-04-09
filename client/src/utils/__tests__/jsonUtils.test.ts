@@ -1,5 +1,146 @@
-import { updateValueAtPath, getValueAtPath } from "../jsonPathUtils";
-import { JsonValue } from "../../components/DynamicJsonForm";
+import {
+  getDataType,
+  tryParseJson,
+  updateValueAtPath,
+  getValueAtPath,
+} from "../jsonUtils";
+import type { JsonValue } from "../jsonUtils";
+
+describe("getDataType", () => {
+  test("should return 'string' for string values", () => {
+    expect(getDataType("hello")).toBe("string");
+    expect(getDataType("")).toBe("string");
+  });
+
+  test("should return 'number' for number values", () => {
+    expect(getDataType(123)).toBe("number");
+    expect(getDataType(0)).toBe("number");
+    expect(getDataType(-10)).toBe("number");
+    expect(getDataType(1.5)).toBe("number");
+    expect(getDataType(NaN)).toBe("number");
+    expect(getDataType(Infinity)).toBe("number");
+  });
+
+  test("should return 'boolean' for boolean values", () => {
+    expect(getDataType(true)).toBe("boolean");
+    expect(getDataType(false)).toBe("boolean");
+  });
+
+  test("should return 'undefined' for undefined value", () => {
+    expect(getDataType(undefined)).toBe("undefined");
+  });
+
+  test("should return 'object' for object values", () => {
+    expect(getDataType({})).toBe("object");
+    expect(getDataType({ key: "value" })).toBe("object");
+  });
+
+  test("should return 'array' for array values", () => {
+    expect(getDataType([])).toBe("array");
+    expect(getDataType([1, 2, 3])).toBe("array");
+    expect(getDataType(["a", "b", "c"])).toBe("array");
+    expect(getDataType([{}, { nested: true }])).toBe("array");
+  });
+
+  test("should return 'null' for null value", () => {
+    expect(getDataType(null)).toBe("null");
+  });
+});
+
+describe("tryParseJson", () => {
+  test("should correctly parse valid JSON object", () => {
+    const jsonString = '{"name":"test","value":123}';
+    const result = tryParseJson(jsonString);
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ name: "test", value: 123 });
+  });
+
+  test("should correctly parse valid JSON array", () => {
+    const jsonString = '[1,2,3,"test"]';
+    const result = tryParseJson(jsonString);
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([1, 2, 3, "test"]);
+  });
+
+  test("should correctly parse JSON with whitespace", () => {
+    const jsonString = '  {  "name"  :  "test"  }  ';
+    const result = tryParseJson(jsonString);
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ name: "test" });
+  });
+
+  test("should correctly parse nested JSON structures", () => {
+    const jsonString =
+      '{"user":{"name":"test","details":{"age":30}},"items":[1,2,3]}';
+    const result = tryParseJson(jsonString);
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({
+      user: {
+        name: "test",
+        details: {
+          age: 30,
+        },
+      },
+      items: [1, 2, 3],
+    });
+  });
+
+  test("should correctly parse empty objects and arrays", () => {
+    expect(tryParseJson("{}").success).toBe(true);
+    expect(tryParseJson("{}").data).toEqual({});
+
+    expect(tryParseJson("[]").success).toBe(true);
+    expect(tryParseJson("[]").data).toEqual([]);
+  });
+
+  test("should return failure for non-JSON strings", () => {
+    const nonJsonString = "this is not json";
+    const result = tryParseJson(nonJsonString);
+
+    expect(result.success).toBe(false);
+    expect(result.data).toBe(nonJsonString);
+  });
+
+  test("should return failure for malformed JSON", () => {
+    const malformedJson = '{"name":"test",}';
+    const result = tryParseJson(malformedJson);
+
+    expect(result.success).toBe(false);
+    expect(result.data).toBe(malformedJson);
+  });
+
+  test("should return failure for strings with correct delimiters but invalid JSON", () => {
+    const invalidJson = "{name:test}";
+    const result = tryParseJson(invalidJson);
+
+    expect(result.success).toBe(false);
+    expect(result.data).toBe(invalidJson);
+  });
+
+  test("should handle edge cases", () => {
+    expect(tryParseJson("").success).toBe(false);
+    expect(tryParseJson("").data).toBe("");
+
+    expect(tryParseJson("   ").success).toBe(false);
+    expect(tryParseJson("   ").data).toBe("   ");
+
+    expect(tryParseJson("null").success).toBe(false);
+    expect(tryParseJson("null").data).toBe("null");
+
+    expect(tryParseJson('"string"').success).toBe(false);
+    expect(tryParseJson('"string"').data).toBe('"string"');
+
+    expect(tryParseJson("123").success).toBe(false);
+    expect(tryParseJson("123").data).toBe("123");
+
+    expect(tryParseJson("true").success).toBe(false);
+    expect(tryParseJson("true").data).toBe("true");
+  });
+});
 
 describe("updateValueAtPath", () => {
   // Basic functionality tests
@@ -8,17 +149,17 @@ describe("updateValueAtPath", () => {
   });
 
   test("initializes an empty object when input is null/undefined and path starts with a string", () => {
-    expect(updateValueAtPath(null as any, ["foo"], "bar")).toEqual({
+    expect(updateValueAtPath(null, ["foo"], "bar")).toEqual({
       foo: "bar",
     });
-    expect(updateValueAtPath(undefined as any, ["foo"], "bar")).toEqual({
+    expect(updateValueAtPath(undefined, ["foo"], "bar")).toEqual({
       foo: "bar",
     });
   });
 
   test("initializes an empty array when input is null/undefined and path starts with a number", () => {
-    expect(updateValueAtPath(null as any, ["0"], "bar")).toEqual(["bar"]);
-    expect(updateValueAtPath(undefined as any, ["0"], "bar")).toEqual(["bar"]);
+    expect(updateValueAtPath(null, ["0"], "bar")).toEqual(["bar"]);
+    expect(updateValueAtPath(undefined, ["0"], "bar")).toEqual(["bar"]);
   });
 
   // Object update tests
@@ -152,10 +293,8 @@ describe("getValueAtPath", () => {
   });
 
   test("returns default value when input is null/undefined", () => {
-    expect(getValueAtPath(null as any, ["foo"], "default")).toBe("default");
-    expect(getValueAtPath(undefined as any, ["foo"], "default")).toBe(
-      "default",
-    );
+    expect(getValueAtPath(null, ["foo"], "default")).toBe("default");
+    expect(getValueAtPath(undefined, ["foo"], "default")).toBe("default");
   });
 
   test("handles array indices correctly", () => {

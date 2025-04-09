@@ -1,9 +1,10 @@
 import { useState, memo, useMemo, useCallback, useEffect } from "react";
-import { JsonValue } from "./DynamicJsonForm";
+import type { JsonValue } from "@/utils/jsonUtils";
 import clsx from "clsx";
 import { Copy, CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { getDataType, tryParseJson } from "@/utils/jsonUtils";
 
 interface JsonViewProps {
   data: unknown;
@@ -12,21 +13,6 @@ interface JsonViewProps {
   className?: string;
   withCopyButton?: boolean;
   isError?: boolean;
-}
-
-function tryParseJson(str: string): { success: boolean; data: JsonValue } {
-  const trimmed = str.trim();
-  if (
-    !(trimmed.startsWith("{") && trimmed.endsWith("}")) &&
-    !(trimmed.startsWith("[") && trimmed.endsWith("]"))
-  ) {
-    return { success: false, data: str };
-  }
-  try {
-    return { success: true, data: JSON.parse(str) };
-  } catch {
-    return { success: false, data: str };
-  }
 }
 
 const JsonView = memo(
@@ -129,16 +115,7 @@ const JsonNode = memo(
     isError = false,
   }: JsonNodeProps) => {
     const [isExpanded, setIsExpanded] = useState(depth < initialExpandDepth);
-
-    const getDataType = (value: JsonValue): string => {
-      if (Array.isArray(value)) return "array";
-      if (value === null) return "null";
-      return typeof value;
-    };
-
-    const dataType = getDataType(data);
-
-    const typeStyleMap: Record<string, string> = {
+    const [typeStyleMap] = useState<Record<string, string>>({
       number: "text-blue-600",
       boolean: "text-amber-600",
       null: "text-purple-600",
@@ -146,7 +123,8 @@ const JsonNode = memo(
       string: "text-green-600 group-hover:text-green-500",
       error: "text-red-600 group-hover:text-red-500",
       default: "text-gray-700",
-    };
+    });
+    const dataType = getDataType(data);
 
     const renderCollapsible = (isArray: boolean) => {
       const items = isArray

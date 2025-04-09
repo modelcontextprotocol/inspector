@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import DynamicJsonForm, { JsonSchemaType, JsonValue } from "./DynamicJsonForm";
+import DynamicJsonForm from "./DynamicJsonForm";
+import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
 import { generateDefaultValue } from "@/utils/schemaUtils";
 import {
   CallToolResultSchema,
