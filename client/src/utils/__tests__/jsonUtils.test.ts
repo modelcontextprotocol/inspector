@@ -149,17 +149,17 @@ describe("updateValueAtPath", () => {
   });
 
   test("initializes an empty object when input is null/undefined and path starts with a string", () => {
-    expect(updateValueAtPath(null as any, ["foo"], "bar")).toEqual({
+    expect(updateValueAtPath(null, ["foo"], "bar")).toEqual({
       foo: "bar",
     });
-    expect(updateValueAtPath(undefined as any, ["foo"], "bar")).toEqual({
+    expect(updateValueAtPath(undefined, ["foo"], "bar")).toEqual({
       foo: "bar",
     });
   });
 
   test("initializes an empty array when input is null/undefined and path starts with a number", () => {
-    expect(updateValueAtPath(null as any, ["0"], "bar")).toEqual(["bar"]);
-    expect(updateValueAtPath(undefined as any, ["0"], "bar")).toEqual(["bar"]);
+    expect(updateValueAtPath(null, ["0"], "bar")).toEqual(["bar"]);
+    expect(updateValueAtPath(undefined, ["0"], "bar")).toEqual(["bar"]);
   });
 
   // Object update tests
@@ -293,10 +293,8 @@ describe("getValueAtPath", () => {
   });
 
   test("returns default value when input is null/undefined", () => {
-    expect(getValueAtPath(null as any, ["foo"], "default")).toBe("default");
-    expect(getValueAtPath(undefined as any, ["foo"], "default")).toBe(
-      "default",
-    );
+    expect(getValueAtPath(null, ["foo"], "default")).toBe("default");
+    expect(getValueAtPath(undefined, ["foo"], "default")).toBe("default");
   });
 
   test("handles array indices correctly", () => {

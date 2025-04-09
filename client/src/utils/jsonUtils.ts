@@ -25,10 +25,19 @@ export type JsonSchemaType = {
 
 export type JsonObject = { [key: string]: JsonValue };
 
-const typeofVariable = typeof "random variable";
-export function getDataType(
-  value: JsonValue,
-): typeof typeofVariable | "array" | "null" {
+export type DataType =
+  | "string"
+  | "number"
+  | "bigint"
+  | "boolean"
+  | "symbol"
+  | "undefined"
+  | "object"
+  | "function"
+  | "array"
+  | "null";
+
+export function getDataType(value: JsonValue): DataType {
   if (Array.isArray(value)) return "array";
   if (value === null) return "null";
   return typeof value;
