@@ -54,6 +54,7 @@ interface SidebarProps {
   onConnect: () => void;
   onDisconnect: () => void;
   stdErrNotifications: StdErrNotification[];
+  clearStdErrNotifications: () => void;
   logLevel: LoggingLevel;
   sendLogLevelRequest: (level: LoggingLevel) => void;
   loggingSupported: boolean;
@@ -78,6 +79,7 @@ const Sidebar = ({
   onConnect,
   onDisconnect,
   stdErrNotifications,
+  clearStdErrNotifications,
   logLevel,
   sendLogLevelRequest,
   loggingSupported,
@@ -470,9 +472,19 @@ const Sidebar = ({
             {stdErrNotifications.length > 0 && (
               <>
                 <div className="mt-4 border-t border-gray-200 pt-4">
-                  <h3 className="text-sm font-medium">
-                    Error output from MCP server
-                  </h3>
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-sm font-medium">
+                      Error output from MCP server
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={clearStdErrNotifications}
+                      className="h-8 px-2"
+                    >
+                      Clear
+                    </Button>
+                  </div>
                   <div className="mt-2 max-h-80 overflow-y-auto">
                     {stdErrNotifications.map((notification, index) => (
                       <div
