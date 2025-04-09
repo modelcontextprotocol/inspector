@@ -12,6 +12,7 @@ interface JsonViewProps {
   initialExpandDepth?: number;
   className?: string;
   withCopyButton?: boolean;
+  isError?: boolean;
 }
 
 const JsonView = memo(
@@ -21,6 +22,7 @@ const JsonView = memo(
     initialExpandDepth = 3,
     className,
     withCopyButton = true,
+    isError = false,
   }: JsonViewProps) => {
     const { toast } = useToast();
     const [copied, setCopied] = useState(false);
@@ -86,6 +88,7 @@ const JsonView = memo(
             name={name}
             depth={0}
             initialExpandDepth={initialExpandDepth}
+            isError={isError}
           />
         </div>
       </div>
@@ -100,17 +103,25 @@ interface JsonNodeProps {
   name?: string;
   depth: number;
   initialExpandDepth: number;
+  isError?: boolean;
 }
 
 const JsonNode = memo(
-  ({ data, name, depth = 0, initialExpandDepth }: JsonNodeProps) => {
+  ({
+    data,
+    name,
+    depth = 0,
+    initialExpandDepth,
+    isError = false,
+  }: JsonNodeProps) => {
     const [isExpanded, setIsExpanded] = useState(depth < initialExpandDepth);
     const [typeStyleMap] = useState<Record<string, string>>({
       number: "text-blue-600",
       boolean: "text-amber-600",
       null: "text-purple-600",
       undefined: "text-gray-600",
-      string: "text-green-600 break-all whitespace-pre-wrap",
+      string: "text-green-600 group-hover:text-green-500",
+      error: "text-red-600 group-hover:text-red-500",
       default: "text-gray-700",
     });
     const dataType = getDataType(data);
@@ -214,7 +225,14 @@ const JsonNode = memo(
                 {name}:
               </span>
             )}
-            <pre className={typeStyleMap.string}>"{value}"</pre>
+            <pre
+              className={clsx(
+                typeStyleMap.string,
+                "break-all whitespace-pre-wrap",
+              )}
+            >
+              "{value}"
+            </pre>
           </div>
         );
       }
@@ -228,8 +246,8 @@ const JsonNode = memo(
           )}
           <pre
             className={clsx(
-              typeStyleMap.string,
-              "cursor-pointer group-hover:text-green-500",
+              isError ? typeStyleMap.error : typeStyleMap.string,
+              "cursor-pointer break-all whitespace-pre-wrap",
             )}
             onClick={() => setIsExpanded(!isExpanded)}
             title={isExpanded ? "Click to collapse" : "Click to expand"}
