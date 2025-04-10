@@ -79,9 +79,9 @@ const App = () => {
   const [sseUrl, setSseUrl] = useState<string>(() => {
     return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
   });
-  const [transportType, setTransportType] = useState<"stdio" | "sse">(() => {
+  const [transportType, setTransportType] = useState<"stdio" | "sse" | "streamable-http">(() => {
     return (
-      (localStorage.getItem("lastTransportType") as "stdio" | "sse") || "stdio"
+      (localStorage.getItem("lastTransportType") as "stdio" | "sse" | "streamable-http") || "stdio"
     );
   });
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
