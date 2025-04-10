@@ -45,10 +45,7 @@ import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
-import {
-  getMCPProxyAddress,
-  getMCPServerRequestTimeout,
-} from "./utils/configUtils";
+import { getMCPProxyAddress } from "./utils/configUtils";
 import { useToast } from "@/hooks/use-toast";
 
 const params = new URLSearchParams(window.location.search);
@@ -98,10 +95,21 @@ const App = () => {
   const [config, setConfig] = useState<InspectorConfig>(() => {
     const savedConfig = localStorage.getItem(CONFIG_LOCAL_STORAGE_KEY);
     if (savedConfig) {
-      return {
+      // merge default config with saved config
+      const mergedConfig = {
         ...DEFAULT_INSPECTOR_CONFIG,
         ...JSON.parse(savedConfig),
       } as InspectorConfig;
+
+      // update description of keys to match the new description (in case of any updates to the default config description)
+      Object.entries(mergedConfig).forEach(([key, value]) => {
+        mergedConfig[key as keyof InspectorConfig] = {
+          ...value,
+          label: DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].label,
+        };
+      });
+
+      return mergedConfig;
     }
     return DEFAULT_INSPECTOR_CONFIG;
   });
@@ -152,7 +160,7 @@ const App = () => {
     serverCapabilities,
     mcpClient,
     requestHistory,
-    makeRequest: makeConnectionRequest,
+    makeRequest,
     sendNotification,
     handleCompletion,
     completionsSupported,
@@ -168,6 +176,7 @@ const App = () => {
     headerName,
     proxyServerUrl: getMCPProxyAddress(config),
     requestTimeout: getMCPServerRequestTimeout(config),
+    config,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
     },
@@ -288,13 +297,13 @@ const App = () => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
   };
 
-  const makeRequest = async <T extends z.ZodType>(
+  const sendMCPRequest = async <T extends z.ZodType>(
     request: ClientRequest,
     schema: T,
     tabKey?: keyof typeof errors,
   ) => {
     try {
-      const response = await makeConnectionRequest(request, schema);
+      const response = await makeRequest(request, schema);
       if (tabKey !== undefined) {
         clearError(tabKey);
       }
@@ -312,7 +321,7 @@ const App = () => {
   };
 
   const listResources = async () => {
-    const response = await makeRequest(
+    const response = await sendMCPRequest(
       {
         method: "resources/list" as const,
         params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
@@ -325,7 +334,7 @@ const App = () => {
   };
 
   const listResourceTemplates = async () => {
-    const response = await makeRequest(
+    const response = await sendMCPRequest(
       {
         method: "resources/templates/list" as const,
         params: nextResourceTemplateCursor
@@ -342,7 +351,7 @@ const App = () => {
   };
 
   const readResource = async (uri: string) => {
-    const response = await makeRequest(
+    const response = await sendMCPRequest(
       {
         method: "resources/read" as const,
         params: { uri },
@@ -355,7 +364,7 @@ const App = () => {
 
   const subscribeToResource = async (uri: string) => {
     if (!resourceSubscriptions.has(uri)) {
-      await makeRequest(
+      await sendMCPRequest(
         {
           method: "resources/subscribe" as const,
           params: { uri },
@@ -371,7 +380,7 @@ const App = () => {
 
   const unsubscribeFromResource = async (uri: string) => {
     if (resourceSubscriptions.has(uri)) {
-      await makeRequest(
+      await sendMCPRequest(
         {
           method: "resources/unsubscribe" as const,
           params: { uri },
@@ -386,7 +395,7 @@ const App = () => {
   };
 
   const listPrompts = async () => {
-    const response = await makeRequest(
+    const response = await sendMCPRequest(
       {
         method: "prompts/list" as const,
         params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
@@ -399,7 +408,7 @@ const App = () => {
   };
 
   const getPrompt = async (name: string, args: Record<string, string> = {}) => {
-    const response = await makeRequest(
+    const response = await sendMCPRequest(
       {
         method: "prompts/get" as const,
         params: { name, arguments: args },
@@ -411,7 +420,7 @@ const App = () => {
   };
 
   const listTools = async () => {
-    const response = await makeRequest(
+    const response = await sendMCPRequest(
       {
         method: "tools/list" as const,
         params: nextToolCursor ? { cursor: nextToolCursor } : {},
@@ -424,21 +433,34 @@ const App = () => {
   };
 
   const callTool = async (name: string, params: Record<string, unknown>) => {
-    const response = await makeRequest(
-      {
-        method: "tools/call" as const,
-        params: {
-          name,
-          arguments: params,
-          _meta: {
-            progressToken: progressTokenRef.current++,
+    try {
+      const response = await sendMCPRequest(
+        {
+          method: "tools/call" as const,
+          params: {
+            name,
+            arguments: params,
+            _meta: {
+              progressToken: progressTokenRef.current++,
+            },
           },
         },
-      },
-      CompatibilityCallToolResultSchema,
-      "tools",
-    );
-    setToolResult(response);
+        CompatibilityCallToolResultSchema,
+        "tools",
+      );
+      setToolResult(response);
+    } catch (e) {
+      const toolResult: CompatibilityCallToolResult = {
+        content: [
+          {
+            type: "text",
+            text: (e as Error).message ?? String(e),
+          },
+        ],
+        isError: true,
+      };
+      setToolResult(toolResult);
+    }
   };
 
   const handleRootsChange = async () => {
@@ -446,7 +468,7 @@ const App = () => {
   };
 
   const sendLogLevelRequest = async (level: LoggingLevel) => {
-    await makeRequest(
+    await sendMCPRequest(
       {
         method: "logging/setLevel" as const,
         params: { level },
@@ -648,9 +670,10 @@ const App = () => {
                         setTools([]);
                         setNextToolCursor(undefined);
                       }}
-                      callTool={(name, params) => {
+                      callTool={async (name, params) => {
                         clearError("tools");
-                        callTool(name, params);
+                        setToolResult(null);
+                        await callTool(name, params);
                       }}
                       selectedTool={selectedTool}
                       setSelectedTool={(tool) => {
@@ -665,7 +688,7 @@ const App = () => {
                     <ConsoleTab />
                     <PingTab
                       onPingClick={() => {
-                        void makeRequest(
+                        void sendMCPRequest(
                           {
                             method: "ping" as const,
                           },

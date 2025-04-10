@@ -107,14 +107,19 @@ const Sidebar = ({
       <div className="p-4 flex-1 overflow-auto">
         <div className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Transport Type</label>
+            <label
+              className="text-sm font-medium"
+              htmlFor="transport-type-select"
+            >
+              Transport Type
+            </label>
             <Select
               value={transportType}
               onValueChange={(value: "stdio" | "sse") =>
                 setTransportType(value)
               }
             >
-              <SelectTrigger>
+              <SelectTrigger id="transport-type-select">
                 <SelectValue placeholder="Select transport type" />
               </SelectTrigger>
               <SelectContent>
@@ -127,8 +132,11 @@ const Sidebar = ({
           {transportType === "stdio" ? (
             <>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Command</label>
+                <label className="text-sm font-medium" htmlFor="command-input">
+                  Command
+                </label>
                 <Input
+                  id="command-input"
                   placeholder="Command"
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
@@ -136,8 +144,14 @@ const Sidebar = ({
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Arguments</label>
+                <label
+                  className="text-sm font-medium"
+                  htmlFor="arguments-input"
+                >
+                  Arguments
+                </label>
                 <Input
+                  id="arguments-input"
                   placeholder="Arguments (space-separated)"
                   value={args}
                   onChange={(e) => setArgs(e.target.value)}
@@ -148,8 +162,11 @@ const Sidebar = ({
           ) : (
             <>
               <div className="space-y-2">
-                <label className="text-sm font-medium">URL</label>
+                <label className="text-sm font-medium" htmlFor="sse-url-input">
+                  URL
+                </label>
                 <Input
+                  id="sse-url-input"
                   placeholder="URL"
                   value={sseUrl}
                   onChange={(e) => setSseUrl(e.target.value)}
@@ -162,6 +179,7 @@ const Sidebar = ({
                   onClick={() => setShowBearerToken(!showBearerToken)}
                   className="flex items-center w-full"
                   data-testid="auth-button"
+                  aria-expanded={showBearerToken}
                 >
                   {showBearerToken ? (
                     <ChevronDown className="w-4 h-4 mr-2" />
@@ -182,8 +200,14 @@ const Sidebar = ({
                       className="font-mono"
                       value={headerName}
                     />
-                    <label className="text-sm font-medium">Bearer Token</label>
+                    <label
+                      className="text-sm font-medium"
+                      htmlFor="bearer-token-input"
+                    >
+                      Bearer Token
+                    </label>
                     <Input
+                      id="bearer-token-input"
                       placeholder="Bearer Token"
                       value={bearerToken}
                       onChange={(e) => setBearerToken(e.target.value)}
@@ -203,6 +227,7 @@ const Sidebar = ({
                 onClick={() => setShowEnvVars(!showEnvVars)}
                 className="flex items-center w-full"
                 data-testid="env-vars-button"
+                aria-expanded={showEnvVars}
               >
                 {showEnvVars ? (
                   <ChevronDown className="w-4 h-4 mr-2" />
@@ -217,6 +242,7 @@ const Sidebar = ({
                     <div key={idx} className="space-y-2 pb-4">
                       <div className="flex gap-2">
                         <Input
+                          aria-label={`Environment variable key ${idx + 1}`}
                           placeholder="Key"
                           value={key}
                           onChange={(e) => {
@@ -259,6 +285,7 @@ const Sidebar = ({
                       </div>
                       <div className="flex gap-2">
                         <Input
+                          aria-label={`Environment variable value ${idx + 1}`}
                           type={shownEnvVars.has(key) ? "text" : "password"}
                           placeholder="Value"
                           value={value}
@@ -325,6 +352,7 @@ const Sidebar = ({
               onClick={() => setShowConfig(!showConfig)}
               className="flex items-center w-full"
               data-testid="config-button"
+              aria-expanded={showConfig}
             >
               {showConfig ? (
                 <ChevronDown className="w-4 h-4 mr-2" />
@@ -341,8 +369,11 @@ const Sidebar = ({
                   return (
                     <div key={key} className="space-y-2">
                       <div className="flex items-center gap-1">
-                        <label className="text-sm font-medium text-green-600">
-                          {configKey}
+                        <label
+                          className="text-sm font-medium text-green-600 break-all"
+                          htmlFor={`${configKey}-input`}
+                        >
+                          {configItem.label}
                         </label>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -355,6 +386,7 @@ const Sidebar = ({
                       </div>
                       {typeof configItem.value === "number" ? (
                         <Input
+                          id={`${configKey}-input`}
                           type="number"
                           data-testid={`${configKey}-input`}
                           value={configItem.value}
@@ -381,7 +413,7 @@ const Sidebar = ({
                             setConfig(newConfig);
                           }}
                         >
-                          <SelectTrigger>
+                          <SelectTrigger id={`${configKey}-input`}>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -391,6 +423,7 @@ const Sidebar = ({
                         </Select>
                       ) : (
                         <Input
+                          id={`${configKey}-input`}
                           data-testid={`${configKey}-input`}
                           value={configItem.value}
                           onChange={(e) => {
@@ -464,14 +497,19 @@ const Sidebar = ({
 
             {loggingSupported && connectionStatus === "connected" && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Logging Level</label>
+                <label
+                  className="text-sm font-medium"
+                  htmlFor="logging-level-select"
+                >
+                  Logging Level
+                </label>
                 <Select
                   value={logLevel}
                   onValueChange={(value: LoggingLevel) =>
                     sendLogLevelRequest(value)
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="logging-level-select">
                     <SelectValue placeholder="Select logging level" />
                   </SelectTrigger>
                   <SelectContent>
