@@ -108,13 +108,12 @@ const App = () => {
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
   });
-  
+
   const [headerName, setHeaderName] = useState<string>(() => {
     return localStorage.getItem("lastHeaderName") || "Authorization";
   });
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
-
     Array<
       PendingRequest & {
         resolve: (result: CreateMessageResult) => void;

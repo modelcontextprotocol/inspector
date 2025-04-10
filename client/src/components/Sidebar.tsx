@@ -161,6 +161,7 @@ const Sidebar = ({
                   variant="outline"
                   onClick={() => setShowBearerToken(!showBearerToken)}
                   className="flex items-center w-full"
+                  data-testid="auth-button"
                 >
                   {showBearerToken ? (
                     <ChevronDown className="w-4 h-4 mr-2" />
@@ -174,7 +175,10 @@ const Sidebar = ({
                     <label className="text-sm font-medium">Header Name</label>
                     <Input
                       placeholder="Authorization"
-                      onChange={(e) => setHeaderName && setHeaderName(e.target.value)}
+                      onChange={(e) =>
+                        setHeaderName && setHeaderName(e.target.value)
+                      }
+                      data-testid="header-input"
                       className="font-mono"
                       value={headerName}
                     />
@@ -183,6 +187,7 @@ const Sidebar = ({
                       placeholder="Bearer Token"
                       value={bearerToken}
                       onChange={(e) => setBearerToken(e.target.value)}
+                      data-testid="bearer-token-input"
                       className="font-mono"
                       type="password"
                     />
