@@ -14,7 +14,7 @@ import {
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
@@ -96,7 +96,9 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
     console.log("Connected to SSE transport");
     return transport;
   } else if (transportType === "streamable-http") {
-    const transport = new StreamableHTTPClientTransport(new URL(query.url as string));
+    const transport = new StreamableHTTPClientTransport(
+      new URL(query.url as string),
+    );
     await transport.start();
     console.log("Connected to Streamable HTTP transport");
     return transport;
