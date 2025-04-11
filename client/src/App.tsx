@@ -174,8 +174,6 @@ const App = () => {
     env,
     bearerToken,
     headerName,
-    proxyServerUrl: getMCPProxyAddress(config),
-    requestTimeout: getMCPServerRequestTimeout(config),
     config,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
