@@ -334,6 +334,15 @@ export function useConnection({
 
       try {
         await client.connect(clientTransport);
+
+        const initializeRequest = {
+          method: "initialize",
+        };
+        pushHistory(initializeRequest, {
+          capabilities: client.getServerCapabilities(),
+          serverInfo: client.getServerVersion(),
+          instructions: client.getInstructions(),
+        });
       } catch (error) {
         console.error(
           `Failed to connect to MCP Server via the MCP Inspector Proxy: ${mcpProxyServerUrl}:`,
