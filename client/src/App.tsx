@@ -45,7 +45,7 @@ import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
-import { getMCPProxyAddress, getMCPServerRequestTimeout } from "./utils/configUtils";
+import { getMCPProxyAddress } from "./utils/configUtils";
 import { useToast } from "@/hooks/use-toast";
 
 const params = new URLSearchParams(window.location.search);

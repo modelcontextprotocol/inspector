@@ -49,7 +49,6 @@ interface UseConnectionOptions {
   env: Record<string, string>;
   bearerToken?: string;
   headerName?: string;
-  requestTimeout?: number;
   config: InspectorConfig;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
@@ -67,7 +66,6 @@ export function useConnection({
   env,
   bearerToken,
   headerName,
-  requestTimeout,
   config,
   onNotification,
   onStdErrNotification,
