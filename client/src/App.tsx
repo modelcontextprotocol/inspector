@@ -45,7 +45,7 @@ import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
-import { getMCPProxyAddress } from "./utils/configUtils";
+import { getMCPProxyAddress, getMCPServerRequestTimeout } from "./utils/configUtils";
 import { useToast } from "@/hooks/use-toast";
 
 const params = new URLSearchParams(window.location.search);
@@ -118,7 +118,7 @@ const App = () => {
   });
 
   const [headerName, setHeaderName] = useState<string>(() => {
-    return localStorage.getItem("lastHeaderName") || "Authorization";
+    return localStorage.getItem("lastHeaderName") || "";
   });
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
