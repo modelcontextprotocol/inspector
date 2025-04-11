@@ -166,7 +166,9 @@ app.post("/message", async (req, res) => {
       res.status(404).end("Session not found");
       return;
     }
-    await transport.handlePostMessage(req, res);
+    await transport.handlePostMessage(req, res).catch((e) => {
+      console.error("Error in /message handlePostMessage:", e);
+    });
   } catch (error) {
     console.error("Error in /message route:", error);
     res.status(500).json(error);
