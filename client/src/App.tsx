@@ -467,6 +467,10 @@ const App = () => {
     setLogLevel(level);
   };
 
+  const clearStdErrNotifications = () => {
+    setStdErrNotifications([]);
+  };
+
   if (window.location.pathname === "/oauth/callback") {
     const OAuthCallback = React.lazy(
       () => import("./components/OAuthCallback"),
@@ -502,6 +506,7 @@ const App = () => {
         logLevel={logLevel}
         sendLogLevelRequest={sendLogLevelRequest}
         loggingSupported={!!serverCapabilities?.logging || false}
+        clearStdErrNotifications={clearStdErrNotifications}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
