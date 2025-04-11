@@ -379,6 +379,7 @@ export function useConnection({
 
   const disconnect = async () => {
     await mcpClient?.close();
+    authProvider.clear();
     setMcpClient(null);
     setConnectionStatus("disconnected");
     setCompletionsSupported(false);
