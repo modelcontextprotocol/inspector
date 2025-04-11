@@ -234,7 +234,6 @@ const ToolsTab = ({
                         ) : (
                           <div className="mt-1">
                             <DynamicJsonForm
-                              onlyJSON
                               schema={{
                                 type: prop.type,
                                 properties: prop.properties,
