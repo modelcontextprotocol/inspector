@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import JsonEditor from "./JsonEditor";
 import { updateValueAtPath } from "@/utils/jsonUtils";
-import { generateDefaultValue, formatFieldLabel } from "@/utils/schemaUtils";
-import type { JsonValue, JsonSchemaType, JsonObject } from "@/utils/jsonUtils";
+import { generateDefaultValue } from "@/utils/schemaUtils";
+import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
 
 interface DynamicJsonFormProps {
   schema: JsonSchemaType;
@@ -14,13 +13,23 @@ interface DynamicJsonFormProps {
   maxDepth?: number;
 }
 
+const isSimpleObject = (schema: JsonSchemaType): boolean => {
+  const supportedTypes = ["string", "number", "integer", "boolean", "null"];
+  if (supportedTypes.includes(schema.type)) return true;
+  if (schema.type !== "object") return false;
+  return Object.values(schema.properties ?? {}).every((prop) =>
+    supportedTypes.includes(prop.type),
+  );
+};
+
 const DynamicJsonForm = ({
   schema,
   value,
   onChange,
   maxDepth = 3,
 }: DynamicJsonFormProps) => {
-  const [isJsonMode, setIsJsonMode] = useState(false);
+  const isOnlyJSON = !isSimpleObject(schema);
+  const [isJsonMode, setIsJsonMode] = useState(isOnlyJSON);
   const [jsonError, setJsonError] = useState<string>();
   // Store the raw JSON string to allow immediate feedback during typing
   // while deferring parsing until the user stops typing
@@ -207,111 +216,6 @@ const DynamicJsonForm = ({
             required={propSchema.required}
           />
         );
-      case "object": {
-        // Handle case where we have a value but no schema properties
-        const objectValue = (currentValue as JsonObject) || {};
-
-        // If we have schema properties, use them to render fields
-        if (propSchema.properties) {
-          return (
-            <div className="space-y-4 border rounded-md p-4">
-              {Object.entries(propSchema.properties).map(([key, prop]) => (
-                <div key={key} className="space-y-2">
-                  <Label>{formatFieldLabel(key)}</Label>
-                  {renderFormFields(
-                    prop,
-                    objectValue[key],
-                    [...path, key],
-                    depth + 1,
-                  )}
-                </div>
-              ))}
-            </div>
-          );
-        }
-        // If we have a value but no schema properties, render fields based on the value
-        else if (Object.keys(objectValue).length > 0) {
-          return (
-            <div className="space-y-4 border rounded-md p-4">
-              {Object.entries(objectValue).map(([key, value]) => (
-                <div key={key} className="space-y-2">
-                  <Label>{formatFieldLabel(key)}</Label>
-                  <Input
-                    type="text"
-                    value={String(value)}
-                    onChange={(e) =>
-                      handleFieldChange([...path, key], e.target.value)
-                    }
-                  />
-                </div>
-              ))}
-            </div>
-          );
-        }
-        // If we have neither schema properties nor value, return null
-        return null;
-      }
-      case "array": {
-        const arrayValue = Array.isArray(currentValue) ? currentValue : [];
-        if (!propSchema.items) return null;
-        return (
-          <div className="space-y-4">
-            {propSchema.description && (
-              <p className="text-sm text-gray-600">{propSchema.description}</p>
-            )}
-
-            {propSchema.items?.description && (
-              <p className="text-sm text-gray-500">
-                Items: {propSchema.items.description}
-              </p>
-            )}
-
-            <div className="space-y-2">
-              {arrayValue.map((item, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  {renderFormFields(
-                    propSchema.items as JsonSchemaType,
-                    item,
-                    [...path, index.toString()],
-                    depth + 1,
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const newArray = [...arrayValue];
-                      newArray.splice(index, 1);
-                      handleFieldChange(path, newArray);
-                    }}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const defaultValue = generateDefaultValue(
-                    propSchema.items as JsonSchemaType,
-                  );
-                  handleFieldChange(path, [
-                    ...arrayValue,
-                    defaultValue ?? null,
-                  ]);
-                }}
-                title={
-                  propSchema.items?.description
-                    ? `Add new ${propSchema.items.description}`
-                    : "Add new item"
-                }
-              >
-                Add Item
-              </Button>
-            </div>
-          </div>
-        );
-      }
       default:
         return null;
     }
@@ -350,9 +254,11 @@ const DynamicJsonForm = ({
             Format JSON
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={handleSwitchToFormMode}>
-          {isJsonMode ? "Switch to Form" : "Switch to JSON"}
-        </Button>
+        {!isOnlyJSON && (
+          <Button variant="outline" size="sm" onClick={handleSwitchToFormMode}>
+            {isJsonMode ? "Switch to Form" : "Switch to JSON"}
+          </Button>
+        )}
       </div>
 
       {isJsonMode ? (
