@@ -1,4 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
+import "@testing-library/jest-dom";
 import { describe, it, beforeEach, jest } from "@jest/globals";
 import Sidebar from "../Sidebar";
 import { DEFAULT_INSPECTOR_CONFIG } from "@/lib/constants";
@@ -105,6 +106,157 @@ describe("Sidebar Environment Variables", () => {
       fireEvent.click(toggleButton);
 
       expect(valueInput).toHaveProperty("type", "text");
+    });
+  });
+
+  describe("Authentication", () => {
+    const openAuthSection = () => {
+      const button = screen.getByTestId("auth-button");
+      fireEvent.click(button);
+    };
+
+    it("should update bearer token", () => {
+      const setBearerToken = jest.fn();
+      renderSidebar({
+        bearerToken: "",
+        setBearerToken,
+        transportType: "sse", // Set transport type to SSE
+      });
+
+      openAuthSection();
+
+      const tokenInput = screen.getByTestId("bearer-token-input");
+      fireEvent.change(tokenInput, { target: { value: "new_token" } });
+
+      expect(setBearerToken).toHaveBeenCalledWith("new_token");
+    });
+
+    it("should update header name", () => {
+      const setHeaderName = jest.fn();
+      renderSidebar({
+        headerName: "Authorization",
+        setHeaderName,
+        transportType: "sse",
+      });
+
+      openAuthSection();
+
+      const headerInput = screen.getByTestId("header-input");
+      fireEvent.change(headerInput, { target: { value: "X-Custom-Auth" } });
+
+      expect(setHeaderName).toHaveBeenCalledWith("X-Custom-Auth");
+    });
+
+    it("should clear bearer token", () => {
+      const setBearerToken = jest.fn();
+      renderSidebar({
+        bearerToken: "existing_token",
+        setBearerToken,
+        transportType: "sse", // Set transport type to SSE
+      });
+
+      openAuthSection();
+
+      const tokenInput = screen.getByTestId("bearer-token-input");
+      fireEvent.change(tokenInput, { target: { value: "" } });
+
+      expect(setBearerToken).toHaveBeenCalledWith("");
+    });
+
+    it("should properly render bearer token input", () => {
+      const { rerender } = renderSidebar({
+        bearerToken: "existing_token",
+        transportType: "sse", // Set transport type to SSE
+      });
+
+      openAuthSection();
+
+      // Token input should be a password field
+      const tokenInput = screen.getByTestId("bearer-token-input");
+      expect(tokenInput).toHaveProperty("type", "password");
+
+      // Update the token
+      fireEvent.change(tokenInput, { target: { value: "new_token" } });
+
+      // Rerender with updated token
+      rerender(
+        <TooltipProvider>
+          <Sidebar
+            {...defaultProps}
+            bearerToken="new_token"
+            transportType="sse"
+          />
+        </TooltipProvider>,
+      );
+
+      // Token input should still exist after update
+      expect(screen.getByTestId("bearer-token-input")).toBeInTheDocument();
+    });
+
+    it("should maintain token visibility state after update", () => {
+      const { rerender } = renderSidebar({
+        bearerToken: "existing_token",
+        transportType: "sse", // Set transport type to SSE
+      });
+
+      openAuthSection();
+
+      // Token input should be a password field
+      const tokenInput = screen.getByTestId("bearer-token-input");
+      expect(tokenInput).toHaveProperty("type", "password");
+
+      // Update the token
+      fireEvent.change(tokenInput, { target: { value: "new_token" } });
+
+      // Rerender with updated token
+      rerender(
+        <TooltipProvider>
+          <Sidebar
+            {...defaultProps}
+            bearerToken="new_token"
+            transportType="sse"
+          />
+        </TooltipProvider>,
+      );
+
+      // Token input should still exist after update
+      expect(screen.getByTestId("bearer-token-input")).toBeInTheDocument();
+    });
+
+    it("should maintain header name when toggling auth section", () => {
+      renderSidebar({
+        headerName: "X-API-Key",
+        transportType: "sse",
+      });
+
+      // Open auth section
+      openAuthSection();
+
+      // Verify header name is displayed
+      const headerInput = screen.getByTestId("header-input");
+      expect(headerInput).toHaveValue("X-API-Key");
+
+      // Close auth section
+      const authButton = screen.getByTestId("auth-button");
+      fireEvent.click(authButton);
+
+      // Reopen auth section
+      fireEvent.click(authButton);
+
+      // Verify header name is still preserved
+      expect(screen.getByTestId("header-input")).toHaveValue("X-API-Key");
+    });
+
+    it("should display default header name when not specified", () => {
+      renderSidebar({
+        headerName: undefined,
+        transportType: "sse",
+      });
+
+      openAuthSection();
+
+      const headerInput = screen.getByTestId("header-input");
+      expect(headerInput).toHaveAttribute("placeholder", "Authorization");
     });
   });
 
