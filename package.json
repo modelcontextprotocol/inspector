@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector",
-  "version": "0.7.0",
+  "version": "0.8.2",
   "description": "Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -43,11 +43,11 @@
     "publish-all": "npm publish --workspaces --access public && npm publish --access public"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-bin": "^0.7.0",
-    "@modelcontextprotocol/inspector-cli": "^0.7.0",
-    "@modelcontextprotocol/inspector-client": "^0.7.0",
-    "@modelcontextprotocol/inspector-server": "^0.7.0",
-    "@modelcontextprotocol/sdk": "^1.8.0",
+    "@modelcontextprotocol/inspector-bin": "^0.8.2",
+    "@modelcontextprotocol/inspector-cli": "^0.8.2",
+    "@modelcontextprotocol/inspector-client": "^0.8.2",
+    "@modelcontextprotocol/inspector-server": "^0.8.2",
+    "@modelcontextprotocol/sdk": "^1.9.0",
     "concurrently": "^9.0.1",
     "shell-quote": "^1.8.2",
     "spawn-rx": "^5.1.2",

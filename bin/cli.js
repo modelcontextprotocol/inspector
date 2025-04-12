@@ -37,8 +37,8 @@ async function runWebClient(args) {
     "bin",
     "cli.js",
   );
-  const CLIENT_PORT = process.env.CLIENT_PORT ?? "5173";
-  const SERVER_PORT = process.env.SERVER_PORT ?? "3000";
+  const CLIENT_PORT = process.env.CLIENT_PORT ?? "6274";
+  const SERVER_PORT = process.env.SERVER_PORT ?? "6277";
   console.log("Starting MCP inspector...");
   const abort = new AbortController();
   let cancelled = false;
@@ -46,39 +46,38 @@ async function runWebClient(args) {
     cancelled = true;
     abort.abort();
   });
-  const server = spawnPromise(
-    "node",
-    [
-      inspectorServerPath,
-      ...(args.command ? [`--env`, args.command] : []),
-      ...(args.args ? [`--args=${args.args.join(" ")}`] : []),
-    ],
-    {
-      env: {
-        ...process.env,
-        PORT: SERVER_PORT,
-        MCP_ENV_VARS: JSON.stringify(args.envArgs),
-      },
-      signal: abort.signal,
-      echoOutput: true,
-    },
-  );
-  const client = spawnPromise("node", [inspectorClientPath], {
-    env: { ...process.env, PORT: CLIENT_PORT },
-    signal: abort.signal,
-    echoOutput: true,
-  });
-  // Make sure our server/client didn't immediately fail
-  await Promise.any([server, client, delay(2 * 1000)]);
-  const portParam = SERVER_PORT === "3000" ? "" : `?proxyPort=${SERVER_PORT}`;
-  console.log(
-    `\n🔍 MCP Inspector is up and running at http://127.0.0.1:${CLIENT_PORT}${portParam} 🚀`,
-  );
+  let server;
+  let serverOk;
   try {
-    await Promise.any([server, client]);
-  } catch (e) {
-    if (!cancelled || process.env.DEBUG) {
-      throw e;
+    server = spawnPromise(
+      "node",
+      [
+        inspectorServerPath,
+        ...(args.command ? [`--env`, args.command] : []),
+        ...(args.args ? [`--args=${args.args.join(" ")}`] : []),
+      ],
+      {
+        env: {
+          ...process.env,
+          PORT: SERVER_PORT,
+          MCP_ENV_VARS: JSON.stringify(args.envArgs),
+        },
+        signal: abort.signal,
+        echoOutput: true,
+      },
+    );
+    // Make sure server started before starting client
+    serverOk = await Promise.race([server, delay(2 * 1000)]);
+  } catch (error) {}
+  if (serverOk) {
+    try {
+      await spawnPromise("node", [inspectorClientPath], {
+        env: { ...process.env, PORT: CLIENT_PORT },
+        signal: abort.signal,
+        echoOutput: true,
+      });
+    } catch (e) {
+      if (!cancelled || process.env.DEBUG) throw e;
     }
   }
 }

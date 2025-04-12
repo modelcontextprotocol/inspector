@@ -48,7 +48,7 @@ The MCP Inspector includes a proxy server that can run and communicate with loca
 
 ### Configuration
 
-The MCP Inspector supports the following configuration settings. To change them click on the `Configuration` button in the MCP Inspector UI:
+The MCP Inspector supports the following configuration settings. To change them, click on the `Configuration` button in the MCP Inspector UI:
 
 | Name                       | Purpose                                                                                   | Default Value |
 | -------------------------- | ----------------------------------------------------------------------------------------- | ------------- |
