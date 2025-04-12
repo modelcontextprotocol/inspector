@@ -12,6 +12,7 @@ import {
   StdioClientTransport,
   getDefaultEnvironment,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
 import { findActualExecutable } from "spawn-rx";
@@ -37,7 +38,7 @@ app.use(cors());
 
 let webAppTransports: SSEServerTransport[] = [];
 
-const createTransport = async (req: express.Request) => {
+const createTransport = async (req: express.Request): Promise<Transport> => {
   const query = req.query;
   console.log("Query parameters:", query);
 
@@ -69,6 +70,7 @@ const createTransport = async (req: express.Request) => {
     const headers: HeadersInit = {
       Accept: "text/event-stream",
     };
+
     for (const key of SSE_HEADERS_PASSTHROUGH) {
       if (req.headers[key] === undefined) {
         continue;
@@ -98,12 +100,14 @@ const createTransport = async (req: express.Request) => {
   }
 };
 
+let backingServerTransport: Transport | undefined;
+
 app.get("/sse", async (req, res) => {
   try {
     console.log("New SSE connection");
 
-    let backingServerTransport;
     try {
+      await backingServerTransport?.close();
       backingServerTransport = await createTransport(req);
     } catch (error) {
       if (error instanceof SseError && error.code === 401) {
@@ -169,6 +173,12 @@ app.post("/message", async (req, res) => {
   }
 });
 
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+  });
+});
+
 app.get("/config", (req, res) => {
   try {
     res.json({
@@ -182,17 +192,17 @@ app.get("/config", (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 6277;
 
-try {
-  const server = app.listen(PORT);
-
-  server.on("listening", () => {
-    const addr = server.address();
-    const port = typeof addr === "string" ? addr : addr?.port;
-    console.log(`Proxy server listening on port ${port}`);
-  });
-} catch (error) {
-  console.error("Failed to start server:", error);
+const server = app.listen(PORT);
+server.on("listening", () => {
+  console.log(`⚙️ Proxy server listening on port ${PORT}`);
+});
+server.on("error", (err) => {
+  if (err.message.includes(`EADDRINUSE`)) {
+    console.error(`❌  Proxy Server PORT IS IN USE at port ${PORT} ❌ `);
+  } else {
+    console.error(err.message);
+  }
   process.exit(1);
-}
+});

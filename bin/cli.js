@@ -19,7 +19,7 @@ function handleError(error) {
   process.exit(1);
 }
 function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms, true));
 }
 async function runWebClient(args) {
   const inspectorServerPath = resolve(

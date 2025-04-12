@@ -1,5 +1,4 @@
 import { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
-import { Copy } from "lucide-react";
 import { useState } from "react";
 import JsonView from "./JsonView";
 
@@ -23,10 +22,6 @@ const HistoryAndNotifications = ({
 
   const toggleNotificationExpansion = (index: number) => {
     setExpandedNotifications((prev) => ({ ...prev, [index]: !prev[index] }));
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
   };
 
   return (
@@ -68,16 +63,12 @@ const HistoryAndNotifications = ({
                           <span className="font-semibold text-blue-600">
                             Request:
                           </span>
-                          <button
-                            onClick={() => copyToClipboard(request.request)}
-                            className="text-blue-500 hover:text-blue-700"
-                          >
-                            <Copy size={16} />
-                          </button>
                         </div>
-                        <div className="bg-background p-2 rounded">
-                          <JsonView data={request.request} />
-                        </div>
+
+                        <JsonView
+                          data={request.request}
+                          className="bg-background"
+                        />
                       </div>
                       {request.response && (
                         <div className="mt-2">
@@ -85,16 +76,11 @@ const HistoryAndNotifications = ({
                             <span className="font-semibold text-green-600">
                               Response:
                             </span>
-                            <button
-                              onClick={() => copyToClipboard(request.response!)}
-                              className="text-blue-500 hover:text-blue-700"
-                            >
-                              <Copy size={16} />
-                            </button>
                           </div>
-                          <div className="bg-background p-2 rounded">
-                            <JsonView data={request.response} />
-                          </div>
+                          <JsonView
+                            data={request.response}
+                            className="bg-background"
+                          />
                         </div>
                       )}
                     </>
@@ -134,20 +120,11 @@ const HistoryAndNotifications = ({
                         <span className="font-semibold text-purple-600">
                           Details:
                         </span>
-                        <button
-                          onClick={() =>
-                            copyToClipboard(JSON.stringify(notification))
-                          }
-                          className="text-blue-500 hover:text-blue-700"
-                        >
-                          <Copy size={16} />
-                        </button>
                       </div>
-                      <div className="bg-background p-2 rounded">
-                        <JsonView
-                          data={JSON.stringify(notification, null, 2)}
-                        />
-                      </div>
+                      <JsonView
+                        data={JSON.stringify(notification, null, 2)}
+                        className="bg-background"
+                      />
                     </div>
                   )}
                 </li>

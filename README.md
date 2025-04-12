@@ -2,7 +2,7 @@
 
 The MCP inspector is a developer tool for testing and debugging MCP servers.
 
-![MCP Inspector Screenshot](mcp-inspector.png)
+![MCP Inspector Screenshot](https://raw.githubusercontent.com/modelcontextprotocol/inspector/main/mcp-inspector.png)
 
 ## Running the Inspector
 
@@ -30,7 +30,7 @@ npx @modelcontextprotocol/inspector -e key=value -e key2=$VALUE2 node build/inde
 npx @modelcontextprotocol/inspector -e key=$VALUE -- node build/index.js -e server-flag
 ```
 
-The inspector runs both a client UI (default port 5173) and an MCP proxy server (default port 3000). Open the client UI in your browser to use the inspector. You can customize the ports if needed:
+The inspector runs both an MCP Inspector (MCPI) client UI (default port 6274) and an MCP Proxy (MCPP) server (default port 6277). Open the MCPI client UI in your browser to use the inspector. (These ports are derived from the T9 dialpad mapping of MCPI and MCPP respectively, as a mnemonic). You can customize the ports if needed:
 
 ```bash
 CLIENT_PORT=8080 SERVER_PORT=9000 npx @modelcontextprotocol/inspector node build/index.js
@@ -50,9 +50,14 @@ The MCP Inspector includes a proxy server that can run and communicate with loca
 
 The MCP Inspector supports the following configuration settings. To change them, click on the `Configuration` button in the MCP Inspector UI:
 
-| Name                       | Purpose                                                                                   | Default Value |
-| -------------------------- | ----------------------------------------------------------------------------------------- | ------------- |
-| MCP_SERVER_REQUEST_TIMEOUT | Maximum time in milliseconds to wait for a response from the MCP server before timing out | 10000         |
+| Setting                                 | Description                                                                                                  | Default |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------- |
+| `MCP_SERVER_REQUEST_TIMEOUT`            | Timeout for requests to the MCP server (ms)                                                                  | 10000   |
+| `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                      | true    |
+| `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)             | 60000   |
+| `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577 | ""      |
+
+These settings can be adjusted in real-time through the UI and will persist across sessions.
 
 The inspector also supports configuration files to store settings for different MCP servers. This is useful when working with multiple servers or complex configurations:
 

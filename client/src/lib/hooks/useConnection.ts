@@ -8,7 +8,6 @@ import {
   ClientRequest,
   CreateMessageRequestSchema,
   ListRootsRequestSchema,
-  ProgressNotificationSchema,
   ResourceUpdatedNotificationSchema,
   LoggingMessageNotificationSchema,
   Request,
@@ -23,15 +22,24 @@ import {
   ResourceListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
   PromptListChangedNotificationSchema,
+  Progress,
 } from "@modelcontextprotocol/sdk/types.js";
+import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useState } from "react";
-import { toast } from "react-toastify";
+import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
-import { SESSION_KEYS } from "../constants";
+import { ConnectionStatus, SESSION_KEYS } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { authProvider } from "../auth";
 import packageJson from "../../../package.json";
+import {
+  getMCPProxyAddress,
+  getMCPServerRequestMaxTotalTimeout,
+  resetRequestTimeoutOnProgress,
+} from "@/utils/configUtils";
+import { getMCPServerRequestTimeout } from "@/utils/configUtils";
+import { InspectorConfig } from "../configurationTypes";
 
 interface UseConnectionOptions {
   transportType: "stdio" | "sse";
@@ -39,9 +47,8 @@ interface UseConnectionOptions {
   args: string;
   sseUrl: string;
   env: Record<string, string>;
-  proxyServerUrl: string;
   bearerToken?: string;
-  requestTimeout?: number;
+  config: InspectorConfig;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,29 +57,22 @@ interface UseConnectionOptions {
   getRoots?: () => any[];
 }
 
-interface RequestOptions {
-  signal?: AbortSignal;
-  timeout?: number;
-  suppressToast?: boolean;
-}
-
 export function useConnection({
   transportType,
   command,
   args,
   sseUrl,
   env,
-  proxyServerUrl,
   bearerToken,
-  requestTimeout,
+  config,
   onNotification,
   onStdErrNotification,
   onPendingRequest,
   getRoots,
 }: UseConnectionOptions) {
-  const [connectionStatus, setConnectionStatus] = useState<
-    "disconnected" | "connected" | "error"
-  >("disconnected");
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>("disconnected");
+  const { toast } = useToast();
   const [serverCapabilities, setServerCapabilities] =
     useState<ServerCapabilities | null>(null);
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
@@ -94,38 +94,61 @@ export function useConnection({
   const makeRequest = async <T extends z.ZodType>(
     request: ClientRequest,
     schema: T,
-    options?: RequestOptions,
+    options?: RequestOptions & { suppressToast?: boolean },
   ): Promise<z.output<T>> => {
     if (!mcpClient) {
       throw new Error("MCP client not connected");
     }
-
     try {
       const abortController = new AbortController();
-      const timeoutId = setTimeout(() => {
-        abortController.abort("Request timed out");
-      }, options?.timeout ?? requestTimeout);
+
+      // prepare MCP Client request options
+      const mcpRequestOptions: RequestOptions = {
+        signal: options?.signal ?? abortController.signal,
+        resetTimeoutOnProgress:
+          options?.resetTimeoutOnProgress ??
+          resetRequestTimeoutOnProgress(config),
+        timeout: options?.timeout ?? getMCPServerRequestTimeout(config),
+        maxTotalTimeout:
+          options?.maxTotalTimeout ??
+          getMCPServerRequestMaxTotalTimeout(config),
+      };
+
+      // If progress notifications are enabled, add an onprogress hook to the MCP Client request options
+      // This is required by SDK to reset the timeout on progress notifications
+      if (mcpRequestOptions.resetTimeoutOnProgress) {
+        mcpRequestOptions.onprogress = (params: Progress) => {
+          // Add progress notification to `Server Notification` window in the UI
+          if (onNotification) {
+            onNotification({
+              method: "notification/progress",
+              params,
+            });
+          }
+        };
+      }
 
       let response;
       try {
-        response = await mcpClient.request(request, schema, {
-          signal: options?.signal ?? abortController.signal,
-        });
+        response = await mcpClient.request(request, schema, mcpRequestOptions);
+
         pushHistory(request, response);
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         pushHistory(request, { error: errorMessage });
         throw error;
-      } finally {
-        clearTimeout(timeoutId);
       }
 
       return response;
     } catch (e: unknown) {
       if (!options?.suppressToast) {
         const errorString = (e as Error).message ?? String(e);
-        toast.error(errorString);
+        toast({
+          title: "Error",
+          description: errorString,
+          variant: "destructive",
+        });
       }
       throw e;
     }
@@ -167,7 +190,11 @@ export function useConnection({
       }
 
       // Unexpected errors - show toast and rethrow
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast({
+        title: "Error",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
       throw e;
     }
   };
@@ -175,7 +202,11 @@ export function useConnection({
   const sendNotification = async (notification: ClientNotification) => {
     if (!mcpClient) {
       const error = new Error("MCP client not connected");
-      toast.error(error.message);
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
       throw error;
     }
 
@@ -188,7 +219,25 @@ export function useConnection({
         // Log MCP protocol errors
         pushHistory(notification, { error: e.message });
       }
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast({
+        title: "Error",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+      throw e;
+    }
+  };
+
+  const checkProxyHealth = async () => {
+    try {
+      const proxyHealthUrl = new URL(`${getMCPProxyAddress(config)}/health`);
+      const proxyHealthResponse = await fetch(proxyHealthUrl);
+      const proxyHealth = await proxyHealthResponse.json();
+      if (proxyHealth?.status !== "ok") {
+        throw new Error("MCP Proxy Server is not healthy");
+      }
+    } catch (e) {
+      console.error("Couldn't connect to MCP Proxy Server", e);
       throw e;
     }
   };
@@ -205,33 +254,38 @@ export function useConnection({
   };
 
   const connect = async (_e?: unknown, retryCount: number = 0) => {
-    try {
-      const client = new Client<Request, Notification, Result>(
-        {
-          name: "mcp-inspector",
-          version: packageJson.version,
-        },
-        {
-          capabilities: {
-            sampling: {},
-            roots: {
-              listChanged: true,
-            },
+    const client = new Client<Request, Notification, Result>(
+      {
+        name: "mcp-inspector",
+        version: packageJson.version,
+      },
+      {
+        capabilities: {
+          sampling: {},
+          roots: {
+            listChanged: true,
           },
         },
-      );
+      },
+    );
 
-      const backendUrl = new URL(`${proxyServerUrl}/sse`);
+    try {
+      await checkProxyHealth();
+    } catch {
+      setConnectionStatus("error-connecting-to-proxy");
+      return;
+    }
+    const mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
+    mcpProxyServerUrl.searchParams.append("transportType", transportType);
+    if (transportType === "stdio") {
+      mcpProxyServerUrl.searchParams.append("command", command);
+      mcpProxyServerUrl.searchParams.append("args", args);
+      mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
+    } else {
+      mcpProxyServerUrl.searchParams.append("url", sseUrl);
+    }
 
-      backendUrl.searchParams.append("transportType", transportType);
-      if (transportType === "stdio") {
-        backendUrl.searchParams.append("command", command);
-        backendUrl.searchParams.append("args", args);
-        backendUrl.searchParams.append("env", JSON.stringify(env));
-      } else {
-        backendUrl.searchParams.append("url", sseUrl);
-      }
-
+    try {
       // Inject auth manually instead of using SSEClientTransport, because we're
       // proxying through the inspector server first.
       const headers: HeadersInit = {};
@@ -242,7 +296,7 @@ export function useConnection({
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const clientTransport = new SSEClientTransport(backendUrl, {
+      const clientTransport = new SSEClientTransport(mcpProxyServerUrl, {
         eventSourceInit: {
           fetch: (url, init) => fetch(url, { ...init, headers }),
         },
@@ -254,7 +308,6 @@ export function useConnection({
       if (onNotification) {
         [
           CancelledNotificationSchema,
-          ProgressNotificationSchema,
           LoggingMessageNotificationSchema,
           ResourceUpdatedNotificationSchema,
           ResourceListChangedNotificationSchema,
@@ -282,7 +335,10 @@ export function useConnection({
       try {
         await client.connect(clientTransport);
       } catch (error) {
-        console.error("Failed to connect to MCP server:", error);
+        console.error(
+          `Failed to connect to MCP Server via the MCP Inspector Proxy: ${mcpProxyServerUrl}:`,
+          error,
+        );
         const shouldRetry = await handleAuthError(error);
         if (shouldRetry) {
           return connect(undefined, retryCount + 1);
@@ -321,6 +377,14 @@ export function useConnection({
     }
   };
 
+  const disconnect = async () => {
+    await mcpClient?.close();
+    setMcpClient(null);
+    setConnectionStatus("disconnected");
+    setCompletionsSupported(false);
+    setServerCapabilities(null);
+  };
+
   return {
     connectionStatus,
     serverCapabilities,
@@ -331,5 +395,6 @@ export function useConnection({
     handleCompletion,
     completionsSupported,
     connect,
+    disconnect,
   };
 }
