@@ -296,7 +296,7 @@ export function useConnection({
       const token = bearerToken || (await authProvider.tokens())?.access_token;
       if (token) {
         const authHeaderName = headerName || "Authorization";
-        headers[authHeaderName] = `${token}`;
+        headers[authHeaderName] = `Bearer ${token}`;
       }
 
       const clientTransport = new SSEClientTransport(mcpProxyServerUrl, {
