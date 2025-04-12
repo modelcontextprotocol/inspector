@@ -18,7 +18,7 @@ You can pass both arguments and environment variables to your MCP server. Argume
 
 ```bash
 # Pass arguments only
-npx @modelcontextprotocol/inspector build/index.js arg1 arg2
+npx @modelcontextprotocol/inspector node build/index.js arg1 arg2
 
 # Pass environment variables only
 npx @modelcontextprotocol/inspector -e KEY=value -e KEY2=$VALUE2 node build/index.js
