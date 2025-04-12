@@ -1,5 +1,4 @@
-import { JsonValue, JsonSchemaType } from "../components/DynamicJsonForm";
-import { JsonObject } from "./jsonPathUtils";
+import type { JsonValue, JsonSchemaType, JsonObject } from "./jsonUtils";
 
 /**
  * Generates a default value based on a JSON schema type
