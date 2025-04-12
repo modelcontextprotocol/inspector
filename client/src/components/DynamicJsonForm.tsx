@@ -3,33 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import JsonEditor from "./JsonEditor";
-import { updateValueAtPath, JsonObject } from "@/utils/jsonPathUtils";
+import { updateValueAtPath } from "@/utils/jsonUtils";
 import { generateDefaultValue, formatFieldLabel } from "@/utils/schemaUtils";
-
-export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | undefined
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-
-export type JsonSchemaType = {
-  type:
-    | "string"
-    | "number"
-    | "integer"
-    | "boolean"
-    | "array"
-    | "object"
-    | "null";
-  description?: string;
-  required?: boolean;
-  default?: JsonValue;
-  properties?: Record<string, JsonSchemaType>;
-  items?: JsonSchemaType;
-};
+import type { JsonValue, JsonSchemaType, JsonObject } from "@/utils/jsonUtils";
 
 interface DynamicJsonFormProps {
   schema: JsonSchemaType;

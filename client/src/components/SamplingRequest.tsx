@@ -6,8 +6,9 @@ import {
   CreateMessageResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { PendingRequest } from "./SamplingTab";
-import DynamicJsonForm, { JsonSchemaType, JsonValue } from "./DynamicJsonForm";
+import DynamicJsonForm from "./DynamicJsonForm";
 import { useToast } from "@/hooks/use-toast";
+import { JsonSchemaType, JsonValue } from "@/utils/jsonUtils";
 
 export type SamplingRequestProps = {
   request: PendingRequest;
@@ -23,7 +24,7 @@ const SamplingRequest = ({
   const { toast } = useToast();
 
   const [messageResult, setMessageResult] = useState<JsonValue>({
-    model: "GPT-4o",
+    model: "stub-model",
     stopReason: "endTurn",
     role: "assistant",
     content: {
@@ -32,8 +33,14 @@ const SamplingRequest = ({
     },
   });
 
-  const s = useMemo(() => {
-    const schema: JsonSchemaType = {
+  const contentType = (
+    (messageResult as { [key: string]: JsonValue })?.content as {
+      [key: string]: JsonValue;
+    }
+  )?.type;
+
+  const schema = useMemo(() => {
+    const s: JsonSchemaType = {
       type: "object",
       description: "Message result",
       properties: {
@@ -65,10 +72,9 @@ const SamplingRequest = ({
       },
     };
 
-    const contentType = (messageResult as any)?.content?.type;
-    if (contentType === "text" && schema.properties) {
-      schema.properties.content.properties = {
-        ...schema.properties.content.properties,
+    if (contentType === "text" && s.properties) {
+      s.properties.content.properties = {
+        ...s.properties.content.properties,
         text: {
           type: "string",
           default: "",
@@ -82,9 +88,9 @@ const SamplingRequest = ({
           text: "",
         },
       }));
-    } else if (contentType === "image" && schema.properties) {
-      schema.properties.content.properties = {
-        ...schema.properties.content.properties,
+    } else if (contentType === "image" && s.properties) {
+      s.properties.content.properties = {
+        ...s.properties.content.properties,
         data: {
           type: "string",
           default: "",
@@ -106,8 +112,8 @@ const SamplingRequest = ({
       }));
     }
 
-    return schema;
-  }, [(messageResult as any)?.content?.type]);
+    return s;
+  }, [contentType]);
 
   const handleApprove = (id: number) => {
     const validationResult = CreateMessageResultSchema.safeParse(messageResult);
@@ -135,7 +141,7 @@ const SamplingRequest = ({
         <div className="space-y-2">
           <DynamicJsonForm
             defaultIsJsonMode={true}
-            schema={s}
+            schema={schema}
             value={messageResult}
             onChange={(newValue: JsonValue) => {
               setMessageResult(newValue);

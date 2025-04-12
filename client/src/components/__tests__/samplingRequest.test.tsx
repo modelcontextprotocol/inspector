@@ -45,7 +45,7 @@ describe("Form to handle sampling response", () => {
 
     // Assert that onApprove is called with the correct arguments
     expect(mockOnApprove).toHaveBeenCalledWith(mockRequest.id, {
-      model: "GPT-4o",
+      model: "stub-model",
       stopReason: "endTurn",
       role: "assistant",
       content: {

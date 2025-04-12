@@ -1,9 +1,10 @@
 import { useState, memo, useMemo, useCallback, useEffect } from "react";
-import { JsonValue } from "./DynamicJsonForm";
+import type { JsonValue } from "@/utils/jsonUtils";
 import clsx from "clsx";
 import { Copy, CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { getDataType, tryParseJson } from "@/utils/jsonUtils";
 
 interface JsonViewProps {
   data: unknown;
@@ -11,21 +12,7 @@ interface JsonViewProps {
   initialExpandDepth?: number;
   className?: string;
   withCopyButton?: boolean;
-}
-
-function tryParseJson(str: string): { success: boolean; data: JsonValue } {
-  const trimmed = str.trim();
-  if (
-    !(trimmed.startsWith("{") && trimmed.endsWith("}")) &&
-    !(trimmed.startsWith("[") && trimmed.endsWith("]"))
-  ) {
-    return { success: false, data: str };
-  }
-  try {
-    return { success: true, data: JSON.parse(str) };
-  } catch {
-    return { success: false, data: str };
-  }
+  isError?: boolean;
 }
 
 const JsonView = memo(
@@ -35,6 +22,7 @@ const JsonView = memo(
     initialExpandDepth = 3,
     className,
     withCopyButton = true,
+    isError = false,
   }: JsonViewProps) => {
     const { toast } = useToast();
     const [copied, setCopied] = useState(false);
@@ -100,6 +88,7 @@ const JsonView = memo(
             name={name}
             depth={0}
             initialExpandDepth={initialExpandDepth}
+            isError={isError}
           />
         </div>
       </div>
@@ -114,28 +103,28 @@ interface JsonNodeProps {
   name?: string;
   depth: number;
   initialExpandDepth: number;
+  isError?: boolean;
 }
 
 const JsonNode = memo(
-  ({ data, name, depth = 0, initialExpandDepth }: JsonNodeProps) => {
+  ({
+    data,
+    name,
+    depth = 0,
+    initialExpandDepth,
+    isError = false,
+  }: JsonNodeProps) => {
     const [isExpanded, setIsExpanded] = useState(depth < initialExpandDepth);
-
-    const getDataType = (value: JsonValue): string => {
-      if (Array.isArray(value)) return "array";
-      if (value === null) return "null";
-      return typeof value;
-    };
-
-    const dataType = getDataType(data);
-
-    const typeStyleMap: Record<string, string> = {
+    const [typeStyleMap] = useState<Record<string, string>>({
       number: "text-blue-600",
       boolean: "text-amber-600",
       null: "text-purple-600",
       undefined: "text-gray-600",
-      string: "text-green-600 break-all whitespace-pre-wrap",
+      string: "text-green-600 group-hover:text-green-500",
+      error: "text-red-600 group-hover:text-red-500",
       default: "text-gray-700",
-    };
+    });
+    const dataType = getDataType(data);
 
     const renderCollapsible = (isArray: boolean) => {
       const items = isArray
@@ -236,7 +225,14 @@ const JsonNode = memo(
                 {name}:
               </span>
             )}
-            <pre className={typeStyleMap.string}>"{value}"</pre>
+            <pre
+              className={clsx(
+                typeStyleMap.string,
+                "break-all whitespace-pre-wrap",
+              )}
+            >
+              "{value}"
+            </pre>
           </div>
         );
       }
@@ -250,8 +246,8 @@ const JsonNode = memo(
           )}
           <pre
             className={clsx(
-              typeStyleMap.string,
-              "cursor-pointer group-hover:text-green-500",
+              isError ? typeStyleMap.error : typeStyleMap.string,
+              "cursor-pointer break-all whitespace-pre-wrap",
             )}
             onClick={() => setIsExpanded(!isExpanded)}
             title={isExpanded ? "Click to collapse" : "Click to expand"}

@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, jest } from "@jest/globals";
 import DynamicJsonForm from "../DynamicJsonForm";
-import type { JsonSchemaType } from "../DynamicJsonForm";
+import type { JsonSchemaType } from "@/utils/jsonUtils";
 
 describe("DynamicJsonForm String Fields", () => {
   const renderForm = (props = {}) => {
