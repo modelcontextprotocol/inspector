@@ -162,7 +162,7 @@ const ResourcesTab = ({
         />
 
         <div className="bg-card rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center">
             <h3
               className="font-semibold truncate"
               title={selectedResource?.name || selectedTemplate?.name}
