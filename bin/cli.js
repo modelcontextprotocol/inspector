@@ -100,7 +100,7 @@ async function main() {
 
   if (serverOk) {
     try {
-      if (!process.env.MCP_AUTO_OPEN_DISABLED) {
+      if (process.env.MCP_AUTO_OPEN_DISABLED !== "true") {
         open(`http://127.0.0.1:${CLIENT_PORT}`);
       }
       await spawnPromise("node", [inspectorClientPath], {
