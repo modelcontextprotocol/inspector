@@ -386,7 +386,6 @@ const Sidebar = ({
                         />
                       ) : typeof configItem.value === "boolean" ? (
                         <Select
-                          data-testid={`${configKey}-select`}
                           value={configItem.value.toString()}
                           onValueChange={(val) => {
                             const newConfig = { ...config };
@@ -397,12 +396,25 @@ const Sidebar = ({
                             setConfig(newConfig);
                           }}
                         >
-                          <SelectTrigger id={`${configKey}-input`}>
+                          <SelectTrigger
+                            id={`${configKey}-input`}
+                            data-testid={`${configKey}-input`}
+                          >
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="true">True</SelectItem>
-                            <SelectItem value="false">False</SelectItem>
+                            <SelectItem
+                              data-testid={`${configKey}-input-true`}
+                              value="true"
+                            >
+                              True
+                            </SelectItem>
+                            <SelectItem
+                              data-testid={`${configKey}-input-false`}
+                              value="false"
+                            >
+                              False
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       ) : (

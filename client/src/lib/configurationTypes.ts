@@ -33,4 +33,9 @@ export type InspectorConfig = {
    * The full address of the MCP Proxy Server, in case it is running on a non-default address. Example: http://10.1.1.22:5577
    */
   MCP_PROXY_FULL_ADDRESS: ConfigItem;
+
+  /**
+   * Disable automatic browser opening when inspector starts.
+   */
+  MCP_AUTO_OPEN_DISABLED: ConfigItem;
 };

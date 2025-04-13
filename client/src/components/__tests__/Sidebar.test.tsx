@@ -423,6 +423,33 @@ describe("Sidebar Environment Variables", () => {
       );
     });
 
+    it("should update auto browser open disabled", () => {
+      const setConfig = jest.fn();
+      renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });
+
+      openConfigSection();
+
+      const autoOpenDisabledInput = screen.getByTestId(
+        "MCP_AUTO_OPEN_DISABLED-input",
+      );
+      fireEvent.click(autoOpenDisabledInput);
+      const trueOption = screen.getByTestId(
+        "MCP_AUTO_OPEN_DISABLED-input-true",
+      );
+      fireEvent.click(trueOption);
+
+      expect(setConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          MCP_AUTO_OPEN_DISABLED: {
+            label: "Auto Browser Open Disabled",
+            description:
+              "Disable automatic browser opening when inspector starts",
+            value: true,
+          },
+        }),
+      );
+    });
+
     it("should maintain configuration state after multiple updates", () => {
       const setConfig = jest.fn();
       const { rerender } = renderSidebar({
