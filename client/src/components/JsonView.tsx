@@ -227,7 +227,7 @@ const JsonNode = memo(
             )}
             <pre
               className={clsx(
-                typeStyleMap.string,
+                isError ? typeStyleMap.error : typeStyleMap.string,
                 "break-all whitespace-pre-wrap",
               )}
             >
