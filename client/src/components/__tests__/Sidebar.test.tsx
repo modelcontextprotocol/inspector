@@ -30,6 +30,7 @@ describe("Sidebar Environment Variables", () => {
     onConnect: jest.fn(),
     onDisconnect: jest.fn(),
     stdErrNotifications: [],
+    clearStdErrNotifications: jest.fn(),
     logLevel: "info" as const,
     sendLogLevelRequest: jest.fn(),
     loggingSupported: true,
