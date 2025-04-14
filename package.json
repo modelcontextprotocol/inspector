@@ -43,10 +43,10 @@
     "publish-all": "npm publish --workspaces --access public && npm publish --access public"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-bin": "^0.8.2",
-    "@modelcontextprotocol/inspector-cli": "^0.8.2",
-    "@modelcontextprotocol/inspector-client": "^0.8.2",
-    "@modelcontextprotocol/inspector-server": "^0.8.2",
+    "@modelcontextprotocol/inspector-bin": "^0.9.0",
+    "@modelcontextprotocol/inspector-cli": "^0.9.0",
+    "@modelcontextprotocol/inspector-client": "^0.9.0",
+    "@modelcontextprotocol/inspector-server": "^0.9.0",
     "@modelcontextprotocol/sdk": "^1.9.0",
     "concurrently": "^9.0.1",
     "shell-quote": "^1.8.2",
