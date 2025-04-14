@@ -48,6 +48,7 @@ interface UseConnectionOptions {
   sseUrl: string;
   env: Record<string, string>;
   bearerToken?: string;
+  headerName?: string;
   config: InspectorConfig;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
@@ -64,6 +65,7 @@ export function useConnection({
   sseUrl,
   env,
   bearerToken,
+  headerName,
   config,
   onNotification,
   onStdErrNotification,
@@ -293,7 +295,8 @@ export function useConnection({
       // Use manually provided bearer token if available, otherwise use OAuth tokens
       const token = bearerToken || (await authProvider.tokens())?.access_token;
       if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
+        const authHeaderName = headerName || "Authorization";
+        headers[authHeaderName] = `Bearer ${token}`;
       }
 
       const clientTransport = new SSEClientTransport(mcpProxyServerUrl, {
