@@ -30,6 +30,10 @@ jobs:
         working-directory: ./client
         run: npm test
 
+      - name: Run cli tests
+        working-directory: ./cli
+        run: npm test
+
       - run: npm run build
 
   publish:

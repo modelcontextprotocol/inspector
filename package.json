@@ -8,42 +8,36 @@
   "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "type": "module",
   "bin": {
-    "mcp-inspector": "./bin/cli.js"
+    "mcp-inspector": "./cli/build/cli.js"
   },
   "files": [
-    "bin",
     "client/bin",
     "client/dist",
     "server/build",
-    "cli/bin",
     "cli/build"
   ],
   "workspaces": [
     "client",
     "server",
-    "cli",
-    "bin"
+    "cli"
   ],
   "scripts": {
-    "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
-    "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows\"",
-    "test": "npm run prettier-check && cd client && npm test",
-    "test-cli": "cd bin && npm run test",
-    "build-bin": "cd bin && npm run build",
+    "build": "npm run build-server && npm run build-client && npm run build-cli",
     "build-server": "cd server && npm run build",
     "build-client": "cd client && npm run build",
     "build-cli": "cd cli && npm run build",
-    "build": "npm run build-bin && npm run build-server && npm run build-client && npm run build-cli",
+    "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
+    "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows\"",
+    "start": "node client/bin/start.js",
     "start-server": "cd server && npm run start",
     "start-client": "cd client && npm run preview",
-    "start": "node ./bin/cli.js",
-    "prepare": "npm run build",
+    "test": "npm run prettier-check && cd client && npm test",
+    "test-cli": "cd cli && npm run test",
     "prettier-fix": "prettier --write .",
     "prettier-check": "prettier --check .",
     "publish-all": "npm publish --workspaces --access public && npm publish --access public"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-bin": "^0.9.0",
     "@modelcontextprotocol/inspector-cli": "^0.9.0",
     "@modelcontextprotocol/inspector-client": "^0.9.0",
     "@modelcontextprotocol/inspector-server": "^0.9.0",
