@@ -8,7 +8,7 @@
   "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "type": "module",
   "bin": {
-    "mcp-inspector": "./cli/build/cli.js"
+    "mcp-inspector": "cli/build/cli.js"
   },
   "files": [
     "client/bin",
