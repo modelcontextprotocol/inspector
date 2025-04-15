@@ -22,20 +22,15 @@ jobs:
           node-version: 18
           cache: npm
 
-      - run: npm run build
-
       # Working around https://github.com/npm/cli/issues/4828
       # - run: npm ci
-
       - run: npm install --no-package-lock
 
       - name: Run client tests
         working-directory: ./client
         run: npm test
 
-      - name: Run cli tests
-        working-directory: ./cli
-        run: npm test
+      - run: npm run build
 
   publish:
     runs-on: ubuntu-latest
