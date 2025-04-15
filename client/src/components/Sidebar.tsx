@@ -51,9 +51,12 @@ interface SidebarProps {
   setEnv: (env: Record<string, string>) => void;
   bearerToken: string;
   setBearerToken: (token: string) => void;
+  headerName?: string;
+  setHeaderName?: (name: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
   stdErrNotifications: StdErrNotification[];
+  clearStdErrNotifications: () => void;
   logLevel: LoggingLevel;
   sendLogLevelRequest: (level: LoggingLevel) => void;
   loggingSupported: boolean;
@@ -75,9 +78,12 @@ const Sidebar = ({
   setEnv,
   bearerToken,
   setBearerToken,
+  headerName,
+  setHeaderName,
   onConnect,
   onDisconnect,
   stdErrNotifications,
+  clearStdErrNotifications,
   logLevel,
   sendLogLevelRequest,
   loggingSupported,
@@ -174,6 +180,7 @@ const Sidebar = ({
                   variant="outline"
                   onClick={() => setShowBearerToken(!showBearerToken)}
                   className="flex items-center w-full"
+                  data-testid="auth-button"
                   aria-expanded={showBearerToken}
                 >
                   {showBearerToken ? (
@@ -185,6 +192,16 @@ const Sidebar = ({
                 </Button>
                 {showBearerToken && (
                   <div className="space-y-2">
+                    <label className="text-sm font-medium">Header Name</label>
+                    <Input
+                      placeholder="Authorization"
+                      onChange={(e) =>
+                        setHeaderName && setHeaderName(e.target.value)
+                      }
+                      data-testid="header-input"
+                      className="font-mono"
+                      value={headerName}
+                    />
                     <label
                       className="text-sm font-medium"
                       htmlFor="bearer-token-input"
@@ -196,6 +213,7 @@ const Sidebar = ({
                       placeholder="Bearer Token"
                       value={bearerToken}
                       onChange={(e) => setBearerToken(e.target.value)}
+                      data-testid="bearer-token-input"
                       className="font-mono"
                       type="password"
                     />
@@ -514,9 +532,19 @@ const Sidebar = ({
             {stdErrNotifications.length > 0 && (
               <>
                 <div className="mt-4 border-t border-gray-200 pt-4">
-                  <h3 className="text-sm font-medium">
-                    Error output from MCP server
-                  </h3>
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-sm font-medium">
+                      Error output from MCP server
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={clearStdErrNotifications}
+                      className="h-8 px-2"
+                    >
+                      Clear
+                    </Button>
+                  </div>
                   <div className="mt-2 max-h-80 overflow-y-auto">
                     {stdErrNotifications.map((notification, index) => (
                       <div
