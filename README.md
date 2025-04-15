@@ -40,7 +40,7 @@ For more details on ways to use the inspector, see the [Inspector section of the
 
 ### Authentication
 
-The inspector supports bearer token authentication for SSE connections. Enter your token in the UI when connecting to an MCP server, and it will be sent in the Authorization header.
+The inspector supports bearer token authentication for SSE connections. Enter your token in the UI when connecting to an MCP server, and it will be sent in the Authorization header. You can override the header name using the input field in the sidebar.
 
 ### Security Considerations
 
