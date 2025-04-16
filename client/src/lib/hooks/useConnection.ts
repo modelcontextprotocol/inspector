@@ -28,10 +28,10 @@ import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
-import { ConnectionStatus, SESSION_KEYS } from "../constants";
+import { ConnectionStatus } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
-import { authProvider } from "../auth";
+import { InspectorOAuthClientProvider } from "../auth";
 import packageJson from "../../../package.json";
 import {
   getMCPProxyAddress,
@@ -246,9 +246,10 @@ export function useConnection({
 
   const handleAuthError = async (error: unknown) => {
     if (error instanceof SseError && error.code === 401) {
-      sessionStorage.setItem(SESSION_KEYS.SERVER_URL, sseUrl);
+      // Create a new auth provider with the current server URL
+      const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
-      const result = await auth(authProvider, { serverUrl: sseUrl });
+      const result = await auth(serverAuthProvider, { serverUrl: sseUrl });
       return result === "AUTHORIZED";
     }
 
@@ -292,8 +293,12 @@ export function useConnection({
       // proxying through the inspector server first.
       const headers: HeadersInit = {};
 
+      // Create an auth provider with the current server URL
+      const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
+
       // Use manually provided bearer token if available, otherwise use OAuth tokens
-      const token = bearerToken || (await authProvider.tokens())?.access_token;
+      const token =
+        bearerToken || (await serverAuthProvider.tokens())?.access_token;
       if (token) {
         const authHeaderName = headerName || "Authorization";
         headers[authHeaderName] = `Bearer ${token}`;
