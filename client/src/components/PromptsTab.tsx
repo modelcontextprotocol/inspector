@@ -43,7 +43,7 @@ const PromptsTab = ({
   clearPrompts: () => void;
   getPrompt: (name: string, args: Record<string, string>) => void;
   selectedPrompt: Prompt | null;
-  setSelectedPrompt: (prompt: Prompt) => void;
+  setSelectedPrompt: (prompt: Prompt | null) => void;
   handleCompletion: (
     ref: PromptReference | ResourceReference,
     argName: string,
