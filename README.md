@@ -6,6 +6,10 @@ The MCP inspector is a developer tool for testing and debugging MCP servers.
 
 ## Running the Inspector
 
+### Requirements
+
+- Node.js: ^22.7.5
+
 ### From an MCP server repository
 
 To inspect an MCP server implementation, there's no need to clone this repo. Instead, use `npx`. For example, if your server is built at `build/index.js`:
@@ -69,7 +73,7 @@ Development mode:
 npm run dev
 ```
 
-> **Note for Windows users:**  
+> **Note for Windows users:**
 > On Windows, use the following command instead:
 >
 > ```bash
