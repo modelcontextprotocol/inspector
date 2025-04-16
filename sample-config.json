@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "everything": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-everything"],
+      "env": {
+        "HELLO": "Hello MCP!"
+      }
+    },
+    "myserver": {
+      "command": "node",
+      "args": ["build/index.js", "arg1", "arg2"],
+      "env": {
+        "KEY": "value",
+        "KEY2": "value2"
+      }
+    }
+  }
+}
