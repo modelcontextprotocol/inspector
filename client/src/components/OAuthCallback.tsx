@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { authProvider } from "../lib/auth";
+import { InspectorOAuthClientProvider } from "../lib/auth";
 import { SESSION_KEYS } from "../lib/constants";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 
@@ -25,7 +25,10 @@ const OAuthCallback = () => {
       }
 
       try {
-        const result = await auth(authProvider, {
+        // Create an auth provider with the current server URL
+        const serverAuthProvider = new InspectorOAuthClientProvider(serverUrl);
+
+        const result = await auth(serverAuthProvider, {
           serverUrl,
           authorizationCode: code,
         });
