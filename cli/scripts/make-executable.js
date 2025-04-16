@@ -6,7 +6,7 @@ import { platform } from "os";
 import { execSync } from "child_process";
 import path from "path";
 
-const TARGET_FILE = path.resolve("build/index.js");
+const TARGET_FILE = path.resolve("build/cli.js");
 
 async function makeExecutable() {
   try {

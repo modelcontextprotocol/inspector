@@ -44,30 +44,12 @@ console.log(`${colors.BLUE}- Resource-related options (--uri)${colors.NC}`);
 console.log(
   `${colors.BLUE}- Prompt-related options (--prompt-name, --prompt-args)${colors.NC}`,
 );
-console.log(`${colors.BLUE}- Logging options (--log-level)${colors.NC}`);
-console.log("");
+console.log(`${colors.BLUE}- Logging options (--log-level)${colors.NC}\n`);
 
 // Get directory paths
 const SCRIPTS_DIR = __dirname;
-const BIN_DIR = path.resolve(SCRIPTS_DIR, "..");
-const PROJECT_ROOT = path.resolve(BIN_DIR, "..");
-
-// Compile bin and cli projects
-console.log(
-  `${colors.YELLOW}Compiling MCP Inspector bin and cli...${colors.NC}`,
-);
-try {
-  process.chdir(BIN_DIR);
-  execSync("npm run build", { stdio: "inherit" });
-  process.chdir(path.join(PROJECT_ROOT, "cli"));
-  execSync("npm run build", { stdio: "inherit" });
-  process.chdir(BIN_DIR);
-} catch (error) {
-  console.error(
-    `${colors.RED}Error during compilation: ${error.message}${colors.NC}`,
-  );
-  process.exit(1);
-}
+const PROJECT_ROOT = path.join(SCRIPTS_DIR, "../../");
+const BUILD_DIR = path.resolve(SCRIPTS_DIR, "../build");
 
 // Define the test server command using npx
 const TEST_CMD = "npx";
@@ -80,9 +62,10 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 }
 
 // Create a temporary directory for test files
-const TEMP_DIR = fs.mkdirSync(path.join(os.tmpdir(), "mcp-inspector-tests-"), {
+const TEMP_DIR = fs.mkdirSync(path.join(os.tmpdir(), "mcp-inspector-tests"), {
   recursive: true,
 });
+
 process.on("exit", () => {
   try {
     fs.rmSync(TEMP_DIR, { recursive: true, force: true });
@@ -125,7 +108,7 @@ async function runBasicTest(testName, ...args) {
 
   // Run the command and capture output
   console.log(
-    `${colors.BLUE}Command: node ${BIN_DIR}/cli.js ${args.join(" ")}${colors.NC}`,
+    `${colors.BLUE}Command: node ${BUILD_DIR}/cli.js ${args.join(" ")}${colors.NC}`,
   );
 
   try {
@@ -134,7 +117,7 @@ async function runBasicTest(testName, ...args) {
 
     // Spawn the process
     return new Promise((resolve) => {
-      const child = spawn("node", [path.join(BIN_DIR, "cli.js"), ...args], {
+      const child = spawn("node", [path.join(BUILD_DIR, "cli.js"), ...args], {
         stdio: ["ignore", "pipe", "pipe"],
       });
 
@@ -205,7 +188,7 @@ async function runErrorTest(testName, ...args) {
 
   // Run the command and capture output
   console.log(
-    `${colors.BLUE}Command: node ${BIN_DIR}/cli.js ${args.join(" ")}${colors.NC}`,
+    `${colors.BLUE}Command: node ${BUILD_DIR}/cli.js ${args.join(" ")}${colors.NC}`,
   );
 
   try {
@@ -214,7 +197,7 @@ async function runErrorTest(testName, ...args) {
 
     // Spawn the process
     return new Promise((resolve) => {
-      const child = spawn("node", [path.join(BIN_DIR, "cli.js"), ...args], {
+      const child = spawn("node", [path.join(BUILD_DIR, "cli.js"), ...args], {
         stdio: ["ignore", "pipe", "pipe"],
       });
 

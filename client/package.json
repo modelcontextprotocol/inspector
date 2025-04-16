@@ -8,14 +8,14 @@
   "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "type": "module",
   "bin": {
-    "mcp-inspector-client": "./bin/cli.js"
+    "mcp-inspector-client": "./bin/start.js"
   },
   "files": [
     "bin",
     "dist"
   ],
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 6274",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview --port 6274",
