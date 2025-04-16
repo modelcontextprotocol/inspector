@@ -15,7 +15,7 @@
     "dist"
   ],
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 6274",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview --port 6274",
