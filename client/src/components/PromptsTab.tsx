@@ -89,7 +89,10 @@ const PromptsTab = ({
         <ListPane
           items={prompts}
           listItems={listPrompts}
-          clearItems={clearPrompts}
+          clearItems={() => {
+            clearPrompts();
+            setSelectedPrompt(null);
+          }}
           setSelectedItem={(prompt) => {
             setSelectedPrompt(prompt);
             setPromptArgs({});
