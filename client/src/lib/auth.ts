@@ -90,8 +90,8 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   clear() {
-    sessionStorage.removeItem(SESSION_KEYS.CLIENT_INFORMATION);
-    sessionStorage.removeItem(SESSION_KEYS.TOKENS);
-    sessionStorage.removeItem(SESSION_KEYS.CODE_VERIFIER);
+    sessionStorage.removeItem(getServerSpecificKey(SESSION_KEYS.CLIENT_INFORMATION, this.serverUrl));
+    sessionStorage.removeItem(getServerSpecificKey(SESSION_KEYS.TOKENS, this.serverUrl));
+    sessionStorage.removeItem(getServerSpecificKey(SESSION_KEYS.CODE_VERIFIER, this.serverUrl));
   }
 }
