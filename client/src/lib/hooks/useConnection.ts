@@ -48,6 +48,7 @@ interface UseConnectionOptions {
   sseUrl: string;
   env: Record<string, string>;
   bearerToken?: string;
+  headerName?: string;
   config: InspectorConfig;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
@@ -64,6 +65,7 @@ export function useConnection({
   sseUrl,
   env,
   bearerToken,
+  headerName,
   config,
   onNotification,
   onStdErrNotification,
@@ -293,7 +295,8 @@ export function useConnection({
       // Use manually provided bearer token if available, otherwise use OAuth tokens
       const token = bearerToken || (await authProvider.tokens())?.access_token;
       if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
+        const authHeaderName = headerName || "Authorization";
+        headers[authHeaderName] = `Bearer ${token}`;
       }
 
       const clientTransport = new SSEClientTransport(mcpProxyServerUrl, {
@@ -332,8 +335,19 @@ export function useConnection({
         );
       }
 
+      let capabilities;
       try {
         await client.connect(clientTransport);
+
+        capabilities = client.getServerCapabilities();
+        const initializeRequest = {
+          method: "initialize",
+        };
+        pushHistory(initializeRequest, {
+          capabilities,
+          serverInfo: client.getServerVersion(),
+          instructions: client.getInstructions(),
+        });
       } catch (error) {
         console.error(
           `Failed to connect to MCP Server via the MCP Inspector Proxy: ${mcpProxyServerUrl}:`,
@@ -350,8 +364,6 @@ export function useConnection({
         }
         throw error;
       }
-
-      const capabilities = client.getServerCapabilities();
       setServerCapabilities(capabilities ?? null);
       setCompletionsSupported(true); // Reset completions support on new connection
 

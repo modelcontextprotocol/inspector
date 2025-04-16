@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "description": "Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -14,19 +14,26 @@
     "bin",
     "client/bin",
     "client/dist",
-    "server/build"
+    "server/build",
+    "cli/bin",
+    "cli/build"
   ],
   "workspaces": [
     "client",
-    "server"
+    "server",
+    "cli",
+    "bin"
   ],
   "scripts": {
     "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
-    "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows",
+    "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows\"",
     "test": "npm run prettier-check && cd client && npm test",
+    "test-cli": "cd bin && npm run test",
+    "build-bin": "cd bin && npm run build",
     "build-server": "cd server && npm run build",
     "build-client": "cd client && npm run build",
-    "build": "npm run build-server && npm run build-client",
+    "build-cli": "cd cli && npm run build",
+    "build": "npm run build-bin && npm run build-server && npm run build-client && npm run build-cli",
     "start-server": "cd server && npm run start",
     "start-client": "cd client && npm run preview",
     "start": "node ./bin/cli.js",
@@ -36,17 +43,22 @@
     "publish-all": "npm publish --workspaces --access public && npm publish --access public"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-client": "^0.8.2",
-    "@modelcontextprotocol/inspector-server": "^0.8.2",
+    "@modelcontextprotocol/inspector-bin": "^0.9.0",
+    "@modelcontextprotocol/inspector-cli": "^0.9.0",
+    "@modelcontextprotocol/inspector-client": "^0.9.0",
+    "@modelcontextprotocol/inspector-server": "^0.9.0",
+    "@modelcontextprotocol/sdk": "^1.9.0",
     "concurrently": "^9.0.1",
     "shell-quote": "^1.8.2",
     "spawn-rx": "^5.1.2",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
     "@types/node": "^22.7.5",
     "@types/shell-quote": "^1.7.5",
-    "prettier": "3.3.3"
+    "prettier": "3.3.3",
+    "typescript": "^5.4.2"
   }
 }

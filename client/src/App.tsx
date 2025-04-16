@@ -117,6 +117,10 @@ const App = () => {
     return localStorage.getItem("lastBearerToken") || "";
   });
 
+  const [headerName, setHeaderName] = useState<string>(() => {
+    return localStorage.getItem("lastHeaderName") || "";
+  });
+
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     Array<
       PendingRequest & {
@@ -169,6 +173,7 @@ const App = () => {
     sseUrl,
     env,
     bearerToken,
+    headerName,
     config,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
@@ -207,6 +212,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastBearerToken", bearerToken);
   }, [bearerToken]);
+
+  useEffect(() => {
+    localStorage.setItem("lastHeaderName", headerName);
+  }, [headerName]);
 
   useEffect(() => {
     localStorage.setItem(CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
@@ -467,6 +476,10 @@ const App = () => {
     setLogLevel(level);
   };
 
+  const clearStdErrNotifications = () => {
+    setStdErrNotifications([]);
+  };
+
   if (window.location.pathname === "/oauth/callback") {
     const OAuthCallback = React.lazy(
       () => import("./components/OAuthCallback"),
@@ -496,12 +509,15 @@ const App = () => {
         setConfig={setConfig}
         bearerToken={bearerToken}
         setBearerToken={setBearerToken}
+        headerName={headerName}
+        setHeaderName={setHeaderName}
         onConnect={connectMcpServer}
         onDisconnect={disconnectMcpServer}
         stdErrNotifications={stdErrNotifications}
         logLevel={logLevel}
         sendLogLevelRequest={sendLogLevelRequest}
         loggingSupported={!!serverCapabilities?.logging || false}
+        clearStdErrNotifications={clearStdErrNotifications}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">

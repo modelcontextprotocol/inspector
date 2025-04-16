@@ -17,6 +17,8 @@ const mockClient = {
   connect: jest.fn().mockResolvedValue(undefined),
   close: jest.fn(),
   getServerCapabilities: jest.fn(),
+  getServerVersion: jest.fn(),
+  getInstructions: jest.fn(),
   setNotificationHandler: jest.fn(),
   setRequestHandler: jest.fn(),
 };
