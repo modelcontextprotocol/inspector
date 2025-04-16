@@ -522,7 +522,7 @@ const Sidebar = ({
                   </SelectTrigger>
                   <SelectContent>
                     {Object.values(LoggingLevelSchema.enum).map((level) => (
-                      <SelectItem value={level}>{level}</SelectItem>
+                      <SelectItem key={level} value={level}>{level}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
