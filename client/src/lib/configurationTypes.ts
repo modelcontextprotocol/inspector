@@ -37,5 +37,5 @@ export type InspectorConfig = {
   /**
    * Disable automatic browser opening when inspector starts.
    */
-  MCP_AUTO_OPEN_DISABLED: ConfigItem;
+  MCP_AUTO_OPEN_ENABLED: ConfigItem;
 };

@@ -56,7 +56,7 @@ The MCP Inspector supports the following configuration settings. To change them,
 | `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                      | true    |
 | `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)             | 60000   |
 | `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577 | ""      |
-| `MCP_AUTO_OPEN_DISABLED`                | Disable automatic browser opening when inspector starts                                                      | false   |
+| `MCP_AUTO_OPEN_ENABLED`                | Enable automatic browser opening when inspector starts                                                      | true   |
 
 The inspector also supports configuration files to store settings for different MCP servers. This is useful when working with multiple servers or complex configurations:
 

@@ -583,21 +583,21 @@ describe("Sidebar Environment Variables", () => {
       openConfigSection();
 
       const autoOpenDisabledInput = screen.getByTestId(
-        "MCP_AUTO_OPEN_DISABLED-input",
+        "MCP_AUTO_OPEN_ENABLED-input",
       );
       fireEvent.click(autoOpenDisabledInput);
-      const trueOption = screen.getByTestId(
-        "MCP_AUTO_OPEN_DISABLED-input-true",
+      const falseOption = screen.getByTestId(
+        "MCP_AUTO_OPEN_ENABLED-input-false",
       );
-      fireEvent.click(trueOption);
+      fireEvent.click(falseOption);
 
       expect(setConfig).toHaveBeenCalledWith(
         expect.objectContaining({
-          MCP_AUTO_OPEN_DISABLED: {
-            label: "Auto Browser Open Disabled",
+          MCP_AUTO_OPEN_ENABLED: {
+            label: "Auto Browser Open Enabled",
             description:
-              "Disable automatic browser opening when inspector starts",
-            value: true,
+              "Enable automatic browser opening when inspector starts",
+            value: false,
           },
         }),
       );
