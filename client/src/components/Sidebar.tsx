@@ -51,9 +51,12 @@ interface SidebarProps {
   setEnv: (env: Record<string, string>) => void;
   bearerToken: string;
   setBearerToken: (token: string) => void;
+  headerName?: string;
+  setHeaderName?: (name: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
   stdErrNotifications: StdErrNotification[];
+  clearStdErrNotifications: () => void;
   logLevel: LoggingLevel;
   sendLogLevelRequest: (level: LoggingLevel) => void;
   loggingSupported: boolean;
@@ -75,9 +78,12 @@ const Sidebar = ({
   setEnv,
   bearerToken,
   setBearerToken,
+  headerName,
+  setHeaderName,
   onConnect,
   onDisconnect,
   stdErrNotifications,
+  clearStdErrNotifications,
   logLevel,
   sendLogLevelRequest,
   loggingSupported,
@@ -92,7 +98,7 @@ const Sidebar = ({
 
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center">
           <h1 className="ml-2 text-lg font-semibold">
             MCP Inspector v{version}
@@ -175,6 +181,7 @@ const Sidebar = ({
                   variant="outline"
                   onClick={() => setShowBearerToken(!showBearerToken)}
                   className="flex items-center w-full"
+                  data-testid="auth-button"
                   aria-expanded={showBearerToken}
                 >
                   {showBearerToken ? (
@@ -186,6 +193,16 @@ const Sidebar = ({
                 </Button>
                 {showBearerToken && (
                   <div className="space-y-2">
+                    <label className="text-sm font-medium">Header Name</label>
+                    <Input
+                      placeholder="Authorization"
+                      onChange={(e) =>
+                        setHeaderName && setHeaderName(e.target.value)
+                      }
+                      data-testid="header-input"
+                      className="font-mono"
+                      value={headerName}
+                    />
                     <label
                       className="text-sm font-medium"
                       htmlFor="bearer-token-input"
@@ -197,6 +214,7 @@ const Sidebar = ({
                       placeholder="Bearer Token"
                       value={bearerToken}
                       onChange={(e) => setBearerToken(e.target.value)}
+                      data-testid="bearer-token-input"
                       className="font-mono"
                       type="password"
                     />
@@ -432,7 +450,13 @@ const Sidebar = ({
           <div className="space-y-2">
             {connectionStatus === "connected" && (
               <div className="grid grid-cols-2 gap-4">
-                <Button data-testid="connect-button" onClick={onConnect}>
+                <Button
+                  data-testid="connect-button"
+                  onClick={() => {
+                    onDisconnect();
+                    onConnect();
+                  }}
+                >
                   <RotateCcw className="w-4 h-4 mr-2" />
                   {transportType === "stdio" ? "Restart" : "Reconnect"}
                 </Button>
@@ -499,7 +523,9 @@ const Sidebar = ({
                   </SelectTrigger>
                   <SelectContent>
                     {Object.values(LoggingLevelSchema.enum).map((level) => (
-                      <SelectItem value={level}>{level}</SelectItem>
+                      <SelectItem key={level} value={level}>
+                        {level}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -509,9 +535,19 @@ const Sidebar = ({
             {stdErrNotifications.length > 0 && (
               <>
                 <div className="mt-4 border-t border-gray-200 pt-4">
-                  <h3 className="text-sm font-medium">
-                    Error output from MCP server
-                  </h3>
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-sm font-medium">
+                      Error output from MCP server
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={clearStdErrNotifications}
+                      className="h-8 px-2"
+                    >
+                      Clear
+                    </Button>
+                  </div>
                   <div className="mt-2 max-h-80 overflow-y-auto">
                     {stdErrNotifications.map((notification, index) => (
                       <div

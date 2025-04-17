@@ -43,7 +43,10 @@ const useTheme = (): [Theme, (mode: Theme) => void] => {
       document.documentElement.classList.toggle("dark", newTheme === "dark");
     }
   }, []);
-  return useMemo(() => [theme, setThemeWithSideEffect], [theme]);
+  return useMemo(
+    () => [theme, setThemeWithSideEffect],
+    [theme, setThemeWithSideEffect],
+  );
 };
 
 export default useTheme;

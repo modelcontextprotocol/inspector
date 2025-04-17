@@ -17,7 +17,13 @@ import {
   Tool,
   LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
-import React, { Suspense, useEffect, useRef, useState } from "react";
+import React, {
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useConnection } from "./lib/hooks/useConnection";
 import { useDraggablePane } from "./lib/hooks/useDraggablePane";
 import { StdErrNotification } from "./lib/notificationTypes";
@@ -46,14 +52,10 @@ import ToolsTab from "./components/ToolsTab";
 import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
 import { getMCPProxyAddress } from "./utils/configUtils";
-import { useToast } from "@/hooks/use-toast";
 
-const params = new URLSearchParams(window.location.search);
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
 const App = () => {
-  const { toast } = useToast();
-  // Handle OAuth callback route
   const [resources, setResources] = useState<Resource[]>([]);
   const [resourceTemplates, setResourceTemplates] = useState<
     ResourceTemplate[]
@@ -122,6 +124,10 @@ const App = () => {
     return localStorage.getItem("lastBearerToken") || "";
   });
 
+  const [headerName, setHeaderName] = useState<string>(() => {
+    return localStorage.getItem("lastHeaderName") || "";
+  });
+
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     Array<
       PendingRequest & {
@@ -174,6 +180,7 @@ const App = () => {
     sseUrl,
     env,
     bearerToken,
+    headerName,
     config,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
@@ -214,34 +221,22 @@ const App = () => {
   }, [bearerToken]);
 
   useEffect(() => {
+    localStorage.setItem("lastHeaderName", headerName);
+  }, [headerName]);
+
+  useEffect(() => {
     localStorage.setItem(CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
   }, [config]);
 
-  const hasProcessedRef = useRef(false);
-  // Auto-connect if serverUrl is provided in URL params (e.g. after OAuth callback)
-  useEffect(() => {
-    if (hasProcessedRef.current) {
-      // Only try to connect once
-      return;
-    }
-    const serverUrl = params.get("serverUrl");
-    if (serverUrl) {
+  // Auto-connect to previously saved serverURL after OAuth callback
+  const onOAuthConnect = useCallback(
+    (serverUrl: string) => {
       setSseUrl(serverUrl);
       setTransportType("sse");
-      // Remove serverUrl from URL without reloading the page
-      const newUrl = new URL(window.location.href);
-      newUrl.searchParams.delete("serverUrl");
-      window.history.replaceState({}, "", newUrl.toString());
-      // Show success toast for OAuth
-      toast({
-        title: "Success",
-        description: "Successfully authenticated with OAuth",
-      });
-      hasProcessedRef.current = true;
-      // Connect to the server
-      connectMcpServer();
-    }
-  }, [connectMcpServer, toast]);
+      void connectMcpServer();
+    },
+    [connectMcpServer],
+  );
 
   useEffect(() => {
     fetch(`${getMCPProxyAddress(config)}/config`)
@@ -472,13 +467,17 @@ const App = () => {
     setLogLevel(level);
   };
 
+  const clearStdErrNotifications = () => {
+    setStdErrNotifications([]);
+  };
+
   if (window.location.pathname === "/oauth/callback") {
     const OAuthCallback = React.lazy(
       () => import("./components/OAuthCallback"),
     );
     return (
       <Suspense fallback={<div>Loading...</div>}>
-        <OAuthCallback />
+        <OAuthCallback onConnect={onOAuthConnect} />
       </Suspense>
     );
   }
@@ -501,12 +500,15 @@ const App = () => {
         setConfig={setConfig}
         bearerToken={bearerToken}
         setBearerToken={setBearerToken}
+        headerName={headerName}
+        setHeaderName={setHeaderName}
         onConnect={connectMcpServer}
         onDisconnect={disconnectMcpServer}
         stdErrNotifications={stdErrNotifications}
         logLevel={logLevel}
         sendLogLevelRequest={sendLogLevelRequest}
         loggingSupported={!!serverCapabilities?.logging || false}
+        clearStdErrNotifications={clearStdErrNotifications}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">

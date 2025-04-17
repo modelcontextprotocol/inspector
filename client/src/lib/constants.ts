@@ -8,6 +8,15 @@ export const SESSION_KEYS = {
   CLIENT_INFORMATION: "mcp_client_information",
 } as const;
 
+// Generate server-specific session storage keys
+export const getServerSpecificKey = (
+  baseKey: string,
+  serverUrl?: string,
+): string => {
+  if (!serverUrl) return baseKey;
+  return `[${serverUrl}] ${baseKey}`;
+};
+
 export type ConnectionStatus =
   | "disconnected"
   | "connected"
