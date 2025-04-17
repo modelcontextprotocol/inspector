@@ -1,11 +1,11 @@
 .DS_Store
+.vscode
+.idea
 node_modules/
 *-workspace/
 server/build
 client/dist
 client/tsconfig.app.tsbuildinfo
 client/tsconfig.node.tsbuildinfo
-.vscode
-bin/build
 cli/build
 test-output
