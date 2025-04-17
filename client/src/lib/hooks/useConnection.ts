@@ -396,6 +396,8 @@ export function useConnection({
 
   const disconnect = async () => {
     await mcpClient?.close();
+    const authProvider = new InspectorOAuthClientProvider(sseUrl);
+    authProvider.clear();
     setMcpClient(null);
     setConnectionStatus("disconnected");
     setCompletionsSupported(false);
