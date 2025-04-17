@@ -104,7 +104,6 @@ const ResourcesTab = ({
     if (selectedTemplate) {
       const uri = fillTemplate(selectedTemplate.uriTemplate, templateValues);
       readResource(uri);
-      setSelectedTemplate(null);
       // We don't have the full Resource object here, so we create a partial one
       setSelectedResource({ uri, name: uri } as Resource);
     }
@@ -116,7 +115,13 @@ const ResourcesTab = ({
         <ListPane
           items={resources}
           listItems={listResources}
-          clearItems={clearResources}
+          clearItems={() => {
+            clearResources();
+            // Condition to check if selected resource is not resource template's resource
+            if (!selectedTemplate) {
+              setSelectedResource(null);
+            }
+          }}
           setSelectedItem={(resource) => {
             setSelectedResource(resource);
             readResource(resource.uri);
@@ -139,7 +144,14 @@ const ResourcesTab = ({
         <ListPane
           items={resourceTemplates}
           listItems={listResourceTemplates}
-          clearItems={clearResourceTemplates}
+          clearItems={() => {
+            clearResourceTemplates();
+            // Condition to check if selected resource is resource template's resource
+            if (selectedTemplate) {
+              setSelectedResource(null);
+            }
+            setSelectedTemplate(null);
+          }}
           setSelectedItem={(template) => {
             setSelectedTemplate(template);
             setSelectedResource(null);

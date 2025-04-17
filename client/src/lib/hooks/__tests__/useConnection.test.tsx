@@ -17,6 +17,8 @@ const mockClient = {
   connect: jest.fn().mockResolvedValue(undefined),
   close: jest.fn(),
   getServerCapabilities: jest.fn(),
+  getServerVersion: jest.fn(),
+  getInstructions: jest.fn(),
   setNotificationHandler: jest.fn(),
   setRequestHandler: jest.fn(),
 };
@@ -43,9 +45,9 @@ jest.mock("@/hooks/use-toast", () => ({
 
 // Mock the auth provider
 jest.mock("../../auth", () => ({
-  authProvider: {
+  InspectorOAuthClientProvider: jest.fn().mockImplementation(() => ({
     tokens: jest.fn().mockResolvedValue({ access_token: "mock-token" }),
-  },
+  })),
 }));
 
 describe("useConnection", () => {
