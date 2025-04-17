@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-server",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Server-side application for the Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
