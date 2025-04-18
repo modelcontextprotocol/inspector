@@ -46,7 +46,7 @@ async function main() {
 
   const inspectorServerPath = resolve(
     __dirname,
-    "..",
+    "../..",
     "server",
     "build",
     "index.js",
@@ -55,10 +55,10 @@ async function main() {
   // Path to the client entry point
   const inspectorClientPath = resolve(
     __dirname,
-    "..",
+    "../..",
     "client",
     "bin",
-    "cli.js",
+    "client.js",
   );
 
   const CLIENT_PORT = process.env.CLIENT_PORT ?? "6274";

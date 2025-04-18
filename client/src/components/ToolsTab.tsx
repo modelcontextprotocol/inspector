@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import DynamicJsonForm, { JsonSchemaType, JsonValue } from "./DynamicJsonForm";
+import DynamicJsonForm from "./DynamicJsonForm";
+import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
 import { generateDefaultValue } from "@/utils/schemaUtils";
 import {
   CallToolResultSchema,
@@ -42,7 +43,13 @@ const ToolsTab = ({
   const [isToolRunning, setIsToolRunning] = useState(false);
 
   useEffect(() => {
-    setParams({});
+    const params = Object.entries(
+      selectedTool?.inputSchema.properties ?? [],
+    ).map(([key, value]) => [
+      key,
+      generateDefaultValue(value as JsonSchemaType),
+    ]);
+    setParams(Object.fromEntries(params));
   }, [selectedTool]);
 
   const renderToolResult = () => {
@@ -68,11 +75,18 @@ const ToolsTab = ({
       return (
         <>
           <h4 className="font-semibold mb-2">
-            Tool Result: {isError ? "Error" : "Success"}
+            Tool Result:{" "}
+            {isError ? (
+              <span className="text-red-600 font-semibold">Error</span>
+            ) : (
+              <span className="text-green-600 font-semibold">Success</span>
+            )}
           </h4>
           {structuredResult.content.map((item, index) => (
             <div key={index} className="mb-2">
-              {item.type === "text" && <JsonView data={item.text} />}
+              {item.type === "text" && (
+                <JsonView data={item.text} isError={isError} />
+              )}
               {item.type === "image" && (
                 <img
                   src={`data:${item.mimeType};base64,${item.data}`}
@@ -132,7 +146,7 @@ const ToolsTab = ({
         />
 
         <div className="bg-card rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-800">
             <h3 className="font-semibold">
               {selectedTool ? selectedTool.name : "Select a tool"}
             </h3>
@@ -209,13 +223,10 @@ const ToolsTab = ({
                               }}
                             />
                           </div>
-                        ) : (
+                        ) : prop.type === "number" ||
+                          prop.type === "integer" ? (
                           <Input
-                            type={
-                              prop.type === "number" || prop.type === "integer"
-                                ? "number"
-                                : "text"
-                            }
+                            type="number"
                             id={key}
                             name={key}
                             placeholder={prop.description}
@@ -223,15 +234,29 @@ const ToolsTab = ({
                             onChange={(e) =>
                               setParams({
                                 ...params,
-                                [key]:
-                                  prop.type === "number" ||
-                                  prop.type === "integer"
-                                    ? Number(e.target.value)
-                                    : e.target.value,
+                                [key]: Number(e.target.value),
                               })
                             }
                             className="mt-1"
                           />
+                        ) : (
+                          <div className="mt-1">
+                            <DynamicJsonForm
+                              schema={{
+                                type: prop.type,
+                                properties: prop.properties,
+                                description: prop.description,
+                                items: prop.items,
+                              }}
+                              value={params[key] as JsonValue}
+                              onChange={(newValue: JsonValue) => {
+                                setParams({
+                                  ...params,
+                                  [key]: newValue,
+                                });
+                              }}
+                            />
+                          </div>
                         )}
                       </div>
                     );
