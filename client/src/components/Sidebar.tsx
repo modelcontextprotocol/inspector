@@ -12,6 +12,8 @@ import {
   Settings,
   HelpCircle,
   RefreshCwOff,
+  Copy,
+  CheckCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +38,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import { useToast } from "@/hooks/use-toast";
 
 interface SidebarProps {
   connectionStatus: ConnectionStatus;
@@ -95,6 +98,56 @@ const Sidebar = ({
   const [showBearerToken, setShowBearerToken] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
+  const [copiedConfig, setCopiedConfig] = useState(false);
+  const { toast } = useToast();
+
+  // Generate MCP configuration JSON
+  const generateMCPConfig = () => {
+    if (transportType === "stdio") {  
+      // Generate only the server config without the mcpServers wrapper
+      const serverConfig = {
+        command,
+        args: args.trim() ? args.split(/\s+/) : [],
+        env: { ...env },
+      };
+      
+      return JSON.stringify(serverConfig, null, 2);
+    } else {
+      // For SSE connections
+      return JSON.stringify({
+        // SSE configuration doesn't go in mcp.json, but provide the URL info
+        "type": "sse",
+        "url": sseUrl,
+        "note": "For SSE connections, add this URL directly in Cursor"
+      }, null, 2);
+    }
+  };
+
+  // Handle copy config
+  const handleCopyConfig = () => {
+    try {
+      const configJson = generateMCPConfig();
+      navigator.clipboard.writeText(configJson);
+      setCopiedConfig(true);
+      
+      toast({
+        title: "Config copied",
+        description: transportType === "stdio" 
+          ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name." 
+          : "SSE URL has been copied. Use this URL in Cursor directly.",
+      });
+      
+      setTimeout(() => {
+        setCopiedConfig(false);
+      }, 2000);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
@@ -160,6 +213,22 @@ const Sidebar = ({
                   className="font-mono"
                 />
               </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyConfig}
+                  className="mt-1"
+                  title="Copy Server Configuration for mcp.json"
+                >
+                  {copiedConfig ? (
+                    <CheckCheck className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-2" />
+                  )}
+                  Copy Config
+                </Button>
+              </div>
             </>
           ) : (
             <>
@@ -174,6 +243,22 @@ const Sidebar = ({
                   onChange={(e) => setSseUrl(e.target.value)}
                   className="font-mono"
                 />
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyConfig}
+                  className="mt-1"
+                  title="Copy SSE URL Configuration"
+                >
+                  {copiedConfig ? (
+                    <CheckCheck className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-2" />
+                  )}
+                  Copy URL
+                </Button>
               </div>
               <div className="space-y-2">
                 <Button
