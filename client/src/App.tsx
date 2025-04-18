@@ -80,16 +80,16 @@ const App = () => {
 
   const [sseUrl, setSseUrl] = useState<string>(() => {
     return (
-      new URLSearchParams(location.search).get('sseUrl') ||
-      localStorage.getItem('lastSseUrl') ||
-      'http://localhost:3001/sse'
+      new URLSearchParams(location.search).get("sseUrl") ||
+      localStorage.getItem("lastSseUrl") ||
+      "http://localhost:3001/sse"
     );
   });
 
   const [mode, setMode] = useState<'sse' | 'stdio'>(() => {
-    if (new URLSearchParams(location.search).has('sseUrl')) return 'sse';
+    if (new URLSearchParams(location.search).has("sseUrl")) return "sse";
     return (
-      (localStorage.getItem('lastTransportType') as 'stdio' | 'sse') || 'stdio'
+      (localStorage.getItem("lastTransportType") as "stdio" | "sse") || "stdio"
     );
   });
 
