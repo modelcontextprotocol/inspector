@@ -56,6 +56,7 @@ The MCP Inspector supports the following configuration settings. To change them,
 | `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                      | true    |
 | `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)             | 60000   |
 | `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577 | ""      |
+| `MCP_SERVER_URL`                        | Set this to configure the default MCP Server to connect to on startup. Example: http://localhost:8080        | ""      |
 
 These settings can be adjusted in real-time through the UI and will persist across sessions.
 
@@ -69,7 +70,7 @@ Development mode:
 npm run dev
 ```
 
-> **Note for Windows users:**  
+> **Note for Windows users:**
 > On Windows, use the following command instead:
 >
 > ```bash
