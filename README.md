@@ -93,6 +93,12 @@ Example server configuration file:
 }
 ```
 
+You can also set the initial `sseUrl` via query params, for example:
+
+```
+http://localhost:6274/?sseUrl=http://localhost:8787/mcp
+```
+
 ### From this repository
 
 If you're working on the inspector itself:
