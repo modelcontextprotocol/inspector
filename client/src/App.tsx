@@ -86,7 +86,7 @@ const App = () => {
     );
   });
 
-  const [mode, setMode] = useState<'sse' | 'stdio'>(() => {
+  const [transportType, setTransportType] = useState<"stdio" | "sse">(() => {
     if (new URLSearchParams(location.search).has("sseUrl")) return "sse";
     return (
       (localStorage.getItem("lastTransportType") as "stdio" | "sse") || "stdio"
