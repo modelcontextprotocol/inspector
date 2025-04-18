@@ -186,7 +186,7 @@ app.get("/config", (req, res) => {
       defaultEnvironment,
       defaultCommand: values.env,
       defaultArgs: values.args,
-      defaultMcpServerUrl
+      defaultMcpServerUrl,
     });
   } catch (error) {
     console.error("Error in /config route:", error);
