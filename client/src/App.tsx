@@ -85,14 +85,12 @@ const App = () => {
       "http://localhost:3001/sse"
     );
   });
-
   const [transportType, setTransportType] = useState<"stdio" | "sse">(() => {
     if (new URLSearchParams(location.search).has("sseUrl")) return "sse";
     return (
       (localStorage.getItem("lastTransportType") as "stdio" | "sse") || "stdio"
     );
   });
-
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [stdErrNotifications, setStdErrNotifications] = useState<
