@@ -79,13 +79,20 @@ const App = () => {
   });
 
   const [sseUrl, setSseUrl] = useState<string>(() => {
-    return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
-  });
-  const [transportType, setTransportType] = useState<"stdio" | "sse">(() => {
     return (
-      (localStorage.getItem("lastTransportType") as "stdio" | "sse") || "stdio"
+      new URLSearchParams(location.search).get('sseUrl') ||
+      localStorage.getItem('lastSseUrl') ||
+      'http://localhost:3001/sse'
     );
   });
+
+  const [mode, setMode] = useState<'sse' | 'stdio'>(() => {
+    if (new URLSearchParams(location.search).has('sseUrl')) return 'sse';
+    return (
+      (localStorage.getItem('lastTransportType') as 'stdio' | 'sse') || 'stdio'
+    );
+  });
+
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [stdErrNotifications, setStdErrNotifications] = useState<
