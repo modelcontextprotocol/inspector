@@ -79,11 +79,16 @@ const App = () => {
   });
 
   const [sseUrl, setSseUrl] = useState<string>(() => {
-    return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
+    return (
+      new URLSearchParams(location.search).get("sseUrl") ||
+      localStorage.getItem("lastSseUrl") ||
+      "http://localhost:3001/sse"
+    );
   });
   const [transportType, setTransportType] = useState<
     "stdio" | "sse" | "streamable-http"
   >(() => {
+    if (new URLSearchParams(location.search).has("sseUrl")) return "sse";
     return (
       (localStorage.getItem("lastTransportType") as
         | "stdio"
