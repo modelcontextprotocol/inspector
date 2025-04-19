@@ -85,10 +85,15 @@ const App = () => {
       "http://localhost:3001/sse"
     );
   });
-  const [transportType, setTransportType] = useState<"stdio" | "sse">(() => {
+  const [transportType, setTransportType] = useState<
+    "stdio" | "sse" | "streamable-http"
+  >(() => {
     if (new URLSearchParams(location.search).has("sseUrl")) return "sse";
     return (
-      (localStorage.getItem("lastTransportType") as "stdio" | "sse") || "stdio"
+      (localStorage.getItem("lastTransportType") as
+        | "stdio"
+        | "sse"
+        | "streamable-http") || "stdio"
     );
   });
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
