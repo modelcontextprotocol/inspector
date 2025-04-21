@@ -296,8 +296,10 @@ export function useConnection({
         mcpProxyServerUrl.searchParams.append("url", sseUrl);
         break;
     }
-    (mcpProxyServerUrl as URL).searchParams.append("transportType", transportType);
-
+    (mcpProxyServerUrl as URL).searchParams.append(
+      "transportType",
+      transportType,
+    );
 
     try {
       // Inject auth manually instead of using SSEClientTransport, because we're

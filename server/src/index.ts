@@ -98,7 +98,7 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
     return transport;
   } else if (transportType === "streamable-http") {
     const headers: HeadersInit = {
-      Accept: "text/event-stream, application/json"
+      Accept: "text/event-stream, application/json",
     };
 
     for (const key of STREAMABLE_HTTP_HEADERS_PASSTHROUGH) {
@@ -128,7 +128,6 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
 };
 
 let backingServerTransport: Transport | undefined;
-
 
 app.get("/mcp", async (req, res) => {
   try {
@@ -227,7 +226,9 @@ app.get("/stdio", async (req, res) => {
     console.log("Created web app transport");
 
     await webAppTransport.start();
-    (backingServerTransport as StdioClientTransport).stderr!.on("data", (chunk) => {
+    (backingServerTransport as StdioClientTransport).stderr!.on(
+      "data",
+      (chunk) => {
         webAppTransport.send({
           jsonrpc: "2.0",
           method: "notifications/stderr",
@@ -235,7 +236,8 @@ app.get("/stdio", async (req, res) => {
             content: chunk.toString(),
           },
         });
-      });
+      },
+    );
 
     mcpProxy({
       transportToClient: webAppTransport,
@@ -251,7 +253,9 @@ app.get("/stdio", async (req, res) => {
 
 app.get("/sse", async (req, res) => {
   try {
-    console.log("New SSE connection. NOTE: The sse transport is deprecated and has been replaced by streamable-http");
+    console.log(
+      "New SSE connection. NOTE: The sse transport is deprecated and has been replaced by streamable-http",
+    );
 
     try {
       await backingServerTransport?.close();
