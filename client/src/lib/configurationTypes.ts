@@ -33,4 +33,9 @@ export type InspectorConfig = {
    * The full address of the MCP Proxy Server, in case it is running on a non-default address. Example: http://10.1.1.22:5577
    */
   MCP_PROXY_FULL_ADDRESS: ConfigItem;
+
+  /**
+   * Path to the unix socket of the proxy to route requests through.
+   */
+  MCP_SOCKET_PROXY_PATH: ConfigItem;
 };

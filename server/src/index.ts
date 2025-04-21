@@ -19,8 +19,13 @@ import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 
+import { disableSocketProxy, enableSocketProxy } from "./socketProxy.js";
+
 const SSE_HEADERS_PASSTHROUGH = ["authorization"];
 const STREAMABLE_HTTP_HEADERS_PASSTHROUGH = ["authorization"];
+
+// We need this to work with local https for oauth
+// process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0";
 
 const defaultEnvironment = {
   ...getDefaultEnvironment(),
@@ -46,6 +51,16 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
 
   const transportType = query.transportType as string;
 
+  let url = query.url as string;
+  console.log("Socket proxy path:", query.socketProxyPath);
+  if (query.socketProxyPath) {
+    enableSocketProxy(query.socketProxyPath as string);
+    // This is because most socket proxys support http under the hood
+    url = url.replace("https://", "http://");
+  } else {
+    disableSocketProxy();
+  }
+
   if (transportType === "stdio") {
     const command = query.command as string;
     const origArgs = shellParseArgs(query.args as string) as string[];
@@ -68,7 +83,6 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
     console.log("Spawned stdio transport");
     return transport;
   } else if (transportType === "sse") {
-    const url = query.url as string;
     const headers: HeadersInit = {
       Accept: "text/event-stream",
     };
@@ -108,14 +122,11 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
       headers[key] = Array.isArray(value) ? value[value.length - 1] : value;
     }
 
-    const transport = new StreamableHTTPClientTransport(
-      new URL(query.url as string),
-      {
-        requestInit: {
-          headers,
-        },
+    const transport = new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: {
+        headers,
       },
-    );
+    });
     await transport.start();
     console.log("Connected to Streamable HTTP transport");
     return transport;

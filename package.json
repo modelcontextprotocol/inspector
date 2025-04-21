@@ -46,6 +46,7 @@
     "shell-quote": "^1.8.2",
     "spawn-rx": "^5.1.2",
     "ts-node": "^10.9.2",
+    "undici": "^7.8.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

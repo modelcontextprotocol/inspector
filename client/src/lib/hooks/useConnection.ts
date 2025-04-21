@@ -286,6 +286,12 @@ export function useConnection({
       mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
     } else {
       mcpProxyServerUrl.searchParams.append("url", sseUrl);
+      if (config.MCP_SOCKET_PROXY_PATH.value) {
+        mcpProxyServerUrl.searchParams.append(
+          "socketProxyPath",
+          config.MCP_SOCKET_PROXY_PATH.value.toString(),
+        );
+      }
     }
 
     try {

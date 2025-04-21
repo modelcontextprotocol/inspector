@@ -52,4 +52,10 @@ export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
       "Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577",
     value: "",
   },
+  MCP_SOCKET_PROXY_PATH: {
+    label: "Socket Proxy Path",
+    description:
+      "Set this if you want to run MCP server through a unix socket proxy. Useful when testing behind a corporate proxy. Example: ~/home/.proxy",
+    value: "",
+  },
 } as const;
