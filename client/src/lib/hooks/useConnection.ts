@@ -3,6 +3,7 @@ import {
   SSEClientTransport,
   SseError,
 } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   ClientNotification,
   ClientRequest,
@@ -286,6 +287,7 @@ export function useConnection({
         mcpProxyServerUrl.searchParams.append("args", args);
         mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
         break;
+
       case "sse":
         mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
         mcpProxyServerUrl.searchParams.append("url", sseUrl);
@@ -317,14 +319,24 @@ export function useConnection({
         headers[authHeaderName] = `Bearer ${token}`;
       }
 
-      const clientTransport = new SSEClientTransport(mcpProxyServerUrl as URL, {
+      // Create appropriate transport
+      const transportOptions = {
         eventSourceInit: {
-          fetch: (url, init) => fetch(url, { ...init, headers }),
+          fetch: (
+            url: string | URL | globalThis.Request,
+            init: RequestInit | undefined,
+          ) => fetch(url, { ...init, headers }),
         },
         requestInit: {
           headers,
         },
-      });
+      };
+      const clientTransport =
+        transportType === "streamable-http"
+          ? new StreamableHTTPClientTransport(mcpProxyServerUrl as URL, {
+              sessionId: undefined,
+            })
+          : new SSEClientTransport(mcpProxyServerUrl as URL, transportOptions);
 
       if (onNotification) {
         [

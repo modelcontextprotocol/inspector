@@ -12,15 +12,17 @@ import {
   StdioClientTransport,
   getDefaultEnvironment,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
+import { randomUUID } from "node:crypto";
 
 const SSE_HEADERS_PASSTHROUGH = ["authorization"];
-const STREAMABLE_HTTP_HEADERS_PASSTHROUGH = ["authorization"];
+const STREAMABLE_HTTP_HEADERS_PASSTHROUGH = ["authorization", "mcp-session-id"];
 
 const defaultEnvironment = {
   ...getDefaultEnvironment(),
@@ -38,7 +40,7 @@ const { values } = parseArgs({
 const app = express();
 app.use(cors());
 
-let webAppTransports: SSEServerTransport[] = [];
+const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Transports by sessionId
 
 const createTransport = async (req: express.Request): Promise<Transport> => {
   const query = req.query;
@@ -130,71 +132,89 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
 let backingServerTransport: Transport | undefined;
 
 app.get("/mcp", async (req, res) => {
+  const sessionId = req.headers["mcp-session-id"] as string;
+  console.log(`Received GET message for sessionId ${sessionId}`);
   try {
-    console.log("New streamable-http connection");
-
-    try {
-      await backingServerTransport?.close();
-      backingServerTransport = await createTransport(req);
-    } catch (error) {
-      if (error instanceof SseError && error.code === 401) {
-        console.error(
-          "Received 401 Unauthorized from MCP server:",
-          error.message,
-        );
-        res.status(401).json(error);
-        return;
-      }
-
-      throw error;
+    const transport = webAppTransports.get(
+      sessionId,
+    ) as StreamableHTTPServerTransport;
+    if (!transport) {
+      res.status(404).end("Session not found");
+      return;
+    } else {
+      await transport.handleRequest(req, res);
     }
-
-    console.log("Connected MCP client to backing server transport");
-
-    const webAppTransport = new SSEServerTransport("/mcp", res);
-    webAppTransports.push(webAppTransport);
-    console.log("Created web app transport");
-
-    await webAppTransport.start();
-
-    if (backingServerTransport instanceof StdioClientTransport) {
-      backingServerTransport.stderr!.on("data", (chunk) => {
-        webAppTransport.send({
-          jsonrpc: "2.0",
-          method: "notifications/stderr",
-          params: {
-            content: chunk.toString(),
-          },
-        });
-      });
-    }
-
-    mcpProxy({
-      transportToClient: webAppTransport,
-      transportToServer: backingServerTransport,
-    });
-
-    console.log("Set up MCP proxy");
   } catch (error) {
-    console.error("Error in /sse route:", error);
+    console.error("Error in /mcp route:", error);
     res.status(500).json(error);
   }
 });
 
 app.post("/mcp", async (req, res) => {
-  try {
-    const sessionId = req.query.sessionId;
-    console.log(`Received message for sessionId ${sessionId}`);
+  const sessionId = req.headers["mcp-session-id"] as string | undefined;
+  console.log(`Received POST message for sessionId ${sessionId}`);
+  if (!sessionId) {
+    try {
+      console.log("New streamable-http connection");
+      try {
+        await backingServerTransport?.close();
+        backingServerTransport = await createTransport(req);
+      } catch (error) {
+        if (error instanceof SseError && error.code === 401) {
+          console.error(
+            "Received 401 Unauthorized from MCP server:",
+            error.message,
+          );
+          res.status(401).json(error);
+          return;
+        }
 
-    const transport = webAppTransports.find((t) => t.sessionId === sessionId);
-    if (!transport) {
-      res.status(404).end("Session not found");
-      return;
+        throw error;
+      }
+
+      console.log("Connected MCP client to backing server transport");
+
+      const webAppTransport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: randomUUID,
+        onsessioninitialized: (sessionId) => {
+          webAppTransports.set(sessionId, webAppTransport);
+          console.log("Created streamable web app transport " + sessionId);
+        },
+      });
+
+      await webAppTransport.start();
+
+      mcpProxy({
+        transportToClient: webAppTransport,
+        transportToServer: backingServerTransport,
+      });
+
+      await (webAppTransport as StreamableHTTPServerTransport).handleRequest(
+        req,
+        res,
+        req.body,
+      );
+    } catch (error) {
+      console.error("Error in /mcp POST route:", error);
+      res.status(500).json(error);
     }
-    await transport.handlePostMessage(req, res);
-  } catch (error) {
-    console.error("Error in /mcp route:", error);
-    res.status(500).json(error);
+  } else {
+    try {
+      const transport = webAppTransports.get(
+        sessionId,
+      ) as StreamableHTTPServerTransport;
+      if (!transport) {
+        res.status(404).end("Transport not found for sessionId " + sessionId);
+      } else {
+        await (transport as StreamableHTTPServerTransport).handleRequest(
+          req,
+          res,
+        );
+      }
+    } catch (error) {
+      console.error("Error in /mcp route:", error);
+      res.status(500).json(error);
+    }
   }
 });
 
@@ -221,7 +241,7 @@ app.get("/stdio", async (req, res) => {
     console.log("Connected MCP client to backing server transport");
 
     const webAppTransport = new SSEServerTransport("/message", res);
-    webAppTransports.push(webAppTransport);
+    webAppTransports.set(webAppTransport.sessionId, webAppTransport);
 
     console.log("Created web app transport");
 
@@ -276,8 +296,7 @@ app.get("/sse", async (req, res) => {
     console.log("Connected MCP client to backing server transport");
 
     const webAppTransport = new SSEServerTransport("/message", res);
-    webAppTransports.push(webAppTransport);
-
+    webAppTransports.set(webAppTransport.sessionId, webAppTransport);
     console.log("Created web app transport");
 
     await webAppTransport.start();
@@ -299,7 +318,9 @@ app.post("/message", async (req, res) => {
     const sessionId = req.query.sessionId;
     console.log(`Received message for sessionId ${sessionId}`);
 
-    const transport = webAppTransports.find((t) => t.sessionId === sessionId);
+    const transport = webAppTransports.get(
+      sessionId as string,
+    ) as SSEServerTransport;
     if (!transport) {
       res.status(404).end("Session not found");
       return;
