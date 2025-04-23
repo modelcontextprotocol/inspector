@@ -46,7 +46,7 @@ const SamplingRequest = ({
       properties: {
         model: {
           type: "string",
-          default: "GPT-4o",
+          default: "stub-model",
           description: "model name",
         },
         stopReason: {
@@ -140,7 +140,6 @@ const SamplingRequest = ({
       <form className="flex-1 space-y-4">
         <div className="space-y-2">
           <DynamicJsonForm
-            defaultIsJsonMode={true}
             schema={schema}
             value={messageResult}
             onChange={(newValue: JsonValue) => {
