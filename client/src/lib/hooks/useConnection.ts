@@ -42,7 +42,7 @@ import { getMCPServerRequestTimeout } from "@/utils/configUtils";
 import { InspectorConfig } from "../configurationTypes";
 
 interface UseConnectionOptions {
-  transportType: "stdio" | "sse";
+  transportType: "stdio" | "sse" | "streamable-http";
   command: string;
   args: string;
   sseUrl: string;
