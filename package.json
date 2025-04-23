@@ -52,6 +52,7 @@
     "@types/jest": "^29.5.14",
     "@types/node": "^22.7.5",
     "@types/shell-quote": "^1.7.5",
+    "jest-fixed-jsdom": "^0.0.9",
     "prettier": "3.3.3",
     "typescript": "^5.4.2"
   }
