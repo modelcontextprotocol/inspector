@@ -14,11 +14,13 @@ import {
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 
 const SSE_HEADERS_PASSTHROUGH = ["authorization"];
+const STREAMABLE_HTTP_HEADERS_PASSTHROUGH = ["authorization"];
 
 const defaultEnvironment = {
   ...getDefaultEnvironment(),
@@ -93,6 +95,29 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
     await transport.start();
 
     console.log("Connected to SSE transport");
+    return transport;
+  } else if (transportType === "streamable-http") {
+    const headers: HeadersInit = {};
+
+    for (const key of STREAMABLE_HTTP_HEADERS_PASSTHROUGH) {
+      if (req.headers[key] === undefined) {
+        continue;
+      }
+
+      const value = req.headers[key];
+      headers[key] = Array.isArray(value) ? value[value.length - 1] : value;
+    }
+
+    const transport = new StreamableHTTPClientTransport(
+      new URL(query.url as string),
+      {
+        requestInit: {
+          headers,
+        },
+      },
+    );
+    await transport.start();
+    console.log("Connected to Streamable HTTP transport");
     return transport;
   } else {
     console.error(`Invalid transport type: ${transportType}`);

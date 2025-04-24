@@ -5,9 +5,14 @@ import {
   OAuthTokens,
   OAuthTokensSchema,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { SESSION_KEYS } from "./constants";
+import { SESSION_KEYS, getServerSpecificKey } from "./constants";
 
-class InspectorOAuthClientProvider implements OAuthClientProvider {
+export class InspectorOAuthClientProvider implements OAuthClientProvider {
+  constructor(private serverUrl: string) {
+    // Save the server URL to session storage
+    sessionStorage.setItem(SESSION_KEYS.SERVER_URL, serverUrl);
+  }
+
   get redirectUrl() {
     return window.location.origin + "/oauth/callback";
   }
@@ -24,7 +29,11 @@ class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   async clientInformation() {
-    const value = sessionStorage.getItem(SESSION_KEYS.CLIENT_INFORMATION);
+    const key = getServerSpecificKey(
+      SESSION_KEYS.CLIENT_INFORMATION,
+      this.serverUrl,
+    );
+    const value = sessionStorage.getItem(key);
     if (!value) {
       return undefined;
     }
@@ -33,14 +42,16 @@ class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   saveClientInformation(clientInformation: OAuthClientInformation) {
-    sessionStorage.setItem(
+    const key = getServerSpecificKey(
       SESSION_KEYS.CLIENT_INFORMATION,
-      JSON.stringify(clientInformation),
+      this.serverUrl,
     );
+    sessionStorage.setItem(key, JSON.stringify(clientInformation));
   }
 
   async tokens() {
-    const tokens = sessionStorage.getItem(SESSION_KEYS.TOKENS);
+    const key = getServerSpecificKey(SESSION_KEYS.TOKENS, this.serverUrl);
+    const tokens = sessionStorage.getItem(key);
     if (!tokens) {
       return undefined;
     }
@@ -49,7 +60,8 @@ class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   saveTokens(tokens: OAuthTokens) {
-    sessionStorage.setItem(SESSION_KEYS.TOKENS, JSON.stringify(tokens));
+    const key = getServerSpecificKey(SESSION_KEYS.TOKENS, this.serverUrl);
+    sessionStorage.setItem(key, JSON.stringify(tokens));
   }
 
   redirectToAuthorization(authorizationUrl: URL) {
@@ -57,17 +69,35 @@ class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   saveCodeVerifier(codeVerifier: string) {
-    sessionStorage.setItem(SESSION_KEYS.CODE_VERIFIER, codeVerifier);
+    const key = getServerSpecificKey(
+      SESSION_KEYS.CODE_VERIFIER,
+      this.serverUrl,
+    );
+    sessionStorage.setItem(key, codeVerifier);
   }
 
   codeVerifier() {
-    const verifier = sessionStorage.getItem(SESSION_KEYS.CODE_VERIFIER);
+    const key = getServerSpecificKey(
+      SESSION_KEYS.CODE_VERIFIER,
+      this.serverUrl,
+    );
+    const verifier = sessionStorage.getItem(key);
     if (!verifier) {
       throw new Error("No code verifier saved for session");
     }
 
     return verifier;
   }
-}
 
-export const authProvider = new InspectorOAuthClientProvider();
+  clear() {
+    sessionStorage.removeItem(
+      getServerSpecificKey(SESSION_KEYS.CLIENT_INFORMATION, this.serverUrl),
+    );
+    sessionStorage.removeItem(
+      getServerSpecificKey(SESSION_KEYS.TOKENS, this.serverUrl),
+    );
+    sessionStorage.removeItem(
+      getServerSpecificKey(SESSION_KEYS.CODE_VERIFIER, this.serverUrl),
+    );
+  }
+}
