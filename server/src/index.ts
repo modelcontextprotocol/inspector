@@ -22,7 +22,11 @@ import mcpProxy from "./mcpProxy.js";
 import { randomUUID } from "node:crypto";
 
 const SSE_HEADERS_PASSTHROUGH = ["authorization"];
-const STREAMABLE_HTTP_HEADERS_PASSTHROUGH = ["authorization", "mcp-session-id", "last-event-id"];
+const STREAMABLE_HTTP_HEADERS_PASSTHROUGH = [
+  "authorization",
+  "mcp-session-id",
+  "last-event-id",
+];
 
 const defaultEnvironment = {
   ...getDefaultEnvironment(),
