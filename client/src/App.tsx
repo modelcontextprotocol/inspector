@@ -51,7 +51,6 @@ import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
-import { getMCPProxyAddress } from "./utils/configUtils";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
@@ -239,15 +238,28 @@ const App = () => {
   );
 
   useEffect(() => {
-    fetch(`${getMCPProxyAddress(config)}/config`)
+    fetch(`/config`)
       .then((response) => response.json())
       .then((data) => {
         setEnv(data.defaultEnvironment);
+        setConfig((prev) => {
+          return {
+            ...prev,
+            ...data.config,
+          };
+        });
         if (data.defaultCommand) {
           setCommand(data.defaultCommand);
         }
         if (data.defaultArgs) {
           setArgs(data.defaultArgs);
+        }
+
+        if (data.defaultTransportType) {
+          setTransportType(data.defaultTransportType);
+          if (data.defaultTransportType === "sse") {
+            setSseUrl(data.defaultCommand);
+          }
         }
       })
       .catch((error) =>
