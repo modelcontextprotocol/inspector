@@ -659,6 +659,7 @@ const App = () => {
                       setSelectedPrompt={(prompt) => {
                         clearError("prompts");
                         setSelectedPrompt(prompt);
+                        setPromptContent("");
                       }}
                       handleCompletion={handleCompletion}
                       completionsSupported={completionsSupported}
