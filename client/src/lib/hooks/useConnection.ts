@@ -34,7 +34,6 @@ import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { InspectorOAuthClientProvider } from "../auth";
 import packageJson from "../../../package.json";
 import {
-  getMCPProxyAddress,
   getMCPServerRequestMaxTotalTimeout,
   resetRequestTimeoutOnProgress,
 } from "@/utils/configUtils";
@@ -232,7 +231,7 @@ export function useConnection({
 
   const checkProxyHealth = async () => {
     try {
-      const proxyHealthUrl = new URL(`${getMCPProxyAddress(config)}/health`);
+      const proxyHealthUrl = new URL(`${config.MCP_PROXY_FULL_ADDRESS}/health`);
       const proxyHealthResponse = await fetch(proxyHealthUrl);
       const proxyHealth = await proxyHealthResponse.json();
       if (proxyHealth?.status !== "ok") {
@@ -278,7 +277,7 @@ export function useConnection({
       setConnectionStatus("error-connecting-to-proxy");
       return;
     }
-    const mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
+    const mcpProxyServerUrl = new URL(`${config.MCP_PROXY_FULL_ADDRESS}/sse`);
     mcpProxyServerUrl.searchParams.append("transportType", transportType);
     if (transportType === "stdio") {
       mcpProxyServerUrl.searchParams.append("command", command);

@@ -51,8 +51,6 @@ import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
-import { getMCPServerRequestTimeout } from "./utils/configUtils";
-import { useToast } from "@/hooks/use-toast";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
