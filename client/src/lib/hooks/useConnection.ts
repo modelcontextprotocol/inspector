@@ -231,7 +231,9 @@ export function useConnection({
 
   const checkProxyHealth = async () => {
     try {
-      const proxyHealthUrl = new URL(`${config.MCP_PROXY_FULL_ADDRESS}/health`);
+      const proxyHealthUrl = new URL(
+        `${config.MCP_PROXY_FULL_ADDRESS.value}/health`,
+      );
       const proxyHealthResponse = await fetch(proxyHealthUrl);
       const proxyHealth = await proxyHealthResponse.json();
       if (proxyHealth?.status !== "ok") {
@@ -277,7 +279,9 @@ export function useConnection({
       setConnectionStatus("error-connecting-to-proxy");
       return;
     }
-    const mcpProxyServerUrl = new URL(`${config.MCP_PROXY_FULL_ADDRESS}/sse`);
+    const mcpProxyServerUrl = new URL(
+      `${config.MCP_PROXY_FULL_ADDRESS.value}/sse`,
+    );
     mcpProxyServerUrl.searchParams.append("transportType", transportType);
     if (transportType === "stdio") {
       mcpProxyServerUrl.searchParams.append("command", command);
