@@ -26,6 +26,10 @@ jobs:
       # - run: npm ci
       - run: npm install --no-package-lock
 
+      - name: Check linting
+        working-directory: ./client
+        run: npm run lint
+
       - name: Run client tests
         working-directory: ./client
         run: npm test

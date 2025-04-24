@@ -250,7 +250,12 @@ const DynamicJsonForm = ({
     <div className="space-y-4">
       <div className="flex justify-end space-x-2">
         {isJsonMode && (
-          <Button variant="outline" size="sm" onClick={formatJson}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={formatJson}
+          >
             Format JSON
           </Button>
         )}
