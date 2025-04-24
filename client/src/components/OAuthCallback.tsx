@@ -1,9 +1,19 @@
 import { useEffect, useRef } from "react";
-import { authProvider } from "../lib/auth";
+import { InspectorOAuthClientProvider } from "../lib/auth";
 import { SESSION_KEYS } from "../lib/constants";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import { useToast } from "@/hooks/use-toast.ts";
+import {
+  generateOAuthErrorDescription,
+  parseOAuthCallbackParams,
+} from "@/utils/oauthUtils.ts";
 
-const OAuthCallback = () => {
+interface OAuthCallbackProps {
+  onConnect: (serverUrl: string) => void;
+}
+
+const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
+  const { toast } = useToast();
   const hasProcessedRef = useRef(false);
 
   useEffect(() => {
@@ -14,37 +24,56 @@ const OAuthCallback = () => {
       }
       hasProcessedRef.current = true;
 
-      const params = new URLSearchParams(window.location.search);
-      const code = params.get("code");
-      const serverUrl = sessionStorage.getItem(SESSION_KEYS.SERVER_URL);
+      const notifyError = (description: string) =>
+        void toast({
+          title: "OAuth Authorization Error",
+          description,
+          variant: "destructive",
+        });
 
-      if (!code || !serverUrl) {
-        console.error("Missing code or server URL");
-        window.location.href = "/";
-        return;
+      const params = parseOAuthCallbackParams(window.location.search);
+      if (!params.successful) {
+        return notifyError(generateOAuthErrorDescription(params));
       }
 
-      try {
-        const result = await auth(authProvider, {
-          serverUrl,
-          authorizationCode: code,
-        });
-        if (result !== "AUTHORIZED") {
-          throw new Error(
-            `Expected to be authorized after providing auth code, got: ${result}`,
-          );
-        }
+      const serverUrl = sessionStorage.getItem(SESSION_KEYS.SERVER_URL);
+      if (!serverUrl) {
+        return notifyError("Missing Server URL");
+      }
 
-        // Redirect back to the main app with server URL to trigger auto-connect
-        window.location.href = `/?serverUrl=${encodeURIComponent(serverUrl)}`;
+      let result;
+      try {
+        // Create an auth provider with the current server URL
+        const serverAuthProvider = new InspectorOAuthClientProvider(serverUrl);
+
+        result = await auth(serverAuthProvider, {
+          serverUrl,
+          authorizationCode: params.code,
+        });
       } catch (error) {
         console.error("OAuth callback error:", error);
-        window.location.href = "/";
+        return notifyError(`Unexpected error occurred: ${error}`);
       }
+
+      if (result !== "AUTHORIZED") {
+        return notifyError(
+          `Expected to be authorized after providing auth code, got: ${result}`,
+        );
+      }
+
+      // Finally, trigger auto-connect
+      toast({
+        title: "Success",
+        description: "Successfully authenticated with OAuth",
+        variant: "default",
+      });
+      onConnect(serverUrl);
     };
 
-    void handleCallback();
-  }, []);
+    handleCallback().finally(() => {
+      window.history.replaceState({}, document.title, "/");
+    });
+  }, [toast, onConnect]);
 
   return (
     <div className="flex items-center justify-center h-screen">

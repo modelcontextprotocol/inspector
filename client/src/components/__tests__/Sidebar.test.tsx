@@ -1,4 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
+import "@testing-library/jest-dom";
 import { describe, it, beforeEach, jest } from "@jest/globals";
 import Sidebar from "../Sidebar";
 import { DEFAULT_INSPECTOR_CONFIG } from "@/lib/constants";
@@ -29,6 +30,7 @@ describe("Sidebar Environment Variables", () => {
     onConnect: jest.fn(),
     onDisconnect: jest.fn(),
     stdErrNotifications: [],
+    clearStdErrNotifications: jest.fn(),
     logLevel: "info" as const,
     sendLogLevelRequest: jest.fn(),
     loggingSupported: true,
@@ -105,6 +107,157 @@ describe("Sidebar Environment Variables", () => {
       fireEvent.click(toggleButton);
 
       expect(valueInput).toHaveProperty("type", "text");
+    });
+  });
+
+  describe("Authentication", () => {
+    const openAuthSection = () => {
+      const button = screen.getByTestId("auth-button");
+      fireEvent.click(button);
+    };
+
+    it("should update bearer token", () => {
+      const setBearerToken = jest.fn();
+      renderSidebar({
+        bearerToken: "",
+        setBearerToken,
+        transportType: "sse", // Set transport type to SSE
+      });
+
+      openAuthSection();
+
+      const tokenInput = screen.getByTestId("bearer-token-input");
+      fireEvent.change(tokenInput, { target: { value: "new_token" } });
+
+      expect(setBearerToken).toHaveBeenCalledWith("new_token");
+    });
+
+    it("should update header name", () => {
+      const setHeaderName = jest.fn();
+      renderSidebar({
+        headerName: "Authorization",
+        setHeaderName,
+        transportType: "sse",
+      });
+
+      openAuthSection();
+
+      const headerInput = screen.getByTestId("header-input");
+      fireEvent.change(headerInput, { target: { value: "X-Custom-Auth" } });
+
+      expect(setHeaderName).toHaveBeenCalledWith("X-Custom-Auth");
+    });
+
+    it("should clear bearer token", () => {
+      const setBearerToken = jest.fn();
+      renderSidebar({
+        bearerToken: "existing_token",
+        setBearerToken,
+        transportType: "sse", // Set transport type to SSE
+      });
+
+      openAuthSection();
+
+      const tokenInput = screen.getByTestId("bearer-token-input");
+      fireEvent.change(tokenInput, { target: { value: "" } });
+
+      expect(setBearerToken).toHaveBeenCalledWith("");
+    });
+
+    it("should properly render bearer token input", () => {
+      const { rerender } = renderSidebar({
+        bearerToken: "existing_token",
+        transportType: "sse", // Set transport type to SSE
+      });
+
+      openAuthSection();
+
+      // Token input should be a password field
+      const tokenInput = screen.getByTestId("bearer-token-input");
+      expect(tokenInput).toHaveProperty("type", "password");
+
+      // Update the token
+      fireEvent.change(tokenInput, { target: { value: "new_token" } });
+
+      // Rerender with updated token
+      rerender(
+        <TooltipProvider>
+          <Sidebar
+            {...defaultProps}
+            bearerToken="new_token"
+            transportType="sse"
+          />
+        </TooltipProvider>,
+      );
+
+      // Token input should still exist after update
+      expect(screen.getByTestId("bearer-token-input")).toBeInTheDocument();
+    });
+
+    it("should maintain token visibility state after update", () => {
+      const { rerender } = renderSidebar({
+        bearerToken: "existing_token",
+        transportType: "sse", // Set transport type to SSE
+      });
+
+      openAuthSection();
+
+      // Token input should be a password field
+      const tokenInput = screen.getByTestId("bearer-token-input");
+      expect(tokenInput).toHaveProperty("type", "password");
+
+      // Update the token
+      fireEvent.change(tokenInput, { target: { value: "new_token" } });
+
+      // Rerender with updated token
+      rerender(
+        <TooltipProvider>
+          <Sidebar
+            {...defaultProps}
+            bearerToken="new_token"
+            transportType="sse"
+          />
+        </TooltipProvider>,
+      );
+
+      // Token input should still exist after update
+      expect(screen.getByTestId("bearer-token-input")).toBeInTheDocument();
+    });
+
+    it("should maintain header name when toggling auth section", () => {
+      renderSidebar({
+        headerName: "X-API-Key",
+        transportType: "sse",
+      });
+
+      // Open auth section
+      openAuthSection();
+
+      // Verify header name is displayed
+      const headerInput = screen.getByTestId("header-input");
+      expect(headerInput).toHaveValue("X-API-Key");
+
+      // Close auth section
+      const authButton = screen.getByTestId("auth-button");
+      fireEvent.click(authButton);
+
+      // Reopen auth section
+      fireEvent.click(authButton);
+
+      // Verify header name is still preserved
+      expect(screen.getByTestId("header-input")).toHaveValue("X-API-Key");
+    });
+
+    it("should display default header name when not specified", () => {
+      renderSidebar({
+        headerName: undefined,
+        transportType: "sse",
+      });
+
+      openAuthSection();
+
+      const headerInput = screen.getByTestId("header-input");
+      expect(headerInput).toHaveAttribute("placeholder", "Authorization");
     });
   });
 
@@ -343,8 +496,59 @@ describe("Sidebar Environment Variables", () => {
       expect(setConfig).toHaveBeenCalledWith(
         expect.objectContaining({
           MCP_SERVER_REQUEST_TIMEOUT: {
+            label: "Request Timeout",
             description: "Timeout for requests to the MCP server (ms)",
             value: 5000,
+          },
+        }),
+      );
+    });
+
+    it("should update MCP server proxy address", () => {
+      const setConfig = jest.fn();
+      renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });
+
+      openConfigSection();
+
+      const proxyAddressInput = screen.getByTestId(
+        "MCP_PROXY_FULL_ADDRESS-input",
+      );
+      fireEvent.change(proxyAddressInput, {
+        target: { value: "http://localhost:8080" },
+      });
+
+      expect(setConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          MCP_PROXY_FULL_ADDRESS: {
+            label: "Inspector Proxy Address",
+            description:
+              "Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577",
+            value: "http://localhost:8080",
+          },
+        }),
+      );
+    });
+
+    it("should update max total timeout", () => {
+      const setConfig = jest.fn();
+      renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });
+
+      openConfigSection();
+
+      const maxTotalTimeoutInput = screen.getByTestId(
+        "MCP_REQUEST_MAX_TOTAL_TIMEOUT-input",
+      );
+      fireEvent.change(maxTotalTimeoutInput, {
+        target: { value: "10000" },
+      });
+
+      expect(setConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          MCP_REQUEST_MAX_TOTAL_TIMEOUT: {
+            label: "Maximum Total Timeout",
+            description:
+              "Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)",
+            value: 10000,
           },
         }),
       );
@@ -364,6 +568,7 @@ describe("Sidebar Environment Variables", () => {
       expect(setConfig).toHaveBeenCalledWith(
         expect.objectContaining({
           MCP_SERVER_REQUEST_TIMEOUT: {
+            label: "Request Timeout",
             description: "Timeout for requests to the MCP server (ms)",
             value: 0,
           },
@@ -409,6 +614,7 @@ describe("Sidebar Environment Variables", () => {
       expect(setConfig).toHaveBeenLastCalledWith(
         expect.objectContaining({
           MCP_SERVER_REQUEST_TIMEOUT: {
+            label: "Request Timeout",
             description: "Timeout for requests to the MCP server (ms)",
             value: 3000,
           },

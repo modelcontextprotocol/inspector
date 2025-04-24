@@ -1,7 +1,7 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, jest } from "@jest/globals";
 import DynamicJsonForm from "../DynamicJsonForm";
-import type { JsonSchemaType } from "../DynamicJsonForm";
+import type { JsonSchemaType } from "@/utils/jsonUtils";
 
 describe("DynamicJsonForm String Fields", () => {
   const renderForm = (props = {}) => {
@@ -90,6 +90,50 @@ describe("DynamicJsonForm Integer Fields", () => {
       fireEvent.change(input, { target: { value: "abc" } });
 
       expect(onChange).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe("DynamicJsonForm Complex Fields", () => {
+  const renderForm = (props = {}) => {
+    const defaultProps = {
+      schema: {
+        type: "object",
+        properties: {
+          // The simplified JsonSchemaType does not accept oneOf fields
+          // But they exist in the more-complete JsonSchema7Type
+          nested: { oneOf: [{ type: "string" }, { type: "integer" }] },
+        },
+      } as unknown as JsonSchemaType,
+      value: undefined,
+      onChange: jest.fn(),
+    };
+    return render(<DynamicJsonForm {...defaultProps} {...props} />);
+  };
+
+  describe("Basic Operations", () => {
+    it("should render textbox and autoformat button, but no switch-to-form button", () => {
+      renderForm();
+      const input = screen.getByRole("textbox");
+      expect(input).toHaveProperty("type", "textarea");
+      const buttons = screen.getAllByRole("button");
+      expect(buttons).toHaveLength(1);
+      expect(buttons[0]).toHaveProperty("textContent", "Format JSON");
+    });
+
+    it("should pass changed values to onChange", () => {
+      const onChange = jest.fn();
+      renderForm({ onChange });
+
+      const input = screen.getByRole("textbox");
+      fireEvent.change(input, {
+        target: { value: `{ "nested": "i am string" }` },
+      });
+
+      // The onChange handler is debounced when using the JSON view, so we need to wait a little bit
+      waitFor(() => {
+        expect(onChange).toHaveBeenCalledWith(`{ "nested": "i am string" }`);
+      });
     });
   });
 });
