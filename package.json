@@ -41,7 +41,7 @@
     "@modelcontextprotocol/inspector-cli": "^0.10.2",
     "@modelcontextprotocol/inspector-client": "^0.10.2",
     "@modelcontextprotocol/inspector-server": "^0.10.2",
-    "@modelcontextprotocol/sdk": "^1.10.0",
+    "@modelcontextprotocol/sdk": "^1.10.2",
     "concurrently": "^9.0.1",
     "shell-quote": "^1.8.2",
     "spawn-rx": "^5.1.2",
@@ -52,6 +52,7 @@
     "@types/jest": "^29.5.14",
     "@types/node": "^22.7.5",
     "@types/shell-quote": "^1.7.5",
+    "jest-fixed-jsdom": "^0.0.9",
     "prettier": "3.3.3",
     "typescript": "^5.4.2"
   }
