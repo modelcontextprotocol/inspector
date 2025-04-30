@@ -51,13 +51,13 @@ describe("generateDefaultValue", () => {
 
   test("generates null for non-required primitive types", () => {
     expect(generateDefaultValue({ type: "string", required: false })).toBe(
-      null,
+      undefined,
     );
     expect(generateDefaultValue({ type: "number", required: false })).toBe(
-      null,
+      undefined,
     );
     expect(generateDefaultValue({ type: "boolean", required: false })).toBe(
-      null,
+      undefined,
     );
   });
 
