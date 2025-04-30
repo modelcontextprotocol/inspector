@@ -37,7 +37,7 @@ jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
 }));
 
 // Mock the toast hook
-jest.mock("@/hooks/use-toast", () => ({
+jest.mock("@/lib/hooks/useToast", () => ({
   useToast: () => ({
     toast: jest.fn(),
   }),

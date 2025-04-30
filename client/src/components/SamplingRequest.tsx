@@ -7,7 +7,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { PendingRequest } from "./SamplingTab";
 import DynamicJsonForm from "./DynamicJsonForm";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/lib/hooks/useToast";
 import { JsonSchemaType, JsonValue } from "@/utils/jsonUtils";
 
 export type SamplingRequestProps = {
