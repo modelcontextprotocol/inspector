@@ -335,6 +335,7 @@ export function useConnection({
         transportType === "streamable-http"
           ? new StreamableHTTPClientTransport(mcpProxyServerUrl as URL, {
               sessionId: undefined,
+              ...transportOptions,
             })
           : new SSEClientTransport(mcpProxyServerUrl as URL, transportOptions);
 
