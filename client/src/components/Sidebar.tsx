@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   Play,
   ChevronDown,
@@ -98,47 +98,62 @@ const Sidebar = ({
   const [showBearerToken, setShowBearerToken] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
-  const [copiedConfig, setCopiedConfig] = useState(false);
+  const [copiedConfigEntry, setCopiedConfigEntry] = useState(false);
+  const [copiedConfigFile, setCopiedConfigFile] = useState(false);
   const { toast } = useToast();
 
-  // Generate MCP configuration JSON
-  const generateMCPConfig = () => {
-    if (transportType === "stdio") {  
-      // Generate only the server config without the mcpServers wrapper
-      const serverConfig = {
+  // Shared utility function to generate server config
+  const generateServerConfig = useCallback(() => {
+    if (transportType === "stdio") {
+      return {
         command,
         args: args.trim() ? args.split(/\s+/) : [],
-        env: { ...env },
+        env: { ...env }
       };
-      
-      return JSON.stringify(serverConfig, null, 2);
     } else {
-      // For SSE connections
-      return JSON.stringify({
-        // SSE configuration doesn't go in mcp.json, but provide the URL info
-        "type": "sse",
-        "url": sseUrl,
-        "note": "For SSE connections, add this URL directly in Cursor"
-      }, null, 2);
+      return {
+        type: "sse",
+        url: sseUrl,
+        note: "For SSE connections, add this URL directly in Client"
+      };
     }
-  };
+  }, [transportType, command, args, env, sseUrl]);
 
-  // Handle copy config
-  const handleCopyConfig = () => {
+  // Memoized config entry generator
+  const generateMCPConfigEntry = useCallback(() => {
+    return JSON.stringify(generateServerConfig(), null, 2);
+  }, [generateServerConfig]);
+
+  // Memoized config file generator
+  const generateMCPConfigFile = useCallback(() => {
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "default-server": generateServerConfig()
+        }
+      },
+      null,
+      2
+    );
+  }, [generateServerConfig]);
+
+  // Memoized copy handlers
+  const handleCopyConfigEntry = useCallback(() => {
     try {
-      const configJson = generateMCPConfig();
+      const configJson = generateMCPConfigEntry();
       navigator.clipboard.writeText(configJson);
-      setCopiedConfig(true);
-      
+      setCopiedConfigEntry(true);
+
       toast({
-        title: "Config copied",
-        description: transportType === "stdio" 
-          ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name." 
-          : "SSE URL has been copied. Use this URL in Cursor directly.",
+        title: "Config entry copied",
+        description:
+          transportType === "stdio"
+            ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
+            : "SSE URL has been copied. Use this URL in Cursor directly.",
       });
-      
+
       setTimeout(() => {
-        setCopiedConfig(false);
+        setCopiedConfigEntry(false);
       }, 2000);
     } catch (error) {
       toast({
@@ -147,7 +162,30 @@ const Sidebar = ({
         variant: "destructive",
       });
     }
-  };
+  }, [generateMCPConfigEntry, transportType, toast]);
+
+  const handleCopyConfigFile = useCallback(() => {
+    try {
+      const configJson = generateMCPConfigFile();
+      navigator.clipboard.writeText(configJson);
+      setCopiedConfigFile(true);
+
+      toast({
+        title: "Config file copied",
+        description: "Server configuration has been copied to clipboard. Add this to your mcp.json file. Current testing server will be added as 'default-server'",
+      });
+
+      setTimeout(() => {
+        setCopiedConfigFile(false);
+      }, 2000);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
+        variant: "destructive",
+      });
+    }
+  }, [generateMCPConfigFile, toast]);
 
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
@@ -213,21 +251,48 @@ const Sidebar = ({
                   className="font-mono"
                 />
               </div>
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCopyConfig}
-                  className="mt-1"
-                  title="Copy Server Configuration for mcp.json"
-                >
-                  {copiedConfig ? (
-                    <CheckCheck className="h-4 w-4 mr-2" />
-                  ) : (
-                    <Copy className="h-4 w-4 mr-2" />
-                  )}
-                  Copy Config
-                </Button>
+              <div className="flex gap-2 justify-end">
+                
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCopyConfigEntry}
+                      className="mt-1"
+                    >
+                      {copiedConfigEntry ? (
+                        <CheckCheck className="h-4 w-4 mr-2" />
+                      ) : (
+                        <Copy className="h-4 w-4 mr-2" />
+                      )}
+                      Config Entry
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Copy Config Entry
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCopyConfigFile}
+                      className="mt-1"
+                    >
+                      {copiedConfigFile ? (
+                        <CheckCheck className="h-4 w-4 mr-2" />
+                      ) : (
+                        <Copy className="h-4 w-4 mr-2" />
+                      )}
+                      Config File
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Copy Config File
+                  </TooltipContent>
+                </Tooltip>
               </div>
             </>
           ) : (
@@ -248,11 +313,11 @@ const Sidebar = ({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleCopyConfig}
+                  onClick={handleCopyConfigFile}
                   className="mt-1"
                   title="Copy SSE URL Configuration"
                 >
-                  {copiedConfig ? (
+                  {copiedConfigFile ? (
                     <CheckCheck className="h-4 w-4 mr-2" />
                   ) : (
                     <Copy className="h-4 w-4 mr-2" />
