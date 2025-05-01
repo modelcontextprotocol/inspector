@@ -26,6 +26,7 @@
     "build-server": "cd server && npm run build",
     "build-client": "cd client && npm run build",
     "build-cli": "cd cli && npm run build",
+    "clean": "rimraf ./node_modules ./client/node_modules ./server/node_modules ./dist ./client/dist ./server/dist ./package-lock.json && npm install",
     "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
     "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows\"",
     "start": "node client/bin/start.js",
@@ -54,6 +55,7 @@
     "@types/shell-quote": "^1.7.5",
     "jest-fixed-jsdom": "^0.0.9",
     "prettier": "3.3.3",
+    "rimraf": "^6.0.1",
     "typescript": "^5.4.2"
   }
 }
