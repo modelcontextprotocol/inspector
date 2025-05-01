@@ -7,10 +7,30 @@ import {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
 
+export const getClientInformationFromSessionStorage = async (
+  serverUrl: string,
+) => {
+  const key = getServerSpecificKey(SESSION_KEYS.CLIENT_INFORMATION, serverUrl);
+  const value = sessionStorage.getItem(key);
+  if (!value) {
+    return undefined;
+  }
+
+  return await OAuthClientInformationSchema.parseAsync(JSON.parse(value));
+};
+
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
-  constructor(private serverUrl: string) {
+  constructor(
+    private serverUrl: string,
+    clientInformation?: OAuthClientInformation,
+  ) {
     // Save the server URL to session storage
     sessionStorage.setItem(SESSION_KEYS.SERVER_URL, serverUrl);
+
+    // Save the client information to session storage if provided
+    if (clientInformation) {
+      this.saveClientInformation(clientInformation);
+    }
   }
 
   get redirectUrl() {
@@ -29,16 +49,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   async clientInformation() {
-    const key = getServerSpecificKey(
-      SESSION_KEYS.CLIENT_INFORMATION,
-      this.serverUrl,
-    );
-    const value = sessionStorage.getItem(key);
-    if (!value) {
-      return undefined;
-    }
-
-    return await OAuthClientInformationSchema.parseAsync(JSON.parse(value));
+    return await getClientInformationFromSessionStorage(this.serverUrl);
   }
 
   saveClientInformation(clientInformation: OAuthClientInformation) {
