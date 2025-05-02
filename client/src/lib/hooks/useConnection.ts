@@ -312,7 +312,18 @@ export function useConnection({
           mcpProxyServerUrl.searchParams.append("command", command);
           mcpProxyServerUrl.searchParams.append("args", args);
           mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
-          transportOptions = {};
+          transportOptions = {
+            authProvider: serverAuthProvider,
+            eventSourceInit: {
+              fetch: (
+                url: string | URL | globalThis.Request,
+                init: RequestInit | undefined,
+              ) => fetch(url, { ...init, headers }),
+            },
+            requestInit: {
+              headers,
+            },
+          };
           break;
 
         case "sse":
