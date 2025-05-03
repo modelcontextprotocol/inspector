@@ -29,7 +29,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorConfig } from "@/lib/configurationTypes";
 import { ConnectionStatus } from "@/lib/constants";
-import useTheme from "../lib/useTheme";
+import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
 import {
   Tooltip,
