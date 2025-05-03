@@ -251,7 +251,7 @@ const Sidebar = ({
                   className="font-mono"
                 />
               </div>
-              <div className="flex gap-2 justify-end">
+              <div className="grid grid-cols-2 gap-2 mt-2">
                 
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -259,7 +259,7 @@ const Sidebar = ({
                       variant="outline"
                       size="sm"
                       onClick={handleCopyConfigEntry}
-                      className="mt-1"
+                      className="w-full"
                     >
                       {copiedConfigEntry ? (
                         <CheckCheck className="h-4 w-4 mr-2" />
@@ -279,7 +279,7 @@ const Sidebar = ({
                       variant="outline"
                       size="sm"
                       onClick={handleCopyConfigFile}
-                      className="mt-1"
+                      className="w-full"
                     >
                       {copiedConfigFile ? (
                         <CheckCheck className="h-4 w-4 mr-2" />
@@ -309,12 +309,12 @@ const Sidebar = ({
                   className="font-mono"
                 />
               </div>
-              <div className="flex justify-end">
+              <div className="w-full mt-2">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handleCopyConfigFile}
-                  className="mt-1"
+                  className="w-full"
                   title="Copy SSE URL Configuration"
                 >
                   {copiedConfigFile ? (
