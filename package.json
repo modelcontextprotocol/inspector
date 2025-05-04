@@ -26,7 +26,7 @@
     "build-server": "cd server && npm run build",
     "build-client": "cd client && npm run build",
     "build-cli": "cd cli && npm run build",
-    "clean": "npm install rimraf && rimraf ./node_modules ./client/node_modules ./cli/node_modules ./build ./client/dist ./server/build ./cli/build ./package-lock.json && npm install",
+    "clean": "rimraf ./node_modules ./client/node_modules ./cli/node_modules ./build ./client/dist ./server/build ./cli/build ./package-lock.json && npm install",
     "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
     "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows\"",
     "start": "node client/bin/start.js",
