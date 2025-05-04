@@ -13,7 +13,7 @@ export function generateDefaultValue(schema: JsonSchemaType): JsonValue {
   if (!schema.required) {
     if (schema.type === "array") return [];
     if (schema.type === "object") return {};
-    return null;
+    return undefined;
   }
 
   switch (schema.type) {

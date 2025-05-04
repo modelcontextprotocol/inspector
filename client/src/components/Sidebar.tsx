@@ -29,7 +29,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorConfig } from "@/lib/configurationTypes";
 import { ConnectionStatus } from "@/lib/constants";
-import useTheme from "../lib/useTheme";
+import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
 import {
   Tooltip,
@@ -39,8 +39,8 @@ import {
 
 interface SidebarProps {
   connectionStatus: ConnectionStatus;
-  transportType: "stdio" | "sse";
-  setTransportType: (type: "stdio" | "sse") => void;
+  transportType: "stdio" | "sse" | "streamable-http";
+  setTransportType: (type: "stdio" | "sse" | "streamable-http") => void;
   command: string;
   setCommand: (command: string) => void;
   args: string;
@@ -117,7 +117,7 @@ const Sidebar = ({
             </label>
             <Select
               value={transportType}
-              onValueChange={(value: "stdio" | "sse") =>
+              onValueChange={(value: "stdio" | "sse" | "streamable-http") =>
                 setTransportType(value)
               }
             >
@@ -127,6 +127,7 @@ const Sidebar = ({
               <SelectContent>
                 <SelectItem value="stdio">STDIO</SelectItem>
                 <SelectItem value="sse">SSE</SelectItem>
+                <SelectItem value="streamable-http">Streamable HTTP</SelectItem>
               </SelectContent>
             </Select>
           </div>
