@@ -52,9 +52,4 @@ export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
       "Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577",
     value: "",
   },
-  MCP_AUTO_OPEN_ENABLED: {
-    label: "Auto Browser Open Enabled",
-    description: "Enable automatic browser opening when inspector starts",
-    value: true,
-  },
 } as const;
