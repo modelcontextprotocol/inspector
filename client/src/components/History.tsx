@@ -68,10 +68,14 @@ const HistoryAndNotifications = ({
                         <JsonView
                           data={request.request}
                           className="bg-background"
+                          data-testid={`history-entry-${requestHistory.length - 1 - index}-request`}
                         />
                       </div>
                       {request.response && (
-                        <div className="mt-2">
+                        <div 
+                          className="mt-2"
+                          data-testid={`history-entry-${requestHistory.length - 1 - index}-response`}
+                        >
                           <div className="flex justify-between items-center mb-1">
                             <span className="font-semibold text-green-600">
                               Response:

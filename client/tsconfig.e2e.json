@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "moduleResolution": "node",
+    "allowJs": true,
+    "types": ["node", "@playwright/test"],
+    "module": "ESNext",
+    "target": "ESNext"
+  },
+  "include": ["e2e/**/*"]
+}

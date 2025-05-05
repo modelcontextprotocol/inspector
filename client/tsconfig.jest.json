@@ -4,7 +4,8 @@
     "jsx": "react-jsx",
     "esModuleInterop": true,
     "module": "ESNext",
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "types": ["jest", "@testing-library/jest-dom", "node"]
   },
   "include": ["src"]
 }
