@@ -49,7 +49,6 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
-import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
   getMCPProxyAddress,
@@ -57,6 +56,7 @@ import {
   getInitialTransportType,
   getInitialCommand,
   getInitialArgs,
+  initializeInspectorConfig,
 } from "./utils/configUtils";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
@@ -92,27 +92,9 @@ const App = () => {
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
 
-  const [config, setConfig] = useState<InspectorConfig>(() => {
-    const savedConfig = localStorage.getItem(CONFIG_LOCAL_STORAGE_KEY);
-    if (savedConfig) {
-      // merge default config with saved config
-      const mergedConfig = {
-        ...DEFAULT_INSPECTOR_CONFIG,
-        ...JSON.parse(savedConfig),
-      } as InspectorConfig;
-
-      // update description of keys to match the new description (in case of any updates to the default config description)
-      Object.entries(mergedConfig).forEach(([key, value]) => {
-        mergedConfig[key as keyof InspectorConfig] = {
-          ...value,
-          label: DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].label,
-        };
-      });
-
-      return mergedConfig;
-    }
-    return DEFAULT_INSPECTOR_CONFIG;
-  });
+  const [config, setConfig] = useState<InspectorConfig>(() =>
+    initializeInspectorConfig(CONFIG_LOCAL_STORAGE_KEY),
+  );
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
   });
