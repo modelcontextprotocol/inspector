@@ -3,7 +3,7 @@ import type { JsonValue } from "@/utils/jsonUtils";
 import clsx from "clsx";
 import { Copy, CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/lib/hooks/useToast";
 import { getDataType, tryParseJson } from "@/utils/jsonUtils";
 
 interface JsonViewProps {
