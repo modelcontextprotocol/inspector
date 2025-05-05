@@ -24,3 +24,46 @@ export const getMCPServerRequestMaxTotalTimeout = (
 ): number => {
   return config.MCP_REQUEST_MAX_TOTAL_TIMEOUT.value as number;
 };
+
+const getSearchParam = (key: string): string | null => {
+  try {
+    const url = new URL(window.location.href);
+    return url.searchParams.get(key);
+  } catch {
+    return null;
+  }
+};
+
+export const getInitialTransportType = ():
+  | "stdio"
+  | "sse"
+  | "streamable-http" => {
+  const param = getSearchParam("transport");
+  if (param === "stdio" || param === "sse" || param === "streamable-http") {
+    return param;
+  }
+  return (
+    (localStorage.getItem("lastTransportType") as
+      | "stdio"
+      | "sse"
+      | "streamable-http") || "stdio"
+  );
+};
+
+export const getInitialSseUrl = (): string => {
+  const param = getSearchParam("serverUrl");
+  if (param) return param;
+  return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
+};
+
+export const getInitialCommand = (): string => {
+  const param = getSearchParam("serverCommand");
+  if (param) return param;
+  return localStorage.getItem("lastCommand") || "mcp-server-everything";
+};
+
+export const getInitialArgs = (): string => {
+  const param = getSearchParam("serverArgs");
+  if (param) return param;
+  return localStorage.getItem("lastArgs") || "";
+};

@@ -93,6 +93,16 @@ Example server configuration file:
 }
 ```
 
+You can also set the initial `transport` type, `serverUrl`, `serverCommand`, and `serverArgs` via query params, for example:
+
+```
+http://localhost:6274/?transport=sse&serverUrl=http://localhost:8787/sse
+http://localhost:6274/?transport=streamable-http&serverUrl=http://localhost:8787/mcp
+http://localhost:6274/?transport=stdio&serverCommand=npx&serverArgs=arg1%20arg2
+```
+
+Note that if both the query param and the corresponding localStorage item are set, the query param will take precedence.
+
 ### From this repository
 
 If you're working on the inspector itself:
