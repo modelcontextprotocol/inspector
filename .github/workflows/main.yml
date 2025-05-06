@@ -26,6 +26,10 @@ jobs:
       # - run: npm ci
       - run: npm install --no-package-lock
 
+      - name: Check linting
+        working-directory: ./client
+        run: npm run lint
+
       - name: Run client tests
         working-directory: ./client
         run: npm test
@@ -53,8 +57,6 @@ jobs:
       # Working around https://github.com/npm/cli/issues/4828
       # - run: npm ci
       - run: npm install --no-package-lock
-
-      - run: npm run build
 
       # TODO: Add --provenance once the repo is public
       - run: npm run publish-all

@@ -7,7 +7,7 @@ import { InspectorConfig } from "@/lib/configurationTypes";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Mock theme hook
-jest.mock("../../lib/useTheme", () => ({
+jest.mock("../../lib/hooks/useTheme", () => ({
   __esModule: true,
   default: () => ["light", jest.fn()],
 }));

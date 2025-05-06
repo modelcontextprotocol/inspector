@@ -3,6 +3,7 @@ import {
   SSEClientTransport,
   SseError,
 } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   ClientNotification,
   ClientRequest,
@@ -26,7 +27,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useState } from "react";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
 import { ConnectionStatus } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
@@ -42,7 +43,7 @@ import { getMCPServerRequestTimeout } from "@/utils/configUtils";
 import { InspectorConfig } from "../configurationTypes";
 
 interface UseConnectionOptions {
-  transportType: "stdio" | "sse";
+  transportType: "stdio" | "sse" | "streamable-http";
   command: string;
   args: string;
   sseUrl: string;
@@ -278,15 +279,29 @@ export function useConnection({
       setConnectionStatus("error-connecting-to-proxy");
       return;
     }
-    const mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
-    mcpProxyServerUrl.searchParams.append("transportType", transportType);
-    if (transportType === "stdio") {
-      mcpProxyServerUrl.searchParams.append("command", command);
-      mcpProxyServerUrl.searchParams.append("args", args);
-      mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
-    } else {
-      mcpProxyServerUrl.searchParams.append("url", sseUrl);
+    let mcpProxyServerUrl;
+    switch (transportType) {
+      case "stdio":
+        mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/stdio`);
+        mcpProxyServerUrl.searchParams.append("command", command);
+        mcpProxyServerUrl.searchParams.append("args", args);
+        mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
+        break;
+
+      case "sse":
+        mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
+        mcpProxyServerUrl.searchParams.append("url", sseUrl);
+        break;
+
+      case "streamable-http":
+        mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
+        mcpProxyServerUrl.searchParams.append("url", sseUrl);
+        break;
     }
+    (mcpProxyServerUrl as URL).searchParams.append(
+      "transportType",
+      transportType,
+    );
 
     try {
       // Inject auth manually instead of using SSEClientTransport, because we're
@@ -304,14 +319,24 @@ export function useConnection({
         headers[authHeaderName] = `Bearer ${token}`;
       }
 
-      const clientTransport = new SSEClientTransport(mcpProxyServerUrl, {
+      // Create appropriate transport
+      const transportOptions = {
         eventSourceInit: {
-          fetch: (url, init) => fetch(url, { ...init, headers }),
+          fetch: (
+            url: string | URL | globalThis.Request,
+            init: RequestInit | undefined,
+          ) => fetch(url, { ...init, headers }),
         },
         requestInit: {
           headers,
         },
-      });
+      };
+      const clientTransport =
+        transportType === "streamable-http"
+          ? new StreamableHTTPClientTransport(mcpProxyServerUrl as URL, {
+              sessionId: undefined,
+            })
+          : new SSEClientTransport(mcpProxyServerUrl as URL, transportOptions);
 
       if (onNotification) {
         [
