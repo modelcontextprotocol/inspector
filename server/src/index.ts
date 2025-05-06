@@ -141,7 +141,7 @@ let backingServerTransport: Transport | undefined;
 
 app.get("/mcp", async (req, res) => {
   const sessionId = req.headers["mcp-session-id"] as string;
-  console.log(`Received GET message for sessionId ${sessionId}`);
+  console.log(`GET /mcp for sessionId ${sessionId}`);
   try {
     const transport = webAppTransports.get(
       sessionId,
@@ -160,7 +160,7 @@ app.get("/mcp", async (req, res) => {
 
 app.post("/mcp", async (req, res) => {
   const sessionId = req.headers["mcp-session-id"] as string | undefined;
-  console.log(`Received POST message for sessionId ${sessionId}`);
+  console.log(`POST /mcp for sessionId ${sessionId}`);
   if (!sessionId) {
     try {
       console.log("New streamable-http connection");
@@ -228,7 +228,7 @@ app.post("/mcp", async (req, res) => {
 
 app.get("/stdio", async (req, res) => {
   try {
-    console.log("New connection");
+    console.log("GET /stdio");
 
     try {
       await backingServerTransport?.close();
@@ -254,18 +254,44 @@ app.get("/stdio", async (req, res) => {
     console.log("Created web app transport");
 
     await webAppTransport.start();
-    (backingServerTransport as StdioClientTransport).stderr!.on(
-      "data",
-      (chunk) => {
-        webAppTransport.send({
-          jsonrpc: "2.0",
-          method: "notifications/stderr",
-          params: {
-            content: chunk.toString(),
-          },
-        });
-      },
-    );
+    
+    // Handle client disconnection
+    res.on('close', () => {
+      console.log(`Client disconnected from session ${webAppTransport.sessionId}`);
+      // Clean up the transport map
+      webAppTransports.delete(webAppTransport.sessionId);
+    });
+    
+    // Create a stderr handler that checks connection state
+    const stderrHandler = (chunk: Buffer) => {
+      try {
+        // Only send if the transport exists in our map (meaning it's still active)
+        if (webAppTransports.has(webAppTransport.sessionId)) {
+          webAppTransport.send({
+            jsonrpc: "2.0",
+            method: "notifications/stderr",
+            params: {
+              content: chunk.toString(),
+            },
+          });
+        }
+      } catch (error: any) {
+        console.log(`Error sending stderr data to client: ${error.message}`);
+        // If we hit an error sending, clean up the transport
+        webAppTransports.delete(webAppTransport.sessionId);
+      }
+    };
+    
+    if ((backingServerTransport as StdioClientTransport).stderr) {
+      (backingServerTransport as StdioClientTransport).stderr!.on("data", stderrHandler);
+
+      // Store the handler reference so we can remove it when client disconnects
+      res.on('close', () => {
+        if ((backingServerTransport as StdioClientTransport).stderr) {
+          (backingServerTransport as StdioClientTransport).stderr!.removeListener("data", stderrHandler);
+        }
+      });
+    }
 
     mcpProxy({
       transportToClient: webAppTransport,
@@ -282,7 +308,7 @@ app.get("/stdio", async (req, res) => {
 app.get("/sse", async (req, res) => {
   try {
     console.log(
-      "New SSE connection. NOTE: The sse transport is deprecated and has been replaced by streamable-http",
+      "GET /sse (NOTE: The sse transport is deprecated and has been replaced by streamable-http)",
     );
 
     try {
@@ -324,7 +350,7 @@ app.get("/sse", async (req, res) => {
 app.post("/message", async (req, res) => {
   try {
     const sessionId = req.query.sessionId;
-    console.log(`Received message for sessionId ${sessionId}`);
+    console.log(`POST /message for sessionId ${sessionId}`);
 
     const transport = webAppTransports.get(
       sessionId as string,
@@ -341,6 +367,7 @@ app.post("/message", async (req, res) => {
 });
 
 app.get("/health", (req, res) => {
+  console.log("GET /health");
   res.json({
     status: "ok",
   });
@@ -348,6 +375,7 @@ app.get("/health", (req, res) => {
 
 app.get("/config", (req, res) => {
   try {
+    console.log("GET /config");
     res.json({
       defaultEnvironment,
       defaultCommand: values.env,
