@@ -42,9 +42,9 @@ CLIENT_PORT=8080 SERVER_PORT=9000 npx @modelcontextprotocol/inspector node build
 
 For more details on ways to use the inspector, see the [Inspector section of the MCP docs site](https://modelcontextprotocol.io/docs/tools/inspector). For help with debugging, see the [Debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
 
-### Configuration Export
+### Servers File Export
 
-The MCP Inspector provides convenient buttons to export your server configuration:
+The MCP Inspector provides convenient buttons to export server launch configurations for use in clients such as Cursor, Claude Code, or the Inspector's CLI. The file is usually called `mcp.json`.
 
 - **Server Entry** - Copies a single server configuration entry to your clipboard. This can be added to your `mcp.json` file inside the `mcpServers` object with your preferred server name.
 
@@ -161,7 +161,7 @@ Example server configuration file:
 }
 ```
 
-> **Tip:** You can easily generate this configuration format using the **Server Entry** and **Servers File** buttons in the Inspector UI, as described in the Configuration Export section above.
+> **Tip:** You can easily generate this configuration format using the **Server Entry** and **Servers File** buttons in the Inspector UI, as described in the Servers File Export section above.
 
 ### From this repository
 
