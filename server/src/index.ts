@@ -254,14 +254,16 @@ app.get("/stdio", async (req, res) => {
     console.log("Created web app transport");
 
     await webAppTransport.start();
-    
+
     // Handle client disconnection
-    res.on('close', () => {
-      console.log(`Client disconnected from session ${webAppTransport.sessionId}`);
+    res.on("close", () => {
+      console.log(
+        `Client disconnected from session ${webAppTransport.sessionId}`,
+      );
       // Clean up the transport map
       webAppTransports.delete(webAppTransport.sessionId);
     });
-    
+
     // Create a stderr handler that checks connection state
     const stderrHandler = (chunk: Buffer) => {
       try {
@@ -281,14 +283,19 @@ app.get("/stdio", async (req, res) => {
         webAppTransports.delete(webAppTransport.sessionId);
       }
     };
-    
+
     if ((backingServerTransport as StdioClientTransport).stderr) {
-      (backingServerTransport as StdioClientTransport).stderr!.on("data", stderrHandler);
+      (backingServerTransport as StdioClientTransport).stderr!.on(
+        "data",
+        stderrHandler,
+      );
 
       // Store the handler reference so we can remove it when client disconnects
-      res.on('close', () => {
+      res.on("close", () => {
         if ((backingServerTransport as StdioClientTransport).stderr) {
-          (backingServerTransport as StdioClientTransport).stderr!.removeListener("data", stderrHandler);
+          (
+            backingServerTransport as StdioClientTransport
+          ).stderr!.removeListener("data", stderrHandler);
         }
       });
     }
