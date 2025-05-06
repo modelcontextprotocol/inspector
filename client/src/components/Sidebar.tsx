@@ -98,8 +98,8 @@ const Sidebar = ({
   const [showBearerToken, setShowBearerToken] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
-  const [copiedConfigEntry, setCopiedConfigEntry] = useState(false);
-  const [copiedConfigFile, setCopiedConfigFile] = useState(false);
+  const [copiedServerEntry, setCopiedServerEntry] = useState(false);
+  const [copiedServerFile, setCopiedServerFile] = useState(false);
   const { toast } = useToast();
 
   // Shared utility function to generate server config
@@ -108,53 +108,63 @@ const Sidebar = ({
       return {
         command,
         args: args.trim() ? args.split(/\s+/) : [],
-        env: { ...env }
+        env: { ...env },
       };
     } else {
       return {
         type: "sse",
         url: sseUrl,
-        note: "For SSE connections, add this URL directly in Client"
+        note: "For SSE connections, add this URL directly in Client",
       };
     }
   }, [transportType, command, args, env, sseUrl]);
 
   // Memoized config entry generator
-  const generateMCPConfigEntry = useCallback(() => {
+  const generateMCPServerEntry = useCallback(() => {
     return JSON.stringify(generateServerConfig(), null, 2);
   }, [generateServerConfig]);
 
   // Memoized config file generator
-  const generateMCPConfigFile = useCallback(() => {
+  const generateMCPServerFile = useCallback(() => {
     return JSON.stringify(
       {
         mcpServers: {
-          "default-server": generateServerConfig()
-        }
+          "default-server": generateServerConfig(),
+        },
       },
       null,
-      2
+      2,
     );
   }, [generateServerConfig]);
 
   // Memoized copy handlers
-  const handleCopyConfigEntry = useCallback(() => {
+  const handleCopyServerEntry = useCallback(() => {
     try {
-      const configJson = generateMCPConfigEntry();
-      navigator.clipboard.writeText(configJson);
-      setCopiedConfigEntry(true);
+      const configJson = generateMCPServerEntry();
+      navigator.clipboard
+        .writeText(configJson)
+        .then(() => {
+          setCopiedServerEntry(true);
 
-      toast({
-        title: "Config entry copied",
-        description:
-          transportType === "stdio"
-            ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
-            : "SSE URL has been copied. Use this URL in Cursor directly.",
-      });
+          toast({
+            title: "Config entry copied",
+            description:
+              transportType === "stdio"
+                ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
+                : "SSE URL has been copied. Use this URL in Cursor directly.",
+          });
 
-      setTimeout(() => {
-        setCopiedConfigEntry(false);
-      }, 2000);
+          setTimeout(() => {
+            setCopiedServerEntry(false);
+          }, 2000);
+        })
+        .catch((error) => {
+          toast({
+            title: "Error",
+            description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
+            variant: "destructive",
+          });
+        });
     } catch (error) {
       toast({
         title: "Error",
@@ -162,22 +172,33 @@ const Sidebar = ({
         variant: "destructive",
       });
     }
-  }, [generateMCPConfigEntry, transportType, toast]);
+  }, [generateMCPServerEntry, transportType, toast]);
 
-  const handleCopyConfigFile = useCallback(() => {
+  const handleCopyServerFile = useCallback(() => {
     try {
-      const configJson = generateMCPConfigFile();
-      navigator.clipboard.writeText(configJson);
-      setCopiedConfigFile(true);
+      const configJson = generateMCPServerFile();
+      navigator.clipboard
+        .writeText(configJson)
+        .then(() => {
+          setCopiedServerFile(true);
 
-      toast({
-        title: "Config file copied",
-        description: "Server configuration has been copied to clipboard. Add this to your mcp.json file. Current testing server will be added as 'default-server'",
-      });
+          toast({
+            title: "Servers file copied",
+            description:
+              "Servers configuration has been copied to clipboard. Add this to your mcp.json file. Current testing server will be added as 'default-server'",
+          });
 
-      setTimeout(() => {
-        setCopiedConfigFile(false);
-      }, 2000);
+          setTimeout(() => {
+            setCopiedServerFile(false);
+          }, 2000);
+        })
+        .catch((error) => {
+          toast({
+            title: "Error",
+            description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
+            variant: "destructive",
+          });
+        });
     } catch (error) {
       toast({
         title: "Error",
@@ -185,7 +206,7 @@ const Sidebar = ({
         variant: "destructive",
       });
     }
-  }, [generateMCPConfigFile, toast]);
+  }, [generateMCPServerFile, toast]);
 
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
@@ -252,46 +273,41 @@ const Sidebar = ({
                 />
               </div>
               <div className="grid grid-cols-2 gap-2 mt-2">
-                
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={handleCopyConfigEntry}
+                      onClick={handleCopyServerEntry}
                       className="w-full"
                     >
-                      {copiedConfigEntry ? (
+                      {copiedServerEntry ? (
                         <CheckCheck className="h-4 w-4 mr-2" />
                       ) : (
                         <Copy className="h-4 w-4 mr-2" />
                       )}
-                      Config Entry
+                      Server Entry
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>
-                    Copy Config Entry
-                  </TooltipContent>
+                  <TooltipContent>Copy Server Entry</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={handleCopyConfigFile}
+                      onClick={handleCopyServerFile}
                       className="w-full"
                     >
-                      {copiedConfigFile ? (
+                      {copiedServerFile ? (
                         <CheckCheck className="h-4 w-4 mr-2" />
                       ) : (
                         <Copy className="h-4 w-4 mr-2" />
                       )}
-                      Config File
+                      Servers File
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>
-                    Copy Config File
-                  </TooltipContent>
+                  <TooltipContent>Copy Servers File</TooltipContent>
                 </Tooltip>
               </div>
             </>
@@ -313,16 +329,16 @@ const Sidebar = ({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleCopyConfigFile}
+                  onClick={handleCopyServerFile}
                   className="w-full"
                   title="Copy SSE URL Configuration"
                 >
-                  {copiedConfigFile ? (
+                  {copiedServerFile ? (
                     <CheckCheck className="h-4 w-4 mr-2" />
                   ) : (
                     <Copy className="h-4 w-4 mr-2" />
                   )}
-                  Copy URL
+                  Copy Servers File
                 </Button>
               </div>
               <div className="space-y-2">

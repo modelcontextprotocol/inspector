@@ -42,6 +42,74 @@ CLIENT_PORT=8080 SERVER_PORT=9000 npx @modelcontextprotocol/inspector node build
 
 For more details on ways to use the inspector, see the [Inspector section of the MCP docs site](https://modelcontextprotocol.io/docs/tools/inspector). For help with debugging, see the [Debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
 
+### Configuration Export
+
+The MCP Inspector provides convenient buttons to export your server configuration:
+
+- **Server Entry** - Copies a single server configuration entry to your clipboard. This can be added to your `mcp.json` file inside the `mcpServers` object with your preferred server name.
+
+  **STDIO transport example:**
+
+  ```json
+  {
+    "command": "node",
+    "args": ["build/index.js", "--debug"],
+    "env": {
+      "API_KEY": "your-api-key",
+      "DEBUG": "true"
+    }
+  }
+  ```
+
+  **SSE transport example:**
+
+  ```json
+  {
+    "type": "sse",
+    "url": "http://localhost:3000/events",
+    "note": "For SSE connections, add this URL directly in Client"
+  }
+  ```
+
+- **Servers File** - Copies a complete MCP configuration file structure to your clipboard, with your current server configuration added as `default-server`. This can be saved directly as `mcp.json`.
+
+  **STDIO transport example:**
+
+  ```json
+  {
+    "mcpServers": {
+      "default-server": {
+        "command": "node",
+        "args": ["build/index.js", "--debug"],
+        "env": {
+          "API_KEY": "your-api-key",
+          "DEBUG": "true"
+        }
+      }
+    }
+  }
+  ```
+
+  **SSE transport example:**
+
+  ```json
+  {
+    "mcpServers": {
+      "default-server": {
+        "type": "sse",
+        "url": "http://localhost:3000/events",
+        "note": "For SSE connections, add this URL directly in Client"
+      }
+    }
+  }
+  ```
+
+These buttons appear in the Inspector UI after you've configured your server settings, making it easy to save and reuse your configurations.
+
+For SSE transport connections, the Inspector provides similar functionality for both buttons. The "Server Entry" button copies the SSE URL configuration that can be added to your existing configuration file, while the "Servers File" button creates a complete configuration file containing the SSE URL for direct use in clients.
+
+You can paste the Server Entry into your existing `mcp.json` file under your chosen server name, or use the complete Servers File payload to create a new configuration file.
+
 ### Authentication
 
 The inspector supports bearer token authentication for SSE connections. Enter your token in the UI when connecting to an MCP server, and it will be sent in the Authorization header. You can override the header name using the input field in the sidebar.
@@ -92,6 +160,8 @@ Example server configuration file:
   }
 }
 ```
+
+> **Tip:** You can easily generate this configuration format using the **Server Entry** and **Servers File** buttons in the Inspector UI, as described in the Configuration Export section above.
 
 ### From this repository
 
