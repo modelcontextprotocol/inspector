@@ -31,7 +31,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useState } from "react";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
 import { ConnectionStatus } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";

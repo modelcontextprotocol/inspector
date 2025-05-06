@@ -26,6 +26,7 @@
     "build-server": "cd server && npm run build",
     "build-client": "cd client && npm run build",
     "build-cli": "cd cli && npm run build",
+    "clean": "rimraf ./node_modules ./client/node_modules ./cli/node_modules ./build ./client/dist ./server/build ./cli/build ./package-lock.json && npm install",
     "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
     "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows\"",
     "start": "node client/bin/start.js",
@@ -42,7 +43,7 @@
     "@modelcontextprotocol/inspector-cli": "^0.11.0",
     "@modelcontextprotocol/inspector-client": "^0.11.0",
     "@modelcontextprotocol/inspector-server": "^0.11.0",
-    "@modelcontextprotocol/sdk": "^1.10.2",
+    "@modelcontextprotocol/sdk": "^1.11.0",
     "concurrently": "^9.0.1",
     "shell-quote": "^1.8.2",
     "spawn-rx": "^5.1.2",
@@ -55,6 +56,7 @@
     "@types/shell-quote": "^1.7.5",
     "jest-fixed-jsdom": "^0.0.9",
     "prettier": "3.3.3",
+    "rimraf": "^6.0.1",
     "typescript": "^5.4.2"
   }
 }

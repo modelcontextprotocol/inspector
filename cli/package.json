@@ -21,7 +21,7 @@
   },
   "devDependencies": {},
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.10.2",
+    "@modelcontextprotocol/sdk": "^1.11.0",
     "commander": "^13.1.0",
     "spawn-rx": "^5.1.2"
   }
