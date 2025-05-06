@@ -38,7 +38,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "../lib/hooks/useToast";
 
 interface SidebarProps {
   connectionStatus: ConnectionStatus;
