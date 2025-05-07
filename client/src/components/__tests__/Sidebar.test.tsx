@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, it, beforeEach, jest } from "@jest/globals";
 import Sidebar from "../Sidebar";
@@ -14,7 +14,7 @@ jest.mock("../../lib/hooks/useTheme", () => ({
 
 // Mock toast hook
 const mockToast = jest.fn();
-jest.mock("@/hooks/use-toast", () => ({
+jest.mock("@/lib/hooks/useToast", () => ({
   useToast: () => ({
     toast: mockToast,
   }),
@@ -27,6 +27,9 @@ Object.defineProperty(navigator, "clipboard", {
     writeText: mockClipboardWrite,
   },
 });
+
+// Setup fake timers
+jest.useFakeTimers();
 
 describe("Sidebar Environment Variables", () => {
   const defaultProps = {
@@ -69,6 +72,7 @@ describe("Sidebar Environment Variables", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.clearAllTimers();
   });
 
   describe("Basic Operations", () => {
@@ -642,9 +646,10 @@ describe("Sidebar Environment Variables", () => {
   describe("Copy Configuration Features", () => {
     beforeEach(() => {
       jest.clearAllMocks();
+      jest.clearAllTimers();
     });
 
-    it("should copy server entry configuration to clipboard for STDIO transport", () => {
+    it("should copy server entry configuration to clipboard for STDIO transport", async () => {
       const command = "node";
       const args = "--inspect server.js";
       const env = { API_KEY: "test-key", DEBUG: "true" };
@@ -656,10 +661,16 @@ describe("Sidebar Environment Variables", () => {
         env,
       });
 
-      const copyServerEntryButton = screen.getByRole("button", {
-        name: /server entry/i,
+      // Use act to properly wrap the clipboard operations
+      await act(async () => {
+        const copyServerEntryButton = screen.getByRole("button", {
+          name: /server entry/i,
+        });
+        fireEvent.click(copyServerEntryButton);
+
+        // Fast-forward timers to handle the setTimeout
+        jest.runAllTimers();
       });
-      fireEvent.click(copyServerEntryButton);
 
       // Check clipboard API was called with the correct configuration
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
@@ -677,7 +688,7 @@ describe("Sidebar Environment Variables", () => {
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
 
-    it("should copy servers file configuration to clipboard for STDIO transport", () => {
+    it("should copy servers file configuration to clipboard for STDIO transport", async () => {
       const command = "node";
       const args = "--inspect server.js";
       const env = { API_KEY: "test-key", DEBUG: "true" };
@@ -689,10 +700,15 @@ describe("Sidebar Environment Variables", () => {
         env,
       });
 
-      const copyServersFileButton = screen.getByRole("button", {
-        name: /servers file/i,
+      await act(async () => {
+        const copyServersFileButton = screen.getByRole("button", {
+          name: /servers file/i,
+        });
+        fireEvent.click(copyServersFileButton);
+
+        // Fast-forward timers to handle the setTimeout
+        jest.runAllTimers();
       });
-      fireEvent.click(copyServersFileButton);
 
       // Check clipboard API was called with the correct configuration
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
@@ -714,7 +730,7 @@ describe("Sidebar Environment Variables", () => {
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
 
-    it("should copy servers file configuration to clipboard for SSE transport", () => {
+    it("should copy servers file configuration to clipboard for SSE transport", async () => {
       const sseUrl = "http://localhost:3000/events";
 
       renderSidebar({
@@ -722,10 +738,15 @@ describe("Sidebar Environment Variables", () => {
         sseUrl,
       });
 
-      const copyServersFileButton = screen.getByRole("button", {
-        name: /servers file/i,
+      await act(async () => {
+        const copyServersFileButton = screen.getByRole("button", {
+          name: /servers file/i,
+        });
+        fireEvent.click(copyServersFileButton);
+
+        // Fast-forward timers to handle the setTimeout
+        jest.runAllTimers();
       });
-      fireEvent.click(copyServersFileButton);
 
       // Check clipboard API was called with the correct configuration
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
@@ -747,7 +768,7 @@ describe("Sidebar Environment Variables", () => {
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
 
-    it("should handle empty args in STDIO transport", () => {
+    it("should handle empty args in STDIO transport", async () => {
       const command = "python";
       const args = "";
 
@@ -757,10 +778,15 @@ describe("Sidebar Environment Variables", () => {
         args,
       });
 
-      const copyServerEntryButton = screen.getByRole("button", {
-        name: /server entry/i,
+      await act(async () => {
+        const copyServerEntryButton = screen.getByRole("button", {
+          name: /server entry/i,
+        });
+        fireEvent.click(copyServerEntryButton);
+
+        // Fast-forward timers to handle the setTimeout
+        jest.runAllTimers();
       });
-      fireEvent.click(copyServerEntryButton);
 
       // Check clipboard API was called with empty args array
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
