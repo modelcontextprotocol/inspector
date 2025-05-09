@@ -249,6 +249,10 @@ const App = () => {
         if (data.defaultArgs) {
           setArgs(data.defaultArgs);
         }
+        if (data.defaultMcpServerUrl) {
+          setSseUrl(data.defaultMcpServerUrl);
+          setTransportType("sse");
+        }
       })
       .catch((error) =>
         console.error("Error fetching default environment:", error),
