@@ -168,6 +168,8 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --me
 | **Automation**           | N/A                                                                       | Ideal for CI/CD pipelines, batch processing, and integration with coding assistants                                                                  |
 | **Learning MCP**         | Rich visual interface helps new users understand server capabilities      | Simplified commands for focused learning of specific endpoints                                                                                       |
 
+For detailed information about tool testing, including input type handling, validation rules, and best practices, see the [Tool Testing Guide](docs/tools-testing.md).
+
 ## License
 
 This project is licensed under the MIT License—see the [LICENSE](LICENSE) file for details.

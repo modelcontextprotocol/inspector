@@ -7,15 +7,17 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+export type SchemaType =
+  | "string"
+  | "number"
+  | "integer"
+  | "boolean"
+  | "array"
+  | "object"
+  | "null";
+
 export type JsonSchemaType = {
-  type:
-    | "string"
-    | "number"
-    | "integer"
-    | "boolean"
-    | "array"
-    | "object"
-    | "null";
+  type: SchemaType | SchemaType[];
   description?: string;
   required?: boolean;
   default?: JsonValue;
