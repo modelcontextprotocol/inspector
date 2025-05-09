@@ -133,12 +133,12 @@ const ToolsTab = ({
           }}
           setSelectedItem={setSelectedTool}
           renderItem={(tool) => (
-            <>
+            <div className="flex flex-col items-start">
               <span className="flex-1">{tool.name}</span>
-              <span className="text-sm text-gray-500 text-right">
+              <span className="text-sm text-gray-500 text-left">
                 {tool.description}
               </span>
-            </>
+            </div>
           )}
           title="Tools"
           buttonText={nextCursor ? "List More Tools" : "List Tools"}
