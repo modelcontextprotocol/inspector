@@ -102,6 +102,15 @@ const Sidebar = ({
   const [copiedServerFile, setCopiedServerFile] = useState(false);
   const { toast } = useToast();
 
+  // Reusable error reporter for copy actions
+  function reportError(error: unknown) {
+    toast({
+      title: "Error",
+      description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
+      variant: "destructive",
+    });
+  }
+
   // Shared utility function to generate server config
   const generateServerConfig = useCallback(() => {
     if (transportType === "stdio") {
@@ -159,18 +168,10 @@ const Sidebar = ({
           }, 2000);
         })
         .catch((error) => {
-          toast({
-            title: "Error",
-            description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
-            variant: "destructive",
-          });
+          reportError(error);
         });
     } catch (error) {
-      toast({
-        title: "Error",
-        description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
-        variant: "destructive",
-      });
+      reportError(error);
     }
   }, [generateMCPServerEntry, transportType, toast]);
 
@@ -193,18 +194,10 @@ const Sidebar = ({
           }, 2000);
         })
         .catch((error) => {
-          toast({
-            title: "Error",
-            description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
-            variant: "destructive",
-          });
+          reportError(error);
         });
     } catch (error) {
-      toast({
-        title: "Error",
-        description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
-        variant: "destructive",
-      });
+      reportError(error);
     }
   }, [generateMCPServerFile, toast]);
 
