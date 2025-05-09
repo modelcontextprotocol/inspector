@@ -28,8 +28,16 @@ jest.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
 }));
 
 jest.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({
-  SSEClientTransport: jest.fn(),
+  SSEClientTransport: jest.fn((url) => ({
+    toString: () => url,
+  })),
   SseError: jest.fn(),
+}));
+
+jest.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
+  StreamableHTTPClientTransport: jest.fn((url) => ({
+    toString: () => url,
+  })),
 }));
 
 jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
@@ -162,5 +170,93 @@ describe("useConnection", () => {
     await expect(
       result.current.makeRequest(mockRequest, mockSchema),
     ).rejects.toThrow("MCP client not connected");
+  });
+
+  describe("URL Port Handling", () => {
+    const SSEClientTransport = jest.requireMock(
+      "@modelcontextprotocol/sdk/client/sse.js",
+    ).SSEClientTransport;
+    const StreamableHTTPClientTransport = jest.requireMock(
+      "@modelcontextprotocol/sdk/client/streamableHttp.js",
+    ).StreamableHTTPClientTransport;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    test("preserves HTTPS port number when connecting", async () => {
+      const props = {
+        ...defaultProps,
+        sseUrl: "https://example.com:8443/api",
+        transportType: "sse" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(props));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const call = SSEClientTransport.mock.calls[0][0];
+      expect(call.toString()).toContain(
+        "url=https%3A%2F%2Fexample.com%3A8443%2Fapi",
+      );
+    });
+
+    test("preserves HTTP port number when connecting", async () => {
+      const props = {
+        ...defaultProps,
+        sseUrl: "http://localhost:3000/api",
+        transportType: "sse" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(props));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const call = SSEClientTransport.mock.calls[0][0];
+      expect(call.toString()).toContain(
+        "url=http%3A%2F%2Flocalhost%3A3000%2Fapi",
+      );
+    });
+
+    test("uses default port for HTTPS when not specified", async () => {
+      const props = {
+        ...defaultProps,
+        sseUrl: "https://example.com/api",
+        transportType: "sse" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(props));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const call = SSEClientTransport.mock.calls[0][0];
+      expect(call.toString()).toContain("url=https%3A%2F%2Fexample.com%2Fapi");
+      expect(call.toString()).not.toContain("%3A443");
+    });
+
+    test("preserves port number in streamable-http transport", async () => {
+      const props = {
+        ...defaultProps,
+        sseUrl: "https://example.com:8443/api",
+        transportType: "streamable-http" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(props));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const call = StreamableHTTPClientTransport.mock.calls[0][0];
+      expect(call.toString()).toContain(
+        "url=https%3A%2F%2Fexample.com%3A8443%2Fapi",
+      );
+    });
   });
 });
