@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import open from "open";
 import { resolve, dirname } from "path";
 import { spawnPromise } from "spawn-rx";
 import { fileURLToPath } from "url";
@@ -99,6 +100,9 @@ async function main() {
 
   if (serverOk) {
     try {
+      if (process.env.MCP_AUTO_OPEN_ENABLED !== "false") {
+        open(`http://127.0.0.1:${CLIENT_PORT}`);
+      }
       await spawnPromise("node", [inspectorClientPath], {
         env: { ...process.env, PORT: CLIENT_PORT },
         signal: abort.signal,
