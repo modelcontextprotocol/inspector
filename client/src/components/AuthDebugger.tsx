@@ -155,26 +155,27 @@ const AuthDebugger = ({
         const clientInformation = await validateClientInformation(provider);
         updateAuthState({ oauthStep: "authorization_redirect" });
         try {
+          let scope: string | undefined = undefined;
+          if (metadata.scopes_supported) {
+            // Request all supported scopes during debugging
+            scope = metadata.scopes_supported.join(" ");
+          }
           const { authorizationUrl, codeVerifier } = await startAuthorization(
             sseUrl,
             {
               metadata,
               clientInformation,
               redirectUrl: provider.redirectUrl,
+              scope,
             },
           );
 
           provider.saveCodeVerifier(codeVerifier);
 
-          if (metadata.scopes_supported) {
-            const url = new URL(authorizationUrl.toString());
-            url.searchParams.set("scope", metadata.scopes_supported.join(" "));
-            updateAuthState({ authorizationUrl: url.toString() });
-          } else {
-            updateAuthState({ authorizationUrl: authorizationUrl.toString() });
-          }
-
-          updateAuthState({ oauthStep: "authorization_code" });
+          updateAuthState({
+            authorizationUrl: authorizationUrl.toString(),
+            oauthStep: "authorization_code",
+          });
         } catch (error) {
           console.error("OAuth flow step error:", error);
           throw new Error(
