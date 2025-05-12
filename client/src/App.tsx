@@ -49,9 +49,15 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
-import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
-import { getMCPProxyAddress } from "./utils/configUtils";
+import {
+  getMCPProxyAddress,
+  getInitialSseUrl,
+  getInitialTransportType,
+  getInitialCommand,
+  getInitialArgs,
+  initializeInspectorConfig,
+} from "./utils/configUtils";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
@@ -71,26 +77,13 @@ const App = () => {
     prompts: null,
     tools: null,
   });
-  const [command, setCommand] = useState<string>(() => {
-    return localStorage.getItem("lastCommand") || "mcp-server-everything";
-  });
-  const [args, setArgs] = useState<string>(() => {
-    return localStorage.getItem("lastArgs") || "";
-  });
+  const [command, setCommand] = useState<string>(getInitialCommand);
+  const [args, setArgs] = useState<string>(getInitialArgs);
 
-  const [sseUrl, setSseUrl] = useState<string>(() => {
-    return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
-  });
+  const [sseUrl, setSseUrl] = useState<string>(getInitialSseUrl);
   const [transportType, setTransportType] = useState<
     "stdio" | "sse" | "streamable-http"
-  >(() => {
-    return (
-      (localStorage.getItem("lastTransportType") as
-        | "stdio"
-        | "sse"
-        | "streamable-http") || "stdio"
-    );
-  });
+  >(getInitialTransportType);
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [stdErrNotifications, setStdErrNotifications] = useState<
@@ -99,27 +92,9 @@ const App = () => {
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
 
-  const [config, setConfig] = useState<InspectorConfig>(() => {
-    const savedConfig = localStorage.getItem(CONFIG_LOCAL_STORAGE_KEY);
-    if (savedConfig) {
-      // merge default config with saved config
-      const mergedConfig = {
-        ...DEFAULT_INSPECTOR_CONFIG,
-        ...JSON.parse(savedConfig),
-      } as InspectorConfig;
-
-      // update description of keys to match the new description (in case of any updates to the default config description)
-      Object.entries(mergedConfig).forEach(([key, value]) => {
-        mergedConfig[key as keyof InspectorConfig] = {
-          ...value,
-          label: DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].label,
-        };
-      });
-
-      return mergedConfig;
-    }
-    return DEFAULT_INSPECTOR_CONFIG;
-  });
+  const [config, setConfig] = useState<InspectorConfig>(() =>
+    initializeInspectorConfig(CONFIG_LOCAL_STORAGE_KEY),
+  );
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
   });
