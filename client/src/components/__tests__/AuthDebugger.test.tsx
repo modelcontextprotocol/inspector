@@ -9,8 +9,8 @@ import "@testing-library/jest-dom";
 import { describe, it, beforeEach, jest } from "@jest/globals";
 import AuthDebugger, { AuthDebuggerProps } from "../AuthDebugger";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SESSION_KEYS } from "@/lib/constants";
 
-// Mock OAuth data that matches the schemas
 const mockOAuthTokens = {
   access_token: "test_access_token",
   token_type: "Bearer",
@@ -49,6 +49,7 @@ import {
   startAuthorization,
   exchangeAuthorization,
 } from "@modelcontextprotocol/sdk/client/auth.js";
+import { OAuthMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 // Type the mocked functions properly
 const mockDiscoverOAuthMetadata = discoverOAuthMetadata as jest.MockedFunction<
@@ -64,7 +65,6 @@ const mockExchangeAuthorization = exchangeAuthorization as jest.MockedFunction<
   typeof exchangeAuthorization
 >;
 
-// Mock Session Storage
 const sessionStorageMock = {
   getItem: jest.fn(),
   setItem: jest.fn(),
@@ -75,7 +75,6 @@ Object.defineProperty(window, "sessionStorage", {
   value: sessionStorageMock,
 });
 
-// Mock the location.origin
 Object.defineProperty(window, "location", {
   value: {
     origin: "http://localhost:3000",
@@ -108,12 +107,19 @@ describe("AuthDebugger", () => {
     jest.clearAllMocks();
     sessionStorageMock.getItem.mockReturnValue(null);
 
-    // Set up mock implementations
     mockDiscoverOAuthMetadata.mockResolvedValue(mockOAuthMetadata);
     mockRegisterClient.mockResolvedValue(mockOAuthClientInfo);
-    mockStartAuthorization.mockResolvedValue({
-      authorizationUrl: new URL("https://oauth.example.com/authorize"),
-      codeVerifier: "test_verifier",
+    mockStartAuthorization.mockImplementation(async (_sseUrl, options) => {
+      const authUrl = new URL("https://oauth.example.com/authorize");
+
+      if (options.scope) {
+        authUrl.searchParams.set("scope", options.scope);
+      }
+
+      return {
+        authorizationUrl: authUrl,
+        codeVerifier: "test_verifier",
+      };
     });
     mockExchangeAuthorization.mockResolvedValue(mockOAuthTokens);
   });
@@ -299,6 +305,77 @@ describe("AuthDebugger", () => {
       expect(mockDiscoverOAuthMetadata).toHaveBeenCalledWith(
         "https://example.com",
       );
+    });
+
+    // Setup helper for OAuth authorization tests
+    const setupAuthorizationUrlTest = async (metadata: OAuthMetadata) => {
+      const updateAuthState = jest.fn();
+
+      // Mock the session storage to return metadata
+      sessionStorageMock.getItem.mockImplementation((key) => {
+        if (key === `[https://example.com] ${SESSION_KEYS.SERVER_METADATA}`) {
+          return JSON.stringify(metadata);
+        }
+        if (
+          key === `[https://example.com] ${SESSION_KEYS.CLIENT_INFORMATION}`
+        ) {
+          return JSON.stringify(mockOAuthClientInfo);
+        }
+        return null;
+      });
+
+      await act(async () => {
+        renderAuthDebugger({
+          updateAuthState,
+          authState: {
+            ...defaultAuthState,
+            isInitiatingAuth: false,
+            oauthStep: "client_registration",
+            oauthMetadata: metadata,
+            oauthClientInfo: mockOAuthClientInfo,
+          },
+        });
+      });
+
+      // Click Continue to trigger authorization
+      await act(async () => {
+        fireEvent.click(screen.getByText("Continue"));
+      });
+
+      return updateAuthState;
+    };
+
+    it("should include scope in authorization URL when scopes_supported is present", async () => {
+      const metadataWithScopes = {
+        ...mockOAuthMetadata,
+        scopes_supported: ["read", "write", "admin"],
+      };
+
+      const updateAuthState =
+        await setupAuthorizationUrlTest(metadataWithScopes);
+
+      // Wait for the updateAuthState to be called
+      await waitFor(() => {
+        expect(updateAuthState).toHaveBeenCalledWith(
+          expect.objectContaining({
+            authorizationUrl: expect.stringContaining("scope="),
+          }),
+        );
+      });
+    });
+
+    it("should not include scope in authorization URL when scopes_supported is not present", async () => {
+      const updateAuthState =
+        await setupAuthorizationUrlTest(mockOAuthMetadata);
+
+      // Wait for the updateAuthState to be called
+      await waitFor(() => {
+        expect(updateAuthState).toHaveBeenCalledWith(
+          expect.objectContaining({
+            authorizationUrl: expect.not.stringContaining("scope="),
+          }),
+        );
+      });
     });
   });
 });
