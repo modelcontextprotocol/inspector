@@ -44,7 +44,7 @@ const { values } = parseArgs({
 const app = express();
 app.use(cors());
 app.use((req, res, next) => {
-  res.header("Access-Control-Expose-Headers", "mcp-session-id");
+  res.header("Access-Control-Expose-Headers", ["mcp-session-id", "www-authenticate"]);
   next();
 });
 
