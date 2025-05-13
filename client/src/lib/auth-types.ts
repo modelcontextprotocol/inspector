@@ -37,10 +37,3 @@ export interface AuthDebuggerState {
   statusMessage: StatusMessage | null;
   validationError: string | null;
 }
-
-// Enhanced version of the OAuth client provider specifically for debug flows
-export class DebugInspectorOAuthClientProvider {
-  get redirectUrl(): string {
-    return `${window.location.origin}/oauth/callback/debug`;
-  }
-}

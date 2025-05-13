@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { InspectorOAuthClientProvider } from "../lib/auth";
+import { DebugInspectorOAuthClientProvider } from "../lib/auth";
 import {
   auth,
   discoverOAuthMetadata,
@@ -13,9 +13,9 @@ import {
   OAuthMetadata,
   OAuthClientInformation,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { CheckCircle2, Circle, ExternalLink, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { AuthDebuggerState } from "../lib/auth-types";
-import { SESSION_KEYS, getServerSpecificKey } from "../lib/constants";
+import { OAuthFlowProgress } from "./OAuthFlowProgress";
 
 export interface AuthDebuggerProps {
   serverUrl: string;
@@ -63,34 +63,6 @@ const StatusMessage = ({ message }: StatusMessageProps) => {
     </div>
   );
 };
-
-// Overrides debug URL and allows saving server OAuth metadata to
-// display in debug UI.
-class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvider {
-  get redirectUrl(): string {
-    return `${window.location.origin}/oauth/callback/debug`;
-  }
-
-  saveServerMetadata(metadata: OAuthMetadata) {
-    const key = getServerSpecificKey(
-      SESSION_KEYS.SERVER_METADATA,
-      this.serverUrl,
-    );
-    sessionStorage.setItem(key, JSON.stringify(metadata));
-  }
-
-  getServerMetadata(): OAuthMetadata | null {
-    const key = getServerSpecificKey(
-      SESSION_KEYS.SERVER_METADATA,
-      this.serverUrl,
-    );
-    const metadata = sessionStorage.getItem(key);
-    if (!metadata) {
-      return null;
-    }
-    return JSON.parse(metadata);
-  }
-}
 
 const validateOAuthMetadata = async (
   provider: DebugInspectorOAuthClientProvider,
@@ -318,226 +290,6 @@ const AuthDebugger = ({
     }
   }, [serverUrl, updateAuthState]);
 
-  const renderOAuthFlow = useCallback(() => {
-    const provider = new DebugInspectorOAuthClientProvider(serverUrl);
-    const steps = [
-      {
-        key: "not_started",
-        label: "Starting OAuth Flow",
-        metadata: null,
-      },
-      {
-        key: "metadata_discovery",
-        label: "Metadata Discovery",
-        metadata: provider.getServerMetadata() && (
-          <details className="text-xs mt-2">
-            <summary className="cursor-pointer text-muted-foreground font-medium">
-              Retrieved OAuth Metadata from {serverUrl}
-              /.well-known/oauth-authorization-server
-            </summary>
-            <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
-              {JSON.stringify(provider.getServerMetadata(), null, 2)}
-            </pre>
-          </details>
-        ),
-      },
-      {
-        key: "client_registration",
-        label: "Client Registration",
-        metadata: authState.oauthClientInfo && (
-          <details className="text-xs mt-2">
-            <summary className="cursor-pointer text-muted-foreground font-medium">
-              Registered Client Information
-            </summary>
-            <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
-              {JSON.stringify(authState.oauthClientInfo, null, 2)}
-            </pre>
-          </details>
-        ),
-      },
-      {
-        key: "authorization_redirect",
-        label: "Preparing Authorization",
-        metadata: authState.authorizationUrl && (
-          <div className="mt-2 p-3 border rounded-md bg-muted">
-            <p className="font-medium mb-2 text-sm">Authorization URL:</p>
-            <div className="flex items-center gap-2">
-              <p className="text-xs break-all">{authState.authorizationUrl}</p>
-              <a
-                href={authState.authorizationUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center text-blue-500 hover:text-blue-700"
-                aria-label="Open authorization URL in new tab"
-                title="Open authorization URL"
-              >
-                <ExternalLink className="h-4 w-4" />
-              </a>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Click the link to authorize in your browser. After authorization,
-              you'll be redirected back to continue the flow.
-            </p>
-          </div>
-        ),
-      },
-      {
-        key: "authorization_code",
-        label: "Request Authorization and acquire authorization code",
-        metadata: (
-          <div className="mt-3">
-            <label
-              htmlFor="authCode"
-              className="block text-sm font-medium mb-1"
-            >
-              Authorization Code
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="authCode"
-                value={authState.authorizationCode}
-                onChange={(e) => {
-                  updateAuthState({
-                    authorizationCode: e.target.value,
-                    validationError: null,
-                  });
-                }}
-                placeholder="Enter the code from the authorization server"
-                className={`flex h-9 w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                  authState.validationError ? "border-red-500" : "border-input"
-                }`}
-              />
-            </div>
-            {authState.validationError && (
-              <p className="text-xs text-red-600 mt-1">
-                {authState.validationError}
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground mt-1">
-              Once you've completed authorization in the link, paste the code
-              here.
-            </p>
-          </div>
-        ),
-      },
-      {
-        key: "token_request",
-        label: "Token Request",
-        metadata: authState.oauthMetadata && (
-          <details className="text-xs mt-2">
-            <summary className="cursor-pointer text-muted-foreground font-medium">
-              Token Request Details
-            </summary>
-            <div className="mt-2 p-2 bg-muted rounded-md">
-              <p className="font-medium">Token Endpoint:</p>
-              <code className="block mt-1 text-xs overflow-x-auto">
-                {authState.oauthMetadata.token_endpoint}
-              </code>
-            </div>
-          </details>
-        ),
-      },
-      {
-        key: "complete",
-        label: "Authentication Complete",
-        metadata: authState.oauthTokens && (
-          <details className="text-xs mt-2">
-            <summary className="cursor-pointer text-muted-foreground font-medium">
-              Access Tokens
-            </summary>
-            <p className="mt-1 text-sm">
-              Authentication successful! You can now use the authenticated
-              connection. These tokens will be used automatically for server
-              requests.
-            </p>
-            <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
-              {JSON.stringify(authState.oauthTokens, null, 2)}
-            </pre>
-          </details>
-        ),
-      },
-    ];
-
-    return (
-      <div className="rounded-md border p-6 space-y-4 mt-4">
-        <h3 className="text-lg font-medium">OAuth Flow Progress</h3>
-        <p className="text-sm text-muted-foreground">
-          Follow these steps to complete OAuth authentication with the server.
-        </p>
-
-        <div className="space-y-3">
-          {steps.map((step, idx) => {
-            const currentStepIdx = steps.findIndex(
-              (s) => s.key === authState.oauthStep,
-            );
-            const isComplete = idx <= currentStepIdx;
-            const isCurrent = step.key === authState.oauthStep;
-
-            return (
-              <div key={step.key}>
-                <div
-                  className={`flex items-center p-2 rounded-md ${isCurrent ? "bg-accent" : ""}`}
-                >
-                  {isComplete ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-500 mr-2" />
-                  ) : (
-                    <Circle className="h-5 w-5 text-muted-foreground mr-2" />
-                  )}
-                  <span className={`${isCurrent ? "font-medium" : ""}`}>
-                    {step.label}
-                  </span>
-                </div>
-
-                {/* Show step metadata if current step and metadata exists */}
-                {(isCurrent || isComplete) && step.metadata && (
-                  <div className="ml-7 mt-1">{step.metadata}</div>
-                )}
-
-                {/* Display error if current step and an error exists */}
-                {isCurrent && authState.latestError && (
-                  <div className="ml-7 mt-2 p-3 border border-red-300 bg-red-50 rounded-md">
-                    <p className="text-sm font-medium text-red-700">Error:</p>
-                    <p className="text-xs text-red-600 mt-1">
-                      {authState.latestError.message}
-                    </p>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="flex gap-3 mt-4">
-          {authState.oauthStep !== "complete" && (
-            <Button
-              onClick={proceedToNextStep}
-              disabled={authState.isInitiatingAuth}
-            >
-              {authState.isInitiatingAuth
-                ? "Processing..."
-                : authState.oauthStep === "authorization_redirect" &&
-                    authState.authorizationUrl
-                  ? "Open Authorization URL"
-                  : "Continue"}
-            </Button>
-          )}
-
-          {authState.oauthStep === "authorization_redirect" &&
-            authState.authorizationUrl && (
-              <Button
-                variant="outline"
-                onClick={() =>
-                  window.open(authState.authorizationUrl!, "_blank")
-                }
-              >
-                Open in New Tab
-              </Button>
-            )}
-        </div>
-      </div>
-    );
-  }, [authState, serverUrl, proceedToNextStep, updateAuthState]);
-
   return (
     <div className="w-full p-4">
       <div className="flex justify-between items-center mb-6">
@@ -612,7 +364,12 @@ const AuthDebugger = ({
               )}
             </div>
 
-            {renderOAuthFlow()}
+            <OAuthFlowProgress
+              serverUrl={serverUrl}
+              authState={authState}
+              updateAuthState={updateAuthState}
+              proceedToNextStep={proceedToNextStep}
+            />
           </div>
         </div>
       </div>

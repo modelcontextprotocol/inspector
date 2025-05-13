@@ -5,6 +5,7 @@ import {
   OAuthTokens,
   OAuthTokensSchema,
   OAuthClientMetadata,
+  OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
 
@@ -100,5 +101,33 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
     sessionStorage.removeItem(
       getServerSpecificKey(SESSION_KEYS.CODE_VERIFIER, this.serverUrl),
     );
+  }
+}
+
+// Overrides debug URL and allows saving server OAuth metadata to
+// display in debug UI.
+export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvider {
+  get redirectUrl(): string {
+    return `${window.location.origin}/oauth/callback/debug`;
+  }
+
+  saveServerMetadata(metadata: OAuthMetadata) {
+    const key = getServerSpecificKey(
+      SESSION_KEYS.SERVER_METADATA,
+      this.serverUrl,
+    );
+    sessionStorage.setItem(key, JSON.stringify(metadata));
+  }
+
+  getServerMetadata(): OAuthMetadata | null {
+    const key = getServerSpecificKey(
+      SESSION_KEYS.SERVER_METADATA,
+      this.serverUrl,
+    );
+    const metadata = sessionStorage.getItem(key);
+    if (!metadata) {
+      return null;
+    }
+    return JSON.parse(metadata);
   }
 }
