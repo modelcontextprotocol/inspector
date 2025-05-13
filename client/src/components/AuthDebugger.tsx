@@ -98,8 +98,6 @@ const AuthDebugger = ({
   authState,
   updateAuthState,
 }: AuthDebuggerProps) => {
-  // Load client info asynchronously when we're at the token_request step
-
   const startOAuthFlow = useCallback(() => {
     if (!serverUrl) {
       updateAuthState({
@@ -227,7 +225,7 @@ const AuthDebugger = ({
     }
   }, [serverUrl, authState, updateAuthState]);
 
-  const handleStartOAuth = useCallback(async () => {
+  const handleQuickOAuth = useCallback(async () => {
     if (!serverUrl) {
       updateAuthState({
         statusMessage: {
@@ -341,7 +339,7 @@ const AuthDebugger = ({
                     </Button>
 
                     <Button
-                      onClick={handleStartOAuth}
+                      onClick={handleQuickOAuth}
                       disabled={authState.isInitiatingAuth}
                     >
                       {authState.isInitiatingAuth
