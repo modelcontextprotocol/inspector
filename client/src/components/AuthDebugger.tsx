@@ -24,6 +24,46 @@ export interface AuthDebuggerProps {
   updateAuthState: (updates: Partial<AuthDebuggerState>) => void;
 }
 
+interface StatusMessageProps {
+  message: { type: "error" | "success" | "info"; message: string };
+}
+
+const StatusMessage = ({ message }: StatusMessageProps) => {
+  let bgColor: string;
+  let textColor: string;
+  let borderColor: string;
+
+  switch (message.type) {
+    case "error":
+      bgColor = "bg-red-50";
+      textColor = "text-red-700";
+      borderColor = "border-red-200";
+      break;
+    case "success":
+      bgColor = "bg-green-50";
+      textColor = "text-green-700";
+      borderColor = "border-green-200";
+      break;
+    case "info":
+    default:
+      bgColor = "bg-blue-50";
+      textColor = "text-blue-700";
+      borderColor = "border-blue-200";
+      break;
+  }
+
+  return (
+    <div
+      className={`p-3 rounded-md border ${bgColor} ${borderColor} ${textColor} mb-4`}
+    >
+      <div className="flex items-center gap-2">
+        <AlertCircle className="h-4 w-4" />
+        <p className="text-sm">{message.message}</p>
+      </div>
+    </div>
+  );
+};
+
 // Overrides debug URL and allows saving server OAuth metadata to
 // display in debug UI.
 class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvider {
@@ -278,40 +318,6 @@ const AuthDebugger = ({
     }
   }, [serverUrl, updateAuthState]);
 
-  const renderStatusMessage = useCallback(() => {
-    if (!authState.statusMessage) return null;
-
-    const bgColor =
-      authState.statusMessage.type === "error"
-        ? "bg-red-50"
-        : authState.statusMessage.type === "success"
-          ? "bg-green-50"
-          : "bg-blue-50";
-    const textColor =
-      authState.statusMessage.type === "error"
-        ? "text-red-700"
-        : authState.statusMessage.type === "success"
-          ? "text-green-700"
-          : "text-blue-700";
-    const borderColor =
-      authState.statusMessage.type === "error"
-        ? "border-red-200"
-        : authState.statusMessage.type === "success"
-          ? "border-green-200"
-          : "border-blue-200";
-
-    return (
-      <div
-        className={`p-3 rounded-md border ${bgColor} ${borderColor} ${textColor} mb-4`}
-      >
-        <div className="flex items-center gap-2">
-          <AlertCircle className="h-4 w-4" />
-          <p className="text-sm">{authState.statusMessage.message}</p>
-        </div>
-      </div>
-    );
-  }, [authState.statusMessage]);
-
   const renderOAuthFlow = useCallback(() => {
     const provider = new DebugInspectorOAuthClientProvider(serverUrl);
     const steps = [
@@ -554,7 +560,9 @@ const AuthDebugger = ({
                 Use OAuth to securely authenticate with the MCP server.
               </p>
 
-              {renderStatusMessage()}
+              {authState.statusMessage && (
+                <StatusMessage message={authState.statusMessage} />
+              )}
 
               {authState.loading ? (
                 <p>Loading authentication status...</p>
