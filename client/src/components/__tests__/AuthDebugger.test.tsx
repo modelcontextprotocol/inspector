@@ -97,7 +97,7 @@ describe("AuthDebugger", () => {
   };
 
   const defaultProps = {
-    sseUrl: "https://example.com",
+    serverUrl: "https://example.com",
     onBack: jest.fn(),
     authState: defaultAuthState,
     updateAuthState: jest.fn(),
