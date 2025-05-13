@@ -91,6 +91,15 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
       const value = req.headers[key];
       headers[key] = Array.isArray(value) ? value[value.length - 1] : value;
     }
+    
+    // If the header "x-custom-auth-header" is present, use its value as the custom header name.
+    if (req.headers["x-custom-auth-header"] !== undefined) {
+      const customHeaderName = req.headers["x-custom-auth-header"] as string;
+      if (req.headers[customHeaderName.toLowerCase()] !== undefined) {
+        const value = req.headers[customHeaderName.toLowerCase()];
+        headers[customHeaderName] = Array.isArray(value) ? value[value.length - 1] : value as string;
+      }
+    }
 
     console.log(`SSE transport: url=${url}, headers=${Object.keys(headers)}`);
 
@@ -118,6 +127,15 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
 
       const value = req.headers[key];
       headers[key] = Array.isArray(value) ? value[value.length - 1] : value;
+    }
+    
+    // If the header "x-custom-auth-header" is present, use its value as the custom header name.
+    if (req.headers["x-custom-auth-header"] !== undefined) {
+      const customHeaderName = req.headers["x-custom-auth-header"] as string;
+      if (req.headers[customHeaderName.toLowerCase()] !== undefined) {
+        const value = req.headers[customHeaderName.toLowerCase()];
+        headers[customHeaderName] = Array.isArray(value) ? value[value.length - 1] : value as string;
+      }
     }
 
     const transport = new StreamableHTTPClientTransport(
