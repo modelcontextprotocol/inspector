@@ -530,7 +530,7 @@ const App = () => {
   const AuthDebuggerWrapper = () => (
     <TabsContent value="auth">
       <AuthDebugger
-        sseUrl={sseUrl}
+        serverUrl={sseUrl}
         onBack={() => setIsAuthDebuggerVisible(false)}
         authState={authState}
         updateAuthState={updateAuthState}

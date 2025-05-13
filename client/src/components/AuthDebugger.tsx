@@ -18,7 +18,7 @@ import { AuthDebuggerState } from "../lib/auth-types";
 import { SESSION_KEYS, getServerSpecificKey } from "../lib/constants";
 
 export interface AuthDebuggerProps {
-  sseUrl: string;
+  serverUrl: string;
   onBack: () => void;
   authState: AuthDebuggerState;
   updateAuthState: (updates: Partial<AuthDebuggerState>) => void;
@@ -52,18 +52,44 @@ class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvider {
   }
 }
 
+const validateOAuthMetadata = async (
+  provider: DebugInspectorOAuthClientProvider,
+): Promise<OAuthMetadata> => {
+  const metadata = provider.getServerMetadata();
+  if (metadata) {
+    return metadata;
+  }
+
+  const fetchedMetadata = await discoverOAuthMetadata(provider.serverUrl);
+  if (!fetchedMetadata) {
+    throw new Error("Failed to discover OAuth metadata");
+  }
+  const parsedMetadata = await OAuthMetadataSchema.parseAsync(fetchedMetadata);
+
+  return parsedMetadata;
+};
+
+const validateClientInformation = async (
+  provider: DebugInspectorOAuthClientProvider,
+): Promise<OAuthClientInformation> => {
+  const clientInformation = await provider.clientInformation();
+
+  if (!clientInformation) {
+    throw new Error("Can't advance without successful client registration");
+  }
+  return clientInformation;
+};
+
 const AuthDebugger = ({
-  sseUrl,
+  serverUrl: serverUrl,
   onBack,
   authState,
   updateAuthState,
 }: AuthDebuggerProps) => {
   // Load client info asynchronously when we're at the token_request step
 
-  // These functions will be moved inside proceedToNextStep to avoid ESLint warning
-
   const startOAuthFlow = useCallback(() => {
-    if (!sseUrl) {
+    if (!serverUrl) {
       updateAuthState({
         statusMessage: {
           type: "error",
@@ -80,41 +106,11 @@ const AuthDebugger = ({
       statusMessage: null,
       latestError: null,
     });
-  }, [sseUrl, updateAuthState]);
+  }, [serverUrl, updateAuthState]);
 
   const proceedToNextStep = useCallback(async () => {
-    if (!sseUrl) return;
-    const provider = new DebugInspectorOAuthClientProvider(sseUrl);
-
-    // Helper functions moved inside useCallback to avoid ESLint warning
-    const validateOAuthMetadata = async (
-      provider: DebugInspectorOAuthClientProvider,
-    ): Promise<OAuthMetadata> => {
-      const metadata = provider.getServerMetadata();
-      if (metadata) {
-        return metadata;
-      }
-
-      const fetchedMetadata = await discoverOAuthMetadata(sseUrl);
-      if (!fetchedMetadata) {
-        throw new Error("Failed to discover OAuth metadata");
-      }
-      const parsedMetadata =
-        await OAuthMetadataSchema.parseAsync(fetchedMetadata);
-
-      return parsedMetadata;
-    };
-
-    const validateClientInformation = async (
-      provider: DebugInspectorOAuthClientProvider,
-    ): Promise<OAuthClientInformation> => {
-      const clientInformation = await provider.clientInformation();
-
-      if (!clientInformation) {
-        throw new Error("Can't advance without successful client registration");
-      }
-      return clientInformation;
-    };
+    if (!serverUrl) return;
+    const provider = new DebugInspectorOAuthClientProvider(serverUrl);
 
     try {
       updateAuthState({
@@ -125,7 +121,7 @@ const AuthDebugger = ({
 
       if (authState.oauthStep === "not_started") {
         updateAuthState({ oauthStep: "metadata_discovery" });
-        const metadata = await discoverOAuthMetadata(sseUrl);
+        const metadata = await discoverOAuthMetadata(serverUrl);
         if (!metadata) {
           throw new Error("Failed to discover OAuth metadata");
         }
@@ -143,7 +139,7 @@ const AuthDebugger = ({
           clientMetadata.scope = metadata.scopes_supported.join(" ");
         }
 
-        const fullInformation = await registerClient(sseUrl, {
+        const fullInformation = await registerClient(serverUrl, {
           metadata,
           clientMetadata,
         });
@@ -161,7 +157,7 @@ const AuthDebugger = ({
             scope = metadata.scopes_supported.join(" ");
           }
           const { authorizationUrl, codeVerifier } = await startAuthorization(
-            sseUrl,
+            serverUrl,
             {
               metadata,
               clientInformation,
@@ -198,7 +194,7 @@ const AuthDebugger = ({
         const metadata = await validateOAuthMetadata(provider);
         const clientInformation = await validateClientInformation(provider);
 
-        const tokens = await exchangeAuthorization(sseUrl, {
+        const tokens = await exchangeAuthorization(serverUrl, {
           metadata,
           clientInformation,
           authorizationCode: authState.authorizationCode,
@@ -217,10 +213,10 @@ const AuthDebugger = ({
     } finally {
       updateAuthState({ isInitiatingAuth: false });
     }
-  }, [sseUrl, authState, updateAuthState]);
+  }, [serverUrl, authState, updateAuthState]);
 
   const handleStartOAuth = useCallback(async () => {
-    if (!sseUrl) {
+    if (!serverUrl) {
       updateAuthState({
         statusMessage: {
           type: "error",
@@ -233,8 +229,10 @@ const AuthDebugger = ({
 
     updateAuthState({ isInitiatingAuth: true, statusMessage: null });
     try {
-      const serverAuthProvider = new DebugInspectorOAuthClientProvider(sseUrl);
-      await auth(serverAuthProvider, { serverUrl: sseUrl });
+      const serverAuthProvider = new DebugInspectorOAuthClientProvider(
+        serverUrl,
+      );
+      await auth(serverAuthProvider, { serverUrl: serverUrl });
       updateAuthState({
         statusMessage: {
           type: "info",
@@ -252,11 +250,13 @@ const AuthDebugger = ({
     } finally {
       updateAuthState({ isInitiatingAuth: false });
     }
-  }, [sseUrl, updateAuthState]);
+  }, [serverUrl, updateAuthState]);
 
   const handleClearOAuth = useCallback(() => {
-    if (sseUrl) {
-      const serverAuthProvider = new DebugInspectorOAuthClientProvider(sseUrl);
+    if (serverUrl) {
+      const serverAuthProvider = new DebugInspectorOAuthClientProvider(
+        serverUrl,
+      );
       serverAuthProvider.clear();
       updateAuthState({
         oauthTokens: null,
@@ -276,7 +276,7 @@ const AuthDebugger = ({
         updateAuthState({ statusMessage: null });
       }, 3000);
     }
-  }, [sseUrl, updateAuthState]);
+  }, [serverUrl, updateAuthState]);
 
   const renderStatusMessage = useCallback(() => {
     if (!authState.statusMessage) return null;
@@ -313,7 +313,7 @@ const AuthDebugger = ({
   }, [authState.statusMessage]);
 
   const renderOAuthFlow = useCallback(() => {
-    const provider = new DebugInspectorOAuthClientProvider(sseUrl);
+    const provider = new DebugInspectorOAuthClientProvider(serverUrl);
     const steps = [
       {
         key: "not_started",
@@ -326,7 +326,7 @@ const AuthDebugger = ({
         metadata: provider.getServerMetadata() && (
           <details className="text-xs mt-2">
             <summary className="cursor-pointer text-muted-foreground font-medium">
-              Retrieved OAuth Metadata from {sseUrl}
+              Retrieved OAuth Metadata from {serverUrl}
               /.well-known/oauth-authorization-server
             </summary>
             <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
@@ -530,7 +530,7 @@ const AuthDebugger = ({
         </div>
       </div>
     );
-  }, [authState, sseUrl, proceedToNextStep, updateAuthState]);
+  }, [authState, serverUrl, proceedToNextStep, updateAuthState]);
 
   return (
     <div className="w-full p-4">

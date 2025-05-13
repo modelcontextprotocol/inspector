@@ -171,7 +171,7 @@ describe("AuthDebugger", () => {
     it("should show error when OAuth flow is started without sseUrl", async () => {
       const updateAuthState = jest.fn();
       await act(async () => {
-        renderAuthDebugger({ sseUrl: "", updateAuthState });
+        renderAuthDebugger({ serverUrl: "", updateAuthState });
       });
 
       await act(async () => {
