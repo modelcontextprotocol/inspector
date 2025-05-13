@@ -74,7 +74,9 @@ export const OAuthFlowProgress = ({
 
   // Helper to get step props
   const getStepProps = (stepName: OAuthStep) => ({
-    isComplete: currentStepIdx > steps.indexOf(stepName),
+    isComplete:
+      currentStepIdx > steps.indexOf(stepName) ||
+      currentStepIdx === steps.length - 1, // last step is "complete"
     isCurrent: authState.oauthStep === stepName,
     error: authState.oauthStep === stepName ? authState.latestError : null,
   });
