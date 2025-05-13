@@ -86,7 +86,7 @@ describe("AuthDebugger", () => {
     isInitiatingAuth: false,
     oauthTokens: null,
     loading: false,
-    oauthStep: "not_started" as const,
+    oauthStep: "metadata_discovery" as const,
     oauthMetadata: null,
     oauthClientInfo: null,
     authorizationUrl: null,
@@ -264,9 +264,10 @@ describe("AuthDebugger", () => {
 
       expect(updateAuthState).toHaveBeenCalledWith({
         oauthTokens: null,
-        oauthStep: "not_started",
+        oauthStep: "metadata_discovery",
         latestError: null,
         oauthClientInfo: null,
+        oauthMetadata: null,
         authorizationCode: "",
         validationError: null,
         statusMessage: {
@@ -330,7 +331,7 @@ describe("AuthDebugger", () => {
           authState: {
             ...defaultAuthState,
             isInitiatingAuth: false,
-            oauthStep: "client_registration",
+            oauthStep: "authorization_redirect",
             oauthMetadata: metadata,
             oauthClientInfo: mockOAuthClientInfo,
           },

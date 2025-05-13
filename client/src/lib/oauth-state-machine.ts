@@ -23,18 +23,6 @@ export interface StateTransition {
 
 // State machine transitions
 export const oauthTransitions: Record<OAuthStep, StateTransition> = {
-  not_started: {
-    canTransition: async () => true,
-    execute: async (context) => {
-      context.updateState({
-        oauthStep: "metadata_discovery",
-        statusMessage: null,
-        latestError: null,
-      });
-    },
-    nextStep: "metadata_discovery",
-  },
-
   metadata_discovery: {
     canTransition: async () => true,
     execute: async (context) => {
@@ -160,7 +148,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
   },
 
   complete: {
-    canTransition: () => false,
+    canTransition: async () => false,
     execute: async () => {
       // No-op for complete state
     },
