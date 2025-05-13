@@ -122,12 +122,13 @@ The MCP Inspector includes a proxy server that can run and communicate with loca
 
 The MCP Inspector supports the following configuration settings. To change them, click on the `Configuration` button in the MCP Inspector UI:
 
-| Setting                                 | Description                                                                                                  | Default |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------- |
-| `MCP_SERVER_REQUEST_TIMEOUT`            | Timeout for requests to the MCP server (ms)                                                                  | 10000   |
-| `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                      | true    |
-| `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)             | 60000   |
-| `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577 | ""      |
+| Setting                                 | Description                                                                                                   | Default |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------- |
+| `MCP_SERVER_REQUEST_TIMEOUT`            | Timeout for requests to the MCP server (ms)                                                                   | 10000   |
+| `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                       | true    |
+| `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)              | 60000   |
+| `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577  | ""      |
+| `MCP_AUTO_OPEN_ENABLED`                 | Enable automatic browser opening when inspector starts. Only as environment var, not configurable in browser. | true    |
 
 These settings can be adjusted in real-time through the UI and will persist across sessions.
 
@@ -160,8 +161,23 @@ Example server configuration file:
   }
 }
 ```
-
 > **Tip:** You can easily generate this configuration format using the **Server Entry** and **Servers File** buttons in the Inspector UI, as described in the Servers File Export section above.
+
+You can also set the initial `transport` type, `serverUrl`, `serverCommand`, and `serverArgs` via query params, for example:
+
+```
+http://localhost:6274/?transport=sse&serverUrl=http://localhost:8787/sse
+http://localhost:6274/?transport=streamable-http&serverUrl=http://localhost:8787/mcp
+http://localhost:6274/?transport=stdio&serverCommand=npx&serverArgs=arg1%20arg2
+```
+
+You can also set initial config settings via query params, for example:
+
+```
+http://localhost:6274/?MCP_SERVER_REQUEST_TIMEOUT=10000&MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS=false&MCP_PROXY_FULL_ADDRESS=http://10.1.1.22:5577
+```
+
+Note that if both the query param and the corresponding localStorage item are set, the query param will take precedence.
 
 ### From this repository
 
