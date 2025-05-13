@@ -649,6 +649,31 @@ describe("Sidebar Environment Variables", () => {
       jest.clearAllTimers();
     });
 
+    const getCopyButtons = () => {
+      return {
+        serverEntry: screen.getByRole("button", { name: /server entry/i }),
+        serversFile: screen.getByRole("button", { name: /servers file/i }),
+      };
+    };
+
+    it("should render both copy buttons for all transport types", () => {
+      ["stdio", "sse", "streamable-http"].forEach((transportType) => {
+        renderSidebar({ transportType });
+        // There should be exactly one Server Entry and one Servers File button per render
+        const serverEntryButtons = screen.getAllByRole("button", {
+          name: /server entry/i,
+        });
+        const serversFileButtons = screen.getAllByRole("button", {
+          name: /servers file/i,
+        });
+        expect(serverEntryButtons).toHaveLength(1);
+        expect(serversFileButtons).toHaveLength(1);
+        // Clean up DOM for next iteration
+        // (Testing Library's render does not auto-unmount in a loop)
+        document.body.innerHTML = "";
+      });
+    });
+
     it("should copy server entry configuration to clipboard for STDIO transport", async () => {
       const command = "node";
       const args = "--inspect server.js";
@@ -661,20 +686,13 @@ describe("Sidebar Environment Variables", () => {
         env,
       });
 
-      // Use act to properly wrap the clipboard operations
       await act(async () => {
-        const copyServerEntryButton = screen.getByRole("button", {
-          name: /server entry/i,
-        });
-        fireEvent.click(copyServerEntryButton);
-
-        // Fast-forward timers to handle the setTimeout
+        const { serverEntry } = getCopyButtons();
+        fireEvent.click(serverEntry);
         jest.runAllTimers();
       });
 
-      // Check clipboard API was called with the correct configuration
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
-
       const expectedConfig = JSON.stringify(
         {
           command,
@@ -684,7 +702,6 @@ describe("Sidebar Environment Variables", () => {
         null,
         2,
       );
-
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
 
@@ -701,18 +718,12 @@ describe("Sidebar Environment Variables", () => {
       });
 
       await act(async () => {
-        const copyServersFileButton = screen.getByRole("button", {
-          name: /servers file/i,
-        });
-        fireEvent.click(copyServersFileButton);
-
-        // Fast-forward timers to handle the setTimeout
+        const { serversFile } = getCopyButtons();
+        fireEvent.click(serversFile);
         jest.runAllTimers();
       });
 
-      // Check clipboard API was called with the correct configuration
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
-
       const expectedConfig = JSON.stringify(
         {
           mcpServers: {
@@ -726,31 +737,43 @@ describe("Sidebar Environment Variables", () => {
         null,
         2,
       );
+      expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+    });
 
+    it("should copy server entry configuration to clipboard for SSE transport", async () => {
+      const sseUrl = "http://localhost:3000/events";
+      renderSidebar({ transportType: "sse", sseUrl });
+
+      await act(async () => {
+        const { serverEntry } = getCopyButtons();
+        fireEvent.click(serverEntry);
+        jest.runAllTimers();
+      });
+
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      const expectedConfig = JSON.stringify(
+        {
+          type: "sse",
+          url: sseUrl,
+          note: "For SSE connections, add this URL directly in Client",
+        },
+        null,
+        2,
+      );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
 
     it("should copy servers file configuration to clipboard for SSE transport", async () => {
       const sseUrl = "http://localhost:3000/events";
-
-      renderSidebar({
-        transportType: "sse",
-        sseUrl,
-      });
+      renderSidebar({ transportType: "sse", sseUrl });
 
       await act(async () => {
-        const copyServersFileButton = screen.getByRole("button", {
-          name: /servers file/i,
-        });
-        fireEvent.click(copyServersFileButton);
-
-        // Fast-forward timers to handle the setTimeout
+        const { serversFile } = getCopyButtons();
+        fireEvent.click(serversFile);
         jest.runAllTimers();
       });
 
-      // Check clipboard API was called with the correct configuration
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
-
       const expectedConfig = JSON.stringify(
         {
           mcpServers: {
@@ -764,7 +787,56 @@ describe("Sidebar Environment Variables", () => {
         null,
         2,
       );
+      expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+    });
 
+    it("should copy server entry configuration to clipboard for streamable-http transport", async () => {
+      const sseUrl = "http://localhost:3001/sse";
+      renderSidebar({ transportType: "streamable-http", sseUrl });
+
+      await act(async () => {
+        const { serverEntry } = getCopyButtons();
+        fireEvent.click(serverEntry);
+        jest.runAllTimers();
+      });
+
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      const expectedConfig = JSON.stringify(
+        {
+          type: "streamable-http",
+          url: sseUrl,
+          note: "For Streamable HTTP connections, add this URL directly in Client",
+        },
+        null,
+        2,
+      );
+      expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+    });
+
+    it("should copy servers file configuration to clipboard for streamable-http transport", async () => {
+      const sseUrl = "http://localhost:3001/sse";
+      renderSidebar({ transportType: "streamable-http", sseUrl });
+
+      await act(async () => {
+        const { serversFile } = getCopyButtons();
+        fireEvent.click(serversFile);
+        jest.runAllTimers();
+      });
+
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      const expectedConfig = JSON.stringify(
+        {
+          mcpServers: {
+            "default-server": {
+              type: "streamable-http",
+              url: sseUrl,
+              note: "For Streamable HTTP connections, add this URL directly in Client",
+            },
+          },
+        },
+        null,
+        2,
+      );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
 
@@ -779,18 +851,12 @@ describe("Sidebar Environment Variables", () => {
       });
 
       await act(async () => {
-        const copyServerEntryButton = screen.getByRole("button", {
-          name: /server entry/i,
-        });
-        fireEvent.click(copyServerEntryButton);
-
-        // Fast-forward timers to handle the setTimeout
+        const { serverEntry } = getCopyButtons();
+        fireEvent.click(serverEntry);
         jest.runAllTimers();
       });
 
-      // Check clipboard API was called with empty args array
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
-
       const expectedConfig = JSON.stringify(
         {
           command,
@@ -800,7 +866,6 @@ describe("Sidebar Environment Variables", () => {
         null,
         2,
       );
-
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
   });

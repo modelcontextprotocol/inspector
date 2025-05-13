@@ -119,13 +119,22 @@ const Sidebar = ({
         args: args.trim() ? args.split(/\s+/) : [],
         env: { ...env },
       };
-    } else {
+    }
+    if (transportType === "sse") {
       return {
         type: "sse",
         url: sseUrl,
         note: "For SSE connections, add this URL directly in Client",
       };
     }
+    if (transportType === "streamable-http") {
+      return {
+        type: "streamable-http",
+        url: sseUrl,
+        note: "For Streamable HTTP connections, add this URL directly in Client",
+      };
+    }
+    return {};
   }, [transportType, command, args, env, sseUrl]);
 
   // Memoized config entry generator
@@ -266,44 +275,6 @@ const Sidebar = ({
                   className="font-mono"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCopyServerEntry}
-                      className="w-full"
-                    >
-                      {copiedServerEntry ? (
-                        <CheckCheck className="h-4 w-4 mr-2" />
-                      ) : (
-                        <Copy className="h-4 w-4 mr-2" />
-                      )}
-                      Server Entry
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Copy Server Entry</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCopyServerFile}
-                      className="w-full"
-                    >
-                      {copiedServerFile ? (
-                        <CheckCheck className="h-4 w-4 mr-2" />
-                      ) : (
-                        <Copy className="h-4 w-4 mr-2" />
-                      )}
-                      Servers File
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Copy Servers File</TooltipContent>
-                </Tooltip>
-              </div>
             </>
           ) : (
             <>
@@ -318,22 +289,6 @@ const Sidebar = ({
                   onChange={(e) => setSseUrl(e.target.value)}
                   className="font-mono"
                 />
-              </div>
-              <div className="w-full mt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCopyServerFile}
-                  className="w-full"
-                  title="Copy SSE URL Configuration"
-                >
-                  {copiedServerFile ? (
-                    <CheckCheck className="h-4 w-4 mr-2" />
-                  ) : (
-                    <Copy className="h-4 w-4 mr-2" />
-                  )}
-                  Copy Servers File
-                </Button>
               </div>
               <div className="space-y-2">
                 <Button
@@ -382,6 +337,7 @@ const Sidebar = ({
               </div>
             </>
           )}
+
           {transportType === "stdio" && (
             <div className="space-y-2">
               <Button
@@ -506,6 +462,46 @@ const Sidebar = ({
               )}
             </div>
           )}
+
+          {/* Always show both copy buttons for all transport types */}
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyServerEntry}
+                  className="w-full"
+                >
+                  {copiedServerEntry ? (
+                    <CheckCheck className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-2" />
+                  )}
+                  Server Entry
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Copy Server Entry</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyServerFile}
+                  className="w-full"
+                >
+                  {copiedServerFile ? (
+                    <CheckCheck className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-2" />
+                  )}
+                  Servers File
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Copy Servers File</TooltipContent>
+            </Tooltip>
+          </div>
 
           {/* Configuration */}
           <div className="space-y-2">
