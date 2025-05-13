@@ -1,21 +1,11 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { DebugInspectorOAuthClientProvider } from "../lib/auth";
-import {
-  auth,
-  discoverOAuthMetadata,
-  registerClient,
-  startAuthorization,
-  exchangeAuthorization,
-} from "@modelcontextprotocol/sdk/client/auth.js";
-import {
-  OAuthMetadataSchema,
-  OAuthMetadata,
-  OAuthClientInformation,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { AlertCircle } from "lucide-react";
 import { AuthDebuggerState } from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
+import { OAuthStateMachine } from "../lib/oauth-state-machine";
 
 export interface AuthDebuggerProps {
   serverUrl: string;
@@ -64,34 +54,6 @@ const StatusMessage = ({ message }: StatusMessageProps) => {
   );
 };
 
-const validateOAuthMetadata = async (
-  provider: DebugInspectorOAuthClientProvider,
-): Promise<OAuthMetadata> => {
-  const metadata = provider.getServerMetadata();
-  if (metadata) {
-    return metadata;
-  }
-
-  const fetchedMetadata = await discoverOAuthMetadata(provider.serverUrl);
-  if (!fetchedMetadata) {
-    throw new Error("Failed to discover OAuth metadata");
-  }
-  const parsedMetadata = await OAuthMetadataSchema.parseAsync(fetchedMetadata);
-
-  return parsedMetadata;
-};
-
-const validateClientInformation = async (
-  provider: DebugInspectorOAuthClientProvider,
-): Promise<OAuthClientInformation> => {
-  const clientInformation = await provider.clientInformation();
-
-  if (!clientInformation) {
-    throw new Error("Can't advance without successful client registration");
-  }
-  return clientInformation;
-};
-
 const AuthDebugger = ({
   serverUrl: serverUrl,
   onBack,
@@ -111,16 +73,20 @@ const AuthDebugger = ({
     }
 
     updateAuthState({
-      oauthStep: "not_started",
+      oauthStep: "metadata_discovery",
       authorizationUrl: null,
       statusMessage: null,
       latestError: null,
     });
   }, [serverUrl, updateAuthState]);
 
+  const stateMachine = useMemo(
+    () => new OAuthStateMachine(serverUrl, updateAuthState),
+    [serverUrl, updateAuthState],
+  );
+
   const proceedToNextStep = useCallback(async () => {
     if (!serverUrl) return;
-    const provider = new DebugInspectorOAuthClientProvider(serverUrl);
 
     try {
       updateAuthState({
@@ -129,92 +95,7 @@ const AuthDebugger = ({
         latestError: null,
       });
 
-      if (authState.oauthStep === "not_started") {
-        updateAuthState({ oauthStep: "metadata_discovery" });
-        const metadata = await discoverOAuthMetadata(serverUrl);
-        if (!metadata) {
-          throw new Error("Failed to discover OAuth metadata");
-        }
-        const parsedMetadata = await OAuthMetadataSchema.parseAsync(metadata);
-        updateAuthState({ oauthMetadata: parsedMetadata });
-        provider.saveServerMetadata(parsedMetadata);
-      } else if (authState.oauthStep === "metadata_discovery") {
-        const metadata = await validateOAuthMetadata(provider);
-
-        updateAuthState({ oauthStep: "client_registration" });
-
-        const clientMetadata = provider.clientMetadata;
-        // Add all supported scopes to client registration.
-        if (metadata.scopes_supported) {
-          clientMetadata.scope = metadata.scopes_supported.join(" ");
-        }
-
-        const fullInformation = await registerClient(serverUrl, {
-          metadata,
-          clientMetadata,
-        });
-
-        provider.saveClientInformation(fullInformation);
-        updateAuthState({ oauthClientInfo: fullInformation });
-      } else if (authState.oauthStep === "client_registration") {
-        const metadata = await validateOAuthMetadata(provider);
-        const clientInformation = await validateClientInformation(provider);
-        updateAuthState({ oauthStep: "authorization_redirect" });
-        try {
-          let scope: string | undefined = undefined;
-          if (metadata.scopes_supported) {
-            // Request all supported scopes during debugging
-            scope = metadata.scopes_supported.join(" ");
-          }
-          const { authorizationUrl, codeVerifier } = await startAuthorization(
-            serverUrl,
-            {
-              metadata,
-              clientInformation,
-              redirectUrl: provider.redirectUrl,
-              scope,
-            },
-          );
-
-          provider.saveCodeVerifier(codeVerifier);
-
-          updateAuthState({
-            authorizationUrl: authorizationUrl.toString(),
-            oauthStep: "authorization_code",
-          });
-        } catch (error) {
-          console.error("OAuth flow step error:", error);
-          throw new Error(
-            `Failed to complete OAuth setup: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      } else if (authState.oauthStep === "authorization_code") {
-        if (
-          !authState.authorizationCode ||
-          authState.authorizationCode.trim() === ""
-        ) {
-          updateAuthState({
-            validationError: "You need to provide an authorization code",
-          });
-          return;
-        }
-        updateAuthState({ validationError: null, oauthStep: "token_request" });
-      } else if (authState.oauthStep === "token_request") {
-        const codeVerifier = provider.codeVerifier();
-        const metadata = await validateOAuthMetadata(provider);
-        const clientInformation = await validateClientInformation(provider);
-
-        const tokens = await exchangeAuthorization(serverUrl, {
-          metadata,
-          clientInformation,
-          authorizationCode: authState.authorizationCode,
-          codeVerifier,
-          redirectUri: provider.redirectUrl,
-        });
-
-        provider.saveTokens(tokens);
-        updateAuthState({ oauthTokens: tokens, oauthStep: "complete" });
-      }
+      await stateMachine.executeStep(authState);
     } catch (error) {
       console.error("OAuth flow error:", error);
       updateAuthState({
@@ -223,7 +104,7 @@ const AuthDebugger = ({
     } finally {
       updateAuthState({ isInitiatingAuth: false });
     }
-  }, [serverUrl, authState, updateAuthState]);
+  }, [serverUrl, authState, updateAuthState, stateMachine]);
 
   const handleQuickOAuth = useCallback(async () => {
     if (!serverUrl) {
@@ -270,11 +151,12 @@ const AuthDebugger = ({
       serverAuthProvider.clear();
       updateAuthState({
         oauthTokens: null,
-        oauthStep: "not_started",
+        oauthStep: "metadata_discovery",
         latestError: null,
         oauthClientInfo: null,
         authorizationCode: "",
         validationError: null,
+        oauthMetadata: null,
         statusMessage: {
           type: "success",
           message: "OAuth tokens cleared successfully",

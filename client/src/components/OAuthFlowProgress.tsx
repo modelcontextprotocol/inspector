@@ -62,9 +62,7 @@ export const OAuthFlowProgress = ({
 }: OAuthFlowProgressProps) => {
   const provider = new DebugInspectorOAuthClientProvider(serverUrl);
 
-  // Calculate step states
   const steps: Array<OAuthStep> = [
-    "not_started",
     "metadata_discovery",
     "client_registration",
     "authorization_redirect",
@@ -75,8 +73,8 @@ export const OAuthFlowProgress = ({
   const currentStepIdx = steps.findIndex((s) => s === authState.oauthStep);
 
   // Helper to get step props
-  const getStepProps = (stepName: string, stepIndex: number) => ({
-    isComplete: currentStepIdx >= stepIndex,
+  const getStepProps = (stepName: OAuthStep) => ({
+    isComplete: currentStepIdx > steps.indexOf(stepName),
     isCurrent: authState.oauthStep === stepName,
     error: authState.oauthStep === stepName ? authState.latestError : null,
   });
@@ -90,13 +88,8 @@ export const OAuthFlowProgress = ({
 
       <div className="space-y-3">
         <OAuthStepDetails
-          label="Starting OAuth Flow"
-          {...getStepProps("not_started", 0)}
-        />
-
-        <OAuthStepDetails
           label="Metadata Discovery"
-          {...getStepProps("metadata_discovery", 1)}
+          {...getStepProps("metadata_discovery")}
         >
           {provider.getServerMetadata() && (
             <details className="text-xs mt-2">
@@ -113,7 +106,7 @@ export const OAuthFlowProgress = ({
 
         <OAuthStepDetails
           label="Client Registration"
-          {...getStepProps("client_registration", 2)}
+          {...getStepProps("client_registration")}
         >
           {authState.oauthClientInfo && (
             <details className="text-xs mt-2">
@@ -129,7 +122,7 @@ export const OAuthFlowProgress = ({
 
         <OAuthStepDetails
           label="Preparing Authorization"
-          {...getStepProps("authorization_redirect", 3)}
+          {...getStepProps("authorization_redirect")}
         >
           {authState.authorizationUrl && (
             <div className="mt-2 p-3 border rounded-md bg-muted">
@@ -159,7 +152,7 @@ export const OAuthFlowProgress = ({
 
         <OAuthStepDetails
           label="Request Authorization and acquire authorization code"
-          {...getStepProps("authorization_code", 4)}
+          {...getStepProps("authorization_code")}
         >
           <div className="mt-3">
             <label
@@ -198,7 +191,7 @@ export const OAuthFlowProgress = ({
 
         <OAuthStepDetails
           label="Token Request"
-          {...getStepProps("token_request", 5)}
+          {...getStepProps("token_request")}
         >
           {authState.oauthMetadata && (
             <details className="text-xs mt-2">
@@ -217,7 +210,7 @@ export const OAuthFlowProgress = ({
 
         <OAuthStepDetails
           label="Authentication Complete"
-          {...getStepProps("complete", 6)}
+          {...getStepProps("complete")}
         >
           {authState.oauthTokens && (
             <details className="text-xs mt-2">
@@ -239,17 +232,14 @@ export const OAuthFlowProgress = ({
 
       <div className="flex gap-3 mt-4">
         {authState.oauthStep !== "complete" && (
-          <Button
-            onClick={proceedToNextStep}
-            disabled={authState.isInitiatingAuth}
-          >
-            {authState.isInitiatingAuth
-              ? "Processing..."
-              : authState.oauthStep === "authorization_redirect" &&
-                  authState.authorizationUrl
-                ? "Open Authorization URL"
-                : "Continue"}
-          </Button>
+          <>
+            <Button
+              onClick={proceedToNextStep}
+              disabled={authState.isInitiatingAuth}
+            >
+              {authState.isInitiatingAuth ? "Processing..." : "Continue"}
+            </Button>
+          </>
         )}
 
         {authState.oauthStep === "authorization_redirect" &&

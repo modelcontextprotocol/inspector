@@ -130,4 +130,11 @@ export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvi
     }
     return JSON.parse(metadata);
   }
+
+  clear() {
+    super.clear();
+    sessionStorage.removeItem(
+      getServerSpecificKey(SESSION_KEYS.SERVER_METADATA, this.serverUrl),
+    );
+  }
 }
