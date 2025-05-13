@@ -17,6 +17,9 @@ import {
   Tool,
   LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
+import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
+import { AuthDebuggerState } from "./lib/auth-types";
 import React, {
   Suspense,
   useCallback,
@@ -28,18 +31,21 @@ import { useConnection } from "./lib/hooks/useConnection";
 import { useDraggablePane } from "./lib/hooks/useDraggablePane";
 import { StdErrNotification } from "./lib/notificationTypes";
 
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import {
   Bell,
   Files,
   FolderTree,
   Hammer,
   Hash,
+  Key,
   MessageSquare,
 } from "lucide-react";
 
 import { z } from "zod";
 import "./App.css";
+import AuthDebugger from "./components/AuthDebugger";
 import ConsoleTab from "./components/ConsoleTab";
 import HistoryAndNotifications from "./components/History";
 import PingTab from "./components/PingTab";
@@ -111,6 +117,27 @@ const App = () => {
       }
     >
   >([]);
+  const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
+
+  // Auth debugger state
+  const [authState, setAuthState] = useState<AuthDebuggerState>({
+    isInitiatingAuth: false,
+    oauthTokens: null,
+    loading: true,
+    oauthStep: "metadata_discovery",
+    oauthMetadata: null,
+    oauthClientInfo: null,
+    authorizationUrl: null,
+    authorizationCode: "",
+    latestError: null,
+    statusMessage: null,
+    validationError: null,
+  });
+
+  // Helper function to update specific auth state properties
+  const updateAuthState = (updates: Partial<AuthDebuggerState>) => {
+    setAuthState((prev) => ({ ...prev, ...updates }));
+  };
   const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
 
@@ -208,10 +235,63 @@ const App = () => {
     (serverUrl: string) => {
       setSseUrl(serverUrl);
       setTransportType("sse");
+      setIsAuthDebuggerVisible(false);
       void connectMcpServer();
     },
     [connectMcpServer],
   );
+
+  // Update OAuth debug state during debug callback
+  const onOAuthDebugConnect = useCallback(
+    ({
+      authorizationCode,
+      errorMsg,
+    }: {
+      authorizationCode?: string;
+      errorMsg?: string;
+    }) => {
+      setIsAuthDebuggerVisible(true);
+      if (authorizationCode) {
+        updateAuthState({
+          authorizationCode,
+          oauthStep: "token_request",
+        });
+      }
+      if (errorMsg) {
+        updateAuthState({
+          latestError: new Error(errorMsg),
+        });
+      }
+    },
+    [],
+  );
+
+  // Load OAuth tokens when sseUrl changes
+  useEffect(() => {
+    const loadOAuthTokens = async () => {
+      try {
+        if (sseUrl) {
+          const key = getServerSpecificKey(SESSION_KEYS.TOKENS, sseUrl);
+          const tokens = sessionStorage.getItem(key);
+          if (tokens) {
+            const parsedTokens = await OAuthTokensSchema.parseAsync(
+              JSON.parse(tokens),
+            );
+            updateAuthState({
+              oauthTokens: parsedTokens,
+              oauthStep: "complete",
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error loading OAuth tokens:", error);
+      } finally {
+        updateAuthState({ loading: false });
+      }
+    };
+
+    loadOAuthTokens();
+  }, [sseUrl]);
 
   useEffect(() => {
     fetch(`${getMCPProxyAddress(config)}/config`)
@@ -446,6 +526,19 @@ const App = () => {
     setStdErrNotifications([]);
   };
 
+  // Helper component for rendering the AuthDebugger
+  const AuthDebuggerWrapper = () => (
+    <TabsContent value="auth">
+      <AuthDebugger
+        serverUrl={sseUrl}
+        onBack={() => setIsAuthDebuggerVisible(false)}
+        authState={authState}
+        updateAuthState={updateAuthState}
+      />
+    </TabsContent>
+  );
+
+  // Helper function to render OAuth callback components
   if (window.location.pathname === "/oauth/callback") {
     const OAuthCallback = React.lazy(
       () => import("./components/OAuthCallback"),
@@ -453,6 +546,17 @@ const App = () => {
     return (
       <Suspense fallback={<div>Loading...</div>}>
         <OAuthCallback onConnect={onOAuthConnect} />
+      </Suspense>
+    );
+  }
+
+  if (window.location.pathname === "/oauth/callback/debug") {
+    const OAuthDebugCallback = React.lazy(
+      () => import("./components/OAuthDebugCallback"),
+    );
+    return (
+      <Suspense fallback={<div>Loading...</div>}>
+        <OAuthDebugCallback onConnect={onOAuthDebugConnect} />
       </Suspense>
     );
   }
@@ -543,6 +647,10 @@ const App = () => {
                 <TabsTrigger value="roots">
                   <FolderTree className="w-4 h-4 mr-2" />
                   Roots
+                </TabsTrigger>
+                <TabsTrigger value="auth">
+                  <Key className="w-4 h-4 mr-2" />
+                  Auth
                 </TabsTrigger>
               </TabsList>
 
@@ -689,15 +797,36 @@ const App = () => {
                       setRoots={setRoots}
                       onRootsChange={handleRootsChange}
                     />
+                    <AuthDebuggerWrapper />
                   </>
                 )}
               </div>
             </Tabs>
+          ) : isAuthDebuggerVisible ? (
+            <Tabs
+              defaultValue={"auth"}
+              className="w-full p-4"
+              onValueChange={(value) => (window.location.hash = value)}
+            >
+              <AuthDebuggerWrapper />
+            </Tabs>
           ) : (
-            <div className="flex items-center justify-center h-full">
+            <div className="flex flex-col items-center justify-center h-full gap-4">
               <p className="text-lg text-gray-500">
                 Connect to an MCP server to start inspecting
               </p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-muted-foreground">
+                  Need to configure authentication?
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsAuthDebuggerVisible(true)}
+                >
+                  Open Auth Settings
+                </Button>
+              </div>
             </div>
           )}
         </div>
