@@ -1,0 +1,259 @@
+import { AuthDebuggerState, OAuthStep } from "@/lib/auth-types";
+import { CheckCircle2, Circle, ExternalLink } from "lucide-react";
+import { Button } from "./ui/button";
+import { DebugInspectorOAuthClientProvider } from "@/lib/auth";
+
+interface OAuthStepProps {
+  label: string;
+  isComplete: boolean;
+  isCurrent: boolean;
+  error?: Error | null;
+  children?: React.ReactNode;
+}
+
+const OAuthStepDetails = ({
+  label,
+  isComplete,
+  isCurrent,
+  error,
+  children,
+}: OAuthStepProps) => {
+  return (
+    <div>
+      <div
+        className={`flex items-center p-2 rounded-md ${isCurrent ? "bg-accent" : ""}`}
+      >
+        {isComplete ? (
+          <CheckCircle2 className="h-5 w-5 text-green-500 mr-2" />
+        ) : (
+          <Circle className="h-5 w-5 text-muted-foreground mr-2" />
+        )}
+        <span className={`${isCurrent ? "font-medium" : ""}`}>{label}</span>
+      </div>
+
+      {/* Show children if current step or complete and children exist */}
+      {(isCurrent || isComplete) && children && (
+        <div className="ml-7 mt-1">{children}</div>
+      )}
+
+      {/* Display error if current step and an error exists */}
+      {isCurrent && error && (
+        <div className="ml-7 mt-2 p-3 border border-red-300 bg-red-50 rounded-md">
+          <p className="text-sm font-medium text-red-700">Error:</p>
+          <p className="text-xs text-red-600 mt-1">{error.message}</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface OAuthFlowProgressProps {
+  serverUrl: string;
+  authState: AuthDebuggerState;
+  updateAuthState: (updates: Partial<AuthDebuggerState>) => void;
+  proceedToNextStep: () => Promise<void>;
+}
+
+export const OAuthFlowProgress = ({
+  serverUrl,
+  authState,
+  updateAuthState,
+  proceedToNextStep,
+}: OAuthFlowProgressProps) => {
+  const provider = new DebugInspectorOAuthClientProvider(serverUrl);
+
+  const steps: Array<OAuthStep> = [
+    "metadata_discovery",
+    "client_registration",
+    "authorization_redirect",
+    "authorization_code",
+    "token_request",
+    "complete",
+  ];
+  const currentStepIdx = steps.findIndex((s) => s === authState.oauthStep);
+
+  // Helper to get step props
+  const getStepProps = (stepName: OAuthStep) => ({
+    isComplete:
+      currentStepIdx > steps.indexOf(stepName) ||
+      currentStepIdx === steps.length - 1, // last step is "complete"
+    isCurrent: authState.oauthStep === stepName,
+    error: authState.oauthStep === stepName ? authState.latestError : null,
+  });
+
+  return (
+    <div className="rounded-md border p-6 space-y-4 mt-4">
+      <h3 className="text-lg font-medium">OAuth Flow Progress</h3>
+      <p className="text-sm text-muted-foreground">
+        Follow these steps to complete OAuth authentication with the server.
+      </p>
+
+      <div className="space-y-3">
+        <OAuthStepDetails
+          label="Metadata Discovery"
+          {...getStepProps("metadata_discovery")}
+        >
+          {provider.getServerMetadata() && (
+            <details className="text-xs mt-2">
+              <summary className="cursor-pointer text-muted-foreground font-medium">
+                Retrieved OAuth Metadata from {serverUrl}
+                /.well-known/oauth-authorization-server
+              </summary>
+              <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
+                {JSON.stringify(provider.getServerMetadata(), null, 2)}
+              </pre>
+            </details>
+          )}
+        </OAuthStepDetails>
+
+        <OAuthStepDetails
+          label="Client Registration"
+          {...getStepProps("client_registration")}
+        >
+          {authState.oauthClientInfo && (
+            <details className="text-xs mt-2">
+              <summary className="cursor-pointer text-muted-foreground font-medium">
+                Registered Client Information
+              </summary>
+              <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
+                {JSON.stringify(authState.oauthClientInfo, null, 2)}
+              </pre>
+            </details>
+          )}
+        </OAuthStepDetails>
+
+        <OAuthStepDetails
+          label="Preparing Authorization"
+          {...getStepProps("authorization_redirect")}
+        >
+          {authState.authorizationUrl && (
+            <div className="mt-2 p-3 border rounded-md bg-muted">
+              <p className="font-medium mb-2 text-sm">Authorization URL:</p>
+              <div className="flex items-center gap-2">
+                <p className="text-xs break-all">
+                  {authState.authorizationUrl}
+                </p>
+                <a
+                  href={authState.authorizationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center text-blue-500 hover:text-blue-700"
+                  aria-label="Open authorization URL in new tab"
+                  title="Open authorization URL"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Click the link to authorize in your browser. After
+                authorization, you'll be redirected back to continue the flow.
+              </p>
+            </div>
+          )}
+        </OAuthStepDetails>
+
+        <OAuthStepDetails
+          label="Request Authorization and acquire authorization code"
+          {...getStepProps("authorization_code")}
+        >
+          <div className="mt-3">
+            <label
+              htmlFor="authCode"
+              className="block text-sm font-medium mb-1"
+            >
+              Authorization Code
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="authCode"
+                value={authState.authorizationCode}
+                onChange={(e) => {
+                  updateAuthState({
+                    authorizationCode: e.target.value,
+                    validationError: null,
+                  });
+                }}
+                placeholder="Enter the code from the authorization server"
+                className={`flex h-9 w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                  authState.validationError ? "border-red-500" : "border-input"
+                }`}
+              />
+            </div>
+            {authState.validationError && (
+              <p className="text-xs text-red-600 mt-1">
+                {authState.validationError}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">
+              Once you've completed authorization in the link, paste the code
+              here.
+            </p>
+          </div>
+        </OAuthStepDetails>
+
+        <OAuthStepDetails
+          label="Token Request"
+          {...getStepProps("token_request")}
+        >
+          {authState.oauthMetadata && (
+            <details className="text-xs mt-2">
+              <summary className="cursor-pointer text-muted-foreground font-medium">
+                Token Request Details
+              </summary>
+              <div className="mt-2 p-2 bg-muted rounded-md">
+                <p className="font-medium">Token Endpoint:</p>
+                <code className="block mt-1 text-xs overflow-x-auto">
+                  {authState.oauthMetadata.token_endpoint}
+                </code>
+              </div>
+            </details>
+          )}
+        </OAuthStepDetails>
+
+        <OAuthStepDetails
+          label="Authentication Complete"
+          {...getStepProps("complete")}
+        >
+          {authState.oauthTokens && (
+            <details className="text-xs mt-2">
+              <summary className="cursor-pointer text-muted-foreground font-medium">
+                Access Tokens
+              </summary>
+              <p className="mt-1 text-sm">
+                Authentication successful! You can now use the authenticated
+                connection. These tokens will be used automatically for server
+                requests.
+              </p>
+              <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
+                {JSON.stringify(authState.oauthTokens, null, 2)}
+              </pre>
+            </details>
+          )}
+        </OAuthStepDetails>
+      </div>
+
+      <div className="flex gap-3 mt-4">
+        {authState.oauthStep !== "complete" && (
+          <>
+            <Button
+              onClick={proceedToNextStep}
+              disabled={authState.isInitiatingAuth}
+            >
+              {authState.isInitiatingAuth ? "Processing..." : "Continue"}
+            </Button>
+          </>
+        )}
+
+        {authState.oauthStep === "authorization_redirect" &&
+          authState.authorizationUrl && (
+            <Button
+              variant="outline"
+              onClick={() => window.open(authState.authorizationUrl!, "_blank")}
+            >
+              Open in New Tab
+            </Button>
+          )}
+      </div>
+    </div>
+  );
+};
