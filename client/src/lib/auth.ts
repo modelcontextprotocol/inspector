@@ -9,10 +9,44 @@ import {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
 
+export const getClientInformationFromSessionStorage = async (
+  serverUrl: string,
+) => {
+  const key = getServerSpecificKey(SESSION_KEYS.CLIENT_INFORMATION, serverUrl);
+  const value = sessionStorage.getItem(key);
+  if (!value) {
+    return undefined;
+  }
+
+  return await OAuthClientInformationSchema.parseAsync(JSON.parse(value));
+};
+
+export const getAuthParamsFromSessionStorage = (serverUrl: string) => {
+  const key = getServerSpecificKey(SESSION_KEYS.OAUTH_PARAMS, serverUrl);
+  const value = sessionStorage.getItem(key);
+  if (!value) {
+    return undefined;
+  }
+  return JSON.parse(value);
+};
+
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
-  constructor(public serverUrl: string) {
+  constructor(
+    protected serverUrl: string,
+    clientInformation?: OAuthClientInformation,
+    oauthParams?: Record<string, string>,
+  ) {
     // Save the server URL to session storage
     sessionStorage.setItem(SESSION_KEYS.SERVER_URL, serverUrl);
+
+    // Save the client information to session storage if provided
+    if (clientInformation) {
+      this.saveClientInformation(clientInformation);
+    }
+
+    if (oauthParams) {
+      this.saveAuthParams(oauthParams);
+    }
   }
 
   get redirectUrl() {
@@ -31,16 +65,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   async clientInformation() {
-    const key = getServerSpecificKey(
-      SESSION_KEYS.CLIENT_INFORMATION,
-      this.serverUrl,
-    );
-    const value = sessionStorage.getItem(key);
-    if (!value) {
-      return undefined;
-    }
-
-    return await OAuthClientInformationSchema.parseAsync(JSON.parse(value));
+    return await getClientInformationFromSessionStorage(this.serverUrl);
   }
 
   saveClientInformation(clientInformation: OAuthClientInformation) {
@@ -49,6 +74,15 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
       this.serverUrl,
     );
     sessionStorage.setItem(key, JSON.stringify(clientInformation));
+  }
+
+  authParams() {
+    return getAuthParamsFromSessionStorage(this.serverUrl);
+  }
+
+  saveAuthParams(authParams: Record<string, string>) {
+    const key = getServerSpecificKey(SESSION_KEYS.OAUTH_PARAMS, this.serverUrl);
+    sessionStorage.setItem(key, JSON.stringify(authParams));
   }
 
   async tokens() {
@@ -67,6 +101,13 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   redirectToAuthorization(authorizationUrl: URL) {
+    const authParams = this.authParams();
+    console.log("authParams", authParams);
+    if (authParams) {
+      Object.entries(authParams).forEach(([key, value]) => {
+        authorizationUrl.searchParams.set(key, value as string);
+      });
+    }
     window.location.href = authorizationUrl.href;
   }
 
@@ -100,6 +141,9 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
     );
     sessionStorage.removeItem(
       getServerSpecificKey(SESSION_KEYS.CODE_VERIFIER, this.serverUrl),
+    );
+    sessionStorage.removeItem(
+      getServerSpecificKey(SESSION_KEYS.OAUTH_PARAMS, this.serverUrl),
     );
   }
 }

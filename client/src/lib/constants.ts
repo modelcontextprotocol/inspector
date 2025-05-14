@@ -7,6 +7,7 @@ export const SESSION_KEYS = {
   TOKENS: "mcp_tokens",
   CLIENT_INFORMATION: "mcp_client_information",
   SERVER_METADATA: "mcp_server_metadata",
+  OAUTH_PARAMS: "mcp_oauth_params",
 } as const;
 
 // Generate server-specific session storage keys
