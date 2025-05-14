@@ -139,7 +139,7 @@ const Sidebar = ({
 
   // Memoized config entry generator
   const generateMCPServerEntry = useCallback(() => {
-    return JSON.stringify(generateServerConfig(), null, 2);
+    return JSON.stringify(generateServerConfig(), null, 4);
   }, [generateServerConfig]);
 
   // Memoized config file generator
@@ -151,7 +151,7 @@ const Sidebar = ({
         },
       },
       null,
-      2,
+      4,
     );
   }, [generateServerConfig]);
 

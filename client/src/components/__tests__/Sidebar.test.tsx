@@ -700,7 +700,7 @@ describe("Sidebar Environment Variables", () => {
           env,
         },
         null,
-        2,
+        4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
@@ -735,7 +735,7 @@ describe("Sidebar Environment Variables", () => {
           },
         },
         null,
-        2,
+        4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
@@ -758,7 +758,7 @@ describe("Sidebar Environment Variables", () => {
           note: "For SSE connections, add this URL directly in Client",
         },
         null,
-        2,
+        4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
@@ -785,7 +785,7 @@ describe("Sidebar Environment Variables", () => {
           },
         },
         null,
-        2,
+        4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
@@ -808,7 +808,7 @@ describe("Sidebar Environment Variables", () => {
           note: "For Streamable HTTP connections, add this URL directly in Client",
         },
         null,
-        2,
+        4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
@@ -835,7 +835,7 @@ describe("Sidebar Environment Variables", () => {
           },
         },
         null,
-        2,
+        4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
@@ -864,7 +864,7 @@ describe("Sidebar Environment Variables", () => {
           env: {},
         },
         null,
-        2,
+        4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
     });
