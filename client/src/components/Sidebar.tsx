@@ -103,13 +103,16 @@ const Sidebar = ({
   const { toast } = useToast();
 
   // Reusable error reporter for copy actions
-  function reportError(error: unknown) {
-    toast({
-      title: "Error",
-      description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
-      variant: "destructive",
-    });
-  }
+  const reportError = useCallback(
+    (error: unknown) => {
+      toast({
+        title: "Error",
+        description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
+        variant: "destructive",
+      });
+    },
+    [toast],
+  );
 
   // Shared utility function to generate server config
   const generateServerConfig = useCallback(() => {
@@ -182,7 +185,7 @@ const Sidebar = ({
     } catch (error) {
       reportError(error);
     }
-  }, [generateMCPServerEntry, transportType, toast]);
+  }, [generateMCPServerEntry, transportType, toast, reportError]);
 
   const handleCopyServerFile = useCallback(() => {
     try {
@@ -208,7 +211,7 @@ const Sidebar = ({
     } catch (error) {
       reportError(error);
     }
-  }, [generateMCPServerFile, toast]);
+  }, [generateMCPServerFile, toast, reportError]);
 
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
