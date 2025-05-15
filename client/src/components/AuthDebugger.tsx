@@ -1,7 +1,10 @@
 import { useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { DebugInspectorOAuthClientProvider } from "../lib/auth";
-import { auth, discoverOAuthMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  auth,
+  discoverOAuthMetadata,
+} from "@modelcontextprotocol/sdk/client/auth.js";
 import { OAuthMetadataSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { AlertCircle } from "lucide-react";
 import { AuthDebuggerState } from "../lib/auth-types";
@@ -131,7 +134,7 @@ const AuthDebugger = ({
       }
       const parsedMetadata = await OAuthMetadataSchema.parseAsync(metadata);
       serverAuthProvider.saveServerMetadata(parsedMetadata);
-      
+
       await auth(serverAuthProvider, { serverUrl: serverUrl });
       updateAuthState({
         statusMessage: {

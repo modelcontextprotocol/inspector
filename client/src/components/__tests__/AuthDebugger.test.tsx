@@ -192,7 +192,7 @@ describe("AuthDebugger", () => {
     it("should start quick OAuth flow and properly fetch and save metadata", async () => {
       // Setup the auth mock
       mockAuth.mockResolvedValue("AUTHORIZED");
-      
+
       const updateAuthState = jest.fn();
       await act(async () => {
         renderAuthDebugger({ updateAuthState });
@@ -203,23 +203,29 @@ describe("AuthDebugger", () => {
       });
 
       // Should first discover and save OAuth metadata
-      expect(mockDiscoverOAuthMetadata).toHaveBeenCalledWith("https://example.com");
-      
+      expect(mockDiscoverOAuthMetadata).toHaveBeenCalledWith(
+        "https://example.com",
+      );
+
       // Then should call auth with the server provider
       expect(mockAuth).toHaveBeenCalled();
-      
+
       // Check that updateAuthState was called with the right info message
-      expect(updateAuthState).toHaveBeenCalledWith(expect.objectContaining({
-        statusMessage: {
-          type: "info",
-          message: "Starting OAuth authentication process...",
-        },
-      }));
+      expect(updateAuthState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusMessage: {
+            type: "info",
+            message: "Starting OAuth authentication process...",
+          },
+        }),
+      );
     });
 
     it("should show error when quick OAuth flow fails to discover metadata", async () => {
-      mockDiscoverOAuthMetadata.mockRejectedValue(new Error("Metadata discovery failed"));
-      
+      mockDiscoverOAuthMetadata.mockRejectedValue(
+        new Error("Metadata discovery failed"),
+      );
+
       const updateAuthState = jest.fn();
       await act(async () => {
         renderAuthDebugger({ updateAuthState });
@@ -230,12 +236,14 @@ describe("AuthDebugger", () => {
       });
 
       // Check that updateAuthState was called with an error message
-      expect(updateAuthState).toHaveBeenCalledWith(expect.objectContaining({
-        statusMessage: {
-          type: "error",
-          message: expect.stringContaining("Failed to start OAuth flow"),
-        },
-      }));
+      expect(updateAuthState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusMessage: {
+            type: "error",
+            message: expect.stringContaining("Failed to start OAuth flow"),
+          },
+        }),
+      );
     });
   });
 
