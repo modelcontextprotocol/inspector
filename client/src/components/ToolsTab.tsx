@@ -97,7 +97,10 @@ const ToolsTab = ({
               )}
               {item.type === "resource" &&
                 (item.resource?.mimeType === "text/html" ? (
-                  <HtmlResource resource={item.resource} style={{ "minHeight": "500px" }} />
+                  <HtmlResource
+                    resource={item.resource}
+                    style={{ minHeight: "500px" }}
+                  />
                 ) : item.resource?.mimeType?.startsWith("audio/") ? (
                   <audio
                     controls
