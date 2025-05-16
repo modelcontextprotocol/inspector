@@ -32,6 +32,8 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
     // Save the client information to session storage if provided
     if (clientInformation) {
       this.saveClientInformation(clientInformation);
+    } else {
+      this.clearClientInformation();
     }
   }
 
@@ -111,6 +113,12 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
     );
     sessionStorage.removeItem(
       getServerSpecificKey(SESSION_KEYS.CODE_VERIFIER, this.serverUrl),
+    );
+  }
+
+  clearClientInformation() {
+    sessionStorage.removeItem(
+      getServerSpecificKey(SESSION_KEYS.CLIENT_INFORMATION, this.serverUrl),
     );
   }
 }
