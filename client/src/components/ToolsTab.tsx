@@ -76,12 +76,12 @@ const ToolsTab = ({
       return (
         <>
           <h4 className="font-semibold mb-2">
-            Tool Result:{" "}
-              {isError ? (
-                <span className="text-red-600 font-semibold">Error</span>
-              ) : (
-                <span className="text-green-600 font-semibold">Success</span>
-              )}
+          Tool Result:{" "}
+            {isError ? (
+              <span className="text-red-600 font-semibold">Error</span>
+            ) : (
+              <span className="text-green-600 font-semibold">Success</span>
+            )}
           </h4>
           {structuredResult.content.map((item, index) => (
             <div key={index} className="mb-2">
