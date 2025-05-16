@@ -18,6 +18,7 @@ import { Loader2, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
+import { HtmlResource } from "@mcp-ui/client";
 
 const ToolsTab = ({
   tools,
@@ -75,18 +76,11 @@ const ToolsTab = ({
       return (
         <>
           <h4 className="font-semibold mb-2">
-            Tool Result:{" "}
-            {isError ? (
-              <span className="text-red-600 font-semibold">Error</span>
-            ) : (
-              <span className="text-green-600 font-semibold">Success</span>
-            )}
+            Tool Result: {isError ? "Error" : "Success"}
           </h4>
           {structuredResult.content.map((item, index) => (
             <div key={index} className="mb-2">
-              {item.type === "text" && (
-                <JsonView data={item.text} isError={isError} />
-              )}
+              {item.type === "text" && <JsonView data={item.text} />}
               {item.type === "image" && (
                 <img
                   src={`data:${item.mimeType};base64,${item.data}`}
@@ -95,7 +89,9 @@ const ToolsTab = ({
                 />
               )}
               {item.type === "resource" &&
-                (item.resource?.mimeType?.startsWith("audio/") ? (
+                (item.resource?.mimeType === "text/html" ? (
+                  <HtmlResource resource={item.resource} style={{ "minHeight": "500px" }} />
+                ) : item.resource?.mimeType?.startsWith("audio/") ? (
                   <audio
                     controls
                     src={`data:${item.resource.mimeType};base64,${item.resource.blob}`}
