@@ -1,7 +1,11 @@
 import { useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { DebugInspectorOAuthClientProvider } from "../lib/auth";
-import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  auth,
+  discoverOAuthMetadata,
+} from "@modelcontextprotocol/sdk/client/auth.js";
+import { OAuthMetadataSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { AlertCircle } from "lucide-react";
 import { AuthDebuggerState } from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
@@ -123,6 +127,14 @@ const AuthDebugger = ({
       const serverAuthProvider = new DebugInspectorOAuthClientProvider(
         serverUrl,
       );
+      // First discover OAuth metadata separately so we can save it
+      const metadata = await discoverOAuthMetadata(serverUrl);
+      if (!metadata) {
+        throw new Error("Failed to discover OAuth metadata");
+      }
+      const parsedMetadata = await OAuthMetadataSchema.parseAsync(metadata);
+      serverAuthProvider.saveServerMetadata(parsedMetadata);
+
       await auth(serverAuthProvider, { serverUrl: serverUrl });
       updateAuthState({
         statusMessage: {

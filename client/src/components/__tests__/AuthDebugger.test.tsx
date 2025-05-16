@@ -48,6 +48,7 @@ import {
   registerClient,
   startAuthorization,
   exchangeAuthorization,
+  auth,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import { OAuthMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
 
@@ -64,6 +65,7 @@ const mockStartAuthorization = startAuthorization as jest.MockedFunction<
 const mockExchangeAuthorization = exchangeAuthorization as jest.MockedFunction<
   typeof exchangeAuthorization
 >;
+const mockAuth = auth as jest.MockedFunction<typeof auth>;
 
 const sessionStorageMock = {
   getItem: jest.fn(),
@@ -185,6 +187,63 @@ describe("AuthDebugger", () => {
             "Please enter a server URL in the sidebar before authenticating",
         },
       });
+    });
+
+    it("should start quick OAuth flow and properly fetch and save metadata", async () => {
+      // Setup the auth mock
+      mockAuth.mockResolvedValue("AUTHORIZED");
+
+      const updateAuthState = jest.fn();
+      await act(async () => {
+        renderAuthDebugger({ updateAuthState });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Quick OAuth Flow"));
+      });
+
+      // Should first discover and save OAuth metadata
+      expect(mockDiscoverOAuthMetadata).toHaveBeenCalledWith(
+        "https://example.com",
+      );
+
+      // Then should call auth with the server provider
+      expect(mockAuth).toHaveBeenCalled();
+
+      // Check that updateAuthState was called with the right info message
+      expect(updateAuthState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusMessage: {
+            type: "info",
+            message: "Starting OAuth authentication process...",
+          },
+        }),
+      );
+    });
+
+    it("should show error when quick OAuth flow fails to discover metadata", async () => {
+      mockDiscoverOAuthMetadata.mockRejectedValue(
+        new Error("Metadata discovery failed"),
+      );
+
+      const updateAuthState = jest.fn();
+      await act(async () => {
+        renderAuthDebugger({ updateAuthState });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Quick OAuth Flow"));
+      });
+
+      // Check that updateAuthState was called with an error message
+      expect(updateAuthState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusMessage: {
+            type: "error",
+            message: expect.stringContaining("Failed to start OAuth flow"),
+          },
+        }),
+      );
     });
   });
 
