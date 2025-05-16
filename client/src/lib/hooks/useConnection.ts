@@ -57,6 +57,7 @@ interface UseConnectionOptions {
   bearerToken?: string;
   headerName?: string;
   oauthClientId?: string;
+  oauthScope?: string;
   config: InspectorConfig;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
@@ -75,6 +76,7 @@ export function useConnection({
   bearerToken,
   headerName,
   oauthClientId,
+  oauthScope,
   config,
   onNotification,
   onStdErrNotification,
@@ -280,7 +282,10 @@ export function useConnection({
         oauthClientInformation,
       );
 
-      const result = await auth(serverAuthProvider, { serverUrl: sseUrl });
+      const result = await auth(serverAuthProvider, {
+        serverUrl: sseUrl,
+        scope: oauthScope,
+      });
       return result === "AUTHORIZED";
     }
 

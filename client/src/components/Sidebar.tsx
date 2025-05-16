@@ -58,6 +58,8 @@ interface SidebarProps {
   setHeaderName?: (name: string) => void;
   oauthClientId: string;
   setOauthClientId: (id: string) => void;
+  oauthScope: string;
+  setOauthScope: (scope: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
   stdErrNotifications: StdErrNotification[];
@@ -87,6 +89,8 @@ const Sidebar = ({
   setHeaderName,
   oauthClientId,
   setOauthClientId,
+  oauthScope,
+  setOauthScope,
   onConnect,
   onDisconnect,
   stdErrNotifications,
@@ -367,6 +371,14 @@ const Sidebar = ({
                       onChange={(e) => setOauthClientId(e.target.value)}
                       value={oauthClientId}
                       data-testid="oauth-client-id-input"
+                      className="font-mono"
+                    />
+                    <label className="text-sm font-medium">Scope</label>
+                    <Input
+                      placeholder="Scope (space-separated)"
+                      onChange={(e) => setOauthScope(e.target.value)}
+                      value={oauthScope}
+                      data-testid="oauth-scope-input"
                       className="font-mono"
                     />
                     <label className="text-sm font-medium">
