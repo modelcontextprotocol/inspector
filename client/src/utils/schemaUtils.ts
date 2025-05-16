@@ -1,4 +1,9 @@
-import type { JsonValue, JsonSchemaType, JsonObject } from "./jsonUtils";
+import type {
+  JsonValue,
+  JsonSchemaType,
+  JsonObject,
+  SchemaType,
+} from "./jsonUtils";
 
 /**
  * Generates a default value based on a JSON schema type
@@ -10,13 +15,21 @@ export function generateDefaultValue(schema: JsonSchemaType): JsonValue {
     return schema.default;
   }
 
+  // Handle union types (e.g. ["string", "null"])
+  if (Array.isArray(schema.type) && schema.type.includes("null")) {
+    return null;
+  }
+
+  const type: SchemaType = Array.isArray(schema.type)
+    ? schema.type[0]
+    : schema.type;
+
   if (!schema.required) {
-    if (schema.type === "array") return [];
-    if (schema.type === "object") return {};
+    // All optional fields should be omitted (undefined)
     return undefined;
   }
 
-  switch (schema.type) {
+  switch (type) {
     case "string":
       return "";
     case "number":

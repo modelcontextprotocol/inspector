@@ -37,16 +37,16 @@ describe("generateDefaultValue", () => {
     );
   });
 
-  test("generates empty array for non-required array", () => {
-    expect(generateDefaultValue({ type: "array", required: false })).toEqual(
-      [],
-    );
+  test("omits non-required array", () => {
+    expect(
+      generateDefaultValue({ type: "array", required: false }),
+    ).toBeUndefined();
   });
 
-  test("generates empty object for non-required object", () => {
-    expect(generateDefaultValue({ type: "object", required: false })).toEqual(
-      {},
-    );
+  test("omits non-required object", () => {
+    expect(
+      generateDefaultValue({ type: "object", required: false }),
+    ).toBeUndefined();
   });
 
   test("generates null for non-required primitive types", () => {
@@ -59,6 +59,78 @@ describe("generateDefaultValue", () => {
     expect(generateDefaultValue({ type: "boolean", required: false })).toBe(
       undefined,
     );
+  });
+
+  test("generates empty array when required", () => {
+    expect(generateDefaultValue({ type: "array", required: true })).toEqual([]);
+  });
+
+  test("generates empty object when required", () => {
+    expect(generateDefaultValue({ type: "object", required: true })).toEqual(
+      {},
+    );
+  });
+
+  test("omits non-required primitive types", () => {
+    expect(
+      generateDefaultValue({ type: "string", required: false }),
+    ).toBeUndefined();
+    expect(
+      generateDefaultValue({ type: "number", required: false }),
+    ).toBeUndefined();
+    expect(
+      generateDefaultValue({ type: "boolean", required: false }),
+    ).toBeUndefined();
+  });
+
+  test("handles explicitly nullable fields", () => {
+    expect(
+      generateDefaultValue({
+        type: ["string", "null"],
+        required: true,
+      }),
+    ).toBe(null);
+
+    expect(
+      generateDefaultValue({
+        type: ["number", "null"],
+        required: true,
+      }),
+    ).toBe(null);
+  });
+
+  test("handles nullable arrays and objects", () => {
+    expect(
+      generateDefaultValue({
+        type: ["array", "null"],
+        required: true,
+      }),
+    ).toBe(null);
+
+    expect(
+      generateDefaultValue({
+        type: ["object", "null"],
+        required: true,
+      }),
+    ).toBe(null);
+  });
+
+  test("distinguishes between nullable and optional fields", () => {
+    // Optional field (should be omitted)
+    expect(
+      generateDefaultValue({
+        type: "string",
+        required: false,
+      }),
+    ).toBeUndefined();
+
+    // Nullable field (can be explicitly null)
+    expect(
+      generateDefaultValue({
+        type: ["string", "null"],
+        required: true,
+      }),
+    ).toBe(null);
   });
 
   test("generates object with properties", () => {
