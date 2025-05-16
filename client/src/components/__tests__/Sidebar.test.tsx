@@ -42,6 +42,8 @@ describe("Sidebar Environment Variables", () => {
     setArgs: jest.fn(),
     sseUrl: "",
     setSseUrl: jest.fn(),
+    oauthClientId: "",
+    setOauthClientId: jest.fn(),
     env: {},
     setEnv: jest.fn(),
     bearerToken: "",

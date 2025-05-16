@@ -1,5 +1,8 @@
 import { useEffect, useRef } from "react";
-import { InspectorOAuthClientProvider } from "../lib/auth";
+import {
+  InspectorOAuthClientProvider,
+  getClientInformationFromSessionStorage,
+} from "../lib/auth";
 import { SESSION_KEYS } from "../lib/constants";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { useToast } from "@/lib/hooks/useToast";
@@ -41,10 +44,16 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
         return notifyError("Missing Server URL");
       }
 
+      const clientInformation =
+        await getClientInformationFromSessionStorage(serverUrl);
+
       let result;
       try {
         // Create an auth provider with the current server URL
-        const serverAuthProvider = new InspectorOAuthClientProvider(serverUrl);
+        const serverAuthProvider = new InspectorOAuthClientProvider(
+          serverUrl,
+          clientInformation,
+        );
 
         result = await auth(serverAuthProvider, {
           serverUrl,
