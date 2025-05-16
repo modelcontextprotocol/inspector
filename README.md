@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/modelcontextprotocol-inspector-badge.png)](https://mseep.ai/app/modelcontextprotocol-inspector)
+
 # MCP Inspector
 
 The MCP inspector is a developer tool for testing and debugging MCP servers.
