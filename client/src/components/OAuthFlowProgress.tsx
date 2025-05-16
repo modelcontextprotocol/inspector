@@ -63,6 +63,7 @@ export const OAuthFlowProgress = ({
   const provider = new DebugInspectorOAuthClientProvider(serverUrl);
 
   const steps: Array<OAuthStep> = [
+    "resource_metadata_discovery",
     "metadata_discovery",
     "client_registration",
     "authorization_redirect",
@@ -89,6 +90,21 @@ export const OAuthFlowProgress = ({
       </p>
 
       <div className="space-y-3">
+        <OAuthStepDetails
+          label="Resource Metadata Discovery"
+          {...getStepProps("resource_metadata_discovery")}
+        >
+          {authState.resourceMetadata && (
+            <details className="text-xs mt-2">
+              <summary className="cursor-pointer text-muted-foreground font-medium">
+                Retrieved OAuth Resource Metadata from {(new URL('/.well-known/oauth-protected-resource', serverUrl)).href}
+              </summary>
+              <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
+                {JSON.stringify(authState.resourceMetadata, null, 2)}
+              </pre>
+            </details>
+          )}
+        </OAuthStepDetails>
         <OAuthStepDetails
           label="Metadata Discovery"
           {...getStepProps("metadata_discovery")}

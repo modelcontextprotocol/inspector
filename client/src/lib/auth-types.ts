@@ -7,6 +7,7 @@ import {
 
 // OAuth flow steps
 export type OAuthStep =
+  | "resource_metadata_discovery"
   | "metadata_discovery"
   | "client_registration"
   | "authorization_redirect"
@@ -28,6 +29,8 @@ export interface AuthDebuggerState {
   oauthTokens: OAuthTokens | null;
   loading: boolean;
   oauthStep: OAuthStep;
+  // TODO: use sdk type
+  resourceMetadata: object | null;
   oauthMetadata: OAuthMetadata | null;
   oauthClientInfo: OAuthClientInformationFull | OAuthClientInformation | null;
   authorizationUrl: string | null;
