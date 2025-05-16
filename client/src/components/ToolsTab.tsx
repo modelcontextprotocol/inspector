@@ -85,7 +85,10 @@ const ToolsTab = ({
           </h4>
           {structuredResult.content.map((item, index) => (
             <div key={index} className="mb-2">
-                <JsonView data={item.text} isError={isError} />              {item.type === "image" && (
+              {item.type === "text" && (
+                <JsonView data={item.text} isError={isError} />
+              )}
+              {item.type === "image" && (
                 <img
                   src={`data:${item.mimeType};base64,${item.data}`}
                   alt="Tool result image"
