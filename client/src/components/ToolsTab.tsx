@@ -76,7 +76,7 @@ const ToolsTab = ({
       return (
         <>
           <h4 className="font-semibold mb-2">
-          Tool Result:{" "}
+            Tool Result:{" "}
             {isError ? (
               <span className="text-red-600 font-semibold">Error</span>
             ) : (
