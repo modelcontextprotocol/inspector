@@ -18,6 +18,7 @@ import { Loader2, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
+import { HtmlResource } from "@mcp-ui/client";
 
 const ToolsTab = ({
   tools,
@@ -82,32 +83,38 @@ const ToolsTab = ({
               <span className="text-green-600 font-semibold">Success</span>
             )}
           </h4>
-          {structuredResult.content.map((item, index) => (
-            <div key={index} className="mb-2">
-              {item.type === "text" && (
-                <JsonView data={item.text} isError={isError} />
-              )}
-              {item.type === "image" && (
-                <img
-                  src={`data:${item.mimeType};base64,${item.data}`}
-                  alt="Tool result image"
-                  className="max-w-full h-auto"
-                />
-              )}
-              {item.type === "resource" &&
-                (item.resource?.mimeType?.startsWith("audio/") ? (
-                  <audio
-                    controls
-                    src={`data:${item.resource.mimeType};base64,${item.resource.blob}`}
-                    className="w-full"
-                  >
-                    <p>Your browser does not support audio playback</p>
-                  </audio>
-                ) : (
-                  <JsonView data={item.resource} />
-                ))}
-            </div>
-          ))}
+          {Array.isArray(structuredResult?.content) &&
+            structuredResult.content.map((item, index) => (
+              <div key={index} className="mb-2">
+                {item.type === "text" && (
+                  <JsonView data={item.text} isError={isError} />
+                )}
+                {item.type === "image" && (
+                  <img
+                    src={`data:${item.mimeType};base64,${item.data}`}
+                    alt="Tool result image"
+                    className="max-w-full h-auto"
+                  />
+                )}
+                {item.type === "resource" &&
+                  (item.resource?.mimeType === "text/html" ? (
+                    <HtmlResource
+                      resource={item.resource}
+                      style={{ minHeight: "500px" }}
+                    />
+                  ) : item.resource?.mimeType?.startsWith("audio/") ? (
+                    <audio
+                      controls
+                      src={`data:${item.resource.mimeType};base64,${item.resource.blob}`}
+                      className="w-full"
+                    >
+                      <p>Your browser does not support audio playback</p>
+                    </audio>
+                  ) : (
+                    <JsonView data={item.resource} />
+                  ))}
+              </div>
+            ))}
         </>
       );
     } else if ("toolResult" in toolResult) {
