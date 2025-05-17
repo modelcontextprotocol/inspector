@@ -297,7 +297,12 @@ export function useConnection({
         bearerToken || (await serverAuthProvider.tokens())?.access_token;
       if (token) {
         const authHeaderName = headerName || "Authorization";
-        headers[authHeaderName] = `Bearer ${token}`;
+        headers[authHeaderName] = token;
+        
+        // Add custom header name as a special request header to let the server know which header to pass through 
+        if (headerName && headerName.toLowerCase() !== "authorization") {
+          headers["x-custom-auth-header"] = headerName;
+        }
       }
 
       // Create appropriate transport
