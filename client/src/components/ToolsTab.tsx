@@ -82,7 +82,7 @@ const ToolsTab = ({
               <span className="text-green-600 font-semibold">Success</span>
             )}
           </h4>
-          {structuredResult.content.map((item, index) => (
+          {structuredResult.content?.map((item, index) => (
             <div key={index} className="mb-2">
               {item.type === "text" && (
                 <JsonView data={item.text} isError={isError} />
