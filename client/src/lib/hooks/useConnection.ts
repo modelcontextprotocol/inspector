@@ -428,19 +428,18 @@ export function useConnection({
           error,
         );
 
-        // Check for auth-related errors
+        const shouldRetry = await handleAuthError(error);
+        if (shouldRetry) {
+          return connect(undefined, retryCount + 1);
+        }
         const is401Error =
           (error instanceof SseError && error.code === 401) ||
           (error instanceof Error && error.message.includes('401')) ||
           (error instanceof Error && error.message.includes('Unauthorized'));
 
         if (is401Error) {
-          console.log("Detected 401 error, attempting OAuth flow");
-          const shouldRetry = await handleAuthError(error);
-          if (shouldRetry) {
-            return connect(undefined, retryCount + 1);
-          }
           // Don't set error state if we're about to redirect for auth
+
           return;
         }
         throw error;
