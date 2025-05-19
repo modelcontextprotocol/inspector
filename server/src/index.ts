@@ -266,21 +266,20 @@ app.get("/stdio", async (req, res) => {
 
     // Create a stderr handler that checks connection state
     const stderrHandler = (chunk: Buffer) => {
-      try {
-        // Only send if the transport exists in our map (meaning it's still active)
-        if (webAppTransports.has(webAppTransport.sessionId)) {
-          webAppTransport.send({
-            jsonrpc: "2.0",
-            method: "notifications/stderr",
-            params: {
-              content: chunk.toString(),
-            },
-          });
-        }
-      } catch (error: any) {
-        console.log(`Error sending stderr data to client: ${error.message}`);
-        // If we hit an error sending, clean up the transport
-        webAppTransports.delete(webAppTransport.sessionId);
+      // Only send if the transport exists in our map (meaning it's still active)
+      if (webAppTransports.has(webAppTransport.sessionId)) {
+        webAppTransport.send({
+          jsonrpc: "2.0",
+          method: "notifications/stderr",
+          params: {
+            content: chunk.toString(),
+          },
+        })
+        .catch((error: any) => {
+          console.error(`Error sending stderr data to client: ${error.message}`);
+          // If we hit an error sending, clean up the transport
+          webAppTransports.delete(webAppTransport.sessionId);
+        });
       }
     };
 
