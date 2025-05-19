@@ -29,8 +29,8 @@ export default function mcpProxy({
           error: {
             code: -32001,
             message: error.message,
-            data: error
-          }
+            data: error,
+          },
         };
         transportToClient.send(errorResponse).catch(onClientError);
       }

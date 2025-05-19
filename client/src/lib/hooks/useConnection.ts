@@ -252,8 +252,8 @@ export function useConnection({
   const handleAuthError = async (error: unknown) => {
     const is401Error =
       (error instanceof SseError && error.code === 401) ||
-      (error instanceof Error && error.message.includes('401')) ||
-      (error instanceof Error && error.message.includes('Unauthorized'));
+      (error instanceof Error && error.message.includes("401")) ||
+      (error instanceof Error && error.message.includes("Unauthorized"));
 
     if (is401Error) {
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
@@ -377,9 +377,9 @@ export function useConnection({
       const clientTransport =
         transportType === "streamable-http"
           ? new StreamableHTTPClientTransport(mcpProxyServerUrl as URL, {
-            sessionId: undefined,
-            ...transportOptions,
-          })
+              sessionId: undefined,
+              ...transportOptions,
+            })
           : new SSEClientTransport(mcpProxyServerUrl as URL, transportOptions);
 
       if (onNotification) {
@@ -434,8 +434,8 @@ export function useConnection({
         }
         const is401Error =
           (error instanceof SseError && error.code === 401) ||
-          (error instanceof Error && error.message.includes('401')) ||
-          (error instanceof Error && error.message.includes('Unauthorized'));
+          (error instanceof Error && error.message.includes("401")) ||
+          (error instanceof Error && error.message.includes("Unauthorized"));
 
         if (is401Error) {
           // Don't set error state if we're about to redirect for auth
