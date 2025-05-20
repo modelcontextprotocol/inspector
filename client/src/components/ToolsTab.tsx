@@ -10,6 +10,7 @@ import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
 import { generateDefaultValue } from "@/utils/schemaUtils";
 import {
   CallToolResultSchema,
+  CallToolResult,
   CompatibilityCallToolResult,
   ListToolsResult,
   Tool,
@@ -69,7 +70,7 @@ const ToolsTab = ({
           </>
         );
       }
-      const structuredResult = parsedResult.data;
+      const structuredResult = parsedResult.data as CallToolResult;
       const isError = structuredResult.isError ?? false;
 
       return (
