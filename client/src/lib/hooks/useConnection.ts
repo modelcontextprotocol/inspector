@@ -249,13 +249,16 @@ export function useConnection({
     }
   };
 
-  const handleAuthError = async (error: unknown) => {
-    const is401Error =
+  const is401Error = (error: unknown): boolean => {
+    return (
       (error instanceof SseError && error.code === 401) ||
       (error instanceof Error && error.message.includes("401")) ||
-      (error instanceof Error && error.message.includes("Unauthorized"));
+      (error instanceof Error && error.message.includes("Unauthorized"))
+    );
+  };
 
-    if (is401Error) {
+  const handleAuthError = async (error: unknown) => {
+    if (is401Error(error)) {
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
       const result = await auth(serverAuthProvider, { serverUrl: sseUrl });
@@ -432,12 +435,7 @@ export function useConnection({
         if (shouldRetry) {
           return connect(undefined, retryCount + 1);
         }
-        const is401Error =
-          (error instanceof SseError && error.code === 401) ||
-          (error instanceof Error && error.message.includes("401")) ||
-          (error instanceof Error && error.message.includes("Unauthorized"));
-
-        if (is401Error) {
+        if (is401Error(error)) {
           // Don't set error state if we're about to redirect for auth
 
           return;
