@@ -755,7 +755,7 @@ describe("Sidebar Environment Variables", () => {
         {
           type: "sse",
           url: sseUrl,
-          note: "For SSE connections, add this URL directly in Client",
+          note: "For SSE connections, add this URL directly in your MCP Client",
         },
         null,
         4,
@@ -780,7 +780,7 @@ describe("Sidebar Environment Variables", () => {
             "default-server": {
               type: "sse",
               url: sseUrl,
-              note: "For SSE connections, add this URL directly in Client",
+              note: "For SSE connections, add this URL directly in your MCP Client",
             },
           },
         },
@@ -805,7 +805,7 @@ describe("Sidebar Environment Variables", () => {
         {
           type: "streamable-http",
           url: sseUrl,
-          note: "For Streamable HTTP connections, add this URL directly in Client",
+          note: "For Streamable HTTP connections, add this URL directly in your MCP Client",
         },
         null,
         4,
@@ -830,7 +830,7 @@ describe("Sidebar Environment Variables", () => {
             "default-server": {
               type: "streamable-http",
               url: sseUrl,
-              note: "For Streamable HTTP connections, add this URL directly in Client",
+              note: "For Streamable HTTP connections, add this URL directly in your MCP Client",
             },
           },
         },

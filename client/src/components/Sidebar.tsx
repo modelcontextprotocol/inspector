@@ -127,14 +127,14 @@ const Sidebar = ({
       return {
         type: "sse",
         url: sseUrl,
-        note: "For SSE connections, add this URL directly in Client",
+        note: "For SSE connections, add this URL directly in your MCP Client",
       };
     }
     if (transportType === "streamable-http") {
       return {
         type: "streamable-http",
         url: sseUrl,
-        note: "For Streamable HTTP connections, add this URL directly in Client",
+        note: "For Streamable HTTP connections, add this URL directly in your MCP Client",
       };
     }
     return {};
@@ -172,7 +172,7 @@ const Sidebar = ({
             description:
               transportType === "stdio"
                 ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
-                : "SSE URL has been copied. Use this URL in Cursor directly.",
+                : "SSE URL has been copied. Use this URL directly in your MCP Client.",
           });
 
           setTimeout(() => {
