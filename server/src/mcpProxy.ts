@@ -1,4 +1,5 @@
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
 
 function onClientError(error: Error) {
   console.error("Error from inspector client:", error);
@@ -19,7 +20,21 @@ export default function mcpProxy({
   let transportToServerClosed = false;
 
   transportToClient.onmessage = (message) => {
-    transportToServer.send(message).catch(onServerError);
+    transportToServer.send(message).catch((error) => {
+      // Send error response back to client if it was a request (has id) and connection is still open
+      if (isJSONRPCRequest(message) && !transportToClientClosed) {
+        const errorResponse = {
+          jsonrpc: "2.0" as const,
+          id: message.id,
+          error: {
+            code: -32001,
+            message: error.message,
+            data: error,
+          },
+        };
+        transportToClient.send(errorResponse).catch(onClientError);
+      }
+    });
   };
 
   transportToServer.onmessage = (message) => {
