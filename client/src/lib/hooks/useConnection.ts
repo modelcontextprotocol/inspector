@@ -249,9 +249,16 @@ export function useConnection({
     }
   };
 
+  const is401Error = (error: unknown): boolean => {
+    return (
+      (error instanceof SseError && error.code === 401) ||
+      (error instanceof Error && error.message.includes("401")) ||
+      (error instanceof Error && error.message.includes("Unauthorized"))
+    );
+  };
+
   const handleAuthError = async (error: unknown) => {
-    if (error instanceof SseError && error.code === 401) {
-      // Create a new auth provider with the current server URL
+    if (is401Error(error)) {
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
       const result = await auth(serverAuthProvider, { serverUrl: sseUrl });
@@ -330,7 +337,6 @@ export function useConnection({
           mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
           mcpProxyServerUrl.searchParams.append("url", sseUrl);
           transportOptions = {
-            authProvider: serverAuthProvider,
             eventSourceInit: {
               fetch: (
                 url: string | URL | globalThis.Request,
@@ -347,7 +353,6 @@ export function useConnection({
           mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
           mcpProxyServerUrl.searchParams.append("url", sseUrl);
           transportOptions = {
-            authProvider: serverAuthProvider,
             eventSourceInit: {
               fetch: (
                 url: string | URL | globalThis.Request,
@@ -425,13 +430,14 @@ export function useConnection({
           `Failed to connect to MCP Server via the MCP Inspector Proxy: ${mcpProxyServerUrl}:`,
           error,
         );
+
         const shouldRetry = await handleAuthError(error);
         if (shouldRetry) {
           return connect(undefined, retryCount + 1);
         }
-
-        if (error instanceof SseError && error.code === 401) {
+        if (is401Error(error)) {
           // Don't set error state if we're about to redirect for auth
+
           return;
         }
         throw error;

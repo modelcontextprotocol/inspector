@@ -234,7 +234,6 @@ const App = () => {
   const onOAuthConnect = useCallback(
     (serverUrl: string) => {
       setSseUrl(serverUrl);
-      setTransportType("sse");
       setIsAuthDebuggerVisible(false);
       void connectMcpServer();
     },
