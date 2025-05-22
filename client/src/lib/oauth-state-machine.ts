@@ -18,15 +18,34 @@ export interface StateMachineContext {
 export interface StateTransition {
   canTransition: (context: StateMachineContext) => Promise<boolean>;
   execute: (context: StateMachineContext) => Promise<void>;
-  nextStep: OAuthStep;
 }
 
 // State machine transitions
 export const oauthTransitions: Record<OAuthStep, StateTransition> = {
-  metadata_discovery: {
+  resource_metadata_discovery: {
     canTransition: async () => true,
     execute: async (context) => {
-      const metadata = await discoverOAuthMetadata(context.serverUrl);
+      // TODO: use sdk
+      const url = new URL("/.well-known/oauth-protected-resource", context.serverUrl);
+      const response = await fetch(url);
+
+      const resourceMetadata = await response.json();
+      context.updateState({
+        resourceMetadata: resourceMetadata,
+        oauthStep: "metadata_discovery",
+      });
+    },
+  },
+
+  metadata_discovery: {
+    canTransition: async (context) => !!context.state.resourceMetadata,
+    execute: async (context) => {
+      // TODO: use sdk
+      let authServerUrl = context.serverUrl;
+      if (context.state.resourceMetadata?.authorization_servers?.[0]) {
+        authServerUrl = context.state.resourceMetadata.authorization_servers[0];
+      }
+      const metadata = await discoverOAuthMetadata(authServerUrl);
       if (!metadata) {
         throw new Error("Failed to discover OAuth metadata");
       }
@@ -37,7 +56,6 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         oauthStep: "client_registration",
       });
     },
-    nextStep: "client_registration",
   },
 
   client_registration: {
@@ -62,7 +80,6 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         oauthStep: "authorization_redirect",
       });
     },
-    nextStep: "authorization_redirect",
   },
 
   authorization_redirect: {
@@ -93,7 +110,6 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         oauthStep: "authorization_code",
       });
     },
-    nextStep: "authorization_code",
   },
 
   authorization_code: {
@@ -114,7 +130,6 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         oauthStep: "token_request",
       });
     },
-    nextStep: "token_request",
   },
 
   token_request: {
@@ -144,7 +159,6 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         oauthStep: "complete",
       });
     },
-    nextStep: "complete",
   },
 
   complete: {
@@ -152,7 +166,6 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
     execute: async () => {
       // No-op for complete state
     },
-    nextStep: "complete",
   },
 };
 
