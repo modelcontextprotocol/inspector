@@ -720,6 +720,7 @@ const App = () => {
               toolResult={toolResult}
               nextCursor={nextToolCursor}
               error={errors.tools}
+              connectionStatus={connectionStatus}
             />
           </TabsContent>
           <TabsContent value="console" className="mt-0">

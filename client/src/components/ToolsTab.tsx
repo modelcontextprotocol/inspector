@@ -9,7 +9,6 @@ import DynamicJsonForm from "./DynamicJsonForm";
 import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
 import { generateDefaultValue } from "@/utils/schemaUtils";
 import {
-  CallToolResultSchema,
   CompatibilityCallToolResult,
   ListToolsResult,
   Tool,
@@ -17,7 +16,7 @@ import {
 import { Loader2, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
-import JsonView from "./JsonView";
+import { ConnectionStatus } from "@/lib/constants";
 
 const ToolsTab = ({
   tools,
@@ -26,8 +25,8 @@ const ToolsTab = ({
   callTool,
   selectedTool,
   setSelectedTool,
-  toolResult,
   nextCursor,
+  connectionStatus,
 }: {
   tools: Tool[];
   listTools: () => void;
@@ -38,6 +37,7 @@ const ToolsTab = ({
   toolResult: CompatibilityCallToolResult | null;
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
+  connectionStatus: ConnectionStatus;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
@@ -52,6 +52,12 @@ const ToolsTab = ({
     setParams(Object.fromEntries(params));
   }, [selectedTool]);
 
+  useEffect(() => {
+    if (connectionStatus === "connected") {
+      listTools();
+    }
+  }, [connectionStatus]);
+
   return (
     <TabsContent value="tools">
       <div className="grid grid-cols-2 gap-4">
@@ -63,16 +69,39 @@ const ToolsTab = ({
             setSelectedTool(null);
           }}
           setSelectedItem={setSelectedTool}
-          renderItem={(tool) => (
-            <div className="flex flex-col items-start">
-              <span className="flex-1">{tool.name}</span>
-              <span className="text-sm text-gray-500 text-left">
-                {tool.description}
-              </span>
-            </div>
-          )}
+          renderItem={(tool) => {
+            const parameters = tool.inputSchema.properties
+              ? Object.keys(tool.inputSchema.properties)
+              : [];
+
+            return (
+              <div className="bg-white dark:bg-gray-900 rounded-lg p-3 shadow-sm border border-gray-100 dark:border-gray-800 hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800 transition-all duration-200 group">
+                <div className="flex flex-col space-y-2.5">
+                  {/* Tool name with emoji and styling */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-lg">🛠️</span>
+                      <span className="font-mono text-xs bg-gradient-to-r from-slate-100 to-gray-100 dark:from-slate-800 dark:to-gray-800 px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-200 font-medium shadow-sm">
+                        {tool.name}
+                      </span>
+                    </div>
+                    {parameters.length > 0 && (
+                      <span className="text-xs text-gray-400 dark:text-gray-600 font-medium">
+                        {parameters.length} param
+                        {parameters.length !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Tool description */}
+                  <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-2">
+                    {tool.description}
+                  </p>
+                </div>
+              </div>
+            );
+          }}
           title="Tools"
-          buttonText={nextCursor ? "List More Tools" : "List Tools"}
           isButtonDisabled={!nextCursor && tools.length > 0}
         />
 
