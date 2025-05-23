@@ -285,7 +285,6 @@ const ToolsTab = ({
                     </>
                   )}
                 </Button>
-                {toolResult && renderToolResult()}
               </div>
             ) : (
               <Alert>

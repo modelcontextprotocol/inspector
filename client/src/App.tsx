@@ -25,7 +25,6 @@ import { useDraggablePane } from "./lib/hooks/useDraggablePane";
 import { StdErrNotification } from "./lib/notificationTypes";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
 import {
   Bell,
   Files,
@@ -762,6 +761,7 @@ const App = () => {
             <HistoryAndNotifications
               requestHistory={requestHistory}
               serverNotifications={notifications}
+              toolResult={toolResult}
             />
           </div>
         </div>
