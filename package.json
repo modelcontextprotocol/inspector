@@ -1,11 +1,11 @@
 {
-  "name": "@modelcontextprotocol/inspector",
-  "version": "0.13.0",
-  "description": "Model Context Protocol inspector",
+  "name": "@mcpjam/inspector",
+  "version": "0.1.0",
+  "description": "MCPJam inspector",
   "license": "MIT",
-  "author": "Anthropic, PBC (https://anthropic.com)",
-  "homepage": "https://modelcontextprotocol.io",
-  "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
+  "author": "MCPJam (https://mcpjam.com)",
+  "homepage": "https://mcpjam.com",
+  "bugs": "https://github.com/mcpjam/inspector/issues",
   "type": "module",
   "bin": {
     "mcp-inspector": "cli/build/cli.js"
@@ -40,9 +40,9 @@
     "publish-all": "npm publish --workspaces --access public && npm publish --access public"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-cli": "^0.13.0",
-    "@modelcontextprotocol/inspector-client": "^0.13.0",
-    "@modelcontextprotocol/inspector-server": "^0.13.0",
+    "@mcpjam/inspector-cli": "^0.1.0",
+    "@mcpjam/inspector-client": "^0.1.0",
+    "@mcpjam/inspector-server": "^0.1.0",
     "@modelcontextprotocol/sdk": "^1.11.5",
     "concurrently": "^9.0.1",
     "open": "^10.1.0",
