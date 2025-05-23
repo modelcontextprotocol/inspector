@@ -203,7 +203,7 @@ const ConnectionSection = ({
   }, [generateMCPServerFile, toast, reportError]);
 
   return (
-    <div className="flex flex-col bg-background">
+    <div className="flex flex-col bg-background px-12">
       <div className="border-b border-border bg-card">
         <div className="p-4">
           <div className="flex items-center gap-2 mb-4">
@@ -213,13 +213,13 @@ const ConnectionSection = ({
                 setTransportType(value)
               }
             >
-              <SelectTrigger className="w-48">
+              <SelectTrigger className="w-32">
                 <SelectValue placeholder="Select transport type" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="stdio">STDIO</SelectItem>
                 <SelectItem value="sse">SSE</SelectItem>
-                <SelectItem value="streamable-http">Streamable HTTP</SelectItem>
+                <SelectItem value="streamable-http">HTTP</SelectItem>
               </SelectContent>
             </Select>
 
@@ -228,13 +228,13 @@ const ConnectionSection = ({
               {transportType === "stdio" ? (
                 <div className="flex gap-2">
                   <Input
-                    placeholder="Command"
+                    placeholder="npx"
                     value={command}
                     onChange={(e) => setCommand(e.target.value)}
                     className="font-mono flex-1"
                   />
                   <Input
-                    placeholder="Arguments (space-separated)"
+                    placeholder="@modelcontextprotocol/server-brave-search"
                     value={args}
                     onChange={(e) => setArgs(e.target.value)}
                     className="font-mono flex-1"
@@ -242,7 +242,11 @@ const ConnectionSection = ({
                 </div>
               ) : (
                 <Input
-                  placeholder="Enter URL"
+                  placeholder={
+                    transportType === "sse"
+                      ? "https://mcp.asana.com/sse"
+                      : "Enter URL"
+                  }
                   value={sseUrl}
                   onChange={(e) => setSseUrl(e.target.value)}
                   className="font-mono"
@@ -250,7 +254,6 @@ const ConnectionSection = ({
               )}
             </div>
 
-            {/* Connect Button (like Send in Postman) */}
             <div className="flex gap-2">
               {connectionStatus === "connected" ? (
                 <>
@@ -340,8 +343,7 @@ const ConnectionSection = ({
           </div>
         </div>
 
-        {/* Postman-style tabs */}
-        <div className="flex border-b border-border">
+        <div className="flex border-b border-border px-4">
           <button
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
               activeTab === "connection"
@@ -399,7 +401,6 @@ const ConnectionSection = ({
         </div>
       </div>
 
-      {/* Tab Content */}
       <div className="">
         <div className="p-4">
           {activeTab === "auth" && (
@@ -642,7 +643,6 @@ const ConnectionSection = ({
             )}
         </div>
 
-        {/* Error Notifications */}
         {stdErrNotifications.length > 0 && (
           <div className="border-t border-border bg-destructive/5">
             <div className="p-4">
