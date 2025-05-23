@@ -137,7 +137,6 @@ const ResourcesTab = ({
             </div>
           )}
           title="Resources"
-          buttonText={nextCursor ? "List More Resources" : "List Resources"}
           isButtonDisabled={!nextCursor && resources.length > 0}
         />
 
@@ -167,9 +166,6 @@ const ResourcesTab = ({
             </div>
           )}
           title="Resource Templates"
-          buttonText={
-            nextTemplateCursor ? "List More Templates" : "List Templates"
-          }
           isButtonDisabled={!nextTemplateCursor && resourceTemplates.length > 0}
         />
 
