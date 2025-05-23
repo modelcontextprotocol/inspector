@@ -6,7 +6,6 @@ import {
   Resource,
   ResourceTemplate,
   Root,
-  ServerNotification,
   Tool,
   LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -103,7 +102,6 @@ const App = () => {
     "stdio" | "sse" | "streamable-http"
   >(getInitialTransportType);
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
-  const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [stdErrNotifications, setStdErrNotifications] = useState<
     StdErrNotification[]
   >([]);
@@ -194,8 +192,8 @@ const App = () => {
     bearerToken,
     headerName,
     config,
-    onNotification: (notification) => {
-      setNotifications((prev) => [...prev, notification as ServerNotification]);
+    onNotification: () => {
+      // Server notifications are no longer displayed in the UI
     },
     onStdErrNotification: (notification) => {
       setStdErrNotifications((prev) => [
@@ -821,7 +819,6 @@ const App = () => {
       {/* History Panel */}
       <HistoryAndNotifications
         requestHistory={requestHistory}
-        serverNotifications={notifications}
         toolResult={toolResult}
       />
     </div>

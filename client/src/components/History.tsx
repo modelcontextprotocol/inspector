@@ -1,80 +1,30 @@
 import {
   CallToolResultSchema,
   CompatibilityCallToolResult,
-  ServerNotification,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { Activity, History } from "lucide-react";
 import JsonView from "./JsonView";
 import { useDraggablePane } from "../lib/hooks/useDraggablePane";
 
 const HistoryAndNotifications = ({
   requestHistory,
-  serverNotifications,
   toolResult,
 }: {
   requestHistory: Array<{ request: string; response?: string }>;
-  serverNotifications: ServerNotification[];
   toolResult: CompatibilityCallToolResult | null;
 }) => {
   const [expandedRequests, setExpandedRequests] = useState<{
     [key: number]: boolean;
   }>({});
-  const [expandedNotifications, setExpandedNotifications] = useState<{
-    [key: number]: boolean;
-  }>({});
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
 
   const { height: historyPaneHeight, handleDragStart } = useDraggablePane(
-    isHistoryCollapsed ? 50 : 200,
+    isHistoryCollapsed ? 60 : 280,
   );
 
   const toggleRequestExpansion = (index: number) => {
     setExpandedRequests((prev) => ({ ...prev, [index]: !prev[index] }));
-  };
-
-  const toggleNotificationExpansion = (index: number) => {
-    setExpandedNotifications((prev) => ({ ...prev, [index]: !prev[index] }));
-  };
-
-  // TODO: Figure out how to show server notifications in a clean way
-  const renderServerNotifications = () => {
-    return serverNotifications.length === 0 ? (
-      <p className="text-sm text-gray-500 italic">No notifications yet</p>
-    ) : (
-      <ul className="space-y-3">
-        {serverNotifications
-          .slice()
-          .reverse()
-          .map((notification, index) => (
-            <li
-              key={index}
-              className="text-sm text-foreground bg-secondary p-2 rounded"
-            >
-              <div
-                className="flex justify-between items-center cursor-pointer"
-                onClick={() => toggleNotificationExpansion(index)}
-              >
-                <span className="font-mono">
-                  {serverNotifications.length - index}. {notification.method}
-                </span>
-                <span>{expandedNotifications[index] ? "▼" : "▶"}</span>
-              </div>
-              {expandedNotifications[index] && (
-                <div className="mt-2">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-semibold text-black">Details:</span>
-                  </div>
-                  <JsonView
-                    data={JSON.stringify(notification, null, 2)}
-                    className="bg-background"
-                  />
-                </div>
-              )}
-            </li>
-          ))}
-      </ul>
-    );
   };
 
   const renderToolResult = () => {
@@ -148,64 +98,91 @@ const HistoryAndNotifications = ({
 
   return (
     <div
-      className={`relative bg-card border-t border-border/50 shadow-lg transition-all duration-300 ${
-        isHistoryCollapsed ? "shadow-sm" : "shadow-xl"
+      className={`relative bg-gradient-to-r from-card/95 via-card to-card/95 backdrop-blur-md border-t border-border/30 transition-all duration-500 ease-out ${
+        isHistoryCollapsed
+          ? "shadow-lg shadow-black/5"
+          : "shadow-2xl shadow-black/10"
       }`}
       style={{
-        height: `${isHistoryCollapsed ? 50 : historyPaneHeight}px`,
+        height: `${isHistoryCollapsed ? 60 : historyPaneHeight}px`,
       }}
     >
-      {/* Drag Handle */}
+      {/* Prominent Centered Drag Handle */}
       <div
-        className="absolute w-full h-6 -top-3 cursor-row-resize flex items-center justify-center group hover:bg-accent/30 transition-colors duration-200"
+        className="absolute w-full h-8 -top-4 cursor-row-resize flex items-center justify-center group transition-all duration-300 hover:bg-accent/30 rounded-t-xl"
         onMouseDown={handleDragStart}
       >
-        <div className="flex items-center space-x-1">
-          <div className="w-8 h-1.5 rounded-full bg-border group-hover:bg-border/80 transition-colors duration-200" />
-          <button
-            onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
-            className="p-1 rounded-md hover:bg-accent transition-colors duration-200"
-          >
-            {isHistoryCollapsed ? (
-              <ChevronUp className="w-3 h-3 text-muted-foreground" />
-            ) : (
-              <ChevronDown className="w-3 h-3 text-muted-foreground" />
-            )}
-          </button>
+        <div className="flex items-center justify-center w-full relative">
+          {isHistoryCollapsed ? null : (
+            <button
+              onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
+              className="p-2 rounded-lg hover:bg-accent/80 active:bg-accent transition-all duration-200 group/btn border border-border/20 bg-background/50 backdrop-blur-sm shadow-sm"
+            >
+              <>
+                <span className="text-xs text-muted-foreground group-hover/btn:text-foreground font-medium">
+                  Collapse
+                </span>
+              </>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* History and Results */}
-      <div className="h-full overflow-auto">
-        {!isHistoryCollapsed && (
-          <div className="bg-card overflow-hidden flex h-full">
-            <div className="flex-1 overflow-y-auto p-4 border-r">
-              <h2 className="text-lg font-semibold mb-4">All Activity</h2>
+      {/* Content */}
+      <div className="h-full overflow-hidden">
+        {!isHistoryCollapsed ? (
+          <div className="bg-transparent flex h-full">
+            <div className="flex-1 overflow-y-auto p-6 border-r border-border/20">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-lg font-bold text-foreground flex items-center space-x-2">
+                  <Activity className="w-5 h-5 text-primary" />
+                  <span>All Activity</span>
+                </h2>
+                {requestHistory.length > 0 && (
+                  <span className="text-sm text-muted-foreground bg-muted/50 px-3 py-1 rounded-full">
+                    {requestHistory.length} request
+                    {requestHistory.length !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+
               {requestHistory.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No history yet</p>
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <Activity className="w-12 h-12 text-muted-foreground/40 mb-4" />
+                  <p className="text-muted-foreground text-lg font-medium mb-2">
+                    No activity yet
+                  </p>
+                  <p className="text-muted-foreground/60 text-sm">
+                    MCP requests and responses will appear here
+                  </p>
+                </div>
               ) : (
-                <ul className="space-y-3">
+                <ul className="space-y-4">
                   {requestHistory
                     .slice()
                     .reverse()
                     .map((request, index) => (
                       <li
                         key={index}
-                        className="text-sm text-foreground bg-secondary p-2 rounded"
+                        className="text-sm bg-gradient-to-r from-secondary/50 via-secondary/70 to-secondary/50 backdrop-blur-sm p-4 rounded-xl border border-border/30 hover:border-border/60 transition-all duration-200 hover:shadow-lg"
                       >
                         <div
-                          className="flex justify-between items-center cursor-pointer"
+                          className="flex justify-between items-center cursor-pointer group"
                           onClick={() =>
                             toggleRequestExpansion(
                               requestHistory.length - 1 - index,
                             )
                           }
                         >
-                          <span className="font-mono">
-                            {requestHistory.length - index}.{" "}
-                            {JSON.parse(request.request).method}
-                          </span>
-                          <span>
+                          <div className="flex items-center space-x-3">
+                            <span className="flex items-center justify-center w-6 h-6 bg-primary/10 text-primary text-xs font-bold rounded-full">
+                              {requestHistory.length - index}
+                            </span>
+                            <span className="font-mono font-semibold text-foreground">
+                              {JSON.parse(request.request).method}
+                            </span>
+                          </div>
+                          <span className="text-muted-foreground group-hover:text-foreground transition-colors duration-200">
                             {expandedRequests[requestHistory.length - 1 - index]
                               ? "▼"
                               : "▶"}
@@ -214,50 +191,81 @@ const HistoryAndNotifications = ({
                         {expandedRequests[
                           requestHistory.length - 1 - index
                         ] && (
-                          <>
-                            <div className="mt-2">
-                              <div className="flex justify-between items-center mb-1">
-                                <span className="font-semibold text-black">
-                                  Request:
+                          <div className="mt-4 space-y-4">
+                            <div>
+                              <div className="flex items-center mb-2">
+                                <span className="font-semibold text-foreground text-sm">
+                                  Request
                                 </span>
                               </div>
-
                               <JsonView
                                 data={request.request}
-                                className="bg-background"
+                                className="bg-background/80 backdrop-blur-sm border border-border/20 rounded-lg"
                               />
                             </div>
                             {request.response && (
-                              <div className="mt-2">
-                                <div className="flex justify-between items-center mb-1">
-                                  <span className="font-semibold text-black">
-                                    Response:
+                              <div>
+                                <div className="flex items-center mb-2">
+                                  <span className="font-semibold text-foreground text-sm">
+                                    Response
                                   </span>
                                 </div>
                                 <JsonView
                                   data={request.response}
-                                  className="bg-background"
+                                  className="bg-background/80 backdrop-blur-sm border border-border/20 rounded-lg"
                                 />
                               </div>
                             )}
-                          </>
+                          </div>
                         )}
                       </li>
                     ))}
                 </ul>
               )}
             </div>
-            <div className="flex-1 overflow-y-auto p-4">
-              <h2 className="text-lg font-semibold mb-4">Results</h2>
-              {renderToolResult()}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-lg font-bold text-foreground flex items-center space-x-2">
+                  <div className="w-5 h-5 rounded bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center">
+                    <span className="text-white text-xs">✓</span>
+                  </div>
+                  <span>Results</span>
+                </h2>
+              </div>
+
+              {!toolResult ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="w-12 h-12 rounded-full bg-muted/20 flex items-center justify-center mb-4">
+                    <span className="text-2xl">🎯</span>
+                  </div>
+                  <p className="text-muted-foreground text-lg font-medium mb-2">
+                    No results yet
+                  </p>
+                  <p className="text-muted-foreground/60 text-sm">
+                    Tool execution results will appear here
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-gradient-to-br from-background/80 to-background/60 backdrop-blur-sm p-4 rounded-xl border border-border/30">
+                  {renderToolResult()}
+                </div>
+              )}
             </div>
           </div>
-        )}
-        {isHistoryCollapsed && (
-          <div className="h-full flex items-center justify-center">
-            <span className="text-sm text-muted-foreground">
-              History & Notifications
-            </span>
+        ) : (
+          <div
+            className="h-full flex items-center justify-center bg-gradient-to-r from-muted/20 via-muted/30 to-muted/20 bg-blue-200 cursor-pointer hover:bg-gradient-to-r hover:from-muted/30 hover:via-muted/40 hover:to-muted/30 transition-all duration-200"
+            onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
+          >
+            <div className="flex items-center space-x-4 text-muted-foreground">
+              <History className="w-5 h-5" />
+              <span className="text-sm font-medium">History & Results</span>
+              {requestHistory.length > 0 && (
+                <span className="px-2 py-1 text-xs bg-primary/10 text-primary rounded-full">
+                  {requestHistory.length}
+                </span>
+              )}
+            </div>
           </div>
         )}
       </div>
