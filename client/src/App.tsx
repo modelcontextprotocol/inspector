@@ -1,15 +1,8 @@
 import {
   ClientRequest,
   CompatibilityCallToolResult,
-  CompatibilityCallToolResultSchema,
   CreateMessageResult,
   EmptyResultSchema,
-  GetPromptResultSchema,
-  ListPromptsResultSchema,
-  ListResourcesResultSchema,
-  ListResourceTemplatesResultSchema,
-  ListToolsResultSchema,
-  ReadResourceResultSchema,
   Resource,
   ResourceTemplate,
   Root,
@@ -64,6 +57,26 @@ import {
   getInitialArgs,
   initializeInspectorConfig,
 } from "./utils/configUtils";
+import {
+  handleApproveSampling,
+  handleRejectSampling,
+  clearError,
+  sendMCPRequest,
+  listResources,
+  listResourceTemplates,
+  readResource,
+  subscribeToResource,
+  unsubscribeFromResource,
+  listPrompts,
+  getPrompt,
+  listTools,
+  callTool,
+  handleRootsChange,
+  sendLogLevelRequest,
+  clearStdErrNotifications,
+  MCPHelperDependencies,
+  MCPHelperState,
+} from "./utils/mcpHelpers";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
@@ -320,209 +333,115 @@ const App = () => {
     }
   }, []);
 
-  const handleApproveSampling = (id: number, result: CreateMessageResult) => {
-    setPendingSampleRequests((prev) => {
-      const request = prev.find((r) => r.id === id);
-      request?.resolve(result);
-      return prev.filter((r) => r.id !== id);
-    });
+  // Create helper dependencies and state objects
+  const helperDependencies: MCPHelperDependencies = {
+    makeRequest,
+    sendNotification,
+    setErrors,
+    setResources,
+    setResourceTemplates,
+    setResourceContent,
+    setResourceSubscriptions,
+    setPrompts,
+    setPromptContent,
+    setTools,
+    setToolResult,
+    setNextResourceCursor,
+    setNextResourceTemplateCursor,
+    setNextPromptCursor,
+    setNextToolCursor,
+    setLogLevel,
+    setStdErrNotifications,
+    setPendingSampleRequests,
+    progressTokenRef,
   };
 
-  const handleRejectSampling = (id: number) => {
-    setPendingSampleRequests((prev) => {
-      const request = prev.find((r) => r.id === id);
-      request?.reject(new Error("Sampling request rejected"));
-      return prev.filter((r) => r.id !== id);
-    });
+  const helperState: MCPHelperState = {
+    resources,
+    resourceTemplates,
+    resourceSubscriptions,
+    nextResourceCursor,
+    nextResourceTemplateCursor,
+    nextPromptCursor,
+    nextToolCursor,
   };
 
-  const clearError = (tabKey: keyof typeof errors) => {
-    setErrors((prev) => ({ ...prev, [tabKey]: null }));
+  // Replace the old helper functions with calls to imported ones
+  const handleApproveSamplingWrapper = (
+    id: number,
+    result: CreateMessageResult,
+  ) => {
+    handleApproveSampling(id, result, setPendingSampleRequests);
   };
 
-  const sendMCPRequest = async <T extends z.ZodType>(
+  const handleRejectSamplingWrapper = (id: number) => {
+    handleRejectSampling(id, setPendingSampleRequests);
+  };
+
+  const clearErrorWrapper = (tabKey: keyof typeof errors) => {
+    clearError(tabKey, setErrors);
+  };
+
+  const sendMCPRequestWrapper = async <T extends z.ZodType>(
     request: ClientRequest,
     schema: T,
     tabKey?: keyof typeof errors,
   ) => {
-    try {
-      const response = await makeRequest(request, schema);
-      if (tabKey !== undefined) {
-        clearError(tabKey);
-      }
-      return response;
-    } catch (e) {
-      const errorString = (e as Error).message ?? String(e);
-      if (tabKey !== undefined) {
-        setErrors((prev) => ({
-          ...prev,
-          [tabKey]: errorString,
-        }));
-      }
-      throw e;
-    }
+    return sendMCPRequest(request, schema, helperDependencies, tabKey);
   };
 
-  const listResources = async () => {
-    const response = await sendMCPRequest(
-      {
-        method: "resources/list" as const,
-        params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
-      },
-      ListResourcesResultSchema,
-      "resources",
-    );
-    setResources(resources.concat(response.resources ?? []));
-    setNextResourceCursor(response.nextCursor);
+  const listResourcesWrapper = async () => {
+    return listResources(helperState, helperDependencies);
   };
 
-  const listResourceTemplates = async () => {
-    const response = await sendMCPRequest(
-      {
-        method: "resources/templates/list" as const,
-        params: nextResourceTemplateCursor
-          ? { cursor: nextResourceTemplateCursor }
-          : {},
-      },
-      ListResourceTemplatesResultSchema,
-      "resources",
-    );
-    setResourceTemplates(
-      resourceTemplates.concat(response.resourceTemplates ?? []),
-    );
-    setNextResourceTemplateCursor(response.nextCursor);
+  const listResourceTemplatesWrapper = async () => {
+    return listResourceTemplates(helperState, helperDependencies);
   };
 
-  const readResource = async (uri: string) => {
-    const response = await sendMCPRequest(
-      {
-        method: "resources/read" as const,
-        params: { uri },
-      },
-      ReadResourceResultSchema,
-      "resources",
-    );
-    setResourceContent(JSON.stringify(response, null, 2));
+  const readResourceWrapper = async (uri: string) => {
+    return readResource(uri, helperDependencies);
   };
 
-  const subscribeToResource = async (uri: string) => {
-    if (!resourceSubscriptions.has(uri)) {
-      await sendMCPRequest(
-        {
-          method: "resources/subscribe" as const,
-          params: { uri },
-        },
-        z.object({}),
-        "resources",
-      );
-      const clone = new Set(resourceSubscriptions);
-      clone.add(uri);
-      setResourceSubscriptions(clone);
-    }
+  const subscribeToResourceWrapper = async (uri: string) => {
+    return subscribeToResource(uri, helperState, helperDependencies);
   };
 
-  const unsubscribeFromResource = async (uri: string) => {
-    if (resourceSubscriptions.has(uri)) {
-      await sendMCPRequest(
-        {
-          method: "resources/unsubscribe" as const,
-          params: { uri },
-        },
-        z.object({}),
-        "resources",
-      );
-      const clone = new Set(resourceSubscriptions);
-      clone.delete(uri);
-      setResourceSubscriptions(clone);
-    }
+  const unsubscribeFromResourceWrapper = async (uri: string) => {
+    return unsubscribeFromResource(uri, helperState, helperDependencies);
   };
 
-  const listPrompts = async () => {
-    const response = await sendMCPRequest(
-      {
-        method: "prompts/list" as const,
-        params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
-      },
-      ListPromptsResultSchema,
-      "prompts",
-    );
-    setPrompts(response.prompts);
-    setNextPromptCursor(response.nextCursor);
+  const listPromptsWrapper = async () => {
+    return listPrompts(helperState, helperDependencies);
   };
 
-  const getPrompt = async (name: string, args: Record<string, string> = {}) => {
-    const response = await sendMCPRequest(
-      {
-        method: "prompts/get" as const,
-        params: { name, arguments: args },
-      },
-      GetPromptResultSchema,
-      "prompts",
-    );
-    setPromptContent(JSON.stringify(response, null, 2));
+  const getPromptWrapper = async (
+    name: string,
+    args: Record<string, string> = {},
+  ) => {
+    return getPrompt(name, args, helperDependencies);
   };
 
-  const listTools = async () => {
-    const response = await sendMCPRequest(
-      {
-        method: "tools/list" as const,
-        params: nextToolCursor ? { cursor: nextToolCursor } : {},
-      },
-      ListToolsResultSchema,
-      "tools",
-    );
-    setTools(response.tools);
-    setNextToolCursor(response.nextCursor);
+  const listToolsWrapper = async () => {
+    return listTools(helperState, helperDependencies);
   };
 
-  const callTool = async (name: string, params: Record<string, unknown>) => {
-    try {
-      const response = await sendMCPRequest(
-        {
-          method: "tools/call" as const,
-          params: {
-            name,
-            arguments: params,
-            _meta: {
-              progressToken: progressTokenRef.current++,
-            },
-          },
-        },
-        CompatibilityCallToolResultSchema,
-        "tools",
-      );
-      setToolResult(response);
-    } catch (e) {
-      const toolResult: CompatibilityCallToolResult = {
-        content: [
-          {
-            type: "text",
-            text: (e as Error).message ?? String(e),
-          },
-        ],
-        isError: true,
-      };
-      setToolResult(toolResult);
-    }
+  const callToolWrapper = async (
+    name: string,
+    params: Record<string, unknown>,
+  ) => {
+    return callTool(name, params, helperDependencies);
   };
 
-  const handleRootsChange = async () => {
-    await sendNotification({ method: "notifications/roots/list_changed" });
+  const handleRootsChangeWrapper = async () => {
+    return handleRootsChange(helperDependencies);
   };
 
-  const sendLogLevelRequest = async (level: LoggingLevel) => {
-    await sendMCPRequest(
-      {
-        method: "logging/setLevel" as const,
-        params: { level },
-      },
-      z.object({}),
-    );
-    setLogLevel(level);
+  const sendLogLevelRequestWrapper = async (level: LoggingLevel) => {
+    return sendLogLevelRequest(level, helperDependencies);
   };
 
-  const clearStdErrNotifications = () => {
-    setStdErrNotifications([]);
+  const clearStdErrNotificationsWrapper = () => {
+    clearStdErrNotifications(setStdErrNotifications);
   };
 
   // Helper component for rendering the AuthDebugger
@@ -584,9 +503,9 @@ const App = () => {
         onDisconnect={disconnectMcpServer}
         stdErrNotifications={stdErrNotifications}
         logLevel={logLevel}
-        sendLogLevelRequest={sendLogLevelRequest}
+        sendLogLevelRequest={sendLogLevelRequestWrapper}
         loggingSupported={!!serverCapabilities?.logging || false}
-        clearStdErrNotifications={clearStdErrNotifications}
+        clearStdErrNotifications={clearStdErrNotificationsWrapper}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
@@ -666,7 +585,7 @@ const App = () => {
                     </div>
                     <PingTab
                       onPingClick={() => {
-                        void sendMCPRequest(
+                        void sendMCPRequestWrapper(
                           {
                             method: "ping" as const,
                           },
@@ -681,28 +600,28 @@ const App = () => {
                       resources={resources}
                       resourceTemplates={resourceTemplates}
                       listResources={() => {
-                        clearError("resources");
-                        listResources();
+                        clearErrorWrapper("resources");
+                        listResourcesWrapper();
                       }}
                       clearResources={() => {
                         setResources([]);
                         setNextResourceCursor(undefined);
                       }}
                       listResourceTemplates={() => {
-                        clearError("resources");
-                        listResourceTemplates();
+                        clearErrorWrapper("resources");
+                        listResourceTemplatesWrapper();
                       }}
                       clearResourceTemplates={() => {
                         setResourceTemplates([]);
                         setNextResourceTemplateCursor(undefined);
                       }}
                       readResource={(uri) => {
-                        clearError("resources");
-                        readResource(uri);
+                        clearErrorWrapper("resources");
+                        readResourceWrapper(uri);
                       }}
                       selectedResource={selectedResource}
                       setSelectedResource={(resource) => {
-                        clearError("resources");
+                        clearErrorWrapper("resources");
                         setSelectedResource(resource);
                       }}
                       resourceSubscriptionsSupported={
@@ -710,12 +629,12 @@ const App = () => {
                       }
                       resourceSubscriptions={resourceSubscriptions}
                       subscribeToResource={(uri) => {
-                        clearError("resources");
-                        subscribeToResource(uri);
+                        clearErrorWrapper("resources");
+                        subscribeToResourceWrapper(uri);
                       }}
                       unsubscribeFromResource={(uri) => {
-                        clearError("resources");
-                        unsubscribeFromResource(uri);
+                        clearErrorWrapper("resources");
+                        unsubscribeFromResourceWrapper(uri);
                       }}
                       handleCompletion={handleCompletion}
                       completionsSupported={completionsSupported}
@@ -727,20 +646,20 @@ const App = () => {
                     <PromptsTab
                       prompts={prompts}
                       listPrompts={() => {
-                        clearError("prompts");
-                        listPrompts();
+                        clearErrorWrapper("prompts");
+                        listPromptsWrapper();
                       }}
                       clearPrompts={() => {
                         setPrompts([]);
                         setNextPromptCursor(undefined);
                       }}
                       getPrompt={(name, args) => {
-                        clearError("prompts");
-                        getPrompt(name, args);
+                        clearErrorWrapper("prompts");
+                        getPromptWrapper(name, args);
                       }}
                       selectedPrompt={selectedPrompt}
                       setSelectedPrompt={(prompt) => {
-                        clearError("prompts");
+                        clearErrorWrapper("prompts");
                         setSelectedPrompt(prompt);
                         setPromptContent("");
                       }}
@@ -753,21 +672,21 @@ const App = () => {
                     <ToolsTab
                       tools={tools}
                       listTools={() => {
-                        clearError("tools");
-                        listTools();
+                        clearErrorWrapper("tools");
+                        listToolsWrapper();
                       }}
                       clearTools={() => {
                         setTools([]);
                         setNextToolCursor(undefined);
                       }}
                       callTool={async (name, params) => {
-                        clearError("tools");
+                        clearErrorWrapper("tools");
                         setToolResult(null);
-                        await callTool(name, params);
+                        await callToolWrapper(name, params);
                       }}
                       selectedTool={selectedTool}
                       setSelectedTool={(tool) => {
-                        clearError("tools");
+                        clearErrorWrapper("tools");
                         setSelectedTool(tool);
                         setToolResult(null);
                       }}
@@ -778,7 +697,7 @@ const App = () => {
                     <ConsoleTab />
                     <PingTab
                       onPingClick={() => {
-                        void sendMCPRequest(
+                        void sendMCPRequestWrapper(
                           {
                             method: "ping" as const,
                           },
@@ -788,13 +707,13 @@ const App = () => {
                     />
                     <SamplingTab
                       pendingRequests={pendingSampleRequests}
-                      onApprove={handleApproveSampling}
-                      onReject={handleRejectSampling}
+                      onApprove={handleApproveSamplingWrapper}
+                      onReject={handleRejectSamplingWrapper}
                     />
                     <RootsTab
                       roots={roots}
                       setRoots={setRoots}
-                      onRootsChange={handleRootsChange}
+                      onRootsChange={handleRootsChangeWrapper}
                     />
                     <AuthDebuggerWrapper />
                   </>
