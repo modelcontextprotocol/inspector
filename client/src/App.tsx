@@ -46,7 +46,6 @@ import PromptsTab, { Prompt } from "./components/PromptsTab";
 import ResourcesTab from "./components/ResourcesTab";
 import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
-import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
@@ -77,6 +76,7 @@ import {
   MCPHelperDependencies,
   MCPHelperState,
 } from "./utils/mcpHelpers";
+import ConnectionSection from "./components/ConnectionSection";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
@@ -706,34 +706,34 @@ const App = () => {
 
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar
-        connectionStatus={connectionStatus}
-        transportType={transportType}
-        setTransportType={setTransportType}
-        command={command}
-        setCommand={setCommand}
-        args={args}
-        setArgs={setArgs}
-        sseUrl={sseUrl}
-        setSseUrl={setSseUrl}
-        env={env}
-        setEnv={setEnv}
-        config={config}
-        setConfig={setConfig}
-        bearerToken={bearerToken}
-        setBearerToken={setBearerToken}
-        headerName={headerName}
-        setHeaderName={setHeaderName}
-        onConnect={connectMcpServer}
-        onDisconnect={disconnectMcpServer}
-        stdErrNotifications={stdErrNotifications}
-        logLevel={logLevel}
-        sendLogLevelRequest={sendLogLevelRequestWrapper}
-        loggingSupported={!!serverCapabilities?.logging || false}
-        clearStdErrNotifications={clearStdErrNotificationsWrapper}
-      />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
+          <ConnectionSection
+            connectionStatus={connectionStatus}
+            transportType={transportType}
+            setTransportType={setTransportType}
+            command={command}
+            setCommand={setCommand}
+            args={args}
+            setArgs={setArgs}
+            sseUrl={sseUrl}
+            setSseUrl={setSseUrl}
+            env={env}
+            setEnv={setEnv}
+            config={config}
+            setConfig={setConfig}
+            bearerToken={bearerToken}
+            setBearerToken={setBearerToken}
+            headerName={headerName}
+            setHeaderName={setHeaderName}
+            onConnect={connectMcpServer}
+            onDisconnect={disconnectMcpServer}
+            stdErrNotifications={stdErrNotifications}
+            logLevel={logLevel}
+            sendLogLevelRequest={sendLogLevelRequestWrapper}
+            loggingSupported={!!serverCapabilities?.logging || false}
+            clearStdErrNotifications={clearStdErrNotificationsWrapper}
+          />
           {mcpClient ? (
             renderTabs()
           ) : isAuthDebuggerVisible ? (
