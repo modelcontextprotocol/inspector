@@ -23,7 +23,7 @@ const HistoryAndNotifications = ({
     height: historyPaneHeight,
     handleDragStart,
     resetHeight,
-  } = useDraggablePane(isHistoryCollapsed ? 60 : 350);
+  } = useDraggablePane(isHistoryCollapsed ? 60 : 500);
 
   const toggleRequestExpansion = (index: number) => {
     setExpandedRequests((prev) => ({ ...prev, [index]: !prev[index] }));
