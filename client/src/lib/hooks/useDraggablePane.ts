@@ -34,6 +34,10 @@ export function useDraggablePane(initialHeight: number) {
     document.body.style.userSelect = "";
   }, []);
 
+  const resetHeight = useCallback(() => {
+    setHeight(initialHeight);
+  }, [initialHeight]);
+
   useEffect(() => {
     if (isDragging) {
       window.addEventListener("mousemove", handleDragMove);
@@ -49,5 +53,6 @@ export function useDraggablePane(initialHeight: number) {
     height,
     isDragging,
     handleDragStart,
+    resetHeight,
   };
 }

@@ -3,7 +3,7 @@ import {
   CompatibilityCallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useEffect, useState } from "react";
-import { Activity, History } from "lucide-react";
+import { Activity, History, ChevronDown } from "lucide-react";
 import JsonView from "./JsonView";
 import { useDraggablePane } from "../lib/hooks/useDraggablePane";
 
@@ -19,9 +19,11 @@ const HistoryAndNotifications = ({
   }>({});
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
 
-  const { height: historyPaneHeight, handleDragStart } = useDraggablePane(
-    isHistoryCollapsed ? 60 : 350,
-  );
+  const {
+    height: historyPaneHeight,
+    handleDragStart,
+    resetHeight,
+  } = useDraggablePane(isHistoryCollapsed ? 60 : 350);
 
   const toggleRequestExpansion = (index: number) => {
     setExpandedRequests((prev) => ({ ...prev, [index]: !prev[index] }));
@@ -30,8 +32,9 @@ const HistoryAndNotifications = ({
   useEffect(() => {
     if (toolResult) {
       setIsHistoryCollapsed(false);
+      resetHeight();
     }
-  }, [toolResult]);
+  }, [toolResult, resetHeight]);
 
   const renderToolResult = () => {
     if (!toolResult) return null;
@@ -113,26 +116,11 @@ const HistoryAndNotifications = ({
         height: `${isHistoryCollapsed ? 60 : historyPaneHeight}px`,
       }}
     >
-      {/* Prominent Centered Drag Handle */}
+      {/* Simple Drag Handle */}
       <div
-        className="absolute w-full h-8 -top-4 cursor-row-resize flex items-center justify-center group transition-all duration-300 hover:bg-accent/30 rounded-t-xl"
+        className="absolute w-full h-2 -top-1 cursor-row-resize"
         onMouseDown={handleDragStart}
-      >
-        <div className="flex items-center justify-center w-full relative">
-          {isHistoryCollapsed ? null : (
-            <button
-              onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
-              className="p-2 rounded-lg hover:bg-accent/80 active:bg-accent transition-all duration-200 group/btn border border-border/20 bg-background/50 backdrop-blur-sm shadow-sm"
-            >
-              <>
-                <span className="text-xs text-muted-foreground group-hover/btn:text-foreground font-medium">
-                  Collapse
-                </span>
-              </>
-            </button>
-          )}
-        </div>
-      </div>
+      />
 
       {/* Content */}
       <div className="h-full overflow-hidden">
@@ -144,12 +132,20 @@ const HistoryAndNotifications = ({
                   <Activity className="w-5 h-5 text-primary" />
                   <span>All Activity</span>
                 </h2>
-                {requestHistory.length > 0 && (
-                  <span className="text-sm text-muted-foreground bg-muted/50 px-3 py-1 rounded-full">
-                    {requestHistory.length} request
-                    {requestHistory.length !== 1 ? "s" : ""}
-                  </span>
-                )}
+                <div className="flex items-center space-x-3">
+                  {requestHistory.length > 0 && (
+                    <span className="text-sm text-muted-foreground bg-muted/50 px-3 py-1 rounded-full">
+                      {requestHistory.length} request
+                      {requestHistory.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
+                    className="p-2 rounded-lg hover:bg-accent/50 transition-all duration-200"
+                  >
+                    <ChevronDown className="w-5 h-5 text-muted-foreground hover:text-foreground" />
+                  </button>
+                </div>
               </div>
 
               {requestHistory.length === 0 ? (
@@ -237,6 +233,12 @@ const HistoryAndNotifications = ({
                   </div>
                   <span>Results</span>
                 </h2>
+                <button
+                  onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
+                  className="p-2 rounded-lg hover:bg-accent/50 transition-all duration-200"
+                >
+                  <ChevronDown className="w-5 h-5 text-muted-foreground hover:text-foreground" />
+                </button>
               </div>
 
               {!toolResult ? (
@@ -260,7 +262,7 @@ const HistoryAndNotifications = ({
           </div>
         ) : (
           <div
-            className="h-full flex items-center justify-center bg-gradient-to-r from-muted/20 via-muted/30 to-muted/20 bg-slate-200 cursor-pointer hover:bg-gradient-to-r hover:from-muted/30 hover:via-muted/40 hover:to-muted/30 transition-all duration-200"
+            className="h-full flex items-center justify-center bg-gradient-to-r from-muted/20 via-muted/30 to-muted/20 cursor-pointer hover:bg-gradient-to-r hover:from-muted/30 hover:via-muted/40 hover:to-muted/30 transition-all duration-200"
             onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
           >
             <div className="flex items-center space-x-4 text-muted-foreground">
@@ -271,6 +273,7 @@ const HistoryAndNotifications = ({
                   {requestHistory.length}
                 </span>
               )}
+              <ChevronDown className="w-4 h-4 rotate-180" />
             </div>
           </div>
         )}
