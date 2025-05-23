@@ -289,7 +289,7 @@ const ConnectionSection = ({
             <div className="space-y-6">
               <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl p-6 border border-slate-200/60 dark:border-slate-700/60 shadow-lg">
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-semibold text-slate-800 dark:text-slate-200 bg-gradient-to-r from-emerald-600 to-emerald-800 dark:from-emerald-400 dark:to-emerald-600 bg-clip-text text-transparent">
+                  <h3 className="text-xl font-semibold text-slate-800bg-clip-text">
                     Environment Variables
                   </h3>
                   <Button
