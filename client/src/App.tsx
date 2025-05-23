@@ -21,7 +21,6 @@ import React, {
   useState,
 } from "react";
 import { useConnection } from "./lib/hooks/useConnection";
-import { useDraggablePane } from "./lib/hooks/useDraggablePane";
 import { StdErrNotification } from "./lib/notificationTypes";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -34,8 +33,6 @@ import {
   Key,
   MessageSquare,
   Activity,
-  ChevronUp,
-  ChevronDown,
 } from "lucide-react";
 
 import { z } from "zod";
@@ -133,7 +130,6 @@ const App = () => {
     >
   >([]);
   const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
-  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
 
   // Auth debugger state
   const [authState, setAuthState] = useState<AuthDebuggerState>({
@@ -177,10 +173,6 @@ const App = () => {
   >();
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
-
-  const { height: historyPaneHeight, handleDragStart } = useDraggablePane(
-    isHistoryCollapsed ? 50 : 300,
-  );
 
   const {
     connectionStatus,
@@ -827,52 +819,11 @@ const App = () => {
       </div>
 
       {/* History Panel */}
-      <div
-        className={`relative bg-card border-t border-border/50 shadow-lg transition-all duration-300 ${
-          isHistoryCollapsed ? "shadow-sm" : "shadow-xl"
-        }`}
-        style={{
-          height: `${isHistoryCollapsed ? 50 : historyPaneHeight}px`,
-        }}
-      >
-        {/* Drag Handle */}
-        <div
-          className="absolute w-full h-6 -top-3 cursor-row-resize flex items-center justify-center group hover:bg-accent/30 transition-colors duration-200"
-          onMouseDown={handleDragStart}
-        >
-          <div className="flex items-center space-x-1">
-            <div className="w-8 h-1.5 rounded-full bg-border group-hover:bg-border/80 transition-colors duration-200" />
-            <button
-              onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
-              className="p-1 rounded-md hover:bg-accent transition-colors duration-200"
-            >
-              {isHistoryCollapsed ? (
-                <ChevronUp className="w-3 h-3 text-muted-foreground" />
-              ) : (
-                <ChevronDown className="w-3 h-3 text-muted-foreground" />
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* History Content */}
-        <div className="h-full overflow-auto">
-          {!isHistoryCollapsed && (
-            <HistoryAndNotifications
-              requestHistory={requestHistory}
-              serverNotifications={notifications}
-              toolResult={toolResult}
-            />
-          )}
-          {isHistoryCollapsed && (
-            <div className="h-full flex items-center justify-center">
-              <span className="text-sm text-muted-foreground">
-                History & Notifications
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
+      <HistoryAndNotifications
+        requestHistory={requestHistory}
+        serverNotifications={notifications}
+        toolResult={toolResult}
+      />
     </div>
   );
 };
