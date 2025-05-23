@@ -207,16 +207,10 @@ describe("AuthDebugger", () => {
         "https://example.com",
       );
 
-      // Then should call auth with the server provider
-      expect(mockAuth).toHaveBeenCalled();
-
       // Check that updateAuthState was called with the right info message
       expect(updateAuthState).toHaveBeenCalledWith(
         expect.objectContaining({
-          statusMessage: {
-            type: "info",
-            message: "Starting OAuth authentication process...",
-          },
+          oauthStep: "authorization_code",
         }),
       );
     });

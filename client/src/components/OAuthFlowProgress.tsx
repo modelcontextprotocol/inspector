@@ -2,6 +2,8 @@ import { AuthDebuggerState, OAuthStep } from "@/lib/auth-types";
 import { CheckCircle2, Circle, ExternalLink } from "lucide-react";
 import { Button } from "./ui/button";
 import { DebugInspectorOAuthClientProvider } from "@/lib/auth";
+import { useEffect, useMemo, useState } from "react";
+import { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 interface OAuthStepProps {
   label: string;
@@ -54,23 +56,56 @@ interface OAuthFlowProgressProps {
   proceedToNextStep: () => Promise<void>;
 }
 
+const steps: Array<OAuthStep> = [
+  "metadata_discovery",
+  "client_registration",
+  "authorization_redirect",
+  "authorization_code",
+  "token_request",
+  "complete",
+];
+
 export const OAuthFlowProgress = ({
   serverUrl,
   authState,
   updateAuthState,
   proceedToNextStep,
 }: OAuthFlowProgressProps) => {
-  const provider = new DebugInspectorOAuthClientProvider(serverUrl);
+  const provider = useMemo(
+    () => new DebugInspectorOAuthClientProvider(serverUrl),
+    [serverUrl],
+  );
+  const [clientInfo, setClientInfo] = useState<OAuthClientInformation | null>(
+    null,
+  );
 
-  const steps: Array<OAuthStep> = [
-    "metadata_discovery",
-    "client_registration",
-    "authorization_redirect",
-    "authorization_code",
-    "token_request",
-    "complete",
-  ];
   const currentStepIdx = steps.findIndex((s) => s === authState.oauthStep);
+
+  useEffect(() => {
+    const fetchClientInfo = async () => {
+      if (authState.oauthClientInfo) {
+        setClientInfo(authState.oauthClientInfo);
+      } else {
+        try {
+          const info = await provider.clientInformation();
+          if (info) {
+            setClientInfo(info);
+          }
+        } catch (error) {
+          console.error("Failed to fetch client information:", error);
+        }
+      }
+    };
+
+    if (currentStepIdx > steps.indexOf("client_registration")) {
+      fetchClientInfo();
+    }
+  }, [
+    provider,
+    authState.oauthStep,
+    authState.oauthClientInfo,
+    currentStepIdx,
+  ]);
 
   // Helper to get step props
   const getStepProps = (stepName: OAuthStep) => ({
@@ -110,13 +145,13 @@ export const OAuthFlowProgress = ({
           label="Client Registration"
           {...getStepProps("client_registration")}
         >
-          {authState.oauthClientInfo && (
+          {clientInfo && (
             <details className="text-xs mt-2">
               <summary className="cursor-pointer text-muted-foreground font-medium">
                 Registered Client Information
               </summary>
               <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
-                {JSON.stringify(authState.oauthClientInfo, null, 2)}
+                {JSON.stringify(clientInfo, null, 2)}
               </pre>
             </details>
           )}
