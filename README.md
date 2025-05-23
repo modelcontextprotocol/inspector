@@ -1,8 +1,6 @@
-# MCP Inspector
+# MCPJam Inspector
 
-The MCP inspector is a developer tool for testing and debugging MCP servers.
-
-![MCP Inspector Screenshot](https://raw.githubusercontent.com/modelcontextprotocol/inspector/main/mcp-inspector.png)
+The MCPJam inspector is a dev tool for testing and debugging MCP servers. The MCPJam inspector is a fork of the mcp-inspector with additional improvements. 
 
 ## Running the Inspector
 
@@ -15,17 +13,17 @@ The MCP inspector is a developer tool for testing and debugging MCP servers.
 To inspect an MCP server implementation, there's no need to clone this repo. Instead, use `npx`. For example, if your server is built at `build/index.js`:
 
 ```bash
-npx @modelcontextprotocol/inspector node build/index.js
+npx @mcpjam/inspector node build/index.js
 ```
 
 You can pass both arguments and environment variables to your MCP server. Arguments are passed directly to your server, while environment variables can be set using the `-e` flag:
 
 ```bash
 # Pass arguments only
-npx @modelcontextprotocol/inspector node build/index.js arg1 arg2
+npx @mcpjam/inspector node build/index.js arg1 arg2
 
 # Pass environment variables only
-npx @modelcontextprotocol/inspector -e key=value -e key2=$VALUE2 node build/index.js
+npx @mcpjam/inspector -e key=value -e key2=$VALUE2 node build/index.js
 
 # Pass both environment variables and arguments
 npx @modelcontextprotocol/inspector -e key=value -e key2=$VALUE2 node build/index.js arg1 arg2

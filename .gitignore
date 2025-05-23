@@ -9,3 +9,4 @@ client/tsconfig.app.tsbuildinfo
 client/tsconfig.node.tsbuildinfo
 cli/build
 test-output
+package-lock.json
