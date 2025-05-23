@@ -257,13 +257,23 @@ app.get("/stdio", async (req, res) => {
     (backingServerTransport as StdioClientTransport).stderr!.on(
       "data",
       (chunk) => {
-        webAppTransport.send({
-          jsonrpc: "2.0",
-          method: "notifications/stderr",
-          params: {
-            content: chunk.toString(),
-          },
-        });
+        const content = chunk.toString();
+
+        webAppTransport
+          .send({
+            jsonrpc: "2.0",
+            method: "notifications/stderr",
+            params: {
+              content,
+            },
+          })
+          .catch((error) => {
+            console.error(
+              "Error from inspector client when sending content from stdio transport's stderr:",
+              error,
+            );
+            console.error("Origin content from stderr:", content);
+          });
       },
     );
 
