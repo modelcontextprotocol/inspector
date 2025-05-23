@@ -209,7 +209,7 @@ const App = () => {
     },
     getRoots: () => rootsRef.current,
   });
-
+  console.log("mcpClient", mcpClient);
   useEffect(() => {
     localStorage.setItem("lastCommand", command);
   }, [command]);

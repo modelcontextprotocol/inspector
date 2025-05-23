@@ -1,6 +1,6 @@
 {
   "name": "@mcpjam/inspector-client",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Client-side application for the MCPJam inspector",
   "license": "MIT",
   "author": "MCPJam (https://mcpjam.com)",

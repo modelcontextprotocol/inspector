@@ -106,7 +106,6 @@ const PromptsTab = ({
             </>
           )}
           title="Prompts"
-          buttonText={nextCursor ? "List More Prompts" : "List Prompts"}
           isButtonDisabled={!nextCursor && prompts.length > 0}
         />
 

@@ -1,6 +1,6 @@
 {
   "name": "@mcpjam/inspector",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "MCPJam inspector",
   "license": "MIT",
   "author": "MCPJam (https://mcpjam.com)",
@@ -40,9 +40,9 @@
     "publish-all": "npm publish --workspaces --access public && npm publish --access public"
   },
   "dependencies": {
-    "@mcpjam/inspector-cli": "^0.1.0",
-    "@mcpjam/inspector-client": "^0.1.0",
-    "@mcpjam/inspector-server": "^0.1.0",
+    "@mcpjam/inspector-cli": "^0.1.2",
+    "@mcpjam/inspector-client": "^0.1.2",
+    "@mcpjam/inspector-server": "^0.1.2",
     "@modelcontextprotocol/sdk": "^1.11.5",
     "concurrently": "^9.0.1",
     "open": "^10.1.0",
