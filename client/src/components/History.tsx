@@ -2,7 +2,7 @@ import {
   CallToolResultSchema,
   CompatibilityCallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Activity, History } from "lucide-react";
 import JsonView from "./JsonView";
 import { useDraggablePane } from "../lib/hooks/useDraggablePane";
@@ -20,12 +20,18 @@ const HistoryAndNotifications = ({
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
 
   const { height: historyPaneHeight, handleDragStart } = useDraggablePane(
-    isHistoryCollapsed ? 60 : 280,
+    isHistoryCollapsed ? 60 : 350,
   );
 
   const toggleRequestExpansion = (index: number) => {
     setExpandedRequests((prev) => ({ ...prev, [index]: !prev[index] }));
   };
+
+  useEffect(() => {
+    if (toolResult) {
+      setIsHistoryCollapsed(false);
+    }
+  }, [toolResult]);
 
   const renderToolResult = () => {
     if (!toolResult) return null;
