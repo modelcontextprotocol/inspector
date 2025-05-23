@@ -33,6 +33,9 @@ import {
   Hash,
   Key,
   MessageSquare,
+  Activity,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 
 import { z } from "zod";
@@ -130,6 +133,7 @@ const App = () => {
     >
   >([]);
   const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
+  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
 
   // Auth debugger state
   const [authState, setAuthState] = useState<AuthDebuggerState>({
@@ -174,7 +178,9 @@ const App = () => {
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
 
-  const { height: historyPaneHeight, handleDragStart } = useDraggablePane(300);
+  const { height: historyPaneHeight, handleDragStart } = useDraggablePane(
+    isHistoryCollapsed ? 50 : 300,
+  );
 
   const {
     connectionStatus,
@@ -445,7 +451,7 @@ const App = () => {
 
   // Helper component for rendering the AuthDebugger
   const AuthDebuggerWrapper = () => (
-    <TabsContent value="auth">
+    <TabsContent value="auth" className="mt-0">
       <AuthDebugger
         serverUrl={sseUrl}
         onBack={() => setIsAuthDebuggerVisible(false)}
@@ -461,9 +467,18 @@ const App = () => {
       () => import("./components/OAuthCallback"),
     );
     return (
-      <Suspense fallback={<div>Loading...</div>}>
-        <OAuthCallback onConnect={onOAuthConnect} />
-      </Suspense>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center">
+        <Suspense
+          fallback={
+            <div className="flex items-center space-x-2">
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-muted-foreground">Loading...</span>
+            </div>
+          }
+        >
+          <OAuthCallback onConnect={onOAuthConnect} />
+        </Suspense>
+      </div>
     );
   }
 
@@ -472,58 +487,91 @@ const App = () => {
       () => import("./components/OAuthDebugCallback"),
     );
     return (
-      <Suspense fallback={<div>Loading...</div>}>
-        <OAuthDebugCallback onConnect={onOAuthDebugConnect} />
-      </Suspense>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center">
+        <Suspense
+          fallback={
+            <div className="flex items-center space-x-2">
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-muted-foreground">Loading...</span>
+            </div>
+          }
+        >
+          <OAuthDebugCallback onConnect={onOAuthDebugConnect} />
+        </Suspense>
+      </div>
     );
   }
+
   const renderTabs = () => {
     const serverHasNoCapabilities =
       !serverCapabilities?.resources &&
       !serverCapabilities?.prompts &&
       !serverCapabilities?.tools;
+
     const renderTabsList = () => {
       return (
-        <TabsList className="mb-4 p-0">
+        <TabsList className="grid w-full grid-cols-7 bg-muted/30 backdrop-blur-sm border border-border/50 rounded-xl p-1 h-auto">
           <TabsTrigger
             value="resources"
             disabled={!serverCapabilities?.resources}
+            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
           >
-            <Files className="w-4 h-4 mr-2" />
-            Resources
+            <Files className="w-4 h-4" />
+            <span className="hidden sm:inline">Resources</span>
           </TabsTrigger>
-          <TabsTrigger value="prompts" disabled={!serverCapabilities?.prompts}>
-            <MessageSquare className="w-4 h-4 mr-2" />
-            Prompts
+          <TabsTrigger
+            value="prompts"
+            disabled={!serverCapabilities?.prompts}
+            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span className="hidden sm:inline">Prompts</span>
           </TabsTrigger>
-          <TabsTrigger value="tools" disabled={!serverCapabilities?.tools}>
-            <Hammer className="w-4 h-4 mr-2" />
-            Tools
+          <TabsTrigger
+            value="tools"
+            disabled={!serverCapabilities?.tools}
+            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+          >
+            <Hammer className="w-4 h-4" />
+            <span className="hidden sm:inline">Tools</span>
           </TabsTrigger>
-          <TabsTrigger value="ping">
-            <Bell className="w-4 h-4 mr-2" />
-            Ping
+          <TabsTrigger
+            value="ping"
+            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+          >
+            <Bell className="w-4 h-4" />
+            <span className="hidden sm:inline">Ping</span>
           </TabsTrigger>
-          <TabsTrigger value="sampling" className="relative">
-            <Hash className="w-4 h-4 mr-2" />
-            Sampling
+          <TabsTrigger
+            value="sampling"
+            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50 relative"
+          >
+            <Hash className="w-4 h-4" />
+            <span className="hidden sm:inline">Sampling</span>
             {pendingSampleRequests.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
                 {pendingSampleRequests.length}
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="roots">
-            <FolderTree className="w-4 h-4 mr-2" />
-            Roots
+          <TabsTrigger
+            value="roots"
+            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+          >
+            <FolderTree className="w-4 h-4" />
+            <span className="hidden sm:inline">Roots</span>
           </TabsTrigger>
-          <TabsTrigger value="auth">
-            <Key className="w-4 h-4 mr-2" />
-            Auth
+          <TabsTrigger
+            value="auth"
+            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+          >
+            <Key className="w-4 h-4" />
+            <span className="hidden sm:inline">Auth</span>
           </TabsTrigger>
         </TabsList>
       );
     };
+
     const computeTabDefaultValue = () => {
       return Object.keys(serverCapabilities ?? {}).includes(
         window.location.hash.slice(1),
@@ -541,12 +589,143 @@ const App = () => {
     const renderServerNoCapabilities = () => {
       if (serverHasNoCapabilities) {
         return (
-          <>
-            <div className="flex items-center justify-center p-4">
-              <p className="text-lg text-gray-500">
-                The connected server does not support any MCP capabilities
-              </p>
+          <div className="flex flex-col items-center justify-center p-12 rounded-xl bg-card border border-border/50 shadow-sm">
+            <Activity className="w-16 h-16 text-muted-foreground mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              No Capabilities Available
+            </h3>
+            <p className="text-muted-foreground text-center mb-6 max-w-md">
+              The connected server does not support any MCP capabilities. You
+              can still use the Ping feature to test connectivity.
+            </p>
+            <div className="w-full max-w-sm">
+              <PingTab
+                onPingClick={() => {
+                  void sendMCPRequestWrapper(
+                    {
+                      method: "ping" as const,
+                    },
+                    EmptyResultSchema,
+                  );
+                }}
+              />
             </div>
+          </div>
+        );
+      }
+    };
+
+    const renderTabsContent = () => {
+      return (
+        <div className="space-y-0">
+          <TabsContent value="resources" className="mt-0">
+            <ResourcesTab
+              resources={resources}
+              resourceTemplates={resourceTemplates}
+              listResources={() => {
+                clearErrorWrapper("resources");
+                listResourcesWrapper();
+              }}
+              clearResources={() => {
+                setResources([]);
+                setNextResourceCursor(undefined);
+              }}
+              listResourceTemplates={() => {
+                clearErrorWrapper("resources");
+                listResourceTemplatesWrapper();
+              }}
+              clearResourceTemplates={() => {
+                setResourceTemplates([]);
+                setNextResourceTemplateCursor(undefined);
+              }}
+              readResource={(uri) => {
+                clearErrorWrapper("resources");
+                readResourceWrapper(uri);
+              }}
+              selectedResource={selectedResource}
+              setSelectedResource={(resource) => {
+                clearErrorWrapper("resources");
+                setSelectedResource(resource);
+              }}
+              resourceSubscriptionsSupported={
+                serverCapabilities?.resources?.subscribe || false
+              }
+              resourceSubscriptions={resourceSubscriptions}
+              subscribeToResource={(uri) => {
+                clearErrorWrapper("resources");
+                subscribeToResourceWrapper(uri);
+              }}
+              unsubscribeFromResource={(uri) => {
+                clearErrorWrapper("resources");
+                unsubscribeFromResourceWrapper(uri);
+              }}
+              handleCompletion={handleCompletion}
+              completionsSupported={completionsSupported}
+              resourceContent={resourceContent}
+              nextCursor={nextResourceCursor}
+              nextTemplateCursor={nextResourceTemplateCursor}
+              error={errors.resources}
+            />
+          </TabsContent>
+          <TabsContent value="prompts" className="mt-0">
+            <PromptsTab
+              prompts={prompts}
+              listPrompts={() => {
+                clearErrorWrapper("prompts");
+                listPromptsWrapper();
+              }}
+              clearPrompts={() => {
+                setPrompts([]);
+                setNextPromptCursor(undefined);
+              }}
+              getPrompt={(name, args) => {
+                clearErrorWrapper("prompts");
+                getPromptWrapper(name, args);
+              }}
+              selectedPrompt={selectedPrompt}
+              setSelectedPrompt={(prompt) => {
+                clearErrorWrapper("prompts");
+                setSelectedPrompt(prompt);
+                setPromptContent("");
+              }}
+              handleCompletion={handleCompletion}
+              completionsSupported={completionsSupported}
+              promptContent={promptContent}
+              nextCursor={nextPromptCursor}
+              error={errors.prompts}
+            />
+          </TabsContent>
+          <TabsContent value="tools" className="mt-0">
+            <ToolsTab
+              tools={tools}
+              listTools={() => {
+                clearErrorWrapper("tools");
+                listToolsWrapper();
+              }}
+              clearTools={() => {
+                setTools([]);
+                setNextToolCursor(undefined);
+              }}
+              callTool={async (name, params) => {
+                clearErrorWrapper("tools");
+                setToolResult(null);
+                await callToolWrapper(name, params);
+              }}
+              selectedTool={selectedTool}
+              setSelectedTool={(tool) => {
+                clearErrorWrapper("tools");
+                setSelectedTool(tool);
+                setToolResult(null);
+              }}
+              toolResult={toolResult}
+              nextCursor={nextToolCursor}
+              error={errors.tools}
+            />
+          </TabsContent>
+          <TabsContent value="console" className="mt-0">
+            <ConsoleTab />
+          </TabsContent>
+          <TabsContent value="ping" className="mt-0">
             <PingTab
               onPingClick={() => {
                 void sendMCPRequestWrapper(
@@ -557,213 +736,140 @@ const App = () => {
                 );
               }}
             />
-          </>
-        );
-      }
-    };
-    const renderTabsContent = () => {
-      return (
-        <>
-          <ResourcesTab
-            resources={resources}
-            resourceTemplates={resourceTemplates}
-            listResources={() => {
-              clearErrorWrapper("resources");
-              listResourcesWrapper();
-            }}
-            clearResources={() => {
-              setResources([]);
-              setNextResourceCursor(undefined);
-            }}
-            listResourceTemplates={() => {
-              clearErrorWrapper("resources");
-              listResourceTemplatesWrapper();
-            }}
-            clearResourceTemplates={() => {
-              setResourceTemplates([]);
-              setNextResourceTemplateCursor(undefined);
-            }}
-            readResource={(uri) => {
-              clearErrorWrapper("resources");
-              readResourceWrapper(uri);
-            }}
-            selectedResource={selectedResource}
-            setSelectedResource={(resource) => {
-              clearErrorWrapper("resources");
-              setSelectedResource(resource);
-            }}
-            resourceSubscriptionsSupported={
-              serverCapabilities?.resources?.subscribe || false
-            }
-            resourceSubscriptions={resourceSubscriptions}
-            subscribeToResource={(uri) => {
-              clearErrorWrapper("resources");
-              subscribeToResourceWrapper(uri);
-            }}
-            unsubscribeFromResource={(uri) => {
-              clearErrorWrapper("resources");
-              unsubscribeFromResourceWrapper(uri);
-            }}
-            handleCompletion={handleCompletion}
-            completionsSupported={completionsSupported}
-            resourceContent={resourceContent}
-            nextCursor={nextResourceCursor}
-            nextTemplateCursor={nextResourceTemplateCursor}
-            error={errors.resources}
-          />
-          <PromptsTab
-            prompts={prompts}
-            listPrompts={() => {
-              clearErrorWrapper("prompts");
-              listPromptsWrapper();
-            }}
-            clearPrompts={() => {
-              setPrompts([]);
-              setNextPromptCursor(undefined);
-            }}
-            getPrompt={(name, args) => {
-              clearErrorWrapper("prompts");
-              getPromptWrapper(name, args);
-            }}
-            selectedPrompt={selectedPrompt}
-            setSelectedPrompt={(prompt) => {
-              clearErrorWrapper("prompts");
-              setSelectedPrompt(prompt);
-              setPromptContent("");
-            }}
-            handleCompletion={handleCompletion}
-            completionsSupported={completionsSupported}
-            promptContent={promptContent}
-            nextCursor={nextPromptCursor}
-            error={errors.prompts}
-          />
-          <ToolsTab
-            tools={tools}
-            listTools={() => {
-              clearErrorWrapper("tools");
-              listToolsWrapper();
-            }}
-            clearTools={() => {
-              setTools([]);
-              setNextToolCursor(undefined);
-            }}
-            callTool={async (name, params) => {
-              clearErrorWrapper("tools");
-              setToolResult(null);
-              await callToolWrapper(name, params);
-            }}
-            selectedTool={selectedTool}
-            setSelectedTool={(tool) => {
-              clearErrorWrapper("tools");
-              setSelectedTool(tool);
-              setToolResult(null);
-            }}
-            toolResult={toolResult}
-            nextCursor={nextToolCursor}
-            error={errors.tools}
-          />
-          <ConsoleTab />
-          <PingTab
-            onPingClick={() => {
-              void sendMCPRequestWrapper(
-                {
-                  method: "ping" as const,
-                },
-                EmptyResultSchema,
-              );
-            }}
-          />
-          <SamplingTab
-            pendingRequests={pendingSampleRequests}
-            onApprove={handleApproveSamplingWrapper}
-            onReject={handleRejectSamplingWrapper}
-          />
-          <RootsTab
-            roots={roots}
-            setRoots={setRoots}
-            onRootsChange={handleRootsChangeWrapper}
-          />
+          </TabsContent>
+          <TabsContent value="sampling" className="mt-0">
+            <SamplingTab
+              pendingRequests={pendingSampleRequests}
+              onApprove={handleApproveSamplingWrapper}
+              onReject={handleRejectSamplingWrapper}
+            />
+          </TabsContent>
+          <TabsContent value="roots" className="mt-0">
+            <RootsTab
+              roots={roots}
+              setRoots={setRoots}
+              onRootsChange={handleRootsChangeWrapper}
+            />
+          </TabsContent>
           <AuthDebuggerWrapper />
-        </>
+        </div>
       );
     };
+
     return (
-      <Tabs
-        defaultValue={computeTabDefaultValue()}
-        className="w-full p-4"
-        onValueChange={(value) => (window.location.hash = value)}
-      >
-        {renderTabsList()}
-        <div className="w-full">
-          {serverHasNoCapabilities
-            ? renderServerNoCapabilities()
-            : renderTabsContent()}
-        </div>
-      </Tabs>
+      <div className="flex-1 flex flex-col">
+        <Tabs
+          defaultValue={computeTabDefaultValue()}
+          className="flex-1 flex flex-col"
+          onValueChange={(value) => (window.location.hash = value)}
+        >
+          <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border/50 px-6 pt-4 pb-2">
+            {renderTabsList()}
+          </div>
+          <div className="flex-1 p-6 overflow-auto">
+            {serverHasNoCapabilities
+              ? renderServerNoCapabilities()
+              : renderTabsContent()}
+          </div>
+        </Tabs>
+      </div>
     );
   };
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="h-screen bg-gradient-to-br from-slate-50/50 to-slate-100/50 dark:from-slate-900/50 dark:to-slate-800/50 flex flex-col overflow-hidden app-container">
+      {/* Header Section */}
+      <div className="bg-background/80 backdrop-blur-md border-b border-border/50 shadow-sm">
+        <ConnectionSection
+          connectionStatus={connectionStatus}
+          transportType={transportType}
+          setTransportType={setTransportType}
+          command={command}
+          setCommand={setCommand}
+          args={args}
+          setArgs={setArgs}
+          sseUrl={sseUrl}
+          setSseUrl={setSseUrl}
+          env={env}
+          setEnv={setEnv}
+          config={config}
+          setConfig={setConfig}
+          bearerToken={bearerToken}
+          setBearerToken={setBearerToken}
+          headerName={headerName}
+          setHeaderName={setHeaderName}
+          onConnect={connectMcpServer}
+          onDisconnect={disconnectMcpServer}
+          stdErrNotifications={stdErrNotifications}
+          logLevel={logLevel}
+          sendLogLevelRequest={sendLogLevelRequestWrapper}
+          loggingSupported={!!serverCapabilities?.logging || false}
+          clearStdErrNotifications={clearStdErrNotificationsWrapper}
+        />
+      </div>
+
+      {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-auto">
-          <ConnectionSection
-            connectionStatus={connectionStatus}
-            transportType={transportType}
-            setTransportType={setTransportType}
-            command={command}
-            setCommand={setCommand}
-            args={args}
-            setArgs={setArgs}
-            sseUrl={sseUrl}
-            setSseUrl={setSseUrl}
-            env={env}
-            setEnv={setEnv}
-            config={config}
-            setConfig={setConfig}
-            bearerToken={bearerToken}
-            setBearerToken={setBearerToken}
-            headerName={headerName}
-            setHeaderName={setHeaderName}
-            onConnect={connectMcpServer}
-            onDisconnect={disconnectMcpServer}
-            stdErrNotifications={stdErrNotifications}
-            logLevel={logLevel}
-            sendLogLevelRequest={sendLogLevelRequestWrapper}
-            loggingSupported={!!serverCapabilities?.logging || false}
-            clearStdErrNotifications={clearStdErrNotificationsWrapper}
-          />
-          {mcpClient ? (
-            renderTabs()
-          ) : isAuthDebuggerVisible ? (
+        {mcpClient ? (
+          renderTabs()
+        ) : isAuthDebuggerVisible ? (
+          <div className="flex-1 p-6">
             <Tabs
               defaultValue={"auth"}
-              className="w-full p-4"
+              className="h-full"
               onValueChange={(value) => (window.location.hash = value)}
             >
               <AuthDebuggerWrapper />
             </Tabs>
-          ) : null}
-        </div>
-        <div
-          className="relative border-t border-border"
-          style={{
-            height: `${historyPaneHeight}px`,
-          }}
-        >
-          <div
-            className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50"
-            onMouseDown={handleDragStart}
-          >
-            <div className="w-8 h-1 rounded-full bg-border" />
           </div>
-          <div className="h-full overflow-auto">
+        ) : null}
+      </div>
+
+      {/* History Panel */}
+      <div
+        className={`relative bg-card border-t border-border/50 shadow-lg transition-all duration-300 ${
+          isHistoryCollapsed ? "shadow-sm" : "shadow-xl"
+        }`}
+        style={{
+          height: `${isHistoryCollapsed ? 50 : historyPaneHeight}px`,
+        }}
+      >
+        {/* Drag Handle */}
+        <div
+          className="absolute w-full h-6 -top-3 cursor-row-resize flex items-center justify-center group hover:bg-accent/30 transition-colors duration-200"
+          onMouseDown={handleDragStart}
+        >
+          <div className="flex items-center space-x-1">
+            <div className="w-8 h-1.5 rounded-full bg-border group-hover:bg-border/80 transition-colors duration-200" />
+            <button
+              onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
+              className="p-1 rounded-md hover:bg-accent transition-colors duration-200"
+            >
+              {isHistoryCollapsed ? (
+                <ChevronUp className="w-3 h-3 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="w-3 h-3 text-muted-foreground" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* History Content */}
+        <div className="h-full overflow-auto">
+          {!isHistoryCollapsed && (
             <HistoryAndNotifications
               requestHistory={requestHistory}
               serverNotifications={notifications}
               toolResult={toolResult}
             />
-          </div>
+          )}
+          {isHistoryCollapsed && (
+            <div className="h-full flex items-center justify-center">
+              <span className="text-sm text-muted-foreground">
+                History & Notifications
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>
