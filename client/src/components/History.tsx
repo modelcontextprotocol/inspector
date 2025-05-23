@@ -27,7 +27,7 @@ const HistoryAndNotifications = ({
   return (
     <div className="bg-card overflow-hidden flex h-full">
       <div className="flex-1 overflow-y-auto p-4 border-r">
-        <h2 className="text-lg font-semibold mb-4">History</h2>
+        <h2 className="text-lg font-semibold mb-4">All Activity</h2>
         {requestHistory.length === 0 ? (
           <p className="text-sm text-gray-500 italic">No history yet</p>
         ) : (
@@ -60,7 +60,7 @@ const HistoryAndNotifications = ({
                     <>
                       <div className="mt-2">
                         <div className="flex justify-between items-center mb-1">
-                          <span className="font-semibold text-blue-600">
+                          <span className="font-semibold text-black">
                             Request:
                           </span>
                         </div>
@@ -73,7 +73,7 @@ const HistoryAndNotifications = ({
                       {request.response && (
                         <div className="mt-2">
                           <div className="flex justify-between items-center mb-1">
-                            <span className="font-semibold text-green-600">
+                            <span className="font-semibold text-black">
                               Response:
                             </span>
                           </div>
@@ -117,7 +117,7 @@ const HistoryAndNotifications = ({
                   {expandedNotifications[index] && (
                     <div className="mt-2">
                       <div className="flex justify-between items-center mb-1">
-                        <span className="font-semibold text-purple-600">
+                        <span className="font-semibold text-black">
                           Details:
                         </span>
                       </div>
