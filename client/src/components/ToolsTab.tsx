@@ -1,22 +1,13 @@
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import DynamicJsonForm from "./DynamicJsonForm";
-import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
-import { generateDefaultValue } from "@/utils/schemaUtils";
 import {
   CompatibilityCallToolResult,
   ListToolsResult,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Loader2, Send } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import ListPane from "./ListPane";
 import { ConnectionStatus } from "@/lib/constants";
+import ToolRunCard from "./ToolRunCard";
 
 const ToolsTab = ({
   tools,
@@ -39,19 +30,6 @@ const ToolsTab = ({
   error: string | null;
   connectionStatus: ConnectionStatus;
 }) => {
-  const [params, setParams] = useState<Record<string, unknown>>({});
-  const [isToolRunning, setIsToolRunning] = useState(false);
-
-  useEffect(() => {
-    const params = Object.entries(
-      selectedTool?.inputSchema.properties ?? [],
-    ).map(([key, value]) => [
-      key,
-      generateDefaultValue(value as JsonSchemaType),
-    ]);
-    setParams(Object.fromEntries(params));
-  }, [selectedTool]);
-
   useEffect(() => {
     if (connectionStatus === "connected") {
       listTools();
@@ -105,156 +83,7 @@ const ToolsTab = ({
           isButtonDisabled={!nextCursor && tools.length > 0}
         />
 
-        <div className="bg-card rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200 dark:border-gray-800">
-            <h3 className="font-semibold">
-              {selectedTool ? selectedTool.name : "Select a tool"}
-            </h3>
-          </div>
-          <div className="p-4">
-            {selectedTool ? (
-              <div className="space-y-4">
-                <p className="text-sm text-gray-600">
-                  {selectedTool.description}
-                </p>
-                {Object.entries(selectedTool.inputSchema.properties ?? []).map(
-                  ([key, value]) => {
-                    const prop = value as JsonSchemaType;
-                    return (
-                      <div key={key}>
-                        <Label
-                          htmlFor={key}
-                          className="block text-sm font-medium text-gray-700"
-                        >
-                          {key}
-                        </Label>
-                        {prop.type === "boolean" ? (
-                          <div className="flex items-center space-x-2 mt-2">
-                            <Checkbox
-                              id={key}
-                              name={key}
-                              checked={!!params[key]}
-                              onCheckedChange={(checked: boolean) =>
-                                setParams({
-                                  ...params,
-                                  [key]: checked,
-                                })
-                              }
-                            />
-                            <label
-                              htmlFor={key}
-                              className="text-sm font-medium text-gray-700 dark:text-gray-300"
-                            >
-                              {prop.description || "Toggle this option"}
-                            </label>
-                          </div>
-                        ) : prop.type === "string" ? (
-                          <Textarea
-                            id={key}
-                            name={key}
-                            placeholder={prop.description}
-                            value={(params[key] as string) ?? ""}
-                            onChange={(e) =>
-                              setParams({
-                                ...params,
-                                [key]: e.target.value,
-                              })
-                            }
-                            className="mt-1"
-                          />
-                        ) : prop.type === "object" || prop.type === "array" ? (
-                          <div className="mt-1">
-                            <DynamicJsonForm
-                              schema={{
-                                type: prop.type,
-                                properties: prop.properties,
-                                description: prop.description,
-                                items: prop.items,
-                              }}
-                              value={
-                                (params[key] as JsonValue) ??
-                                generateDefaultValue(prop)
-                              }
-                              onChange={(newValue: JsonValue) => {
-                                setParams({
-                                  ...params,
-                                  [key]: newValue,
-                                });
-                              }}
-                            />
-                          </div>
-                        ) : prop.type === "number" ||
-                          prop.type === "integer" ? (
-                          <Input
-                            type="number"
-                            id={key}
-                            name={key}
-                            placeholder={prop.description}
-                            value={(params[key] as string) ?? ""}
-                            onChange={(e) =>
-                              setParams({
-                                ...params,
-                                [key]: Number(e.target.value),
-                              })
-                            }
-                            className="mt-1"
-                          />
-                        ) : (
-                          <div className="mt-1">
-                            <DynamicJsonForm
-                              schema={{
-                                type: prop.type,
-                                properties: prop.properties,
-                                description: prop.description,
-                                items: prop.items,
-                              }}
-                              value={params[key] as JsonValue}
-                              onChange={(newValue: JsonValue) => {
-                                setParams({
-                                  ...params,
-                                  [key]: newValue,
-                                });
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  },
-                )}
-                <Button
-                  onClick={async () => {
-                    try {
-                      setIsToolRunning(true);
-                      await callTool(selectedTool.name, params);
-                    } finally {
-                      setIsToolRunning(false);
-                    }
-                  }}
-                  disabled={isToolRunning}
-                >
-                  {isToolRunning ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Running...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4 mr-2" />
-                      Run Tool
-                    </>
-                  )}
-                </Button>
-              </div>
-            ) : (
-              <Alert>
-                <AlertDescription>
-                  Select a tool from the list to view its details and run it
-                </AlertDescription>
-              </Alert>
-            )}
-          </div>
-        </div>
+        <ToolRunCard selectedTool={selectedTool} callTool={callTool} />
       </div>
     </TabsContent>
   );

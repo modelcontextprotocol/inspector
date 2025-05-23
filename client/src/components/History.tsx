@@ -260,7 +260,7 @@ const HistoryAndNotifications = ({
           </div>
         ) : (
           <div
-            className="h-full flex items-center justify-center bg-gradient-to-r from-muted/20 via-muted/30 to-muted/20 bg-blue-200 cursor-pointer hover:bg-gradient-to-r hover:from-muted/30 hover:via-muted/40 hover:to-muted/30 transition-all duration-200"
+            className="h-full flex items-center justify-center bg-gradient-to-r from-muted/20 via-muted/30 to-muted/20 bg-slate-200 cursor-pointer hover:bg-gradient-to-r hover:from-muted/30 hover:via-muted/40 hover:to-muted/30 transition-all duration-200"
             onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
           >
             <div className="flex items-center space-x-4 text-muted-foreground">
