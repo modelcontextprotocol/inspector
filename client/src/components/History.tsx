@@ -31,10 +31,10 @@ const HistoryAndNotifications = ({
 
   useEffect(() => {
     if (toolResult) {
-      setIsHistoryCollapsed(false);
       resetHeight();
+      setIsHistoryCollapsed(false);
     }
-  }, [toolResult, resetHeight]);
+  }, [toolResult]);
 
   const renderToolResult = () => {
     if (!toolResult) return null;

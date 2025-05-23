@@ -38,6 +38,13 @@ export function useDraggablePane(initialHeight: number) {
     setHeight(initialHeight);
   }, [initialHeight]);
 
+  // Sync height with initialHeight changes when not dragging
+  useEffect(() => {
+    if (!isDragging) {
+      setHeight(initialHeight);
+    }
+  }, [initialHeight, isDragging]);
+
   useEffect(() => {
     if (isDragging) {
       window.addEventListener("mousemove", handleDragMove);
