@@ -42,13 +42,13 @@ const server = http.createServer((request, response) => {
 const port = process.env.PORT || 6274;
 server.on("listening", () => {
   console.log(
-    `🔍 MCP Inspector is up and running at http://127.0.0.1:${port} 🚀`,
+    `🔍 MCPJam Inspector is up and running at http://127.0.0.1:${port} 🚀`,
   );
 });
 server.on("error", (err) => {
   if (err.message.includes(`EADDRINUSE`)) {
     console.error(
-      `❌  MCP Inspector PORT IS IN USE at http://127.0.0.1:${port} ❌ `,
+      `❌  MCPJam Inspector PORT IS IN USE at http://127.0.0.1:${port} ❌ `,
     );
   } else {
     throw err;
