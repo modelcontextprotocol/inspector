@@ -10,3 +10,4 @@ client/tsconfig.node.tsbuildinfo
 cli/build
 test-output
 package-lock.json
+mcpjam-spotify
