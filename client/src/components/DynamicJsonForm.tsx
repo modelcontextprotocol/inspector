@@ -221,6 +221,67 @@ const DynamicJsonForm = ({
             required={propSchema.required}
           />
         );
+      case "array": {
+        const arrayValue = Array.isArray(currentValue) ? currentValue : [];
+        if (!propSchema.items) return null;
+        return (
+          <div className="space-y-4">
+            {propSchema.description && (
+              <p className="text-sm text-gray-600">{propSchema.description}</p>
+            )}
+
+            {propSchema.items?.description && (
+              <p className="text-sm text-gray-500">
+                Items: {propSchema.items.description}
+              </p>
+            )}
+
+            <div className="space-y-2">
+              {arrayValue.map((item, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  {renderFormFields(
+                    propSchema.items as JsonSchemaType,
+                    item,
+                    [...path, index.toString()],
+                    depth + 1,
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const newArray = [...arrayValue];
+                      newArray.splice(index, 1);
+                      handleFieldChange(path, newArray);
+                    }}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const defaultValue = generateDefaultValue(
+                    propSchema.items as JsonSchemaType,
+                  );
+                  handleFieldChange(path, [
+                    ...arrayValue,
+                    defaultValue ?? null,
+                  ]);
+                }}
+                title={
+                  propSchema.items?.description
+                    ? `Add new ${propSchema.items.description}`
+                    : "Add new item"
+                }
+              >
+                Add Item
+              </Button>
+            </div>
+          </div>
+        );
+      }
       default:
         return null;
     }
