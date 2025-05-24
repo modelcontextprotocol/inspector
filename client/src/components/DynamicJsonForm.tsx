@@ -22,9 +22,9 @@ const isSimpleObject = (schema: JsonSchemaType): boolean => {
     );
   }
   if (schema.type === "array") {
-    return !!schema.items && isSimpleObject(schema.items)
+    return !!schema.items && isSimpleObject(schema.items);
   }
-  return false
+  return false;
 };
 
 const DynamicJsonForm = ({
