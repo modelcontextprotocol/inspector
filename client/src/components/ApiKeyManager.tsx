@@ -9,6 +9,8 @@ interface ApiKeyManagerProps {
   disabled?: boolean;
 }
 
+const STORAGE_KEY = "claude-api-key";
+
 const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ onApiKeyChange, disabled = false }) => {
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
@@ -16,15 +18,19 @@ const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ onApiKeyChange, disabled 
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { toast } = useToast();
 
-  // Load API key from environment variables on mount
+  // Load API key from localStorage on mount
   useEffect(() => {
-    const envApiKey = import.meta.env.VITE_CLAUDE_API_KEY || "";
-    if (envApiKey) {
-      setApiKey(envApiKey);
-      const isValid = validateApiKey(envApiKey);
-      setIsValidKey(isValid);
-      setIsCollapsed(isValid); // Collapse if we have a valid key
-      onApiKeyChange(envApiKey);
+    try {
+      const storedApiKey = localStorage.getItem(STORAGE_KEY) || "";
+      if (storedApiKey) {
+        setApiKey(storedApiKey);
+        const isValid = validateApiKey(storedApiKey);
+        setIsValidKey(isValid);
+        setIsCollapsed(isValid); // Collapse if we have a valid key
+        onApiKeyChange(storedApiKey);
+      }
+    } catch (error) {
+      console.warn("Failed to load API key from localStorage:", error);
     }
   }, [onApiKeyChange]);
 
@@ -41,11 +47,16 @@ const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ onApiKeyChange, disabled 
     setIsValidKey(isValid);
     
     if (isValid) {
+      try {
+        localStorage.setItem(STORAGE_KEY, value);
+      } catch (error) {
+        console.warn("Failed to save API key to localStorage:", error);
+      }
       onApiKeyChange(value);
       setIsCollapsed(true); // Collapse when valid key is entered
       toast({
         title: "API Key Set",
-        description: "Your Claude API key has been set successfully.",
+        description: "Your Claude API key has been saved and configured successfully.",
         variant: "default",
       });
     } else if (value.length > 0) {
@@ -61,10 +72,15 @@ const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ onApiKeyChange, disabled 
     setApiKey("");
     setIsValidKey(false);
     setIsCollapsed(false); // Expand when clearing
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (error) {
+      console.warn("Failed to remove API key from localStorage:", error);
+    }
     onApiKeyChange("");
     toast({
       title: "API Key Cleared",
-      description: "Your Claude API key has been removed.",
+      description: "Your Claude API key has been removed from storage.",
       variant: "default",
     });
   };
@@ -178,7 +194,7 @@ const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ onApiKeyChange, disabled 
         
         {!apiKey.length && (
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            Enter your Claude API key to enable the chat functionality. You can also set the VITE_CLAUDE_API_KEY environment variable.
+            Enter your Claude API key to enable the chat functionality. Your key will be securely stored in your browser's local storage.
           </p>
         )}
         
