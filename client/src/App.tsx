@@ -176,9 +176,7 @@ const App = () => {
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
 
-  const [claudeApiKey, setClaudeApiKey] = useState<string>(() => {
-    return import.meta.env.VITE_CLAUDE_API_KEY || "";
-  });
+  const [claudeApiKey, setClaudeApiKey] = useState<string>("");
 
   const {
     connectionStatus,

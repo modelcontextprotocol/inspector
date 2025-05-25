@@ -2,23 +2,6 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## Environment Variables
-
-To enable the chat functionality, you need to provide a Claude API key. You can do this by:
-
-1. Setting the `VITE_CLAUDE_API_KEY` environment variable
-2. Or entering the API key directly in the UI
-
-Create a `.env.local` file in the client directory:
-
-```bash
-# Claude API Key for chat functionality
-# Get your API key from https://console.anthropic.com/
-VITE_CLAUDE_API_KEY=sk-ant-api03-your-api-key-here
-```
-
-**Note:** Never commit your actual API key to version control. The `.env.local` file is already ignored by git.
-
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh

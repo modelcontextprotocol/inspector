@@ -400,11 +400,6 @@ export function useConnection({
             input_schema: sanitizedSchema,
           } as Tool;
         });
-        //print all mappedTools input_schema
-        for (const tool of mappedTools) {
-          const index = mappedTools.indexOf(tool);
-          console.log(`xcxc tool ${index} inputSchema`, tool.input_schema);
-        }
         let response = await this.anthropic.messages.create({
           model: "claude-3-5-sonnet-20241022",
           max_tokens: 1000,
