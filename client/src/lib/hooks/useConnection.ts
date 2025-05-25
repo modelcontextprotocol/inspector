@@ -317,6 +317,7 @@ export function useConnection({
           dangerouslyAllowBrowser: true,
         });
       }
+      
       async processQuery(query: string, tools: Tool[]): Promise<string> {
         const messages: MessageParam[] = [
           {
@@ -324,36 +325,39 @@ export function useConnection({
             content: query,
           },
         ];
-  
+      
         const finalText: string[] = [];
+        const MAX_ITERATIONS = 5; 
+        let iteration = 0;
+      
         // Helper function to recursively sanitize schema objects
         const sanitizeSchema = (schema: unknown): unknown => {
           if (!schema || typeof schema !== 'object') return schema;
-
+      
           // Handle array
           if (Array.isArray(schema)) {
             return schema.map(item => sanitizeSchema(item));
           }
-
+      
           // Now we know it's an object
           const schemaObj = schema as Record<string, unknown>;
           const sanitized: Record<string, unknown> = {};
-
+      
           for (const [key, value] of Object.entries(schemaObj)) {
             if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
               // Handle properties object
               const propertiesObj = value as Record<string, unknown>;
               const sanitizedProps: Record<string, unknown> = {};
               const keyMapping: Record<string, string> = {};
-
+      
               for (const [propKey, propValue] of Object.entries(propertiesObj)) {
                 const sanitizedKey = propKey.replace(/[^a-zA-Z0-9_-]/g, '_');
                 keyMapping[propKey] = sanitizedKey;
                 sanitizedProps[sanitizedKey] = sanitizeSchema(propValue);
               }
-
+      
               sanitized[key] = sanitizedProps;
-
+      
               // Update required fields if they exist
               if ('required' in schemaObj && Array.isArray(schemaObj.required)) {
                 sanitized.required = (schemaObj.required as string[]).map(
@@ -364,10 +368,10 @@ export function useConnection({
               sanitized[key] = sanitizeSchema(value);
             }
           }
-
+      
           return sanitized;
         };
-
+      
         const mappedTools = tools.map((tool: Tool) => {
           // Deep copy and sanitize the schema
           let inputSchema;
@@ -381,66 +385,129 @@ export function useConnection({
               required: []
             };
           }
-
+      
           // Ensure the schema has a type field
           if (!inputSchema.type) {
             inputSchema.type = "object";
           }
-
+      
           // Ensure properties exists for object types
           if (inputSchema.type === "object" && !inputSchema.properties) {
             inputSchema.properties = {};
           }
-
+      
           const sanitizedSchema = sanitizeSchema(inputSchema);
-
+      
           return {
             name: tool.name,
             description: tool.description,
             input_schema: sanitizedSchema,
           } as Tool;
         });
+      
         let response = await this.anthropic.messages.create({
-          model: "claude-3-5-sonnet-20241022",
+          model: "claude-3-haiku-20240307",
           max_tokens: 1000,
           messages,
           tools: mappedTools,
         });
-  
-        let hasToolUse = true;
-        while (hasToolUse) {
-          hasToolUse = false;
+      
+        while (iteration < MAX_ITERATIONS) {
+          iteration++;
+          let hasToolUse = false;
+          
+          const assistantContent = [];
+          
           for (const content of response.content) {
             if (content.type === "text") {
               finalText.push(content.text);
+              assistantContent.push(content);
             } else if (content.type === "tool_use") {
               hasToolUse = true;
-              const toolName = content.name;
-              const toolArgs = content.input as { [x: string]: unknown } | undefined;
-  
-              const result = await this.callTool({
-                name: toolName,
-                arguments: toolArgs,
-              });
-              finalText.push(
-                `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`
-              );
-  
-              messages.push({
-                role: "user",
-                content: result.content as string,
-              });
+              assistantContent.push(content);
+              
+              try {
+                const toolName = content.name;
+                const toolArgs = content.input as { [x: string]: unknown } | undefined;
+      
+                const result = await this.callTool({
+                  name: toolName,
+                  arguments: toolArgs,
+                });
+                
+                finalText.push(
+                  `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`
+                );
+      
+                if (assistantContent.length > 0) {
+                  messages.push({
+                    role: "assistant",
+                    content: assistantContent,
+                  });
+                }
+      
+                messages.push({
+                  role: "user",
+                  content: [
+                    {
+                      type: "tool_result",
+                      tool_use_id: content.id,
+                      content: result.content as string,
+                    }
+                  ],
+                });
+              } catch (error) {
+                console.error(`Tool ${content.name} failed:`, error);
+                finalText.push(`[Tool ${content.name} failed: ${error}]`);
+                
+                messages.push({
+                  role: "assistant",
+                  content: assistantContent,
+                });
+                
+                messages.push({
+                  role: "user",
+                  content: [
+                    {
+                      type: "tool_result",
+                      tool_use_id: content.id,
+                      content: `Error: ${error}`,
+                      is_error: true,
+                    }
+                  ],
+                });
+              }
             }
           }
-          if (hasToolUse) {
+      
+          if (!hasToolUse) {
+            break;
+          }
+      
+          try {
             response = await this.anthropic.messages.create({
               model: "claude-3-5-sonnet-20241022",
               max_tokens: 1000,
               messages,
               tools: mappedTools,
             });
+          } catch (error) {
+            console.error("API call failed:", error);
+            finalText.push(`[API Error: ${error}]`);
+            break;
           }
         }
+      
+        for (const content of response.content) {
+          if (content.type === "text") {
+            finalText.push(content.text);
+          }
+        }
+      
+        if (iteration >= MAX_ITERATIONS) {
+          finalText.push(`[Warning: Reached maximum iterations (${MAX_ITERATIONS}). Stopping to prevent excessive API usage.]`);
+        }
+      
         return finalText.join("\n");
       }
 
