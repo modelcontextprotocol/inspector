@@ -40,11 +40,13 @@
     "publish-all": "npm publish --workspaces --access public && npm publish --access public"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
     "@mcpjam/inspector-cli": "^0.1.2",
     "@mcpjam/inspector-client": "^0.1.2",
     "@mcpjam/inspector-server": "^0.1.2",
-    "@modelcontextprotocol/sdk": "^1.11.5",
+    "@modelcontextprotocol/sdk": "^1.12.0",
     "concurrently": "^9.0.1",
+    "dotenv": "^16.5.0",
     "open": "^10.1.0",
     "shell-quote": "^1.8.2",
     "spawn-rx": "^5.1.2",
@@ -53,11 +55,11 @@
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
-    "@types/node": "^22.7.5",
+    "@types/node": "^22.15.21",
     "@types/shell-quote": "^1.7.5",
     "jest-fixed-jsdom": "^0.0.9",
     "prettier": "3.3.3",
     "rimraf": "^6.0.1",
-    "typescript": "^5.4.2"
+    "typescript": "^5.8.3"
   }
 }

@@ -45,6 +45,12 @@ import {
 } from "@/utils/configUtils";
 import { getMCPServerRequestTimeout } from "@/utils/configUtils";
 import { InspectorConfig } from "../configurationTypes";
+import { Anthropic } from "@anthropic-ai/sdk";
+import {
+  MessageParam,
+  Tool,
+} from "@anthropic-ai/sdk/resources/messages/messages.mjs";
+import readline from "readline/promises";
 
 interface UseConnectionOptions {
   transportType: "stdio" | "sse" | "streamable-http";
@@ -55,12 +61,21 @@ interface UseConnectionOptions {
   bearerToken?: string;
   headerName?: string;
   config: InspectorConfig;
+  claudeApiKey?: string;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onPendingRequest?: (request: any, resolve: any, reject: any) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getRoots?: () => any[];
+}
+
+// Add interface for extended MCP client with Anthropic
+interface ExtendedMcpClient extends Client {
+  anthropic: Anthropic;
+  processQuery: (query: string, tools: Tool[]) => Promise<string>;
+  chatLoop: (tools: Tool[]) => Promise<void>;
+  cleanup: () => Promise<void>;
 }
 
 export function useConnection({
@@ -72,6 +87,7 @@ export function useConnection({
   bearerToken,
   headerName,
   config,
+  claudeApiKey,
   onNotification,
   onStdErrNotification,
   onPendingRequest,
@@ -82,11 +98,21 @@ export function useConnection({
   const { toast } = useToast();
   const [serverCapabilities, setServerCapabilities] =
     useState<ServerCapabilities | null>(null);
-  const [mcpClient, setMcpClient] = useState<Client | null>(null);
+  const [mcpClient, setMcpClient] = useState<ExtendedMcpClient | null>(null);
   const [requestHistory, setRequestHistory] = useState<
     { request: string; response?: string }[]
   >([]);
   const [completionsSupported, setCompletionsSupported] = useState(true);
+
+  // Add a method to update the API key on the existing client
+  const updateApiKey = (newApiKey: string) => {
+    if (mcpClient && mcpClient.anthropic) {
+      mcpClient.anthropic = new Anthropic({
+        apiKey: newApiKey,
+        dangerouslyAllowBrowser: true,
+      });
+    }
+  };
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
@@ -269,20 +295,189 @@ export function useConnection({
   };
 
   const connect = async (_e?: unknown, retryCount: number = 0) => {
-    const client = new Client<Request, Notification, Result>(
-      {
-        name: "mcp-inspector",
-        version: packageJson.version,
-      },
-      {
-        capabilities: {
-          sampling: {},
-          roots: {
-            listChanged: true,
+    class MCPClient extends Client<Request, Notification, Result> {
+      anthropic: Anthropic;
+      constructor() {
+        super(
+          {
+            name: "mcpjam-inspector",
+            version: packageJson.version,
           },
-        },
-      },
-    );
+          {
+            capabilities: {
+              sampling: {},
+              roots: {
+                listChanged: true,
+              },
+            },
+          },
+        );
+        this.anthropic = new Anthropic({
+          apiKey: claudeApiKey,
+          dangerouslyAllowBrowser: true,
+        });
+      }
+      async processQuery(query: string, tools: Tool[]): Promise<string> {
+        const messages: MessageParam[] = [
+          {
+            role: "user",
+            content: query,
+          },
+        ];
+  
+        const finalText: string[] = [];
+        // Helper function to recursively sanitize schema objects
+        const sanitizeSchema = (schema: unknown): unknown => {
+          if (!schema || typeof schema !== 'object') return schema;
+
+          // Handle array
+          if (Array.isArray(schema)) {
+            return schema.map(item => sanitizeSchema(item));
+          }
+
+          // Now we know it's an object
+          const schemaObj = schema as Record<string, unknown>;
+          const sanitized: Record<string, unknown> = {};
+
+          for (const [key, value] of Object.entries(schemaObj)) {
+            if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
+              // Handle properties object
+              const propertiesObj = value as Record<string, unknown>;
+              const sanitizedProps: Record<string, unknown> = {};
+              const keyMapping: Record<string, string> = {};
+
+              for (const [propKey, propValue] of Object.entries(propertiesObj)) {
+                const sanitizedKey = propKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+                keyMapping[propKey] = sanitizedKey;
+                sanitizedProps[sanitizedKey] = sanitizeSchema(propValue);
+              }
+
+              sanitized[key] = sanitizedProps;
+
+              // Update required fields if they exist
+              if ('required' in schemaObj && Array.isArray(schemaObj.required)) {
+                sanitized.required = (schemaObj.required as string[]).map(
+                  (req: string) => keyMapping[req] || req
+                );
+              }
+            } else {
+              sanitized[key] = sanitizeSchema(value);
+            }
+          }
+
+          return sanitized;
+        };
+
+        const mappedTools = tools.map((tool: Tool) => {
+          // Deep copy and sanitize the schema
+          let inputSchema;
+          if (tool.input_schema) {
+            inputSchema = JSON.parse(JSON.stringify(tool.input_schema));
+          } else {
+            // If no input schema, create a basic object schema
+            inputSchema = {
+              type: "object",
+              properties: {},
+              required: []
+            };
+          }
+
+          // Ensure the schema has a type field
+          if (!inputSchema.type) {
+            inputSchema.type = "object";
+          }
+
+          // Ensure properties exists for object types
+          if (inputSchema.type === "object" && !inputSchema.properties) {
+            inputSchema.properties = {};
+          }
+
+          const sanitizedSchema = sanitizeSchema(inputSchema);
+
+          return {
+            name: tool.name,
+            description: tool.description,
+            input_schema: sanitizedSchema,
+          } as Tool;
+        });
+        //print all mappedTools input_schema
+        for (const tool of mappedTools) {
+          const index = mappedTools.indexOf(tool);
+          console.log(`xcxc tool ${index} inputSchema`, tool.input_schema);
+        }
+        let response = await this.anthropic.messages.create({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 1000,
+          messages,
+          tools: mappedTools,
+        });
+  
+        let hasToolUse = true;
+        while (hasToolUse) {
+          hasToolUse = false;
+          for (const content of response.content) {
+            if (content.type === "text") {
+              finalText.push(content.text);
+            } else if (content.type === "tool_use") {
+              hasToolUse = true;
+              const toolName = content.name;
+              const toolArgs = content.input as { [x: string]: unknown } | undefined;
+  
+              const result = await this.callTool({
+                name: toolName,
+                arguments: toolArgs,
+              });
+              finalText.push(
+                `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`
+              );
+  
+              messages.push({
+                role: "user",
+                content: result.content as string,
+              });
+            }
+          }
+          if (hasToolUse) {
+            response = await this.anthropic.messages.create({
+              model: "claude-3-5-sonnet-20241022",
+              max_tokens: 1000,
+              messages,
+              tools: mappedTools,
+            });
+          }
+        }
+        return finalText.join("\n");
+      }
+
+      async chatLoop(tools: Tool[]) {
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+      
+        try {
+          console.log("\nMCP Client Started!");
+          console.log("Type your queries or 'quit' to exit.");
+      
+          while (true) {
+            const message = await rl.question("\nQuery: ");
+            if (message.toLowerCase() === "quit") {
+              break;
+            }
+            const response = await this.processQuery(message, tools);
+            console.log("\n" + response);
+          }
+        } finally {
+          rl.close();
+        }
+      }
+      
+      async cleanup() {
+        await this.close();
+      }
+  
+    }
+    const client = new MCPClient();
 
     try {
       await checkProxyHealth();
@@ -459,7 +654,7 @@ export function useConnection({
         });
       }
 
-      setMcpClient(client);
+      setMcpClient(client as ExtendedMcpClient);
       setConnectionStatus("connected");
     } catch (e) {
       console.error(e);
@@ -488,5 +683,6 @@ export function useConnection({
     completionsSupported,
     connect,
     disconnect,
+    updateApiKey,
   };
 }
