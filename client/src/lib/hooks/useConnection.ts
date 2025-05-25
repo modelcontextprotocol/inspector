@@ -327,7 +327,7 @@ export function useConnection({
         ];
       
         const finalText: string[] = [];
-        const MAX_ITERATIONS = 5; // ✅ Prevent infinite loops
+        const MAX_ITERATIONS = 5; 
         let iteration = 0;
       
         // Helper function to recursively sanitize schema objects
@@ -416,7 +416,6 @@ export function useConnection({
           iteration++;
           let hasToolUse = false;
           
-          // ✅ First, add the assistant's response to messages
           const assistantContent = [];
           
           for (const content of response.content) {
@@ -440,7 +439,6 @@ export function useConnection({
                   `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`
                 );
       
-                // ✅ Add assistant message with tool use
                 if (assistantContent.length > 0) {
                   messages.push({
                     role: "assistant",
@@ -448,7 +446,6 @@ export function useConnection({
                   });
                 }
       
-                // ✅ Add user message with tool result
                 messages.push({
                   role: "user",
                   content: [
@@ -460,7 +457,6 @@ export function useConnection({
                   ],
                 });
               } catch (error) {
-                // ✅ Handle tool errors gracefully
                 console.error(`Tool ${content.name} failed:`, error);
                 finalText.push(`[Tool ${content.name} failed: ${error}]`);
                 
@@ -484,12 +480,10 @@ export function useConnection({
             }
           }
       
-          // ✅ If no tools were used, break the loop
           if (!hasToolUse) {
             break;
           }
       
-          // ✅ Continue the conversation with tool results
           try {
             response = await this.anthropic.messages.create({
               model: "claude-3-5-sonnet-20241022",
@@ -504,14 +498,12 @@ export function useConnection({
           }
         }
       
-        // ✅ Add final assistant response if it contains text
         for (const content of response.content) {
           if (content.type === "text") {
             finalText.push(content.text);
           }
         }
       
-        // ✅ Warn if we hit the iteration limit
         if (iteration >= MAX_ITERATIONS) {
           finalText.push(`[Warning: Reached maximum iterations (${MAX_ITERATIONS}). Stopping to prevent excessive API usage.]`);
         }
