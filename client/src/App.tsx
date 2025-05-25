@@ -55,6 +55,7 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import ChatBot from "./components/ChatBot";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
   getMCPProxyAddress,
@@ -849,6 +850,16 @@ const App = () => {
           </div>
         </div>
       </div>
+      
+      {/* ChatBot Component */}
+      <ChatBot 
+        tools={tools}
+        isConnected={connectionStatus === "connected"}
+        onExecuteTool={async (toolName: string, args: any) => {
+          await callTool(toolName, args);
+          return toolResult;
+        }}
+      />
     </div>
   );
 };
