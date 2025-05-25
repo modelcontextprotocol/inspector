@@ -41,6 +41,43 @@ const { values } = parseArgs({
   },
 });
 
+// Function to get HTTP headers.
+// Supports only "sse" and "streamable-http" transport types.
+const getHttpHeaders = (
+  req: express.Request,
+  transportType: string,
+): HeadersInit => {
+  const headers: HeadersInit = {
+    Accept:
+      transportType === "sse"
+        ? "text/event-stream"
+        : "text/event-stream, application/json",
+  };
+  const defaultHeaders =
+    transportType === "sse"
+      ? SSE_HEADERS_PASSTHROUGH
+      : STREAMABLE_HTTP_HEADERS_PASSTHROUGH;
+
+  for (const key of defaultHeaders) {
+    if (req.headers[key] === undefined) {
+      continue;
+    }
+
+    const value = req.headers[key];
+    headers[key] = Array.isArray(value) ? value[value.length - 1] : value;
+  }
+
+  // If the header "x-custom-auth-header" is present, use its value as the custom header name.
+  if (req.headers["x-custom-auth-header"] !== undefined) {
+    const customHeaderName = req.headers["x-custom-auth-header"] as string;
+    if (req.headers[customHeaderName] !== undefined) {
+      const value = req.headers[customHeaderName];
+      headers[customHeaderName] = value as string;
+    }
+  }
+  return headers;
+};
+
 const app = express();
 app.use(cors());
 app.use((req, res, next) => {
@@ -79,18 +116,8 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
     return transport;
   } else if (transportType === "sse") {
     const url = query.url as string;
-    const headers: HeadersInit = {
-      Accept: "text/event-stream",
-    };
 
-    for (const key of SSE_HEADERS_PASSTHROUGH) {
-      if (req.headers[key] === undefined) {
-        continue;
-      }
-
-      const value = req.headers[key];
-      headers[key] = Array.isArray(value) ? value[value.length - 1] : value;
-    }
+    const headers = getHttpHeaders(req, transportType);
 
     console.log(`SSE transport: url=${url}, headers=${Object.keys(headers)}`);
 
@@ -107,18 +134,7 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
     console.log("Connected to SSE transport");
     return transport;
   } else if (transportType === "streamable-http") {
-    const headers: HeadersInit = {
-      Accept: "text/event-stream, application/json",
-    };
-
-    for (const key of STREAMABLE_HTTP_HEADERS_PASSTHROUGH) {
-      if (req.headers[key] === undefined) {
-        continue;
-      }
-
-      const value = req.headers[key];
-      headers[key] = Array.isArray(value) ? value[value.length - 1] : value;
-    }
+    const headers = getHttpHeaders(req, transportType);
 
     const transport = new StreamableHTTPClientTransport(
       new URL(query.url as string),
