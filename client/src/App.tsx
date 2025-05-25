@@ -32,6 +32,7 @@ import {
   Key,
   MessageSquare,
   Activity,
+  Bot,
 } from "lucide-react";
 
 import { z } from "zod";
@@ -524,6 +525,13 @@ const App = () => {
           >
             <Hammer className="w-4 h-4" />
             <span className="hidden sm:inline">Tools</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="chat"
+            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+          >
+            <Bot className="w-4 h-4" />
+            <span className="hidden sm:inline">Chat</span>
           </TabsTrigger>
           <TabsTrigger
             value="ping"
