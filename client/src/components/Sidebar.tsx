@@ -43,6 +43,19 @@ const Sidebar = ({
     window.location.hash = page;
   };
 
+  // Determine which logo to show based on theme
+  const getLogoSrc = () => {
+    if (theme === "dark") {
+      return "/mcp_jam_dark.png";
+    } else if (theme === "light") {
+      return "/mcp_jam_light.png";
+    } else {
+      // For system theme, check if dark mode is active
+      const isDarkMode = document.documentElement.classList.contains("dark");
+      return isDarkMode ? "/mcp_jam_dark.png" : "/mcp_jam_light.png";
+    }
+  };
+
   const tabs = [
     {
       id: "resources",
@@ -106,11 +119,28 @@ const Sidebar = ({
 
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800">
-        <div className="flex items-center">
-          <h1 className="ml-2 text-lg font-semibold">
-            MCP Inspector v{version}
-          </h1>
+      {/* Logo and Header */}
+      <div className="p-4 border-b border-gray-200 dark:border-gray-800">
+        <div className="flex flex-col items-center space-y-2">
+          {/* MCP Jam Logo */}
+          <div className="w-full flex justify-center">
+            <img
+              src={getLogoSrc()}
+              alt="MCP Jam"
+              className="h-6 w-auto object-contain transition-opacity duration-200"
+              onError={(e) => {
+                console.warn("Failed to load MCP Jam logo");
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          </div>
+
+          {/* Title */}
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground opacity-70">
+              v{version}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -125,8 +155,8 @@ const Sidebar = ({
                 disabled={tab.disabled}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 text-left relative ${
                   currentPage === tab.id
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "hover:bg-muted text-foreground"
+                    ? "bg-muted/100 text-foreground border border-border/50"
+                    : "hover:bg-muted/30 text-muted-foreground hover:text-foreground"
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 <IconComponent className="w-4 h-4 flex-shrink-0" />
