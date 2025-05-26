@@ -240,7 +240,6 @@ const App = () => {
     updateApiKey(newApiKey);
   };
 
-  console.log("mcpClient", mcpClient);
   useEffect(() => {
     localStorage.setItem("lastCommand", command);
   }, [command]);
@@ -758,6 +757,7 @@ const App = () => {
           onPageChange={setCurrentPage}
           serverCapabilities={serverCapabilities}
           pendingSampleRequests={pendingSampleRequests}
+          shouldDisableAll={!mcpClient}
         />
 
         {/* Main Content Area - Right Side */}

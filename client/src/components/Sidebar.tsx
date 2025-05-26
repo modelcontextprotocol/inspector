@@ -26,6 +26,7 @@ interface SidebarProps {
   onPageChange: (page: string) => void;
   serverCapabilities?: ServerCapabilities | null;
   pendingSampleRequests: PendingRequest[];
+  shouldDisableAll: boolean;
 }
 
 const Sidebar = ({
@@ -33,6 +34,7 @@ const Sidebar = ({
   onPageChange,
   serverCapabilities,
   pendingSampleRequests,
+  shouldDisableAll,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
 
@@ -46,37 +48,37 @@ const Sidebar = ({
       id: "resources",
       label: "Resources",
       icon: Files,
-      disabled: !serverCapabilities?.resources,
+      disabled: !serverCapabilities?.resources || shouldDisableAll,
     },
     {
       id: "prompts",
       label: "Prompts",
       icon: MessageSquare,
-      disabled: !serverCapabilities?.prompts,
+      disabled: !serverCapabilities?.prompts || shouldDisableAll,
     },
     {
       id: "tools",
       label: "Tools",
       icon: Hammer,
-      disabled: !serverCapabilities?.tools,
+      disabled: !serverCapabilities?.tools || shouldDisableAll,
     },
     {
       id: "chat",
       label: "Chat",
       icon: Bot,
-      disabled: false,
+      disabled: shouldDisableAll,
     },
     {
       id: "ping",
       label: "Ping",
       icon: Bell,
-      disabled: false,
+      disabled: shouldDisableAll,
     },
     {
       id: "sampling",
       label: "Sampling",
       icon: Hash,
-      disabled: false,
+      disabled: shouldDisableAll,
       badge:
         pendingSampleRequests.length > 0
           ? pendingSampleRequests.length
@@ -86,19 +88,19 @@ const Sidebar = ({
       id: "roots",
       label: "Roots",
       icon: FolderTree,
-      disabled: false,
+      disabled: shouldDisableAll,
     },
     {
       id: "auth",
       label: "Auth",
       icon: Key,
-      disabled: false,
+      disabled: shouldDisableAll,
     },
     {
       id: "settings",
       label: "Settings",
       icon: Settings,
-      disabled: false,
+      disabled: shouldDisableAll,
     },
   ];
 
