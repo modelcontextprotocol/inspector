@@ -207,7 +207,7 @@ const ConnectionSection = ({
       return null;
     }
     return (
-      <div className="flex border-b border-slate-200/60 dark:border-slate-700/60 px-6 bg-gradient-to-r from-slate-50/50 to-white/50 dark:from-slate-900/50 dark:to-slate-800/50">
+      <div className="flex border-b border-slate-200 dark:border-slate-700 px-4">
         {[
           { key: "auth", label: "Auth" },
           ...(transportType === "stdio"
@@ -218,17 +218,14 @@ const ConnectionSection = ({
         ].map((tab) => (
           <button
             key={tab.key}
-            className={`px-6 py-3 text-sm font-medium border-b-2 transition-all duration-200 relative ${
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
               activeTab === tab.key
                 ? "border-blue-500 text-blue-600 dark:text-blue-400"
-                : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600"
+                : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
             }`}
             onClick={() => setActiveTab(tab.key)}
           >
             {tab.label}
-            {activeTab === tab.key && (
-              <div className="absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-blue-500 to-blue-600 shadow-lg"></div>
-            )}
           </button>
         ))}
       </div>
@@ -240,319 +237,261 @@ const ConnectionSection = ({
       return null;
     }
     return (
-      <div className="flex-1 overflow-auto">
-        <div className="p-6">
-          {activeTab === "auth" && (
-            <div className="space-y-6">
-              <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl p-6 border border-slate-200/60 dark:border-slate-700/60 shadow-lg">
-                <h3 className="text-xl font-semibold mb-6 text-slate-800  bg-clip-text">
-                  Authentication
-                </h3>
-                {transportType !== "stdio" ? (
-                  <div className="space-y-5">
-                    <div className="space-y-3">
-                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Header Name
-                      </label>
-                      <Input
-                        placeholder="Authorization"
-                        onChange={(e) =>
-                          setHeaderName && setHeaderName(e.target.value)
-                        }
-                        className="font-mono h-11 bg-white/70 dark:bg-slate-900/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 focus:border-blue-500 dark:focus:border-blue-400 transition-all duration-200 shadow-sm hover:shadow-md focus:shadow-lg"
-                        value={headerName}
-                      />
-                    </div>
-                    <div className="space-y-3">
-                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Bearer Token
-                      </label>
-                      <Input
-                        placeholder="Bearer Token"
-                        value={bearerToken}
-                        onChange={(e) => setBearerToken(e.target.value)}
-                        className="font-mono h-11 bg-white/70 dark:bg-slate-900/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 focus:border-blue-500 dark:focus:border-blue-400 transition-all duration-200 shadow-sm hover:shadow-md focus:shadow-lg"
-                        type="password"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-slate-600 dark:text-slate-400 italic">
-                    Authentication is not available for STDIO connections.
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === "env" && transportType === "stdio" && (
-            <div className="space-y-6">
-              <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl p-6 border border-slate-200/60 dark:border-slate-700/60 shadow-lg">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-semibold text-slate-800bg-clip-text">
-                    Environment Variables
-                  </h3>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      const key = "";
-                      const newEnv = { ...env };
-                      newEnv[key] = "";
-                      setEnv(newEnv);
-                    }}
-                    className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-emerald-400/60 dark:hover:border-emerald-500/60 hover:bg-emerald-50/80 dark:hover:bg-emerald-900/20 transition-all duration-200 shadow-sm hover:shadow-md"
-                  >
-                    Add Variable
-                  </Button>
-                </div>
-                <div className="space-y-4">
-                  {Object.entries(env).map(([key, value], idx) => (
-                    <div
-                      key={idx}
-                      className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-sm rounded-lg p-4 border border-slate-200/40 dark:border-slate-700/40 shadow-md hover:shadow-lg transition-all duration-200"
-                    >
-                      <div className="flex gap-3 mb-3">
-                        <Input
-                          placeholder="Key"
-                          value={key}
-                          onChange={(e) => {
-                            const newKey = e.target.value;
-                            const newEnv = Object.entries(env).reduce(
-                              (acc, [k, v]) => {
-                                if (k === key) {
-                                  acc[newKey] = value;
-                                } else {
-                                  acc[k] = v;
-                                }
-                                return acc;
-                              },
-                              {} as Record<string, string>,
-                            );
-                            setEnv(newEnv);
-                            setShownEnvVars((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(key)) {
-                                next.delete(key);
-                                next.add(newKey);
-                              }
-                              return next;
-                            });
-                          }}
-                          className="font-mono flex-1 h-10 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 focus:border-blue-500 dark:focus:border-blue-400 transition-all duration-200"
-                        />
-                        <Button
-                          variant="destructive"
-                          size="icon"
-                          onClick={() => {
-                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                            const { [key]: _removed, ...rest } = env;
-                            setEnv(rest);
-                          }}
-                          className="h-10 w-10 bg-red-500/80 hover:bg-red-600/90 shadow-md hover:shadow-lg transition-all duration-200"
-                        >
-                          ×
-                        </Button>
-                      </div>
-                      <div className="flex gap-3">
-                        <Input
-                          type={shownEnvVars.has(key) ? "text" : "password"}
-                          placeholder="Value"
-                          value={value}
-                          onChange={(e) => {
-                            const newEnv = { ...env };
-                            newEnv[key] = e.target.value;
-                            setEnv(newEnv);
-                          }}
-                          className="font-mono flex-1 h-10 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 focus:border-blue-500 dark:focus:border-blue-400 transition-all duration-200"
-                        />
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => {
-                            setShownEnvVars((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(key)) {
-                                next.delete(key);
-                              } else {
-                                next.add(key);
-                              }
-                              return next;
-                            });
-                          }}
-                          className="h-10 w-10 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 hover:bg-blue-50/80 dark:hover:bg-blue-900/20 transition-all duration-200"
-                        >
-                          {shownEnvVars.has(key) ? (
-                            <Eye className="h-4 w-4" />
-                          ) : (
-                            <EyeOff className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "config" && (
-            <div className="space-y-6">
-              <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl p-6 border border-slate-200/60 dark:border-slate-700/60 shadow-lg">
-                <h3 className="text-xl font-semibold mb-6 text-slate-800 bg-clip-text">
-                  Configuration
-                </h3>
-                <div className="space-y-5">
-                  {Object.entries(config).map(([key, configItem]) => {
-                    const configKey = key as keyof InspectorConfig;
-                    return (
-                      <div
-                        key={key}
-                        className="space-y-3 p-4 bg-white/40 dark:bg-slate-900/40 backdrop-blur-sm rounded-lg border border-slate-200/40 dark:border-slate-700/40 shadow-sm hover:shadow-md transition-all duration-200"
-                      >
-                        <div className="flex items-center gap-3">
-                          <label className="text-sm font-medium text-slate-800">
-                            {configItem.label}
-                          </label>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <HelpCircle className="h-4 w-4 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors duration-200" />
-                            </TooltipTrigger>
-                            <TooltipContent className="bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl border-slate-200/60 dark:border-slate-700/60 shadow-xl">
-                              {configItem.description}
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        {typeof configItem.value === "number" ? (
-                          <Input
-                            type="number"
-                            value={configItem.value}
-                            onChange={(e) => {
-                              const newConfig = { ...config };
-                              newConfig[configKey] = {
-                                ...configItem,
-                                value: Number(e.target.value),
-                              };
-                              setConfig(newConfig);
-                            }}
-                            className="font-mono h-10 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 focus:border-blue-500 dark:focus:border-blue-400 transition-all duration-200"
-                          />
-                        ) : typeof configItem.value === "boolean" ? (
-                          <Select
-                            value={configItem.value.toString()}
-                            onValueChange={(val) => {
-                              const newConfig = { ...config };
-                              newConfig[configKey] = {
-                                ...configItem,
-                                value: val === "true",
-                              };
-                              setConfig(newConfig);
-                            }}
-                          >
-                            <SelectTrigger className="h-10 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 transition-all duration-200">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl border-slate-200/60 dark:border-slate-700/60 shadow-xl">
-                              <SelectItem
-                                value="true"
-                                className="hover:bg-blue-50/80 dark:hover:bg-blue-900/30"
-                              >
-                                True
-                              </SelectItem>
-                              <SelectItem
-                                value="false"
-                                className="hover:bg-blue-50/80 dark:hover:bg-blue-900/30"
-                              >
-                                False
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Input
-                            value={configItem.value}
-                            onChange={(e) => {
-                              const newConfig = { ...config };
-                              newConfig[configKey] = {
-                                ...configItem,
-                                value: e.target.value,
-                              };
-                              setConfig(newConfig);
-                            }}
-                            className="font-mono h-10 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 focus:border-blue-500 dark:focus:border-blue-400 transition-all duration-200"
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "logging" && loggingSupported && (
-            <div className="space-y-6">
-              <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl p-6 border border-slate-200/60 dark:border-slate-700/60 shadow-lg">
-                <h3 className="text-xl font-semibold mb-6 text-slate-800 dark:text-slate-200 bg-gradient-to-r from-orange-600 to-orange-800 dark:from-orange-400 dark:to-orange-600 bg-clip-text text-transparent">
-                  Logging Configuration
-                </h3>
-                <div className="space-y-3">
-                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Logging Level
+      <div className="p-4 space-y-4">
+        {activeTab === "auth" && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+              Authentication
+            </h3>
+            {transportType !== "stdio" ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-slate-600 dark:text-slate-400 mb-1 block">
+                    Header Name
                   </label>
-                  <Select
-                    value={logLevel}
-                    onValueChange={(value: LoggingLevel) =>
-                      sendLogLevelRequest(value)
+                  <Input
+                    placeholder="Authorization"
+                    onChange={(e) =>
+                      setHeaderName && setHeaderName(e.target.value)
                     }
-                  >
-                    <SelectTrigger className="w-64 h-11 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 transition-all duration-200 shadow-sm hover:shadow-md">
-                      <SelectValue placeholder="Select logging level" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl border-slate-200/60 dark:border-slate-700/60 shadow-xl">
-                      {Object.values(LoggingLevelSchema.enum).map((level) => (
-                        <SelectItem
-                          key={level}
-                          value={level}
-                          className="hover:bg-blue-50/80 dark:hover:bg-blue-900/30"
-                        >
-                          {level}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    className="h-8 text-sm"
+                    value={headerName}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-600 dark:text-slate-400 mb-1 block">
+                    Bearer Token
+                  </label>
+                  <Input
+                    placeholder="Bearer Token"
+                    value={bearerToken}
+                    onChange={(e) => setBearerToken(e.target.value)}
+                    className="h-8 text-sm"
+                    type="password"
+                  />
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+            ) : (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Authentication is not available for STDIO connections.
+              </p>
+            )}
+          </div>
+        )}
 
-        {/* Error Notifications with Modern Styling */}
-        {stdErrNotifications.length > 0 && (
-          <div className="border-t border-red-200/60 dark:border-red-800/60 bg-gradient-to-r from-red-50/80 to-rose-50/80 dark:from-red-950/60 dark:to-rose-950/60 backdrop-blur-sm">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-sm font-semibold text-red-700 dark:text-red-400 flex items-center gap-2">
-                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                  Error output from MCP server
-                </h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={clearStdErrNotifications}
-                  className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-red-300/60 dark:border-red-600/60 hover:border-red-500/60 dark:hover:border-red-400/60 hover:bg-red-50/80 dark:hover:bg-red-900/20 transition-all duration-200 shadow-sm hover:shadow-md"
+        {activeTab === "env" && transportType === "stdio" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                Environment Variables
+              </h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const key = "";
+                  const newEnv = { ...env };
+                  newEnv[key] = "";
+                  setEnv(newEnv);
+                }}
+                className="h-7 px-2 text-xs"
+              >
+                Add Variable
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {Object.entries(env).map(([key, value], idx) => (
+                <div
+                  key={idx}
+                  className="border border-slate-200 dark:border-slate-700 rounded p-2 space-y-2"
                 >
-                  Clear
-                </Button>
-              </div>
-              <div className="max-h-48 overflow-y-auto space-y-3">
-                {stdErrNotifications.map((notification, index) => (
-                  <div
-                    key={index}
-                    className="text-sm text-red-800 dark:text-red-200 font-mono p-4 bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm rounded-lg border border-red-200/60 dark:border-red-700/60 shadow-md hover:shadow-lg transition-all duration-200"
-                  >
-                    {notification.params.content}
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Key"
+                      value={key}
+                      onChange={(e) => {
+                        const newKey = e.target.value;
+                        const newEnv = Object.entries(env).reduce(
+                          (acc, [k, v]) => {
+                            if (k === key) {
+                              acc[newKey] = value;
+                            } else {
+                              acc[k] = v;
+                            }
+                            return acc;
+                          },
+                          {} as Record<string, string>,
+                        );
+                        setEnv(newEnv);
+                        setShownEnvVars((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(key)) {
+                            next.delete(key);
+                            next.add(newKey);
+                          }
+                          return next;
+                        });
+                      }}
+                      className="h-7 text-xs flex-1"
+                    />
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                        const { [key]: _removed, ...rest } = env;
+                        setEnv(rest);
+                      }}
+                      className="h-7 w-7 p-0 text-xs"
+                    >
+                      ×
+                    </Button>
                   </div>
-                ))}
-              </div>
+                  <div className="flex gap-2">
+                    <Input
+                      type={shownEnvVars.has(key) ? "text" : "password"}
+                      placeholder="Value"
+                      value={value}
+                      onChange={(e) => {
+                        const newEnv = { ...env };
+                        newEnv[key] = e.target.value;
+                        setEnv(newEnv);
+                      }}
+                      className="h-7 text-xs flex-1"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShownEnvVars((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(key)) {
+                            next.delete(key);
+                          } else {
+                            next.add(key);
+                          }
+                          return next;
+                        });
+                      }}
+                      className="h-7 w-7 p-0"
+                    >
+                      {shownEnvVars.has(key) ? (
+                        <Eye className="h-3 w-3" />
+                      ) : (
+                        <EyeOff className="h-3 w-3" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "config" && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+              Configuration
+            </h3>
+            <div className="space-y-3">
+              {Object.entries(config).map(([key, configItem]) => {
+                const configKey = key as keyof InspectorConfig;
+                return (
+                  <div key={key} className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-slate-600 dark:text-slate-400">
+                        {configItem.label}
+                      </label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3 w-3 text-slate-400" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {configItem.description}
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    {typeof configItem.value === "number" ? (
+                      <Input
+                        type="number"
+                        value={configItem.value}
+                        onChange={(e) => {
+                          const newConfig = { ...config };
+                          newConfig[configKey] = {
+                            ...configItem,
+                            value: Number(e.target.value),
+                          };
+                          setConfig(newConfig);
+                        }}
+                        className="h-8 text-sm"
+                      />
+                    ) : typeof configItem.value === "boolean" ? (
+                      <Select
+                        value={configItem.value.toString()}
+                        onValueChange={(val) => {
+                          const newConfig = { ...config };
+                          newConfig[configKey] = {
+                            ...configItem,
+                            value: val === "true",
+                          };
+                          setConfig(newConfig);
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">True</SelectItem>
+                          <SelectItem value="false">False</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={configItem.value}
+                        onChange={(e) => {
+                          const newConfig = { ...config };
+                          newConfig[configKey] = {
+                            ...configItem,
+                            value: e.target.value,
+                          };
+                          setConfig(newConfig);
+                        }}
+                        className="h-8 text-sm"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "logging" && loggingSupported && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+              Logging Configuration
+            </h3>
+            <div>
+              <label className="text-xs text-slate-600 dark:text-slate-400 mb-1 block">
+                Logging Level
+              </label>
+              <Select
+                value={logLevel}
+                onValueChange={(value: LoggingLevel) =>
+                  sendLogLevelRequest(value)
+                }
+              >
+                <SelectTrigger className="w-48 h-8 text-sm">
+                  <SelectValue placeholder="Select logging level" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.values(LoggingLevelSchema.enum).map((level) => (
+                    <SelectItem key={level} value={level}>
+                      {level}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         )}
@@ -561,224 +500,203 @@ const ConnectionSection = ({
   };
 
   return (
-    <div className="flex flex-col bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
-      {/* Header Section with Modern Glass Effect */}
-      <div className="backdrop-blur-xl bg-white/80 dark:bg-slate-900/80 border-b border-slate-200/60 dark:border-slate-700/60 shadow-sm">
-        <div className="p-6">
-          {/* Main Controls Row */}
-          <div className="flex items-center gap-4 mb-6">
-            {/* Transport Type Selector */}
-            <div className="relative">
-              <Select
-                value={transportType}
-                onValueChange={(value: "stdio" | "sse" | "streamable-http") =>
-                  setTransportType(value)
-                }
-              >
-                <SelectTrigger className="w-36 h-11 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 transition-all duration-200 shadow-sm hover:shadow-md">
-                  <SelectValue placeholder="Select transport type" />
-                </SelectTrigger>
-                <SelectContent className="bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl border-slate-200/60 dark:border-slate-700/60 shadow-xl">
-                  <SelectItem
-                    value="stdio"
-                    className="hover:bg-blue-50/80 dark:hover:bg-blue-900/30"
-                  >
-                    STDIO
-                  </SelectItem>
-                  <SelectItem
-                    value="sse"
-                    className="hover:bg-blue-50/80 dark:hover:bg-blue-900/30"
-                  >
-                    SSE
-                  </SelectItem>
-                  <SelectItem
-                    value="streamable-http"
-                    className="hover:bg-blue-50/80 dark:hover:bg-blue-900/30"
-                  >
-                    HTTP
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+    <div className="border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+      {/* Header Section */}
+      <div className="p-4">
+        {/* Main Controls Row */}
+        <div className="flex items-center gap-3 mb-3">
+          {/* Transport Type Selector */}
+          <Select
+            value={transportType}
+            onValueChange={(value: "stdio" | "sse" | "streamable-http") =>
+              setTransportType(value)
+            }
+          >
+            <SelectTrigger className="w-24 h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="stdio">STDIO</SelectItem>
+              <SelectItem value="sse">SSE</SelectItem>
+              <SelectItem value="streamable-http">HTTP</SelectItem>
+            </SelectContent>
+          </Select>
 
-            {/* URL/Command Input */}
-            <div className="flex-1">
-              {transportType === "stdio" ? (
-                <div className="flex gap-3">
-                  <Input
-                    placeholder="npx"
-                    value={command}
-                    onChange={(e) => setCommand(e.target.value)}
-                    className="font-mono flex-1 h-11 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 focus:border-blue-500 dark:focus:border-blue-400 transition-all duration-200 shadow-sm hover:shadow-md focus:shadow-lg"
-                  />
-                  <Input
-                    placeholder="@modelcontextprotocol/server-brave-search"
-                    value={args}
-                    onChange={(e) => setArgs(e.target.value)}
-                    className="font-mono flex-1 h-11 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 focus:border-blue-500 dark:focus:border-blue-400 transition-all duration-200 shadow-sm hover:shadow-md focus:shadow-lg"
-                  />
-                </div>
-              ) : (
+          {/* URL/Command Input */}
+          <div className="flex-1">
+            {transportType === "stdio" ? (
+              <div className="flex gap-2">
                 <Input
-                  placeholder={
-                    transportType === "sse"
-                      ? "https://mcp.asana.com/sse"
-                      : "Enter URL"
-                  }
-                  value={sseUrl}
-                  onChange={(e) => setSseUrl(e.target.value)}
-                  className="font-mono h-11 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 focus:border-blue-500 dark:focus:border-blue-400 transition-all duration-200 shadow-sm hover:shadow-md focus:shadow-lg"
+                  placeholder="npx"
+                  value={command}
+                  onChange={(e) => setCommand(e.target.value)}
+                  className="h-8 text-sm flex-1"
                 />
-              )}
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-3">
-              {connectionStatus === "connected" ? (
-                <>
-                  <Button
-                    onClick={() => {
-                      onDisconnect();
-                      onConnect();
-                    }}
-                    className="px-6 h-11 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
-                  >
-                    <RotateCcw className="w-4 h-4 mr-2" />
-                    {transportType === "stdio" ? "Restart" : "Reconnect"}
-                  </Button>
-                  <Button
-                    onClick={onDisconnect}
-                    variant="outline"
-                    className="h-11 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-red-400/60 dark:hover:border-red-500/60 hover:bg-red-50/80 dark:hover:bg-red-900/20 transition-all duration-200 shadow-sm hover:shadow-md"
-                  >
-                    <RefreshCwOff className="w-4 h-4 mr-2" />
-                    Disconnect
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  onClick={onConnect}
-                  className="px-8 h-11 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  Connect
-                </Button>
-              )}
-            </div>
+                <Input
+                  placeholder="@modelcontextprotocol/server-brave-search"
+                  value={args}
+                  onChange={(e) => setArgs(e.target.value)}
+                  className="h-8 text-sm flex-1"
+                />
+              </div>
+            ) : (
+              <Input
+                placeholder={
+                  transportType === "sse"
+                    ? "https://mcp.asana.com/sse"
+                    : "Enter URL"
+                }
+                value={sseUrl}
+                onChange={(e) => setSseUrl(e.target.value)}
+                className="h-8 text-sm"
+              />
+            )}
           </div>
 
-          {/* Connection Status & Config Actions */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="relative">
-                <div
-                  className={`w-3 h-3 rounded-full shadow-lg ${(() => {
-                    switch (connectionStatus) {
-                      case "connected":
-                        return "bg-emerald-500 shadow-emerald-500/50";
-                      case "error":
-                        return "bg-red-500 shadow-red-500/50";
-                      case "error-connecting-to-proxy":
-                        return "bg-red-500 shadow-red-500/50";
-                      default:
-                        return "bg-slate-400 shadow-slate-400/50";
-                    }
-                  })()}`}
-                />
-                {connectionStatus === "connected" && (
-                  <div className="absolute inset-0 w-3 h-3 rounded-full bg-emerald-500 animate-ping opacity-75"></div>
-                )}
-              </div>
-              <span
-                className={`text-sm font-medium ${(() => {
-                  switch (connectionStatus) {
-                    case "connected":
-                      return "text-emerald-700 dark:text-emerald-300";
-                    case "error":
-                      return "text-red-700 dark:text-red-300";
-                    case "error-connecting-to-proxy":
-                      return "text-red-700 dark:text-red-300";
-                    default:
-                      return "text-slate-600 dark:text-slate-400";
-                  }
-                })()}`}
-              >
-                {(() => {
-                  switch (connectionStatus) {
-                    case "connected":
-                      return "Connected";
-                    case "error":
-                      return "Connection Error, is your MCP server running?";
-                    case "error-connecting-to-proxy":
-                      return "Error Connecting to MCP Inspector Proxy - Check Console logs";
-                    default:
-                      return "Disconnected";
-                  }
-                })()}
-              </span>
-            </div>
-
-            <div className="flex gap-3">
+          {/* Action Buttons */}
+          <div className="flex gap-2">
+            {connectionStatus === "connected" ? (
+              <>
+                <Button
+                  onClick={() => {
+                    onDisconnect();
+                    onConnect();
+                  }}
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                >
+                  <RotateCcw className="w-3 h-3 mr-1" />
+                  {transportType === "stdio" ? "Restart" : "Reconnect"}
+                </Button>
+                <Button
+                  onClick={onDisconnect}
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                >
+                  <RefreshCwOff className="w-3 h-3 mr-1" />
+                  Disconnect
+                </Button>
+              </>
+            ) : (
               <Button
-                variant="outline"
+                onClick={onConnect}
                 size="sm"
-                onClick={handleCopyServerEntry}
-                className="h-9 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 hover:bg-blue-50/80 dark:hover:bg-blue-900/20 transition-all duration-200 shadow-sm hover:shadow-md"
+                className="h-8 px-4 text-xs"
               >
-                {copiedServerEntry ? (
-                  <CheckCheck className="h-4 w-4 mr-2 text-emerald-600" />
-                ) : (
-                  <Copy className="h-4 w-4 mr-2" />
-                )}
-                Copy Entry
+                <Play className="w-3 h-3 mr-1" />
+                Connect
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleCopyServerFile}
-                className="h-9 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-slate-300/60 dark:border-slate-600/60 hover:border-blue-400/60 dark:hover:border-blue-500/60 hover:bg-blue-50/80 dark:hover:bg-blue-900/20 transition-all duration-200 shadow-sm hover:shadow-md"
-              >
-                {copiedServerFile ? (
-                  <CheckCheck className="h-4 w-4 mr-2 text-emerald-600" />
-                ) : (
-                  <Copy className="h-4 w-4 mr-2" />
-                )}
-                Copy File
-              </Button>
-            </div>
+            )}
           </div>
         </div>
 
-        {/* Modern Tab Navigation */}
-        {maybeRenderTabs()}
+        {/* Connection Status & Config Actions */}
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <div
+              className={`w-2 h-2 rounded-full ${(() => {
+                switch (connectionStatus) {
+                  case "connected":
+                    return "bg-emerald-500";
+                  case "error":
+                    return "bg-red-500";
+                  case "error-connecting-to-proxy":
+                    return "bg-red-500";
+                  default:
+                    return "bg-slate-400";
+                }
+              })()}`}
+            />
+            <span
+              className={`${(() => {
+                switch (connectionStatus) {
+                  case "connected":
+                    return "text-emerald-700 dark:text-emerald-300";
+                  case "error":
+                    return "text-red-700 dark:text-red-300";
+                  case "error-connecting-to-proxy":
+                    return "text-red-700 dark:text-red-300";
+                  default:
+                    return "text-slate-600 dark:text-slate-400";
+                }
+              })()}`}
+            >
+              {(() => {
+                switch (connectionStatus) {
+                  case "connected":
+                    return "Connected";
+                  case "error":
+                    return "Connection Error";
+                  case "error-connecting-to-proxy":
+                    return "Proxy Error";
+                  default:
+                    return "Disconnected";
+                }
+              })()}
+            </span>
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCopyServerEntry}
+              className="h-6 px-2 text-xs"
+            >
+              {copiedServerEntry ? (
+                <CheckCheck className="h-3 w-3 mr-1 text-emerald-600" />
+              ) : (
+                <Copy className="h-3 w-3 mr-1" />
+              )}
+              Copy Entry
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCopyServerFile}
+              className="h-6 px-2 text-xs"
+            >
+              {copiedServerFile ? (
+                <CheckCheck className="h-3 w-3 mr-1 text-emerald-600" />
+              ) : (
+                <Copy className="h-3 w-3 mr-1" />
+              )}
+              Copy File
+            </Button>
+          </div>
+        </div>
       </div>
 
-      {/* Content Area with Modern Styling */}
+      {/* Tab Navigation */}
+      {maybeRenderTabs()}
+
+      {/* Content Area */}
       {maybeRenderContentBody()}
 
-      {/* Error Notifications with Modern Styling */}
+      {/* Error Notifications */}
       {stdErrNotifications.length > 0 && (
-        <div className="border-t border-red-200/60 dark:border-red-800/60 bg-gradient-to-r from-red-50/80 to-rose-50/80 dark:from-red-950/60 dark:to-rose-950/60 backdrop-blur-sm">
-          <div className="p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-semibold text-red-700 dark:text-red-400 flex items-center gap-2">
-                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+        <div className="border-t border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20">
+          <div className="p-3">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-xs font-medium text-red-700 dark:text-red-400 flex items-center gap-1">
+                <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
                 Error output from MCP server
               </h3>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={clearStdErrNotifications}
-                className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-red-300/60 dark:border-red-600/60 hover:border-red-500/60 dark:hover:border-red-400/60 hover:bg-red-50/80 dark:hover:bg-red-900/20 transition-all duration-200 shadow-sm hover:shadow-md"
+                className="h-6 px-2 text-xs"
               >
                 Clear
               </Button>
             </div>
-            <div className="max-h-48 overflow-y-auto space-y-3">
+            <div className="max-h-32 overflow-y-auto space-y-1">
               {stdErrNotifications.map((notification, index) => (
                 <div
                   key={index}
-                  className="text-sm text-red-800 dark:text-red-200 font-mono p-4 bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm rounded-lg border border-red-200/60 dark:border-red-700/60 shadow-md hover:shadow-lg transition-all duration-200"
+                  className="text-xs text-red-800 dark:text-red-200 font-mono p-2 bg-white/60 dark:bg-slate-900/60 rounded border border-red-200/60 dark:border-red-700/60"
                 >
                   {notification.params.content}
                 </div>
