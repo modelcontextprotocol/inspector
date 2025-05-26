@@ -37,6 +37,7 @@ import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import ToolsTab from "./components/ToolsTab";
 import ChatTab from "./components/ChatTab";
 import Sidebar from "./components/Sidebar";
+import SettingsTab from "./components/SettingsTab";
 import { InspectorConfig } from "./lib/configurationTypes";
 import ConnectionSection from "./components/ConnectionSection";
 import {
@@ -68,7 +69,6 @@ import {
   MCPHelperState,
 } from "./utils/mcpHelpers";
 import { McpClientContext } from "@/context/McpClientContext";
-import ApiKeyManager from "./components/ApiKeyManager";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
@@ -692,6 +692,16 @@ const App = () => {
               updateAuthState={updateAuthState}
             />
           );
+        case "settings":
+          return (
+            <SettingsTab
+              onApiKeyChange={handleApiKeyChange}
+              disabled={
+                connectionStatus !== "connected" &&
+                connectionStatus !== "disconnected"
+              }
+            />
+          );
         default:
           return null;
       }
@@ -746,17 +756,6 @@ const App = () => {
               sendLogLevelRequest={sendLogLevelRequestWrapper}
               loggingSupported={!!serverCapabilities?.logging || false}
               clearStdErrNotifications={clearStdErrNotificationsWrapper}
-            />
-          </div>
-
-          {/* API Key Manager Section */}
-          <div className="bg-background/80 backdrop-blur-md border-b border-border/50 shadow-sm px-6 py-4">
-            <ApiKeyManager
-              onApiKeyChange={handleApiKeyChange}
-              disabled={
-                connectionStatus !== "connected" &&
-                connectionStatus !== "disconnected"
-              }
             />
           </div>
 

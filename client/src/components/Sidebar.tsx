@@ -14,6 +14,7 @@ import {
   Key,
   MessageSquare,
   Bot,
+  Settings,
 } from "lucide-react";
 import { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
 import useTheme from "../lib/hooks/useTheme";
@@ -93,6 +94,12 @@ const Sidebar = ({
       icon: Key,
       disabled: false,
     },
+    {
+      id: "settings",
+      label: "Settings",
+      icon: Settings,
+      disabled: false,
+    },
   ];
 
   return (
@@ -107,9 +114,6 @@ const Sidebar = ({
 
       <div className="p-4 flex-1 overflow-auto">
         <div className="space-y-2">
-          <h2 className="text-sm font-medium text-muted-foreground mb-3">
-            Navigation
-          </h2>
           {tabs.map((tab) => {
             const IconComponent = tab.icon;
             return (
