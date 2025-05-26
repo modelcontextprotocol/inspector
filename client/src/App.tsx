@@ -71,6 +71,14 @@ import {
 import { McpClientContext } from "@/context/McpClientContext";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
+const CLAUDE_API_KEY_STORAGE_KEY = "claude-api-key";
+
+// Validate Claude API key format
+const validateClaudeApiKey = (key: string): boolean => {
+  // Claude API keys start with "sk-ant-api03-" and are followed by base64-like characters
+  const claudeApiKeyPattern = /^sk-ant-api03-[A-Za-z0-9_-]+$/;
+  return claudeApiKeyPattern.test(key) && key.length > 20;
+};
 
 const App = () => {
   const [resources, setResources] = useState<Resource[]>([]);
@@ -166,7 +174,19 @@ const App = () => {
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
 
-  const [claudeApiKey, setClaudeApiKey] = useState<string>("");
+  const [claudeApiKey, setClaudeApiKey] = useState<string>(() => {
+    // Load Claude API key from localStorage on app initialization
+    try {
+      const storedApiKey =
+        localStorage.getItem(CLAUDE_API_KEY_STORAGE_KEY) || "";
+      if (storedApiKey && validateClaudeApiKey(storedApiKey)) {
+        return storedApiKey;
+      }
+    } catch (error) {
+      console.warn("Failed to load Claude API key from localStorage:", error);
+    }
+    return "";
+  });
 
   const [currentPage, setCurrentPage] = useState<string>(() => {
     const hash = window.location.hash.slice(1);
