@@ -22,17 +22,7 @@ import React, {
 import { useConnection } from "./lib/hooks/useConnection";
 import { StdErrNotification } from "./lib/notificationTypes";
 
-import {
-  Bell,
-  Files,
-  FolderTree,
-  Hammer,
-  Hash,
-  Key,
-  MessageSquare,
-  Activity,
-  Bot,
-} from "lucide-react";
+import { Activity } from "lucide-react";
 
 import { z } from "zod";
 import "./App.css";
@@ -521,114 +511,6 @@ const App = () => {
       !serverCapabilities?.prompts &&
       !serverCapabilities?.tools;
 
-    const handlePageChange = (page: string) => {
-      setCurrentPage(page);
-      window.location.hash = page;
-    };
-
-    const renderTabsList = () => {
-      return (
-        <div className="grid w-full grid-cols-7 bg-muted/30 backdrop-blur-sm border border-border/50 rounded-xl p-1 h-auto">
-          <button
-            onClick={() => handlePageChange("resources")}
-            disabled={!serverCapabilities?.resources}
-            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
-              currentPage === "resources"
-                ? "bg-background shadow-sm border border-border/50"
-                : "hover:bg-background/50"
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
-          >
-            <Files className="w-4 h-4" />
-            <span className="hidden sm:inline">Resources</span>
-          </button>
-          <button
-            onClick={() => handlePageChange("prompts")}
-            disabled={!serverCapabilities?.prompts}
-            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
-              currentPage === "prompts"
-                ? "bg-background shadow-sm border border-border/50"
-                : "hover:bg-background/50"
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
-          >
-            <MessageSquare className="w-4 h-4" />
-            <span className="hidden sm:inline">Prompts</span>
-          </button>
-          <button
-            onClick={() => handlePageChange("tools")}
-            disabled={!serverCapabilities?.tools}
-            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
-              currentPage === "tools"
-                ? "bg-background shadow-sm border border-border/50"
-                : "hover:bg-background/50"
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
-          >
-            <Hammer className="w-4 h-4" />
-            <span className="hidden sm:inline">Tools</span>
-          </button>
-          <button
-            onClick={() => handlePageChange("chat")}
-            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
-              currentPage === "chat"
-                ? "bg-background shadow-sm border border-border/50"
-                : "hover:bg-background/50"
-            }`}
-          >
-            <Bot className="w-4 h-4" />
-            <span className="hidden sm:inline">Chat</span>
-          </button>
-          <button
-            onClick={() => handlePageChange("ping")}
-            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
-              currentPage === "ping"
-                ? "bg-background shadow-sm border border-border/50"
-                : "hover:bg-background/50"
-            }`}
-          >
-            <Bell className="w-4 h-4" />
-            <span className="hidden sm:inline">Ping</span>
-          </button>
-          <button
-            onClick={() => handlePageChange("sampling")}
-            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
-              currentPage === "sampling"
-                ? "bg-background shadow-sm border border-border/50"
-                : "hover:bg-background/50"
-            } relative`}
-          >
-            <Hash className="w-4 h-4" />
-            <span className="hidden sm:inline">Sampling</span>
-            {pendingSampleRequests.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
-                {pendingSampleRequests.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => handlePageChange("roots")}
-            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
-              currentPage === "roots"
-                ? "bg-background shadow-sm border border-border/50"
-                : "hover:bg-background/50"
-            }`}
-          >
-            <FolderTree className="w-4 h-4" />
-            <span className="hidden sm:inline">Roots</span>
-          </button>
-          <button
-            onClick={() => handlePageChange("auth")}
-            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
-              currentPage === "auth"
-                ? "bg-background shadow-sm border border-border/50"
-                : "hover:bg-background/50"
-            }`}
-          >
-            <Key className="w-4 h-4" />
-            <span className="hidden sm:inline">Auth</span>
-          </button>
-        </div>
-      );
-    };
-
     const renderServerNoCapabilities = () => {
       if (serverHasNoCapabilities) {
         return (
@@ -816,15 +698,10 @@ const App = () => {
     };
 
     return (
-      <div className="flex-1 flex flex-col">
-        <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border/50 px-6 pt-4 pb-2">
-          {renderTabsList()}
-        </div>
-        <div className="flex-1 p-6 overflow-auto">
-          {serverHasNoCapabilities
-            ? renderServerNoCapabilities()
-            : renderCurrentPage()}
-        </div>
+      <div className="flex-1 flex flex-col overflow-auto p-6">
+        {serverHasNoCapabilities
+          ? renderServerNoCapabilities()
+          : renderCurrentPage()}
       </div>
     );
   };
@@ -833,7 +710,12 @@ const App = () => {
     <McpClientContext.Provider value={mcpClient}>
       <div className="h-screen bg-gradient-to-br from-slate-50/50 to-slate-100/50 dark:from-slate-900/50 dark:to-slate-800/50 flex overflow-hidden app-container">
         {/* Sidebar - Full Height Left Side */}
-        <Sidebar />
+        <Sidebar
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          serverCapabilities={serverCapabilities}
+          pendingSampleRequests={pendingSampleRequests}
+        />
 
         {/* Main Content Area - Right Side */}
         <div className="flex-1 flex flex-col overflow-hidden">
