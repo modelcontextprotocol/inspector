@@ -129,7 +129,6 @@ const App = () => {
       }
     >
   >([]);
-  const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
 
   // Auth debugger state
   const [authState, setAuthState] = useState<AuthDebuggerState>({
@@ -274,7 +273,7 @@ const App = () => {
   const onOAuthConnect = useCallback(
     (serverUrl: string) => {
       setSseUrl(serverUrl);
-      setIsAuthDebuggerVisible(false);
+
       void connectMcpServer();
     },
     [connectMcpServer],
@@ -289,7 +288,6 @@ const App = () => {
       authorizationCode?: string;
       errorMsg?: string;
     }) => {
-      setIsAuthDebuggerVisible(true);
       if (authorizationCode) {
         updateAuthState({
           authorizationCode,
@@ -531,6 +529,20 @@ const App = () => {
       !serverCapabilities?.prompts &&
       !serverCapabilities?.tools;
 
+    const renderServerNotConnected = () => {
+      if (!mcpClient) {
+        return (
+          <div className="flex flex-col items-center justify-center p-12 rounded-xl bg-card border border-border/50 shadow-sm">
+            <Activity className="w-16 h-16 text-muted-foreground mb-4" />
+            <h3 className="text-xl font-semibold mb-2">Connect to a server</h3>
+            <p className="text-muted-foreground text-center mb-6 max-w-md">
+              Please connect to a server to use the MCP Inspector.
+            </p>
+          </div>
+        );
+      }
+    };
+
     const renderServerNoCapabilities = () => {
       if (serverHasNoCapabilities) {
         return (
@@ -726,12 +738,13 @@ const App = () => {
           return null;
       }
     };
-
     return (
       <div className="flex-1 flex flex-col overflow-auto p-6">
-        {serverHasNoCapabilities
-          ? renderServerNoCapabilities()
-          : renderCurrentPage()}
+        {!mcpClient
+          ? renderServerNotConnected()
+          : serverHasNoCapabilities
+            ? renderServerNoCapabilities()
+            : renderCurrentPage()}
       </div>
     );
   };
@@ -781,18 +794,7 @@ const App = () => {
 
           {/* Main Content */}
           <div className="flex-1 flex flex-col overflow-hidden overflow-y-auto">
-            {mcpClient ? (
-              renderTabs()
-            ) : isAuthDebuggerVisible ? (
-              <div className="flex-1 p-6">
-                <AuthDebugger
-                  serverUrl={sseUrl}
-                  onBack={() => setIsAuthDebuggerVisible(false)}
-                  authState={authState}
-                  updateAuthState={updateAuthState}
-                />
-              </div>
-            ) : null}
+            {renderTabs()}
           </div>
 
           {/* History Panel */}
