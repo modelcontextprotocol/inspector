@@ -22,7 +22,6 @@ import React, {
 import { useConnection } from "./lib/hooks/useConnection";
 import { StdErrNotification } from "./lib/notificationTypes";
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Bell,
   Files,
@@ -178,6 +177,13 @@ const App = () => {
   const progressTokenRef = useRef(0);
 
   const [claudeApiKey, setClaudeApiKey] = useState<string>("");
+
+  const [currentPage, setCurrentPage] = useState<string>(() => {
+    const hash = window.location.hash.slice(1);
+    return hash || "resources";
+  });
+
+  console.log(currentPage);
 
   const {
     connectionStatus,
@@ -344,6 +350,19 @@ const App = () => {
     }
   }, []);
 
+  // Add effect to handle hash changes
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      if (hash) {
+        setCurrentPage(hash);
+      }
+    };
+
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
   // Create helper dependencies and state objects
   const helperDependencies: MCPHelperDependencies = {
     makeRequest,
@@ -455,18 +474,6 @@ const App = () => {
     clearStdErrNotifications(setStdErrNotifications);
   };
 
-  // Helper component for rendering the AuthDebugger
-  const AuthDebuggerWrapper = () => (
-    <TabsContent value="auth" className="mt-0">
-      <AuthDebugger
-        serverUrl={sseUrl}
-        onBack={() => setIsAuthDebuggerVisible(false)}
-        authState={authState}
-        updateAuthState={updateAuthState}
-      />
-    </TabsContent>
-  );
-
   // Helper function to render OAuth callback components
   if (window.location.pathname === "/oauth/callback") {
     const OAuthCallback = React.lazy(
@@ -514,50 +521,79 @@ const App = () => {
       !serverCapabilities?.prompts &&
       !serverCapabilities?.tools;
 
+    const handlePageChange = (page: string) => {
+      setCurrentPage(page);
+      window.location.hash = page;
+    };
+
     const renderTabsList = () => {
       return (
-        <TabsList className="grid w-full grid-cols-7 bg-muted/30 backdrop-blur-sm border border-border/50 rounded-xl p-1 h-auto">
-          <TabsTrigger
-            value="resources"
+        <div className="grid w-full grid-cols-7 bg-muted/30 backdrop-blur-sm border border-border/50 rounded-xl p-1 h-auto">
+          <button
+            onClick={() => handlePageChange("resources")}
             disabled={!serverCapabilities?.resources}
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
+              currentPage === "resources"
+                ? "bg-background shadow-sm border border-border/50"
+                : "hover:bg-background/50"
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             <Files className="w-4 h-4" />
             <span className="hidden sm:inline">Resources</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="prompts"
+          </button>
+          <button
+            onClick={() => handlePageChange("prompts")}
             disabled={!serverCapabilities?.prompts}
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
+              currentPage === "prompts"
+                ? "bg-background shadow-sm border border-border/50"
+                : "hover:bg-background/50"
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             <MessageSquare className="w-4 h-4" />
             <span className="hidden sm:inline">Prompts</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="tools"
+          </button>
+          <button
+            onClick={() => handlePageChange("tools")}
             disabled={!serverCapabilities?.tools}
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
+              currentPage === "tools"
+                ? "bg-background shadow-sm border border-border/50"
+                : "hover:bg-background/50"
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             <Hammer className="w-4 h-4" />
             <span className="hidden sm:inline">Tools</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="chat"
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+          </button>
+          <button
+            onClick={() => handlePageChange("chat")}
+            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
+              currentPage === "chat"
+                ? "bg-background shadow-sm border border-border/50"
+                : "hover:bg-background/50"
+            }`}
           >
             <Bot className="w-4 h-4" />
             <span className="hidden sm:inline">Chat</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="ping"
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+          </button>
+          <button
+            onClick={() => handlePageChange("ping")}
+            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
+              currentPage === "ping"
+                ? "bg-background shadow-sm border border-border/50"
+                : "hover:bg-background/50"
+            }`}
           >
             <Bell className="w-4 h-4" />
             <span className="hidden sm:inline">Ping</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="sampling"
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50 relative"
+          </button>
+          <button
+            onClick={() => handlePageChange("sampling")}
+            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
+              currentPage === "sampling"
+                ? "bg-background shadow-sm border border-border/50"
+                : "hover:bg-background/50"
+            } relative`}
           >
             <Hash className="w-4 h-4" />
             <span className="hidden sm:inline">Sampling</span>
@@ -566,37 +602,31 @@ const App = () => {
                 {pendingSampleRequests.length}
               </span>
             )}
-          </TabsTrigger>
-          <TabsTrigger
-            value="roots"
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+          </button>
+          <button
+            onClick={() => handlePageChange("roots")}
+            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
+              currentPage === "roots"
+                ? "bg-background shadow-sm border border-border/50"
+                : "hover:bg-background/50"
+            }`}
           >
             <FolderTree className="w-4 h-4" />
             <span className="hidden sm:inline">Roots</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="auth"
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
+          </button>
+          <button
+            onClick={() => handlePageChange("auth")}
+            className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 ${
+              currentPage === "auth"
+                ? "bg-background shadow-sm border border-border/50"
+                : "hover:bg-background/50"
+            }`}
           >
             <Key className="w-4 h-4" />
             <span className="hidden sm:inline">Auth</span>
-          </TabsTrigger>
-        </TabsList>
+          </button>
+        </div>
       );
-    };
-
-    const computeTabDefaultValue = () => {
-      return Object.keys(serverCapabilities ?? {}).includes(
-        window.location.hash.slice(1),
-      )
-        ? window.location.hash.slice(1)
-        : serverCapabilities?.resources
-          ? "resources"
-          : serverCapabilities?.prompts
-            ? "prompts"
-            : serverCapabilities?.tools
-              ? "tools"
-              : "ping";
     };
 
     const renderServerNoCapabilities = () => {
@@ -628,10 +658,10 @@ const App = () => {
       }
     };
 
-    const renderTabsContent = () => {
-      return (
-        <div className="space-y-0">
-          <TabsContent value="resources" className="mt-0">
+    const renderCurrentPage = () => {
+      switch (currentPage) {
+        case "resources":
+          return (
             <ResourcesTab
               resources={resources}
               resourceTemplates={resourceTemplates}
@@ -679,8 +709,9 @@ const App = () => {
               nextTemplateCursor={nextResourceTemplateCursor}
               error={errors.resources}
             />
-          </TabsContent>
-          <TabsContent value="prompts" className="mt-0">
+          );
+        case "prompts":
+          return (
             <PromptsTab
               prompts={prompts}
               listPrompts={() => {
@@ -707,8 +738,9 @@ const App = () => {
               nextCursor={nextPromptCursor}
               error={errors.prompts}
             />
-          </TabsContent>
-          <TabsContent value="tools" className="mt-0">
+          );
+        case "tools":
+          return (
             <ToolsTab
               tools={tools}
               listTools={() => {
@@ -735,14 +767,13 @@ const App = () => {
               error={errors.tools}
               connectionStatus={connectionStatus}
             />
-          </TabsContent>
-          <TabsContent value="chat" className="mt-0">
-            <ChatTab />
-          </TabsContent>
-          <TabsContent value="console" className="mt-0">
-            <ConsoleTab />
-          </TabsContent>
-          <TabsContent value="ping" className="mt-0">
+          );
+        case "chat":
+          return <ChatTab />;
+        case "console":
+          return <ConsoleTab />;
+        case "ping":
+          return (
             <PingTab
               onPingClick={() => {
                 void sendMCPRequestWrapper(
@@ -753,42 +784,47 @@ const App = () => {
                 );
               }}
             />
-          </TabsContent>
-          <TabsContent value="sampling" className="mt-0">
+          );
+        case "sampling":
+          return (
             <SamplingTab
               pendingRequests={pendingSampleRequests}
               onApprove={handleApproveSamplingWrapper}
               onReject={handleRejectSamplingWrapper}
             />
-          </TabsContent>
-          <TabsContent value="roots" className="mt-0">
+          );
+        case "roots":
+          return (
             <RootsTab
               roots={roots}
               setRoots={setRoots}
               onRootsChange={handleRootsChangeWrapper}
             />
-          </TabsContent>
-          <AuthDebuggerWrapper />
-        </div>
-      );
+          );
+        case "auth":
+          return (
+            <AuthDebugger
+              serverUrl={sseUrl}
+              onBack={() => setCurrentPage("resources")}
+              authState={authState}
+              updateAuthState={updateAuthState}
+            />
+          );
+        default:
+          return null;
+      }
     };
 
     return (
       <div className="flex-1 flex flex-col">
-        <Tabs
-          defaultValue={computeTabDefaultValue()}
-          className="flex-1 flex flex-col"
-          onValueChange={(value) => (window.location.hash = value)}
-        >
-          <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border/50 px-6 pt-4 pb-2">
-            {renderTabsList()}
-          </div>
-          <div className="flex-1 p-6 overflow-auto">
-            {serverHasNoCapabilities
-              ? renderServerNoCapabilities()
-              : renderTabsContent()}
-          </div>
-        </Tabs>
+        <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border/50 px-6 pt-4 pb-2">
+          {renderTabsList()}
+        </div>
+        <div className="flex-1 p-6 overflow-auto">
+          {serverHasNoCapabilities
+            ? renderServerNoCapabilities()
+            : renderCurrentPage()}
+        </div>
       </div>
     );
   };
@@ -797,32 +833,7 @@ const App = () => {
     <McpClientContext.Provider value={mcpClient}>
       <div className="h-screen bg-gradient-to-br from-slate-50/50 to-slate-100/50 dark:from-slate-900/50 dark:to-slate-800/50 flex overflow-hidden app-container">
         {/* Sidebar - Full Height Left Side */}
-        <Sidebar
-          connectionStatus={connectionStatus}
-          transportType={transportType}
-          setTransportType={setTransportType}
-          command={command}
-          setCommand={setCommand}
-          args={args}
-          setArgs={setArgs}
-          sseUrl={sseUrl}
-          setSseUrl={setSseUrl}
-          env={env}
-          setEnv={setEnv}
-          bearerToken={bearerToken}
-          setBearerToken={setBearerToken}
-          headerName={headerName}
-          setHeaderName={setHeaderName}
-          onConnect={connectMcpServer}
-          onDisconnect={disconnectMcpServer}
-          stdErrNotifications={stdErrNotifications}
-          clearStdErrNotifications={clearStdErrNotificationsWrapper}
-          logLevel={logLevel}
-          sendLogLevelRequest={sendLogLevelRequestWrapper}
-          loggingSupported={!!serverCapabilities?.logging || false}
-          config={config}
-          setConfig={setConfig}
-        />
+        <Sidebar />
 
         {/* Main Content Area - Right Side */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -873,13 +884,12 @@ const App = () => {
               renderTabs()
             ) : isAuthDebuggerVisible ? (
               <div className="flex-1 p-6">
-                <Tabs
-                  defaultValue={"auth"}
-                  className="h-full"
-                  onValueChange={(value) => (window.location.hash = value)}
-                >
-                  <AuthDebuggerWrapper />
-                </Tabs>
+                <AuthDebugger
+                  serverUrl={sseUrl}
+                  onBack={() => setIsAuthDebuggerVisible(false)}
+                  authState={authState}
+                  updateAuthState={updateAuthState}
+                />
               </div>
             ) : null}
           </div>
