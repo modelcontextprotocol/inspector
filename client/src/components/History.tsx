@@ -3,7 +3,7 @@ import {
   CompatibilityCallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useEffect, useState } from "react";
-import { Activity, History, ChevronDown } from "lucide-react";
+import { Activity, History, ChevronDown, ScrollText } from "lucide-react";
 import JsonView from "./JsonView";
 import { useDraggablePane } from "../lib/hooks/useDraggablePane";
 
@@ -228,9 +228,7 @@ const HistoryAndNotifications = ({
             <div className="flex-1 overflow-y-auto p-6">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-lg font-bold text-foreground flex items-center space-x-2">
-                  <div className="w-5 h-5 rounded bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center">
-                    <span className="text-white text-xs">✓</span>
-                  </div>
+                  <ScrollText className="w-5 h-5 text-primary" />
                   <span>Results</span>
                 </h2>
                 <button

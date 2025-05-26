@@ -22,18 +22,7 @@ import React, {
 import { useConnection } from "./lib/hooks/useConnection";
 import { StdErrNotification } from "./lib/notificationTypes";
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Bell,
-  Files,
-  FolderTree,
-  Hammer,
-  Hash,
-  Key,
-  MessageSquare,
-  Activity,
-  Bot,
-} from "lucide-react";
+import { Activity } from "lucide-react";
 
 import { z } from "zod";
 import "./App.css";
@@ -47,7 +36,10 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import ToolsTab from "./components/ToolsTab";
 import ChatTab from "./components/ChatTab";
+import Sidebar from "./components/Sidebar";
+import SettingsTab from "./components/SettingsTab";
 import { InspectorConfig } from "./lib/configurationTypes";
+import ConnectionSection from "./components/ConnectionSection";
 import {
   getMCPProxyAddress,
   getInitialSseUrl,
@@ -76,11 +68,17 @@ import {
   MCPHelperDependencies,
   MCPHelperState,
 } from "./utils/mcpHelpers";
-import ConnectionSection from "./components/ConnectionSection";
 import { McpClientContext } from "@/context/McpClientContext";
-import ApiKeyManager from "./components/ApiKeyManager";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
+const CLAUDE_API_KEY_STORAGE_KEY = "claude-api-key";
+
+// Validate Claude API key format
+const validateClaudeApiKey = (key: string): boolean => {
+  // Claude API keys start with "sk-ant-api03-" and are followed by base64-like characters
+  const claudeApiKeyPattern = /^sk-ant-api03-[A-Za-z0-9_-]+$/;
+  return claudeApiKeyPattern.test(key) && key.length > 20;
+};
 
 const App = () => {
   const [resources, setResources] = useState<Resource[]>([]);
@@ -131,7 +129,6 @@ const App = () => {
       }
     >
   >([]);
-  const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
 
   // Auth debugger state
   const [authState, setAuthState] = useState<AuthDebuggerState>({
@@ -176,7 +173,26 @@ const App = () => {
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
 
-  const [claudeApiKey, setClaudeApiKey] = useState<string>("");
+  const [claudeApiKey, setClaudeApiKey] = useState<string>(() => {
+    // Load Claude API key from localStorage on app initialization
+    try {
+      const storedApiKey =
+        localStorage.getItem(CLAUDE_API_KEY_STORAGE_KEY) || "";
+      if (storedApiKey && validateClaudeApiKey(storedApiKey)) {
+        return storedApiKey;
+      }
+    } catch (error) {
+      console.warn("Failed to load Claude API key from localStorage:", error);
+    }
+    return "";
+  });
+
+  const [currentPage, setCurrentPage] = useState<string>(() => {
+    const hash = window.location.hash.slice(1);
+    return hash || "resources";
+  });
+
+  console.log(currentPage);
 
   const {
     connectionStatus,
@@ -224,7 +240,6 @@ const App = () => {
     updateApiKey(newApiKey);
   };
 
-  console.log("mcpClient", mcpClient);
   useEffect(() => {
     localStorage.setItem("lastCommand", command);
   }, [command]);
@@ -257,7 +272,7 @@ const App = () => {
   const onOAuthConnect = useCallback(
     (serverUrl: string) => {
       setSseUrl(serverUrl);
-      setIsAuthDebuggerVisible(false);
+
       void connectMcpServer();
     },
     [connectMcpServer],
@@ -272,7 +287,6 @@ const App = () => {
       authorizationCode?: string;
       errorMsg?: string;
     }) => {
-      setIsAuthDebuggerVisible(true);
       if (authorizationCode) {
         updateAuthState({
           authorizationCode,
@@ -341,6 +355,19 @@ const App = () => {
     if (!window.location.hash) {
       window.location.hash = "resources";
     }
+  }, []);
+
+  // Add effect to handle hash changes
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      if (hash) {
+        setCurrentPage(hash);
+      }
+    };
+
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
   // Create helper dependencies and state objects
@@ -454,18 +481,6 @@ const App = () => {
     clearStdErrNotifications(setStdErrNotifications);
   };
 
-  // Helper component for rendering the AuthDebugger
-  const AuthDebuggerWrapper = () => (
-    <TabsContent value="auth" className="mt-0">
-      <AuthDebugger
-        serverUrl={sseUrl}
-        onBack={() => setIsAuthDebuggerVisible(false)}
-        authState={authState}
-        updateAuthState={updateAuthState}
-      />
-    </TabsContent>
-  );
-
   // Helper function to render OAuth callback components
   if (window.location.pathname === "/oauth/callback") {
     const OAuthCallback = React.lazy(
@@ -513,89 +528,18 @@ const App = () => {
       !serverCapabilities?.prompts &&
       !serverCapabilities?.tools;
 
-    const renderTabsList = () => {
-      return (
-        <TabsList className="grid w-full grid-cols-7 bg-muted/30 backdrop-blur-sm border border-border/50 rounded-xl p-1 h-auto">
-          <TabsTrigger
-            value="resources"
-            disabled={!serverCapabilities?.resources}
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
-          >
-            <Files className="w-4 h-4" />
-            <span className="hidden sm:inline">Resources</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="prompts"
-            disabled={!serverCapabilities?.prompts}
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
-          >
-            <MessageSquare className="w-4 h-4" />
-            <span className="hidden sm:inline">Prompts</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="tools"
-            disabled={!serverCapabilities?.tools}
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
-          >
-            <Hammer className="w-4 h-4" />
-            <span className="hidden sm:inline">Tools</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="chat"
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
-          >
-            <Bot className="w-4 h-4" />
-            <span className="hidden sm:inline">Chat</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="ping"
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
-          >
-            <Bell className="w-4 h-4" />
-            <span className="hidden sm:inline">Ping</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="sampling"
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50 relative"
-          >
-            <Hash className="w-4 h-4" />
-            <span className="hidden sm:inline">Sampling</span>
-            {pendingSampleRequests.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
-                {pendingSampleRequests.length}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger
-            value="roots"
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
-          >
-            <FolderTree className="w-4 h-4" />
-            <span className="hidden sm:inline">Roots</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="auth"
-            className="flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50"
-          >
-            <Key className="w-4 h-4" />
-            <span className="hidden sm:inline">Auth</span>
-          </TabsTrigger>
-        </TabsList>
-      );
-    };
-
-    const computeTabDefaultValue = () => {
-      return Object.keys(serverCapabilities ?? {}).includes(
-        window.location.hash.slice(1),
-      )
-        ? window.location.hash.slice(1)
-        : serverCapabilities?.resources
-          ? "resources"
-          : serverCapabilities?.prompts
-            ? "prompts"
-            : serverCapabilities?.tools
-              ? "tools"
-              : "ping";
+    const renderServerNotConnected = () => {
+      if (!mcpClient) {
+        return (
+          <div className="flex flex-col items-center justify-center p-12 rounded-xl bg-card border border-border/50 shadow-sm">
+            <Activity className="w-16 h-16 text-muted-foreground mb-4" />
+            <h3 className="text-xl font-semibold mb-2">Connect to a server</h3>
+            <p className="text-muted-foreground text-center mb-6 max-w-md">
+              Please connect to a server to use the MCP Inspector.
+            </p>
+          </div>
+        );
+      }
     };
 
     const renderServerNoCapabilities = () => {
@@ -627,10 +571,10 @@ const App = () => {
       }
     };
 
-    const renderTabsContent = () => {
-      return (
-        <div className="space-y-0">
-          <TabsContent value="resources" className="mt-0">
+    const renderCurrentPage = () => {
+      switch (currentPage) {
+        case "resources":
+          return (
             <ResourcesTab
               resources={resources}
               resourceTemplates={resourceTemplates}
@@ -678,8 +622,9 @@ const App = () => {
               nextTemplateCursor={nextResourceTemplateCursor}
               error={errors.resources}
             />
-          </TabsContent>
-          <TabsContent value="prompts" className="mt-0">
+          );
+        case "prompts":
+          return (
             <PromptsTab
               prompts={prompts}
               listPrompts={() => {
@@ -706,8 +651,9 @@ const App = () => {
               nextCursor={nextPromptCursor}
               error={errors.prompts}
             />
-          </TabsContent>
-          <TabsContent value="tools" className="mt-0">
+          );
+        case "tools":
+          return (
             <ToolsTab
               tools={tools}
               listTools={() => {
@@ -734,14 +680,13 @@ const App = () => {
               error={errors.tools}
               connectionStatus={connectionStatus}
             />
-          </TabsContent>
-          <TabsContent value="chat" className="mt-0">
-            <ChatTab />
-          </TabsContent>
-          <TabsContent value="console" className="mt-0">
-            <ConsoleTab />
-          </TabsContent>
-          <TabsContent value="ping" className="mt-0">
+          );
+        case "chat":
+          return <ChatTab />;
+        case "console":
+          return <ConsoleTab />;
+        case "ping":
+          return (
             <PingTab
               onPingClick={() => {
                 void sendMCPRequestWrapper(
@@ -752,109 +697,112 @@ const App = () => {
                 );
               }}
             />
-          </TabsContent>
-          <TabsContent value="sampling" className="mt-0">
+          );
+        case "sampling":
+          return (
             <SamplingTab
               pendingRequests={pendingSampleRequests}
               onApprove={handleApproveSamplingWrapper}
               onReject={handleRejectSamplingWrapper}
             />
-          </TabsContent>
-          <TabsContent value="roots" className="mt-0">
+          );
+        case "roots":
+          return (
             <RootsTab
               roots={roots}
               setRoots={setRoots}
               onRootsChange={handleRootsChangeWrapper}
             />
-          </TabsContent>
-          <AuthDebuggerWrapper />
-        </div>
-      );
+          );
+        case "auth":
+          return (
+            <AuthDebugger
+              serverUrl={sseUrl}
+              onBack={() => setCurrentPage("resources")}
+              authState={authState}
+              updateAuthState={updateAuthState}
+            />
+          );
+        case "settings":
+          return (
+            <SettingsTab
+              onApiKeyChange={handleApiKeyChange}
+              disabled={
+                connectionStatus !== "connected" &&
+                connectionStatus !== "disconnected"
+              }
+            />
+          );
+        default:
+          return null;
+      }
     };
-
     return (
-      <div className="flex-1 flex flex-col">
-        <Tabs
-          defaultValue={computeTabDefaultValue()}
-          className="flex-1 flex flex-col"
-          onValueChange={(value) => (window.location.hash = value)}
-        >
-          <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border/50 px-6 pt-4 pb-2">
-            {renderTabsList()}
-          </div>
-          <div className="flex-1 p-6 overflow-auto">
-            {serverHasNoCapabilities
-              ? renderServerNoCapabilities()
-              : renderTabsContent()}
-          </div>
-        </Tabs>
+      <div className="flex-1 flex flex-col overflow-auto p-6">
+        {!mcpClient
+          ? renderServerNotConnected()
+          : serverHasNoCapabilities
+            ? renderServerNoCapabilities()
+            : renderCurrentPage()}
       </div>
     );
   };
 
   return (
     <McpClientContext.Provider value={mcpClient}>
-      <div className="h-screen bg-gradient-to-br from-slate-50/50 to-slate-100/50 dark:from-slate-900/50 dark:to-slate-800/50 flex flex-col overflow-hidden app-container">
-        {/* Header Section */}
-        <div className="bg-background/80 backdrop-blur-md border-b border-border/50 shadow-sm">
-          <ConnectionSection
-            connectionStatus={connectionStatus}
-            transportType={transportType}
-            setTransportType={setTransportType}
-            command={command}
-            setCommand={setCommand}
-            args={args}
-            setArgs={setArgs}
-            sseUrl={sseUrl}
-            setSseUrl={setSseUrl}
-            env={env}
-            setEnv={setEnv}
-            config={config}
-            setConfig={setConfig}
-            bearerToken={bearerToken}
-            setBearerToken={setBearerToken}
-            headerName={headerName}
-            setHeaderName={setHeaderName}
-            onConnect={connectMcpServer}
-            onDisconnect={disconnectMcpServer}
-            stdErrNotifications={stdErrNotifications}
-            logLevel={logLevel}
-            sendLogLevelRequest={sendLogLevelRequestWrapper}
-            loggingSupported={!!serverCapabilities?.logging || false}
-            clearStdErrNotifications={clearStdErrNotificationsWrapper}
-          />
-          
-          {/* API Key Manager Section */}
-          <div className="px-6 py-4 border-t border-border/50">
-            <ApiKeyManager 
-              onApiKeyChange={handleApiKeyChange}
-              disabled={connectionStatus !== "connected" && connectionStatus !== "disconnected"}
+      <div className="h-screen bg-gradient-to-br from-slate-50/50 to-slate-100/50 dark:from-slate-900/50 dark:to-slate-800/50 flex overflow-hidden app-container">
+        {/* Sidebar - Full Height Left Side */}
+        <Sidebar
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          serverCapabilities={serverCapabilities}
+          pendingSampleRequests={pendingSampleRequests}
+          shouldDisableAll={!mcpClient}
+        />
+
+        {/* Main Content Area - Right Side */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Connection Section */}
+          <div className="bg-background/80 backdrop-blur-md border-b border-border/50 shadow-sm">
+            <ConnectionSection
+              connectionStatus={connectionStatus}
+              transportType={transportType}
+              setTransportType={setTransportType}
+              command={command}
+              setCommand={setCommand}
+              args={args}
+              setArgs={setArgs}
+              sseUrl={sseUrl}
+              setSseUrl={setSseUrl}
+              env={env}
+              setEnv={setEnv}
+              config={config}
+              setConfig={setConfig}
+              bearerToken={bearerToken}
+              setBearerToken={setBearerToken}
+              headerName={headerName}
+              setHeaderName={setHeaderName}
+              onConnect={connectMcpServer}
+              onDisconnect={disconnectMcpServer}
+              stdErrNotifications={stdErrNotifications}
+              logLevel={logLevel}
+              sendLogLevelRequest={sendLogLevelRequestWrapper}
+              loggingSupported={!!serverCapabilities?.logging || false}
+              clearStdErrNotifications={clearStdErrNotificationsWrapper}
             />
           </div>
-        </div>
 
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col overflow-hidden overflow-y-auto">
-          {mcpClient ? (
-            renderTabs()
-          ) : isAuthDebuggerVisible ? (
-            <div className="flex-1 p-6">
-              <Tabs
-                defaultValue={"auth"}
-                className="h-full"
-                onValueChange={(value) => (window.location.hash = value)}
-              >
-                <AuthDebuggerWrapper />
-              </Tabs>
-            </div>
-          ) : null}
-        </div>
+          {/* Main Content */}
+          <div className="flex-1 flex flex-col overflow-hidden overflow-y-auto">
+            {renderTabs()}
+          </div>
 
-        {/* History Panel */}
-        <HistoryAndNotifications
-          requestHistory={requestHistory}
-          toolResult={toolResult}
-        />
+          {/* History Panel */}
+          <HistoryAndNotifications
+            requestHistory={requestHistory}
+            toolResult={toolResult}
+          />
+        </div>
       </div>
     </McpClientContext.Provider>
   );
