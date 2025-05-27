@@ -1,18 +1,26 @@
 # MCPJam Inspector
 
-The MCPJam inspector is a dev tool for testing and debugging MCP servers. The MCPJam inspector is a fork of the mcp-inspector with additional improvements. 
+The MCPJam inspector is a dev tool for testing and debugging MCP servers. The MCPJam inspector is a fork of the mcp-inspector with additional improvements.
 
 <img width="1511" alt="Screenshot 2025-05-26 at 11 18 18 PM" src="https://github.com/user-attachments/assets/ade8a46a-f738-4d32-ac85-260a5e22b90f" />
 
 ## Running the Inspector
 
-### Requirements
+#### Requirements
 
 - Node.js: ^22.7.5
 
-### From an MCP server repository
+### Spinning it up
 
-To inspect an MCP server implementation, there's no need to clone this repo. Instead, use `npx`. For example, if your server is built at `build/index.js`:
+It's the easiest to start up the inspector via `npx`. This will download the inspector and immediately run it on localhost.
+
+```bash
+npx @mcpjam/inspector
+```
+
+### Running inspector with parameters
+
+You can also spin up the inspector with these shortcut params. For example, if your server is built at `build/index.js`:
 
 ```bash
 npx @mcpjam/inspector node build/index.js
