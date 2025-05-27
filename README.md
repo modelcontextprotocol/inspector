@@ -2,6 +2,8 @@
 
 The MCPJam inspector is a dev tool for testing and debugging MCP servers. The MCPJam inspector is a fork of the mcp-inspector with additional improvements. 
 
+<img width="1511" alt="Screenshot 2025-05-26 at 11 18 18 PM" src="https://github.com/user-attachments/assets/ade8a46a-f738-4d32-ac85-260a5e22b90f" />
+
 ## Running the Inspector
 
 ### Requirements
