@@ -1,258 +1,207 @@
+<div align="center">
+
 # MCPJam Inspector
 
-The MCPJam inspector is a dev tool for testing and debugging MCP servers. The MCPJam inspector is a fork of the mcp-inspector with additional improvements. 
+**The developer tool for testing and debugging MCP servers**
 
-## Running the Inspector
+[![npm version](https://img.shields.io/npm/v/@mcpjam/inspector?style=for-the-badge&color=blue)](https://www.npmjs.com/package/@mcpjam/inspector)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/Node.js-22.7.5+-green.svg?style=for-the-badge&logo=node.js)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8+-blue.svg?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 
-### Requirements
+_A powerful fork of the original [mcp-inspector](https://github.com/modelcontextprotocol/inspector) with enhanced features and modern UI_
 
-- Node.js: ^22.7.5
+</div>
 
-### From an MCP server repository
+---
 
-To inspect an MCP server implementation, there's no need to clone this repo. Instead, use `npx`. For example, if your server is built at `build/index.js`:
+## Quick Start
+
+Get up and running in seconds with the MCPJam Inspector:
 
 ```bash
+npx @mcpjam/inspector
+```
+
+That's it! The inspector will launch automatically in your browser at `http://localhost:6274`.
+
+---
+
+## 📸 Screenshots
+
+<div align="center">
+<img width="1511" alt="MCPJam Inspector Interface" src="https://github.com/user-attachments/assets/ade8a46a-f738-4d32-ac85-260a5e22b90f" />
+</div>
+
+---
+
+## ✨ Core Features
+
+This project is a fork of the [@modelcontextprotocol/inspector](https://github.com/modelcontextprotocol/inspector). Many of the features are the same but with some enhancements. Key features include:
+
+- **STDIO / SSE / Streamable HTTP** - This inspector supports all three protocols. Connect to any MCP server.
+- **Tool Execution** - Run server tools with live parameter input. Easily handle errors.
+- **(New) LLM tool interaction** - Test your MCP server against a real LLM.
+- **Debugging tools** - Enhanced logging experience to debug your server.
+
+## 📋 Requirements
+
+- **Node.js**: `^22.7.5` or higher
+- **npm**: `^10.0.0` or higher (comes with Node.js)
+
+---
+
+## 🎯 Usage Examples
+
+### Basic Usage
+
+```bash
+# Launch inspector with default settings
+npx @mcpjam/inspector
+```
+
+### Connect to Local Server
+
+```bash
+# Connect to a server built at build/index.js
 npx @mcpjam/inspector node build/index.js
 ```
 
-You can pass both arguments and environment variables to your MCP server. Arguments are passed directly to your server, while environment variables can be set using the `-e` flag:
+### Connect with Arguments
 
 ```bash
-# Pass arguments only
-npx @mcpjam/inspector node build/index.js arg1 arg2
-
-# Pass environment variables only
-npx @mcpjam/inspector -e key=value -e key2=$VALUE2 node build/index.js
-
-# Pass both environment variables and arguments
-npx @modelcontextprotocol/inspector -e key=value -e key2=$VALUE2 node build/index.js arg1 arg2
-
-# Use -- to separate inspector flags from server arguments
-npx @modelcontextprotocol/inspector -e key=$VALUE -- node build/index.js -e server-flag
+# Pass custom arguments to your server
+npx @mcpjam/inspector node server.js --port 3000 --debug
 ```
 
-The inspector runs both an MCP Inspector (MCPI) client UI (default port 6274) and an MCP Proxy (MCPP) server (default port 6277). Open the MCPI client UI in your browser to use the inspector. (These ports are derived from the T9 dialpad mapping of MCPI and MCPP respectively, as a mnemonic). You can customize the ports if needed:
+### Using Configuration File
 
 ```bash
-CLIENT_PORT=8080 SERVER_PORT=9000 npx @modelcontextprotocol/inspector node build/index.js
+# Load servers from a config file
+npx @mcpjam/inspector --config ./my-config.json
 ```
 
-For more details on ways to use the inspector, see the [Inspector section of the MCP docs site](https://modelcontextprotocol.io/docs/tools/inspector). For help with debugging, see the [Debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
-
-### Servers File Export
-
-The MCP Inspector provides convenient buttons to export server launch configurations for use in clients such as Cursor, Claude Code, or the Inspector's CLI. The file is usually called `mcp.json`.
-
-- **Server Entry** - Copies a single server configuration entry to your clipboard. This can be added to your `mcp.json` file inside the `mcpServers` object with your preferred server name.
-
-  **STDIO transport example:**
-
-  ```json
-  {
-    "command": "node",
-    "args": ["build/index.js", "--debug"],
-    "env": {
-      "API_KEY": "your-api-key",
-      "DEBUG": "true"
-    }
-  }
-  ```
-
-  **SSE transport example:**
-
-  ```json
-  {
-    "type": "sse",
-    "url": "http://localhost:3000/events",
-    "note": "For SSE connections, add this URL directly in Client"
-  }
-  ```
-
-- **Servers File** - Copies a complete MCP configuration file structure to your clipboard, with your current server configuration added as `default-server`. This can be saved directly as `mcp.json`.
-
-  **STDIO transport example:**
-
-  ```json
-  {
-    "mcpServers": {
-      "default-server": {
-        "command": "node",
-        "args": ["build/index.js", "--debug"],
-        "env": {
-          "API_KEY": "your-api-key",
-          "DEBUG": "true"
-        }
-      }
-    }
-  }
-  ```
-
-  **SSE transport example:**
-
-  ```json
-  {
-    "mcpServers": {
-      "default-server": {
-        "type": "sse",
-        "url": "http://localhost:3000/events",
-        "note": "For SSE connections, add this URL directly in Client"
-      }
-    }
-  }
-  ```
-
-These buttons appear in the Inspector UI after you've configured your server settings, making it easy to save and reuse your configurations.
-
-For SSE transport connections, the Inspector provides similar functionality for both buttons. The "Server Entry" button copies the SSE URL configuration that can be added to your existing configuration file, while the "Servers File" button creates a complete configuration file containing the SSE URL for direct use in clients.
-
-You can paste the Server Entry into your existing `mcp.json` file under your chosen server name, or use the complete Servers File payload to create a new configuration file.
-
-### Authentication
-
-The inspector supports bearer token authentication for SSE connections. Enter your token in the UI when connecting to an MCP server, and it will be sent in the Authorization header. You can override the header name using the input field in the sidebar.
-
-### Security Considerations
-
-The MCP Inspector includes a proxy server that can run and communicate with local MCP processes. The proxy server should not be exposed to untrusted networks as it has permissions to spawn local processes and can connect to any specified MCP server.
-
-### Configuration
-
-The MCP Inspector supports the following configuration settings. To change them, click on the `Configuration` button in the MCP Inspector UI:
-
-| Setting                                 | Description                                                                                                   | Default |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------- |
-| `MCP_SERVER_REQUEST_TIMEOUT`            | Timeout for requests to the MCP server (ms)                                                                   | 10000   |
-| `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                       | true    |
-| `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)              | 60000   |
-| `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577  | ""      |
-| `MCP_AUTO_OPEN_ENABLED`                 | Enable automatic browser opening when inspector starts. Only as environment var, not configurable in browser. | true    |
-
-These settings can be adjusted in real-time through the UI and will persist across sessions.
-
-The inspector also supports configuration files to store settings for different MCP servers. This is useful when working with multiple servers or complex configurations:
-
-```bash
-npx @modelcontextprotocol/inspector --config path/to/config.json --server everything
-```
-
-Example server configuration file:
+### Example Configuration File
 
 ```json
 {
   "mcpServers": {
-    "everything": {
-      "command": "npx",
-      "args": ["@modelcontextprotocol/server-everything"],
+    "my-awesome-server": {
+      "command": "node",
+      "args": ["build/index.js"],
       "env": {
-        "hello": "Hello MCP!"
+        "API_KEY": "your-api-key",
+        "DEBUG": "true"
       }
     },
-    "my-server": {
-      "command": "node",
-      "args": ["build/index.js", "arg1", "arg2"],
+    "python-server": {
+      "command": "python",
+      "args": ["-m", "my_mcp_server"],
       "env": {
-        "key": "value",
-        "key2": "value2"
+        "PYTHONPATH": "./src"
       }
     }
   }
 }
 ```
 
-> **Tip:** You can easily generate this configuration format using the **Server Entry** and **Servers File** buttons in the Inspector UI, as described in the Servers File Export section above.
+---
 
-You can also set the initial `transport` type, `serverUrl`, `serverCommand`, and `serverArgs` via query params, for example:
+## 🏗️ Architecture
 
-```
-http://localhost:6274/?transport=sse&serverUrl=http://localhost:8787/sse
-http://localhost:6274/?transport=streamable-http&serverUrl=http://localhost:8787/mcp
-http://localhost:6274/?transport=stdio&serverCommand=npx&serverArgs=arg1%20arg2
-```
-
-You can also set initial config settings via query params, for example:
+The MCPJam Inspector is built as a modern monorepo with three main components:
 
 ```
-http://localhost:6274/?MCP_SERVER_REQUEST_TIMEOUT=10000&MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS=false&MCP_PROXY_FULL_ADDRESS=http://10.1.1.22:5577
+📦 @mcpjam/inspector
+├── 🖥️  client/     # React + TypeScript frontend
+├── 🔧  server/     # Express.js backend with WebSocket support
+└── 🚀  cli/        # Command-line interface
 ```
 
-Note that if both the query param and the corresponding localStorage item are set, the query param will take precedence.
+### Tech Stack
 
-### From this repository
+- **Frontend**: React 18, TypeScript, Tailwind CSS, Radix UI
+- **Backend**: Express.js, WebSocket (ws), CORS support
+- **CLI**: Node.js with shell integration
+- **Build Tools**: Vite, TSC, Concurrently
 
-If you're working on the inspector itself:
+---
 
-Development mode:
+## 🛠️ Development
+
+### Local Development Setup
 
 ```bash
+# Clone the repository
+git clone https://github.com/mcpjam/inspector.git
+cd inspector
+
+# Install dependencies
+npm install
+
+# Start development servers
 npm run dev
 ```
 
-> **Note for Windows users:**
-> On Windows, use the following command instead:
->
-> ```bash
-> npm run dev:windows
-> ```
-
-Production mode:
+### Build for Production
 
 ```bash
+# Build all components
 npm run build
-npm start
+
+# Test the build
+npm run start
 ```
 
-### CLI Mode
+### Scripts for development
 
-CLI mode enables programmatic interaction with MCP servers from the command line, ideal for scripting, automation, and integration with coding assistants. This creates an efficient feedback loop for MCP server development.
+We put together these commands to help you build locally:
+| Script | Description |
+| ---------------------- | ------------------------------------------- |
+| `npm run dev` | Start development servers (client + server) |
+| `npm run build` | Build all components for production |
+| `npm run test` | Run test suite |
+| `npm run prettier-fix` | Format code with Prettier |
+| `npm run clean` | Clean all build artifacts and reinstall |
 
-```bash
-npx @modelcontextprotocol/inspector --cli node build/index.js
-```
+---
 
-The CLI mode supports most operations across tools, resources, and prompts. A few examples:
+## 🤝 Contributing
 
-```bash
-# Basic usage
-npx @modelcontextprotocol/inspector --cli node build/index.js
+We welcome contributions! We thought the original inspector repository moved too slowly, so we wanted to build this project ourselves.
 
-# With config file
-npx @modelcontextprotocol/inspector --cli --config path/to/config.json --server myserver
+1. **Clone** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
 
-# List available tools
-npx @modelcontextprotocol/inspector --cli node build/index.js --method tools/list
+### Development Guidelines
 
-# Call a specific tool
-npx @modelcontextprotocol/inspector --cli node build/index.js --method tools/call --tool-name mytool --tool-arg key=value --tool-arg another=value2
+- Follow the existing code style (Prettier + ESLint)
+- Update documentation as needed
 
-# List available resources
-npx @modelcontextprotocol/inspector --cli node build/index.js --method resources/list
+---
 
-# List available prompts
-npx @modelcontextprotocol/inspector --cli node build/index.js --method prompts/list
+## 📚 Resources
 
-# Connect to a remote MCP server
-npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com
+- **🌐 Website**: [mcpjam.com](https://mcpjam.com)
+- **📖 Documentation**: [MCP Protocol Docs](https://modelcontextprotocol.io/)
+- **🐛 Issues**: [GitHub Issues](https://github.com/mcpjam/inspector/issues)
+- **💬 Discussions**: [GitHub Discussions](https://github.com/mcpjam/inspector/discussions)
 
-# Call a tool on a remote server
-npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --method tools/call --tool-name remotetool --tool-arg param=value
+---
 
-# List resources from a remote server
-npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --method resources/list
-```
+## 📄 License
 
-### UI Mode vs CLI Mode: When to Use Each
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
-| Use Case                 | UI Mode                                                                   | CLI Mode                                                                                                                                             |
-| ------------------------ | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Server Development**   | Visual interface for interactive testing and debugging during development | Scriptable commands for quick testing and continuous integration; creates feedback loops with AI coding assistants like Cursor for rapid development |
-| **Resource Exploration** | Interactive browser with hierarchical navigation and JSON visualization   | Programmatic listing and reading for automation and scripting                                                                                        |
-| **Tool Testing**         | Form-based parameter input with real-time response visualization          | Command-line tool execution with JSON output for scripting                                                                                           |
-| **Prompt Engineering**   | Interactive sampling with streaming responses and visual comparison       | Batch processing of prompts with machine-readable output                                                                                             |
-| **Debugging**            | Request history, visualized errors, and real-time notifications           | Direct JSON output for log analysis and integration with other tools                                                                                 |
-| **Automation**           | N/A                                                                       | Ideal for CI/CD pipelines, batch processing, and integration with coding assistants                                                                  |
-| **Learning MCP**         | Rich visual interface helps new users understand server capabilities      | Simplified commands for focused learning of specific endpoints                                                                                       |
+---
 
-## License
+<div align="center">
 
-This project is licensed under the MIT License—see the [LICENSE](LICENSE) file for details.
+**Made with ❤️ by the [MCPJam](https://mcpjam.com) team**
+
+_Empowering developers to build better MCP servers_
+
+</div>
