@@ -114,6 +114,8 @@ You can paste the Server Entry into your existing `mcp.json` file under your cho
 
 The inspector supports bearer token authentication for SSE connections. Enter your token in the UI when connecting to an MCP server, and it will be sent in the Authorization header. You can override the header name using the input field in the sidebar.
 
+It also follows [the MCP specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#2-authorization-flow) for OAuth for remote transports. It uses all the scopes specified in the provider's `scopes_supported` field to help with debugging.
+
 ### Security Considerations
 
 The MCP Inspector includes a proxy server that can run and communicate with local MCP processes. The proxy server should not be exposed to untrusted networks as it has permissions to spawn local processes and can connect to any specified MCP server.
