@@ -13,7 +13,7 @@ Thanks for your interest in contributing! This guide explains how to get involve
 
 1. Create a new branch for your changes
 2. Make your changes following existing code style and conventions. You can run `npm run prettier-check` and `npm run prettier-fix` as applicable.
-3. Test changes locally by running `npm test`
+3. Test changes locally by running `npm test` and `npm run test:e2e`
 4. Update documentation as needed
 5. Use clear commit messages explaining your changes
 6. Verify all changes work as expected
