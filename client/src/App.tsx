@@ -189,7 +189,7 @@ const App = () => {
 
   const [currentPage, setCurrentPage] = useState<string>(() => {
     const hash = window.location.hash.slice(1);
-    return hash || "resources";
+    return hash || "tools";
   });
 
   console.log(currentPage);
@@ -353,7 +353,7 @@ const App = () => {
 
   useEffect(() => {
     if (!window.location.hash) {
-      window.location.hash = "resources";
+      window.location.hash = "tools";
     }
   }, []);
 

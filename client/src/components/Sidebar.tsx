@@ -58,18 +58,6 @@ const Sidebar = ({
 
   const tabs = [
     {
-      id: "resources",
-      label: "Resources",
-      icon: Files,
-      disabled: !serverCapabilities?.resources || shouldDisableAll,
-    },
-    {
-      id: "prompts",
-      label: "Prompts",
-      icon: MessageSquare,
-      disabled: !serverCapabilities?.prompts || shouldDisableAll,
-    },
-    {
       id: "tools",
       label: "Tools",
       icon: Hammer,
@@ -86,6 +74,18 @@ const Sidebar = ({
       label: "Ping",
       icon: Bell,
       disabled: shouldDisableAll,
+    },
+    {
+      id: "resources",
+      label: "Resources",
+      icon: Files,
+      disabled: !serverCapabilities?.resources || shouldDisableAll,
+    },
+    {
+      id: "prompts",
+      label: "Prompts",
+      icon: MessageSquare,
+      disabled: !serverCapabilities?.prompts || shouldDisableAll,
     },
     {
       id: "sampling",
