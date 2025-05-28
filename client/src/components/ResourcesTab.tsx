@@ -80,10 +80,7 @@ const ResourcesTab = ({
     template: string,
     values: Record<string, string>,
   ): string => {
-    console.log("Expanding template:", template, "with values:", values);
-    const result =  new UriTemplate(template).expand(values);
-    console.log("Filled template:", result);
-    return result;
+    return new UriTemplate(template).expand(values);
   };
 
   const handleTemplateValueChange = async (key: string, value: string) => {
