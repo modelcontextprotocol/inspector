@@ -16,6 +16,7 @@ import ListPane from "./ListPane";
 import { useEffect, useState } from "react";
 import { useCompletionState } from "@/lib/hooks/useCompletionState";
 import JsonView from "./JsonView";
+import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 
 const ResourcesTab = ({
   resources,
@@ -79,10 +80,10 @@ const ResourcesTab = ({
     template: string,
     values: Record<string, string>,
   ): string => {
-    return template.replace(
-      /{([^}]+)}/g,
-      (_, key) => values[key] || `{${key}}`,
-    );
+    console.log("Expanding template:", template, "with values:", values);
+    const result =  new UriTemplate(template).expand(values);
+    console.log("Filled template:", result);
+    return result;
   };
 
   const handleTemplateValueChange = async (key: string, value: string) => {
@@ -240,7 +241,8 @@ const ResourcesTab = ({
                 {selectedTemplate.uriTemplate
                   .match(/{([^}]+)}/g)
                   ?.map((param) => {
-                    const key = param.slice(1, -1);
+                    // Remove leading operator characters (?, &, /, #, ;, +, .) from variable name
+                    const key = param.slice(1, -1).replace(/^[?&/#;+.]/, "");
                     return (
                       <div key={key}>
                         <Label htmlFor={key}>{key}</Label>
