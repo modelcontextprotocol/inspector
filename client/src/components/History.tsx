@@ -17,7 +17,7 @@ const HistoryAndNotifications = ({
   const [expandedRequests, setExpandedRequests] = useState<{
     [key: number]: boolean;
   }>({});
-  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
+  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(true);
 
   const {
     height: historyPaneHeight,
