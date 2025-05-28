@@ -238,11 +238,8 @@ const ResourcesTab = ({
                 <p className="text-sm text-gray-600">
                   {selectedTemplate.description}
                 </p>
-                {selectedTemplate.uriTemplate
-                  .match(/{([^}]+)}/g)
-                  ?.map((param) => {
-                    // Remove leading operator characters (?, &, /, #, ;, +, .) from variable name
-                    const key = param.slice(1, -1).replace(/^[?&/#;+.]/, "");
+                {new UriTemplate(selectedTemplate.uriTemplate).variableNames
+                  ?.map((key) => {
                     return (
                       <div key={key}>
                         <Label htmlFor={key}>{key}</Label>
