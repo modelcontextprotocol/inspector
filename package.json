@@ -37,7 +37,8 @@
     "prettier-fix": "prettier --write .",
     "prettier-check": "prettier --check .",
     "prepare": "npm run build",
-    "publish-all": "npm publish --workspaces --access public && npm publish --access public"
+    "publish-all": "npm publish --workspaces --access public && npm publish --access public",
+    "test:e2e": "npm run test:e2e --workspace=client"
   },
   "dependencies": {
     "@modelcontextprotocol/inspector-cli": "^0.13.0",
