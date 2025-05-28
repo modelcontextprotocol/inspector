@@ -79,6 +79,8 @@ const ToolsTab = ({
         }}
         title="Tools"
         isButtonDisabled={!nextCursor && tools.length > 0}
+        searchKey="name"
+        searchPlaceholder="Search tools by name..."
       />
 
       <ToolRunCard selectedTool={selectedTool} callTool={callTool} />
