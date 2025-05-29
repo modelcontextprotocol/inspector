@@ -6,23 +6,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import {
-  Bell,
-  Files,
-  FolderTree,
-  Hammer,
-  Hash,
-  Key,
-  MessageSquare,
-  Bot,
-  Settings,
-  Bookmark,
-  Trash2,
-  Calendar,
-  Star,
-  Edit2,
-  Copy,
-} from "lucide-react";
+import { Bookmark, Trash2, Calendar, Star, Edit2, Copy } from "lucide-react";
 import { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
 import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
@@ -43,17 +27,12 @@ interface SidebarProps {
   onLoadRequest?: (request: McpJamRequest) => void;
 }
 
-const Sidebar = ({
-  currentPage,
-  onPageChange,
-  serverCapabilities,
-  pendingSampleRequests,
-  shouldDisableAll,
-  onLoadRequest,
-}: SidebarProps) => {
+const Sidebar = ({ onPageChange, onLoadRequest }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [savedRequests, setSavedRequests] = useState<McpJamRequest[]>([]);
-  const [renamingRequestId, setRenamingRequestId] = useState<string | null>(null);
+  const [renamingRequestId, setRenamingRequestId] = useState<string | null>(
+    null,
+  );
   const [renameValue, setRenameValue] = useState("");
 
   // Load saved requests on component mount
@@ -72,7 +51,7 @@ const Sidebar = ({
     };
 
     window.addEventListener("storage", handleStorageChange);
-    
+
     // Custom event for when requests are saved within the same tab
     window.addEventListener("requestSaved", handleStorageChange);
 
@@ -90,7 +69,7 @@ const Sidebar = ({
   const handleDeleteRequest = (requestId: string) => {
     if (confirm("Are you sure you want to delete this saved request?")) {
       RequestStorage.removeRequest(requestId);
-      setSavedRequests(prev => prev.filter(req => req.id !== requestId));
+      setSavedRequests((prev) => prev.filter((req) => req.id !== requestId));
     }
   };
 
@@ -110,9 +89,11 @@ const Sidebar = ({
   const handleSaveRename = (requestId: string) => {
     if (renameValue.trim()) {
       RequestStorage.updateRequest(requestId, { name: renameValue.trim() });
-      setSavedRequests(prev => prev.map(req => 
-        req.id === requestId ? { ...req, name: renameValue.trim() } : req
-      ));
+      setSavedRequests((prev) =>
+        prev.map((req) =>
+          req.id === requestId ? { ...req, name: renameValue.trim() } : req,
+        ),
+      );
     }
     setRenamingRequestId(null);
     setRenameValue("");
@@ -133,9 +114,9 @@ const Sidebar = ({
       tags: request.tags || [],
       isFavorite: false,
     });
-    
+
     RequestStorage.addRequest(duplicatedRequest);
-    setSavedRequests(prev => [duplicatedRequest, ...prev]);
+    setSavedRequests((prev) => [duplicatedRequest, ...prev]);
   };
 
   const formatDate = (date: Date) => {
@@ -159,67 +140,6 @@ const Sidebar = ({
       return isDarkMode ? "/mcp_jam_dark.png" : "/mcp_jam_light.png";
     }
   };
-
-  const tabs = [
-    {
-      id: "tools",
-      label: "Tools",
-      icon: Hammer,
-      disabled: !serverCapabilities?.tools || shouldDisableAll,
-    },
-    {
-      id: "chat",
-      label: "Chat",
-      icon: Bot,
-      disabled: shouldDisableAll,
-    },
-    {
-      id: "ping",
-      label: "Ping",
-      icon: Bell,
-      disabled: shouldDisableAll,
-    },
-    {
-      id: "resources",
-      label: "Resources",
-      icon: Files,
-      disabled: !serverCapabilities?.resources || shouldDisableAll,
-    },
-    {
-      id: "prompts",
-      label: "Prompts",
-      icon: MessageSquare,
-      disabled: !serverCapabilities?.prompts || shouldDisableAll,
-    },
-    {
-      id: "sampling",
-      label: "Sampling",
-      icon: Hash,
-      disabled: shouldDisableAll,
-      badge:
-        pendingSampleRequests.length > 0
-          ? pendingSampleRequests.length
-          : undefined,
-    },
-    {
-      id: "roots",
-      label: "Roots",
-      icon: FolderTree,
-      disabled: shouldDisableAll,
-    },
-    {
-      id: "auth",
-      label: "Auth",
-      icon: Key,
-      disabled: shouldDisableAll,
-    },
-    {
-      id: "settings",
-      label: "Settings",
-      icon: Settings,
-      disabled: shouldDisableAll,
-    },
-  ];
 
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
@@ -255,7 +175,9 @@ const Sidebar = ({
           <div className="p-3 border-b border-border/50">
             <div className="flex items-center space-x-2">
               <Bookmark className="w-4 h-4 text-muted-foreground" />
-              <h3 className="text-sm font-medium text-foreground">Saved Requests</h3>
+              <h3 className="text-sm font-medium text-foreground">
+                Saved Requests
+              </h3>
               <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                 {savedRequests.length}
               </span>
@@ -267,7 +189,9 @@ const Sidebar = ({
             {savedRequests.length === 0 ? (
               <div className="text-center py-8">
                 <Bookmark className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
-                <p className="text-xs text-muted-foreground">No saved requests</p>
+                <p className="text-xs text-muted-foreground">
+                  No saved requests
+                </p>
                 <p className="text-xs text-muted-foreground/70 mt-1">
                   Save requests from the Tools tab
                 </p>
@@ -278,7 +202,10 @@ const Sidebar = ({
                   <div
                     key={request.id}
                     className="group bg-muted/30 hover:bg-muted/50 border border-border/30 rounded-lg p-2.5 transition-all duration-200 cursor-pointer"
-                    onClick={() => renamingRequestId !== request.id && handleLoadRequest(request)}
+                    onClick={() =>
+                      renamingRequestId !== request.id &&
+                      handleLoadRequest(request)
+                    }
                   >
                     <div className="flex items-start justify-between mb-1.5">
                       <div className="flex-1 min-w-0">
@@ -349,13 +276,13 @@ const Sidebar = ({
                         </Button>
                       </div>
                     </div>
-                    
+
                     {request.description && (
                       <p className="text-xs text-muted-foreground/80 mb-1.5 line-clamp-2">
                         {request.description}
                       </p>
                     )}
-                    
+
                     <div className="flex items-center justify-between text-xs text-muted-foreground/70">
                       <div className="flex items-center space-x-1">
                         <Calendar className="w-3 h-3" />
@@ -372,7 +299,7 @@ const Sidebar = ({
           </div>
         </div>
       </div>
-      
+
       {/* Theme Selector */}
       <div className="p-4 border-t">
         <div className="flex items-center justify-between">
