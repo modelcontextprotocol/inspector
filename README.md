@@ -176,7 +176,7 @@ We welcome contributions! We thought the original inspector repository moved too
 4. **Push** to the branch (`git push origin feature/amazing-feature`)
 5. **Open** a Pull Request
 
-## Our Roadmap
+## 🗺️ Our Roadmap
 
 We're continuously improving the MCPJam Inspector. Here's what's coming next:
 
