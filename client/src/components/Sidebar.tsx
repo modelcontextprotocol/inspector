@@ -18,8 +18,8 @@ import {
   Settings,
   Bookmark,
   Trash2,
-  Play,
   Calendar,
+  Star,
 } from "lucide-react";
 import { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
 import useTheme from "../lib/hooks/useTheme";
@@ -235,7 +235,8 @@ const Sidebar = ({
                 {savedRequests.map((request) => (
                   <div
                     key={request.id}
-                    className="group bg-muted/30 hover:bg-muted/50 border border-border/30 rounded-lg p-2.5 transition-all duration-200"
+                    className="group bg-muted/30 hover:bg-muted/50 border border-border/30 rounded-lg p-2.5 transition-all duration-200 cursor-pointer"
+                    onClick={() => handleLoadRequest(request)}
                   >
                     <div className="flex items-start justify-between mb-1.5">
                       <div className="flex-1 min-w-0">
@@ -246,21 +247,18 @@ const Sidebar = ({
                           {request.toolName}
                         </p>
                       </div>
-                      <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center space-x-1">
+                        {request.isFavorite && (
+                          <Star className="w-3 h-3 text-yellow-500 fill-current" />
+                        )}
                         <Button
-                          onClick={() => handleLoadRequest(request)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteRequest(request.id);
+                          }}
                           size="sm"
                           variant="ghost"
-                          className="h-6 w-6 p-0 hover:bg-primary/20"
-                          title="Load request"
-                        >
-                          <Play className="w-3 h-3" />
-                        </Button>
-                        <Button
-                          onClick={() => handleDeleteRequest(request.id)}
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0 hover:bg-destructive/20 hover:text-destructive"
+                          className="h-6 w-6 p-0 hover:bg-destructive/20 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                           title="Delete request"
                         >
                           <Trash2 className="w-3 h-3" />
