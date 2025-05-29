@@ -94,6 +94,7 @@ const ToolsTab = ({
         isButtonDisabled={!nextCursor && tools.length > 0}
         searchKey="name"
         searchPlaceholder="Search tools by name..."
+        buttonText="Load Tools"
       />
 
       <ToolRunCard 

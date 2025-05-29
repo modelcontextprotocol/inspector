@@ -12,6 +12,7 @@ type ListPaneProps<T> = {
   isButtonDisabled?: boolean;
   searchKey?: keyof T; // Optional key to search by
   searchPlaceholder?: string;
+  buttonText?: string; // Optional button text, defaults to "Load Items"
 };
 
 const ListPane = <T extends object>({
@@ -24,6 +25,7 @@ const ListPane = <T extends object>({
   isButtonDisabled,
   searchKey,
   searchPlaceholder = "Search...",
+  buttonText = "Load Items",
 }: ListPaneProps<T>) => {
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -61,7 +63,7 @@ const ListPane = <T extends object>({
             disabled={isButtonDisabled}
             className="h-7 px-2 text-xs"
           >
-            Load Tools
+            {buttonText}
           </Button>
           <Button
             variant="outline"
