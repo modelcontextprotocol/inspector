@@ -6,7 +6,7 @@ import type { JsonValue, JsonSchemaType, JsonObject } from "./jsonUtils";
  * @returns A default value matching the schema type, or null for non-required fields
  */
 export function generateDefaultValue(schema: JsonSchemaType): JsonValue {
-  if ("default" in schema) {
+  if ("default" in schema && schema.default !== undefined) {
     return schema.default;
   }
 

@@ -6,27 +6,124 @@ import DynamicJsonForm from "./DynamicJsonForm";
 import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
 import { generateDefaultValue } from "@/utils/schemaUtils";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { Loader2, Send, Code2 } from "lucide-react";
+import { Loader2, Send, Code2, Save, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { createMcpJamRequest, generateDefaultRequestName } from "@/utils/requestUtils";
+import { RequestStorage } from "@/utils/requestStorage";
+import { CreateMcpJamRequestInput, McpJamRequest, UpdateMcpJamRequestInput } from "@/lib/requestTypes";
 
 interface ToolRunCardProps {
   selectedTool: Tool | null;
   callTool: (name: string, params: Record<string, unknown>) => Promise<void>;
+  loadedRequest?: McpJamRequest | null;
 }
 
-const ToolRunCard = ({ selectedTool, callTool }: ToolRunCardProps) => {
+const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveRequestName, setSaveRequestName] = useState("");
+  const [saveRequestDescription, setSaveRequestDescription] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [paramsInitialized, setParamsInitialized] = useState(false);
+  const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
+
+  // Reset initialization flag when tool changes
+  useEffect(() => {
+    setParamsInitialized(false);
+    setCurrentRequestId(null); // Clear current request when tool changes
+  }, [selectedTool?.name]);
 
   useEffect(() => {
-    const params = Object.entries(
-      selectedTool?.inputSchema.properties ?? [],
-    ).map(([key, value]) => [
-      key,
-      generateDefaultValue(value as JsonSchemaType),
-    ]);
-    setParams(Object.fromEntries(params));
-  }, [selectedTool]);
+    if (loadedRequest && selectedTool && loadedRequest.toolName === selectedTool.name) {
+      // Load parameters from saved request
+      setParams(loadedRequest.parameters);
+      setParamsInitialized(true);
+      setCurrentRequestId(loadedRequest.id); // Track which request is loaded
+    } else if (selectedTool && !paramsInitialized) {
+      // Generate default parameters for the selected tool only if not already initialized
+      const params = Object.entries(
+        selectedTool?.inputSchema.properties ?? [],
+      ).map(([key, value]) => {
+        const defaultValue = generateDefaultValue(value as JsonSchemaType);
+        return [key, defaultValue];
+      });
+      
+      const paramsObject = Object.fromEntries(params);
+      setParams(paramsObject);
+      setParamsInitialized(true);
+      setCurrentRequestId(null); // No request loaded, so clear the ID
+    }
+  }, [selectedTool, loadedRequest, paramsInitialized]);
+
+  const handleSaveRequest = async () => {
+    if (!selectedTool) return;
+
+    try {
+      setIsSaving(true);
+
+      if (currentRequestId) {
+        // Update existing request
+        const updateInput: UpdateMcpJamRequestInput = {
+          parameters: params as Record<string, JsonValue>,
+        };
+
+        if (saveRequestName.trim()) {
+          updateInput.name = saveRequestName;
+        }
+        if (saveRequestDescription.trim()) {
+          updateInput.description = saveRequestDescription;
+        }
+
+        RequestStorage.updateRequest(currentRequestId, updateInput);
+      } else {
+        // Create new request
+        const requestInput: CreateMcpJamRequestInput = {
+          name: saveRequestName || generateDefaultRequestName(selectedTool, params as Record<string, JsonValue>),
+          description: saveRequestDescription,
+          toolName: selectedTool.name,
+          tool: selectedTool,
+          parameters: params as Record<string, JsonValue>,
+          tags: [],
+          isFavorite: false,
+        };
+
+        const request = createMcpJamRequest(requestInput);
+        RequestStorage.addRequest(request);
+        setCurrentRequestId(request.id); // Track the newly created request
+      }
+
+      // Reset dialog state
+      setShowSaveDialog(false);
+      setSaveRequestName("");
+      setSaveRequestDescription("");
+      
+      // Dispatch custom event to notify other components
+      window.dispatchEvent(new CustomEvent("requestSaved"));
+    } catch (error) {
+      console.error("Failed to save request:", error);
+      alert("Failed to save request. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const openSaveDialog = () => {
+    if (!selectedTool) return;
+    
+    if (currentRequestId && loadedRequest) {
+      // Pre-populate with current request data when updating
+      setSaveRequestName(loadedRequest.name);
+      setSaveRequestDescription(loadedRequest.description || "");
+    } else {
+      // Pre-populate with default name for new requests
+      setSaveRequestName(generateDefaultRequestName(selectedTool, params as Record<string, JsonValue>));
+      setSaveRequestDescription("");
+    }
+    setShowSaveDialog(true);
+  };
+
+  const isUpdatingExistingRequest = currentRequestId !== null;
 
   return (
     <div className="bg-gradient-to-br from-card/95 via-card to-card/95 backdrop-blur-sm rounded-xl shadow-lg border border-border/40 overflow-hidden transition-all duration-300 hover:shadow-xl hover:border-border/60">
@@ -155,13 +252,30 @@ const ToolRunCard = ({ selectedTool, callTool }: ToolRunCardProps) => {
                               placeholder={
                                 prop.description || `Enter ${key}...`
                               }
-                              value={(params[key] as string) ?? ""}
-                              onChange={(e) =>
-                                setParams({
-                                  ...params,
-                                  [key]: Number(e.target.value),
-                                })
-                              }
+                              value={params[key] !== undefined && params[key] !== null ? String(params[key]) : ""}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                
+                                let newParams;
+                                if (value === "") {
+                                  newParams = {
+                                    ...params,
+                                    [key]: undefined,
+                                  };
+                                } else {
+                                  const numValue = Number(value);
+                                  if (!isNaN(numValue)) {
+                                    newParams = {
+                                      ...params,
+                                      [key]: numValue,
+                                    };
+                                  } else {
+                                    return; // Don't update if invalid
+                                  }
+                                }
+                                
+                                setParams(newParams);
+                              }}
                               className="font-mono text-xs bg-gradient-to-br from-background/80 to-background/60 border-border/40 rounded-lg focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all duration-200 h-8"
                             />
                           ) : (
@@ -191,32 +305,118 @@ const ToolRunCard = ({ selectedTool, callTool }: ToolRunCardProps) => {
               </div>
             )}
 
-            {/* Run Button */}
-            <div className="pt-2 border-t border-border/20">
-              <Button
-                onClick={async () => {
-                  try {
-                    setIsToolRunning(true);
-                    await callTool(selectedTool.name, params);
-                  } finally {
-                    setIsToolRunning(false);
-                  }
-                }}
-                disabled={isToolRunning}
-                className="w-full h-8 bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary/80 text-primary-foreground font-medium rounded-lg shadow-md hover:shadow-lg transition-all duration-300 transform hover:scale-[1.01] active:scale-[0.99] text-xs"
-              >
-                {isToolRunning ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
-                    Executing...
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-3.5 h-3.5 mr-2" />
-                    Run Tool
-                  </>
-                )}
-              </Button>
+            {/* Action Buttons */}
+            <div className="pt-2 border-t border-border/20 space-y-2">
+              {/* Save and Run Buttons */}
+              <div className="flex space-x-2">
+                <Button
+                  onClick={openSaveDialog}
+                  variant="outline"
+                  className="flex-1 h-8 bg-gradient-to-r from-secondary/20 to-secondary/10 hover:from-secondary/30 hover:to-secondary/20 text-foreground font-medium rounded-lg border-border/40 hover:border-border/60 transition-all duration-300 text-xs"
+                >
+                  <Save className="w-3.5 h-3.5 mr-2" />
+                  {isUpdatingExistingRequest ? "Update Request" : "Save Request"}
+                </Button>
+                
+                <Button
+                  onClick={async () => {
+                    try {
+                      setIsToolRunning(true);
+                      await callTool(selectedTool.name, params);
+                    } finally {
+                      setIsToolRunning(false);
+                    }
+                  }}
+                  disabled={isToolRunning}
+                  className="flex-1 h-8 bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary/80 text-primary-foreground font-medium rounded-lg shadow-md hover:shadow-lg transition-all duration-300 transform hover:scale-[1.01] active:scale-[0.99] text-xs"
+                >
+                  {isToolRunning ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                      Executing...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5 mr-2" />
+                      Run Tool
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {/* Save Dialog */}
+              {showSaveDialog && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+                  <div className="bg-card border border-border rounded-xl shadow-xl p-4 w-full max-w-md mx-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-foreground">
+                        {isUpdatingExistingRequest ? "Update Request" : "Save Request"}
+                      </h3>
+                      <Button
+                        onClick={() => setShowSaveDialog(false)}
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 hover:bg-muted"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                          Request Name
+                        </label>
+                        <Input
+                          value={saveRequestName}
+                          onChange={(e) => setSaveRequestName(e.target.value)}
+                          placeholder="Enter request name..."
+                          className="text-xs h-8"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                          Description (optional)
+                        </label>
+                        <Textarea
+                          value={saveRequestDescription}
+                          onChange={(e) => setSaveRequestDescription(e.target.value)}
+                          placeholder="Enter description..."
+                          className="text-xs min-h-[60px] resize-none"
+                        />
+                      </div>
+                      
+                      <div className="flex space-x-2 pt-2">
+                        <Button
+                          onClick={() => setShowSaveDialog(false)}
+                          variant="outline"
+                          className="flex-1 h-8 text-xs"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleSaveRequest}
+                          disabled={isSaving}
+                          className="flex-1 h-8 text-xs"
+                        >
+                          {isSaving ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                              {isUpdatingExistingRequest ? "Updating..." : "Saving..."}
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-3.5 h-3.5 mr-2" />
+                              {isUpdatingExistingRequest ? "Update" : "Save"}
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ) : (
