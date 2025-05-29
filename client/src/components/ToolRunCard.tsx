@@ -10,7 +10,7 @@ import { Loader2, Send, Code2, Save, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createMcpJamRequest, generateDefaultRequestName } from "@/utils/requestUtils";
 import { RequestStorage } from "@/utils/requestStorage";
-import { CreateMcpJamRequestInput, McpJamRequest } from "@/lib/requestTypes";
+import { CreateMcpJamRequestInput, McpJamRequest, UpdateMcpJamRequestInput } from "@/lib/requestTypes";
 
 interface ToolRunCardProps {
   selectedTool: Tool | null;
@@ -26,10 +26,12 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
   const [saveRequestDescription, setSaveRequestDescription] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [paramsInitialized, setParamsInitialized] = useState(false);
+  const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
 
   // Reset initialization flag when tool changes
   useEffect(() => {
     setParamsInitialized(false);
+    setCurrentRequestId(null); // Clear current request when tool changes
   }, [selectedTool?.name]);
 
   useEffect(() => {
@@ -37,6 +39,7 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
       // Load parameters from saved request
       setParams(loadedRequest.parameters);
       setParamsInitialized(true);
+      setCurrentRequestId(loadedRequest.id); // Track which request is loaded
     } else if (selectedTool && !paramsInitialized) {
       // Generate default parameters for the selected tool only if not already initialized
       const params = Object.entries(
@@ -49,6 +52,7 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
       const paramsObject = Object.fromEntries(params);
       setParams(paramsObject);
       setParamsInitialized(true);
+      setCurrentRequestId(null); // No request loaded, so clear the ID
     }
   }, [selectedTool, loadedRequest, paramsInitialized]);
 
@@ -58,20 +62,36 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
     try {
       setIsSaving(true);
 
-      // Create the request (no validation - allow saving incomplete requests)
-      const requestInput: CreateMcpJamRequestInput = {
-        name: saveRequestName || generateDefaultRequestName(selectedTool, params as Record<string, JsonValue>),
-        description: saveRequestDescription,
-        toolName: selectedTool.name,
-        tool: selectedTool,
-        parameters: params as Record<string, JsonValue>,
-        tags: [],
-        isFavorite: false,
-      };
+      if (currentRequestId) {
+        // Update existing request
+        const updateInput: UpdateMcpJamRequestInput = {
+          parameters: params as Record<string, JsonValue>,
+        };
 
-      const request = createMcpJamRequest(requestInput);
-      
-      RequestStorage.addRequest(request);
+        if (saveRequestName.trim()) {
+          updateInput.name = saveRequestName;
+        }
+        if (saveRequestDescription.trim()) {
+          updateInput.description = saveRequestDescription;
+        }
+
+        RequestStorage.updateRequest(currentRequestId, updateInput);
+      } else {
+        // Create new request
+        const requestInput: CreateMcpJamRequestInput = {
+          name: saveRequestName || generateDefaultRequestName(selectedTool, params as Record<string, JsonValue>),
+          description: saveRequestDescription,
+          toolName: selectedTool.name,
+          tool: selectedTool,
+          parameters: params as Record<string, JsonValue>,
+          tags: [],
+          isFavorite: false,
+        };
+
+        const request = createMcpJamRequest(requestInput);
+        RequestStorage.addRequest(request);
+        setCurrentRequestId(request.id); // Track the newly created request
+      }
 
       // Reset dialog state
       setShowSaveDialog(false);
@@ -91,11 +111,19 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
   const openSaveDialog = () => {
     if (!selectedTool) return;
     
-    // Pre-populate with default name
-    setSaveRequestName(generateDefaultRequestName(selectedTool, params as Record<string, JsonValue>));
-    setSaveRequestDescription("");
+    if (currentRequestId && loadedRequest) {
+      // Pre-populate with current request data when updating
+      setSaveRequestName(loadedRequest.name);
+      setSaveRequestDescription(loadedRequest.description || "");
+    } else {
+      // Pre-populate with default name for new requests
+      setSaveRequestName(generateDefaultRequestName(selectedTool, params as Record<string, JsonValue>));
+      setSaveRequestDescription("");
+    }
     setShowSaveDialog(true);
   };
+
+  const isUpdatingExistingRequest = currentRequestId !== null;
 
   return (
     <div className="bg-gradient-to-br from-card/95 via-card to-card/95 backdrop-blur-sm rounded-xl shadow-lg border border-border/40 overflow-hidden transition-all duration-300 hover:shadow-xl hover:border-border/60">
@@ -287,7 +315,7 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
                   className="flex-1 h-8 bg-gradient-to-r from-secondary/20 to-secondary/10 hover:from-secondary/30 hover:to-secondary/20 text-foreground font-medium rounded-lg border-border/40 hover:border-border/60 transition-all duration-300 text-xs"
                 >
                   <Save className="w-3.5 h-3.5 mr-2" />
-                  Save Request
+                  {isUpdatingExistingRequest ? "Update Request" : "Save Request"}
                 </Button>
                 
                 <Button
@@ -321,7 +349,9 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
                   <div className="bg-card border border-border rounded-xl shadow-xl p-4 w-full max-w-md mx-4">
                     <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-sm font-semibold text-foreground">Save Request</h3>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        {isUpdatingExistingRequest ? "Update Request" : "Save Request"}
+                      </h3>
                       <Button
                         onClick={() => setShowSaveDialog(false)}
                         variant="ghost"
@@ -373,12 +403,12 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
                           {isSaving ? (
                             <>
                               <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
-                              Saving...
+                              {isUpdatingExistingRequest ? "Updating..." : "Saving..."}
                             </>
                           ) : (
                             <>
                               <Save className="w-3.5 h-3.5 mr-2" />
-                              Save
+                              {isUpdatingExistingRequest ? "Update" : "Save"}
                             </>
                           )}
                         </Button>

@@ -20,6 +20,8 @@ import {
   Trash2,
   Calendar,
   Star,
+  Edit2,
+  Copy,
 } from "lucide-react";
 import { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
 import useTheme from "../lib/hooks/useTheme";
@@ -29,6 +31,8 @@ import { useEffect, useState } from "react";
 import { McpJamRequest } from "@/lib/requestTypes";
 import { RequestStorage } from "@/utils/requestStorage";
 import { sortRequests } from "@/utils/requestUtils";
+import { createMcpJamRequest } from "@/utils/requestUtils";
+import { Input } from "@/components/ui/input";
 
 interface SidebarProps {
   currentPage: string;
@@ -49,6 +53,8 @@ const Sidebar = ({
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [savedRequests, setSavedRequests] = useState<McpJamRequest[]>([]);
+  const [renamingRequestId, setRenamingRequestId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   // Load saved requests on component mount
   useEffect(() => {
@@ -94,6 +100,42 @@ const Sidebar = ({
       // Switch to tools tab to show the loaded request
       handlePageChange("tools");
     }
+  };
+
+  const handleRenameRequest = (requestId: string, currentName: string) => {
+    setRenamingRequestId(requestId);
+    setRenameValue(currentName);
+  };
+
+  const handleSaveRename = (requestId: string) => {
+    if (renameValue.trim()) {
+      RequestStorage.updateRequest(requestId, { name: renameValue.trim() });
+      setSavedRequests(prev => prev.map(req => 
+        req.id === requestId ? { ...req, name: renameValue.trim() } : req
+      ));
+    }
+    setRenamingRequestId(null);
+    setRenameValue("");
+  };
+
+  const handleCancelRename = () => {
+    setRenamingRequestId(null);
+    setRenameValue("");
+  };
+
+  const handleDuplicateRequest = (request: McpJamRequest) => {
+    const duplicatedRequest = createMcpJamRequest({
+      name: `${request.name} (Copy)`,
+      description: request.description,
+      toolName: request.toolName,
+      tool: request.tool,
+      parameters: request.parameters,
+      tags: request.tags || [],
+      isFavorite: false,
+    });
+    
+    RequestStorage.addRequest(duplicatedRequest);
+    setSavedRequests(prev => [duplicatedRequest, ...prev]);
   };
 
   const formatDate = (date: Date) => {
@@ -236,13 +278,31 @@ const Sidebar = ({
                   <div
                     key={request.id}
                     className="group bg-muted/30 hover:bg-muted/50 border border-border/30 rounded-lg p-2.5 transition-all duration-200 cursor-pointer"
-                    onClick={() => handleLoadRequest(request)}
+                    onClick={() => renamingRequestId !== request.id && handleLoadRequest(request)}
                   >
                     <div className="flex items-start justify-between mb-1.5">
                       <div className="flex-1 min-w-0">
-                        <h4 className="text-xs font-medium text-foreground truncate">
-                          {request.name}
-                        </h4>
+                        {renamingRequestId === request.id ? (
+                          <Input
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                handleSaveRename(request.id);
+                              } else if (e.key === "Escape") {
+                                handleCancelRename();
+                              }
+                            }}
+                            onBlur={() => handleSaveRename(request.id)}
+                            className="text-xs h-6 font-medium"
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <h4 className="text-xs font-medium text-foreground truncate">
+                            {request.name}
+                          </h4>
+                        )}
                         <p className="text-xs text-muted-foreground font-mono">
                           {request.toolName}
                         </p>
@@ -251,6 +311,30 @@ const Sidebar = ({
                         {request.isFavorite && (
                           <Star className="w-3 h-3 text-yellow-500 fill-current" />
                         )}
+                        <Button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRenameRequest(request.id, request.name);
+                          }}
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 hover:bg-primary/20 hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Rename request"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDuplicateRequest(request);
+                          }}
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 hover:bg-blue-500/20 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Duplicate request"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </Button>
                         <Button
                           onClick={(e) => {
                             e.stopPropagation();
