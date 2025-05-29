@@ -3,6 +3,7 @@
 import cors from "cors";
 import { parseArgs } from "node:util";
 import { parse as shellParseArgs } from "shell-quote";
+import { createServer } from "node:net";
 
 import {
   SSEClientTransport,
@@ -359,17 +360,51 @@ app.get("/config", (req, res) => {
   }
 });
 
+// Function to find an available port
+const findAvailablePort = async (startPort: number): Promise<number> => {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    
+    server.listen(startPort, () => {
+      const port = (server.address() as any)?.port;
+      server.close(() => {
+        resolve(port);
+      });
+    });
+    
+    server.on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        // Port is in use, try the next one
+        findAvailablePort(startPort + 1).then(resolve).catch(reject);
+      } else {
+        reject(err);
+      }
+    });
+  });
+};
+
 const PORT = process.env.PORT || 6277;
 
-const server = app.listen(PORT);
-server.on("listening", () => {
-  console.log(`⚙️ Proxy server listening on port ${PORT}`);
-});
-server.on("error", (err) => {
-  if (err.message.includes(`EADDRINUSE`)) {
-    console.error(`❌  Proxy Server PORT IS IN USE at port ${PORT} ❌ `);
-  } else {
-    console.error(err.message);
+// Start server with dynamic port finding
+const startServer = async () => {
+  try {
+    const availablePort = await findAvailablePort(Number(PORT));
+    
+    const server = app.listen(availablePort);
+    server.on("listening", () => {
+      if (availablePort !== Number(PORT)) {
+        console.log(`⚠️  Port ${PORT} was in use, using available port ${availablePort} instead`);
+      }
+      console.log(`⚙️ Proxy server listening on port ${availablePort}`);
+    });
+    server.on("error", (err) => {
+      console.error(`❌ Server error: ${err.message}`);
+      process.exit(1);
+    });
+  } catch (error) {
+    console.error(`❌ Failed to start server: ${error}`);
+    process.exit(1);
   }
-  process.exit(1);
-});
+};
+
+startServer();

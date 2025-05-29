@@ -1,6 +1,6 @@
 {
   "name": "@mcpjam/inspector",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "MCPJam inspector",
   "license": "Apache-2.0",
   "author": "MCPJam (https://mcpjam.com)",
@@ -41,9 +41,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
-    "@mcpjam/inspector-cli": "^0.1.2",
-    "@mcpjam/inspector-client": "^0.1.2",
-    "@mcpjam/inspector-server": "^0.1.2",
+    "@mcpjam/inspector-cli": "^0.1.6",
+    "@mcpjam/inspector-client": "^0.1.6",
+    "@mcpjam/inspector-server": "^0.1.6",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "concurrently": "^9.0.1",
     "dotenv": "^16.5.0",
