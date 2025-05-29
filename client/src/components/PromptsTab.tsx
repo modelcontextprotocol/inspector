@@ -103,6 +103,7 @@ const PromptsTab = ({
         )}
         title="Prompts"
         isButtonDisabled={!nextCursor && prompts.length > 0}
+        buttonText="Load Prompts"
       />
 
       <div className="bg-card rounded-lg shadow">

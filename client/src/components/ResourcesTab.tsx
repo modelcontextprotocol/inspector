@@ -136,6 +136,7 @@ const ResourcesTab = ({
         )}
         title="Resources"
         isButtonDisabled={!nextCursor && resources.length > 0}
+        buttonText="Load Resources"
       />
 
       <ListPane
@@ -165,6 +166,7 @@ const ResourcesTab = ({
         )}
         title="Resource Templates"
         isButtonDisabled={!nextTemplateCursor && resourceTemplates.length > 0}
+        buttonText="Load Templates"
       />
 
       <div className="bg-card rounded-lg shadow">
