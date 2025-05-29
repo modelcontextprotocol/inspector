@@ -176,6 +176,32 @@ We welcome contributions! We thought the original inspector repository moved too
 4. **Push** to the branch (`git push origin feature/amazing-feature`)
 5. **Open** a Pull Request
 
+## Our Roadmap
+
+We're continuously improving the MCPJam Inspector. Here's what's coming next:
+
+### UI/UX Improvements
+
+- **Fix dark mode styling** - Improve run tool button appearance in dark mode
+- **Enhanced logging UX** - Address misleading red color for INFO logs
+
+### Core Features
+
+- **Multi Connection support** - Connect to multiple servers simultaneously (Agents SDK)
+- **AI parameter fill** - Smart parameter completion using AI
+- **Collections** - Organize and group your MCP servers / tools
+- **Multi Provider support** - Support for other LLMs like ChatGPT
+
+### Technical Enhancements
+
+- **Security scanning** - Built-in vulnerability scanning tools
+- **Electron App** - Desktop application for enhanced user experience
+
+### Ecosystem
+
+- **Landing page improvements** - Update MCP Jam landing page
+- **Documentation expansion** - Enhanced guides and tutorials
+
 ### Development Guidelines
 
 - Follow the existing code style (Prettier + ESLint)
