@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import ListPane from "./ListPane";
 import { ConnectionStatus } from "@/lib/constants";
 import ToolRunCard from "./ToolRunCard";
+import { McpJamRequest } from "@/lib/requestTypes";
 
 const ToolsTab = ({
   tools,
@@ -17,6 +18,7 @@ const ToolsTab = ({
   setSelectedTool,
   nextCursor,
   connectionStatus,
+  loadedRequest,
 }: {
   tools: Tool[];
   listTools: () => void;
@@ -28,12 +30,23 @@ const ToolsTab = ({
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
   connectionStatus: ConnectionStatus;
+  loadedRequest?: McpJamRequest | null;
 }) => {
   useEffect(() => {
     if (connectionStatus === "connected") {
       listTools();
     }
   }, [connectionStatus]);
+
+  // Auto-select tool when a request is loaded
+  useEffect(() => {
+    if (loadedRequest && tools.length > 0) {
+      const matchingTool = tools.find(tool => tool.name === loadedRequest.toolName);
+      if (matchingTool) {
+        setSelectedTool(matchingTool);
+      }
+    }
+  }, [loadedRequest, tools, setSelectedTool]);
 
   return (
     <div className="grid grid-cols-2 gap-4">
@@ -83,7 +96,11 @@ const ToolsTab = ({
         searchPlaceholder="Search tools by name..."
       />
 
-      <ToolRunCard selectedTool={selectedTool} callTool={callTool} />
+      <ToolRunCard 
+        selectedTool={selectedTool} 
+        callTool={callTool} 
+        loadedRequest={loadedRequest}
+      />
     </div>
   );
 };

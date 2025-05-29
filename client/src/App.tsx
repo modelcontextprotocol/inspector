@@ -12,6 +12,7 @@ import {
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
 import { AuthDebuggerState } from "./lib/auth-types";
+import { McpJamRequest } from "./lib/requestTypes";
 import React, {
   Suspense,
   useCallback,
@@ -37,6 +38,7 @@ import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import ToolsTab from "./components/ToolsTab";
 import ChatTab from "./components/ChatTab";
 import Sidebar from "./components/Sidebar";
+import Tabs from "./components/Tabs";
 import SettingsTab from "./components/SettingsTab";
 import { InspectorConfig } from "./lib/configurationTypes";
 import ConnectionSection from "./components/ConnectionSection";
@@ -64,7 +66,6 @@ import {
   callTool,
   handleRootsChange,
   sendLogLevelRequest,
-  clearStdErrNotifications,
   MCPHelperDependencies,
   MCPHelperState,
 } from "./utils/mcpHelpers";
@@ -161,6 +162,7 @@ const App = () => {
 
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
+  const [loadedRequest, setLoadedRequest] = useState<McpJamRequest | null>(null);
   const [nextResourceCursor, setNextResourceCursor] = useState<
     string | undefined
   >();
@@ -478,7 +480,13 @@ const App = () => {
   };
 
   const clearStdErrNotificationsWrapper = () => {
-    clearStdErrNotifications(setStdErrNotifications);
+    setStdErrNotifications([]);
+  };
+
+  const handleLoadRequest = (request: McpJamRequest) => {
+    setLoadedRequest(request);
+    // Clear the loaded request after a short delay to allow the component to process it
+    setTimeout(() => setLoadedRequest(null), 100);
   };
 
   // Helper function to render OAuth callback components
@@ -679,6 +687,7 @@ const App = () => {
               nextCursor={nextToolCursor}
               error={errors.tools}
               connectionStatus={connectionStatus}
+              loadedRequest={loadedRequest}
             />
           );
         case "chat":
@@ -758,6 +767,7 @@ const App = () => {
           serverCapabilities={serverCapabilities}
           pendingSampleRequests={pendingSampleRequests}
           shouldDisableAll={!mcpClient}
+          onLoadRequest={handleLoadRequest}
         />
 
         {/* Main Content Area - Right Side */}
@@ -791,6 +801,15 @@ const App = () => {
               clearStdErrNotifications={clearStdErrNotificationsWrapper}
             />
           </div>
+
+          {/* Horizontal Tabs */}
+          <Tabs
+            currentPage={currentPage}
+            onPageChange={setCurrentPage}
+            serverCapabilities={serverCapabilities}
+            pendingSampleRequests={pendingSampleRequests}
+            shouldDisableAll={!mcpClient}
+          />
 
           {/* Main Content */}
           <div className="flex-1 flex flex-col overflow-hidden overflow-y-auto">
