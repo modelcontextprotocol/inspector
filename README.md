@@ -4,6 +4,9 @@ The MCP inspector is a developer tool for testing and debugging MCP servers.
 
 ![MCP Inspector Screenshot](https://raw.githubusercontent.com/modelcontextprotocol/inspector/main/mcp-inspector.png)
 
+> **Tip:**
+> You can resize the left sidebar by dragging its right edge. This allows you to adjust the space for server configuration, environment variables, and other controls to your preference.
+
 ## Running the Inspector
 
 ### Requirements
