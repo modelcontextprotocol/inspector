@@ -27,41 +27,26 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
   const [isSaving, setIsSaving] = useState(false);
   const [paramsInitialized, setParamsInitialized] = useState(false);
 
-  // Debug: Track params changes
-  useEffect(() => {
-    console.log("Params state changed:", params);
-  }, [params]);
-
   // Reset initialization flag when tool changes
   useEffect(() => {
-    console.log("Tool changed, resetting paramsInitialized");
     setParamsInitialized(false);
   }, [selectedTool?.name]);
 
   useEffect(() => {
-    console.log("useEffect triggered - selectedTool:", selectedTool?.name, "loadedRequest:", loadedRequest?.name);
-    console.log("paramsInitialized:", paramsInitialized);
-    
     if (loadedRequest && selectedTool && loadedRequest.toolName === selectedTool.name) {
       // Load parameters from saved request
-      console.log("Loading parameters from saved request:", loadedRequest.parameters);
       setParams(loadedRequest.parameters);
       setParamsInitialized(true);
     } else if (selectedTool && !paramsInitialized) {
       // Generate default parameters for the selected tool only if not already initialized
-      console.log("Generating default parameters for tool:", selectedTool.name);
-      console.log("Tool input schema:", selectedTool.inputSchema);
-      
       const params = Object.entries(
         selectedTool?.inputSchema.properties ?? [],
       ).map(([key, value]) => {
         const defaultValue = generateDefaultValue(value as JsonSchemaType);
-        console.log(`Default value for ${key}:`, defaultValue);
         return [key, defaultValue];
       });
       
       const paramsObject = Object.fromEntries(params);
-      console.log("Final params object:", paramsObject);
       setParams(paramsObject);
       setParamsInitialized(true);
     }
@@ -72,9 +57,6 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
 
     try {
       setIsSaving(true);
-
-      // Debug: Log the current parameters
-      console.log("Saving request with parameters:", params);
 
       // Create the request (no validation - allow saving incomplete requests)
       const requestInput: CreateMcpJamRequestInput = {
@@ -87,10 +69,7 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
         isFavorite: false,
       };
 
-      console.log("Request input:", requestInput);
-
       const request = createMcpJamRequest(requestInput);
-      console.log("Created request:", request);
       
       RequestStorage.addRequest(request);
 
@@ -248,33 +227,25 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
                               value={params[key] !== undefined && params[key] !== null ? String(params[key]) : ""}
                               onChange={(e) => {
                                 const value = e.target.value;
-                                console.log(`Number input changed for ${key}:`, value);
-                                console.log(`Current params before change:`, params);
                                 
                                 let newParams;
                                 if (value === "") {
-                                  // Handle empty string - remove the parameter or set to undefined
-                                  console.log(`Setting ${key} to undefined`);
                                   newParams = {
                                     ...params,
                                     [key]: undefined,
                                   };
                                 } else {
                                   const numValue = Number(value);
-                                  console.log(`Parsed number value for ${key}:`, numValue);
                                   if (!isNaN(numValue)) {
-                                    console.log(`Setting ${key} to:`, numValue);
                                     newParams = {
                                       ...params,
                                       [key]: numValue,
                                     };
                                   } else {
-                                    console.log(`Invalid number, keeping current value`);
                                     return; // Don't update if invalid
                                   }
                                 }
                                 
-                                console.log(`New params after change:`, newParams);
                                 setParams(newParams);
                               }}
                               className="font-mono text-xs bg-gradient-to-br from-background/80 to-background/60 border-border/40 rounded-lg focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all duration-200 h-8"
