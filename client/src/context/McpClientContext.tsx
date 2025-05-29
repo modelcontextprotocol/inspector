@@ -3,4 +3,4 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 export const McpClientContext = createContext<Client | null>(null);
 
-export const useMcpClient = () => useContext(McpClientContext); 
+export const useMcpClient = () => useContext(McpClientContext);

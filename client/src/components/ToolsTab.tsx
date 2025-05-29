@@ -41,7 +41,9 @@ const ToolsTab = ({
   // Auto-select tool when a request is loaded
   useEffect(() => {
     if (loadedRequest && tools.length > 0) {
-      const matchingTool = tools.find(tool => tool.name === loadedRequest.toolName);
+      const matchingTool = tools.find(
+        (tool) => tool.name === loadedRequest.toolName,
+      );
       if (matchingTool) {
         setSelectedTool(matchingTool);
       }
@@ -97,9 +99,9 @@ const ToolsTab = ({
         buttonText="Load Tools"
       />
 
-      <ToolRunCard 
-        selectedTool={selectedTool} 
-        callTool={callTool} 
+      <ToolRunCard
+        selectedTool={selectedTool}
+        callTool={callTool}
         loadedRequest={loadedRequest}
       />
     </div>

@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Eye, EyeOff, Key, CheckCircle, AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  Eye,
+  EyeOff,
+  Key,
+  CheckCircle,
+  AlertCircle,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
 import { useToast } from "@/lib/hooks/useToast";
 
 interface ApiKeyManagerProps {
@@ -11,7 +19,10 @@ interface ApiKeyManagerProps {
 
 const STORAGE_KEY = "claude-api-key";
 
-const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ onApiKeyChange, disabled = false }) => {
+const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({
+  onApiKeyChange,
+  disabled = false,
+}) => {
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [isValidKey, setIsValidKey] = useState(false);
@@ -45,7 +56,7 @@ const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ onApiKeyChange, disabled 
     setApiKey(value);
     const isValid = validateApiKey(value);
     setIsValidKey(isValid);
-    
+
     if (isValid) {
       try {
         localStorage.setItem(STORAGE_KEY, value);
@@ -56,7 +67,8 @@ const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ onApiKeyChange, disabled 
       setIsCollapsed(true); // Collapse when valid key is entered
       toast({
         title: "API Key Set",
-        description: "Your Claude API key has been saved and configured successfully.",
+        description:
+          "Your Claude API key has been saved and configured successfully.",
         variant: "default",
       });
     } else if (value.length > 0) {
@@ -141,7 +153,7 @@ const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ onApiKeyChange, disabled 
           </Button>
         )}
       </div>
-      
+
       <div className="space-y-3">
         <div className="flex gap-2">
           <div className="flex-1 relative">
@@ -185,19 +197,20 @@ const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ onApiKeyChange, disabled 
             </Button>
           )}
         </div>
-        
+
         {apiKey.length > 0 && !isValidKey && (
           <p className="text-sm text-red-600 dark:text-red-400">
             Please enter a valid Claude API key starting with "sk-ant-api03-"
           </p>
         )}
-        
+
         {!apiKey.length && (
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            Enter your Claude API key to enable the chat functionality. Your key will be securely stored in your browser's local storage.
+            Enter your Claude API key to enable the chat functionality. Your key
+            will be securely stored in your browser's local storage.
           </p>
         )}
-        
+
         {isValidKey && (
           <p className="text-sm text-green-600 dark:text-green-400">
             ✓ Valid API key configured. Chat functionality is now available.
@@ -208,4 +221,4 @@ const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ onApiKeyChange, disabled 
   );
 };
 
-export default ApiKeyManager; 
+export default ApiKeyManager;

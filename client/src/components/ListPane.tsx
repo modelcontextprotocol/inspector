@@ -32,7 +32,7 @@ const ListPane = <T extends object>({
   // Filter items based on search term
   const filteredItems = useMemo(() => {
     if (!searchTerm.trim()) return items;
-    
+
     return items.filter((item) => {
       if (searchKey && item[searchKey]) {
         // Search by specific key if provided
@@ -41,7 +41,7 @@ const ListPane = <T extends object>({
       } else {
         // Search across all string properties if no specific key is provided
         return Object.values(item).some((value) =>
-          String(value).toLowerCase().includes(searchTerm.toLowerCase())
+          String(value).toLowerCase().includes(searchTerm.toLowerCase()),
         );
       }
     });
@@ -75,7 +75,7 @@ const ListPane = <T extends object>({
           </Button>
         </div>
       </div>
-      
+
       {/* Search input */}
       {items.length > 0 && (
         <div className="p-4 border-b border-gray-200 dark:border-gray-800">
@@ -93,7 +93,7 @@ const ListPane = <T extends object>({
           )}
         </div>
       )}
-      
+
       <div className="p-4">
         <div className="space-y-2 overflow-y-auto max-h-96">
           {filteredItems.length > 0 ? (

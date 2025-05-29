@@ -8,9 +8,16 @@ import { generateDefaultValue } from "@/utils/schemaUtils";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Loader2, Send, Code2, Save, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { createMcpJamRequest, generateDefaultRequestName } from "@/utils/requestUtils";
+import {
+  createMcpJamRequest,
+  generateDefaultRequestName,
+} from "@/utils/requestUtils";
 import { RequestStorage } from "@/utils/requestStorage";
-import { CreateMcpJamRequestInput, McpJamRequest, UpdateMcpJamRequestInput } from "@/lib/requestTypes";
+import {
+  CreateMcpJamRequestInput,
+  McpJamRequest,
+  UpdateMcpJamRequestInput,
+} from "@/lib/requestTypes";
 
 interface ToolRunCardProps {
   selectedTool: Tool | null;
@@ -18,7 +25,11 @@ interface ToolRunCardProps {
   loadedRequest?: McpJamRequest | null;
 }
 
-const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps) => {
+const ToolRunCard = ({
+  selectedTool,
+  callTool,
+  loadedRequest,
+}: ToolRunCardProps) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -35,7 +46,11 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
   }, [selectedTool?.name]);
 
   useEffect(() => {
-    if (loadedRequest && selectedTool && loadedRequest.toolName === selectedTool.name) {
+    if (
+      loadedRequest &&
+      selectedTool &&
+      loadedRequest.toolName === selectedTool.name
+    ) {
       // Load parameters from saved request
       setParams(loadedRequest.parameters);
       setParamsInitialized(true);
@@ -48,7 +63,7 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
         const defaultValue = generateDefaultValue(value as JsonSchemaType);
         return [key, defaultValue];
       });
-      
+
       const paramsObject = Object.fromEntries(params);
       setParams(paramsObject);
       setParamsInitialized(true);
@@ -79,7 +94,12 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
       } else {
         // Create new request
         const requestInput: CreateMcpJamRequestInput = {
-          name: saveRequestName || generateDefaultRequestName(selectedTool, params as Record<string, JsonValue>),
+          name:
+            saveRequestName ||
+            generateDefaultRequestName(
+              selectedTool,
+              params as Record<string, JsonValue>,
+            ),
           description: saveRequestDescription,
           toolName: selectedTool.name,
           tool: selectedTool,
@@ -97,7 +117,7 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
       setShowSaveDialog(false);
       setSaveRequestName("");
       setSaveRequestDescription("");
-      
+
       // Dispatch custom event to notify other components
       window.dispatchEvent(new CustomEvent("requestSaved"));
     } catch (error) {
@@ -110,14 +130,19 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
 
   const openSaveDialog = () => {
     if (!selectedTool) return;
-    
+
     if (currentRequestId && loadedRequest) {
       // Pre-populate with current request data when updating
       setSaveRequestName(loadedRequest.name);
       setSaveRequestDescription(loadedRequest.description || "");
     } else {
       // Pre-populate with default name for new requests
-      setSaveRequestName(generateDefaultRequestName(selectedTool, params as Record<string, JsonValue>));
+      setSaveRequestName(
+        generateDefaultRequestName(
+          selectedTool,
+          params as Record<string, JsonValue>,
+        ),
+      );
       setSaveRequestDescription("");
     }
     setShowSaveDialog(true);
@@ -252,10 +277,15 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
                               placeholder={
                                 prop.description || `Enter ${key}...`
                               }
-                              value={params[key] !== undefined && params[key] !== null ? String(params[key]) : ""}
+                              value={
+                                params[key] !== undefined &&
+                                params[key] !== null
+                                  ? String(params[key])
+                                  : ""
+                              }
                               onChange={(e) => {
                                 const value = e.target.value;
-                                
+
                                 let newParams;
                                 if (value === "") {
                                   newParams = {
@@ -273,7 +303,7 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
                                     return; // Don't update if invalid
                                   }
                                 }
-                                
+
                                 setParams(newParams);
                               }}
                               className="font-mono text-xs bg-gradient-to-br from-background/80 to-background/60 border-border/40 rounded-lg focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all duration-200 h-8"
@@ -315,9 +345,11 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
                   className="flex-1 h-8 bg-gradient-to-r from-secondary/20 to-secondary/10 hover:from-secondary/30 hover:to-secondary/20 text-foreground font-medium rounded-lg border-border/40 hover:border-border/60 transition-all duration-300 text-xs"
                 >
                   <Save className="w-3.5 h-3.5 mr-2" />
-                  {isUpdatingExistingRequest ? "Update Request" : "Save Request"}
+                  {isUpdatingExistingRequest
+                    ? "Update Request"
+                    : "Save Request"}
                 </Button>
-                
+
                 <Button
                   onClick={async () => {
                     try {
@@ -350,7 +382,9 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
                   <div className="bg-card border border-border rounded-xl shadow-xl p-4 w-full max-w-md mx-4">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-foreground">
-                        {isUpdatingExistingRequest ? "Update Request" : "Save Request"}
+                        {isUpdatingExistingRequest
+                          ? "Update Request"
+                          : "Save Request"}
                       </h3>
                       <Button
                         onClick={() => setShowSaveDialog(false)}
@@ -361,7 +395,7 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
                         <X className="w-3.5 h-3.5" />
                       </Button>
                     </div>
-                    
+
                     <div className="space-y-3">
                       <div>
                         <label className="text-xs font-medium text-muted-foreground mb-1 block">
@@ -374,19 +408,21 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
                           className="text-xs h-8"
                         />
                       </div>
-                      
+
                       <div>
                         <label className="text-xs font-medium text-muted-foreground mb-1 block">
                           Description (optional)
                         </label>
                         <Textarea
                           value={saveRequestDescription}
-                          onChange={(e) => setSaveRequestDescription(e.target.value)}
+                          onChange={(e) =>
+                            setSaveRequestDescription(e.target.value)
+                          }
                           placeholder="Enter description..."
                           className="text-xs min-h-[60px] resize-none"
                         />
                       </div>
-                      
+
                       <div className="flex space-x-2 pt-2">
                         <Button
                           onClick={() => setShowSaveDialog(false)}
@@ -403,7 +439,9 @@ const ToolRunCard = ({ selectedTool, callTool, loadedRequest }: ToolRunCardProps
                           {isSaving ? (
                             <>
                               <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
-                              {isUpdatingExistingRequest ? "Updating..." : "Saving..."}
+                              {isUpdatingExistingRequest
+                                ? "Updating..."
+                                : "Saving..."}
                             </>
                           ) : (
                             <>

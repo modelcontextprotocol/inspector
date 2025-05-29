@@ -162,7 +162,9 @@ const App = () => {
 
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
-  const [loadedRequest, setLoadedRequest] = useState<McpJamRequest | null>(null);
+  const [loadedRequest, setLoadedRequest] = useState<McpJamRequest | null>(
+    null,
+  );
   const [nextResourceCursor, setNextResourceCursor] = useState<
     string | undefined
   >();
