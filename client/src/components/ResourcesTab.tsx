@@ -248,6 +248,18 @@ const ResourcesTab = ({
                           id={key}
                           placeholder={`Enter ${key}`}
                           value={templateValues[key] || ""}
+                          emptyMessage={
+                            <div className="px-6">
+                              This resource does not support{" "}
+                              <a
+                                href="https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/completion"
+                                target="_blank"
+                              >
+                                completions
+                              </a>
+                              .
+                            </div>
+                          }
                           onChange={(value) =>
                             handleTemplateValueChange(key, value)
                           }
