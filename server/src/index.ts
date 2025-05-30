@@ -48,7 +48,8 @@ app.use((req, res, next) => {
   next();
 });
 
-const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Transports by sessionId
+const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Web app transports by web app sessionId
+const serverTransports: Map<string, Transport> = new Map<string, Transport>(); // Server Transports by web app sessionId
 
 const createTransport = async (req: express.Request): Promise<Transport> => {
   const query = req.query;
@@ -137,8 +138,6 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
   }
 };
 
-let backingServerTransport: Transport | undefined;
-
 app.get("/mcp", async (req, res) => {
   const sessionId = req.headers["mcp-session-id"] as string;
   console.log(`Received GET message for sessionId ${sessionId}`);
@@ -161,12 +160,12 @@ app.get("/mcp", async (req, res) => {
 app.post("/mcp", async (req, res) => {
   const sessionId = req.headers["mcp-session-id"] as string | undefined;
   console.log(`Received POST message for sessionId ${sessionId}`);
+  let serverTransport: Transport | undefined;
   if (!sessionId) {
     try {
       console.log("New streamable-http connection");
       try {
-        await backingServerTransport?.close();
-        backingServerTransport = await createTransport(req);
+        serverTransport = await createTransport(req);
       } catch (error) {
         if (error instanceof SseError && error.code === 401) {
           console.error(
@@ -180,12 +179,13 @@ app.post("/mcp", async (req, res) => {
         throw error;
       }
 
-      console.log("Connected MCP client to backing server transport");
+      console.log("Connected MCP client to server transport");
 
       const webAppTransport = new StreamableHTTPServerTransport({
         sessionIdGenerator: randomUUID,
         onsessioninitialized: (sessionId) => {
           webAppTransports.set(sessionId, webAppTransport);
+          serverTransports.set(sessionId, serverTransport!);
           console.log("Created streamable web app transport " + sessionId);
         },
       });
@@ -194,7 +194,7 @@ app.post("/mcp", async (req, res) => {
 
       mcpProxy({
         transportToClient: webAppTransport,
-        transportToServer: backingServerTransport,
+        transportToServer: serverTransport,
       });
 
       await (webAppTransport as StreamableHTTPServerTransport).handleRequest(
@@ -229,10 +229,9 @@ app.post("/mcp", async (req, res) => {
 app.get("/stdio", async (req, res) => {
   try {
     console.log("New connection");
-
+    let serverTransport: Transport | undefined;
     try {
-      await backingServerTransport?.close();
-      backingServerTransport = await createTransport(req);
+      serverTransport = await createTransport(req);
     } catch (error) {
       if (error instanceof SseError && error.code === 401) {
         console.error(
@@ -250,26 +249,24 @@ app.get("/stdio", async (req, res) => {
 
     const webAppTransport = new SSEServerTransport("/message", res);
     webAppTransports.set(webAppTransport.sessionId, webAppTransport);
-
-    console.log("Created web app transport");
+    serverTransports.set(webAppTransport.sessionId, serverTransport);
+    console.log("Created client/server transports");
 
     await webAppTransport.start();
-    (backingServerTransport as StdioClientTransport).stderr!.on(
-      "data",
-      (chunk) => {
-        webAppTransport.send({
-          jsonrpc: "2.0",
-          method: "notifications/stderr",
-          params: {
-            content: chunk.toString(),
-          },
-        });
-      },
-    );
+
+    (serverTransport as StdioClientTransport).stderr!.on("data", (chunk) => {
+      webAppTransport.send({
+        jsonrpc: "2.0",
+        method: "notifications/stderr",
+        params: {
+          content: chunk.toString(),
+        },
+      });
+    });
 
     mcpProxy({
       transportToClient: webAppTransport,
-      transportToServer: backingServerTransport,
+      transportToServer: serverTransport,
     });
 
     console.log("Set up MCP proxy");
@@ -284,10 +281,9 @@ app.get("/sse", async (req, res) => {
     console.log(
       "New SSE connection. NOTE: The sse transport is deprecated and has been replaced by streamable-http",
     );
-
+    let serverTransport: Transport | undefined;
     try {
-      await backingServerTransport?.close();
-      backingServerTransport = await createTransport(req);
+      serverTransport = await createTransport(req);
     } catch (error) {
       if (error instanceof SseError && error.code === 401) {
         console.error(
@@ -305,13 +301,15 @@ app.get("/sse", async (req, res) => {
 
     const webAppTransport = new SSEServerTransport("/message", res);
     webAppTransports.set(webAppTransport.sessionId, webAppTransport);
-    console.log("Created web app transport");
+    console.log("Created client transport");
+    serverTransports.set(webAppTransport.sessionId, serverTransport);
+    console.log("Created server transport");
 
     await webAppTransport.start();
 
     mcpProxy({
       transportToClient: webAppTransport,
-      transportToServer: backingServerTransport,
+      transportToServer: serverTransport,
     });
 
     console.log("Set up MCP proxy");
