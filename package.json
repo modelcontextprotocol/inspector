@@ -37,7 +37,8 @@
     "prettier-fix": "prettier --write .",
     "prettier-check": "prettier --check .",
     "prepare": "npm run build",
-    "publish-all": "npm publish --workspaces --access public && npm publish --access public"
+    "publish-all": "npm publish --workspaces --access public && npm publish --access public",
+    "test:e2e": "npm run test:e2e --workspace=client"
   },
   "dependencies": {
     "@modelcontextprotocol/inspector-cli": "^0.13.0",
@@ -52,6 +53,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.7.5",
     "@types/shell-quote": "^1.7.5",
