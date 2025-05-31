@@ -243,6 +243,33 @@ app.post("/mcp", async (req, res) => {
   }
 });
 
+app.delete("/mcp", async (req, res) => {
+  const sessionId = req.headers["mcp-session-id"] as string | undefined;
+  console.log(`Received DELETE message for sessionId ${sessionId}`);
+  let serverTransport: Transport | undefined;
+  if (sessionId) {
+    try {
+      serverTransport = serverTransports.get(
+        sessionId,
+      ) as StreamableHTTPClientTransport;
+      if (!serverTransport) {
+        res.status(404).end("Transport not found for sessionId " + sessionId);
+      } else {
+        await (
+          serverTransport as StreamableHTTPClientTransport
+        ).terminateSession();
+        webAppTransports.delete(sessionId);
+        serverTransports.delete(sessionId);
+        console.log(`Transports removed for sessionId ${sessionId}`);
+      }
+      res.status(200).end();
+    } catch (error) {
+      console.error("Error in /mcp route:", error);
+      res.status(500).json(error);
+    }
+  }
+});
+
 app.get("/stdio", async (req, res) => {
   try {
     console.log("New connection");
