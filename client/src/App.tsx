@@ -19,7 +19,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
-import { AuthDebuggerState } from "./lib/auth-types";
+import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
+import { OAuthStateMachine } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
 import React, {
   Suspense,
@@ -121,19 +122,8 @@ const App = () => {
   const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
 
   // Auth debugger state
-  const [authState, setAuthState] = useState<AuthDebuggerState>({
-    isInitiatingAuth: false,
-    oauthTokens: null,
-    loading: true,
-    oauthStep: "metadata_discovery",
-    oauthMetadata: null,
-    oauthClientInfo: null,
-    authorizationUrl: null,
-    authorizationCode: "",
-    latestError: null,
-    statusMessage: null,
-    validationError: null,
-  });
+  const [authState, setAuthState] =
+    useState<AuthDebuggerState>(EMPTY_DEBUGGER_STATE);
 
   // Helper function to update specific auth state properties
   const updateAuthState = (updates: Partial<AuthDebuggerState>) => {
@@ -243,23 +233,77 @@ const App = () => {
 
   // Update OAuth debug state during debug callback
   const onOAuthDebugConnect = useCallback(
-    ({
+    async ({
       authorizationCode,
       errorMsg,
+      restoredState,
     }: {
       authorizationCode?: string;
       errorMsg?: string;
+      restoredState?: AuthDebuggerState;
     }) => {
       setIsAuthDebuggerVisible(true);
-      if (authorizationCode) {
-        updateAuthState({
-          authorizationCode,
-          oauthStep: "token_request",
-        });
-      }
+
       if (errorMsg) {
         updateAuthState({
           latestError: new Error(errorMsg),
+        });
+        return;
+      }
+
+      if (restoredState && authorizationCode) {
+        // Restore the previous auth state and continue the OAuth flow
+        let currentState: AuthDebuggerState = {
+          ...restoredState,
+          authorizationCode,
+          oauthStep: "token_request",
+          isInitiatingAuth: true,
+          statusMessage: null,
+          latestError: null,
+        };
+
+        try {
+          // Create a new state machine instance to continue the flow
+          const stateMachine = new OAuthStateMachine(sseUrl, (updates) => {
+            currentState = { ...currentState, ...updates };
+          });
+
+          // Continue stepping through the OAuth flow from where we left off
+          while (
+            currentState.oauthStep !== "complete" &&
+            currentState.oauthStep !== "authorization_code"
+          ) {
+            await stateMachine.executeStep(currentState);
+          }
+
+          if (currentState.oauthStep === "complete") {
+            // After the flow completes or reaches a user-input step, update the app state
+            updateAuthState({
+              ...currentState,
+              statusMessage: {
+                type: "success",
+                message: "Authentication completed successfully",
+              },
+              isInitiatingAuth: false,
+            });
+          }
+        } catch (error) {
+          console.error("OAuth continuation error:", error);
+          updateAuthState({
+            latestError:
+              error instanceof Error ? error : new Error(String(error)),
+            statusMessage: {
+              type: "error",
+              message: `Failed to complete OAuth flow: ${error instanceof Error ? error.message : String(error)}`,
+            },
+            isInitiatingAuth: false,
+          });
+        }
+      } else if (authorizationCode) {
+        // Fallback to the original behavior if no state was restored
+        updateAuthState({
+          authorizationCode,
+          oauthStep: "token_request",
         });
       }
     },
@@ -285,8 +329,6 @@ const App = () => {
         }
       } catch (error) {
         console.error("Error loading OAuth tokens:", error);
-      } finally {
-        updateAuthState({ loading: false });
       }
     };
 

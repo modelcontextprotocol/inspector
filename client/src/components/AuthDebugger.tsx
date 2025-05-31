@@ -1,10 +1,11 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { DebugInspectorOAuthClientProvider } from "../lib/auth";
 import { AlertCircle } from "lucide-react";
-import { AuthDebuggerState } from "../lib/auth-types";
+import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
 import { OAuthStateMachine } from "../lib/oauth-state-machine";
+import { SESSION_KEYS } from "../lib/constants";
 
 export interface AuthDebuggerProps {
   serverUrl: string;
@@ -59,6 +60,27 @@ const AuthDebugger = ({
   authState,
   updateAuthState,
 }: AuthDebuggerProps) => {
+  // Check for existing tokens on mount
+  useEffect(() => {
+    if (serverUrl && !authState.oauthTokens) {
+      const checkTokens = async () => {
+        try {
+          const provider = new DebugInspectorOAuthClientProvider(serverUrl);
+          const existingTokens = await provider.tokens();
+          if (existingTokens) {
+            updateAuthState({
+              oauthTokens: existingTokens,
+              oauthStep: "complete",
+            });
+          }
+        } catch (error) {
+          console.error("Failed to load existing OAuth tokens:", error);
+        }
+      };
+      checkTokens();
+    }
+  }, [serverUrl, updateAuthState, authState.oauthTokens]);
+
   const startOAuthFlow = useCallback(() => {
     if (!serverUrl) {
       updateAuthState({
@@ -141,6 +163,11 @@ const AuthDebugger = ({
           currentState.oauthStep === "authorization_code" &&
           currentState.authorizationUrl
         ) {
+          // Store the current auth state before redirecting
+          sessionStorage.setItem(
+            SESSION_KEYS.AUTH_DEBUGGER_STATE,
+            JSON.stringify(currentState),
+          );
           // Open the authorization URL automatically
           window.location.href = currentState.authorizationUrl;
           break;
@@ -178,13 +205,7 @@ const AuthDebugger = ({
       );
       serverAuthProvider.clear();
       updateAuthState({
-        oauthTokens: null,
-        oauthStep: "metadata_discovery",
-        latestError: null,
-        oauthClientInfo: null,
-        authorizationCode: "",
-        validationError: null,
-        oauthMetadata: null,
+        ...EMPTY_DEBUGGER_STATE,
         statusMessage: {
           type: "success",
           message: "OAuth tokens cleared successfully",
@@ -224,52 +245,48 @@ const AuthDebugger = ({
                 <StatusMessage message={authState.statusMessage} />
               )}
 
-              {authState.loading ? (
-                <p>Loading authentication status...</p>
-              ) : (
-                <div className="space-y-4">
-                  {authState.oauthTokens && (
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium">Access Token:</p>
-                      <div className="bg-muted p-2 rounded-md text-xs overflow-x-auto">
-                        {authState.oauthTokens.access_token.substring(0, 25)}...
-                      </div>
+              <div className="space-y-4">
+                {authState.oauthTokens && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Access Token:</p>
+                    <div className="bg-muted p-2 rounded-md text-xs overflow-x-auto">
+                      {authState.oauthTokens.access_token.substring(0, 25)}...
                     </div>
-                  )}
-
-                  <div className="flex gap-4">
-                    <Button
-                      variant="outline"
-                      onClick={startOAuthFlow}
-                      disabled={authState.isInitiatingAuth}
-                    >
-                      {authState.oauthTokens
-                        ? "Guided Token Refresh"
-                        : "Guided OAuth Flow"}
-                    </Button>
-
-                    <Button
-                      onClick={handleQuickOAuth}
-                      disabled={authState.isInitiatingAuth}
-                    >
-                      {authState.isInitiatingAuth
-                        ? "Initiating..."
-                        : authState.oauthTokens
-                          ? "Quick Refresh"
-                          : "Quick OAuth Flow"}
-                    </Button>
-
-                    <Button variant="outline" onClick={handleClearOAuth}>
-                      Clear OAuth State
-                    </Button>
                   </div>
+                )}
 
-                  <p className="text-xs text-muted-foreground">
-                    Choose "Guided" for step-by-step instructions or "Quick" for
-                    the standard automatic flow.
-                  </p>
+                <div className="flex gap-4">
+                  <Button
+                    variant="outline"
+                    onClick={startOAuthFlow}
+                    disabled={authState.isInitiatingAuth}
+                  >
+                    {authState.oauthTokens
+                      ? "Guided Token Refresh"
+                      : "Guided OAuth Flow"}
+                  </Button>
+
+                  <Button
+                    onClick={handleQuickOAuth}
+                    disabled={authState.isInitiatingAuth}
+                  >
+                    {authState.isInitiatingAuth
+                      ? "Initiating..."
+                      : authState.oauthTokens
+                        ? "Quick Refresh"
+                        : "Quick OAuth Flow"}
+                  </Button>
+
+                  <Button variant="outline" onClick={handleClearOAuth}>
+                    Clear OAuth State
+                  </Button>
                 </div>
-              )}
+
+                <p className="text-xs text-muted-foreground">
+                  Choose "Guided" for step-by-step instructions or "Quick" for
+                  the standard automatic flow.
+                </p>
+              </div>
             </div>
 
             <OAuthFlowProgress
