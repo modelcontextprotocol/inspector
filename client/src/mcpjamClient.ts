@@ -70,7 +70,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
   onStdErrNotification?: (notification: StdErrNotification) => void;
   onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void;
   getRoots?: () => unknown[];
-  constructor(serverConfig: MCPJamServerConfig, config: InspectorConfig, headers: HeadersInit, bearerToken?: string, headerName?: string, onStdErrNotification?: (notification: StdErrNotification) => void, claudeApiKey?: string, onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void, getRoots?: () => unknown[]) {
+  constructor(serverConfig: MCPJamServerConfig, config: InspectorConfig, bearerToken?: string, headerName?: string, onStdErrNotification?: (notification: StdErrNotification) => void, claudeApiKey?: string, onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void, getRoots?: () => unknown[]) {
     super(
         {name: "mcpjam-inspector", version: packageJson.version},
         {
@@ -88,7 +88,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
     });
     this.config = config;
     this.serverConfig = serverConfig;
-    this.headers = headers;
+    this.headers = {};
     this.mcpProxyServerUrl = new URL(`${getMCPProxyAddress(this.config)}/stdio`);
     this.bearerToken = bearerToken;
     this.headerName = headerName;

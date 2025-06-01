@@ -71,7 +71,6 @@ import {
 } from "./utils/mcpHelpers";
 import { McpClientContext } from "@/context/McpClientContext";
 import { MCPJamClient } from "./mcpjamClient";
-import { InspectorOAuthClientProvider } from "./lib/auth";
 import { MCPJamServerConfig, StdioServerDefinition } from "./lib/serverTypes";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
@@ -233,7 +232,6 @@ const App = () => {
     const client = new MCPJamClient(
       serverConfig,
       config,
-      {},
       bearerToken,
       headerName,
       onStdErrNotification,
