@@ -6,7 +6,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Bookmark, Trash2, Calendar, Star, Edit2, Copy } from "lucide-react";
+import { Bookmark, Trash2, Calendar, Star, Edit2, Copy, CopyPlusIcon } from "lucide-react";
 import { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
 import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
@@ -260,7 +260,7 @@ const Sidebar = ({ onPageChange, onLoadRequest }: SidebarProps) => {
                           className="h-6 w-6 p-0 hover:bg-blue-500/20 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity"
                           title="Duplicate request"
                         >
-                          <Copy className="w-3 h-3" />
+                          <CopyPlusIcon className="w-3 h-3" />
                         </Button>
                         <Button
                           onClick={(e) => {
