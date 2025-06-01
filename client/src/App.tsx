@@ -230,12 +230,10 @@ const App = () => {
   const getRootsCallback = useCallback(() => rootsRef.current, []);
 
   const connect = useCallback(async () => {
-    const sseUrl = "url" in serverConfig && serverConfig.url ? serverConfig.url.toString() : getInitialSseUrl();
     const client = new MCPJamClient(
       serverConfig,
       config,
       {},
-      new InspectorOAuthClientProvider(sseUrl),
       bearerToken,
       headerName,
       onStdErrNotification,
