@@ -43,6 +43,7 @@ import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { toast } from "./lib/hooks/useToast";
 import { StdErrNotificationSchema, StdErrNotification } from "./lib/notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import { HttpServerDefinition, MCPJamServerConfig } from "./lib/serverTypes";
 
 // Add interface for extended MCP client with Anthropic
 export interface ExtendedMcpClient extends Client {
@@ -56,11 +57,8 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
   anthropic?: Anthropic;
   clientTransport: Transport | undefined;
   config: InspectorConfig;
-  command: string;
-  args: string;
-  env: Record<string, string>;
+  serverConfig: MCPJamServerConfig;
   headers: HeadersInit;
-  sseUrl: string;
   serverAuthProvider: InspectorOAuthClientProvider;
   mcpProxyServerUrl: URL;
   connectionStatus: ConnectionStatus;
@@ -74,7 +72,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
   onStdErrNotification?: (notification: StdErrNotification) => void;
   onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void;
   getRoots?: () => unknown[];
-  constructor(config: InspectorConfig, command: string, args: string, env: Record<string, string>, headers: HeadersInit, sseUrl: string, serverAuthProvider: InspectorOAuthClientProvider, transportType: "stdio" | "sse" | "streamable-http", bearerToken?: string, headerName?: string, onStdErrNotification?: (notification: StdErrNotification) => void, claudeApiKey?: string, onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void, getRoots?: () => unknown[]) {
+  constructor(serverConfig: MCPJamServerConfig, config: InspectorConfig, headers: HeadersInit, serverAuthProvider: InspectorOAuthClientProvider, transportType: "stdio" | "sse" | "streamable-http", bearerToken?: string, headerName?: string, onStdErrNotification?: (notification: StdErrNotification) => void, claudeApiKey?: string, onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void, getRoots?: () => unknown[]) {
     super(
         {name: "mcpjam-inspector", version: packageJson.version},
         {
@@ -91,11 +89,8 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
       dangerouslyAllowBrowser: true,
     });
     this.config = config;
-    this.command = command;
-    this.args = args;
-    this.env = env;
+    this.serverConfig = serverConfig;
     this.headers = headers;
-    this.sseUrl = sseUrl;
     this.serverAuthProvider = serverAuthProvider;
     this.mcpProxyServerUrl = new URL(`${getMCPProxyAddress(this.config)}/stdio`);
     this.bearerToken = bearerToken;
@@ -134,9 +129,14 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
 
   async connectStdio() {
     const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/stdio`);
-    serverUrl.searchParams.append("command", this.command);
-    serverUrl.searchParams.append("args", this.args);
-    serverUrl.searchParams.append("env", JSON.stringify(this.env));
+    
+    // Type guard to ensure we have a stdio server config
+    if (this.transportType === "stdio" && "command" in this.serverConfig) {
+      serverUrl.searchParams.append("command", this.serverConfig.command);
+      serverUrl.searchParams.append("args", this.serverConfig.args?.join(" ") ?? "");
+      serverUrl.searchParams.append("env", JSON.stringify(this.serverConfig.env ?? {}));
+    }
+    
     serverUrl.searchParams.append("transportType", "stdio");
     
     const transportOptions: SSEClientTransportOptions = {
@@ -165,7 +165,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
    async connectSSE() {
     try {
         const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/sse`);
-        serverUrl.searchParams.append("url", this.sseUrl);
+        serverUrl.searchParams.append("url", (this.serverConfig as HttpServerDefinition).url.toString());
         serverUrl.searchParams.append("transportType", "sse");
         const transportOptions: SSEClientTransportOptions = {
             eventSourceInit: {
@@ -189,7 +189,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
    async connectStreamableHttp() {
     try {
         const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/mcp`)
-        serverUrl.searchParams.append("url", this.sseUrl);
+        serverUrl.searchParams.append("url", (this.serverConfig as HttpServerDefinition).url.toString());
         serverUrl.searchParams.append("transportType", "streamable-http");
         const transportOptions: StreamableHTTPClientTransportOptions = {
             requestInit: {
@@ -237,9 +237,12 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
 
   handleAuthError = async (error: unknown) => {
     if (this.is401Error(error)) {
-      const serverAuthProvider = new InspectorOAuthClientProvider(this.sseUrl);
-      const result = await auth(serverAuthProvider, { serverUrl: this.sseUrl });
-      return result === "AUTHORIZED";
+      // Only handle OAuth for HTTP-based transports
+      if (this.transportType !== "stdio" && "url" in this.serverConfig && this.serverConfig.url) {
+        const serverAuthProvider = new InspectorOAuthClientProvider(this.serverConfig.url.toString());
+        const result = await auth(serverAuthProvider, { serverUrl: this.serverConfig.url.toString() });
+        return result === "AUTHORIZED";
+      }
     }
 
     return false;
@@ -260,15 +263,22 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
       // proxying through the inspector server first.
       const headers: HeadersInit = {};
 
-      // Create an auth provider with the current server URL
-      const serverAuthProvider = new InspectorOAuthClientProvider(this.sseUrl);
+      // Only apply OAuth authentication for HTTP-based transports
+      if (this.transportType !== "stdio" && "url" in this.serverConfig && this.serverConfig.url) {
+        // Create an auth provider with the current server URL
+        const serverAuthProvider = new InspectorOAuthClientProvider(this.serverConfig.url.toString());
 
-      // Use manually provided bearer token if available, otherwise use OAuth tokens
-      const token =
-        this.bearerToken || (await serverAuthProvider.tokens())?.access_token;
-      if (token) {
+        // Use manually provided bearer token if available, otherwise use OAuth tokens
+        const token =
+          this.bearerToken || (await serverAuthProvider.tokens())?.access_token;
+        if (token) {
+          const authHeaderName = this.headerName || "Authorization";
+          headers[authHeaderName] = `Bearer ${token}`;
+        }
+      } else if (this.bearerToken) {
+        // For stdio or when manually providing bearer token, still apply it
         const authHeaderName = this.headerName || "Authorization";
-        headers[authHeaderName] = `Bearer ${token}`;
+        headers[authHeaderName] = `Bearer ${this.bearerToken}`;
       }
 
       // Update the headers property with auth headers
@@ -483,8 +493,10 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
   async disconnect() {
     await this.close();
     this.connectionStatus = "disconnected";
-    const authProvider = new InspectorOAuthClientProvider(this.sseUrl);
-    authProvider.clear();
+    if (this.serverConfig.transportType !== "stdio") {
+      const authProvider = new InspectorOAuthClientProvider((this.serverConfig as HttpServerDefinition).url.toString());
+      authProvider.clear();
+    }
     this.serverCapabilities = null;
   }
 

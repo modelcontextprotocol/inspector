@@ -1,45 +1,8 @@
-import { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
 import { MCPJamClient } from "./mcpjamClient";
-import { StreamableHTTPClientTransportOptions } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { SSEClientTransportOptions } from "@modelcontextprotocol/sdk/client/sse.js";
 import { InspectorOAuthClientProvider } from "./lib/auth";
 import { InspectorConfig } from "./lib/configurationTypes";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
-
-type BaseServerOptions = {
-    timeout?: number;
-    capabilities?: ClientCapabilities;
-    enableServerLogs?: boolean;
-  };
-  
-type StdioServerDefinition = BaseServerOptions & {
-command: string; // 'command' is required for Stdio
-args?: string[];
-env?: Record<string, string>;
-
-url?: never; // Exclude 'url' for Stdio
-requestInit?: never; // Exclude HTTP options for Stdio
-eventSourceInit?: never; // Exclude HTTP options for Stdio
-reconnectionOptions?: never; // Exclude Streamable HTTP specific options
-sessionId?: never; // Exclude Streamable HTTP specific options
-};
-
-// HTTP Server Definition (Streamable HTTP or SSE fallback)
-type HttpServerDefinition = BaseServerOptions & {
-url: URL; // 'url' is required for HTTP
-
-command?: never; // Exclude 'command' for HTTP
-args?: never; // Exclude Stdio options for HTTP
-env?: never; // Exclude Stdio options for HTTP
-
-// Include relevant options from SDK HTTP transport types
-requestInit?: StreamableHTTPClientTransportOptions['requestInit'];
-eventSourceInit?: SSEClientTransportOptions['eventSourceInit'];
-reconnectionOptions?: StreamableHTTPClientTransportOptions['reconnectionOptions'];
-sessionId?: StreamableHTTPClientTransportOptions['sessionId'];
-};
-
-type MCPJamServerConfig = StdioServerDefinition | HttpServerDefinition;
+import { MCPJamServerConfig, StdioServerDefinition, HttpServerDefinition } from "./lib/serverTypes";
 
 export interface MCPClientOptions {
     id?: string;

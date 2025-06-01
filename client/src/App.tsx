@@ -72,6 +72,7 @@ import {
 import { McpClientContext } from "@/context/McpClientContext";
 import { MCPJamClient } from "./mcpjamClient";
 import { InspectorOAuthClientProvider } from "./lib/auth";
+import { MCPJamServerConfig, StdioServerDefinition } from "./lib/serverTypes";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 const CLAUDE_API_KEY_STORAGE_KEY = "claude-api-key";
@@ -99,10 +100,24 @@ const App = () => {
     prompts: null,
     tools: null,
   });
-  const [command, setCommand] = useState<string>(getInitialCommand);
-  const [args, setArgs] = useState<string>(getInitialArgs);
 
-  const [sseUrl, setSseUrl] = useState<string>(getInitialSseUrl);
+  const [serverConfig, setServerConfig] = useState<MCPJamServerConfig>(() => {
+    const transportType = getInitialTransportType();
+    if (transportType === "stdio") {
+      return {
+        transportType: transportType,
+        command: getInitialCommand(),
+        args: getInitialArgs().split(" ").filter(arg => arg.trim() !== ""),
+        env: {},
+      };
+    } else {
+      return {
+        transportType: transportType,
+        url: new URL(getInitialSseUrl()),
+      };
+    }
+  });
+
   const [transportType, setTransportType] = useState<
     "stdio" | "sse" | "streamable-http"
   >(getInitialTransportType);
@@ -111,7 +126,7 @@ const App = () => {
     StdErrNotification[]
   >([]);
   const [roots, setRoots] = useState<Root[]>([]);
-  const [env, setEnv] = useState<Record<string, string>>({});
+
 
   const [config, setConfig] = useState<InspectorConfig>(() =>
     initializeInspectorConfig(CONFIG_LOCAL_STORAGE_KEY),
@@ -198,17 +213,6 @@ const App = () => {
     return hash || "tools";
   });
 
-  console.log(currentPage);
-
-  console.log("transportType", transportType);
-  console.log("command", command);
-  console.log("args", args);
-  console.log("sseUrl", sseUrl);
-  console.log("env", env)
-  console.log("bearerToken", bearerToken)
-  console.log("headerName", headerName)
-  console.log("config", config)
-
   const [mcpClient, setMcpClient] = useState<MCPJamClient | null>(null);
 
   // Use callbacks to prevent MCPJamClient recreation
@@ -229,13 +233,11 @@ const App = () => {
   const getRootsCallback = useCallback(() => rootsRef.current, []);
 
   const connect = useCallback(async () => {
+    const sseUrl = "url" in serverConfig && serverConfig.url ? serverConfig.url.toString() : getInitialSseUrl();
     const client = new MCPJamClient(
+      serverConfig,
       config,
-      command,
-      args,
-      env,
       {},
-      sseUrl,
       new InspectorOAuthClientProvider(sseUrl),
       transportType,
       bearerToken,
@@ -255,10 +257,7 @@ const App = () => {
     }
   }, [
     config,
-    command,
-    args,
-    env,
-    sseUrl,
+    serverConfig,
     transportType,
     bearerToken,
     headerName,
@@ -274,6 +273,27 @@ const App = () => {
       setMcpClient(null);
     }
   }, [mcpClient]);
+
+  // Handler to update transport type and serverConfig accordingly
+  const handleTransportTypeChange = useCallback((newTransportType: "stdio" | "sse" | "streamable-http") => {
+    setTransportType(newTransportType);
+    
+    if (newTransportType === "stdio") {
+      // Switch to stdio config
+      setServerConfig({
+        transportType: newTransportType,
+        command: getInitialCommand(),
+        args: getInitialArgs().split(" ").filter(arg => arg.trim() !== ""),
+        env: {},
+      });
+    } else {
+      // Switch to HTTP config (SSE or streamable-http)
+      setServerConfig({
+        transportType: newTransportType,
+        url: new URL(getInitialSseUrl()),
+      });
+    }
+  }, []);
 
   const connectionStatus = mcpClient?.connectionStatus || "disconnected";
   const serverCapabilities = mcpClient?.serverCapabilities || null;
@@ -292,16 +312,22 @@ const App = () => {
   };
 
   useEffect(() => {
-    localStorage.setItem("lastCommand", command);
-  }, [command]);
+    if (transportType === "stdio" && "command" in serverConfig) {
+      localStorage.setItem("lastCommand", serverConfig.command || "");
+    }
+  }, [serverConfig, transportType]);
 
   useEffect(() => {
-    localStorage.setItem("lastArgs", args);
-  }, [args]);
+    if (transportType === "stdio" && "args" in serverConfig) {
+      localStorage.setItem("lastArgs", serverConfig.args?.join(" ") || "");
+    }
+  }, [serverConfig, transportType]);
 
   useEffect(() => {
-    localStorage.setItem("lastSseUrl", sseUrl);
-  }, [sseUrl]);
+    if ("url" in serverConfig && serverConfig.url) {
+      localStorage.setItem("lastSseUrl", serverConfig.url.toString());
+    }
+  }, [serverConfig]);
 
   useEffect(() => {
     localStorage.setItem("lastTransportType", transportType);
@@ -322,7 +348,10 @@ const App = () => {
   // Auto-connect to previously saved serverURL after OAuth callback
   const onOAuthConnect = useCallback(
     (serverUrl: string) => {
-      setSseUrl(serverUrl);
+      setServerConfig({
+        transportType: transportType,
+        url: new URL(serverUrl),
+      });
 
       void connect();
     },
@@ -357,8 +386,8 @@ const App = () => {
   useEffect(() => {
     const loadOAuthTokens = async () => {
       try {
-        if (sseUrl) {
-          const key = getServerSpecificKey(SESSION_KEYS.TOKENS, sseUrl);
+        if ("url" in serverConfig && serverConfig.url) {
+          const key = getServerSpecificKey(SESSION_KEYS.TOKENS, serverConfig.url.toString());
           const tokens = sessionStorage.getItem(key);
           if (tokens) {
             const parsedTokens = await OAuthTokensSchema.parseAsync(
@@ -378,18 +407,22 @@ const App = () => {
     };
 
     loadOAuthTokens();
-  }, [sseUrl]);
+  }, [serverConfig]);
 
   useEffect(() => {
     fetch(`${getMCPProxyAddress(config)}/config`)
       .then((response) => response.json())
       .then((data) => {
-        setEnv(data.defaultEnvironment);
-        if (data.defaultCommand) {
-          setCommand(data.defaultCommand);
-        }
-        if (data.defaultArgs) {
-          setArgs(data.defaultArgs);
+        if (transportType === "stdio") {
+          setServerConfig((prevConfig) => {
+            if ("command" in prevConfig) {
+              return {
+                ...prevConfig,
+                env: data.defaultEnvironment || {},
+              } as StdioServerDefinition;
+            }
+            return prevConfig;
+          });
         }
       })
       .catch((error) =>
@@ -775,7 +808,7 @@ const App = () => {
         case "auth":
           return (
             <AuthDebugger
-              serverUrl={sseUrl}
+              serverUrl={"url" in serverConfig && serverConfig.url ? serverConfig.url.toString() : ""}
               onBack={() => setCurrentPage("resources")}
               authState={authState}
               updateAuthState={updateAuthState}
@@ -826,15 +859,58 @@ const App = () => {
             <ConnectionSection
               connectionStatus={connectionStatus}
               transportType={transportType}
-              setTransportType={setTransportType}
-              command={command}
-              setCommand={setCommand}
-              args={args}
-              setArgs={setArgs}
-              sseUrl={sseUrl}
-              setSseUrl={setSseUrl}
-              env={env}
-              setEnv={setEnv}
+              setTransportType={handleTransportTypeChange}
+              command={transportType === "stdio" && "command" in serverConfig ? serverConfig.command || "" : ""}
+              setCommand={(newCommand) => {
+                if (transportType === "stdio") {
+                  setServerConfig((prevConfig) => {
+                    if ("command" in prevConfig) {
+                      return {
+                        ...prevConfig,
+                        command: newCommand,
+                      } as StdioServerDefinition;
+                    }
+                    return prevConfig;
+                  });
+                }
+              }}
+              args={transportType === "stdio" && "args" in serverConfig ? serverConfig.args?.join(" ") || "" : ""}
+              setArgs={(newArgs) => {
+                if (transportType === "stdio") {
+                  setServerConfig((prevConfig) => {
+                    if ("command" in prevConfig) {
+                      return {
+                        ...prevConfig,
+                        args: newArgs.split(" ").filter(arg => arg.trim() !== ""),
+                      } as StdioServerDefinition;
+                    }
+                    return prevConfig;
+                  });
+                }
+              }}
+              sseUrl={"url" in serverConfig && serverConfig.url ? serverConfig.url.toString() : ""}
+              setSseUrl={(newSseUrl) => {
+                if (transportType !== "stdio") {
+                  setServerConfig({
+                    transportType: transportType,
+                    url: new URL(newSseUrl),
+                  });
+                }
+              }}
+              env={transportType === "stdio" && "env" in serverConfig ? serverConfig.env || {} : {}}
+              setEnv={(newEnv) => {
+                if (transportType === "stdio") {
+                  setServerConfig((prevConfig) => {
+                    if ("command" in prevConfig) {
+                      return {
+                        ...prevConfig,
+                        env: newEnv,
+                      } as StdioServerDefinition;
+                    }
+                    return prevConfig;
+                  });
+                }
+              }}
               config={config}
               setConfig={setConfig}
               bearerToken={bearerToken}
