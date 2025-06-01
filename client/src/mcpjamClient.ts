@@ -66,13 +66,12 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
   requestHistory: { request: string; response?: string }[];
   inspectorConfig: InspectorConfig;
   completionsSupported: boolean;
-  transportType: "stdio" | "sse" | "streamable-http";
   bearerToken?: string;
   headerName?: string;
   onStdErrNotification?: (notification: StdErrNotification) => void;
   onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void;
   getRoots?: () => unknown[];
-  constructor(serverConfig: MCPJamServerConfig, config: InspectorConfig, headers: HeadersInit, serverAuthProvider: InspectorOAuthClientProvider, transportType: "stdio" | "sse" | "streamable-http", bearerToken?: string, headerName?: string, onStdErrNotification?: (notification: StdErrNotification) => void, claudeApiKey?: string, onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void, getRoots?: () => unknown[]) {
+  constructor(serverConfig: MCPJamServerConfig, config: InspectorConfig, headers: HeadersInit, serverAuthProvider: InspectorOAuthClientProvider, bearerToken?: string, headerName?: string, onStdErrNotification?: (notification: StdErrNotification) => void, claudeApiKey?: string, onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void, getRoots?: () => unknown[]) {
     super(
         {name: "mcpjam-inspector", version: packageJson.version},
         {
@@ -99,7 +98,6 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
     this.serverCapabilities = null;
     this.requestHistory = []
     this.completionsSupported = true
-    this.transportType = transportType;
     this.inspectorConfig  = {
       MCP_SERVER_REQUEST_TIMEOUT: {
           label: "MCP Server Request Timeout",
@@ -131,7 +129,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
     const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/stdio`);
     
     // Type guard to ensure we have a stdio server config
-    if (this.transportType === "stdio" && "command" in this.serverConfig) {
+    if (this.serverConfig.transportType === "stdio" && "command" in this.serverConfig) {
       serverUrl.searchParams.append("command", this.serverConfig.command);
       serverUrl.searchParams.append("args", this.serverConfig.args?.join(" ") ?? "");
       serverUrl.searchParams.append("env", JSON.stringify(this.serverConfig.env ?? {}));
@@ -238,7 +236,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
   handleAuthError = async (error: unknown) => {
     if (this.is401Error(error)) {
       // Only handle OAuth for HTTP-based transports
-      if (this.transportType !== "stdio" && "url" in this.serverConfig && this.serverConfig.url) {
+      if (this.serverConfig.transportType !== "stdio" && "url" in this.serverConfig && this.serverConfig.url) {
         const serverAuthProvider = new InspectorOAuthClientProvider(this.serverConfig.url.toString());
         const result = await auth(serverAuthProvider, { serverUrl: this.serverConfig.url.toString() });
         return result === "AUTHORIZED";
@@ -264,7 +262,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
       const headers: HeadersInit = {};
 
       // Only apply OAuth authentication for HTTP-based transports
-      if (this.transportType !== "stdio" && "url" in this.serverConfig && this.serverConfig.url) {
+      if (this.serverConfig.transportType !== "stdio" && "url" in this.serverConfig && this.serverConfig.url) {
         // Create an auth provider with the current server URL
         const serverAuthProvider = new InspectorOAuthClientProvider(this.serverConfig.url.toString());
 
@@ -292,7 +290,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
       }
 
       try {
-        switch (this.transportType) {
+        switch (this.serverConfig.transportType) {
           case "stdio":
             await this.connectStdio();
             break;

@@ -118,9 +118,6 @@ const App = () => {
     }
   });
 
-  const [transportType, setTransportType] = useState<
-    "stdio" | "sse" | "streamable-http"
-  >(getInitialTransportType);
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [stdErrNotifications, setStdErrNotifications] = useState<
     StdErrNotification[]
@@ -239,7 +236,6 @@ const App = () => {
       config,
       {},
       new InspectorOAuthClientProvider(sseUrl),
-      transportType,
       bearerToken,
       headerName,
       onStdErrNotification,
@@ -258,7 +254,6 @@ const App = () => {
   }, [
     config,
     serverConfig,
-    transportType,
     bearerToken,
     headerName,
     claudeApiKey,
@@ -276,8 +271,6 @@ const App = () => {
 
   // Handler to update transport type and serverConfig accordingly
   const handleTransportTypeChange = useCallback((newTransportType: "stdio" | "sse" | "streamable-http") => {
-    setTransportType(newTransportType);
-    
     if (newTransportType === "stdio") {
       // Switch to stdio config
       setServerConfig({
@@ -312,16 +305,16 @@ const App = () => {
   };
 
   useEffect(() => {
-    if (transportType === "stdio" && "command" in serverConfig) {
+    if (serverConfig.transportType === "stdio" && "command" in serverConfig) {
       localStorage.setItem("lastCommand", serverConfig.command || "");
     }
-  }, [serverConfig, transportType]);
+  }, [serverConfig]);
 
   useEffect(() => {
-    if (transportType === "stdio" && "args" in serverConfig) {
+    if (serverConfig.transportType === "stdio" && "args" in serverConfig) {
       localStorage.setItem("lastArgs", serverConfig.args?.join(" ") || "");
     }
-  }, [serverConfig, transportType]);
+  }, [serverConfig]);
 
   useEffect(() => {
     if ("url" in serverConfig && serverConfig.url) {
@@ -330,8 +323,8 @@ const App = () => {
   }, [serverConfig]);
 
   useEffect(() => {
-    localStorage.setItem("lastTransportType", transportType);
-  }, [transportType]);
+    localStorage.setItem("lastTransportType", serverConfig.transportType);
+  }, [serverConfig.transportType]);
 
   useEffect(() => {
     localStorage.setItem("lastBearerToken", bearerToken);
@@ -349,7 +342,7 @@ const App = () => {
   const onOAuthConnect = useCallback(
     (serverUrl: string) => {
       setServerConfig({
-        transportType: transportType,
+        transportType: serverConfig.transportType,
         url: new URL(serverUrl),
       });
 
@@ -413,7 +406,7 @@ const App = () => {
     fetch(`${getMCPProxyAddress(config)}/config`)
       .then((response) => response.json())
       .then((data) => {
-        if (transportType === "stdio") {
+        if (serverConfig.transportType === "stdio") {
           setServerConfig((prevConfig) => {
             if ("command" in prevConfig) {
               return {
@@ -858,11 +851,11 @@ const App = () => {
           <div className="bg-background/80 backdrop-blur-md border-b border-border/50 shadow-sm">
             <ConnectionSection
               connectionStatus={connectionStatus}
-              transportType={transportType}
+              transportType={serverConfig.transportType}
               setTransportType={handleTransportTypeChange}
-              command={transportType === "stdio" && "command" in serverConfig ? serverConfig.command || "" : ""}
+              command={serverConfig.transportType === "stdio" && "command" in serverConfig ? serverConfig.command || "" : ""}
               setCommand={(newCommand) => {
-                if (transportType === "stdio") {
+                if (serverConfig.transportType === "stdio") {
                   setServerConfig((prevConfig) => {
                     if ("command" in prevConfig) {
                       return {
@@ -874,9 +867,9 @@ const App = () => {
                   });
                 }
               }}
-              args={transportType === "stdio" && "args" in serverConfig ? serverConfig.args?.join(" ") || "" : ""}
+              args={serverConfig.transportType === "stdio" && "args" in serverConfig ? serverConfig.args?.join(" ") || "" : ""}
               setArgs={(newArgs) => {
-                if (transportType === "stdio") {
+                if (serverConfig.transportType === "stdio") {
                   setServerConfig((prevConfig) => {
                     if ("command" in prevConfig) {
                       return {
@@ -890,16 +883,16 @@ const App = () => {
               }}
               sseUrl={"url" in serverConfig && serverConfig.url ? serverConfig.url.toString() : ""}
               setSseUrl={(newSseUrl) => {
-                if (transportType !== "stdio") {
+                if (serverConfig.transportType !== "stdio") {
                   setServerConfig({
-                    transportType: transportType,
+                    transportType: serverConfig.transportType,
                     url: new URL(newSseUrl),
                   });
                 }
               }}
-              env={transportType === "stdio" && "env" in serverConfig ? serverConfig.env || {} : {}}
+              env={serverConfig.transportType === "stdio" && "env" in serverConfig ? serverConfig.env || {} : {}}
               setEnv={(newEnv) => {
-                if (transportType === "stdio") {
+                if (serverConfig.transportType === "stdio") {
                   setServerConfig((prevConfig) => {
                     if ("command" in prevConfig) {
                       return {
