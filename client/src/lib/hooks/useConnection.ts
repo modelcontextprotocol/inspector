@@ -1,5 +1,5 @@
 import {
-å  SseError,
+  SseError,
 } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
   ClientNotification,
@@ -36,7 +36,7 @@ import {
 import { getMCPServerRequestTimeout } from "@/utils/configUtils";
 import { InspectorConfig } from "../configurationTypes";
 import { Anthropic } from "@anthropic-ai/sdk";
-import { MCPJamClient } from "../../MCPJamClient";
+import { MCPJamClient } from "../../mcpjamClient";
 
 interface UseConnectionOptions {
   transportType: "stdio" | "sse" | "streamable-http";
@@ -296,7 +296,7 @@ export function useConnection({
         headers[authHeaderName] = `Bearer ${token}`;
       }
 
-      const client = new MCPJamClient(config, command, args, env, headers, sseUrl, serverAuthProvider, claudeApiKey);
+      const client = new MCPJamClient(config, command, args, env, headers, sseUrl, serverAuthProvider, transportType, bearerToken, claudeApiKey);
 
       if (onNotification) {
         [

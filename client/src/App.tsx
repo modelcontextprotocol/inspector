@@ -2,6 +2,7 @@ import {
   ClientRequest,
   CompatibilityCallToolResult,
   CreateMessageResult,
+  CreateMessageRequest,
   EmptyResultSchema,
   Resource,
   ResourceTemplate,
@@ -17,10 +18,9 @@ import React, {
   Suspense,
   useCallback,
   useEffect,
-  useRef,
   useState,
+  useRef,
 } from "react";
-import { useConnection } from "./lib/hooks/useConnection";
 import { StdErrNotification } from "./lib/notificationTypes";
 
 import { Activity } from "lucide-react";
@@ -70,6 +70,8 @@ import {
   MCPHelperState,
 } from "./utils/mcpHelpers";
 import { McpClientContext } from "@/context/McpClientContext";
+import { MCPJamClient } from "./mcpjamClient";
+import { InspectorOAuthClientProvider } from "./lib/auth";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 const CLAUDE_API_KEY_STORAGE_KEY = "claude-api-key";
@@ -198,50 +200,95 @@ const App = () => {
 
   console.log(currentPage);
 
-  const {
-    connectionStatus,
-    serverCapabilities,
-    mcpClient,
-    requestHistory,
-    makeRequest,
-    sendNotification,
-    handleCompletion,
-    completionsSupported,
-    connect: connectMcpServer,
-    disconnect: disconnectMcpServer,
-    updateApiKey,
-  } = useConnection({
-    transportType,
+  console.log("transportType", transportType);
+  console.log("command", command);
+  console.log("args", args);
+  console.log("sseUrl", sseUrl);
+  console.log("env", env)
+  console.log("bearerToken", bearerToken)
+  console.log("headerName", headerName)
+  console.log("config", config)
+
+  const [mcpClient, setMcpClient] = useState<MCPJamClient | null>(null);
+
+  // Use callbacks to prevent MCPJamClient recreation
+  const onStdErrNotification = useCallback((notification: StdErrNotification) => {
+    setStdErrNotifications((prev) => [
+      ...prev,
+      notification,
+    ]);
+  }, []);
+
+  const onPendingRequest = useCallback((request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => {
+    setPendingSampleRequests((prev) => [
+      ...prev,
+      { id: nextRequestId.current++, request, resolve, reject },
+    ]);
+  }, []);
+
+  const getRootsCallback = useCallback(() => rootsRef.current, []);
+
+  const connect = useCallback(async () => {
+    const client = new MCPJamClient(
+      config,
+      command,
+      args,
+      env,
+      {},
+      sseUrl,
+      new InspectorOAuthClientProvider(sseUrl),
+      transportType,
+      bearerToken,
+      headerName,
+      onStdErrNotification,
+      claudeApiKey,
+      onPendingRequest,
+      getRootsCallback
+    );
+
+    try {
+      await client.connectToServer();
+      setMcpClient(client);
+    } catch (error) {
+      console.error("Failed to connect:", error);
+      setMcpClient(null);
+    }
+  }, [
+    config,
     command,
     args,
-    sseUrl,
     env,
+    sseUrl,
+    transportType,
     bearerToken,
     headerName,
-    config,
     claudeApiKey,
-    onNotification: () => {
-      // Server notifications are no longer displayed in the UI
-    },
-    onStdErrNotification: (notification) => {
-      setStdErrNotifications((prev) => [
-        ...prev,
-        notification as StdErrNotification,
-      ]);
-    },
-    onPendingRequest: (request, resolve, reject) => {
-      setPendingSampleRequests((prev) => [
-        ...prev,
-        { id: nextRequestId.current++, request, resolve, reject },
-      ]);
-    },
-    getRoots: () => rootsRef.current,
-  });
+    onStdErrNotification,
+    onPendingRequest,
+    getRootsCallback,
+  ]);
+
+  const disconnect = useCallback(async () => {
+    if (mcpClient) {
+      await mcpClient.disconnect();
+      setMcpClient(null);
+    }
+  }, [mcpClient]);
+
+  const connectionStatus = mcpClient?.connectionStatus || "disconnected";
+  const serverCapabilities = mcpClient?.serverCapabilities || null;
+  const requestHistory = mcpClient?.requestHistory || [];
+  const makeRequest = mcpClient?.makeRequest.bind(mcpClient) || (async () => { throw new Error("Client not connected"); });
+  const handleCompletion = mcpClient?.handleCompletion.bind(mcpClient) || (async () => []);
+  const completionsSupported = mcpClient?.completionsSupported || false;
+  const updateApiKey = mcpClient?.updateApiKey.bind(mcpClient) || (() => {});
 
   // Handler to update both state and the MCP client's API key
   const handleApiKeyChange = (newApiKey: string) => {
     setClaudeApiKey(newApiKey);
-    updateApiKey(newApiKey);
+    if (updateApiKey) {
+      updateApiKey(newApiKey);
+    }
   };
 
   useEffect(() => {
@@ -277,9 +324,9 @@ const App = () => {
     (serverUrl: string) => {
       setSseUrl(serverUrl);
 
-      void connectMcpServer();
+      void connect();
     },
-    [connectMcpServer],
+    [connect],
   );
 
   // Update OAuth debug state during debug callback
@@ -377,7 +424,7 @@ const App = () => {
   // Create helper dependencies and state objects
   const helperDependencies: MCPHelperDependencies = {
     makeRequest,
-    sendNotification,
+    sendNotification: async () => {},
     setErrors,
     setResources,
     setResourceTemplates,
@@ -794,8 +841,8 @@ const App = () => {
               setBearerToken={setBearerToken}
               headerName={headerName}
               setHeaderName={setHeaderName}
-              onConnect={connectMcpServer}
-              onDisconnect={disconnectMcpServer}
+              onConnect={connect}
+              onDisconnect={disconnect}
               stdErrNotifications={stdErrNotifications}
               logLevel={logLevel}
               sendLogLevelRequest={sendLogLevelRequestWrapper}

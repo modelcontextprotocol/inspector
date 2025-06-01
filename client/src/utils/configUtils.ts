@@ -56,7 +56,7 @@ export const getInitialTransportType = ():
 export const getInitialSseUrl = (): string => {
   const param = getSearchParam("serverUrl");
   if (param) return param;
-  return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
+  return localStorage.getItem("lastSseUrl") || "http://localhost:6277/sse";
 };
 
 export const getInitialCommand = (): string => {

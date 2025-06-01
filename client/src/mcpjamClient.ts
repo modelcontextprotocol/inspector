@@ -3,6 +3,18 @@ import {
   Request,
   Result,
   Notification,
+  ServerCapabilities,
+  ClientRequest,
+  Progress,
+  ResourceReference,
+  PromptReference,
+  CompleteResultSchema,
+  McpError,
+  ErrorCode,
+  CreateMessageRequestSchema,
+  CreateMessageResult,
+  ListRootsRequestSchema,
+  CreateMessageRequest,
 } from "@modelcontextprotocol/sdk/types.js";
 import { Anthropic } from "@anthropic-ai/sdk";
 import {
@@ -11,15 +23,26 @@ import {
 } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import readline from "readline/promises";
 import packageJson from "../package.json";
-import { getMCPProxyAddress } from "./utils/configUtils";
+import {
+  getMCPProxyAddress,
+  getMCPServerRequestMaxTotalTimeout,
+  getMCPServerRequestTimeout,
+  resetRequestTimeoutOnProgress,
+} from "@/utils/configUtils";
 import { InspectorConfig } from "./lib/configurationTypes";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { SSEClientTransport, SSEClientTransportOptions } from "@modelcontextprotocol/sdk/client/sse.js";
+import { SSEClientTransport, SSEClientTransportOptions, SseError } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
     StreamableHTTPClientTransport,
     StreamableHTTPClientTransportOptions,
   } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { InspectorOAuthClientProvider } from "./lib/auth";
+import { z } from "zod";
+import { ConnectionStatus } from "./lib/constants";
+import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import { toast } from "./lib/hooks/useToast";
+import { StdErrNotificationSchema, StdErrNotification } from "./lib/notificationTypes";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 
 // Add interface for extended MCP client with Anthropic
 export interface ExtendedMcpClient extends Client {
@@ -30,7 +53,7 @@ export interface ExtendedMcpClient extends Client {
 }
 
 export class MCPJamClient extends Client<Request, Notification, Result>  {
-  anthropic: Anthropic;
+  anthropic?: Anthropic;
   clientTransport: Transport | undefined;
   config: InspectorConfig;
   command: string;
@@ -40,8 +63,18 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
   sseUrl: string;
   serverAuthProvider: InspectorOAuthClientProvider;
   mcpProxyServerUrl: URL;
-  
-  constructor(config: InspectorConfig, command: string, args: string, env: Record<string, string>, headers: HeadersInit, sseUrl: string, serverAuthProvider: InspectorOAuthClientProvider, claudeApiKey?: string) {
+  connectionStatus: ConnectionStatus;
+  serverCapabilities: ServerCapabilities | null;
+  requestHistory: { request: string; response?: string }[];
+  inspectorConfig: InspectorConfig;
+  completionsSupported: boolean;
+  transportType: "stdio" | "sse" | "streamable-http";
+  bearerToken?: string;
+  headerName?: string;
+  onStdErrNotification?: (notification: StdErrNotification) => void;
+  onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void;
+  getRoots?: () => unknown[];
+  constructor(config: InspectorConfig, command: string, args: string, env: Record<string, string>, headers: HeadersInit, sseUrl: string, serverAuthProvider: InspectorOAuthClientProvider, transportType: "stdio" | "sse" | "streamable-http", bearerToken?: string, headerName?: string, onStdErrNotification?: (notification: StdErrNotification) => void, claudeApiKey?: string, onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void, getRoots?: () => unknown[]) {
     super(
         {name: "mcpjam-inspector", version: packageJson.version},
         {
@@ -65,6 +98,38 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
     this.sseUrl = sseUrl;
     this.serverAuthProvider = serverAuthProvider;
     this.mcpProxyServerUrl = new URL(`${getMCPProxyAddress(this.config)}/stdio`);
+    this.bearerToken = bearerToken;
+    this.headerName = headerName;
+    this.connectionStatus = "disconnected";
+    this.serverCapabilities = null;
+    this.requestHistory = []
+    this.completionsSupported = true
+    this.transportType = transportType;
+    this.inspectorConfig  = {
+      MCP_SERVER_REQUEST_TIMEOUT: {
+          label: "MCP Server Request Timeout",
+          description: "Maximum time in milliseconds to wait for a response from the MCP server",
+          value: 30000
+      },
+      MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS: {
+          label: "Reset Timeout on Progress",
+          description: "Whether to reset the timeout on progress notifications",
+          value: true
+      },
+      MCP_REQUEST_MAX_TOTAL_TIMEOUT: {
+          label: "Max Total Timeout",
+          description: "Maximum total time in milliseconds to wait for a response",
+          value: 300000
+      },
+      MCP_PROXY_FULL_ADDRESS: {
+          label: "MCP Proxy Address",
+          description: "The full address of the MCP Proxy Server",
+          value: "http://localhost:6277"
+      }
+    };
+    this.onStdErrNotification = onStdErrNotification;
+    this.onPendingRequest = onPendingRequest;
+    this.getRoots = getRoots;
   }
 
   async connectStdio() {
@@ -89,8 +154,10 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
         // We do this because we're proxying through the inspector server first.
         this.clientTransport = new SSEClientTransport(serverUrl, transportOptions);
         await this.connect(this.clientTransport);
+        this.connectionStatus = "connected";
     } catch (error) {
         console.error("Error connecting to MCP server:", error);
+        this.connectionStatus = "error";
         throw error; // Re-throw to allow proper error handling
     }
   }
@@ -111,8 +178,10 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
         this.clientTransport = new SSEClientTransport(serverUrl, transportOptions)
         this.mcpProxyServerUrl = serverUrl;
         await this.connect(this.clientTransport)
+        this.connectionStatus = "connected";
     } catch (error) {
         console.error("Error connecting to MCP server:", error);
+        this.connectionStatus = "error";
         throw error; // Re-throw to allow proper error handling
     }
   }
@@ -136,11 +205,151 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
         this.clientTransport = new StreamableHTTPClientTransport(serverUrl, transportOptions)
         this.mcpProxyServerUrl = serverUrl;
         await this.connect(this.clientTransport)
+        this.connectionStatus = "connected";
     } catch (error) {
         console.error("Error connecting to MCP server:", error);
+        this.connectionStatus = "error";
         throw error; // Re-throw to allow proper error handling
     }
   }
+
+  async checkProxyHealth() {
+    try {
+      const proxyHealthUrl = new URL(`${getMCPProxyAddress(this.inspectorConfig)}/health`);
+      const proxyHealthResponse = await fetch(proxyHealthUrl);
+      const proxyHealth = await proxyHealthResponse.json();
+      if (proxyHealth?.status !== "ok") {
+        throw new Error("MCP Proxy Server is not healthy");
+      }
+    } catch (e) {
+      console.error("Couldn't connect to MCP Proxy Server", e);
+      throw e;
+    }
+  };
+
+  is401Error = (error: unknown): boolean => {
+    return (
+      (error instanceof SseError && error.code === 401) ||
+      (error instanceof Error && error.message.includes("401")) ||
+      (error instanceof Error && error.message.includes("Unauthorized"))
+    );
+  };
+
+  handleAuthError = async (error: unknown) => {
+    if (this.is401Error(error)) {
+      const serverAuthProvider = new InspectorOAuthClientProvider(this.sseUrl);
+      const result = await auth(serverAuthProvider, { serverUrl: this.sseUrl });
+      return result === "AUTHORIZED";
+    }
+
+    return false;
+  };
+
+  async connectToServer(_e?: unknown, retryCount: number = 0): Promise<void> {
+    const MAX_RETRIES = 1; // Limit retries to prevent infinite loops
+    
+    try {
+      await this.checkProxyHealth();
+    } catch {
+      this.connectionStatus = "error-connecting-to-proxy";
+      return;
+    }
+
+    try {
+      // Inject auth manually instead of using SSEClientTransport, because we're
+      // proxying through the inspector server first.
+      const headers: HeadersInit = {};
+
+      // Create an auth provider with the current server URL
+      const serverAuthProvider = new InspectorOAuthClientProvider(this.sseUrl);
+
+      // Use manually provided bearer token if available, otherwise use OAuth tokens
+      const token =
+        this.bearerToken || (await serverAuthProvider.tokens())?.access_token;
+      if (token) {
+        const authHeaderName = this.headerName || "Authorization";
+        headers[authHeaderName] = `Bearer ${token}`;
+      }
+
+      // Update the headers property with auth headers
+      this.headers = { ...this.headers, ...headers };
+
+      if (this.onStdErrNotification) {
+        this.setNotificationHandler(
+          StdErrNotificationSchema,
+          this.onStdErrNotification,
+        );
+      }
+
+      try {
+        switch (this.transportType) {
+          case "stdio":
+            await this.connectStdio();
+            break;
+          case "sse":
+            await this.connectSSE();
+            break;
+          case "streamable-http":
+            await this.connectStreamableHttp();
+            break;
+        }
+        
+        // Update server capabilities after successful connection
+        this.serverCapabilities = this.getServerCapabilities() ?? null;
+        console.log("capabilities", this.serverCapabilities);
+        
+        const initializeRequest = {
+          method: "initialize",
+        };
+        this.pushRequestHistory(initializeRequest, {
+          capabilities: this.serverCapabilities,
+          serverInfo: this.getServerVersion(),
+          instructions: this.getInstructions(),
+        });
+      } catch (error) {
+        console.error(
+          `Failed to connect to MCP Server via the MCP Inspector Proxy: ${this.getMCPProxyServerUrl()}:`,
+          error,
+        );
+
+        // Only retry if we haven't exceeded max retries and auth error handling succeeds
+        if (retryCount < MAX_RETRIES) {
+          const shouldRetry = await this.handleAuthError(error);
+          if (shouldRetry) {
+            console.log(`Retrying connection (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+            return this.connectToServer(undefined, retryCount + 1);
+          }
+        }
+        
+        if (this.is401Error(error)) {
+          // Don't set error state if we're about to redirect for auth
+          this.connectionStatus = "error";
+          return;
+        }
+        throw error;
+      }
+      this.completionsSupported = true; // Reset completions support on new connection
+
+      if (this.onPendingRequest) {
+        this.setRequestHandler(CreateMessageRequestSchema, (request) => {
+          return new Promise((resolve, reject) => {
+            this.onPendingRequest?.(request, resolve, reject);
+          });
+        });
+      }
+
+      if (this.getRoots) {
+        this.setRequestHandler(ListRootsRequestSchema, async () => {
+          return { roots: this.getRoots?.() ?? [] };
+        });
+      }
+
+      this.connectionStatus = "connected";
+    } catch (e) {
+      console.error(e);
+      this.connectionStatus = "error";
+    }
+  };
 
   getTransport() {
     return this.clientTransport;
@@ -149,8 +358,145 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
   getMCPProxyServerUrl() {
     return this.mcpProxyServerUrl;
   }
+  
+  pushRequestHistory(request: object, response?: object) {
+    this.requestHistory.push({
+      request: JSON.stringify(request),
+      response: response !== undefined ? JSON.stringify(response) : undefined,
+    });
+  }
+
+  updateApiKey = (newApiKey: string) => {
+    if (this.anthropic) {
+      this.anthropic = new Anthropic({
+        apiKey: newApiKey,
+        dangerouslyAllowBrowser: true,
+      });
+    }
+  };
+
+  async makeRequest<T extends z.ZodType>(
+    request: ClientRequest,
+    schema: T,
+    options?: RequestOptions & { suppressToast?: boolean },
+  ): Promise<z.output<T>> {
+    try {
+      const abortController = new AbortController();
+
+      // prepare MCP Client request options
+      const mcpRequestOptions: RequestOptions = {
+        signal: options?.signal ?? abortController.signal,
+        resetTimeoutOnProgress:
+          options?.resetTimeoutOnProgress ??
+          resetRequestTimeoutOnProgress(this.inspectorConfig),
+        timeout: options?.timeout ?? getMCPServerRequestTimeout(this.inspectorConfig),
+        maxTotalTimeout:
+          options?.maxTotalTimeout ??
+          getMCPServerRequestMaxTotalTimeout(this.inspectorConfig),
+      };
+
+      // If progress notifications are enabled, add an onprogress hook to the MCP Client request options
+      // This is required by SDK to reset the timeout on progress notifications
+      if (mcpRequestOptions.resetTimeoutOnProgress) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        mcpRequestOptions.onprogress = (_params: Progress) => {
+          // Add progress notification to `Server Notification` window in the UI
+          // TODO: Add Notification to UI
+        };
+      }
+
+      let response;
+      try {
+        response = await this.request(request, schema, mcpRequestOptions);
+
+        this.pushRequestHistory(request, response);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.pushRequestHistory(request, { error: errorMessage });
+        throw error;
+      }
+
+      return response;
+    } catch (e: unknown) {
+      if (!options?.suppressToast) {
+        const errorString = (e as Error).message ?? String(e);
+        toast({
+          title: "Error",
+          description: errorString,
+          variant: "destructive",
+        });
+      }
+      throw e;
+    }
+  }
+
+  handleCompletion = async (
+    ref: ResourceReference | PromptReference,
+    argName: string,
+    value: string,
+    signal?: AbortSignal,
+  ): Promise<string[]> => {
+    if (!this.completionsSupported) {
+      return [];
+    }
+
+    const request: ClientRequest = {
+      method: "completion/complete",
+      params: {
+        argument: {
+          name: argName,
+          value,
+        },
+        ref,
+      },
+    };
+
+    try {
+      const response = await this.makeRequest(request, CompleteResultSchema, {
+        signal,
+        suppressToast: true,
+      });
+      return response?.completion.values || [];
+    } catch (e: unknown) {
+      // Disable completions silently if the server doesn't support them.
+      // See https://github.com/modelcontextprotocol/specification/discussions/122
+      if (e instanceof McpError && e.code === ErrorCode.MethodNotFound) {
+        this.completionsSupported = false;
+        return [];
+      }
+
+      // Unexpected errors - show toast and rethrow
+      toast({
+        title: "Error",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+      throw e;
+    }
+  };
+
+  async tools() {
+    return await this.listTools();
+  }
+
+  async disconnect() {
+    await this.close();
+    this.connectionStatus = "disconnected";
+    const authProvider = new InspectorOAuthClientProvider(this.sseUrl);
+    authProvider.clear();
+    this.serverCapabilities = null;
+  }
+
+  async setServerCapabilities(capabilities: ServerCapabilities) {
+    this.serverCapabilities = capabilities;
+  }
 
   async processQuery(query: string, tools: Tool[]): Promise<string> {
+    if (!this.anthropic) {
+      throw new Error("Anthropic client not initialized");
+    }
+
     const messages: MessageParam[] = [
       {
         role: "user",
