@@ -1,8 +1,7 @@
 import { MCPJamClient } from "./mcpjamClient";
-import { InspectorOAuthClientProvider } from "./lib/auth";
 import { InspectorConfig } from "./lib/configurationTypes";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { MCPJamServerConfig, StdioServerDefinition, HttpServerDefinition } from "./lib/serverTypes";
+import { MCPJamServerConfig } from "./lib/serverTypes";
 
 export interface MCPClientOptions {
     id?: string;
@@ -53,32 +52,18 @@ export class MCPJamAgent {
             return client;
         }
 
-        // Create headers object
-        const headers: HeadersInit = {};
-        
-        // Create server auth provider - for stdio we'll use empty string as URL
-        let sseUrl = '';
-        if ('url' in config) {
-            sseUrl = (config as HttpServerDefinition).url.toString();
-        }
-        const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
-
+        // Create new client with updated constructor signature
         const newClient = new MCPJamClient(
-            this.config,
-            'command' in config ? (config as StdioServerDefinition).command : '',
-            'args' in config ? (config.args || []).join(' ') : '',
-            'env' in config ? config.env || {} : {},
-            headers,
-            sseUrl,
-            serverAuthProvider,
-            'stdio', // transportType
-            undefined, // bearerToken
-            undefined, // headerName
-            undefined, // onStdErrNotification
-            undefined, // claudeApiKey
-            undefined, // onPendingRequest
-            undefined  // getRoots
+            config,           // serverConfig (first parameter)
+            this.config,      // config (second parameter)
+            undefined,        // bearerToken
+            undefined,        // headerName
+            undefined,        // onStdErrNotification
+            undefined,        // claudeApiKey
+            undefined,        // onPendingRequest
+            undefined         // getRoots
         );
+        
         await newClient.connectToServer();
         this.mcpClientsById.set(name, newClient);
         return newClient;
