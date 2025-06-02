@@ -124,3 +124,32 @@ export const initializeInspectorConfig = (
   const overrides = getConfigOverridesFromQueryParams(DEFAULT_INSPECTOR_CONFIG);
   return { ...baseConfig, ...overrides };
 };
+
+/**
+ * Creates a default InspectorConfig with standard values
+ * @returns InspectorConfig with default values
+ */
+export const createDefaultConfig = (): InspectorConfig => {
+  return {
+    MCP_SERVER_REQUEST_TIMEOUT: {
+      label: "MCP Server Request Timeout",
+      description: "Maximum time in milliseconds to wait for a response from the MCP server",
+      value: 30000
+    },
+    MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS: {
+      label: "Reset Timeout on Progress",
+      description: "Whether to reset the timeout on progress notifications",
+      value: true
+    },
+    MCP_REQUEST_MAX_TOTAL_TIMEOUT: {
+      label: "Max Total Timeout",
+      description: "Maximum total time in milliseconds to wait for a response",
+      value: 300000
+    },
+    MCP_PROXY_FULL_ADDRESS: {
+      label: "MCP Proxy Address",
+      description: "The full address of the MCP Proxy Server",
+      value: "http://localhost:6277"
+    }
+  };
+};
