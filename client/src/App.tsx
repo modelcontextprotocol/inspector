@@ -9,6 +9,8 @@ import {
   Root,
   Tool,
   LoggingLevel,
+  ResourceReference,
+  PromptReference,
 } from "@modelcontextprotocol/sdk/types.js";
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
@@ -55,23 +57,14 @@ import {
   handleRejectSampling,
   clearError,
   sendMCPRequest,
-  listResources,
-  listResourceTemplates,
-  readResource,
-  subscribeToResource,
-  unsubscribeFromResource,
-  listPrompts,
-  getPrompt,
-  listTools,
-  callTool,
   handleRootsChange,
   sendLogLevelRequest,
   MCPHelperDependencies,
-  MCPHelperState,
 } from "./utils/mcpHelpers";
 import { McpClientContext } from "@/context/McpClientContext";
-import { MCPJamClient } from "./mcpjamClient";
 import { MCPJamServerConfig, StdioServerDefinition } from "./lib/serverTypes";
+import { MCPJamAgent, MCPClientOptions, ServerConnectionInfo } from "./mcpjamAgent";
+import ServerManager from "./components/ServerManager";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 const CLAUDE_API_KEY_STORAGE_KEY = "claude-api-key";
@@ -82,6 +75,9 @@ const validateClaudeApiKey = (key: string): boolean => {
   const claudeApiKeyPattern = /^sk-ant-api03-[A-Za-z0-9_-]+$/;
   return claudeApiKeyPattern.test(key) && key.length > 20;
 };
+
+// Update ConnectionStatus type to include "partial"
+type ExtendedConnectionStatus = "disconnected" | "connected" | "error" | "error-connecting-to-proxy" | "partial";
 
 const App = () => {
   const [resources, setResources] = useState<Resource[]>([]);
@@ -100,22 +96,32 @@ const App = () => {
     tools: null,
   });
 
-  const [serverConfig, setServerConfig] = useState<MCPJamServerConfig>(() => {
+  // Replace single serverConfig with multiple servers
+  const [serverConfigs, setServerConfigs] = useState<Record<string, MCPJamServerConfig>>(() => {
     const transportType = getInitialTransportType();
+    const defaultServerName = "default";
     if (transportType === "stdio") {
       return {
-        transportType: transportType,
-        command: getInitialCommand(),
-        args: getInitialArgs().split(" ").filter(arg => arg.trim() !== ""),
-        env: {},
+        [defaultServerName]: {
+          transportType: transportType,
+          command: getInitialCommand(),
+          args: getInitialArgs().split(" ").filter(arg => arg.trim() !== ""),
+          env: {},
+        }
       };
     } else {
       return {
-        transportType: transportType,
-        url: new URL(getInitialSseUrl()),
+        [defaultServerName]: {
+          transportType: transportType,
+          url: new URL(getInitialSseUrl()),
+        }
       };
     }
   });
+
+  // Add state for managing multiple servers
+  const [selectedServerName, setSelectedServerName] = useState<string>("default");
+  const [serverConnections, setServerConnections] = useState<ServerConnectionInfo[]>([]);
 
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [stdErrNotifications, setStdErrNotifications] = useState<
@@ -209,7 +215,8 @@ const App = () => {
     return hash || "tools";
   });
 
-  const [mcpClient, setMcpClient] = useState<MCPJamClient | null>(null);
+  // Replace single mcpClient with MCPJamAgent
+  const [mcpAgent, setMcpAgent] = useState<MCPJamAgent | null>(null);
 
   // Use callbacks to prevent MCPJamClient recreation
   const onStdErrNotification = useCallback((notification: StdErrNotification) => {
@@ -228,28 +235,32 @@ const App = () => {
 
   const getRootsCallback = useCallback(() => rootsRef.current, []);
 
+  // Update the connect function to use MCPJamAgent
   const connect = useCallback(async () => {
-    const client = new MCPJamClient(
-      serverConfig,
+    const options: MCPClientOptions = {
+      servers: serverConfigs,
       config,
       bearerToken,
       headerName,
-      onStdErrNotification,
       claudeApiKey,
+      onStdErrNotification,
       onPendingRequest,
-      getRootsCallback
-    );
+      getRoots: getRootsCallback,
+    };
 
+    const agent = new MCPJamAgent(options);
+    
     try {
-      await client.connectToServer();
-      setMcpClient(client);
+      await agent.connectToAllServers();
+      setMcpAgent(agent);
+      setServerConnections(agent.getAllConnectionInfo());
     } catch (error) {
-      console.error("Failed to connect:", error);
-      setMcpClient(null);
+      console.error("Failed to connect to servers:", error);
+      setMcpAgent(null);
     }
   }, [
+    serverConfigs,
     config,
-    serverConfig,
     bearerToken,
     headerName,
     claudeApiKey,
@@ -259,68 +270,117 @@ const App = () => {
   ]);
 
   const disconnect = useCallback(async () => {
-    if (mcpClient) {
-      await mcpClient.disconnect();
-      setMcpClient(null);
+    if (mcpAgent) {
+      await mcpAgent.disconnectFromAllServers();
+      setMcpAgent(null);
+      setServerConnections([]);
     }
-  }, [mcpClient]);
+  }, [mcpAgent]);
 
   // Handler to update transport type and serverConfig accordingly
   const handleTransportTypeChange = useCallback((newTransportType: "stdio" | "sse" | "streamable-http") => {
     if (newTransportType === "stdio") {
-      // Switch to stdio config
-      setServerConfig({
-        transportType: newTransportType,
-        command: getInitialCommand(),
-        args: getInitialArgs().split(" ").filter(arg => arg.trim() !== ""),
-        env: {},
-      });
+      // Switch to stdio config for the selected server
+      setServerConfigs(prev => ({
+        ...prev,
+        [selectedServerName]: {
+          transportType: newTransportType,
+          command: getInitialCommand(),
+          args: getInitialArgs().split(" ").filter(arg => arg.trim() !== ""),
+          env: {},
+        }
+      }));
     } else {
-      // Switch to HTTP config (SSE or streamable-http)
-      setServerConfig({
-        transportType: newTransportType,
-        url: new URL(getInitialSseUrl()),
-      });
+      // Switch to HTTP config (SSE or streamable-http) for the selected server
+      setServerConfigs(prev => ({
+        ...prev,
+        [selectedServerName]: {
+          transportType: newTransportType,
+          url: new URL(getInitialSseUrl()),
+        }
+      }));
     }
-  }, []);
+  }, [selectedServerName]);
 
-  const connectionStatus = mcpClient?.connectionStatus || "disconnected";
-  const serverCapabilities = mcpClient?.serverCapabilities || null;
-  const requestHistory = mcpClient?.requestHistory || [];
-  const makeRequest = mcpClient?.makeRequest.bind(mcpClient) || (async () => { throw new Error("Client not connected"); });
-  const handleCompletion = mcpClient?.handleCompletion.bind(mcpClient) || (async () => []);
-  const completionsSupported = mcpClient?.completionsSupported || false;
-  const updateApiKey = mcpClient?.updateApiKey.bind(mcpClient) || (() => {});
+  // Update connection status and capabilities to work with multiple servers
+  const connectionStatus: ExtendedConnectionStatus = mcpAgent?.getOverallConnectionStatus() || "disconnected";
+  const serverCapabilities = selectedServerName === "all"
+    ? null // You'll need to merge capabilities or handle this differently
+    : serverConnections.find(s => s.name === selectedServerName)?.capabilities || null;
+  
+  // Get request history from agent or current client
+  const requestHistory = mcpAgent?.getAllRequestHistory().flatMap(({ history }) => history) || [];
+  
+  // Create makeRequest function that works with the agent
+  const makeRequest = useCallback(async (request: ClientRequest) => {
+    if (!mcpAgent) {
+      throw new Error("Agent not connected");
+    }
+    
+    if (selectedServerName === "all") {
+      throw new Error("Cannot make requests when 'all' servers are selected. Please select a specific server.");
+    }
+    
+    const client = mcpAgent.getClient(selectedServerName);
+    if (!client) {
+      throw new Error(`Client for server ${selectedServerName} not found`);
+    }
+    
+    return await client.makeRequest(request, z.any());
+  }, [mcpAgent, selectedServerName]);
+
+  // Create handleCompletion function with proper typing
+  const handleCompletion = useCallback(async (ref: ResourceReference | PromptReference, argName: string, value: string, signal?: AbortSignal) => {
+    if (!mcpAgent || selectedServerName === "all") {
+      return [];
+    }
+    
+    const client = mcpAgent.getClient(selectedServerName);
+    if (!client) {
+      return [];
+    }
+    
+    return await client.handleCompletion(ref, argName, value, signal);
+  }, [mcpAgent, selectedServerName]);
+
+  const completionsSupported = selectedServerName === "all" 
+    ? false 
+    : mcpAgent?.getClient(selectedServerName)?.completionsSupported || false;
+
+  // Create updateApiKey function
+  const updateApiKey = useCallback((newApiKey: string) => {
+    if (mcpAgent) {
+      mcpAgent.updateCredentials(undefined, undefined, newApiKey);
+    }
+  }, [mcpAgent]);
 
   // Handler to update both state and the MCP client's API key
   const handleApiKeyChange = (newApiKey: string) => {
     setClaudeApiKey(newApiKey);
-    if (updateApiKey) {
-      updateApiKey(newApiKey);
-    }
+    updateApiKey(newApiKey);
   };
 
   useEffect(() => {
-    if (serverConfig.transportType === "stdio" && "command" in serverConfig) {
-      localStorage.setItem("lastCommand", serverConfig.command || "");
+    if (serverConfigs[selectedServerName]?.transportType === "stdio" && "command" in serverConfigs[selectedServerName]) {
+      localStorage.setItem("lastCommand", serverConfigs[selectedServerName].command || "");
     }
-  }, [serverConfig]);
+  }, [serverConfigs, selectedServerName]);
 
   useEffect(() => {
-    if (serverConfig.transportType === "stdio" && "args" in serverConfig) {
-      localStorage.setItem("lastArgs", serverConfig.args?.join(" ") || "");
+    if (serverConfigs[selectedServerName]?.transportType === "stdio" && "args" in serverConfigs[selectedServerName]) {
+      localStorage.setItem("lastArgs", serverConfigs[selectedServerName].args?.join(" ") || "");
     }
-  }, [serverConfig]);
+  }, [serverConfigs, selectedServerName]);
 
   useEffect(() => {
-    if ("url" in serverConfig && serverConfig.url) {
-      localStorage.setItem("lastSseUrl", serverConfig.url.toString());
+    if ("url" in serverConfigs[selectedServerName] && serverConfigs[selectedServerName].url) {
+      localStorage.setItem("lastSseUrl", serverConfigs[selectedServerName].url.toString());
     }
-  }, [serverConfig]);
+  }, [serverConfigs, selectedServerName]);
 
   useEffect(() => {
-    localStorage.setItem("lastTransportType", serverConfig.transportType);
-  }, [serverConfig.transportType]);
+    localStorage.setItem("lastTransportType", serverConfigs[selectedServerName]?.transportType || "");
+  }, [serverConfigs, selectedServerName]);
 
   useEffect(() => {
     localStorage.setItem("lastBearerToken", bearerToken);
@@ -337,14 +397,17 @@ const App = () => {
   // Auto-connect to previously saved serverURL after OAuth callback
   const onOAuthConnect = useCallback(
     (serverUrl: string) => {
-      setServerConfig({
-        transportType: serverConfig.transportType,
-        url: new URL(serverUrl),
-      });
+      setServerConfigs(prev => ({
+        ...prev,
+        [selectedServerName]: {
+          transportType: serverConfigs[selectedServerName]?.transportType || "stdio",
+          url: new URL(serverUrl),
+        }
+      }));
 
       void connect();
     },
-    [connect],
+    [connect, selectedServerName, serverConfigs],
   );
 
   // Update OAuth debug state during debug callback
@@ -375,8 +438,8 @@ const App = () => {
   useEffect(() => {
     const loadOAuthTokens = async () => {
       try {
-        if ("url" in serverConfig && serverConfig.url) {
-          const key = getServerSpecificKey(SESSION_KEYS.TOKENS, serverConfig.url.toString());
+        if ("url" in serverConfigs[selectedServerName] && serverConfigs[selectedServerName].url) {
+          const key = getServerSpecificKey(SESSION_KEYS.TOKENS, serverConfigs[selectedServerName].url.toString());
           const tokens = sessionStorage.getItem(key);
           if (tokens) {
             const parsedTokens = await OAuthTokensSchema.parseAsync(
@@ -396,22 +459,20 @@ const App = () => {
     };
 
     loadOAuthTokens();
-  }, [serverConfig]);
+  }, [selectedServerName, serverConfigs]);
 
   useEffect(() => {
     fetch(`${getMCPProxyAddress(config)}/config`)
       .then((response) => response.json())
       .then((data) => {
-        if (serverConfig.transportType === "stdio") {
-          setServerConfig((prevConfig) => {
-            if ("command" in prevConfig) {
-              return {
-                ...prevConfig,
-                env: data.defaultEnvironment || {},
-              } as StdioServerDefinition;
-            }
-            return prevConfig;
-          });
+        if (serverConfigs[selectedServerName]?.transportType === "stdio") {
+          setServerConfigs(prev => ({
+            ...prev,
+            [selectedServerName]: {
+              ...prev[selectedServerName],
+              env: data.defaultEnvironment || {},
+            } as StdioServerDefinition,
+          }));
         }
       })
       .catch((error) =>
@@ -443,7 +504,7 @@ const App = () => {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
-  // Create helper dependencies and state objects
+  // Create helper dependencies and state objects - only keeping what's needed
   const helperDependencies: MCPHelperDependencies = {
     makeRequest,
     sendNotification: async () => {},
@@ -464,16 +525,6 @@ const App = () => {
     setStdErrNotifications,
     setPendingSampleRequests,
     progressTokenRef,
-  };
-
-  const helperState: MCPHelperState = {
-    resources,
-    resourceTemplates,
-    resourceSubscriptions,
-    nextResourceCursor,
-    nextResourceTemplateCursor,
-    nextPromptCursor,
-    nextToolCursor,
   };
 
   // Replace the old helper functions with calls to imported ones
@@ -501,53 +552,167 @@ const App = () => {
   };
 
   const listResourcesWrapper = async () => {
-    return listResources(helperState, helperDependencies);
+    if (!mcpAgent) return;
+    
+    if (selectedServerName === "all") {
+      // Get resources from all servers
+      const allServerResources = await mcpAgent.getAllResources();
+      const flatResources = allServerResources.flatMap(({ resources }) => resources);
+      setResources(flatResources);
+    } else {
+      // Get resources from specific server
+      const client = mcpAgent.getClient(selectedServerName);
+      if (client) {
+        const resourcesResponse = await client.listResources();
+        setResources(resourcesResponse.resources);
+      }
+    }
   };
 
   const listResourceTemplatesWrapper = async () => {
-    return listResourceTemplates(helperState, helperDependencies);
+    if (!mcpAgent) return;
+    
+    if (selectedServerName === "all") {
+      // For now, just get from first server - you might want to aggregate differently
+      const allServerResources = await mcpAgent.getAllResources();
+      if (allServerResources.length > 0) {
+        const client = mcpAgent.getClient(allServerResources[0].serverName);
+        if (client) {
+          const templatesResponse = await client.listResourceTemplates();
+          setResourceTemplates(templatesResponse.resourceTemplates);
+        }
+      }
+    } else {
+      const client = mcpAgent.getClient(selectedServerName);
+      if (client) {
+        const templatesResponse = await client.listResourceTemplates();
+        setResourceTemplates(templatesResponse.resourceTemplates);
+      }
+    }
   };
 
   const readResourceWrapper = async (uri: string) => {
-    return readResource(uri, helperDependencies);
+    if (!mcpAgent) return;
+    
+    if (selectedServerName !== "all") {
+      return await mcpAgent.readResourceFromServer(selectedServerName, uri);
+    } else {
+      // Try to find which server has this resource
+      const allResources = await mcpAgent.getAllResources();
+      for (const { serverName, resources } of allResources) {
+        if (resources.some(resource => resource.uri === uri)) {
+          return await mcpAgent.readResourceFromServer(serverName, uri);
+        }
+      }
+      throw new Error(`Resource ${uri} not found on any server`);
+    }
   };
 
   const subscribeToResourceWrapper = async (uri: string) => {
-    return subscribeToResource(uri, helperState, helperDependencies);
+    if (!mcpAgent || selectedServerName === "all") return;
+    
+    const client = mcpAgent.getClient(selectedServerName);
+    if (client) {
+      return await client.subscribeResource({ uri });
+    }
   };
 
   const unsubscribeFromResourceWrapper = async (uri: string) => {
-    return unsubscribeFromResource(uri, helperState, helperDependencies);
+    if (!mcpAgent || selectedServerName === "all") return;
+    
+    const client = mcpAgent.getClient(selectedServerName);
+    if (client) {
+      return await client.unsubscribeResource({ uri });
+    }
   };
 
   const listPromptsWrapper = async () => {
-    return listPrompts(helperState, helperDependencies);
+    if (!mcpAgent) return;
+    
+    if (selectedServerName === "all") {
+      // Get prompts from all servers
+      const allServerPrompts = await mcpAgent.getAllPrompts();
+      const flatPrompts = allServerPrompts.flatMap(({ prompts }) => prompts);
+      setPrompts(flatPrompts);
+    } else {
+      // Get prompts from specific server
+      const client = mcpAgent.getClient(selectedServerName);
+      if (client) {
+        const promptsResponse = await client.listPrompts();
+        setPrompts(promptsResponse.prompts);
+      }
+    }
   };
 
-  const getPromptWrapper = async (
-    name: string,
-    args: Record<string, string> = {},
-  ) => {
-    return getPrompt(name, args, helperDependencies);
+  const getPromptWrapper = async (name: string, args: Record<string, string> = {}) => {
+    if (!mcpAgent) return;
+    
+    if (selectedServerName !== "all") {
+      return await mcpAgent.getPromptFromServer(selectedServerName, name, args);
+    } else {
+      // Try to find which server has this prompt
+      const allPrompts = await mcpAgent.getAllPrompts();
+      for (const { serverName, prompts } of allPrompts) {
+        if (prompts.some(prompt => prompt.name === name)) {
+          return await mcpAgent.getPromptFromServer(serverName, name, args);
+        }
+      }
+      throw new Error(`Prompt ${name} not found on any server`);
+    }
   };
 
   const listToolsWrapper = async () => {
-    return listTools(helperState, helperDependencies);
+    if (!mcpAgent) return;
+    
+    if (selectedServerName === "all") {
+      // Get tools from all servers
+      const allServerTools = await mcpAgent.getAllTools();
+      const flatTools = allServerTools.flatMap(({ tools }) => tools);
+      setTools(flatTools);
+    } else {
+      // Get tools from specific server
+      const client = mcpAgent.getClient(selectedServerName);
+      if (client) {
+        const toolsResponse = await client.tools();
+        setTools(toolsResponse.tools);
+      }
+    }
   };
 
-  const callToolWrapper = async (
-    name: string,
-    params: Record<string, unknown>,
-  ) => {
-    return callTool(name, params, helperDependencies);
+  const callToolWrapper = async (name: string, params: Record<string, unknown>) => {
+    if (!mcpAgent) return;
+    
+    // For tool calls, we need to know which server has the tool
+    if (selectedServerName !== "all") {
+      return await mcpAgent.callToolOnServer(selectedServerName, name, params);
+    } else {
+      // If "all" is selected, try to find which server has this tool
+      const allTools = await mcpAgent.getAllTools();
+      for (const { serverName, tools } of allTools) {
+        if (tools.some(tool => tool.name === name)) {
+          return await mcpAgent.callToolOnServer(serverName, name, params);
+        }
+      }
+      throw new Error(`Tool ${name} not found on any server`);
+    }
   };
 
   const handleRootsChangeWrapper = async () => {
-    return handleRootsChange(helperDependencies);
+    if (!mcpAgent || selectedServerName === "all") return;
+    
+    const client = mcpAgent.getClient(selectedServerName);
+    if (client) {
+      return handleRootsChange({ makeRequest: client.makeRequest.bind(client) } as MCPHelperDependencies);
+    }
   };
 
   const sendLogLevelRequestWrapper = async (level: LoggingLevel) => {
-    return sendLogLevelRequest(level, helperDependencies);
+    if (!mcpAgent || selectedServerName === "all") return;
+    
+    const client = mcpAgent.getClient(selectedServerName);
+    if (client) {
+      return sendLogLevelRequest(level, { makeRequest: client.makeRequest.bind(client) } as MCPHelperDependencies);
+    }
   };
 
   const clearStdErrNotificationsWrapper = () => {
@@ -559,6 +724,48 @@ const App = () => {
     // Clear the loaded request after a short delay to allow the component to process it
     setTimeout(() => setLoadedRequest(null), 100);
   };
+
+  // Add functions to manage multiple servers - moved before early returns
+  const addServer = useCallback((name: string, config: MCPJamServerConfig) => {
+    setServerConfigs(prev => ({ ...prev, [name]: config }));
+    if (mcpAgent) {
+      mcpAgent.addServer(name, config);
+    }
+  }, [mcpAgent]);
+
+  const removeServer = useCallback(async (name: string) => {
+    if (mcpAgent) {
+      await mcpAgent.removeServer(name);
+    }
+    setServerConfigs(prev => {
+      const newConfigs = { ...prev };
+      delete newConfigs[name];
+      return newConfigs;
+    });
+    setServerConnections(mcpAgent?.getAllConnectionInfo() || []);
+  }, [mcpAgent]);
+
+  const connectToSpecificServer = useCallback(async (serverName: string) => {
+    if (mcpAgent) {
+      try {
+        await mcpAgent.connectToServer(serverName);
+        setServerConnections(mcpAgent.getAllConnectionInfo());
+      } catch (error) {
+        console.error(`Failed to connect to server ${serverName}:`, error);
+      }
+    }
+  }, [mcpAgent]);
+
+  const disconnectFromSpecificServer = useCallback(async (serverName: string) => {
+    if (mcpAgent) {
+      try {
+        await mcpAgent.disconnectFromServer(serverName);
+        setServerConnections(mcpAgent.getAllConnectionInfo());
+      } catch (error) {
+        console.error(`Failed to disconnect from server ${serverName}:`, error);
+      }
+    }
+  }, [mcpAgent]);
 
   // Helper function to render OAuth callback components
   if (window.location.pathname === "/oauth/callback") {
@@ -608,7 +815,7 @@ const App = () => {
       !serverCapabilities?.tools;
 
     const renderServerNotConnected = () => {
-      if (!mcpClient) {
+      if (!mcpAgent) {
         return (
           <div className="flex flex-col items-center justify-center p-12 rounded-xl bg-card border border-border/50 shadow-sm">
             <Activity className="w-16 h-16 text-muted-foreground mb-4" />
@@ -757,7 +964,7 @@ const App = () => {
               toolResult={toolResult}
               nextCursor={nextToolCursor}
               error={errors.tools}
-              connectionStatus={connectionStatus}
+              connectionStatus={connectionStatus as "connected" | "disconnected" | "error" | "error-connecting-to-proxy"}
               loadedRequest={loadedRequest}
             />
           );
@@ -797,7 +1004,7 @@ const App = () => {
         case "auth":
           return (
             <AuthDebugger
-              serverUrl={"url" in serverConfig && serverConfig.url ? serverConfig.url.toString() : ""}
+              serverUrl={"url" in serverConfigs[selectedServerName] && serverConfigs[selectedServerName].url ? serverConfigs[selectedServerName].url.toString() : ""}
               onBack={() => setCurrentPage("resources")}
               authState={authState}
               updateAuthState={updateAuthState}
@@ -819,7 +1026,7 @@ const App = () => {
     };
     return (
       <div className="flex-1 flex flex-col overflow-auto p-6">
-        {!mcpClient
+        {!mcpAgent
           ? renderServerNotConnected()
           : serverHasNoCapabilities
             ? renderServerNoCapabilities()
@@ -828,76 +1035,115 @@ const App = () => {
     );
   };
 
+  // Update the context provider to use the current client instead of the agent
+  const currentClient = mcpAgent?.getClient(selectedServerName) || null;
+
   return (
-    <McpClientContext.Provider value={mcpClient}>
+    <McpClientContext.Provider value={currentClient}>
       <div className="h-screen bg-gradient-to-br from-slate-50/50 to-slate-100/50 dark:from-slate-900/50 dark:to-slate-800/50 flex overflow-hidden app-container">
+        {/* Add server selector in your UI */}
+        <div className="server-selector p-4 bg-background border-b">
+          <label htmlFor="server-select" className="block text-sm font-medium mb-2">
+            Select Server:
+          </label>
+          <select 
+            id="server-select"
+            value={selectedServerName} 
+            onChange={(e) => setSelectedServerName(e.target.value)}
+            className="w-full p-2 border rounded"
+          >
+            <option value="all">All Servers</option>
+            {Object.keys(serverConfigs).map(name => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+          
+          {/* Display connection status for all servers */}
+          <div className="server-connections mt-2">
+            {serverConnections.map(({ name, connectionStatus: status }) => (
+              <div key={name} className={`server-status text-sm p-1 ${status === 'connected' ? 'text-green-600' : 'text-red-600'}`}>
+                {name}: {status}
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Sidebar - Full Height Left Side */}
         <Sidebar
           currentPage={currentPage}
           onPageChange={setCurrentPage}
           serverCapabilities={serverCapabilities}
           pendingSampleRequests={pendingSampleRequests}
-          shouldDisableAll={!mcpClient}
+          shouldDisableAll={!mcpAgent}
           onLoadRequest={handleLoadRequest}
         />
 
         {/* Main Content Area - Right Side */}
         <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Server Manager */}
+          <ServerManager
+            serverConfigs={serverConfigs}
+            serverConnections={serverConnections}
+            selectedServerName={selectedServerName}
+            onServerSelect={setSelectedServerName}
+            onAddServer={addServer}
+            onRemoveServer={removeServer}
+            onConnectToServer={connectToSpecificServer}
+            onDisconnectFromServer={disconnectFromSpecificServer}
+          />
+
           {/* Connection Section */}
           <div className="bg-background/80 backdrop-blur-md border-b border-border/50 shadow-sm">
             <ConnectionSection
-              connectionStatus={connectionStatus}
-              transportType={serverConfig.transportType}
+              connectionStatus={connectionStatus as "connected" | "disconnected" | "error" | "error-connecting-to-proxy"}
+              transportType={serverConfigs[selectedServerName]?.transportType || "stdio"}
               setTransportType={handleTransportTypeChange}
-              command={serverConfig.transportType === "stdio" && "command" in serverConfig ? serverConfig.command || "" : ""}
+              command={serverConfigs[selectedServerName]?.transportType === "stdio" && "command" in serverConfigs[selectedServerName] ? (serverConfigs[selectedServerName] as StdioServerDefinition).command || "" : ""}
               setCommand={(newCommand) => {
-                if (serverConfig.transportType === "stdio") {
-                  setServerConfig((prevConfig) => {
-                    if ("command" in prevConfig) {
-                      return {
-                        ...prevConfig,
-                        command: newCommand,
-                      } as StdioServerDefinition;
-                    }
-                    return prevConfig;
-                  });
+                if (serverConfigs[selectedServerName]?.transportType === "stdio") {
+                  setServerConfigs(prev => ({
+                    ...prev,
+                    [selectedServerName]: {
+                      ...prev[selectedServerName],
+                      command: newCommand,
+                    } as StdioServerDefinition,
+                  }));
                 }
               }}
-              args={serverConfig.transportType === "stdio" && "args" in serverConfig ? serverConfig.args?.join(" ") || "" : ""}
+              args={serverConfigs[selectedServerName]?.transportType === "stdio" && "args" in serverConfigs[selectedServerName] ? (serverConfigs[selectedServerName] as StdioServerDefinition).args?.join(" ") || "" : ""}
               setArgs={(newArgs) => {
-                if (serverConfig.transportType === "stdio") {
-                  setServerConfig((prevConfig) => {
-                    if ("command" in prevConfig) {
-                      return {
-                        ...prevConfig,
-                        args: newArgs.split(" ").filter(arg => arg.trim() !== ""),
-                      } as StdioServerDefinition;
-                    }
-                    return prevConfig;
-                  });
+                if (serverConfigs[selectedServerName]?.transportType === "stdio") {
+                  setServerConfigs(prev => ({
+                    ...prev,
+                    [selectedServerName]: {
+                      ...prev[selectedServerName],
+                      args: newArgs.split(" ").filter(arg => arg.trim() !== ""),
+                    } as StdioServerDefinition,
+                  }));
                 }
               }}
-              sseUrl={"url" in serverConfig && serverConfig.url ? serverConfig.url.toString() : ""}
+              sseUrl={"url" in serverConfigs[selectedServerName] && serverConfigs[selectedServerName].transportType !== "stdio" ? (serverConfigs[selectedServerName] as { url: URL }).url.toString() : ""}
               setSseUrl={(newSseUrl) => {
-                if (serverConfig.transportType !== "stdio") {
-                  setServerConfig({
-                    transportType: serverConfig.transportType,
-                    url: new URL(newSseUrl),
-                  });
+                if (serverConfigs[selectedServerName]?.transportType !== "stdio") {
+                  setServerConfigs(prev => ({
+                    ...prev,
+                    [selectedServerName]: {
+                      ...prev[selectedServerName],
+                      url: new URL(newSseUrl),
+                    }
+                  }));
                 }
               }}
-              env={serverConfig.transportType === "stdio" && "env" in serverConfig ? serverConfig.env || {} : {}}
+              env={serverConfigs[selectedServerName]?.transportType === "stdio" && "env" in serverConfigs[selectedServerName] ? (serverConfigs[selectedServerName] as StdioServerDefinition).env || {} : {}}
               setEnv={(newEnv) => {
-                if (serverConfig.transportType === "stdio") {
-                  setServerConfig((prevConfig) => {
-                    if ("command" in prevConfig) {
-                      return {
-                        ...prevConfig,
-                        env: newEnv,
-                      } as StdioServerDefinition;
-                    }
-                    return prevConfig;
-                  });
+                if (serverConfigs[selectedServerName]?.transportType === "stdio") {
+                  setServerConfigs(prev => ({
+                    ...prev,
+                    [selectedServerName]: {
+                      ...prev[selectedServerName],
+                      env: newEnv,
+                    } as StdioServerDefinition,
+                  }));
                 }
               }}
               config={config}
@@ -922,7 +1168,7 @@ const App = () => {
             onPageChange={setCurrentPage}
             serverCapabilities={serverCapabilities}
             pendingSampleRequests={pendingSampleRequests}
-            shouldDisableAll={!mcpClient}
+            shouldDisableAll={!mcpAgent}
           />
 
           {/* Main Content */}
