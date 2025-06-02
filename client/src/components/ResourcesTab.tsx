@@ -235,26 +235,27 @@ const ResourcesTab = ({
                 <p className="text-sm text-gray-600">
                   {selectedTemplate.description}
                 </p>
-                {new UriTemplate(selectedTemplate.uriTemplate).variableNames
-                  ?.map((key) => {
-                    return (
-                      <div key={key}>
-                        <Label htmlFor={key}>{key}</Label>
-                        <Combobox
-                          id={key}
-                          placeholder={`Enter ${key}`}
-                          value={templateValues[key] || ""}
-                          onChange={(value) =>
-                            handleTemplateValueChange(key, value)
-                          }
-                          onInputChange={(value) =>
-                            handleTemplateValueChange(key, value)
-                          }
-                          options={completions[key] || []}
-                        />
-                      </div>
-                    );
-                  })}
+                {new UriTemplate(
+                  selectedTemplate.uriTemplate,
+                ).variableNames?.map((key) => {
+                  return (
+                    <div key={key}>
+                      <Label htmlFor={key}>{key}</Label>
+                      <Combobox
+                        id={key}
+                        placeholder={`Enter ${key}`}
+                        value={templateValues[key] || ""}
+                        onChange={(value) =>
+                          handleTemplateValueChange(key, value)
+                        }
+                        onInputChange={(value) =>
+                          handleTemplateValueChange(key, value)
+                        }
+                        options={completions[key] || []}
+                      />
+                    </div>
+                  );
+                })}
                 <Button
                   onClick={handleReadTemplateResource}
                   disabled={Object.keys(templateValues).length === 0}
