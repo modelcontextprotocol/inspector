@@ -1041,33 +1041,6 @@ const App = () => {
   return (
     <McpClientContext.Provider value={currentClient}>
       <div className="h-screen bg-gradient-to-br from-slate-50/50 to-slate-100/50 dark:from-slate-900/50 dark:to-slate-800/50 flex overflow-hidden app-container">
-        {/* Add server selector in your UI */}
-        <div className="server-selector p-4 bg-background border-b">
-          <label htmlFor="server-select" className="block text-sm font-medium mb-2">
-            Select Server:
-          </label>
-          <select 
-            id="server-select"
-            value={selectedServerName} 
-            onChange={(e) => setSelectedServerName(e.target.value)}
-            className="w-full p-2 border rounded"
-          >
-            <option value="all">All Servers</option>
-            {Object.keys(serverConfigs).map(name => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
-          
-          {/* Display connection status for all servers */}
-          <div className="server-connections mt-2">
-            {serverConnections.map(({ name, connectionStatus: status }) => (
-              <div key={name} className={`server-status text-sm p-1 ${status === 'connected' ? 'text-green-600' : 'text-red-600'}`}>
-                {name}: {status}
-              </div>
-            ))}
-          </div>
-        </div>
-
         {/* Sidebar - Full Height Left Side */}
         <Sidebar
           currentPage={currentPage}
@@ -1080,18 +1053,6 @@ const App = () => {
 
         {/* Main Content Area - Right Side */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Server Manager */}
-          <ServerManager
-            serverConfigs={serverConfigs}
-            serverConnections={serverConnections}
-            selectedServerName={selectedServerName}
-            onServerSelect={setSelectedServerName}
-            onAddServer={addServer}
-            onRemoveServer={removeServer}
-            onConnectToServer={connectToSpecificServer}
-            onDisconnectFromServer={disconnectFromSpecificServer}
-          />
-
           {/* Connection Section */}
           <div className="bg-background/80 backdrop-blur-md border-b border-border/50 shadow-sm">
             <ConnectionSection
