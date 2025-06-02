@@ -64,7 +64,6 @@ import {
 import { McpClientContext } from "@/context/McpClientContext";
 import { MCPJamServerConfig, StdioServerDefinition } from "./lib/serverTypes";
 import { MCPJamAgent, MCPClientOptions, ServerConnectionInfo } from "./mcpjamAgent";
-import ServerManager from "./components/ServerManager";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 const CLAUDE_API_KEY_STORAGE_KEY = "claude-api-key";
@@ -682,18 +681,34 @@ const App = () => {
   const callToolWrapper = async (name: string, params: Record<string, unknown>) => {
     if (!mcpAgent) return;
     
-    // For tool calls, we need to know which server has the tool
-    if (selectedServerName !== "all") {
-      return await mcpAgent.callToolOnServer(selectedServerName, name, params);
-    } else {
-      // If "all" is selected, try to find which server has this tool
-      const allTools = await mcpAgent.getAllTools();
-      for (const { serverName, tools } of allTools) {
-        if (tools.some(tool => tool.name === name)) {
-          return await mcpAgent.callToolOnServer(serverName, name, params);
+    try {
+      // For tool calls, we need to know which server has the tool
+      if (selectedServerName !== "all") {
+        const result = await mcpAgent.callToolOnServer(selectedServerName, name, params);
+        setToolResult(result);
+      } else {
+        // If "all" is selected, try to find which server has this tool
+        const allTools = await mcpAgent.getAllTools();
+        for (const { serverName, tools } of allTools) {
+          if (tools.some(tool => tool.name === name)) {
+            const result = await mcpAgent.callToolOnServer(serverName, name, params);
+            setToolResult(result);
+            return;
+          }
         }
+        throw new Error(`Tool ${name} not found on any server`);
       }
-      throw new Error(`Tool ${name} not found on any server`);
+    } catch (e) {
+      const toolResult: CompatibilityCallToolResult = {
+        content: [
+          {
+            type: "text",
+            text: (e as Error).message ?? String(e),
+          },
+        ],
+        isError: true,
+      };
+      setToolResult(toolResult);
     }
   };
 
@@ -724,48 +739,6 @@ const App = () => {
     // Clear the loaded request after a short delay to allow the component to process it
     setTimeout(() => setLoadedRequest(null), 100);
   };
-
-  // Add functions to manage multiple servers - moved before early returns
-  const addServer = useCallback((name: string, config: MCPJamServerConfig) => {
-    setServerConfigs(prev => ({ ...prev, [name]: config }));
-    if (mcpAgent) {
-      mcpAgent.addServer(name, config);
-    }
-  }, [mcpAgent]);
-
-  const removeServer = useCallback(async (name: string) => {
-    if (mcpAgent) {
-      await mcpAgent.removeServer(name);
-    }
-    setServerConfigs(prev => {
-      const newConfigs = { ...prev };
-      delete newConfigs[name];
-      return newConfigs;
-    });
-    setServerConnections(mcpAgent?.getAllConnectionInfo() || []);
-  }, [mcpAgent]);
-
-  const connectToSpecificServer = useCallback(async (serverName: string) => {
-    if (mcpAgent) {
-      try {
-        await mcpAgent.connectToServer(serverName);
-        setServerConnections(mcpAgent.getAllConnectionInfo());
-      } catch (error) {
-        console.error(`Failed to connect to server ${serverName}:`, error);
-      }
-    }
-  }, [mcpAgent]);
-
-  const disconnectFromSpecificServer = useCallback(async (serverName: string) => {
-    if (mcpAgent) {
-      try {
-        await mcpAgent.disconnectFromServer(serverName);
-        setServerConnections(mcpAgent.getAllConnectionInfo());
-      } catch (error) {
-        console.error(`Failed to disconnect from server ${serverName}:`, error);
-      }
-    }
-  }, [mcpAgent]);
 
   // Helper function to render OAuth callback components
   if (window.location.pathname === "/oauth/callback") {
