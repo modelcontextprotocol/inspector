@@ -3,6 +3,8 @@
 import cors from "cors";
 import { parseArgs } from "node:util";
 import { parse as shellParseArgs } from "shell-quote";
+import https from "https";
+import fs from "fs";
 
 import {
   SSEClientTransport,
@@ -375,11 +377,49 @@ app.get("/config", (req, res) => {
 });
 
 const PORT = process.env.PORT || 6277;
+const INSPECTOR_SSL_CERT_PATH = process.env.INSPECTOR_SSL_CERT_PATH;
+const INSPECTOR_SSL_KEY_PATH = process.env.INSPECTOR_SSL_KEY_PATH;
 
-const server = app.listen(PORT);
-server.on("listening", () => {
-  console.log(`⚙️ Proxy server listening on port ${PORT}`);
-});
+let server;
+
+if (INSPECTOR_SSL_CERT_PATH && INSPECTOR_SSL_KEY_PATH) {
+  // HTTPS server
+  try {
+    const options = {
+      cert: fs.readFileSync(INSPECTOR_SSL_CERT_PATH),
+      key: fs.readFileSync(INSPECTOR_SSL_KEY_PATH)
+    };
+    server = https.createServer(options, app);
+    server.listen(PORT);
+    server.on("listening", () => {
+      console.log(`⚙️ Proxy server listening on https://localhost:${PORT} 🔒`);
+    });
+  } catch (error) {
+    console.error(`❌ Failed to load SSL certificates: ${error instanceof Error ? error.message : String(error)}`);
+    console.log(`🔄 Falling back to HTTP mode`);
+    server = app.listen(PORT);
+    server.on("listening", () => {
+      console.log(`⚙️ Proxy server listening on http://localhost:${PORT} (SSL fallback)`);
+    });
+  }
+} else {
+  // HTTP server (default)
+  if (!INSPECTOR_SSL_CERT_PATH && !INSPECTOR_SSL_KEY_PATH) {
+    console.log(`🔓 No SSL certificates configured - using HTTP`);
+    console.log(`💡 To enable HTTPS, set INSPECTOR_SSL_CERT_PATH and INSPECTOR_SSL_KEY_PATH environment variables`);
+  } else {
+    console.log(`⚠️  Incomplete SSL configuration:`);
+    if (!INSPECTOR_SSL_CERT_PATH) console.log(`   Missing INSPECTOR_SSL_CERT_PATH`);
+    if (!INSPECTOR_SSL_KEY_PATH) console.log(`   Missing INSPECTOR_SSL_KEY_PATH`);
+    console.log(`🔄 Using HTTP mode`);
+  }
+  
+  server = app.listen(PORT);
+  server.on("listening", () => {
+    console.log(`⚙️ Proxy server listening on http://localhost:${PORT}`);
+  });
+}
+
 server.on("error", (err) => {
   if (err.message.includes(`EADDRINUSE`)) {
     console.error(`❌  Proxy Server PORT IS IN USE at port ${PORT} ❌ `);

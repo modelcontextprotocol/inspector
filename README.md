@@ -133,6 +133,19 @@ You can paste the Server Entry into your existing `mcp.json` file under your cho
 
 The inspector supports bearer token authentication for SSE connections. Enter your token in the UI when connecting to an MCP server, and it will be sent in the Authorization header. You can override the header name using the input field in the sidebar.
 
+### HTTPS Configuration
+
+oAuth testing in the browser involves security libraries that require serving the Client UI over a secure connection. To enable HTTPS for both the client and server, set these environment variables:
+
+- `INSPECTOR_SSL_CERT_PATH`: Path to SSL certificate file (.crt or .pem)
+- `INSPECTOR_SSL_KEY_PATH`: Path to SSL private key file (.key or .pem)
+
+When both variables are set, the inspector will automatically use HTTPS:
+- Client UI: `https://localhost:6274`
+- Proxy server: `https://localhost:6277`
+
+If these variables are not set, the inspector defaults to HTTP.
+
 ### Security Considerations
 
 The MCP Inspector includes a proxy server that can run and communicate with local MCP processes. The proxy server should not be exposed to untrusted networks as it has permissions to spawn local processes and can connect to any specified MCP server.
