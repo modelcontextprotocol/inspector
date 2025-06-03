@@ -173,8 +173,8 @@ const ResourcesTab = ({
           isButtonDisabled={!nextTemplateCursor && resourceTemplates.length > 0}
         />
 
-        <div className="bg-card rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center">
+        <div className="bg-card border border-border rounded-lg shadow">
+          <div className="p-4 border-b border-gray-200 dark:border-border flex justify-between items-center">
             <h3
               className="font-semibold truncate"
               title={selectedResource?.name || selectedTemplate?.name}
@@ -234,7 +234,7 @@ const ResourcesTab = ({
               />
             ) : selectedTemplate ? (
               <div className="space-y-4">
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
                   {selectedTemplate.description}
                 </p>
                 {selectedTemplate.uriTemplate
