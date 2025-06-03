@@ -20,6 +20,7 @@ import {
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
 import { AuthDebuggerState } from "./lib/auth-types";
+import { cacheToolOutputSchemas } from "./utils/schemaUtils";
 import React, {
   Suspense,
   useCallback,
@@ -473,6 +474,8 @@ const App = () => {
     );
     setTools(response.tools);
     setNextToolCursor(response.nextCursor);
+    // Cache output schemas for validation
+    cacheToolOutputSchemas(response.tools);
   };
 
   const callTool = async (name: string, params: Record<string, unknown>) => {
@@ -608,7 +611,7 @@ const App = () => {
               className="w-full p-4"
               onValueChange={(value) => (window.location.hash = value)}
             >
-              <TabsList className="mb-4 p-0">
+              <TabsList className="mb-4 py-0">
                 <TabsTrigger
                   value="resources"
                   disabled={!serverCapabilities?.resources}
@@ -659,7 +662,7 @@ const App = () => {
                 !serverCapabilities?.tools ? (
                   <>
                     <div className="flex items-center justify-center p-4">
-                      <p className="text-lg text-gray-500">
+                      <p className="text-lg text-gray-500 dark:text-gray-400">
                         The connected server does not support any MCP
                         capabilities
                       </p>
@@ -759,6 +762,8 @@ const App = () => {
                       clearTools={() => {
                         setTools([]);
                         setNextToolCursor(undefined);
+                        // Clear cached output schemas
+                        cacheToolOutputSchemas([]);
                       }}
                       callTool={async (name, params) => {
                         clearError("tools");
@@ -811,7 +816,7 @@ const App = () => {
             </Tabs>
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-4">
-              <p className="text-lg text-gray-500">
+              <p className="text-lg text-gray-500 dark:text-gray-400">
                 Connect to an MCP server to start inspecting
               </p>
               <div className="flex items-center gap-2">
@@ -836,7 +841,7 @@ const App = () => {
           }}
         >
           <div
-            className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50"
+            className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50 dark:hover:bg-input/40"
             onMouseDown={handleDragStart}
           >
             <div className="w-8 h-1 rounded-full bg-border" />

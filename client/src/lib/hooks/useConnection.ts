@@ -45,6 +45,7 @@ import {
 } from "@/utils/configUtils";
 import { getMCPServerRequestTimeout } from "@/utils/configUtils";
 import { InspectorConfig } from "../configurationTypes";
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 interface UseConnectionOptions {
   transportType: "stdio" | "sse" | "streamable-http";
@@ -83,6 +84,9 @@ export function useConnection({
   const [serverCapabilities, setServerCapabilities] =
     useState<ServerCapabilities | null>(null);
   const [mcpClient, setMcpClient] = useState<Client | null>(null);
+  const [clientTransport, setClientTransport] = useState<Transport | null>(
+    null,
+  );
   const [requestHistory, setRequestHistory] = useState<
     { request: string; response?: string }[]
   >([]);
@@ -304,7 +308,14 @@ export function useConnection({
         bearerToken || (await serverAuthProvider.tokens())?.access_token;
       if (token) {
         const authHeaderName = headerName || "Authorization";
-        headers[authHeaderName] = `Bearer ${token}`;
+
+        // Add custom header name as a special request header to let the server know which header to pass through
+        if (authHeaderName.toLowerCase() !== "authorization") {
+          headers[authHeaderName] = token;
+          headers["x-custom-auth-header"] = authHeaderName;
+        } else {
+          headers[authHeaderName] = `Bearer ${token}`;
+        }
       }
 
       // Create appropriate transport
@@ -377,14 +388,6 @@ export function useConnection({
         transportType,
       );
 
-      const clientTransport =
-        transportType === "streamable-http"
-          ? new StreamableHTTPClientTransport(mcpProxyServerUrl as URL, {
-              sessionId: undefined,
-              ...transportOptions,
-            })
-          : new SSEClientTransport(mcpProxyServerUrl as URL, transportOptions);
-
       if (onNotification) {
         [
           CancelledNotificationSchema,
@@ -414,7 +417,20 @@ export function useConnection({
 
       let capabilities;
       try {
-        await client.connect(clientTransport);
+        const transport =
+          transportType === "streamable-http"
+            ? new StreamableHTTPClientTransport(mcpProxyServerUrl as URL, {
+                sessionId: undefined,
+                ...transportOptions,
+              })
+            : new SSEClientTransport(
+                mcpProxyServerUrl as URL,
+                transportOptions,
+              );
+
+        await client.connect(transport as Transport);
+
+        setClientTransport(transport);
 
         capabilities = client.getServerCapabilities();
         const initializeRequest = {
@@ -468,10 +484,15 @@ export function useConnection({
   };
 
   const disconnect = async () => {
+    if (transportType === "streamable-http")
+      await (
+        clientTransport as StreamableHTTPClientTransport
+      ).terminateSession();
     await mcpClient?.close();
     const authProvider = new InspectorOAuthClientProvider(sseUrl);
     authProvider.clear();
     setMcpClient(null);
+    setClientTransport(null);
     setConnectionStatus("disconnected");
     setCompletionsSupported(false);
     setServerCapabilities(null);
