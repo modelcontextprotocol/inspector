@@ -90,7 +90,7 @@ export function useConnection({
   const [requestHistory, setRequestHistory] = useState<
     { request: string; response?: string }[]
   >([]);
-  const [completionsSupported, setCompletionsSupported] = useState(true);
+  const [completionsSupported, setCompletionsSupported] = useState(false);
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
@@ -459,7 +459,7 @@ export function useConnection({
         throw error;
       }
       setServerCapabilities(capabilities ?? null);
-      setCompletionsSupported(true); // Reset completions support on new connection
+      setCompletionsSupported(capabilities?.completions !== undefined);
 
       if (onPendingRequest) {
         client.setRequestHandler(CreateMessageRequestSchema, (request) => {
