@@ -15,7 +15,6 @@ import {
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
 import { AuthDebuggerState } from "./lib/auth-types";
-import { McpJamRequest } from "./lib/requestTypes";
 import React, {
   Suspense,
   useCallback,
@@ -119,7 +118,7 @@ const App = () => {
   });
 
   // Add state for managing multiple servers
-  const [selectedServerName, setSelectedServerName] = useState<string>("default");
+  const [selectedServerName] = useState<string>("default");
   const [serverConnections, setServerConnections] = useState<ServerConnectionInfo[]>([]);
 
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
@@ -180,9 +179,6 @@ const App = () => {
 
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
-  const [loadedRequest, setLoadedRequest] = useState<McpJamRequest | null>(
-    null,
-  );
   const [nextResourceCursor, setNextResourceCursor] = useState<
     string | undefined
   >();
@@ -734,12 +730,6 @@ const App = () => {
     setStdErrNotifications([]);
   };
 
-  const handleLoadRequest = (request: McpJamRequest) => {
-    setLoadedRequest(request);
-    // Clear the loaded request after a short delay to allow the component to process it
-    setTimeout(() => setLoadedRequest(null), 100);
-  };
-
   // Helper function to render OAuth callback components
   if (window.location.pathname === "/oauth/callback") {
     const OAuthCallback = React.lazy(
@@ -938,7 +928,6 @@ const App = () => {
               nextCursor={nextToolCursor}
               error={errors.tools}
               connectionStatus={connectionStatus as "connected" | "disconnected" | "error" | "error-connecting-to-proxy"}
-              loadedRequest={loadedRequest}
             />
           );
         case "chat":
@@ -1015,14 +1004,7 @@ const App = () => {
     <McpClientContext.Provider value={currentClient}>
       <div className="h-screen bg-gradient-to-br from-slate-50/50 to-slate-100/50 dark:from-slate-900/50 dark:to-slate-800/50 flex overflow-hidden app-container">
         {/* Sidebar - Full Height Left Side */}
-        <Sidebar
-          currentPage={currentPage}
-          onPageChange={setCurrentPage}
-          serverCapabilities={serverCapabilities}
-          pendingSampleRequests={pendingSampleRequests}
-          shouldDisableAll={!mcpAgent}
-          onLoadRequest={handleLoadRequest}
-        />
+        <Sidebar />
 
         {/* Main Content Area - Right Side */}
         <div className="flex-1 flex flex-col overflow-hidden">
