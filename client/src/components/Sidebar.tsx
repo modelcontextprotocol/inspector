@@ -172,42 +172,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             {/* Client List */}
             {serverConnections.length > 0 && (
               <div className="p-3 space-y-2">
-                {/* All Servers Option */}
-                <div
-                  className={`p-3 rounded-lg border cursor-pointer transition-all hover:bg-muted/50 ${
-                    selectedServerName === "all"
-                      ? "border-primary bg-primary/10"
-                      : "border-border"
-                  }`}
-                  onClick={() => onServerSelect("all")}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="flex -space-x-1">
-                        {serverConnections.slice(0, 3).map((_, index) => (
-                          <div
-                            key={index}
-                            className="w-6 h-6 rounded-full bg-primary/20 border-2 border-background flex items-center justify-center"
-                          >
-                            <Server className="w-3 h-3 text-primary" />
-                          </div>
-                        ))}
-                        {serverConnections.length > 3 && (
-                          <div className="w-6 h-6 rounded-full bg-muted border-2 border-background flex items-center justify-center">
-                            <span className="text-xs font-medium">+{serverConnections.length - 3}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        <div className="font-medium text-sm">All Servers</div>
-                        <div className="text-xs text-muted-foreground">
-                          Aggregate view of all connections
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
                 {/* Individual Server Connections */}
                 {serverConnections.map((connection) => (
                   <div
