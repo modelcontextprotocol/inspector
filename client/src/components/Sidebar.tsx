@@ -60,6 +60,8 @@ interface SidebarProps {
   setOauthClientId: (id: string) => void;
   oauthScope: string;
   setOauthScope: (scope: string) => void;
+  oauthResource: string;
+  setOauthResource: (resource: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
   stdErrNotifications: StdErrNotification[];
@@ -91,6 +93,8 @@ const Sidebar = ({
   setOauthClientId,
   oauthScope,
   setOauthScope,
+  oauthResource,
+  setOauthResource,
   onConnect,
   onDisconnect,
   stdErrNotifications,
@@ -373,6 +377,15 @@ const Sidebar = ({
                       data-testid="oauth-client-id-input"
                       className="font-mono"
                     />
+                    <label className="text-sm font-medium">
+                      Redirect URL (auto-populated)
+                    </label>
+                    <Input
+                      readOnly
+                      placeholder="Redirect URL"
+                      value={window.location.origin + "/oauth/callback"}
+                      className="font-mono"
+                    />
                     <label className="text-sm font-medium">Scope</label>
                     <Input
                       placeholder="Scope (space-separated)"
@@ -381,13 +394,12 @@ const Sidebar = ({
                       data-testid="oauth-scope-input"
                       className="font-mono"
                     />
-                    <label className="text-sm font-medium">
-                      Redirect URL (auto-populated)
-                    </label>
+                    <label className="text-sm font-medium">Resource</label>
                     <Input
-                      readOnly
-                      placeholder="Redirect URL"
-                      value={window.location.origin + "/oauth/callback"}
+                      placeholder="Resource"
+                      onChange={(e) => setOauthResource(e.target.value)}
+                      value={oauthResource}
+                      data-testid="oauth-resource-input"
                       className="font-mono"
                     />
                   </div>

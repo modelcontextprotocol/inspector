@@ -118,6 +118,10 @@ const App = () => {
     return localStorage.getItem("lastOauthScope") || "";
   });
 
+  const [oauthResource, setOauthResource] = useState<string>(() => {
+    return localStorage.getItem("lastOauthResource") || "";
+  });
+
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     Array<
       PendingRequest & {
@@ -194,6 +198,7 @@ const App = () => {
     headerName,
     oauthClientId,
     oauthScope,
+    oauthResource,
     config,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
@@ -244,6 +249,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastOauthScope", oauthScope);
   }, [oauthScope]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthResource", oauthResource);
+  }, [oauthResource]);
 
   useEffect(() => {
     localStorage.setItem(CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
@@ -605,6 +614,8 @@ const App = () => {
         setOauthClientId={setOauthClientId}
         oauthScope={oauthScope}
         setOauthScope={setOauthScope}
+        oauthResource={oauthResource}
+        setOauthResource={setOauthResource}
         onConnect={connectMcpServer}
         onDisconnect={disconnectMcpServer}
         stdErrNotifications={stdErrNotifications}

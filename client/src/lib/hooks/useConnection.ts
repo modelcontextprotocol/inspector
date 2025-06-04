@@ -58,6 +58,7 @@ interface UseConnectionOptions {
   headerName?: string;
   oauthClientId?: string;
   oauthScope?: string;
+  oauthResource?: string;
   config: InspectorConfig;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
@@ -77,6 +78,7 @@ export function useConnection({
   headerName,
   oauthClientId,
   oauthScope,
+  oauthResource,
   config,
   onNotification,
   onStdErrNotification,
@@ -324,6 +326,7 @@ export function useConnection({
       const serverAuthProvider = new InspectorOAuthClientProvider(
         sseUrl,
         oauthClientInformation,
+        oauthResource,
       );
 
       // Use manually provided bearer token if available, otherwise use OAuth tokens
