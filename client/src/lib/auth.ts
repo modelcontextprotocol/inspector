@@ -9,10 +9,20 @@ import {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
 
-export const getClientInformationFromSessionStorage = async (
-  serverUrl: string,
-) => {
-  const key = getServerSpecificKey(SESSION_KEYS.CLIENT_INFORMATION, serverUrl);
+export const getClientInformationFromSessionStorage = async ({
+  serverUrl,
+  isPreregistered,
+}: {
+  serverUrl: string;
+  isPreregistered?: boolean;
+}) => {
+  const key = getServerSpecificKey(
+    isPreregistered
+      ? SESSION_KEYS.PREREGISTERED_CLIENT_INFORMATION
+      : SESSION_KEYS.CLIENT_INFORMATION,
+    serverUrl,
+  );
+
   const value = sessionStorage.getItem(key);
   if (!value) {
     return undefined;
@@ -21,21 +31,47 @@ export const getClientInformationFromSessionStorage = async (
   return await OAuthClientInformationSchema.parseAsync(JSON.parse(value));
 };
 
+export const saveClientInformationToSessionStorage = ({
+  serverUrl,
+  clientInformation,
+  isPreregistered,
+}: {
+  serverUrl: string;
+  clientInformation: OAuthClientInformation;
+  isPreregistered?: boolean;
+}) => {
+  const key = getServerSpecificKey(
+    isPreregistered
+      ? SESSION_KEYS.PREREGISTERED_CLIENT_INFORMATION
+      : SESSION_KEYS.CLIENT_INFORMATION,
+    serverUrl,
+  );
+  sessionStorage.setItem(key, JSON.stringify(clientInformation));
+};
+
+export const clearClientInformationFromSessionStorage = ({
+  serverUrl,
+  isPreregistered,
+}: {
+  serverUrl: string;
+  isPreregistered?: boolean;
+}) => {
+  const key = getServerSpecificKey(
+    isPreregistered
+      ? SESSION_KEYS.PREREGISTERED_CLIENT_INFORMATION
+      : SESSION_KEYS.CLIENT_INFORMATION,
+    serverUrl,
+  );
+  sessionStorage.removeItem(key);
+};
+
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
   constructor(
     protected serverUrl: string,
-    clientInformation?: OAuthClientInformation,
     protected resource?: string,
   ) {
     // Save the server URL to session storage
     sessionStorage.setItem(SESSION_KEYS.SERVER_URL, serverUrl);
-
-    // Save the client information to session storage if provided
-    if (clientInformation) {
-      this.saveClientInformation(clientInformation);
-    } else {
-      this.clearClientInformation();
-    }
   }
 
   get redirectUrl() {
@@ -54,15 +90,29 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   async clientInformation() {
-    return await getClientInformationFromSessionStorage(this.serverUrl);
+    // Try to get the preregistered client information from session storage first
+    const preregisteredClientInformation = await getClientInformationFromSessionStorage({
+      serverUrl: this.serverUrl,
+      isPreregistered: true,
+    });
+
+    // If no preregistered client information is found, get the dynamically registered client information
+    return (
+      preregisteredClientInformation ??
+      (await getClientInformationFromSessionStorage({
+        serverUrl: this.serverUrl,
+        isPreregistered: false,
+      }))
+    );
   }
 
   saveClientInformation(clientInformation: OAuthClientInformation) {
-    const key = getServerSpecificKey(
-      SESSION_KEYS.CLIENT_INFORMATION,
-      this.serverUrl,
-    );
-    sessionStorage.setItem(key, JSON.stringify(clientInformation));
+    // Save the dynamically registered client information to session storage
+    saveClientInformationToSessionStorage({
+      serverUrl: this.serverUrl,
+      clientInformation,
+      isPreregistered: false,
+    });
   }
 
   async tokens() {
@@ -85,7 +135,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
      * Note: This resource parameter is for testing purposes in Inspector.
      * Once MCP Client SDK supports resource indicators, this parameter
      * will be passed to the SDK's auth method similar to how scope is passed.
-     * 
+     *
      * See: https://github.com/modelcontextprotocol/typescript-sdk/pull/498
      *
      * TODO: @xiaoyijun Remove this once MCP Client SDK supports resource indicators.
@@ -118,20 +168,15 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   clear() {
-    sessionStorage.removeItem(
-      getServerSpecificKey(SESSION_KEYS.CLIENT_INFORMATION, this.serverUrl),
-    );
+    clearClientInformationFromSessionStorage({
+      serverUrl: this.serverUrl,
+      isPreregistered: false,
+    });
     sessionStorage.removeItem(
       getServerSpecificKey(SESSION_KEYS.TOKENS, this.serverUrl),
     );
     sessionStorage.removeItem(
       getServerSpecificKey(SESSION_KEYS.CODE_VERIFIER, this.serverUrl),
-    );
-  }
-
-  clearClientInformation() {
-    sessionStorage.removeItem(
-      getServerSpecificKey(SESSION_KEYS.CLIENT_INFORMATION, this.serverUrl),
     );
   }
 }

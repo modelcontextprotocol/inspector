@@ -30,13 +30,13 @@ import {
   Progress,
 } from "@modelcontextprotocol/sdk/types.js";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
 import { ConnectionStatus } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
-import { InspectorOAuthClientProvider } from "../auth";
+import { clearClientInformationFromSessionStorage, InspectorOAuthClientProvider, saveClientInformationToSessionStorage } from "../auth";
 import packageJson from "../../../package.json";
 import {
   getMCPProxyAddress,
@@ -46,7 +46,6 @@ import {
 import { getMCPServerRequestTimeout } from "@/utils/configUtils";
 import { InspectorConfig } from "../configurationTypes";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 interface UseConnectionOptions {
   transportType: "stdio" | "sse" | "streamable-http";
@@ -99,14 +98,21 @@ export function useConnection({
   >([]);
   const [completionsSupported, setCompletionsSupported] = useState(true);
 
-  const oauthClientInformation: OAuthClientInformation | undefined =
-    useMemo(() => {
-      if (!oauthClientId) {
-        return undefined;
-      }
+  useEffect(() => {
+    if (!oauthClientId) {
+      clearClientInformationFromSessionStorage({
+        serverUrl: sseUrl,
+        isPreregistered: true,
+      });
+      return;
+    }
 
-      return { client_id: oauthClientId };
-    }, [oauthClientId]);
+    saveClientInformationToSessionStorage({
+      serverUrl: sseUrl,
+      clientInformation: { client_id: oauthClientId },
+      isPreregistered: true,
+    });
+  }, [oauthClientId, sseUrl]);
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
@@ -281,7 +287,7 @@ export function useConnection({
     if (is401Error(error)) {
       const serverAuthProvider = new InspectorOAuthClientProvider(
         sseUrl,
-        oauthClientInformation,
+        oauthResource,
       );
 
       const result = await auth(serverAuthProvider, {
@@ -325,7 +331,6 @@ export function useConnection({
       // Create an auth provider with the current server URL
       const serverAuthProvider = new InspectorOAuthClientProvider(
         sseUrl,
-        oauthClientInformation,
         oauthResource,
       );
 
@@ -517,7 +522,7 @@ export function useConnection({
     await mcpClient?.close();
     const authProvider = new InspectorOAuthClientProvider(
       sseUrl,
-      oauthClientInformation,
+      oauthResource,
     );
     authProvider.clear();
     setMcpClient(null);
