@@ -64,6 +64,7 @@ export function exampleCreateAndSaveRequest() {
     parameters: parameters,
     tags: ["search", "files", "components"],
     isFavorite: false,
+    clientId: "example-client", // ID of the MCP client/server
   };
 
   // Create the actual request object
@@ -112,7 +113,7 @@ export function exampleLoadAndUseRequests() {
 /**
  * Example of creating a request with default parameters
  */
-export function exampleCreateWithDefaults(tool: Tool) {
+export function exampleCreateWithDefaults(tool: Tool, clientId: string = "default-client") {
   // Generate default parameters based on the tool's schema
   const defaultParams = createDefaultParameters(tool);
 
@@ -121,6 +122,7 @@ export function exampleCreateWithDefaults(tool: Tool) {
     toolName: tool.name,
     tool: tool,
     parameters: defaultParams,
+    clientId: clientId,
   };
 
   const request = createMcpJamRequest(requestInput);

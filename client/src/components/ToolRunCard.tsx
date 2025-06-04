@@ -23,12 +23,14 @@ interface ToolRunCardProps {
   selectedTool: Tool | null;
   callTool: (name: string, params: Record<string, unknown>) => Promise<void>;
   loadedRequest?: McpJamRequest | null;
+  selectedServerName: string;
 }
 
 const ToolRunCard = ({
   selectedTool,
   callTool,
   loadedRequest,
+  selectedServerName,
 }: ToolRunCardProps) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
@@ -106,6 +108,7 @@ const ToolRunCard = ({
           parameters: params as Record<string, JsonValue>,
           tags: [],
           isFavorite: false,
+          clientId: selectedServerName,
         };
 
         const request = createMcpJamRequest(requestInput);

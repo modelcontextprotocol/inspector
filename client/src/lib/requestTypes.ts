@@ -34,6 +34,9 @@ export interface McpJamRequest {
 
   /** Whether this request is marked as a favorite */
   isFavorite?: boolean;
+
+  /** The MCP client/server this request belongs to */
+  clientId: string;
 }
 
 /**
@@ -47,6 +50,7 @@ export interface CreateMcpJamRequestInput {
   parameters: Record<string, JsonValue>;
   tags?: string[];
   isFavorite?: boolean;
+  clientId: string;
 }
 
 /**

@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Bookmark, Trash2, Calendar, Star, Edit2, Copy } from "lucide-react";
 import { RequestStorage } from "@/utils/requestStorage";
-import { sortRequests, createMcpJamRequest } from "@/utils/requestUtils";
+import { sortRequests, createMcpJamRequest, getRequestsForClient } from "@/utils/requestUtils";
 
 const ToolsTab = ({
   tools,
@@ -23,6 +23,7 @@ const ToolsTab = ({
   setSelectedTool,
   nextCursor,
   connectionStatus,
+  selectedServerName,
 }: {
   tools: Tool[];
   listTools: () => void;
@@ -34,17 +35,22 @@ const ToolsTab = ({
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
   connectionStatus: ConnectionStatus;
+  selectedServerName: string;
 }) => {
   const [savedRequests, setSavedRequests] = useState<McpJamRequest[]>([]);
   const [renamingRequestId, setRenamingRequestId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [loadedRequest, setLoadedRequest] = useState<McpJamRequest | null>(null);
 
-  // Load saved requests on component mount
+  // Load saved requests on component mount and filter by current client
   useEffect(() => {
     const loadSavedRequests = () => {
-      const requests = RequestStorage.loadRequests();
-      const sortedRequests = sortRequests(requests, "updatedAt", "desc");
+      const allRequests = RequestStorage.loadRequests();
+      // Filter requests for the current client
+      const clientRequests = selectedServerName 
+        ? getRequestsForClient(allRequests, selectedServerName)
+        : [];
+      const sortedRequests = sortRequests(clientRequests, "updatedAt", "desc");
       setSavedRequests(sortedRequests);
     };
 
@@ -62,7 +68,7 @@ const ToolsTab = ({
       window.removeEventListener("storage", handleStorageChange);
       window.removeEventListener("requestSaved", handleStorageChange);
     };
-  }, []);
+  }, [selectedServerName]);
 
   useEffect(() => {
     if (connectionStatus === "connected") {
@@ -121,6 +127,7 @@ const ToolsTab = ({
       parameters: request.parameters,
       tags: request.tags || [],
       isFavorite: false,
+      clientId: selectedServerName,
     });
 
     RequestStorage.addRequest(duplicatedRequest);
@@ -319,6 +326,7 @@ const ToolsTab = ({
         selectedTool={selectedTool}
         callTool={callTool}
         loadedRequest={loadedRequest}
+        selectedServerName={selectedServerName}
       />
     </div>
   );

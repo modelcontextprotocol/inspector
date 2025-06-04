@@ -1251,6 +1251,7 @@ const App = () => {
               nextCursor={nextToolCursor}
               error={errors.tools}
               connectionStatus={connectionStatus as "connected" | "disconnected" | "error" | "error-connecting-to-proxy"}
+              selectedServerName={selectedServerName}
             />
           );
         case "chat":
