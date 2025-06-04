@@ -110,6 +110,18 @@ const App = () => {
     return localStorage.getItem("lastHeaderName") || "";
   });
 
+  const [oauthClientId, setOauthClientId] = useState<string>(() => {
+    return localStorage.getItem("lastOauthClientId") || "";
+  });
+
+  const [oauthScope, setOauthScope] = useState<string>(() => {
+    return localStorage.getItem("lastOauthScope") || "";
+  });
+
+  const [oauthResource, setOauthResource] = useState<string>(() => {
+    return localStorage.getItem("lastOauthResource") || "";
+  });
+
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     Array<
       PendingRequest & {
@@ -184,6 +196,9 @@ const App = () => {
     env,
     bearerToken,
     headerName,
+    oauthClientId,
+    oauthScope,
+    oauthResource,
     config,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
@@ -226,6 +241,18 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastHeaderName", headerName);
   }, [headerName]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthClientId", oauthClientId);
+  }, [oauthClientId]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthScope", oauthScope);
+  }, [oauthScope]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthResource", oauthResource);
+  }, [oauthResource]);
 
   useEffect(() => {
     localStorage.setItem(CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
@@ -583,6 +610,12 @@ const App = () => {
         setBearerToken={setBearerToken}
         headerName={headerName}
         setHeaderName={setHeaderName}
+        oauthClientId={oauthClientId}
+        setOauthClientId={setOauthClientId}
+        oauthScope={oauthScope}
+        setOauthScope={setOauthScope}
+        oauthResource={oauthResource}
+        setOauthResource={setOauthResource}
         onConnect={connectMcpServer}
         onDisconnect={disconnectMcpServer}
         stdErrNotifications={stdErrNotifications}

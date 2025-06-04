@@ -56,6 +56,12 @@ interface SidebarProps {
   setBearerToken: (token: string) => void;
   headerName?: string;
   setHeaderName?: (name: string) => void;
+  oauthClientId: string;
+  setOauthClientId: (id: string) => void;
+  oauthScope: string;
+  setOauthScope: (scope: string) => void;
+  oauthResource: string;
+  setOauthResource: (resource: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
   stdErrNotifications: StdErrNotification[];
@@ -83,6 +89,12 @@ const Sidebar = ({
   setBearerToken,
   headerName,
   setHeaderName,
+  oauthClientId,
+  setOauthClientId,
+  oauthScope,
+  setOauthScope,
+  oauthResource,
+  setOauthResource,
   onConnect,
   onDisconnect,
   stdErrNotifications,
@@ -98,6 +110,7 @@ const Sidebar = ({
   const [showBearerToken, setShowBearerToken] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
+  const [showOauthConfig, setShowOauthConfig] = useState(false);
   const [copiedServerEntry, setCopiedServerEntry] = useState(false);
   const [copiedServerFile, setCopiedServerFile] = useState(false);
   const { toast } = useToast();
@@ -334,6 +347,60 @@ const Sidebar = ({
                       data-testid="bearer-token-input"
                       className="font-mono"
                       type="password"
+                    />
+                  </div>
+                )}
+              </div>
+              {/* OAuth Configuration */}
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowOauthConfig(!showOauthConfig)}
+                  className="flex items-center w-full"
+                  data-testid="oauth-config-button"
+                  aria-expanded={showOauthConfig}
+                >
+                  {showOauthConfig ? (
+                    <ChevronDown className="w-4 h-4 mr-2" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 mr-2" />
+                  )}
+                  OAuth Configuration
+                </Button>
+                {showOauthConfig && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Client ID</label>
+                    <Input
+                      placeholder="Client ID"
+                      onChange={(e) => setOauthClientId(e.target.value)}
+                      value={oauthClientId}
+                      data-testid="oauth-client-id-input"
+                      className="font-mono"
+                    />
+                    <label className="text-sm font-medium">
+                      Redirect URL (auto-populated)
+                    </label>
+                    <Input
+                      readOnly
+                      placeholder="Redirect URL"
+                      value={window.location.origin + "/oauth/callback"}
+                      className="font-mono"
+                    />
+                    <label className="text-sm font-medium">Scope</label>
+                    <Input
+                      placeholder="Scope (space-separated)"
+                      onChange={(e) => setOauthScope(e.target.value)}
+                      value={oauthScope}
+                      data-testid="oauth-scope-input"
+                      className="font-mono"
+                    />
+                    <label className="text-sm font-medium">Resource</label>
+                    <Input
+                      placeholder="Resource"
+                      onChange={(e) => setOauthResource(e.target.value)}
+                      value={oauthResource}
+                      data-testid="oauth-resource-input"
+                      className="font-mono"
                     />
                   </div>
                 )}
