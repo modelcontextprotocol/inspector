@@ -21,7 +21,7 @@ interface ComboboxProps {
   onInputChange: (value: string) => void;
   options: string[];
   placeholder?: string;
-  emptyMessage?: string;
+  emptyMessage?: string | React.ReactNode;
   id?: string;
 }
 
