@@ -41,8 +41,8 @@ import ChatTab from "./components/ChatTab";
 import Sidebar from "./components/Sidebar";
 import Tabs from "./components/Tabs";
 import SettingsTab from "./components/SettingsTab";
-import { InspectorConfig } from "./lib/configurationTypes";
 import ConnectionSection from "./components/ConnectionSection";
+import { InspectorConfig } from "./lib/configurationTypes";
 import {
   getMCPProxyAddress,
   getInitialSseUrl,
@@ -61,8 +61,8 @@ import {
   MCPHelperDependencies,
 } from "./utils/mcpHelpers";
 import { McpClientContext } from "@/context/McpClientContext";
-import { MCPJamServerConfig, StdioServerDefinition } from "./lib/serverTypes";
-import { MCPJamAgent, MCPClientOptions, ServerConnectionInfo } from "./mcpjamAgent";
+import { MCPJamServerConfig, StdioServerDefinition, HttpServerDefinition } from "./lib/serverTypes";
+import { MCPJamAgent, MCPClientOptions } from "./mcpjamAgent";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 const CLAUDE_API_KEY_STORAGE_KEY = "claude-api-key";
@@ -98,30 +98,59 @@ const App = () => {
   const [serverConfigs, setServerConfigs] = useState<Record<string, MCPJamServerConfig>>(() => {
     const transportType = getInitialTransportType();
     const defaultServerName = "default";
-    if (transportType === "stdio") {
+    
+    // Only create a default server if we have valid initial configuration
+    const initialCommand = getInitialCommand();
+    const initialSseUrl = getInitialSseUrl();
+    
+    if (transportType === "stdio" && initialCommand) {
       return {
         [defaultServerName]: {
           transportType: transportType,
-          command: getInitialCommand(),
+          command: initialCommand,
           args: getInitialArgs().split(" ").filter(arg => arg.trim() !== ""),
           env: {},
-        }
+        } as StdioServerDefinition
       };
-    } else {
+    } else if (transportType !== "stdio" && initialSseUrl) {
       return {
         [defaultServerName]: {
           transportType: transportType,
-          url: new URL(getInitialSseUrl()),
-        }
+          url: new URL(initialSseUrl),
+        } as HttpServerDefinition
       };
     }
+    
+    // Return empty object if no valid initial configuration
+    return {} as Record<string, MCPJamServerConfig>;
   });
 
   // Add state for managing multiple servers
-  const [selectedServerName] = useState<string>("default");
-  const [serverConnections, setServerConnections] = useState<ServerConnectionInfo[]>([]);
+  const [selectedServerName, setSelectedServerName] = useState<string>(() => {
+    // If there are no servers, default to empty string to show create prompt
+    const serverNames = Object.keys(serverConfigs);
+    return serverNames.length > 0 ? serverNames[0] : "";
+  });
+
+  // Add state for create/edit client mode
+  const [isCreatingClient, setIsCreatingClient] = useState(false);
+  const [editingClientName, setEditingClientName] = useState<string | null>(null);
+  const [clientFormConfig, setClientFormConfig] = useState<MCPJamServerConfig>({
+    transportType: "stdio",
+    command: "npx",
+    args: ["@modelcontextprotocol/server-brave-search"],
+    env: {},
+  } as StdioServerDefinition);
+  const [clientFormName, setClientFormName] = useState("");
+
+  // Add a state to force Sidebar re-renders when agent state changes
+  const [sidebarUpdateTrigger, setSidebarUpdateTrigger] = useState(0);
+  const forceUpdateSidebar = useCallback(() => {
+    setSidebarUpdateTrigger(prev => prev + 1);
+  }, []);
 
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [stdErrNotifications, setStdErrNotifications] = useState<
     StdErrNotification[]
   >([]);
@@ -232,9 +261,15 @@ const App = () => {
 
   // Update the connect function to use MCPJamAgent
   const connect = useCallback(async () => {
+    // Don't try to connect if there are no servers configured
+    if (Object.keys(serverConfigs).length === 0) {
+      console.log("No servers configured, skipping connection");
+      return;
+    }
+
     const options: MCPClientOptions = {
       servers: serverConfigs,
-      config,
+      config: config,
       bearerToken,
       headerName,
       claudeApiKey,
@@ -248,7 +283,6 @@ const App = () => {
     try {
       await agent.connectToAllServers();
       setMcpAgent(agent);
-      setServerConnections(agent.getAllConnectionInfo());
     } catch (error) {
       console.error("Failed to connect to servers:", error);
       setMcpAgent(null);
@@ -264,15 +298,8 @@ const App = () => {
     getRootsCallback,
   ]);
 
-  const disconnect = useCallback(async () => {
-    if (mcpAgent) {
-      await mcpAgent.disconnectFromAllServers();
-      setMcpAgent(null);
-      setServerConnections([]);
-    }
-  }, [mcpAgent]);
-
   // Handler to update transport type and serverConfig accordingly
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleTransportTypeChange = useCallback((newTransportType: "stdio" | "sse" | "streamable-http") => {
     if (newTransportType === "stdio") {
       // Switch to stdio config for the selected server
@@ -283,7 +310,7 @@ const App = () => {
           command: getInitialCommand(),
           args: getInitialArgs().split(" ").filter(arg => arg.trim() !== ""),
           env: {},
-        }
+        } as StdioServerDefinition
       }));
     } else {
       // Switch to HTTP config (SSE or streamable-http) for the selected server
@@ -292,7 +319,7 @@ const App = () => {
         [selectedServerName]: {
           transportType: newTransportType,
           url: new URL(getInitialSseUrl()),
-        }
+        } as HttpServerDefinition
       }));
     }
   }, [selectedServerName]);
@@ -301,7 +328,7 @@ const App = () => {
   const connectionStatus: ExtendedConnectionStatus = mcpAgent?.getOverallConnectionStatus() || "disconnected";
   const serverCapabilities = selectedServerName === "all"
     ? null // You'll need to merge capabilities or handle this differently
-    : serverConnections.find(s => s.name === selectedServerName)?.capabilities || null;
+    : mcpAgent?.getAllConnectionInfo().find(s => s.name === selectedServerName)?.capabilities || null;
   
   // Get request history from agent or current client
   const requestHistory = mcpAgent?.getAllRequestHistory().flatMap(({ history }) => history) || [];
@@ -342,7 +369,7 @@ const App = () => {
     ? false 
     : mcpAgent?.getClient(selectedServerName)?.completionsSupported || false;
 
-  // Create updateApiKey function
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const updateApiKey = useCallback((newApiKey: string) => {
     if (mcpAgent) {
       mcpAgent.updateCredentials(undefined, undefined, newApiKey);
@@ -397,7 +424,7 @@ const App = () => {
         [selectedServerName]: {
           transportType: serverConfigs[selectedServerName]?.transportType || "stdio",
           url: new URL(serverUrl),
-        }
+        } as HttpServerDefinition
       }));
 
       void connect();
@@ -726,9 +753,186 @@ const App = () => {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const clearStdErrNotificationsWrapper = () => {
     setStdErrNotifications([]);
   };
+
+  // Add handlers for server management
+  const handleAddServer = useCallback(async (name: string, serverConfig: MCPJamServerConfig) => {
+    console.log("🔧 handleAddServer called with:", { name, serverConfig });
+    
+    // Update server configs first
+    setServerConfigs(prev => {
+      const newConfigs = { ...prev, [name]: serverConfig };
+      console.log("📝 Updated server configs:", newConfigs);
+      return newConfigs;
+    });
+    
+    // If no agent exists yet, create one
+    if (!mcpAgent) {
+      console.log("🆕 No agent exists, creating new one...");
+      const options: MCPClientOptions = {
+        servers: { [name]: serverConfig },
+        config: config,
+        bearerToken,
+        headerName,
+        claudeApiKey,
+        onStdErrNotification,
+        onPendingRequest,
+        getRoots: getRootsCallback,
+      };
+
+      const agent = new MCPJamAgent(options);
+      
+      try {
+        console.log("🔌 Attempting to connect to server...");
+        await agent.connectToServer(name);
+        console.log("✅ Successfully connected to server");
+        
+        setMcpAgent(agent);
+        // Only switch to the new server if there are no other servers
+        if (Object.keys(serverConfigs).length === 0) {
+          setSelectedServerName(name);
+          console.log("🎯 Set selected server to:", name, "(first server)");
+        } else {
+          console.log("🎯 Keeping current selected server:", selectedServerName);
+        }
+        forceUpdateSidebar();
+      } catch (error) {
+        console.error("❌ Failed to create agent and connect to server:", error);
+        setMcpAgent(null);
+      }
+    } else {
+      console.log("🔄 Agent exists, adding server to it...");
+      mcpAgent.addServer(name, serverConfig);
+      
+      try {
+        console.log("🔌 Attempting to connect to existing agent...");
+        await mcpAgent.connectToServer(name);
+        console.log("✅ Successfully connected to existing agent");
+        
+        // Only switch to the new server if no server is currently selected or if it's empty
+        if (!selectedServerName || selectedServerName === "") {
+          setSelectedServerName(name);
+          console.log("🎯 Set selected server to:", name, "(no server was selected)");
+        } else {
+          console.log("🎯 Keeping current selected server:", selectedServerName);
+        }
+        forceUpdateSidebar();
+      } catch (error) {
+        console.error(`❌ Failed to connect to server ${name}:`, error);
+        forceUpdateSidebar(); // Still update to show error state
+      }
+    }
+  }, [mcpAgent, config, bearerToken, headerName, claudeApiKey, onStdErrNotification, onPendingRequest, getRootsCallback, forceUpdateSidebar, selectedServerName, serverConfigs]);
+
+  const handleRemoveServer = useCallback(async (serverName: string) => {
+    if (!mcpAgent) return;
+    
+    await mcpAgent.removeServer(serverName);
+    setServerConfigs(prev => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { [serverName]: _, ...rest } = prev;
+      return rest;
+    });
+    
+    // If we removed the selected server, select another one or empty string
+    if (selectedServerName === serverName) {
+      const remainingServers = Object.keys(serverConfigs).filter(name => name !== serverName);
+      setSelectedServerName(remainingServers.length > 0 ? remainingServers[0] : "");
+    }
+    
+    forceUpdateSidebar();
+  }, [mcpAgent, selectedServerName, serverConfigs, forceUpdateSidebar]);
+
+  const handleConnectServer = useCallback(async (serverName: string) => {
+    if (!mcpAgent) return;
+    
+    try {
+      await mcpAgent.connectToServer(serverName);
+      forceUpdateSidebar();
+    } catch (error) {
+      console.error(`Failed to connect to server ${serverName}:`, error);
+      forceUpdateSidebar(); // Still update to show error state
+    }
+  }, [mcpAgent, forceUpdateSidebar]);
+
+  const handleDisconnectServer = useCallback(async (serverName: string) => {
+    if (!mcpAgent) return;
+    
+    await mcpAgent.disconnectFromServer(serverName);
+    forceUpdateSidebar();
+  }, [mcpAgent, forceUpdateSidebar]);
+
+  const handleUpdateServer = useCallback(async (serverName: string, config: MCPJamServerConfig) => {
+    if (!mcpAgent) return;
+    
+    // Disconnect the old server first
+    await mcpAgent.disconnectFromServer(serverName);
+    
+    // Update the configuration
+    mcpAgent.addServer(serverName, config);
+    setServerConfigs(prev => ({ ...prev, [serverName]: config }));
+    
+    try {
+      // Reconnect with new configuration
+      await mcpAgent.connectToServer(serverName);
+    } catch (error) {
+      console.error(`Failed to reconnect to server ${serverName}:`, error);
+    }
+    
+    forceUpdateSidebar();
+  }, [mcpAgent, forceUpdateSidebar]);
+
+  const handleServerSelect = useCallback((serverName: string) => {
+    setSelectedServerName(serverName);
+  }, []);
+
+  // Add handlers for create/edit client
+  const handleCreateClient = useCallback(() => {
+    setIsCreatingClient(true);
+    setEditingClientName(null);
+    setClientFormName("");
+    setClientFormConfig({
+      transportType: "stdio",
+      command: "npx",
+      args: ["@modelcontextprotocol/server-brave-search"],
+      env: {},
+    } as StdioServerDefinition);
+  }, []);
+
+  const handleEditClient = useCallback((serverName: string) => {
+    const serverConnections = mcpAgent ? mcpAgent.getAllConnectionInfo() : [];
+    const connection = serverConnections.find(conn => conn.name === serverName);
+    if (!connection) return;
+    
+    setIsCreatingClient(false);
+    setEditingClientName(serverName);
+    setClientFormName(serverName);
+    setClientFormConfig(connection.config);
+  }, [mcpAgent]);
+
+  const handleCancelClientForm = useCallback(() => {
+    setIsCreatingClient(false);
+    setEditingClientName(null);
+    setClientFormName("");
+  }, []);
+
+  const handleSaveClient = useCallback(async () => {
+    if (!clientFormName.trim()) return;
+    
+    try {
+      if (isCreatingClient) {
+        await handleAddServer(clientFormName, clientFormConfig);
+      } else if (editingClientName) {
+        await handleUpdateServer(editingClientName, clientFormConfig);
+      }
+      handleCancelClientForm();
+    } catch (error) {
+      console.error("Failed to save client:", error);
+    }
+  }, [clientFormName, clientFormConfig, isCreatingClient, editingClientName, handleAddServer, handleUpdateServer, handleCancelClientForm]);
 
   // Helper function to render OAuth callback components
   if (window.location.pathname === "/oauth/callback") {
@@ -772,6 +976,125 @@ const App = () => {
   }
 
   const renderTabs = () => {
+    // Show ConnectionSection when creating or editing a client
+    if (isCreatingClient || editingClientName) {
+      return (
+        <div className="flex-1 flex flex-col overflow-auto p-6">
+          <div className="max-w-4xl mx-auto w-full">
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold mb-2">
+                {isCreatingClient ? "Create New Client" : `Edit Client: ${editingClientName}`}
+              </h2>
+              <p className="text-muted-foreground">
+                Configure your MCP client connection settings below.
+              </p>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Client Name</label>
+                <input
+                  type="text"
+                  value={clientFormName}
+                  onChange={(e) => setClientFormName(e.target.value)}
+                  placeholder="Enter client name"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background"
+                />
+              </div>
+              
+              <div className="border border-border rounded-lg">
+                <ConnectionSection
+                  connectionStatus="disconnected"
+                  transportType={clientFormConfig.transportType}
+                  setTransportType={(type) => {
+                    if (type === "stdio") {
+                      setClientFormConfig({
+                        transportType: type,
+                        command: "npx",
+                        args: ["@modelcontextprotocol/server-brave-search"],
+                        env: {},
+                      } as StdioServerDefinition);
+                    } else {
+                      setClientFormConfig({
+                        transportType: type,
+                        url: new URL("https://example.com"),
+                      } as HttpServerDefinition);
+                    }
+                  }}
+                  command={clientFormConfig.transportType === "stdio" && "command" in clientFormConfig ? clientFormConfig.command || "" : ""}
+                  setCommand={(command) => {
+                    if (clientFormConfig.transportType === "stdio") {
+                      setClientFormConfig(prev => ({
+                        ...prev,
+                        command,
+                      } as StdioServerDefinition));
+                    }
+                  }}
+                  args={clientFormConfig.transportType === "stdio" && "args" in clientFormConfig ? clientFormConfig.args?.join(" ") || "" : ""}
+                  setArgs={(args) => {
+                    if (clientFormConfig.transportType === "stdio") {
+                      setClientFormConfig(prev => ({
+                        ...prev,
+                        args: args.split(" ").filter(arg => arg.trim() !== ""),
+                      } as StdioServerDefinition));
+                    }
+                  }}
+                  sseUrl={"url" in clientFormConfig && clientFormConfig.url ? clientFormConfig.url.toString() : ""}
+                  setSseUrl={(url) => {
+                    if (clientFormConfig.transportType !== "stdio") {
+                      setClientFormConfig(prev => ({
+                        ...prev,
+                        url: new URL(url),
+                      }));
+                    }
+                  }}
+                  env={clientFormConfig.transportType === "stdio" && "env" in clientFormConfig ? clientFormConfig.env || {} : {}}
+                  setEnv={(env) => {
+                    if (clientFormConfig.transportType === "stdio") {
+                      setClientFormConfig(prev => ({
+                        ...prev,
+                        env,
+                      } as StdioServerDefinition));
+                    }
+                  }}
+                  config={config}
+                  setConfig={setConfig}
+                  bearerToken={bearerToken}
+                  setBearerToken={setBearerToken}
+                  headerName={headerName}
+                  setHeaderName={setHeaderName}
+                  onConnect={() => {}} // No-op for form
+                  onDisconnect={() => {}} // No-op for form
+                  stdErrNotifications={[]}
+                  clearStdErrNotifications={() => {}}
+                  logLevel={logLevel}
+                  sendLogLevelRequest={sendLogLevelRequestWrapper}
+                  loggingSupported={false}
+                  hideActionButtons={true}
+                />
+              </div>
+              
+              <div className="flex space-x-3 pt-4">
+                <button
+                  onClick={handleSaveClient}
+                  disabled={!clientFormName.trim()}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isCreatingClient ? "Create Client" : "Update Client"}
+                </button>
+                <button
+                  onClick={handleCancelClientForm}
+                  className="px-4 py-2 border border-border rounded-md hover:bg-muted"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     const serverHasNoCapabilities =
       !serverCapabilities?.resources &&
       !serverCapabilities?.prompts &&
@@ -1004,80 +1327,20 @@ const App = () => {
     <McpClientContext.Provider value={currentClient}>
       <div className="h-screen bg-gradient-to-br from-slate-50/50 to-slate-100/50 dark:from-slate-900/50 dark:to-slate-800/50 flex overflow-hidden app-container">
         {/* Sidebar - Full Height Left Side */}
-        <Sidebar />
+        <Sidebar
+          mcpAgent={mcpAgent}
+          selectedServerName={selectedServerName}
+          onServerSelect={handleServerSelect}
+          onRemoveServer={handleRemoveServer}
+          onConnectServer={handleConnectServer}
+          onDisconnectServer={handleDisconnectServer}
+          onCreateClient={handleCreateClient}
+          onEditClient={handleEditClient}
+          updateTrigger={sidebarUpdateTrigger}
+        />
 
         {/* Main Content Area - Right Side */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Connection Section */}
-          <div className="bg-background/80 backdrop-blur-md border-b border-border/50 shadow-sm">
-            <ConnectionSection
-              connectionStatus={connectionStatus as "connected" | "disconnected" | "error" | "error-connecting-to-proxy"}
-              transportType={serverConfigs[selectedServerName]?.transportType || "stdio"}
-              setTransportType={handleTransportTypeChange}
-              command={serverConfigs[selectedServerName]?.transportType === "stdio" && "command" in serverConfigs[selectedServerName] ? (serverConfigs[selectedServerName] as StdioServerDefinition).command || "" : ""}
-              setCommand={(newCommand) => {
-                if (serverConfigs[selectedServerName]?.transportType === "stdio") {
-                  setServerConfigs(prev => ({
-                    ...prev,
-                    [selectedServerName]: {
-                      ...prev[selectedServerName],
-                      command: newCommand,
-                    } as StdioServerDefinition,
-                  }));
-                }
-              }}
-              args={serverConfigs[selectedServerName]?.transportType === "stdio" && "args" in serverConfigs[selectedServerName] ? (serverConfigs[selectedServerName] as StdioServerDefinition).args?.join(" ") || "" : ""}
-              setArgs={(newArgs) => {
-                if (serverConfigs[selectedServerName]?.transportType === "stdio") {
-                  setServerConfigs(prev => ({
-                    ...prev,
-                    [selectedServerName]: {
-                      ...prev[selectedServerName],
-                      args: newArgs.split(" ").filter(arg => arg.trim() !== ""),
-                    } as StdioServerDefinition,
-                  }));
-                }
-              }}
-              sseUrl={"url" in serverConfigs[selectedServerName] && serverConfigs[selectedServerName].transportType !== "stdio" ? (serverConfigs[selectedServerName] as { url: URL }).url.toString() : ""}
-              setSseUrl={(newSseUrl) => {
-                if (serverConfigs[selectedServerName]?.transportType !== "stdio") {
-                  setServerConfigs(prev => ({
-                    ...prev,
-                    [selectedServerName]: {
-                      ...prev[selectedServerName],
-                      url: new URL(newSseUrl),
-                    }
-                  }));
-                }
-              }}
-              env={serverConfigs[selectedServerName]?.transportType === "stdio" && "env" in serverConfigs[selectedServerName] ? (serverConfigs[selectedServerName] as StdioServerDefinition).env || {} : {}}
-              setEnv={(newEnv) => {
-                if (serverConfigs[selectedServerName]?.transportType === "stdio") {
-                  setServerConfigs(prev => ({
-                    ...prev,
-                    [selectedServerName]: {
-                      ...prev[selectedServerName],
-                      env: newEnv,
-                    } as StdioServerDefinition,
-                  }));
-                }
-              }}
-              config={config}
-              setConfig={setConfig}
-              bearerToken={bearerToken}
-              setBearerToken={setBearerToken}
-              headerName={headerName}
-              setHeaderName={setHeaderName}
-              onConnect={connect}
-              onDisconnect={disconnect}
-              stdErrNotifications={stdErrNotifications}
-              logLevel={logLevel}
-              sendLogLevelRequest={sendLogLevelRequestWrapper}
-              loggingSupported={!!serverCapabilities?.logging || false}
-              clearStdErrNotifications={clearStdErrNotificationsWrapper}
-            />
-          </div>
-
           {/* Horizontal Tabs */}
           <Tabs
             currentPage={currentPage}

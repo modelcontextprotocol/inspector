@@ -57,6 +57,7 @@ interface ConnectionSectionProps {
   loggingSupported: boolean;
   config: InspectorConfig;
   setConfig: (config: InspectorConfig) => void;
+  hideActionButtons?: boolean;
 }
 
 const ConnectionSection = ({
@@ -84,6 +85,7 @@ const ConnectionSection = ({
   loggingSupported,
   config,
   setConfig,
+  hideActionButtons,
 }: ConnectionSectionProps) => {
   const [activeTab, setActiveTab] = useState("connection");
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
@@ -554,41 +556,43 @@ const ConnectionSection = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex gap-2">
-            {connectionStatus === "connected" ? (
-              <>
+          {!hideActionButtons && (
+            <div className="flex gap-2">
+              {connectionStatus === "connected" ? (
+                <>
+                  <Button
+                    onClick={() => {
+                      onDisconnect();
+                      onConnect();
+                    }}
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                  >
+                    <RotateCcw className="w-3 h-3 mr-1" />
+                    {transportType === "stdio" ? "Restart" : "Reconnect"}
+                  </Button>
+                  <Button
+                    onClick={onDisconnect}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                  >
+                    <RefreshCwOff className="w-3 h-3 mr-1" />
+                    Disconnect
+                  </Button>
+                </>
+              ) : (
                 <Button
-                  onClick={() => {
-                    onDisconnect();
-                    onConnect();
-                  }}
+                  onClick={onConnect}
                   size="sm"
-                  className="h-8 px-3 text-xs"
+                  className="h-8 px-4 text-xs"
                 >
-                  <RotateCcw className="w-3 h-3 mr-1" />
-                  {transportType === "stdio" ? "Restart" : "Reconnect"}
+                  <Play className="w-3 h-3 mr-1" />
+                  Connect
                 </Button>
-                <Button
-                  onClick={onDisconnect}
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 text-xs"
-                >
-                  <RefreshCwOff className="w-3 h-3 mr-1" />
-                  Disconnect
-                </Button>
-              </>
-            ) : (
-              <Button
-                onClick={onConnect}
-                size="sm"
-                className="h-8 px-4 text-xs"
-              >
-                <Play className="w-3 h-3 mr-1" />
-                Connect
-              </Button>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Connection Status & Config Actions */}

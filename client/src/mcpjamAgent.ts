@@ -22,7 +22,7 @@ export interface MCPClientOptions {
 export interface ServerConnectionInfo {
     name: string;
     config: MCPJamServerConfig;
-    client: MCPJamClient;
+    client: MCPJamClient | null;
     connectionStatus: string;
     capabilities: ServerCapabilities | null;
 }
@@ -77,7 +77,7 @@ export class MCPJamAgent {
             return {
                 name,
                 config,
-                client: client!,
+                client: client || null, // Allow null for servers that haven't been connected yet
                 connectionStatus: client?.connectionStatus || "disconnected",
                 capabilities: client?.serverCapabilities || null,
             };
@@ -109,7 +109,8 @@ export class MCPJamAgent {
         const client = this.mcpClientsById.get(serverName);
         if (client) {
             await client.disconnect();
-            this.mcpClientsById.delete(serverName);
+            // Don't remove the client from the map - keep it so it shows as disconnected
+            // this.mcpClientsById.delete(serverName);
         }
     }
 
@@ -137,12 +138,25 @@ export class MCPJamAgent {
     }
 
     private async getOrCreateClient(name: string, config: MCPJamServerConfig): Promise<MCPJamClient> {
-        const client = this.mcpClientsById.get(name);
-        if (client) {
-            return client;
+        const existingClient = this.mcpClientsById.get(name);
+        
+        // If client exists and is connected, return it
+        if (existingClient && existingClient.connectionStatus === "connected") {
+            return existingClient;
+        }
+        
+        // If client exists but is disconnected, reconnect it
+        if (existingClient && existingClient.connectionStatus === "disconnected") {
+            try {
+                await existingClient.connectToServer();
+                return existingClient;
+            } catch (error) {
+                console.error(`Failed to reconnect existing client ${name}:`, error);
+                // If reconnection fails, we'll create a new client below
+            }
         }
 
-        // Create new client with updated constructor signature
+        // Create new client (either no client exists or reconnection failed)
         const newClient = new MCPJamClient(
             config,                      // serverConfig (first parameter)
             this.config,                 // config (second parameter)
