@@ -40,7 +40,6 @@ import { useConfigState } from "./hooks/useConfigState";
 // Services
 import {
   loadOAuthTokens,
-  handleOAuthConnect,
   handleOAuthDebugConnect,
 } from "./services/oauth";
 
@@ -49,7 +48,7 @@ import { getMCPProxyAddress } from "./utils/configUtils";
 import { handleRootsChange, MCPHelperDependencies } from "./utils/mcpHelpers";
 
 // Types
-import { MCPJamServerConfig, StdioServerDefinition } from "./lib/serverTypes";
+import { MCPJamServerConfig, StdioServerDefinition, HttpServerDefinition } from "./lib/serverTypes";
 
 type ExtendedConnectionStatus =
   | "disconnected"
@@ -93,30 +92,6 @@ const App = () => {
 
   const getRootsCallback = useCallback(() => rootsRef.current, []);
 
-  // Connect function
-  const connect = useCallback(async () => {
-    return await connectionState.createAgent(
-      serverState.serverConfigs,
-      configState.config,
-      configState.bearerToken,
-      configState.headerName,
-      configState.claudeApiKey,
-      onStdErrNotification,
-      onPendingRequest,
-      getRootsCallback,
-    );
-  }, [
-    connectionState,
-    serverState.serverConfigs,
-    configState.config,
-    configState.bearerToken,
-    configState.headerName,
-    configState.claudeApiKey,
-    onStdErrNotification,
-    onPendingRequest,
-    getRootsCallback,
-  ]);
-
   // Connection info
   const connectionStatus: ExtendedConnectionStatus =
     connectionState.getConnectionStatus();
@@ -143,10 +118,13 @@ const App = () => {
         getRootsCallback,
       );
 
+      // Check if there are no other servers BEFORE adding the new one
+      const shouldSelectNewServer = Object.keys(serverState.serverConfigs).length === 0;
+      
       serverState.updateServerConfig(name, serverConfig);
 
-      // Only switch to the new server if there are no other servers
-      if (Object.keys(serverState.serverConfigs).length === 0) {
+      // Switch to the new server if there were no other servers
+      if (shouldSelectNewServer) {
         serverState.setSelectedServerName(name);
       }
 
@@ -357,15 +335,26 @@ const App = () => {
 
   // OAuth handlers
   const onOAuthConnect = useCallback(
-    (serverUrl: string) => {
-      handleOAuthConnect(
-        serverUrl,
-        serverState.selectedServerName,
-        serverState.setServerConfigs,
-        connect,
-      );
+    async (serverUrl: string) => {
+      // Update the server config for the selected server
+      const serverConfig: HttpServerDefinition = {
+        transportType: "sse",
+        url: new URL(serverUrl),
+      };
+      
+      serverState.setServerConfigs((prev) => ({
+        ...prev,
+        [serverState.selectedServerName]: serverConfig,
+      }));
+
+      // Use handleAddServer instead of connect to preserve existing clients
+      try {
+        await handleAddServer(serverState.selectedServerName, serverConfig);
+      } catch (error) {
+        console.error("Failed to connect OAuth server:", error);
+      }
     },
-    [serverState.selectedServerName, serverState.setServerConfigs, connect],
+    [serverState.selectedServerName, serverState.setServerConfigs, handleAddServer],
   );
 
   const onOAuthDebugConnect = useCallback(
