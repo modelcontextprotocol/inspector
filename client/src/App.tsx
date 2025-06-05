@@ -69,6 +69,7 @@ const App = () => {
   const nextRequestId = useRef(0);
 
   // Callbacks for connection
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const onStdErrNotification = useCallback(
     (notification: StdErrNotification) => {
       mcpOperations.setStdErrNotifications((prev) => [...prev, notification]);
@@ -76,6 +77,7 @@ const App = () => {
     [mcpOperations.setStdErrNotifications],
   );
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const onPendingRequest = useCallback(
     (
       request: CreateMessageRequest,
@@ -90,6 +92,7 @@ const App = () => {
     [mcpOperations.setPendingSampleRequests],
   );
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const getRootsCallback = useCallback(() => rootsRef.current, []);
 
   // Connection info
@@ -106,21 +109,12 @@ const App = () => {
   // Server management handlers
   const handleAddServer = useCallback(
     async (name: string, serverConfig: MCPJamServerConfig) => {
-      const addedServerName = await connectionState.addServer(
-        name,
-        serverConfig,
-        configState.config,
-        configState.bearerToken,
-        configState.headerName,
-        configState.claudeApiKey,
-        onStdErrNotification,
-        onPendingRequest,
-        getRootsCallback,
-      );
+      console.log("🔧 Adding server without auto-connect:", { name, serverConfig });
 
       // Check if there are no other servers BEFORE adding the new one
       const shouldSelectNewServer = Object.keys(serverState.serverConfigs).length === 0;
       
+      // Just add the server config without connecting
       serverState.updateServerConfig(name, serverConfig);
 
       // Switch to the new server if there were no other servers
@@ -128,11 +122,35 @@ const App = () => {
         serverState.setSelectedServerName(name);
       }
 
-      return addedServerName;
+      // Create or update the agent with the new server config, but don't connect
+      if (!connectionState.mcpAgent) {
+        console.log("🆕 Creating agent with server config (no auto-connect)...");
+        try {
+          await connectionState.createAgentWithoutConnecting(
+            { [name]: serverConfig },
+            configState.config,
+            configState.bearerToken,
+            configState.headerName,
+            configState.claudeApiKey,
+            onStdErrNotification,
+            onPendingRequest,
+            getRootsCallback,
+          );
+        } catch (error) {
+          console.error("❌ Failed to create agent:", error);
+          throw error;
+        }
+      } else {
+        // Add server to existing agent without connecting
+        connectionState.mcpAgent.addServer(name, serverConfig);
+        connectionState.forceUpdateSidebar();
+      }
+
+      return name;
     },
     [
-      connectionState,
       serverState,
+      connectionState,
       configState.config,
       configState.bearerToken,
       configState.headerName,
@@ -296,6 +314,47 @@ const App = () => {
   useEffect(() => {
     rootsRef.current = mcpOperations.roots;
   }, [mcpOperations.roots]);
+
+  // Effect to restore agent with saved server configs (without connecting)
+  useEffect(() => {
+    const restoreAgentWithoutConnecting = async () => {
+      // Only restore if we have server configs but no active agent
+      if (Object.keys(serverState.serverConfigs).length > 0 && !connectionState.mcpAgent) {
+        console.log("🔄 Restoring agent with saved server configs (no auto-connect)...");
+        
+        try {
+          await connectionState.createAgentWithoutConnecting(
+            serverState.serverConfigs,
+            configState.config,
+            configState.bearerToken,
+            configState.headerName,
+            configState.claudeApiKey,
+            onStdErrNotification,
+            onPendingRequest,
+            getRootsCallback,
+          );
+          console.log("✅ Successfully restored agent with server configs");
+        } catch (error) {
+          console.error("❌ Failed to restore agent:", error);
+        }
+      }
+    };
+
+    // Run restoration after a short delay to ensure all hooks are initialized
+    const timeoutId = setTimeout(restoreAgentWithoutConnecting, 100);
+    return () => clearTimeout(timeoutId);
+  }, [
+    serverState.serverConfigs,
+    connectionState.mcpAgent,
+    connectionState.createAgentWithoutConnecting,
+    configState.config,
+    configState.bearerToken,
+    configState.headerName,
+    configState.claudeApiKey,
+    onStdErrNotification,
+    onPendingRequest,
+    getRootsCallback,
+  ]);
 
   // Effect to persist server configs
   useEffect(() => {

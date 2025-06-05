@@ -70,6 +70,39 @@ export const useConnectionState = () => {
     [],
   );
 
+  const createAgentWithoutConnecting = useCallback(
+    async (
+      serverConfigs: Record<string, MCPJamServerConfig>,
+      config: InspectorConfig,
+      bearerToken: string,
+      headerName: string,
+      claudeApiKey: string,
+      onStdErrNotification: (notification: StdErrNotification) => void,
+      onPendingRequest: (
+        request: CreateMessageRequest,
+        resolve: (result: CreateMessageResult) => void,
+        reject: (error: Error) => void,
+      ) => void,
+      getRoots: () => Root[],
+    ) => {
+      const options: MCPClientOptions = {
+        servers: serverConfigs,
+        config: config,
+        bearerToken,
+        headerName,
+        claudeApiKey,
+        onStdErrNotification,
+        onPendingRequest,
+        getRoots,
+      };
+
+      const agent = new MCPJamAgent(options);
+      setMcpAgent(agent);
+      return agent;
+    },
+    [],
+  );
+
   const addServer = useCallback(
     async (
       name: string,
@@ -150,7 +183,10 @@ export const useConnectionState = () => {
 
   const connectServer = useCallback(
     async (serverName: string) => {
-      if (!mcpAgent) return;
+      if (!mcpAgent) {
+        console.log("🆕 No agent exists, cannot connect to server. Please add the server first.");
+        return;
+      }
 
       try {
         await mcpAgent.connectToServer(serverName);
@@ -227,6 +263,7 @@ export const useConnectionState = () => {
     sidebarUpdateTrigger,
     forceUpdateSidebar,
     createAgent,
+    createAgentWithoutConnecting,
     addServer,
     removeServer,
     connectServer,
