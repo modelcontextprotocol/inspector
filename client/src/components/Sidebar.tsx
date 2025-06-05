@@ -100,8 +100,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   // Show create client prompt if no clients exist
   const shouldShowCreatePrompt = serverConnections.length === 0;
 
-  // Check if connecting to this server should show a warning due to remote connection limit
-  const shouldWarnAboutRemoteConnection = (connection: ServerConnectionInfo) => {
+  // Check if this connection should be disabled due to remote connection limit
+  const shouldDisableConnection = (connection: ServerConnectionInfo) => {
     if (!mcpAgent || connection.connectionStatus === "connected") {
       return false;
     }
@@ -118,9 +118,9 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // Get tooltip message for connect button
   const getConnectTooltipMessage = (connection: ServerConnectionInfo) => {
-    if (shouldWarnAboutRemoteConnection(connection)) {
+    if (shouldDisableConnection(connection)) {
       const connectedRemoteName = mcpAgent?.getConnectedRemoteServerName();
-      return `Connecting will disconnect "${connectedRemoteName}" (only one remote server allowed at a time)`;
+      return `Cannot connect: "${connectedRemoteName}" is already connected (only one remote server allowed at a time)`;
     }
     return "Connect to this server";
   };
@@ -285,16 +285,19 @@ const Sidebar: React.FC<SidebarProps> = ({
                           ) : (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onConnectServer(connection.name);
-                                  }}
-                                  size="sm"
-                                  className="h-6 text-xs px-2"
-                                >
-                                  Connect
-                                </Button>
+                                <span className="inline-block">
+                                  <Button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onConnectServer(connection.name);
+                                    }}
+                                    size="sm"
+                                    className="h-6 text-xs px-2"
+                                    disabled={shouldDisableConnection(connection)}
+                                  >
+                                    Connect
+                                  </Button>
+                                </span>
                               </TooltipTrigger>
                               <TooltipContent>
                                 {getConnectTooltipMessage(connection)}
