@@ -36,6 +36,7 @@ const ResourcesTab = ({
   nextCursor,
   nextTemplateCursor,
   error,
+  selectedServerName,
 }: {
   resources: Resource[];
   resourceTemplates: ResourceTemplate[];
@@ -60,6 +61,7 @@ const ResourcesTab = ({
   resourceSubscriptions: Set<string>;
   subscribeToResource: (uri: string) => void;
   unsubscribeFromResource: (uri: string) => void;
+  selectedServerName: string;
 }) => {
   const [selectedTemplate, setSelectedTemplate] =
     useState<ResourceTemplate | null>(null);
@@ -73,6 +75,15 @@ const ResourcesTab = ({
   useEffect(() => {
     clearCompletions();
   }, [clearCompletions]);
+
+  // Clear resources and templates when server changes
+  useEffect(() => {
+    clearResources();
+    clearResourceTemplates();
+    setSelectedResource(null);
+    setSelectedTemplate(null);
+    setTemplateValues({});
+  }, [selectedServerName]);
 
   const fillTemplate = (
     template: string,

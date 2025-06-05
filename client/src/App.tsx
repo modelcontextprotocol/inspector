@@ -1,288 +1,484 @@
 import {
   ClientRequest,
-  CompatibilityCallToolResult,
-  CreateMessageResult,
   EmptyResultSchema,
-  Resource,
-  ResourceTemplate,
-  Root,
-  Tool,
-  LoggingLevel,
+  ResourceReference,
+  PromptReference,
+  CreateMessageRequest,
+  CreateMessageResult,
 } from "@modelcontextprotocol/sdk/types.js";
-import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
-import { AuthDebuggerState } from "./lib/auth-types";
-import { McpJamRequest } from "./lib/requestTypes";
-import React, {
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import { useConnection } from "./lib/hooks/useConnection";
+import React, { Suspense, useCallback, useEffect, useRef } from "react";
 import { StdErrNotification } from "./lib/notificationTypes";
-
 import { Activity } from "lucide-react";
-
 import { z } from "zod";
 import "./App.css";
+
+// Components
 import AuthDebugger from "./components/AuthDebugger";
 import ConsoleTab from "./components/ConsoleTab";
 import HistoryAndNotifications from "./components/History";
 import PingTab from "./components/PingTab";
-import PromptsTab, { Prompt } from "./components/PromptsTab";
+import PromptsTab from "./components/PromptsTab";
 import ResourcesTab from "./components/ResourcesTab";
 import RootsTab from "./components/RootsTab";
-import SamplingTab, { PendingRequest } from "./components/SamplingTab";
+import SamplingTab from "./components/SamplingTab";
 import ToolsTab from "./components/ToolsTab";
 import ChatTab from "./components/ChatTab";
 import Sidebar from "./components/Sidebar";
 import Tabs from "./components/Tabs";
 import SettingsTab from "./components/SettingsTab";
-import { InspectorConfig } from "./lib/configurationTypes";
-import ConnectionSection from "./components/ConnectionSection";
-import {
-  getMCPProxyAddress,
-  getInitialSseUrl,
-  getInitialTransportType,
-  getInitialCommand,
-  getInitialArgs,
-  initializeInspectorConfig,
-} from "./utils/configUtils";
-import {
-  handleApproveSampling,
-  handleRejectSampling,
-  clearError,
-  sendMCPRequest,
-  listResources,
-  listResourceTemplates,
-  readResource,
-  subscribeToResource,
-  unsubscribeFromResource,
-  listPrompts,
-  getPrompt,
-  listTools,
-  callTool,
-  handleRootsChange,
-  sendLogLevelRequest,
-  MCPHelperDependencies,
-  MCPHelperState,
-} from "./utils/mcpHelpers";
+import ClientFormSection from "./components/ClientFormSection";
+
+// Context
 import { McpClientContext } from "@/context/McpClientContext";
 
-const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
-const CLAUDE_API_KEY_STORAGE_KEY = "claude-api-key";
+// Hooks
+import { useServerState } from "./hooks/useServerState";
+import { useConnectionState } from "./hooks/useConnectionState";
+import { useMCPOperations } from "./hooks/useMCPOperations";
+import { useConfigState } from "./hooks/useConfigState";
 
-// Validate Claude API key format
-const validateClaudeApiKey = (key: string): boolean => {
-  // Claude API keys start with "sk-ant-api03-" and are followed by base64-like characters
-  const claudeApiKeyPattern = /^sk-ant-api03-[A-Za-z0-9_-]+$/;
-  return claudeApiKeyPattern.test(key) && key.length > 20;
-};
+// Services
+import {
+  loadOAuthTokens,
+  handleOAuthDebugConnect,
+} from "./services/oauth";
+
+// Utils
+import { getMCPProxyAddress } from "./utils/configUtils";
+import { handleRootsChange, MCPHelperDependencies } from "./utils/mcpHelpers";
+
+// Types
+import { MCPJamServerConfig, StdioServerDefinition, HttpServerDefinition } from "./lib/serverTypes";
+
+type ExtendedConnectionStatus =
+  | "disconnected"
+  | "connected"
+  | "error"
+  | "error-connecting-to-proxy"
+  | "partial";
 
 const App = () => {
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [resourceTemplates, setResourceTemplates] = useState<
-    ResourceTemplate[]
-  >([]);
-  const [resourceContent, setResourceContent] = useState<string>("");
-  const [prompts, setPrompts] = useState<Prompt[]>([]);
-  const [promptContent, setPromptContent] = useState<string>("");
-  const [tools, setTools] = useState<Tool[]>([]);
-  const [toolResult, setToolResult] =
-    useState<CompatibilityCallToolResult | null>(null);
-  const [errors, setErrors] = useState<Record<string, string | null>>({
-    resources: null,
-    prompts: null,
-    tools: null,
-  });
-  const [command, setCommand] = useState<string>(getInitialCommand);
-  const [args, setArgs] = useState<string>(getInitialArgs);
+  // Custom hooks
+  const serverState = useServerState();
+  const connectionState = useConnectionState();
+  const mcpOperations = useMCPOperations();
+  const configState = useConfigState();
 
-  const [sseUrl, setSseUrl] = useState<string>(getInitialSseUrl);
-  const [transportType, setTransportType] = useState<
-    "stdio" | "sse" | "streamable-http"
-  >(getInitialTransportType);
-  const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
-  const [stdErrNotifications, setStdErrNotifications] = useState<
-    StdErrNotification[]
-  >([]);
-  const [roots, setRoots] = useState<Root[]>([]);
-  const [env, setEnv] = useState<Record<string, string>>({});
-
-  const [config, setConfig] = useState<InspectorConfig>(() =>
-    initializeInspectorConfig(CONFIG_LOCAL_STORAGE_KEY),
-  );
-  const [bearerToken, setBearerToken] = useState<string>(() => {
-    return localStorage.getItem("lastBearerToken") || "";
-  });
-
-  const [headerName, setHeaderName] = useState<string>(() => {
-    return localStorage.getItem("lastHeaderName") || "";
-  });
-
-  const [pendingSampleRequests, setPendingSampleRequests] = useState<
-    Array<
-      PendingRequest & {
-        resolve: (result: CreateMessageResult) => void;
-        reject: (error: Error) => void;
-      }
-    >
-  >([]);
-
-  // Auth debugger state
-  const [authState, setAuthState] = useState<AuthDebuggerState>({
-    isInitiatingAuth: false,
-    oauthTokens: null,
-    loading: true,
-    oauthStep: "metadata_discovery",
-    oauthMetadata: null,
-    oauthClientInfo: null,
-    authorizationUrl: null,
-    authorizationCode: "",
-    latestError: null,
-    statusMessage: null,
-    validationError: null,
-  });
-
-  // Helper function to update specific auth state properties
-  const updateAuthState = (updates: Partial<AuthDebuggerState>) => {
-    setAuthState((prev) => ({ ...prev, ...updates }));
-  };
+  // Refs
+  const rootsRef = useRef(mcpOperations.roots);
   const nextRequestId = useRef(0);
-  const rootsRef = useRef<Root[]>([]);
 
-  const [selectedResource, setSelectedResource] = useState<Resource | null>(
-    null,
-  );
-  const [resourceSubscriptions, setResourceSubscriptions] = useState<
-    Set<string>
-  >(new Set<string>());
-
-  const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
-  const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
-  const [loadedRequest, setLoadedRequest] = useState<McpJamRequest | null>(
-    null,
-  );
-  const [nextResourceCursor, setNextResourceCursor] = useState<
-    string | undefined
-  >();
-  const [nextResourceTemplateCursor, setNextResourceTemplateCursor] = useState<
-    string | undefined
-  >();
-  const [nextPromptCursor, setNextPromptCursor] = useState<
-    string | undefined
-  >();
-  const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
-  const progressTokenRef = useRef(0);
-
-  const [claudeApiKey, setClaudeApiKey] = useState<string>(() => {
-    // Load Claude API key from localStorage on app initialization
-    try {
-      const storedApiKey =
-        localStorage.getItem(CLAUDE_API_KEY_STORAGE_KEY) || "";
-      if (storedApiKey && validateClaudeApiKey(storedApiKey)) {
-        return storedApiKey;
-      }
-    } catch (error) {
-      console.warn("Failed to load Claude API key from localStorage:", error);
-    }
-    return "";
-  });
-
-  const [currentPage, setCurrentPage] = useState<string>(() => {
-    const hash = window.location.hash.slice(1);
-    return hash || "tools";
-  });
-
-  console.log(currentPage);
-
-  const {
-    connectionStatus,
-    serverCapabilities,
-    mcpClient,
-    requestHistory,
-    makeRequest,
-    sendNotification,
-    handleCompletion,
-    completionsSupported,
-    connect: connectMcpServer,
-    disconnect: disconnectMcpServer,
-    updateApiKey,
-  } = useConnection({
-    transportType,
-    command,
-    args,
-    sseUrl,
-    env,
-    bearerToken,
-    headerName,
-    config,
-    claudeApiKey,
-    onNotification: () => {
-      // Server notifications are no longer displayed in the UI
+  // Callbacks for connection
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const onStdErrNotification = useCallback(
+    (notification: StdErrNotification) => {
+      mcpOperations.setStdErrNotifications((prev) => [...prev, notification]);
     },
-    onStdErrNotification: (notification) => {
-      setStdErrNotifications((prev) => [
-        ...prev,
-        notification as StdErrNotification,
-      ]);
-    },
-    onPendingRequest: (request, resolve, reject) => {
-      setPendingSampleRequests((prev) => [
+    [mcpOperations.setStdErrNotifications],
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const onPendingRequest = useCallback(
+    (
+      request: CreateMessageRequest,
+      resolve: (result: CreateMessageResult) => void,
+      reject: (error: Error) => void,
+    ) => {
+      mcpOperations.setPendingSampleRequests((prev) => [
         ...prev,
         { id: nextRequestId.current++, request, resolve, reject },
       ]);
     },
-    getRoots: () => rootsRef.current,
-  });
+    [mcpOperations.setPendingSampleRequests],
+  );
 
-  // Handler to update both state and the MCP client's API key
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const getRootsCallback = useCallback(() => rootsRef.current, []);
+
+  // Connection info
+  const connectionStatus: ExtendedConnectionStatus =
+    connectionState.getConnectionStatus();
+  const serverCapabilities = connectionState.getServerCapabilities(
+    serverState.selectedServerName,
+  );
+  const requestHistory = connectionState.getRequestHistory();
+  const currentClient = connectionState.getCurrentClient(
+    serverState.selectedServerName,
+  );
+
+  // Server management handlers
+  const handleAddServer = useCallback(
+    async (name: string, serverConfig: MCPJamServerConfig) => {
+      console.log("🔧 Adding server without auto-connect:", { name, serverConfig });
+
+      // Check if there are no other servers BEFORE adding the new one
+      const shouldSelectNewServer = Object.keys(serverState.serverConfigs).length === 0;
+      
+      // Just add the server config without connecting
+      serverState.updateServerConfig(name, serverConfig);
+
+      // Switch to the new server if there were no other servers
+      if (shouldSelectNewServer) {
+        serverState.setSelectedServerName(name);
+      }
+
+      // Create or update the agent with the new server config, but don't connect
+      if (!connectionState.mcpAgent) {
+        console.log("🆕 Creating agent with server config (no auto-connect)...");
+        try {
+          await connectionState.createAgentWithoutConnecting(
+            { [name]: serverConfig },
+            configState.config,
+            configState.bearerToken,
+            configState.headerName,
+            configState.claudeApiKey,
+            onStdErrNotification,
+            onPendingRequest,
+            getRootsCallback,
+          );
+        } catch (error) {
+          console.error("❌ Failed to create agent:", error);
+          throw error;
+        }
+      } else {
+        // Add server to existing agent without connecting
+        connectionState.mcpAgent.addServer(name, serverConfig);
+        connectionState.forceUpdateSidebar();
+      }
+
+      return name;
+    },
+    [
+      serverState,
+      connectionState,
+      configState.config,
+      configState.bearerToken,
+      configState.headerName,
+      configState.claudeApiKey,
+      onStdErrNotification,
+      onPendingRequest,
+      getRootsCallback,
+    ],
+  );
+
+  const handleRemoveServer = useCallback(
+    async (serverName: string) => {
+      await connectionState.removeServer(serverName);
+      serverState.removeServerConfig(serverName);
+
+      // If we removed the selected server, select another one or empty string
+      if (serverState.selectedServerName === serverName) {
+        const remainingServers = Object.keys(serverState.serverConfigs).filter(
+          (name) => name !== serverName,
+        );
+        serverState.setSelectedServerName(
+          remainingServers.length > 0 ? remainingServers[0] : "",
+        );
+      }
+    },
+    [connectionState, serverState],
+  );
+
+  const handleUpdateServer = useCallback(
+    async (serverName: string, config: MCPJamServerConfig) => {
+      await connectionState.updateServerWithoutConnecting(serverName, config);
+      serverState.updateServerConfig(serverName, config);
+    },
+    [connectionState, serverState],
+  );
+
+  const handleSaveClient = useCallback(async () => {
+    if (!serverState.clientFormName.trim()) return;
+
+    try {
+      if (serverState.isCreatingClient) {
+        await handleAddServer(
+          serverState.clientFormName,
+          serverState.clientFormConfig,
+        );
+      } else if (serverState.editingClientName) {
+        // Check if the server name has changed
+        const oldServerName = serverState.editingClientName;
+        const newServerName = serverState.clientFormName.trim();
+        
+        if (oldServerName !== newServerName) {
+          // Server name has changed - remove old and add new
+          console.log(`🔄 Server name changed from "${oldServerName}" to "${newServerName}"`);
+          
+          // Remove the old server
+          await handleRemoveServer(oldServerName);
+          
+          // Add the server with the new name
+          await handleAddServer(newServerName, serverState.clientFormConfig);
+          
+          // Update the selected server name if the changed server was selected
+          if (serverState.selectedServerName === oldServerName) {
+            serverState.setSelectedServerName(newServerName);
+          }
+        } else {
+          // Server name hasn't changed - just update the configuration
+          await handleUpdateServer(
+            serverState.editingClientName,
+            serverState.clientFormConfig,
+          );
+        }
+      }
+      serverState.handleCancelClientForm();
+    } catch (error) {
+      console.error("Failed to save client:", error);
+    }
+  }, [serverState, handleAddServer, handleUpdateServer, handleRemoveServer]);
+
+  const handleEditClient = useCallback(
+    (serverName: string) => {
+      const serverConnections = connectionState.mcpAgent
+        ? connectionState.mcpAgent.getAllConnectionInfo()
+        : [];
+      const connection = serverConnections.find(
+        (conn) => conn.name === serverName,
+      );
+      if (!connection) return;
+
+      serverState.handleEditClient(serverName, connection.config);
+    },
+    [connectionState.mcpAgent, serverState],
+  );
+
+  // Update API key in agent when it changes
+  const updateApiKey = useCallback(
+    (newApiKey: string) => {
+      if (connectionState.mcpAgent) {
+        connectionState.mcpAgent.updateCredentials(
+          undefined,
+          undefined,
+          newApiKey,
+        );
+      }
+    },
+    [connectionState.mcpAgent],
+  );
+
   const handleApiKeyChange = (newApiKey: string) => {
-    setClaudeApiKey(newApiKey);
+    configState.updateClaudeApiKey(newApiKey);
     updateApiKey(newApiKey);
   };
 
-  useEffect(() => {
-    localStorage.setItem("lastCommand", command);
-  }, [command]);
-
-  useEffect(() => {
-    localStorage.setItem("lastArgs", args);
-  }, [args]);
-
-  useEffect(() => {
-    localStorage.setItem("lastSseUrl", sseUrl);
-  }, [sseUrl]);
-
-  useEffect(() => {
-    localStorage.setItem("lastTransportType", transportType);
-  }, [transportType]);
-
-  useEffect(() => {
-    localStorage.setItem("lastBearerToken", bearerToken);
-  }, [bearerToken]);
-
-  useEffect(() => {
-    localStorage.setItem("lastHeaderName", headerName);
-  }, [headerName]);
-
-  useEffect(() => {
-    localStorage.setItem(CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
-  }, [config]);
-
-  // Auto-connect to previously saved serverURL after OAuth callback
-  const onOAuthConnect = useCallback(
-    (serverUrl: string) => {
-      setSseUrl(serverUrl);
-
-      void connectMcpServer();
+  // MCP operation wrappers
+  const makeRequest = useCallback(
+    async (request: ClientRequest) => {
+      return await mcpOperations.makeRequest(
+        connectionState.mcpAgent,
+        serverState.selectedServerName,
+        request,
+      );
     },
-    [connectMcpServer],
+    [mcpOperations, connectionState.mcpAgent, serverState.selectedServerName],
   );
 
-  // Update OAuth debug state during debug callback
+  const handleCompletion = useCallback(
+    async (
+      ref: ResourceReference | PromptReference,
+      argName: string,
+      value: string,
+      signal?: AbortSignal,
+    ) => {
+      return await mcpOperations.handleCompletion(
+        connectionState.mcpAgent,
+        serverState.selectedServerName,
+        ref,
+        argName,
+        value,
+        signal,
+      );
+    },
+    [mcpOperations, connectionState.mcpAgent, serverState.selectedServerName],
+  );
+
+  const completionsSupported =
+    connectionState.mcpAgent?.getClient(serverState.selectedServerName)
+      ?.completionsSupported || false;
+
+  const sendMCPRequest = async <T extends z.ZodType>(
+    request: ClientRequest,
+    schema: T,
+    tabKey?: keyof typeof mcpOperations.errors,
+  ) => {
+    try {
+      const response = await makeRequest(request);
+      return schema.parse(response);
+    } catch (error) {
+      if (tabKey) {
+        mcpOperations.setErrors((prev) => ({
+          ...prev,
+          [tabKey]: (error as Error).message,
+        }));
+      }
+      throw error;
+    }
+  };
+
+  const handleRootsChangeWrapper = async () => {
+    if (!connectionState.mcpAgent || serverState.selectedServerName === "all")
+      return;
+
+    const client = connectionState.mcpAgent.getClient(
+      serverState.selectedServerName,
+    );
+    if (client) {
+      return handleRootsChange({
+        makeRequest: client.makeRequest.bind(client),
+      } as MCPHelperDependencies);
+    }
+  };
+
+  // Effect to sync roots ref
+  useEffect(() => {
+    rootsRef.current = mcpOperations.roots;
+  }, [mcpOperations.roots]);
+
+  // Effect to restore agent with saved server configs (without connecting)
+  useEffect(() => {
+    const restoreAgentWithoutConnecting = async () => {
+      // Only restore if we have server configs but no active agent
+      if (Object.keys(serverState.serverConfigs).length > 0 && !connectionState.mcpAgent) {
+        console.log("🔄 Restoring agent with saved server configs (no auto-connect)...");
+        
+        try {
+          await connectionState.createAgentWithoutConnecting(
+            serverState.serverConfigs,
+            configState.config,
+            configState.bearerToken,
+            configState.headerName,
+            configState.claudeApiKey,
+            onStdErrNotification,
+            onPendingRequest,
+            getRootsCallback,
+          );
+          console.log("✅ Successfully restored agent with server configs");
+        } catch (error) {
+          console.error("❌ Failed to restore agent:", error);
+        }
+      }
+    };
+
+    // Run restoration after a short delay to ensure all hooks are initialized
+    const timeoutId = setTimeout(restoreAgentWithoutConnecting, 100);
+    return () => clearTimeout(timeoutId);
+  }, [
+    serverState.serverConfigs,
+    connectionState.mcpAgent,
+    connectionState.createAgentWithoutConnecting,
+    configState.config,
+    configState.bearerToken,
+    configState.headerName,
+    configState.claudeApiKey,
+    onStdErrNotification,
+    onPendingRequest,
+    getRootsCallback,
+  ]);
+
+  // Effect to persist server configs
+  useEffect(() => {
+    const currentConfig =
+      serverState.serverConfigs[serverState.selectedServerName];
+    if (
+      currentConfig?.transportType === "stdio" &&
+      "command" in currentConfig
+    ) {
+      localStorage.setItem("lastCommand", currentConfig.command || "");
+    }
+  }, [serverState.serverConfigs, serverState.selectedServerName]);
+
+  useEffect(() => {
+    const currentConfig =
+      serverState.serverConfigs[serverState.selectedServerName];
+    if (currentConfig?.transportType === "stdio" && "args" in currentConfig) {
+      localStorage.setItem("lastArgs", currentConfig.args?.join(" ") || "");
+    }
+  }, [serverState.serverConfigs, serverState.selectedServerName]);
+
+  useEffect(() => {
+    const currentConfig =
+      serverState.serverConfigs[serverState.selectedServerName];
+    if (currentConfig && "url" in currentConfig && currentConfig.url) {
+      localStorage.setItem("lastSseUrl", currentConfig.url.toString());
+    }
+  }, [serverState.serverConfigs, serverState.selectedServerName]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "lastTransportType",
+      serverState.serverConfigs[serverState.selectedServerName]
+        ?.transportType || "",
+    );
+  }, [serverState.serverConfigs, serverState.selectedServerName]);
+
+  // OAuth handlers
+  const onOAuthConnect = useCallback(
+    async (serverUrl: string) => {
+      // Determine the server name from the URL (e.g., "linear" from "https://mcp.linear.app/sse")
+      const url = new URL(serverUrl);
+      const hostname = url.hostname;
+      let serverName = hostname.split('.')[1] || hostname.split('.')[0]; // Extract service name from hostname
+      
+      // Clean up the server name (remove common prefixes/suffixes)
+      if (serverName.startsWith('mcp')) {
+        serverName = hostname.split('.')[0].replace('mcp', ''); // Remove mcp prefix
+      }
+      
+      // Fallback to a more descriptive name if needed
+      if (!serverName || serverName.length < 2) {
+        serverName = hostname.replace(/[^a-zA-Z0-9]/g, '');
+      }
+      
+      // Make sure we have a valid server name
+      if (!serverName) {
+        serverName = 'oauth-server';
+      }
+      
+      // Check if a server with this URL already exists and use that name instead
+      let existingServerName = null;
+      for (const [name, config] of Object.entries(serverState.serverConfigs)) {
+        if ('url' in config && config.url?.toString() === serverUrl) {
+          existingServerName = name;
+          break;
+        }
+      }
+      
+      // Use existing server name if found, otherwise use the determined name
+      const finalServerName = existingServerName || serverName;
+      
+      console.log(`🔐 OAuth connecting to: ${serverUrl} as server "${finalServerName}"`);
+      
+      // Update the server config for the correct server
+      const serverConfig: HttpServerDefinition = {
+        transportType: "sse",
+        url: new URL(serverUrl),
+      };
+      
+      serverState.setServerConfigs((prev) => ({
+        ...prev,
+        [finalServerName]: serverConfig,
+      }));
+
+      // Add the server first
+      try {
+        await handleAddServer(finalServerName, serverConfig);
+        
+        // Switch to the newly connected server
+        serverState.setSelectedServerName(finalServerName);
+        
+        // Then automatically connect to it since OAuth has completed
+        console.log("🔌 Auto-connecting after OAuth success...");
+        await connectionState.connectServer(finalServerName);
+        console.log("✅ Auto-connected successfully after OAuth");
+      } catch (error) {
+        console.error("Failed to connect OAuth server:", error);
+      }
+    },
+    [serverState, handleAddServer, connectionState.connectServer],
+  );
+
   const onOAuthDebugConnect = useCallback(
     ({
       authorizationCode,
@@ -291,58 +487,49 @@ const App = () => {
       authorizationCode?: string;
       errorMsg?: string;
     }) => {
-      if (authorizationCode) {
-        updateAuthState({
-          authorizationCode,
-          oauthStep: "token_request",
-        });
-      }
-      if (errorMsg) {
-        updateAuthState({
-          latestError: new Error(errorMsg),
-        });
-      }
+      handleOAuthDebugConnect(
+        { authorizationCode, errorMsg },
+        configState.updateAuthState,
+      );
     },
-    [],
+    [configState.updateAuthState],
   );
 
   // Load OAuth tokens when sseUrl changes
   useEffect(() => {
-    const loadOAuthTokens = async () => {
-      try {
-        if (sseUrl) {
-          const key = getServerSpecificKey(SESSION_KEYS.TOKENS, sseUrl);
-          const tokens = sessionStorage.getItem(key);
-          if (tokens) {
-            const parsedTokens = await OAuthTokensSchema.parseAsync(
-              JSON.parse(tokens),
-            );
-            updateAuthState({
-              oauthTokens: parsedTokens,
-              oauthStep: "complete",
-            });
-          }
-        }
-      } catch (error) {
-        console.error("Error loading OAuth tokens:", error);
-      } finally {
-        updateAuthState({ loading: false });
+    const loadTokens = async () => {
+      const currentConfig =
+        serverState.serverConfigs[serverState.selectedServerName];
+      if (currentConfig && "url" in currentConfig && currentConfig.url) {
+        await loadOAuthTokens(
+          currentConfig.url.toString(),
+          configState.updateAuthState,
+        );
       }
     };
 
-    loadOAuthTokens();
-  }, [sseUrl]);
+    loadTokens();
+  }, [
+    serverState.selectedServerName,
+    serverState.serverConfigs,
+    configState.updateAuthState,
+  ]);
 
+  // Fetch default environment
   useEffect(() => {
-    fetch(`${getMCPProxyAddress(config)}/config`)
+    fetch(`${getMCPProxyAddress(configState.config)}/config`)
       .then((response) => response.json())
       .then((data) => {
-        setEnv(data.defaultEnvironment);
-        if (data.defaultCommand) {
-          setCommand(data.defaultCommand);
-        }
-        if (data.defaultArgs) {
-          setArgs(data.defaultArgs);
+        const currentConfig =
+          serverState.serverConfigs[serverState.selectedServerName];
+        if (currentConfig?.transportType === "stdio") {
+          serverState.setServerConfigs((prev) => ({
+            ...prev,
+            [serverState.selectedServerName]: {
+              ...prev[serverState.selectedServerName],
+              env: data.defaultEnvironment || {},
+            } as StdioServerDefinition,
+          }));
         }
       })
       .catch((error) =>
@@ -351,147 +538,7 @@ const App = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    rootsRef.current = roots;
-  }, [roots]);
-
-  useEffect(() => {
-    if (!window.location.hash) {
-      window.location.hash = "tools";
-    }
-  }, []);
-
-  // Add effect to handle hash changes
-  useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash.slice(1);
-      if (hash) {
-        setCurrentPage(hash);
-      }
-    };
-
-    window.addEventListener("hashchange", handleHashChange);
-    return () => window.removeEventListener("hashchange", handleHashChange);
-  }, []);
-
-  // Create helper dependencies and state objects
-  const helperDependencies: MCPHelperDependencies = {
-    makeRequest,
-    sendNotification,
-    setErrors,
-    setResources,
-    setResourceTemplates,
-    setResourceContent,
-    setResourceSubscriptions,
-    setPrompts,
-    setPromptContent,
-    setTools,
-    setToolResult,
-    setNextResourceCursor,
-    setNextResourceTemplateCursor,
-    setNextPromptCursor,
-    setNextToolCursor,
-    setLogLevel,
-    setStdErrNotifications,
-    setPendingSampleRequests,
-    progressTokenRef,
-  };
-
-  const helperState: MCPHelperState = {
-    resources,
-    resourceTemplates,
-    resourceSubscriptions,
-    nextResourceCursor,
-    nextResourceTemplateCursor,
-    nextPromptCursor,
-    nextToolCursor,
-  };
-
-  // Replace the old helper functions with calls to imported ones
-  const handleApproveSamplingWrapper = (
-    id: number,
-    result: CreateMessageResult,
-  ) => {
-    handleApproveSampling(id, result, setPendingSampleRequests);
-  };
-
-  const handleRejectSamplingWrapper = (id: number) => {
-    handleRejectSampling(id, setPendingSampleRequests);
-  };
-
-  const clearErrorWrapper = (tabKey: keyof typeof errors) => {
-    clearError(tabKey, setErrors);
-  };
-
-  const sendMCPRequestWrapper = async <T extends z.ZodType>(
-    request: ClientRequest,
-    schema: T,
-    tabKey?: keyof typeof errors,
-  ) => {
-    return sendMCPRequest(request, schema, helperDependencies, tabKey);
-  };
-
-  const listResourcesWrapper = async () => {
-    return listResources(helperState, helperDependencies);
-  };
-
-  const listResourceTemplatesWrapper = async () => {
-    return listResourceTemplates(helperState, helperDependencies);
-  };
-
-  const readResourceWrapper = async (uri: string) => {
-    return readResource(uri, helperDependencies);
-  };
-
-  const subscribeToResourceWrapper = async (uri: string) => {
-    return subscribeToResource(uri, helperState, helperDependencies);
-  };
-
-  const unsubscribeFromResourceWrapper = async (uri: string) => {
-    return unsubscribeFromResource(uri, helperState, helperDependencies);
-  };
-
-  const listPromptsWrapper = async () => {
-    return listPrompts(helperState, helperDependencies);
-  };
-
-  const getPromptWrapper = async (
-    name: string,
-    args: Record<string, string> = {},
-  ) => {
-    return getPrompt(name, args, helperDependencies);
-  };
-
-  const listToolsWrapper = async () => {
-    return listTools(helperState, helperDependencies);
-  };
-
-  const callToolWrapper = async (
-    name: string,
-    params: Record<string, unknown>,
-  ) => {
-    return callTool(name, params, helperDependencies);
-  };
-
-  const handleRootsChangeWrapper = async () => {
-    return handleRootsChange(helperDependencies);
-  };
-
-  const sendLogLevelRequestWrapper = async (level: LoggingLevel) => {
-    return sendLogLevelRequest(level, helperDependencies);
-  };
-
-  const clearStdErrNotificationsWrapper = () => {
-    setStdErrNotifications([]);
-  };
-
-  const handleLoadRequest = (request: McpJamRequest) => {
-    setLoadedRequest(request);
-    // Clear the loaded request after a short delay to allow the component to process it
-    setTimeout(() => setLoadedRequest(null), 100);
-  };
-
-  // Helper function to render OAuth callback components
+  // Render OAuth callback components
   if (window.location.pathname === "/oauth/callback") {
     const OAuthCallback = React.lazy(
       () => import("./components/OAuthCallback"),
@@ -533,13 +580,35 @@ const App = () => {
   }
 
   const renderTabs = () => {
+    // Show ClientFormSection when creating or editing a client
+    if (serverState.isCreatingClient || serverState.editingClientName) {
+      return (
+        <ClientFormSection
+          isCreating={serverState.isCreatingClient}
+          editingClientName={serverState.editingClientName}
+          clientFormName={serverState.clientFormName}
+          setClientFormName={serverState.setClientFormName}
+          clientFormConfig={serverState.clientFormConfig}
+          setClientFormConfig={serverState.setClientFormConfig}
+          config={configState.config}
+          setConfig={configState.setConfig}
+          bearerToken={configState.bearerToken}
+          setBearerToken={configState.setBearerToken}
+          headerName={configState.headerName}
+          setHeaderName={configState.setHeaderName}
+          onSave={handleSaveClient}
+          onCancel={serverState.handleCancelClientForm}
+        />
+      );
+    }
+
     const serverHasNoCapabilities =
       !serverCapabilities?.resources &&
       !serverCapabilities?.prompts &&
       !serverCapabilities?.tools;
 
     const renderServerNotConnected = () => {
-      if (!mcpClient) {
+      if (!connectionState.mcpAgent) {
         return (
           <div className="flex flex-col items-center justify-center p-12 rounded-xl bg-card border border-border/50 shadow-sm">
             <Activity className="w-16 h-16 text-muted-foreground mb-4" />
@@ -567,7 +636,7 @@ const App = () => {
             <div className="w-full max-w-sm">
               <PingTab
                 onPingClick={() => {
-                  void sendMCPRequestWrapper(
+                  void sendMCPRequest(
                     {
                       method: "ping" as const,
                     },
@@ -582,114 +651,156 @@ const App = () => {
     };
 
     const renderCurrentPage = () => {
-      switch (currentPage) {
+      switch (configState.currentPage) {
         case "resources":
           return (
             <ResourcesTab
-              resources={resources}
-              resourceTemplates={resourceTemplates}
+              resources={mcpOperations.resources}
+              resourceTemplates={mcpOperations.resourceTemplates}
               listResources={() => {
-                clearErrorWrapper("resources");
-                listResourcesWrapper();
+                mcpOperations.clearError("resources");
+                mcpOperations.listResources(
+                  connectionState.mcpAgent,
+                  serverState.selectedServerName,
+                );
               }}
               clearResources={() => {
-                setResources([]);
-                setNextResourceCursor(undefined);
+                mcpOperations.setResources([]);
+                mcpOperations.setNextResourceCursor(undefined);
               }}
               listResourceTemplates={() => {
-                clearErrorWrapper("resources");
-                listResourceTemplatesWrapper();
+                mcpOperations.clearError("resources");
+                mcpOperations.listResourceTemplates(
+                  connectionState.mcpAgent,
+                  serverState.selectedServerName,
+                );
               }}
               clearResourceTemplates={() => {
-                setResourceTemplates([]);
-                setNextResourceTemplateCursor(undefined);
+                mcpOperations.setResourceTemplates([]);
+                mcpOperations.setNextResourceTemplateCursor(undefined);
               }}
               readResource={(uri) => {
-                clearErrorWrapper("resources");
-                readResourceWrapper(uri);
+                mcpOperations.clearError("resources");
+                mcpOperations.readResource(
+                  connectionState.mcpAgent,
+                  serverState.selectedServerName,
+                  uri,
+                );
               }}
-              selectedResource={selectedResource}
+              selectedResource={mcpOperations.selectedResource}
               setSelectedResource={(resource) => {
-                clearErrorWrapper("resources");
-                setSelectedResource(resource);
+                mcpOperations.clearError("resources");
+                mcpOperations.setSelectedResource(resource);
               }}
               resourceSubscriptionsSupported={
                 serverCapabilities?.resources?.subscribe || false
               }
-              resourceSubscriptions={resourceSubscriptions}
+              resourceSubscriptions={mcpOperations.resourceSubscriptions}
               subscribeToResource={(uri) => {
-                clearErrorWrapper("resources");
-                subscribeToResourceWrapper(uri);
+                mcpOperations.clearError("resources");
+                mcpOperations.subscribeToResource(
+                  connectionState.mcpAgent,
+                  serverState.selectedServerName,
+                  uri,
+                );
               }}
               unsubscribeFromResource={(uri) => {
-                clearErrorWrapper("resources");
-                unsubscribeFromResourceWrapper(uri);
+                mcpOperations.clearError("resources");
+                mcpOperations.unsubscribeFromResource(
+                  connectionState.mcpAgent,
+                  serverState.selectedServerName,
+                  uri,
+                );
               }}
               handleCompletion={handleCompletion}
               completionsSupported={completionsSupported}
-              resourceContent={resourceContent}
-              nextCursor={nextResourceCursor}
-              nextTemplateCursor={nextResourceTemplateCursor}
-              error={errors.resources}
+              resourceContent={mcpOperations.resourceContent}
+              nextCursor={mcpOperations.nextResourceCursor}
+              nextTemplateCursor={mcpOperations.nextResourceTemplateCursor}
+              error={mcpOperations.errors.resources}
+              selectedServerName={serverState.selectedServerName}
             />
           );
         case "prompts":
           return (
             <PromptsTab
-              prompts={prompts}
+              prompts={mcpOperations.prompts}
               listPrompts={() => {
-                clearErrorWrapper("prompts");
-                listPromptsWrapper();
+                mcpOperations.clearError("prompts");
+                mcpOperations.listPrompts(
+                  connectionState.mcpAgent,
+                  serverState.selectedServerName,
+                );
               }}
               clearPrompts={() => {
-                setPrompts([]);
-                setNextPromptCursor(undefined);
+                mcpOperations.setPrompts([]);
+                mcpOperations.setNextPromptCursor(undefined);
               }}
               getPrompt={(name, args) => {
-                clearErrorWrapper("prompts");
-                getPromptWrapper(name, args);
+                mcpOperations.clearError("prompts");
+                mcpOperations.getPrompt(
+                  connectionState.mcpAgent,
+                  serverState.selectedServerName,
+                  name,
+                  args,
+                );
               }}
-              selectedPrompt={selectedPrompt}
+              selectedPrompt={mcpOperations.selectedPrompt}
               setSelectedPrompt={(prompt) => {
-                clearErrorWrapper("prompts");
-                setSelectedPrompt(prompt);
-                setPromptContent("");
+                mcpOperations.clearError("prompts");
+                mcpOperations.setSelectedPrompt(prompt);
+                mcpOperations.setPromptContent("");
               }}
               handleCompletion={handleCompletion}
               completionsSupported={completionsSupported}
-              promptContent={promptContent}
-              nextCursor={nextPromptCursor}
-              error={errors.prompts}
+              promptContent={mcpOperations.promptContent}
+              nextCursor={mcpOperations.nextPromptCursor}
+              error={mcpOperations.errors.prompts}
+              selectedServerName={serverState.selectedServerName}
             />
           );
         case "tools":
           return (
             <ToolsTab
-              tools={tools}
+              tools={mcpOperations.tools}
               listTools={() => {
-                clearErrorWrapper("tools");
-                listToolsWrapper();
+                mcpOperations.clearError("tools");
+                mcpOperations.listTools(
+                  connectionState.mcpAgent,
+                  serverState.selectedServerName,
+                );
               }}
               clearTools={() => {
-                setTools([]);
-                setNextToolCursor(undefined);
+                mcpOperations.setTools([]);
+                mcpOperations.setNextToolCursor(undefined);
               }}
               callTool={async (name, params) => {
-                clearErrorWrapper("tools");
-                setToolResult(null);
-                await callToolWrapper(name, params);
+                mcpOperations.clearError("tools");
+                mcpOperations.setToolResult(null);
+                await mcpOperations.callTool(
+                  connectionState.mcpAgent,
+                  serverState.selectedServerName,
+                  name,
+                  params,
+                );
               }}
-              selectedTool={selectedTool}
+              selectedTool={mcpOperations.selectedTool}
               setSelectedTool={(tool) => {
-                clearErrorWrapper("tools");
-                setSelectedTool(tool);
-                setToolResult(null);
+                mcpOperations.clearError("tools");
+                mcpOperations.setSelectedTool(tool);
+                mcpOperations.setToolResult(null);
               }}
-              toolResult={toolResult}
-              nextCursor={nextToolCursor}
-              error={errors.tools}
-              connectionStatus={connectionStatus}
-              loadedRequest={loadedRequest}
+              toolResult={mcpOperations.toolResult}
+              nextCursor={mcpOperations.nextToolCursor}
+              error={mcpOperations.errors.tools}
+              connectionStatus={
+                connectionStatus as
+                  | "connected"
+                  | "disconnected"
+                  | "error"
+                  | "error-connecting-to-proxy"
+              }
+              selectedServerName={serverState.selectedServerName}
             />
           );
         case "chat":
@@ -700,7 +811,7 @@ const App = () => {
           return (
             <PingTab
               onPingClick={() => {
-                void sendMCPRequestWrapper(
+                void sendMCPRequest(
                   {
                     method: "ping" as const,
                   },
@@ -712,26 +823,34 @@ const App = () => {
         case "sampling":
           return (
             <SamplingTab
-              pendingRequests={pendingSampleRequests}
-              onApprove={handleApproveSamplingWrapper}
-              onReject={handleRejectSamplingWrapper}
+              pendingRequests={mcpOperations.pendingSampleRequests}
+              onApprove={mcpOperations.handleApproveSampling}
+              onReject={mcpOperations.handleRejectSampling}
             />
           );
         case "roots":
           return (
             <RootsTab
-              roots={roots}
-              setRoots={setRoots}
+              roots={mcpOperations.roots}
+              setRoots={mcpOperations.setRoots}
               onRootsChange={handleRootsChangeWrapper}
             />
           );
         case "auth":
           return (
             <AuthDebugger
-              serverUrl={sseUrl}
-              onBack={() => setCurrentPage("resources")}
-              authState={authState}
-              updateAuthState={updateAuthState}
+              serverUrl={(() => {
+                const currentConfig =
+                  serverState.serverConfigs[serverState.selectedServerName];
+                return currentConfig &&
+                  "url" in currentConfig &&
+                  currentConfig.url
+                  ? currentConfig.url.toString()
+                  : "";
+              })()}
+              onBack={() => configState.setCurrentPage("resources")}
+              authState={configState.authState}
+              updateAuthState={configState.updateAuthState}
             />
           );
         case "settings":
@@ -748,9 +867,10 @@ const App = () => {
           return null;
       }
     };
+
     return (
       <div className="flex-1 flex flex-col overflow-auto p-6">
-        {!mcpClient
+        {!connectionState.mcpAgent
           ? renderServerNotConnected()
           : serverHasNoCapabilities
             ? renderServerNoCapabilities()
@@ -760,57 +880,30 @@ const App = () => {
   };
 
   return (
-    <McpClientContext.Provider value={mcpClient}>
+    <McpClientContext.Provider value={currentClient}>
       <div className="h-screen bg-gradient-to-br from-slate-50/50 to-slate-100/50 dark:from-slate-900/50 dark:to-slate-800/50 flex overflow-hidden app-container">
         {/* Sidebar - Full Height Left Side */}
         <Sidebar
-          currentPage={currentPage}
-          onPageChange={setCurrentPage}
-          serverCapabilities={serverCapabilities}
-          pendingSampleRequests={pendingSampleRequests}
-          shouldDisableAll={!mcpClient}
-          onLoadRequest={handleLoadRequest}
+          mcpAgent={connectionState.mcpAgent}
+          selectedServerName={serverState.selectedServerName}
+          onServerSelect={serverState.setSelectedServerName}
+          onRemoveServer={handleRemoveServer}
+          onConnectServer={connectionState.connectServer}
+          onDisconnectServer={connectionState.disconnectServer}
+          onCreateClient={serverState.handleCreateClient}
+          onEditClient={handleEditClient}
+          updateTrigger={connectionState.sidebarUpdateTrigger}
         />
 
         {/* Main Content Area - Right Side */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Connection Section */}
-          <div className="bg-background/80 backdrop-blur-md border-b border-border/50 shadow-sm">
-            <ConnectionSection
-              connectionStatus={connectionStatus}
-              transportType={transportType}
-              setTransportType={setTransportType}
-              command={command}
-              setCommand={setCommand}
-              args={args}
-              setArgs={setArgs}
-              sseUrl={sseUrl}
-              setSseUrl={setSseUrl}
-              env={env}
-              setEnv={setEnv}
-              config={config}
-              setConfig={setConfig}
-              bearerToken={bearerToken}
-              setBearerToken={setBearerToken}
-              headerName={headerName}
-              setHeaderName={setHeaderName}
-              onConnect={connectMcpServer}
-              onDisconnect={disconnectMcpServer}
-              stdErrNotifications={stdErrNotifications}
-              logLevel={logLevel}
-              sendLogLevelRequest={sendLogLevelRequestWrapper}
-              loggingSupported={!!serverCapabilities?.logging || false}
-              clearStdErrNotifications={clearStdErrNotificationsWrapper}
-            />
-          </div>
-
           {/* Horizontal Tabs */}
           <Tabs
-            currentPage={currentPage}
-            onPageChange={setCurrentPage}
+            currentPage={configState.currentPage}
+            onPageChange={configState.setCurrentPage}
             serverCapabilities={serverCapabilities}
-            pendingSampleRequests={pendingSampleRequests}
-            shouldDisableAll={!mcpClient}
+            pendingSampleRequests={mcpOperations.pendingSampleRequests}
+            shouldDisableAll={!connectionState.mcpAgent}
           />
 
           {/* Main Content */}
@@ -821,7 +914,7 @@ const App = () => {
           {/* History Panel */}
           <HistoryAndNotifications
             requestHistory={requestHistory}
-            toolResult={toolResult}
+            toolResult={mcpOperations.toolResult}
           />
         </div>
       </div>

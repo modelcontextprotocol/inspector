@@ -1,3 +1,4 @@
+import React from "react";
 import {
   Select,
   SelectContent,
@@ -6,127 +7,54 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Bookmark, Trash2, Calendar, Star, Edit2, Copy } from "lucide-react";
-import { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
+import {
+  Plus,
+  Trash2,
+  Server,
+  Wifi,
+  WifiOff,
+  AlertCircle,
+  Edit2,
+} from "lucide-react";
 import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
-import { PendingRequest } from "./SamplingTab";
-import { useEffect, useState } from "react";
-import { McpJamRequest } from "@/lib/requestTypes";
-import { RequestStorage } from "@/utils/requestStorage";
-import { sortRequests } from "@/utils/requestUtils";
-import { createMcpJamRequest } from "@/utils/requestUtils";
-import { Input } from "@/components/ui/input";
+import { MCPJamAgent, ServerConnectionInfo } from "../mcpjamAgent";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SidebarProps {
-  currentPage: string;
-  onPageChange: (page: string) => void;
-  serverCapabilities?: ServerCapabilities | null;
-  pendingSampleRequests: PendingRequest[];
-  shouldDisableAll: boolean;
-  onLoadRequest?: (request: McpJamRequest) => void;
+  mcpAgent: MCPJamAgent | null;
+  selectedServerName: string;
+  onServerSelect: (serverName: string) => void;
+  onRemoveServer: (serverName: string) => Promise<void>;
+  onConnectServer: (serverName: string) => Promise<void>;
+  onDisconnectServer: (serverName: string) => Promise<void>;
+  onCreateClient: () => void;
+  onEditClient: (serverName: string) => void;
+  updateTrigger: number;
 }
 
-const Sidebar = ({ onPageChange, onLoadRequest }: SidebarProps) => {
+const Sidebar: React.FC<SidebarProps> = ({
+  mcpAgent,
+  selectedServerName,
+  onServerSelect,
+  onRemoveServer,
+  onConnectServer,
+  onDisconnectServer,
+  onCreateClient,
+  onEditClient,
+  updateTrigger,
+}) => {
   const [theme, setTheme] = useTheme();
-  const [savedRequests, setSavedRequests] = useState<McpJamRequest[]>([]);
-  const [renamingRequestId, setRenamingRequestId] = useState<string | null>(
-    null,
-  );
-  const [renameValue, setRenameValue] = useState("");
 
-  // Load saved requests on component mount
-  useEffect(() => {
-    const loadSavedRequests = () => {
-      const requests = RequestStorage.loadRequests();
-      const sortedRequests = sortRequests(requests, "updatedAt", "desc");
-      setSavedRequests(sortedRequests);
-    };
-
-    loadSavedRequests();
-
-    // Listen for storage changes (when requests are saved from other components)
-    const handleStorageChange = () => {
-      loadSavedRequests();
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-
-    // Custom event for when requests are saved within the same tab
-    window.addEventListener("requestSaved", handleStorageChange);
-
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("requestSaved", handleStorageChange);
-    };
-  }, []);
-
-  const handlePageChange = (page: string) => {
-    onPageChange(page);
-    window.location.hash = page;
-  };
-
-  const handleDeleteRequest = (requestId: string) => {
-    if (confirm("Are you sure you want to delete this saved request?")) {
-      RequestStorage.removeRequest(requestId);
-      setSavedRequests((prev) => prev.filter((req) => req.id !== requestId));
-    }
-  };
-
-  const handleLoadRequest = (request: McpJamRequest) => {
-    if (onLoadRequest) {
-      onLoadRequest(request);
-      // Switch to tools tab to show the loaded request
-      handlePageChange("tools");
-    }
-  };
-
-  const handleRenameRequest = (requestId: string, currentName: string) => {
-    setRenamingRequestId(requestId);
-    setRenameValue(currentName);
-  };
-
-  const handleSaveRename = (requestId: string) => {
-    if (renameValue.trim()) {
-      RequestStorage.updateRequest(requestId, { name: renameValue.trim() });
-      setSavedRequests((prev) =>
-        prev.map((req) =>
-          req.id === requestId ? { ...req, name: renameValue.trim() } : req,
-        ),
-      );
-    }
-    setRenamingRequestId(null);
-    setRenameValue("");
-  };
-
-  const handleCancelRename = () => {
-    setRenamingRequestId(null);
-    setRenameValue("");
-  };
-
-  const handleDuplicateRequest = (request: McpJamRequest) => {
-    const duplicatedRequest = createMcpJamRequest({
-      name: `${request.name} (Copy)`,
-      description: request.description,
-      toolName: request.toolName,
-      tool: request.tool,
-      parameters: request.parameters,
-      tags: request.tags || [],
-      isFavorite: false,
-    });
-
-    RequestStorage.addRequest(duplicatedRequest);
-    setSavedRequests((prev) => [duplicatedRequest, ...prev]);
-  };
-
-  const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(date);
-  };
+  // Get server connections directly from the agent
+  // The updateTrigger dependency will cause this to re-evaluate when agent state changes
+  const serverConnections = React.useMemo(() => {
+    return mcpAgent ? mcpAgent.getAllConnectionInfo() : [];
+  }, [mcpAgent, updateTrigger]);
 
   // Determine which logo to show based on theme
   const getLogoSrc = () => {
@@ -139,6 +67,62 @@ const Sidebar = ({ onPageChange, onLoadRequest }: SidebarProps) => {
       const isDarkMode = document.documentElement.classList.contains("dark");
       return isDarkMode ? "/mcp_jam_dark.png" : "/mcp_jam_light.png";
     }
+  };
+
+  const getConnectionStatusIcon = (status: string) => {
+    switch (status) {
+      case "connected":
+        return <Wifi className="w-4 h-4 text-green-500" />;
+      case "disconnected":
+        return <WifiOff className="w-4 h-4 text-gray-400" />;
+      case "error":
+      case "error-connecting-to-proxy":
+        return <AlertCircle className="w-4 h-4 text-red-500" />;
+      default:
+        return <WifiOff className="w-4 h-4 text-gray-400" />;
+    }
+  };
+
+  const getConnectionStatusColor = (status: string) => {
+    switch (status) {
+      case "connected":
+        return "text-green-600 dark:text-green-400";
+      case "disconnected":
+        return "text-gray-500 dark:text-gray-400";
+      case "error":
+      case "error-connecting-to-proxy":
+        return "text-red-600 dark:text-red-400";
+      default:
+        return "text-gray-500 dark:text-gray-400";
+    }
+  };
+
+  // Show create client prompt if no clients exist
+  const shouldShowCreatePrompt = serverConnections.length === 0;
+
+  // Check if this connection should be disabled due to remote connection limit
+  const shouldDisableConnection = (connection: ServerConnectionInfo) => {
+    if (!mcpAgent || connection.connectionStatus === "connected") {
+      return false;
+    }
+    
+    // If this is a remote server and there's already a connected remote server
+    if (connection.config.transportType !== "stdio") {
+      const hasConnectedRemote = mcpAgent.hasConnectedRemoteServer();
+      const connectedRemoteName = mcpAgent.getConnectedRemoteServerName();
+      return hasConnectedRemote && connectedRemoteName !== connection.name;
+    }
+    
+    return false;
+  };
+
+  // Get tooltip message for connect button
+  const getConnectTooltipMessage = (connection: ServerConnectionInfo) => {
+    if (shouldDisableConnection(connection)) {
+      const connectedRemoteName = mcpAgent?.getConnectedRemoteServerName();
+      return `Cannot connect: "${connectedRemoteName}" is already connected (only one remote server allowed at a time)`;
+    }
+    return "Connect to this server";
   };
 
   return (
@@ -168,129 +152,160 @@ const Sidebar = ({ onPageChange, onLoadRequest }: SidebarProps) => {
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex-1 overflow-hidden flex flex-col">
-        {/* Saved Requests Section */}
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="p-3 border-b border-border/50">
-            <div className="flex items-center space-x-2">
-              <Bookmark className="w-4 h-4 text-muted-foreground" />
-              <h3 className="text-sm font-medium text-foreground">
-                Saved Requests
-              </h3>
-              <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                {savedRequests.length}
-              </span>
-            </div>
+      {/* Connections Header */}
+      <div className="p-3 border-b border-border/50">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Server className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-medium text-foreground">Connections</h3>
+            <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+              {serverConnections.length}
+            </span>
           </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={onCreateClient}
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 hover:bg-primary/20 hover:text-primary"
+                title="Create new client"
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {mcpAgent?.hasConnectedRemoteServer() 
+                ? "Note: Creating a remote client will disconnect the current remote connection" 
+                : "Create new client"}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
 
-          {/* Scrollable Requests List */}
-          <div className="flex-1 overflow-y-auto p-2">
-            {savedRequests.length === 0 ? (
-              <div className="text-center py-8">
-                <Bookmark className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
-                <p className="text-xs text-muted-foreground">
-                  No saved requests
-                </p>
-                <p className="text-xs text-muted-foreground/70 mt-1">
-                  Save requests from the Tools tab
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {savedRequests.map((request) => (
-                  <div
-                    key={request.id}
-                    className="group bg-muted/30 hover:bg-muted/50 border border-border/30 rounded-lg p-2.5 transition-all duration-200 cursor-pointer"
-                    onClick={() =>
-                      renamingRequestId !== request.id &&
-                      handleLoadRequest(request)
-                    }
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex-1 overflow-y-auto">
+            {/* Show create client prompt if no clients */}
+            {shouldShowCreatePrompt && (
+              <div className="p-4 text-center">
+                <div className="py-8">
+                  <Server className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-sm font-medium mb-2">No clients connected</h3>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    Create your first MCP client to get started
+                  </p>
+                  <Button
+                    onClick={onCreateClient}
+                    size="sm"
+                    className="w-full"
                   >
-                    <div className="flex items-start justify-between mb-1.5">
-                      <div className="flex-1 min-w-0">
-                        {renamingRequestId === request.id ? (
-                          <Input
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                handleSaveRename(request.id);
-                              } else if (e.key === "Escape") {
-                                handleCancelRename();
-                              }
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create Client
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Client List */}
+            {serverConnections.length > 0 && (
+              <div className="p-3 space-y-2">
+                {/* Individual Server Connections */}
+                {serverConnections.map((connection) => (
+                  <div
+                    key={connection.name}
+                    className={`p-3 rounded-lg border cursor-pointer transition-all hover:bg-muted/50 ${
+                      selectedServerName === connection.name
+                        ? "border-primary bg-primary/10"
+                        : "border-border"
+                    }`}
+                    onClick={() => onServerSelect(connection.name)}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          {getConnectionStatusIcon(connection.connectionStatus)}
+                          <div>
+                            <div className="font-medium text-sm">{connection.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {connection.config.transportType === "stdio" && "command" in connection.config
+                                ? `${connection.config.command} ${connection.config.args?.join(" ") || ""}`
+                                : "url" in connection.config && connection.config.url
+                                ? connection.config.url.toString()
+                                : "Unknown configuration"}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex space-x-1">
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditClient(connection.name);
                             }}
-                            onBlur={() => handleSaveRename(request.id)}
-                            className="text-xs h-6 font-medium"
-                            autoFocus
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          <h4 className="text-xs font-medium text-foreground truncate">
-                            {request.name}
-                          </h4>
-                        )}
-                        <p className="text-xs text-muted-foreground font-mono">
-                          {request.toolName}
-                        </p>
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRemoveServer(connection.name);
+                            }}
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-center space-x-1">
-                        {request.isFavorite && (
-                          <Star className="w-3 h-3 text-yellow-500 fill-current" />
-                        )}
-                        <Button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRenameRequest(request.id, request.name);
-                          }}
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0 hover:bg-primary/20 hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Rename request"
-                        >
-                          <Edit2 className="w-3 h-3" />
-                        </Button>
-                        <Button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDuplicateRequest(request);
-                          }}
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0 hover:bg-blue-500/20 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Duplicate request"
-                        >
-                          <Copy className="w-3 h-3" />
-                        </Button>
-                        <Button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteRequest(request.id);
-                          }}
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0 hover:bg-destructive/20 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Delete request"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    </div>
 
-                    {request.description && (
-                      <p className="text-xs text-muted-foreground/80 mb-1.5 line-clamp-2">
-                        {request.description}
-                      </p>
-                    )}
-
-                    <div className="flex items-center justify-between text-xs text-muted-foreground/70">
-                      <div className="flex items-center space-x-1">
-                        <Calendar className="w-3 h-3" />
-                        <span>{formatDate(request.updatedAt)}</span>
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs capitalize ${getConnectionStatusColor(connection.connectionStatus)}`}>
+                          {connection.connectionStatus}
+                        </span>
+                        
+                        <div className="flex space-x-1">
+                          {connection.connectionStatus === "connected" ? (
+                            <Button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDisconnectServer(connection.name);
+                              }}
+                              size="sm"
+                              variant="outline"
+                              className="h-6 text-xs px-2"
+                            >
+                              Disconnect
+                            </Button>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-block">
+                                  <Button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onConnectServer(connection.name);
+                                    }}
+                                    size="sm"
+                                    className="h-6 text-xs px-2"
+                                    disabled={shouldDisableConnection(connection)}
+                                  >
+                                    Connect
+                                  </Button>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {getConnectTooltipMessage(connection)}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
                       </div>
-                      {request.isFavorite && (
-                        <span className="text-yellow-500">★</span>
-                      )}
                     </div>
                   </div>
                 ))}

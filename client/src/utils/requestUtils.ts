@@ -34,6 +34,7 @@ export function createMcpJamRequest(
     updatedAt: now,
     tags: input.tags || [],
     isFavorite: input.isFavorite || false,
+    clientId: input.clientId,
   };
 }
 
@@ -172,11 +173,13 @@ export function exportRequestCollection(
 export function importRequestCollection(
   data: McpJamRequestCollection,
 ): McpJamRequest[] {
-  // Convert date strings back to Date objects
+  // Convert date strings back to Date objects and handle missing clientId for migration
   return data.requests.map((request) => ({
     ...request,
     createdAt: new Date(request.createdAt),
     updatedAt: new Date(request.updatedAt),
+    // Provide default clientId for requests that don't have one (migration)
+    clientId: request.clientId || "unknown",
   }));
 }
 
@@ -190,9 +193,15 @@ export function filterRequests(
     toolName?: string;
     tags?: string[];
     isFavorite?: boolean;
+    clientId?: string;
   },
 ): McpJamRequest[] {
   return requests.filter((request) => {
+    // Client ID filter
+    if (filters.clientId && request.clientId !== filters.clientId) {
+      return false;
+    }
+
     // Search filter
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
@@ -257,4 +266,14 @@ export function sortRequests(
 
     return order === "asc" ? comparison : -comparison;
   });
+}
+
+/**
+ * Gets all requests for a specific client
+ */
+export function getRequestsForClient(
+  requests: McpJamRequest[],
+  clientId: string,
+): McpJamRequest[] {
+  return filterRequests(requests, { clientId });
 }
