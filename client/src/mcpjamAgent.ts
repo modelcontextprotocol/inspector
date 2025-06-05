@@ -145,6 +145,24 @@ export class MCPJamAgent {
             return existingClient;
         }
         
+        // Check if this is a remote server and if there's already a connected remote server
+        if (this.isRemoteServer(config)) {
+            const connectedRemoteServerName = this.getConnectedRemoteServerName();
+            if (connectedRemoteServerName && connectedRemoteServerName !== name) {
+                // Automatically disconnect the existing remote server
+                console.log(`Automatically disconnecting existing remote server: ${connectedRemoteServerName}`);
+                await this.disconnectFromServer(connectedRemoteServerName);
+                
+                // Clear OAuth tokens for the old server
+                const connectedConfig = this.serverConfigs[connectedRemoteServerName];
+                if (connectedConfig && "url" in connectedConfig && connectedConfig.url) {
+                    const { InspectorOAuthClientProvider } = await import("./lib/auth");
+                    const oldAuthProvider = new InspectorOAuthClientProvider(connectedConfig.url.toString());
+                    oldAuthProvider.clear();
+                }
+            }
+        }
+        
         // If client exists but is disconnected, reconnect it
         if (existingClient && existingClient.connectionStatus === "disconnected") {
             try {
@@ -300,5 +318,36 @@ export class MCPJamAgent {
         if (connectedCount === connections.length) return "connected";
         if (connectedCount > 0) return "partial";
         return "disconnected";
+    }
+
+    // Check if there are any connected remote servers (HTTP/SSE)
+    hasConnectedRemoteServer(): boolean {
+        for (const [name, client] of this.mcpClientsById.entries()) {
+            const config = this.serverConfigs[name];
+            if (config && 
+                config.transportType !== "stdio" && 
+                client.connectionStatus === "connected") {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Get the name of the connected remote server (if any)
+    getConnectedRemoteServerName(): string | null {
+        for (const [name, client] of this.mcpClientsById.entries()) {
+            const config = this.serverConfigs[name];
+            if (config && 
+                config.transportType !== "stdio" && 
+                client.connectionStatus === "connected") {
+                return name;
+            }
+        }
+        return null;
+    }
+
+    // Check if a server config is for a remote connection
+    private isRemoteServer(config: MCPJamServerConfig): boolean {
+        return config.transportType !== "stdio";
     }
 }

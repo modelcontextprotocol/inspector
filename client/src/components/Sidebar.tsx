@@ -18,7 +18,12 @@ import {
 } from "lucide-react";
 import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
-import { MCPJamAgent } from "../mcpjamAgent";
+import { MCPJamAgent, ServerConnectionInfo } from "../mcpjamAgent";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SidebarProps {
   mcpAgent: MCPJamAgent | null;
@@ -95,6 +100,31 @@ const Sidebar: React.FC<SidebarProps> = ({
   // Show create client prompt if no clients exist
   const shouldShowCreatePrompt = serverConnections.length === 0;
 
+  // Check if connecting to this server should show a warning due to remote connection limit
+  const shouldWarnAboutRemoteConnection = (connection: ServerConnectionInfo) => {
+    if (!mcpAgent || connection.connectionStatus === "connected") {
+      return false;
+    }
+    
+    // If this is a remote server and there's already a connected remote server
+    if (connection.config.transportType !== "stdio") {
+      const hasConnectedRemote = mcpAgent.hasConnectedRemoteServer();
+      const connectedRemoteName = mcpAgent.getConnectedRemoteServerName();
+      return hasConnectedRemote && connectedRemoteName !== connection.name;
+    }
+    
+    return false;
+  };
+
+  // Get tooltip message for connect button
+  const getConnectTooltipMessage = (connection: ServerConnectionInfo) => {
+    if (shouldWarnAboutRemoteConnection(connection)) {
+      const connectedRemoteName = mcpAgent?.getConnectedRemoteServerName();
+      return `Connecting will disconnect "${connectedRemoteName}" (only one remote server allowed at a time)`;
+    }
+    return "Connect to this server";
+  };
+
   return (
     <div className="w-80 bg-card border-r border-border flex flex-col h-full">
       {/* Logo and Header */}
@@ -132,15 +162,24 @@ const Sidebar: React.FC<SidebarProps> = ({
               {serverConnections.length}
             </span>
           </div>
-          <Button
-            onClick={onCreateClient}
-            size="sm"
-            variant="ghost"
-            className="h-7 w-7 p-0 hover:bg-primary/20 hover:text-primary"
-            title="Create new client"
-          >
-            <Plus className="w-4 h-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={onCreateClient}
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 hover:bg-primary/20 hover:text-primary"
+                title="Create new client"
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {mcpAgent?.hasConnectedRemoteServer() 
+                ? "Note: Creating a remote client will disconnect the current remote connection" 
+                : "Create new client"}
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -244,16 +283,23 @@ const Sidebar: React.FC<SidebarProps> = ({
                               Disconnect
                             </Button>
                           ) : (
-                            <Button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onConnectServer(connection.name);
-                              }}
-                              size="sm"
-                              className="h-6 text-xs px-2"
-                            >
-                              Connect
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onConnectServer(connection.name);
+                                  }}
+                                  size="sm"
+                                  className="h-6 text-xs px-2"
+                                >
+                                  Connect
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {getConnectTooltipMessage(connection)}
+                              </TooltipContent>
+                            </Tooltip>
                           )}
                         </div>
                       </div>

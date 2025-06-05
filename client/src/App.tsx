@@ -395,7 +395,41 @@ const App = () => {
   // OAuth handlers
   const onOAuthConnect = useCallback(
     async (serverUrl: string) => {
-      // Update the server config for the selected server
+      // Determine the server name from the URL (e.g., "linear" from "https://mcp.linear.app/sse")
+      const url = new URL(serverUrl);
+      const hostname = url.hostname;
+      let serverName = hostname.split('.')[1] || hostname.split('.')[0]; // Extract service name from hostname
+      
+      // Clean up the server name (remove common prefixes/suffixes)
+      if (serverName.startsWith('mcp')) {
+        serverName = hostname.split('.')[0].replace('mcp', ''); // Remove mcp prefix
+      }
+      
+      // Fallback to a more descriptive name if needed
+      if (!serverName || serverName.length < 2) {
+        serverName = hostname.replace(/[^a-zA-Z0-9]/g, '');
+      }
+      
+      // Make sure we have a valid server name
+      if (!serverName) {
+        serverName = 'oauth-server';
+      }
+      
+      // Check if a server with this URL already exists and use that name instead
+      let existingServerName = null;
+      for (const [name, config] of Object.entries(serverState.serverConfigs)) {
+        if ('url' in config && config.url?.toString() === serverUrl) {
+          existingServerName = name;
+          break;
+        }
+      }
+      
+      // Use existing server name if found, otherwise use the determined name
+      const finalServerName = existingServerName || serverName;
+      
+      console.log(`🔐 OAuth connecting to: ${serverUrl} as server "${finalServerName}"`);
+      
+      // Update the server config for the correct server
       const serverConfig: HttpServerDefinition = {
         transportType: "sse",
         url: new URL(serverUrl),
@@ -403,17 +437,25 @@ const App = () => {
       
       serverState.setServerConfigs((prev) => ({
         ...prev,
-        [serverState.selectedServerName]: serverConfig,
+        [finalServerName]: serverConfig,
       }));
 
-      // Use handleAddServer instead of connect to preserve existing clients
+      // Add the server first
       try {
-        await handleAddServer(serverState.selectedServerName, serverConfig);
+        await handleAddServer(finalServerName, serverConfig);
+        
+        // Switch to the newly connected server
+        serverState.setSelectedServerName(finalServerName);
+        
+        // Then automatically connect to it since OAuth has completed
+        console.log("🔌 Auto-connecting after OAuth success...");
+        await connectionState.connectServer(finalServerName);
+        console.log("✅ Auto-connected successfully after OAuth");
       } catch (error) {
         console.error("Failed to connect OAuth server:", error);
       }
     },
-    [serverState.selectedServerName, serverState.setServerConfigs, handleAddServer],
+    [serverState, handleAddServer, connectionState.connectServer],
   );
 
   const onOAuthDebugConnect = useCallback(
