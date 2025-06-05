@@ -38,17 +38,18 @@ import { useMCPOperations } from "./hooks/useMCPOperations";
 import { useConfigState } from "./hooks/useConfigState";
 
 // Services
-import {
-  loadOAuthTokens,
-  handleOAuthDebugConnect,
-} from "./services/oauth";
+import { loadOAuthTokens, handleOAuthDebugConnect } from "./services/oauth";
 
 // Utils
 import { getMCPProxyAddress } from "./utils/configUtils";
 import { handleRootsChange, MCPHelperDependencies } from "./utils/mcpHelpers";
 
 // Types
-import { MCPJamServerConfig, StdioServerDefinition, HttpServerDefinition } from "./lib/serverTypes";
+import {
+  MCPJamServerConfig,
+  StdioServerDefinition,
+  HttpServerDefinition,
+} from "./lib/serverTypes";
 
 type ExtendedConnectionStatus =
   | "disconnected"
@@ -69,7 +70,7 @@ const App = () => {
   const nextRequestId = useRef(0);
 
   // Callbacks for connection
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   const onStdErrNotification = useCallback(
     (notification: StdErrNotification) => {
       mcpOperations.setStdErrNotifications((prev) => [...prev, notification]);
@@ -77,7 +78,6 @@ const App = () => {
     [mcpOperations.setStdErrNotifications],
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const onPendingRequest = useCallback(
     (
       request: CreateMessageRequest,
@@ -92,7 +92,6 @@ const App = () => {
     [mcpOperations.setPendingSampleRequests],
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const getRootsCallback = useCallback(() => rootsRef.current, []);
 
   // Connection info
@@ -109,11 +108,15 @@ const App = () => {
   // Server management handlers
   const handleAddServer = useCallback(
     async (name: string, serverConfig: MCPJamServerConfig) => {
-      console.log("🔧 Adding server without auto-connect:", { name, serverConfig });
+      console.log("🔧 Adding server without auto-connect:", {
+        name,
+        serverConfig,
+      });
 
       // Check if there are no other servers BEFORE adding the new one
-      const shouldSelectNewServer = Object.keys(serverState.serverConfigs).length === 0;
-      
+      const shouldSelectNewServer =
+        Object.keys(serverState.serverConfigs).length === 0;
+
       // Just add the server config without connecting
       serverState.updateServerConfig(name, serverConfig);
 
@@ -124,10 +127,18 @@ const App = () => {
 
       // Create or update the agent with the new server config, but don't connect
       if (!connectionState.mcpAgent) {
-        console.log("🆕 Creating agent with server config (no auto-connect)...");
+        console.log(
+          "🆕 Creating agent with server config (no auto-connect)...",
+        );
         try {
+          // Include ALL server configs (existing + new) when creating the agent
+          const allServerConfigs = {
+            ...serverState.serverConfigs,
+            [name]: serverConfig,
+          };
+
           await connectionState.createAgentWithoutConnecting(
-            { [name]: serverConfig },
+            allServerConfigs,
             configState.config,
             configState.bearerToken,
             configState.headerName,
@@ -200,17 +211,19 @@ const App = () => {
         // Check if the server name has changed
         const oldServerName = serverState.editingClientName;
         const newServerName = serverState.clientFormName.trim();
-        
+
         if (oldServerName !== newServerName) {
           // Server name has changed - remove old and add new
-          console.log(`🔄 Server name changed from "${oldServerName}" to "${newServerName}"`);
-          
+          console.log(
+            `🔄 Server name changed from "${oldServerName}" to "${newServerName}"`,
+          );
+
           // Remove the old server
           await handleRemoveServer(oldServerName);
-          
+
           // Add the server with the new name
           await handleAddServer(newServerName, serverState.clientFormConfig);
-          
+
           // Update the selected server name if the changed server was selected
           if (serverState.selectedServerName === oldServerName) {
             serverState.setSelectedServerName(newServerName);
@@ -340,9 +353,14 @@ const App = () => {
   useEffect(() => {
     const restoreAgentWithoutConnecting = async () => {
       // Only restore if we have server configs but no active agent
-      if (Object.keys(serverState.serverConfigs).length > 0 && !connectionState.mcpAgent) {
-        console.log("🔄 Restoring agent with saved server configs (no auto-connect)...");
-        
+      if (
+        Object.keys(serverState.serverConfigs).length > 0 &&
+        !connectionState.mcpAgent
+      ) {
+        console.log(
+          "🔄 Restoring agent with saved server configs (no auto-connect)...",
+        );
+
         try {
           await connectionState.createAgentWithoutConnecting(
             serverState.serverConfigs,
@@ -361,9 +379,7 @@ const App = () => {
       }
     };
 
-    // Run restoration after a short delay to ensure all hooks are initialized
-    const timeoutId = setTimeout(restoreAgentWithoutConnecting, 100);
-    return () => clearTimeout(timeoutId);
+    restoreAgentWithoutConnecting();
   }, [
     serverState.serverConfigs,
     connectionState.mcpAgent,
@@ -419,55 +435,52 @@ const App = () => {
       // Determine the server name from the URL (e.g., "linear" from "https://mcp.linear.app/sse")
       const url = new URL(serverUrl);
       const hostname = url.hostname;
-      let serverName = hostname.split('.')[1] || hostname.split('.')[0]; // Extract service name from hostname
-      
+      let serverName = hostname.split(".")[1] || hostname.split(".")[0]; // Extract service name from hostname
+
       // Clean up the server name (remove common prefixes/suffixes)
-      if (serverName.startsWith('mcp')) {
-        serverName = hostname.split('.')[0].replace('mcp', ''); // Remove mcp prefix
+      if (serverName.startsWith("mcp")) {
+        serverName = hostname.split(".")[0].replace("mcp", ""); // Remove mcp prefix
       }
-      
+
       // Fallback to a more descriptive name if needed
       if (!serverName || serverName.length < 2) {
-        serverName = hostname.replace(/[^a-zA-Z0-9]/g, '');
+        serverName = hostname.replace(/[^a-zA-Z0-9]/g, "");
       }
-      
+
       // Make sure we have a valid server name
       if (!serverName) {
-        serverName = 'oauth-server';
+        serverName = "oauth-server";
       }
-      
+
       // Check if a server with this URL already exists and use that name instead
       let existingServerName = null;
       for (const [name, config] of Object.entries(serverState.serverConfigs)) {
-        if ('url' in config && config.url?.toString() === serverUrl) {
+        if ("url" in config && config.url?.toString() === serverUrl) {
           existingServerName = name;
           break;
         }
       }
-      
+
       // Use existing server name if found, otherwise use the determined name
       const finalServerName = existingServerName || serverName;
-      
-      console.log(`🔐 OAuth connecting to: ${serverUrl} as server "${finalServerName}"`);
-      
+
+      console.log(
+        `🔐 OAuth connecting to: ${serverUrl} as server "${finalServerName}"`,
+      );
+
       // Update the server config for the correct server
       const serverConfig: HttpServerDefinition = {
         transportType: "sse",
         url: new URL(serverUrl),
       };
-      
-      serverState.setServerConfigs((prev) => ({
-        ...prev,
-        [finalServerName]: serverConfig,
-      }));
 
       // Add the server first
       try {
         await handleAddServer(finalServerName, serverConfig);
-        
+
         // Switch to the newly connected server
         serverState.setSelectedServerName(finalServerName);
-        
+
         // Then automatically connect to it since OAuth has completed
         console.log("🔌 Auto-connecting after OAuth success...");
         await connectionState.connectServer(finalServerName);
