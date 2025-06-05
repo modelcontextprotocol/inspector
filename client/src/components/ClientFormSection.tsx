@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   MCPJamServerConfig,
   StdioServerDefinition,
@@ -40,6 +40,29 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
   onSave,
   onCancel,
 }) => {
+  // Local state to track raw args string while typing
+  const [argsString, setArgsString] = useState<string>("");
+
+  // Initialize argsString when clientFormConfig changes
+  useEffect(() => {
+    if (clientFormConfig.transportType === "stdio" && "args" in clientFormConfig) {
+      setArgsString(clientFormConfig.args?.join(" ") || "");
+    }
+  }, [clientFormConfig]);
+
+  // Handler for args changes that preserves input while typing
+  const handleArgsChange = (newArgsString: string) => {
+    setArgsString(newArgsString);
+    
+    // Update the config with parsed args
+    if (clientFormConfig.transportType === "stdio") {
+      setClientFormConfig({
+        ...clientFormConfig,
+        args: newArgsString.trim() ? newArgsString.split(/\s+/) : [],
+      } as StdioServerDefinition);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col overflow-auto p-6">
       <div className="max-w-4xl mx-auto w-full">
@@ -74,17 +97,20 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
               transportType={clientFormConfig.transportType}
               setTransportType={(type) => {
                 if (type === "stdio") {
-                  setClientFormConfig({
+                  const newConfig = {
                     transportType: type,
                     command: "npx",
                     args: ["@modelcontextprotocol/server-everything"],
                     env: {},
-                  } as StdioServerDefinition);
+                  } as StdioServerDefinition;
+                  setClientFormConfig(newConfig);
+                  setArgsString("@modelcontextprotocol/server-everything");
                 } else {
                   setClientFormConfig({
                     transportType: type,
                     url: new URL("https://example.com"),
                   } as HttpServerDefinition);
+                  setArgsString("");
                 }
               }}
               command={
@@ -101,20 +127,8 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
                   } as StdioServerDefinition);
                 }
               }}
-              args={
-                clientFormConfig.transportType === "stdio" &&
-                "args" in clientFormConfig
-                  ? clientFormConfig.args?.join(" ") || ""
-                  : ""
-              }
-              setArgs={(args) => {
-                if (clientFormConfig.transportType === "stdio") {
-                  setClientFormConfig({
-                    ...clientFormConfig,
-                    args: args.split(" ").filter((arg) => arg.trim() !== ""),
-                  } as StdioServerDefinition);
-                }
-              }}
+              args={argsString}
+              setArgs={handleArgsChange}
               sseUrl={
                 "url" in clientFormConfig && clientFormConfig.url
                   ? clientFormConfig.url.toString()
