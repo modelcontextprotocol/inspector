@@ -655,6 +655,7 @@ const App = () => {
               nextCursor={mcpOperations.nextResourceCursor}
               nextTemplateCursor={mcpOperations.nextResourceTemplateCursor}
               error={mcpOperations.errors.resources}
+              selectedServerName={serverState.selectedServerName}
             />
           );
         case "prompts":
@@ -692,6 +693,7 @@ const App = () => {
               promptContent={mcpOperations.promptContent}
               nextCursor={mcpOperations.nextPromptCursor}
               error={mcpOperations.errors.prompts}
+              selectedServerName={serverState.selectedServerName}
             />
           );
         case "tools":

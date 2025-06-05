@@ -36,6 +36,7 @@ const PromptsTab = ({
   promptContent,
   nextCursor,
   error,
+  selectedServerName,
 }: {
   prompts: Prompt[];
   listPrompts: () => void;
@@ -52,6 +53,7 @@ const PromptsTab = ({
   promptContent: string;
   nextCursor: ListPromptsResult["nextCursor"];
   error: string | null;
+  selectedServerName: string;
 }) => {
   const [promptArgs, setPromptArgs] = useState<Record<string, string>>({});
   const { completions, clearCompletions, requestCompletions } =
@@ -60,6 +62,13 @@ const PromptsTab = ({
   useEffect(() => {
     clearCompletions();
   }, [clearCompletions, selectedPrompt]);
+
+  // Clear prompts when server changes
+  useEffect(() => {
+    clearPrompts();
+    setSelectedPrompt(null);
+    setPromptArgs({});
+  }, [selectedServerName]);
 
   const handleInputChange = async (argName: string, value: string) => {
     setPromptArgs((prev) => ({ ...prev, [argName]: value }));

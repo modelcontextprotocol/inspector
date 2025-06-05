@@ -70,6 +70,12 @@ const ToolsTab = ({
     };
   }, [selectedServerName]);
 
+  // Clear tools when server changes
+  useEffect(() => {
+    clearTools();
+    setSelectedTool(null);
+  }, [selectedServerName]);
+
   useEffect(() => {
     if (connectionStatus === "connected") {
       listTools();

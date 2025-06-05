@@ -71,15 +71,19 @@ const loadSelectedServerFromStorage = (serverConfigs: Record<string, MCPJamServe
 };
 
 export const useServerState = () => {
+  const [state] = useState(() => {
+    const configs = loadServerConfigsFromStorage();
+    const selectedServer = loadSelectedServerFromStorage(configs);
+    return { configs, selectedServer };
+  });
+
   const [serverConfigs, setServerConfigs] = useState<
     Record<string, MCPJamServerConfig>
-  >(() => loadServerConfigsFromStorage());
+  >(state.configs);
 
-  const [selectedServerName, setSelectedServerName] = useState<string>(() => 
-    loadSelectedServerFromStorage(loadServerConfigsFromStorage())
+  const [selectedServerName, setSelectedServerName] = useState<string>(
+    state.selectedServer
   );
-  
-  console.log("selectedServerName", selectedServerName);
   
   // Client form state for creating/editing
   const [isCreatingClient, setIsCreatingClient] = useState(false);
@@ -93,8 +97,6 @@ export const useServerState = () => {
     env: {},
   } as StdioServerDefinition);
   const [clientFormName, setClientFormName] = useState("");
-
-  console.log("clientFormConfig", clientFormConfig);
 
   // Persist server configs to localStorage whenever they change
   useEffect(() => {
