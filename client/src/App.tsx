@@ -181,7 +181,7 @@ const App = () => {
 
   const handleUpdateServer = useCallback(
     async (serverName: string, config: MCPJamServerConfig) => {
-      await connectionState.updateServer(serverName, config);
+      await connectionState.updateServerWithoutConnecting(serverName, config);
       serverState.updateServerConfig(serverName, config);
     },
     [connectionState, serverState],
@@ -197,16 +197,37 @@ const App = () => {
           serverState.clientFormConfig,
         );
       } else if (serverState.editingClientName) {
-        await handleUpdateServer(
-          serverState.editingClientName,
-          serverState.clientFormConfig,
-        );
+        // Check if the server name has changed
+        const oldServerName = serverState.editingClientName;
+        const newServerName = serverState.clientFormName.trim();
+        
+        if (oldServerName !== newServerName) {
+          // Server name has changed - remove old and add new
+          console.log(`🔄 Server name changed from "${oldServerName}" to "${newServerName}"`);
+          
+          // Remove the old server
+          await handleRemoveServer(oldServerName);
+          
+          // Add the server with the new name
+          await handleAddServer(newServerName, serverState.clientFormConfig);
+          
+          // Update the selected server name if the changed server was selected
+          if (serverState.selectedServerName === oldServerName) {
+            serverState.setSelectedServerName(newServerName);
+          }
+        } else {
+          // Server name hasn't changed - just update the configuration
+          await handleUpdateServer(
+            serverState.editingClientName,
+            serverState.clientFormConfig,
+          );
+        }
       }
       serverState.handleCancelClientForm();
     } catch (error) {
       console.error("Failed to save client:", error);
     }
-  }, [serverState, handleAddServer, handleUpdateServer]);
+  }, [serverState, handleAddServer, handleUpdateServer, handleRemoveServer]);
 
   const handleEditClient = useCallback(
     (serverName: string) => {

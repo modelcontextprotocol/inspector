@@ -227,6 +227,21 @@ export const useConnectionState = () => {
     [mcpAgent, forceUpdateSidebar],
   );
 
+  const updateServerWithoutConnecting = useCallback(
+    async (serverName: string, config: MCPJamServerConfig) => {
+      if (!mcpAgent) return;
+
+      // Disconnect if currently connected, but don't reconnect
+      await mcpAgent.disconnectFromServer(serverName);
+      
+      // Update the server configuration
+      mcpAgent.addServer(serverName, config);
+
+      forceUpdateSidebar();
+    },
+    [mcpAgent, forceUpdateSidebar],
+  );
+
   const getConnectionStatus = useCallback((): ExtendedConnectionStatus => {
     return mcpAgent?.getOverallConnectionStatus() || "disconnected";
   }, [mcpAgent]);
@@ -269,6 +284,7 @@ export const useConnectionState = () => {
     connectServer,
     disconnectServer,
     updateServer,
+    updateServerWithoutConnecting,
     getConnectionStatus,
     getServerCapabilities,
     getRequestHistory,
