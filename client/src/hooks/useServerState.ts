@@ -1,57 +1,17 @@
 import { useState, useCallback } from "react";
-import {
-  MCPJamServerConfig,
-  StdioServerDefinition,
-  HttpServerDefinition,
-} from "../lib/serverTypes";
-import {
-  getInitialTransportType,
-  getInitialCommand,
-  getInitialArgs,
-  getInitialSseUrl,
-} from "../utils/configUtils";
+import { MCPJamServerConfig, StdioServerDefinition } from "../lib/serverTypes";
 
 export const useServerState = () => {
   const [serverConfigs, setServerConfigs] = useState<
     Record<string, MCPJamServerConfig>
-  >(() => {
-    const transportType = getInitialTransportType();
-    const defaultServerName = "default";
-
-    // Only create a default server if we have valid initial configuration
-    const initialCommand = getInitialCommand();
-    const initialSseUrl = getInitialSseUrl();
-
-    if (transportType === "stdio" && initialCommand) {
-      return {
-        [defaultServerName]: {
-          transportType: transportType,
-          command: initialCommand,
-          args: getInitialArgs()
-            .split(" ")
-            .filter((arg) => arg.trim() !== ""),
-          env: {},
-        } as StdioServerDefinition,
-      };
-    } else if (transportType !== "stdio" && initialSseUrl) {
-      return {
-        [defaultServerName]: {
-          transportType: transportType,
-          url: new URL(initialSseUrl),
-        } as HttpServerDefinition,
-      };
-    }
-
-    // Return empty object if no valid initial configuration
-    return {} as Record<string, MCPJamServerConfig>;
-  });
+  >({});
 
   const [selectedServerName, setSelectedServerName] = useState<string>(() => {
     // If there are no servers, default to empty string to show create prompt
     const serverNames = Object.keys(serverConfigs);
     return serverNames.length > 0 ? serverNames[0] : "";
   });
-
+  console.log("selectedServerName", selectedServerName);
   // Client form state for creating/editing
   const [isCreatingClient, setIsCreatingClient] = useState(false);
   const [editingClientName, setEditingClientName] = useState<string | null>(
@@ -60,10 +20,12 @@ export const useServerState = () => {
   const [clientFormConfig, setClientFormConfig] = useState<MCPJamServerConfig>({
     transportType: "stdio",
     command: "npx",
-    args: ["@modelcontextprotocol/server-brave-search"],
+    args: ["@modelcontextprotocol/server-everything"],
     env: {},
   } as StdioServerDefinition);
   const [clientFormName, setClientFormName] = useState("");
+
+  console.log("clientFormConfig", clientFormConfig);
 
   const updateServerConfig = useCallback(
     (serverName: string, config: MCPJamServerConfig) => {
@@ -87,7 +49,7 @@ export const useServerState = () => {
     setClientFormConfig({
       transportType: "stdio",
       command: "npx",
-      args: ["@modelcontextprotocol/server-brave-search"],
+      args: ["@modelcontextprotocol/server-everything"],
       env: {},
     } as StdioServerDefinition);
   }, []);

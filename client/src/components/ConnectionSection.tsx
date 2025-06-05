@@ -535,7 +535,7 @@ const ConnectionSection = ({
                   className="h-8 text-sm flex-1"
                 />
                 <Input
-                  placeholder="@modelcontextprotocol/server-brave-search"
+                  placeholder="@modelcontextprotocol/server-everything"
                   value={args}
                   onChange={(e) => setArgs(e.target.value)}
                   className="h-8 text-sm flex-1"

@@ -77,7 +77,7 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
                   setClientFormConfig({
                     transportType: type,
                     command: "npx",
-                    args: ["@modelcontextprotocol/server-brave-search"],
+                    args: ["@modelcontextprotocol/server-everything"],
                     env: {},
                   } as StdioServerDefinition);
                 } else {
