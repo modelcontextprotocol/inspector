@@ -73,6 +73,9 @@ export const useMCPOperations = () => {
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     PendingRequest[]
   >([]);
+  const [requestHistory, setRequestHistory] = useState<
+    { request: string; response?: string }[]
+  >([]);
 
   const progressTokenRef = useRef(0);
 
@@ -238,11 +241,16 @@ export const useMCPOperations = () => {
       if (selectedServerName === "all") {
         const allServerTools = await mcpAgent.getAllTools();
         const flatTools = allServerTools.flatMap(({ tools }) => tools);
+        addRequestHistory({ method: "tools/list/all" }, { tools: flatTools });
         setTools(flatTools);
       } else {
         const client = mcpAgent.getClient(selectedServerName);
         if (client) {
           const toolsResponse = await client.tools();
+          addRequestHistory(
+            { method: "tools/list" },
+            { tools: toolsResponse.tools },
+          );
           setTools(toolsResponse.tools);
         }
       }
@@ -378,6 +386,21 @@ export const useMCPOperations = () => {
     });
   }, []);
 
+  const addRequestHistory = useCallback(
+    (request: object, response?: object) => {
+      const requestEntry = {
+        request: JSON.stringify(request, null, 2),
+        response: response ? JSON.stringify(response, null, 2) : undefined,
+      };
+      setRequestHistory((prev) => [...prev, requestEntry]);
+    },
+    [],
+  );
+
+  const getRequestHistory = useCallback(() => {
+    return requestHistory;
+  }, [requestHistory]);
+
   return {
     // State
     resources,
@@ -437,5 +460,7 @@ export const useMCPOperations = () => {
     handleCompletion,
     handleApproveSampling,
     handleRejectSampling,
+    addRequestHistory,
+    getRequestHistory,
   };
 };

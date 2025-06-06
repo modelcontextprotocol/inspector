@@ -81,10 +81,11 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     reject: (error: Error) => void,
   ) => void;
   getRoots?: () => unknown[];
-  addRequestHistory?: (request: object, response?: object) => void;
+  addRequestHistory: (request: object, response?: object) => void;
   constructor(
     serverConfig: MCPJamServerConfig,
     config: InspectorConfig,
+    addRequestHistory: (request: object, response?: object) => void,
     bearerToken?: string,
     headerName?: string,
     onStdErrNotification?: (notification: StdErrNotification) => void,
@@ -95,7 +96,6 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
       reject: (error: Error) => void,
     ) => void,
     getRoots?: () => unknown[],
-    addRequestHistory?: (request: object, response?: object) => void,
   ) {
     super(
       { name: "mcpjam-inspector", version: packageJson.version },
@@ -359,7 +359,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         const initializeRequest = {
           method: "initialize",
         };
-        this.pushRequestHistory(initializeRequest, {
+        this.addRequestHistory(initializeRequest, {
           capabilities: this.serverCapabilities,
           serverInfo: this.getServerVersion(),
           instructions: this.getInstructions(),
@@ -419,12 +419,6 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     return this.mcpProxyServerUrl;
   }
 
-  pushRequestHistory(request: object, response?: object) {
-    if (this.addRequestHistory) {
-      this.addRequestHistory(request, response);
-    }
-  }
-
   updateApiKey = (newApiKey: string) => {
     if (this.anthropic) {
       this.anthropic = new Anthropic({
@@ -439,6 +433,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     schema: T,
     options?: RequestOptions & { suppressToast?: boolean },
   ): Promise<z.output<T>> {
+    console.log("makeRequestTriggered");
     try {
       const abortController = new AbortController();
 
@@ -469,11 +464,11 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
       try {
         response = await this.request(request, schema, mcpRequestOptions);
 
-        this.pushRequestHistory(request, response);
+        this.addRequestHistory(request, response);
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        this.pushRequestHistory(request, { error: errorMessage });
+        this.addRequestHistory(request, { error: errorMessage });
         throw error;
       }
 
@@ -537,7 +532,8 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
   };
 
   async tools() {
-    return await this.listTools();
+    const tools = await this.listTools();
+    return tools;
   }
 
   async disconnect() {

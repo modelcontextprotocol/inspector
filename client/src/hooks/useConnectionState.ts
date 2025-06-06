@@ -16,27 +16,14 @@ type ExtendedConnectionStatus =
   | "error-connecting-to-proxy"
   | "partial";
 
-export const useConnectionState = () => {
+export const useConnectionState = (
+  addRequestHistory: (request: object, response?: object) => void,
+) => {
   const [mcpAgent, setMcpAgent] = useState<MCPJamAgent | null>(null);
   const [sidebarUpdateTrigger, setSidebarUpdateTrigger] = useState(0);
-  const [requestHistory, setRequestHistory] = useState<
-    { request: string; response?: string }[]
-  >([]);
-  console.log("requestHistory", requestHistory);
   const forceUpdateSidebar = useCallback(() => {
     setSidebarUpdateTrigger((prev) => prev + 1);
   }, []);
-
-  const addRequestHistory = useCallback(
-    (request: object, response?: object) => {
-      const requestEntry = {
-        request: JSON.stringify(request, null, 2),
-        response: response ? JSON.stringify(response, null, 2) : undefined,
-      };
-      setRequestHistory((prev) => [...prev, requestEntry]);
-    },
-    [],
-  );
 
   const createAgent = useCallback(
     async (
@@ -279,10 +266,6 @@ export const useConnectionState = () => {
     [mcpAgent],
   );
 
-  const getRequestHistory = useCallback(() => {
-    return requestHistory;
-  }, [requestHistory]);
-
   const getCurrentClient = useCallback(
     (selectedServerName: string) => {
       return mcpAgent?.getClient(selectedServerName) || null;
@@ -304,8 +287,6 @@ export const useConnectionState = () => {
     updateServerWithoutConnecting,
     getConnectionStatus,
     getServerCapabilities,
-    getRequestHistory,
     getCurrentClient,
-    addRequestHistory,
   };
 };

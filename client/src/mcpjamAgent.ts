@@ -29,7 +29,7 @@ export interface MCPClientOptions {
     reject: (error: Error) => void,
   ) => void;
   getRoots?: () => unknown[];
-  addRequestHistory?: (request: object, response?: object) => void;
+  addRequestHistory: (request: object, response?: object) => void;
 }
 
 export interface ServerConnectionInfo {
@@ -54,7 +54,7 @@ export class MCPJamAgent {
     reject: (error: Error) => void,
   ) => void;
   private getRoots?: () => unknown[];
-  private addRequestHistory?: (request: object, response?: object) => void;
+  private addRequestHistory: (request: object, response?: object) => void;
 
   constructor(options: MCPClientOptions) {
     this.serverConfigs = options.servers;
@@ -211,13 +211,13 @@ export class MCPJamAgent {
     const newClient = new MCPJamClient(
       config, // serverConfig (first parameter)
       this.config, // config (second parameter)
+      this.addRequestHistory, // addRequestHistory
       this.bearerToken, // bearerToken
       this.headerName, // headerName
       this.onStdErrNotification, // onStdErrNotification
       this.claudeApiKey, // claudeApiKey
       this.onPendingRequest, // onPendingRequest
       this.getRoots, // getRoots
-      this.addRequestHistory, // addRequestHistory
     );
 
     await newClient.connectToServer();

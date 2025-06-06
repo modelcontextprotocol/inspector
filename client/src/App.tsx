@@ -59,10 +59,9 @@ type ExtendedConnectionStatus =
   | "partial";
 
 const App = () => {
-  // Custom hooks
   const serverState = useServerState();
-  const connectionState = useConnectionState();
   const mcpOperations = useMCPOperations();
+  const connectionState = useConnectionState(mcpOperations.addRequestHistory);
   const configState = useConfigState();
 
   // Refs
@@ -100,7 +99,7 @@ const App = () => {
   const serverCapabilities = connectionState.getServerCapabilities(
     serverState.selectedServerName,
   );
-  const requestHistory = connectionState.getRequestHistory();
+  const requestHistory = mcpOperations.getRequestHistory();
   const currentClient = connectionState.getCurrentClient(
     serverState.selectedServerName,
   );
