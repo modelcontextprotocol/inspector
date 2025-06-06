@@ -252,8 +252,11 @@ npx @modelcontextprotocol/inspector --cli node build/index.js --method resources
 # List available prompts
 npx @modelcontextprotocol/inspector --cli node build/index.js --method prompts/list
 
-# Connect to a remote MCP server
+# Connect to a remote MCP server (default is SSE transport)
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com
+
+# Connect to a remote MCP server (with Streamable HTTP transport)
+npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --transport http
 
 # Call a tool on a remote server
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --method tools/call --tool-name remotetool --tool-arg param=value
