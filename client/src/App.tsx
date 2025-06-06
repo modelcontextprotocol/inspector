@@ -59,10 +59,9 @@ type ExtendedConnectionStatus =
   | "partial";
 
 const App = () => {
-  // Custom hooks
   const serverState = useServerState();
-  const connectionState = useConnectionState();
   const mcpOperations = useMCPOperations();
+  const connectionState = useConnectionState(mcpOperations.addRequestHistory);
   const configState = useConfigState();
 
   // Refs
@@ -100,12 +99,11 @@ const App = () => {
   const serverCapabilities = connectionState.getServerCapabilities(
     serverState.selectedServerName,
   );
-  const requestHistory = connectionState.getRequestHistory();
+  const requestHistory = mcpOperations.getRequestHistory();
   const currentClient = connectionState.getCurrentClient(
     serverState.selectedServerName,
   );
 
-  // Server management handlers
   const handleAddServer = useCallback(
     async (name: string, serverConfig: MCPJamServerConfig) => {
       console.log("🔧 Adding server without auto-connect:", {
@@ -621,7 +619,10 @@ const App = () => {
       !serverCapabilities?.tools;
 
     const renderServerNotConnected = () => {
-      if (!connectionState.mcpAgent) {
+      if (
+        !connectionState.mcpAgent ||
+        currentClient?.connectionStatus !== "connected"
+      ) {
         return (
           <div className="flex flex-col items-center justify-center p-12 rounded-xl bg-card border border-border/50 shadow-sm">
             <Activity className="w-16 h-16 text-muted-foreground mb-4" />
@@ -883,7 +884,8 @@ const App = () => {
 
     return (
       <div className="flex-1 flex flex-col overflow-auto p-6">
-        {!connectionState.mcpAgent
+        {!connectionState.mcpAgent ||
+        currentClient?.connectionStatus !== "connected"
           ? renderServerNotConnected()
           : serverHasNoCapabilities
             ? renderServerNoCapabilities()

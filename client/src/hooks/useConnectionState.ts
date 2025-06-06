@@ -16,10 +16,11 @@ type ExtendedConnectionStatus =
   | "error-connecting-to-proxy"
   | "partial";
 
-export const useConnectionState = () => {
+export const useConnectionState = (
+  addRequestHistory: (request: object, response?: object) => void,
+) => {
   const [mcpAgent, setMcpAgent] = useState<MCPJamAgent | null>(null);
   const [sidebarUpdateTrigger, setSidebarUpdateTrigger] = useState(0);
-
   const forceUpdateSidebar = useCallback(() => {
     setSidebarUpdateTrigger((prev) => prev + 1);
   }, []);
@@ -53,6 +54,7 @@ export const useConnectionState = () => {
         onStdErrNotification,
         onPendingRequest,
         getRoots,
+        addRequestHistory: addRequestHistory,
       };
 
       const agent = new MCPJamAgent(options);
@@ -67,7 +69,7 @@ export const useConnectionState = () => {
         throw error;
       }
     },
-    [],
+    [addRequestHistory],
   );
 
   const createAgentWithoutConnecting = useCallback(
@@ -94,13 +96,14 @@ export const useConnectionState = () => {
         onStdErrNotification,
         onPendingRequest,
         getRoots,
+        addRequestHistory: addRequestHistory,
       };
 
       const agent = new MCPJamAgent(options);
       setMcpAgent(agent);
       return agent;
     },
-    [],
+    [addRequestHistory],
   );
 
   const addServer = useCallback(
@@ -132,6 +135,7 @@ export const useConnectionState = () => {
           onStdErrNotification,
           onPendingRequest,
           getRoots,
+          addRequestHistory: addRequestHistory,
         };
 
         const agent = new MCPJamAgent(options);
@@ -168,7 +172,7 @@ export const useConnectionState = () => {
         }
       }
     },
-    [mcpAgent, forceUpdateSidebar],
+    [mcpAgent, forceUpdateSidebar, addRequestHistory],
   );
 
   const removeServer = useCallback(
@@ -184,7 +188,9 @@ export const useConnectionState = () => {
   const connectServer = useCallback(
     async (serverName: string) => {
       if (!mcpAgent) {
-        console.log("🆕 No agent exists, cannot connect to server. Please add the server first.");
+        console.log(
+          "🆕 No agent exists, cannot connect to server. Please add the server first.",
+        );
         return;
       }
 
@@ -233,7 +239,7 @@ export const useConnectionState = () => {
 
       // Disconnect if currently connected, but don't reconnect
       await mcpAgent.disconnectFromServer(serverName);
-      
+
       // Update the server configuration
       mcpAgent.addServer(serverName, config);
 
@@ -260,12 +266,6 @@ export const useConnectionState = () => {
     [mcpAgent],
   );
 
-  const getRequestHistory = useCallback(() => {
-    return (
-      mcpAgent?.getAllRequestHistory().flatMap(({ history }) => history) || []
-    );
-  }, [mcpAgent]);
-
   const getCurrentClient = useCallback(
     (selectedServerName: string) => {
       return mcpAgent?.getClient(selectedServerName) || null;
@@ -287,7 +287,6 @@ export const useConnectionState = () => {
     updateServerWithoutConnecting,
     getConnectionStatus,
     getServerCapabilities,
-    getRequestHistory,
     getCurrentClient,
   };
 };

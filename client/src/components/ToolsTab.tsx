@@ -12,7 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Bookmark, Trash2, Calendar, Star, Edit2, Copy } from "lucide-react";
 import { RequestStorage } from "@/utils/requestStorage";
-import { sortRequests, createMcpJamRequest, getRequestsForClient } from "@/utils/requestUtils";
+import {
+  sortRequests,
+  createMcpJamRequest,
+  getRequestsForClient,
+} from "@/utils/requestUtils";
 
 const ToolsTab = ({
   tools,
@@ -38,16 +42,20 @@ const ToolsTab = ({
   selectedServerName: string;
 }) => {
   const [savedRequests, setSavedRequests] = useState<McpJamRequest[]>([]);
-  const [renamingRequestId, setRenamingRequestId] = useState<string | null>(null);
+  const [renamingRequestId, setRenamingRequestId] = useState<string | null>(
+    null,
+  );
   const [renameValue, setRenameValue] = useState("");
-  const [loadedRequest, setLoadedRequest] = useState<McpJamRequest | null>(null);
+  const [loadedRequest, setLoadedRequest] = useState<McpJamRequest | null>(
+    null,
+  );
 
   // Load saved requests on component mount and filter by current client
   useEffect(() => {
     const loadSavedRequests = () => {
       const allRequests = RequestStorage.loadRequests();
       // Filter requests for the current client
-      const clientRequests = selectedServerName 
+      const clientRequests = selectedServerName
         ? getRequestsForClient(allRequests, selectedServerName)
         : [];
       const sortedRequests = sortRequests(clientRequests, "updatedAt", "desc");
@@ -149,9 +157,8 @@ const ToolsTab = ({
     }).format(date);
   };
 
-  return (
-    <div className="grid grid-cols-3 gap-4 h-full">
-      {/* Saved Requests Section */}
+  const savedRequestSection = () => {
+    return (
       <div className="flex flex-col bg-card border border-border rounded-lg overflow-hidden">
         <div className="p-3 border-b border-border/50 bg-muted/30">
           <div className="flex items-center space-x-2">
@@ -169,9 +176,7 @@ const ToolsTab = ({
           {savedRequests.length === 0 ? (
             <div className="text-center py-8">
               <Bookmark className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground">
-                No saved requests
-              </p>
+              <p className="text-xs text-muted-foreground">No saved requests</p>
               <p className="text-xs text-muted-foreground/70 mt-1">
                 Save requests from the tool runner
               </p>
@@ -278,7 +283,13 @@ const ToolsTab = ({
           )}
         </div>
       </div>
+    );
+  };
 
+  return (
+    <div className="grid grid-cols-[2fr_3fr_3fr] gap-4 h-full">
+      {/* Saved Requests Section */}
+      {savedRequestSection()}
       {/* Tools List */}
       <ListPane
         items={tools}
