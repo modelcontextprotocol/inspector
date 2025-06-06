@@ -8,8 +8,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
 [![Node.js](https://img.shields.io/badge/Node.js-22.7.5+-green.svg?style=for-the-badge&logo=node.js)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8+-blue.svg?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
-
-_A powerful fork of the original [mcp-inspector](https://github.com/modelcontextprotocol/inspector) with enhanced features and modern UI_
+[![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/yF7vWWkk)
 
 </div>
 
@@ -20,7 +19,7 @@ _A powerful fork of the original [mcp-inspector](https://github.com/modelcontext
 Get up and running in seconds with the MCPJam Inspector:
 
 ```bash
-npx @mcpjam/inspector
+npx @mcpjam/inspector@latest
 ```
 
 That's it! The inspector will launch automatically in your browser at `http://localhost:6274`.
@@ -40,9 +39,10 @@ That's it! The inspector will launch automatically in your browser at `http://lo
 This project is a fork of the [@modelcontextprotocol/inspector](https://github.com/modelcontextprotocol/inspector). Many of the features are the same but with some enhancements. Key features include:
 
 - **STDIO / SSE / Streamable HTTP** - This inspector supports all three protocols. Connect to any MCP server.
-- **Tool Execution** - Run server tools with live parameter input. Easily handle errors.
+- **Tool Execution** - Run server tools with live parameter input. Easily debug errors.
 - **(New) LLM tool interaction** - Test your MCP server against a real LLM.
 - **Debugging tools** - Enhanced logging experience to debug your server.
+- **Quality of life improvements** - Save requests, multi-server connection, saved connections.
 
 ## 📋 Requirements
 
@@ -187,7 +187,6 @@ We're continuously improving the MCPJam Inspector. Here's what's coming next:
 
 ### Core Features
 
-- **Multi Connection support** - Connect to multiple servers simultaneously (Agents SDK)
 - **AI parameter fill** - Smart parameter completion using AI
 - **Collections** - Organize and group your MCP servers / tools
 - **Multi Provider support** - Support for other LLMs like ChatGPT
@@ -227,7 +226,5 @@ This project is licensed under the **Apache License 2.0** - see the [LICENSE](LI
 <div align="center">
 
 **Made with ❤️ by the [MCPJam](https://mcpjam.com) team**
-
-_Empowering developers to build better MCP servers_
 
 </div>
