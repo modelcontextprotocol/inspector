@@ -67,7 +67,7 @@ export const useConnectionState = () => {
         onStdErrNotification,
         onPendingRequest,
         getRoots,
-        onRequestHistory: addRequestHistory,
+        addRequestHistory: addRequestHistory,
       };
 
       const agent = new MCPJamAgent(options);
@@ -109,7 +109,7 @@ export const useConnectionState = () => {
         onStdErrNotification,
         onPendingRequest,
         getRoots,
-        onRequestHistory: addRequestHistory,
+        addRequestHistory: addRequestHistory,
       };
 
       const agent = new MCPJamAgent(options);
@@ -148,7 +148,7 @@ export const useConnectionState = () => {
           onStdErrNotification,
           onPendingRequest,
           getRoots,
-          onRequestHistory: addRequestHistory,
+          addRequestHistory: addRequestHistory,
         };
 
         const agent = new MCPJamAgent(options);

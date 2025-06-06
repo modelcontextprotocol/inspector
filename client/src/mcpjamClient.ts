@@ -81,7 +81,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     reject: (error: Error) => void,
   ) => void;
   getRoots?: () => unknown[];
-  onRequestHistory?: (request: object, response?: object) => void;
+  addRequestHistory?: (request: object, response?: object) => void;
   constructor(
     serverConfig: MCPJamServerConfig,
     config: InspectorConfig,
@@ -95,7 +95,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
       reject: (error: Error) => void,
     ) => void,
     getRoots?: () => unknown[],
-    onRequestHistory?: (request: object, response?: object) => void,
+    addRequestHistory?: (request: object, response?: object) => void,
   ) {
     super(
       { name: "mcpjam-inspector", version: packageJson.version },
@@ -127,7 +127,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     this.onStdErrNotification = onStdErrNotification;
     this.onPendingRequest = onPendingRequest;
     this.getRoots = getRoots;
-    this.onRequestHistory = onRequestHistory;
+    this.addRequestHistory = addRequestHistory;
   }
 
   async connectStdio() {
@@ -420,8 +420,8 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
   }
 
   pushRequestHistory(request: object, response?: object) {
-    if (this.onRequestHistory) {
-      this.onRequestHistory(request, response);
+    if (this.addRequestHistory) {
+      this.addRequestHistory(request, response);
     }
   }
 
