@@ -1,10 +1,11 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/d8ec3627-7316-4d1a-8d84-74438c6e484a">
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/4523abd7-0e48-4085-a47d-da7d30d2e51b">
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/f6dd5ba8-ff0e-4057-80f9-3ed3b20f511b">
   <img width="250" alt="MCPJam logo" src="https://github.com/user-attachments/assets/f6dd5ba8-ff0e-4057-80f9-3ed3b20f511b">
 </picture>
+![mcp_jam_dark](https://github.com/user-attachments/assets/4523abd7-0e48-4085-a47d-da7d30d2e51b)
 
 <br/>
 
