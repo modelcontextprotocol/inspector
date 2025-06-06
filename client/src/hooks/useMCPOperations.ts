@@ -122,7 +122,7 @@ export const useMCPOperations = () => {
         }
       }
     },
-    [],
+    [addRequestHistory],
   );
 
   const listResourceTemplates = useCallback(
@@ -154,7 +154,7 @@ export const useMCPOperations = () => {
         }
       }
     },
-    [],
+    [addRequestHistory],
   );
 
   const readResource = useCallback(
@@ -193,7 +193,7 @@ export const useMCPOperations = () => {
         throw new Error(`Resource ${uri} not found on any server`);
       }
     },
-    [],
+    [addRequestHistory],
   );
 
   const subscribeToResource = useCallback(
@@ -214,7 +214,7 @@ export const useMCPOperations = () => {
         return result;
       }
     },
-    [],
+    [addRequestHistory],
   );
 
   const unsubscribeFromResource = useCallback(
@@ -235,7 +235,7 @@ export const useMCPOperations = () => {
         return result;
       }
     },
-    [],
+    [addRequestHistory],
   );
 
   // Prompt operations
@@ -263,7 +263,7 @@ export const useMCPOperations = () => {
         }
       }
     },
-    [],
+    [addRequestHistory],
   );
 
   const getPrompt = useCallback(
@@ -305,7 +305,7 @@ export const useMCPOperations = () => {
         throw new Error(`Prompt ${name} not found on any server`);
       }
     },
-    [],
+    [addRequestHistory],
   );
 
   // Tool operations
@@ -330,7 +330,7 @@ export const useMCPOperations = () => {
         }
       }
     },
-    [],
+    [addRequestHistory],
   );
 
   const callTool = useCallback(
@@ -390,7 +390,7 @@ export const useMCPOperations = () => {
         setToolResult(toolResult);
       }
     },
-    [],
+    [addRequestHistory],
   );
 
   // Request operations
@@ -452,7 +452,7 @@ export const useMCPOperations = () => {
       );
       return result;
     },
-    [],
+    [addRequestHistory],
   );
 
   // Sampling operations
