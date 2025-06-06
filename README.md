@@ -1,5 +1,7 @@
 <div align="center">
 
+<img width="800" alt="MCPJam Inspector Interface" src="https://github.com/user-attachments/assets/9c652d77-5b33-4731-b964-2aed92957324" />
+
 # MCPJam Inspector
 
 **The developer tool for testing and debugging MCP servers**
