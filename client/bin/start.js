@@ -4,6 +4,8 @@ import open from "open";
 import { resolve, dirname } from "path";
 import { spawnPromise } from "spawn-rx";
 import { fileURLToPath } from "url";
+import fs from "fs";
+import path from "path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -18,12 +20,24 @@ async function main() {
   const mcpServerArgs = [];
   let command = null;
   let parsingFlags = true;
+  let configPath = null;
+  let serverName = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
     if (parsingFlags && arg === "--") {
       parsingFlags = false;
+      continue;
+    }
+
+    if (parsingFlags && arg === "--config" && i + 1 < args.length) {
+      configPath = args[++i];
+      continue;
+    }
+
+    if (parsingFlags && arg === "--server" && i + 1 < args.length) {
+      serverName = args[++i];
       continue;
     }
 
@@ -38,10 +52,29 @@ async function main() {
       } else {
         envVars[envVar] = "";
       }
-    } else if (!command) {
+      // If loading a config file, we don't need to pass the command or args
+    } else if (!command && !configPath) {
       command = arg;
     } else {
       mcpServerArgs.push(arg);
+    }
+  }
+
+  if ((configPath && !serverName) || (!configPath && serverName)) {
+    console.error("Both --config and --server must be provided together.");
+    process.exit(1);
+  }
+
+  let serverConfig = null;
+  if (configPath && serverName) {
+    try {
+      serverConfig = loadConfigFile(configPath, serverName);
+      console.log(
+        `Loaded configuration for '${serverName}' from '${configPath}'`,
+      );
+    } catch (error) {
+      console.error(`Error loading config: ${error.message}`);
+      process.exit(1);
     }
   }
 
@@ -74,25 +107,56 @@ async function main() {
     cancelled = true;
     abort.abort();
   });
+
+  // Build server arguments based on config or command line
+  let serverArgs = [];
+  let envVarsToPass = { ...envVars };
+
+  let serverEnv = {
+    ...process.env,
+    PORT: SERVER_PORT,
+  };
+
+  if (serverConfig) {
+    if (
+      serverConfig.type === "sse" ||
+      serverConfig.type === "streamable-http"
+    ) {
+      console.log(
+        `Using ${serverConfig.type} transport with URL: ${serverConfig.url}`,
+      );
+      serverEnv.MCP_SERVER_CONFIG = JSON.stringify(serverConfig);
+    } else if (serverConfig.command) {
+      console.log(
+        `Using stdio transport with command: ${serverConfig.command}`,
+      );
+      serverArgs = [
+        ...(serverConfig.command ? [`--env`, serverConfig.command] : []),
+        ...(serverConfig.args ? [`--args=${serverConfig.args.join(" ")}`] : []),
+      ];
+    }
+
+    // Treat command line env vars as overrides of server config
+    envVarsToPass = {
+      ...(serverConfig.env ?? {}),
+      ...envVarsToPass,
+    };
+  } else {
+    serverArgs = [
+      ...(command ? [`--env`, command] : []),
+      ...(mcpServerArgs ? [`--args=${mcpServerArgs.join(" ")}`] : []),
+    ];
+  }
+
+  serverEnv.MCP_ENV_VARS = JSON.stringify(envVarsToPass);
+
   let server, serverOk;
   try {
-    server = spawnPromise(
-      "node",
-      [
-        inspectorServerPath,
-        ...(command ? [`--env`, command] : []),
-        ...(mcpServerArgs ? [`--args=${mcpServerArgs.join(" ")}`] : []),
-      ],
-      {
-        env: {
-          ...process.env,
-          PORT: SERVER_PORT,
-          MCP_ENV_VARS: JSON.stringify(envVars),
-        },
-        signal: abort.signal,
-        echoOutput: true,
-      },
-    );
+    server = spawnPromise("node", [inspectorServerPath, ...serverArgs], {
+      env: serverEnv,
+      signal: abort.signal,
+      echoOutput: true,
+    });
 
     // Make sure server started before starting client
     serverOk = await Promise.race([server, delay(2 * 1000)]);
@@ -114,6 +178,39 @@ async function main() {
   }
 
   return 0;
+}
+
+function loadConfigFile(configPath, serverName) {
+  try {
+    const resolvedConfigPath = path.isAbsolute(configPath)
+      ? configPath
+      : path.resolve(process.cwd(), configPath);
+
+    if (!fs.existsSync(resolvedConfigPath)) {
+      console.error(`Config file not found: ${resolvedConfigPath}`);
+      process.exit(1);
+    }
+
+    const configContent = fs.readFileSync(resolvedConfigPath, "utf8");
+    const parsedConfig = JSON.parse(configContent);
+
+    if (!parsedConfig.mcpServers || !parsedConfig.mcpServers[serverName]) {
+      const availableServers = Object.keys(parsedConfig.mcpServers || {}).join(
+        ", ",
+      );
+      console.error(
+        `Server '${serverName}' not found in config file. Available servers: ${availableServers}`,
+      );
+      process.exit(1);
+    }
+
+    return parsedConfig.mcpServers[serverName];
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      throw new Error(`Invalid JSON in config file: ${err.message}`);
+    }
+    throw err;
+  }
 }
 
 main()
