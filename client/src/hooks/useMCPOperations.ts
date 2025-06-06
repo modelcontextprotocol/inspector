@@ -84,6 +84,17 @@ export const useMCPOperations = () => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
   }, []);
 
+  const addRequestHistory = useCallback(
+    (request: object, response?: object) => {
+      const requestEntry = {
+        request: JSON.stringify(request, null, 2),
+        response: response ? JSON.stringify(response, null, 2) : undefined,
+      };
+      setRequestHistory((prev) => [...prev, requestEntry]);
+    },
+    [],
+  );
+
   // Resource operations
   const listResources = useCallback(
     async (mcpAgent: MCPJamAgent | null, selectedServerName: string) => {
@@ -94,11 +105,19 @@ export const useMCPOperations = () => {
         const flatResources = allServerResources.flatMap(
           ({ resources }) => resources,
         );
+        addRequestHistory(
+          { method: "resources/list/all" },
+          { resources: flatResources },
+        );
         setResources(flatResources);
       } else {
         const client = mcpAgent.getClient(selectedServerName);
         if (client) {
           const resourcesResponse = await client.listResources();
+          addRequestHistory(
+            { method: "resources/list", server: selectedServerName },
+            { resources: resourcesResponse.resources },
+          );
           setResources(resourcesResponse.resources);
         }
       }
@@ -116,6 +135,10 @@ export const useMCPOperations = () => {
           const client = mcpAgent.getClient(allServerResources[0].serverName);
           if (client) {
             const templatesResponse = await client.listResourceTemplates();
+            addRequestHistory(
+              { method: "resourceTemplates/list/all" },
+              { resourceTemplates: templatesResponse.resourceTemplates },
+            );
             setResourceTemplates(templatesResponse.resourceTemplates);
           }
         }
@@ -123,6 +146,10 @@ export const useMCPOperations = () => {
         const client = mcpAgent.getClient(selectedServerName);
         if (client) {
           const templatesResponse = await client.listResourceTemplates();
+          addRequestHistory(
+            { method: "resourceTemplates/list", server: selectedServerName },
+            { resourceTemplates: templatesResponse.resourceTemplates },
+          );
           setResourceTemplates(templatesResponse.resourceTemplates);
         }
       }
@@ -139,12 +166,28 @@ export const useMCPOperations = () => {
       if (!mcpAgent) return;
 
       if (selectedServerName !== "all") {
-        return await mcpAgent.readResourceFromServer(selectedServerName, uri);
+        const result = await mcpAgent.readResourceFromServer(
+          selectedServerName,
+          uri,
+        );
+        addRequestHistory(
+          { method: "resources/read", server: selectedServerName, uri },
+          result,
+        );
+        return result;
       } else {
         const allResources = await mcpAgent.getAllResources();
         for (const { serverName, resources } of allResources) {
           if (resources.some((resource) => resource.uri === uri)) {
-            return await mcpAgent.readResourceFromServer(serverName, uri);
+            const result = await mcpAgent.readResourceFromServer(
+              serverName,
+              uri,
+            );
+            addRequestHistory(
+              { method: "resources/read", server: serverName, uri },
+              result,
+            );
+            return result;
           }
         }
         throw new Error(`Resource ${uri} not found on any server`);
@@ -163,7 +206,12 @@ export const useMCPOperations = () => {
 
       const client = mcpAgent.getClient(selectedServerName);
       if (client) {
-        return await client.subscribeResource({ uri });
+        const result = await client.subscribeResource({ uri });
+        addRequestHistory(
+          { method: "resources/subscribe", server: selectedServerName, uri },
+          result,
+        );
+        return result;
       }
     },
     [],
@@ -179,7 +227,12 @@ export const useMCPOperations = () => {
 
       const client = mcpAgent.getClient(selectedServerName);
       if (client) {
-        return await client.unsubscribeResource({ uri });
+        const result = await client.unsubscribeResource({ uri });
+        addRequestHistory(
+          { method: "resources/unsubscribe", server: selectedServerName, uri },
+          result,
+        );
+        return result;
       }
     },
     [],
@@ -193,11 +246,19 @@ export const useMCPOperations = () => {
       if (selectedServerName === "all") {
         const allServerPrompts = await mcpAgent.getAllPrompts();
         const flatPrompts = allServerPrompts.flatMap(({ prompts }) => prompts);
+        addRequestHistory(
+          { method: "prompts/list/all" },
+          { prompts: flatPrompts },
+        );
         setPrompts(flatPrompts);
       } else {
         const client = mcpAgent.getClient(selectedServerName);
         if (client) {
           const promptsResponse = await client.listPrompts();
+          addRequestHistory(
+            { method: "prompts/list", server: selectedServerName },
+            { prompts: promptsResponse.prompts },
+          );
           setPrompts(promptsResponse.prompts);
         }
       }
@@ -215,16 +276,30 @@ export const useMCPOperations = () => {
       if (!mcpAgent) return;
 
       if (selectedServerName !== "all") {
-        return await mcpAgent.getPromptFromServer(
+        const result = await mcpAgent.getPromptFromServer(
           selectedServerName,
           name,
           args,
         );
+        addRequestHistory(
+          { method: "prompts/get", server: selectedServerName, name, args },
+          result,
+        );
+        return result;
       } else {
         const allPrompts = await mcpAgent.getAllPrompts();
         for (const { serverName, prompts } of allPrompts) {
           if (prompts.some((prompt) => prompt.name === name)) {
-            return await mcpAgent.getPromptFromServer(serverName, name, args);
+            const result = await mcpAgent.getPromptFromServer(
+              serverName,
+              name,
+              args,
+            );
+            addRequestHistory(
+              { method: "prompts/get", server: serverName, name, args },
+              result,
+            );
+            return result;
           }
         }
         throw new Error(`Prompt ${name} not found on any server`);
@@ -274,6 +349,10 @@ export const useMCPOperations = () => {
             name,
             params,
           );
+          addRequestHistory(
+            { method: "tools/call", server: selectedServerName, name, params },
+            result,
+          );
           setToolResult(result);
         } else {
           const allTools = await mcpAgent.getAllTools();
@@ -283,6 +362,10 @@ export const useMCPOperations = () => {
                 serverName,
                 name,
                 params,
+              );
+              addRequestHistory(
+                { method: "tools/call", server: serverName, name, params },
+                result,
               );
               setToolResult(result);
               return;
@@ -300,6 +383,10 @@ export const useMCPOperations = () => {
           ],
           isError: true,
         };
+        addRequestHistory(
+          { method: "tools/call", server: selectedServerName, name, params },
+          { error: (e as Error).message ?? String(e) },
+        );
         setToolResult(toolResult);
       }
     },
@@ -328,7 +415,8 @@ export const useMCPOperations = () => {
         throw new Error(`Client for server ${selectedServerName} not found`);
       }
 
-      return await client.makeRequest(request, z.any());
+      const result = await client.makeRequest(request, z.any());
+      return result;
     },
     [],
   );
@@ -351,7 +439,18 @@ export const useMCPOperations = () => {
         return [];
       }
 
-      return await client.handleCompletion(ref, argName, value, signal);
+      const result = await client.handleCompletion(ref, argName, value, signal);
+      addRequestHistory(
+        {
+          method: "completion",
+          server: selectedServerName,
+          ref,
+          argName,
+          value,
+        },
+        { completions: result },
+      );
+      return result;
     },
     [],
   );
@@ -385,17 +484,6 @@ export const useMCPOperations = () => {
       return updatedRequests;
     });
   }, []);
-
-  const addRequestHistory = useCallback(
-    (request: object, response?: object) => {
-      const requestEntry = {
-        request: JSON.stringify(request, null, 2),
-        response: response ? JSON.stringify(response, null, 2) : undefined,
-      };
-      setRequestHistory((prev) => [...prev, requestEntry]);
-    },
-    [],
-  );
 
   const getRequestHistory = useCallback(() => {
     return requestHistory;
