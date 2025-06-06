@@ -32,17 +32,24 @@ import {
 } from "@/utils/configUtils";
 import { InspectorConfig } from "./lib/configurationTypes";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { SSEClientTransport, SSEClientTransportOptions, SseError } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
-    StreamableHTTPClientTransport,
-    StreamableHTTPClientTransportOptions,
-  } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+  SSEClientTransport,
+  SSEClientTransportOptions,
+  SseError,
+} from "@modelcontextprotocol/sdk/client/sse.js";
+import {
+  StreamableHTTPClientTransport,
+  StreamableHTTPClientTransportOptions,
+} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { InspectorOAuthClientProvider } from "./lib/auth";
 import { z } from "zod";
 import { ConnectionStatus } from "./lib/constants";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { toast } from "./lib/hooks/useToast";
-import { StdErrNotificationSchema, StdErrNotification } from "./lib/notificationTypes";
+import {
+  StdErrNotificationSchema,
+  StdErrNotification,
+} from "./lib/notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { HttpServerDefinition, MCPJamServerConfig } from "./lib/serverTypes";
 
@@ -54,7 +61,7 @@ export interface ExtendedMcpClient extends Client {
   cleanup: () => Promise<void>;
 }
 
-export class MCPJamClient extends Client<Request, Notification, Result>  {
+export class MCPJamClient extends Client<Request, Notification, Result> {
   anthropic?: Anthropic;
   clientTransport: Transport | undefined;
   config: InspectorConfig;
@@ -63,26 +70,44 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
   mcpProxyServerUrl: URL;
   connectionStatus: ConnectionStatus;
   serverCapabilities: ServerCapabilities | null;
-  requestHistory: { request: string; response?: string }[];
   inspectorConfig: InspectorConfig;
   completionsSupported: boolean;
   bearerToken?: string;
   headerName?: string;
   onStdErrNotification?: (notification: StdErrNotification) => void;
-  onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void;
+  onPendingRequest?: (
+    request: CreateMessageRequest,
+    resolve: (result: CreateMessageResult) => void,
+    reject: (error: Error) => void,
+  ) => void;
   getRoots?: () => unknown[];
-  constructor(serverConfig: MCPJamServerConfig, config: InspectorConfig, bearerToken?: string, headerName?: string, onStdErrNotification?: (notification: StdErrNotification) => void, claudeApiKey?: string, onPendingRequest?: (request: CreateMessageRequest, resolve: (result: CreateMessageResult) => void, reject: (error: Error) => void) => void, getRoots?: () => unknown[]) {
+  onRequestHistory?: (request: object, response?: object) => void;
+  constructor(
+    serverConfig: MCPJamServerConfig,
+    config: InspectorConfig,
+    bearerToken?: string,
+    headerName?: string,
+    onStdErrNotification?: (notification: StdErrNotification) => void,
+    claudeApiKey?: string,
+    onPendingRequest?: (
+      request: CreateMessageRequest,
+      resolve: (result: CreateMessageResult) => void,
+      reject: (error: Error) => void,
+    ) => void,
+    getRoots?: () => unknown[],
+    onRequestHistory?: (request: object, response?: object) => void,
+  ) {
     super(
-        {name: "mcpjam-inspector", version: packageJson.version},
-        {
-            capabilities: {
-                sampling: {},
-                roots: {
-                    listChanged: true,
-                },
-            },
-        }
-    )
+      { name: "mcpjam-inspector", version: packageJson.version },
+      {
+        capabilities: {
+          sampling: {},
+          roots: {
+            listChanged: true,
+          },
+        },
+      },
+    );
     this.anthropic = new Anthropic({
       apiKey: claudeApiKey,
       dangerouslyAllowBrowser: true,
@@ -90,108 +115,141 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
     this.config = config;
     this.serverConfig = serverConfig;
     this.headers = {};
-    this.mcpProxyServerUrl = new URL(`${getMCPProxyAddress(this.config)}/stdio`);
+    this.mcpProxyServerUrl = new URL(
+      `${getMCPProxyAddress(this.config)}/stdio`,
+    );
     this.bearerToken = bearerToken;
     this.headerName = headerName;
     this.connectionStatus = "disconnected";
     this.serverCapabilities = null;
-    this.requestHistory = []
-    this.completionsSupported = true
+    this.completionsSupported = true;
     this.inspectorConfig = createDefaultConfig();
     this.onStdErrNotification = onStdErrNotification;
     this.onPendingRequest = onPendingRequest;
     this.getRoots = getRoots;
+    this.onRequestHistory = onRequestHistory;
   }
 
   async connectStdio() {
     const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/stdio`);
-    
+
     // Type guard to ensure we have a stdio server config
-    if (this.serverConfig.transportType === "stdio" && "command" in this.serverConfig) {
+    if (
+      this.serverConfig.transportType === "stdio" &&
+      "command" in this.serverConfig
+    ) {
       serverUrl.searchParams.append("command", this.serverConfig.command);
-      serverUrl.searchParams.append("args", this.serverConfig.args?.join(" ") ?? "");
-      serverUrl.searchParams.append("env", JSON.stringify(this.serverConfig.env ?? {}));
+      serverUrl.searchParams.append(
+        "args",
+        this.serverConfig.args?.join(" ") ?? "",
+      );
+      serverUrl.searchParams.append(
+        "env",
+        JSON.stringify(this.serverConfig.env ?? {}),
+      );
     }
-    
+
     serverUrl.searchParams.append("transportType", "stdio");
-    
+
     const transportOptions: SSEClientTransportOptions = {
-        eventSourceInit: {
-            fetch: (url: string | URL | globalThis.Request, init: RequestInit | undefined) => 
-                fetch(url, { ...init, headers: this.headers }),
-        },
-        requestInit: {
-            headers: this.headers,
-        },
+      eventSourceInit: {
+        fetch: (
+          url: string | URL | globalThis.Request,
+          init: RequestInit | undefined,
+        ) => fetch(url, { ...init, headers: this.headers }),
+      },
+      requestInit: {
+        headers: this.headers,
+      },
     };
-    
+
     this.mcpProxyServerUrl = serverUrl;
     try {
-        // We do this because we're proxying through the inspector server first.
-        this.clientTransport = new SSEClientTransport(serverUrl, transportOptions);
-        await this.connect(this.clientTransport);
-        this.connectionStatus = "connected";
+      // We do this because we're proxying through the inspector server first.
+      this.clientTransport = new SSEClientTransport(
+        serverUrl,
+        transportOptions,
+      );
+      await this.connect(this.clientTransport);
+      this.connectionStatus = "connected";
     } catch (error) {
-        console.error("Error connecting to MCP server:", error);
-        this.connectionStatus = "error";
-        throw error; // Re-throw to allow proper error handling
+      console.error("Error connecting to MCP server:", error);
+      this.connectionStatus = "error";
+      throw error; // Re-throw to allow proper error handling
     }
   }
 
-   async connectSSE() {
+  async connectSSE() {
     try {
-        const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/sse`);
-        serverUrl.searchParams.append("url", (this.serverConfig as HttpServerDefinition).url.toString());
-        serverUrl.searchParams.append("transportType", "sse");
-        const transportOptions: SSEClientTransportOptions = {
-            eventSourceInit: {
-                fetch: (url: string | URL | globalThis.Request, init: RequestInit | undefined) => fetch(url, { ...init, headers: this.headers }),
-            },
-            requestInit: {
-                headers: this.headers,
-            },
-        }
-        this.clientTransport = new SSEClientTransport(serverUrl, transportOptions)
-        this.mcpProxyServerUrl = serverUrl;
-        await this.connect(this.clientTransport)
-        this.connectionStatus = "connected";
+      const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/sse`);
+      serverUrl.searchParams.append(
+        "url",
+        (this.serverConfig as HttpServerDefinition).url.toString(),
+      );
+      serverUrl.searchParams.append("transportType", "sse");
+      const transportOptions: SSEClientTransportOptions = {
+        eventSourceInit: {
+          fetch: (
+            url: string | URL | globalThis.Request,
+            init: RequestInit | undefined,
+          ) => fetch(url, { ...init, headers: this.headers }),
+        },
+        requestInit: {
+          headers: this.headers,
+        },
+      };
+      this.clientTransport = new SSEClientTransport(
+        serverUrl,
+        transportOptions,
+      );
+      this.mcpProxyServerUrl = serverUrl;
+      await this.connect(this.clientTransport);
+      this.connectionStatus = "connected";
     } catch (error) {
-        console.error("Error connecting to MCP server:", error);
-        this.connectionStatus = "error";
-        throw error; // Re-throw to allow proper error handling
+      console.error("Error connecting to MCP server:", error);
+      this.connectionStatus = "error";
+      throw error; // Re-throw to allow proper error handling
     }
   }
 
-   async connectStreamableHttp() {
+  async connectStreamableHttp() {
     try {
-        const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/mcp`)
-        serverUrl.searchParams.append("url", (this.serverConfig as HttpServerDefinition).url.toString());
-        serverUrl.searchParams.append("transportType", "streamable-http");
-        const transportOptions: StreamableHTTPClientTransportOptions = {
-            requestInit: {
-                headers: this.headers,
-            },
-            reconnectionOptions: {
-                maxReconnectionDelay: 30000,
-                initialReconnectionDelay: 1000,
-                reconnectionDelayGrowFactor: 1.5,
-                maxRetries: 2,
-            },
-        }
-        this.clientTransport = new StreamableHTTPClientTransport(serverUrl, transportOptions)
-        this.mcpProxyServerUrl = serverUrl;
-        await this.connect(this.clientTransport)
-        this.connectionStatus = "connected";
+      const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/mcp`);
+      serverUrl.searchParams.append(
+        "url",
+        (this.serverConfig as HttpServerDefinition).url.toString(),
+      );
+      serverUrl.searchParams.append("transportType", "streamable-http");
+      const transportOptions: StreamableHTTPClientTransportOptions = {
+        requestInit: {
+          headers: this.headers,
+        },
+        reconnectionOptions: {
+          maxReconnectionDelay: 30000,
+          initialReconnectionDelay: 1000,
+          reconnectionDelayGrowFactor: 1.5,
+          maxRetries: 2,
+        },
+      };
+      this.clientTransport = new StreamableHTTPClientTransport(
+        serverUrl,
+        transportOptions,
+      );
+      this.mcpProxyServerUrl = serverUrl;
+      await this.connect(this.clientTransport);
+      this.connectionStatus = "connected";
     } catch (error) {
-        console.error("Error connecting to MCP server:", error);
-        this.connectionStatus = "error";
-        throw error; // Re-throw to allow proper error handling
+      console.error("Error connecting to MCP server:", error);
+      this.connectionStatus = "error";
+      throw error; // Re-throw to allow proper error handling
     }
   }
 
   async checkProxyHealth() {
     try {
-      const proxyHealthUrl = new URL(`${getMCPProxyAddress(this.inspectorConfig)}/health`);
+      const proxyHealthUrl = new URL(
+        `${getMCPProxyAddress(this.inspectorConfig)}/health`,
+      );
       const proxyHealthResponse = await fetch(proxyHealthUrl);
       const proxyHealth = await proxyHealthResponse.json();
       if (proxyHealth?.status !== "ok") {
@@ -201,7 +259,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
       console.error("Couldn't connect to MCP Proxy Server", e);
       throw e;
     }
-  };
+  }
 
   is401Error = (error: unknown): boolean => {
     return (
@@ -214,9 +272,17 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
   handleAuthError = async (error: unknown) => {
     if (this.is401Error(error)) {
       // Only handle OAuth for HTTP-based transports
-      if (this.serverConfig.transportType !== "stdio" && "url" in this.serverConfig && this.serverConfig.url) {
-        const serverAuthProvider = new InspectorOAuthClientProvider(this.serverConfig.url.toString());
-        const result = await auth(serverAuthProvider, { serverUrl: this.serverConfig.url.toString() });
+      if (
+        this.serverConfig.transportType !== "stdio" &&
+        "url" in this.serverConfig &&
+        this.serverConfig.url
+      ) {
+        const serverAuthProvider = new InspectorOAuthClientProvider(
+          this.serverConfig.url.toString(),
+        );
+        const result = await auth(serverAuthProvider, {
+          serverUrl: this.serverConfig.url.toString(),
+        });
         return result === "AUTHORIZED";
       }
     }
@@ -226,7 +292,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
 
   async connectToServer(_e?: unknown, retryCount: number = 0): Promise<void> {
     const MAX_RETRIES = 1; // Limit retries to prevent infinite loops
-    
+
     try {
       await this.checkProxyHealth();
     } catch {
@@ -240,9 +306,15 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
       const headers: HeadersInit = {};
 
       // Only apply OAuth authentication for HTTP-based transports
-      if (this.serverConfig.transportType !== "stdio" && "url" in this.serverConfig && this.serverConfig.url) {
+      if (
+        this.serverConfig.transportType !== "stdio" &&
+        "url" in this.serverConfig &&
+        this.serverConfig.url
+      ) {
         // Create an auth provider with the current server URL
-        const serverAuthProvider = new InspectorOAuthClientProvider(this.serverConfig.url.toString());
+        const serverAuthProvider = new InspectorOAuthClientProvider(
+          this.serverConfig.url.toString(),
+        );
 
         // Use manually provided bearer token if available, otherwise use OAuth tokens
         const token =
@@ -279,11 +351,11 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
             await this.connectStreamableHttp();
             break;
         }
-        
+
         // Update server capabilities after successful connection
         this.serverCapabilities = this.getServerCapabilities() ?? null;
         console.log("capabilities", this.serverCapabilities);
-        
+
         const initializeRequest = {
           method: "initialize",
         };
@@ -302,11 +374,13 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
         if (retryCount < MAX_RETRIES) {
           const shouldRetry = await this.handleAuthError(error);
           if (shouldRetry) {
-            console.log(`Retrying connection (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+            console.log(
+              `Retrying connection (attempt ${retryCount + 1}/${MAX_RETRIES})`,
+            );
             return this.connectToServer(undefined, retryCount + 1);
           }
         }
-        
+
         if (this.is401Error(error)) {
           // Don't set error state if we're about to redirect for auth
           this.connectionStatus = "error";
@@ -335,7 +409,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
       console.error(e);
       this.connectionStatus = "error";
     }
-  };
+  }
 
   getTransport() {
     return this.clientTransport;
@@ -344,12 +418,11 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
   getMCPProxyServerUrl() {
     return this.mcpProxyServerUrl;
   }
-  
+
   pushRequestHistory(request: object, response?: object) {
-    this.requestHistory.push({
-      request: JSON.stringify(request),
-      response: response !== undefined ? JSON.stringify(response) : undefined,
-    });
+    if (this.onRequestHistory) {
+      this.onRequestHistory(request, response);
+    }
   }
 
   updateApiKey = (newApiKey: string) => {
@@ -375,7 +448,8 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
         resetTimeoutOnProgress:
           options?.resetTimeoutOnProgress ??
           resetRequestTimeoutOnProgress(this.inspectorConfig),
-        timeout: options?.timeout ?? getMCPServerRequestTimeout(this.inspectorConfig),
+        timeout:
+          options?.timeout ?? getMCPServerRequestTimeout(this.inspectorConfig),
         maxTotalTimeout:
           options?.maxTotalTimeout ??
           getMCPServerRequestMaxTotalTimeout(this.inspectorConfig),
@@ -470,7 +544,9 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
     await this.close();
     this.connectionStatus = "disconnected";
     if (this.serverConfig.transportType !== "stdio") {
-      const authProvider = new InspectorOAuthClientProvider((this.serverConfig as HttpServerDefinition).url.toString());
+      const authProvider = new InspectorOAuthClientProvider(
+        (this.serverConfig as HttpServerDefinition).url.toString(),
+      );
       authProvider.clear();
     }
     this.serverCapabilities = null;
@@ -521,9 +597,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
           const sanitizedProps: Record<string, unknown> = {};
           const keyMapping: Record<string, string> = {};
 
-          for (const [propKey, propValue] of Object.entries(
-            propertiesObj,
-          )) {
+          for (const [propKey, propValue] of Object.entries(propertiesObj)) {
             const sanitizedKey = propKey.replace(/[^a-zA-Z0-9_-]/g, "_");
             keyMapping[propKey] = sanitizedKey;
             sanitizedProps[sanitizedKey] = sanitizeSchema(propValue);
@@ -532,10 +606,7 @@ export class MCPJamClient extends Client<Request, Notification, Result>  {
           sanitized[key] = sanitizedProps;
 
           // Update required fields if they exist
-          if (
-            "required" in schemaObj &&
-            Array.isArray(schemaObj.required)
-          ) {
+          if ("required" in schemaObj && Array.isArray(schemaObj.required)) {
             sanitized.required = (schemaObj.required as string[]).map(
               (req: string) => keyMapping[req] || req,
             );
