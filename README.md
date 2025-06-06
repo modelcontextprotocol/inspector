@@ -1,9 +1,9 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/cdcc1e6c-8c11-456d-9bc5-c05096e6ca6f">
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/9c652d77-5b33-4731-b964-2aed92957324">
-  <img width="250" alt="MCPJam logo" src="https://github.com/user-attachments/assets/9c652d77-5b33-4731-b964-2aed92957324">
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/d8ec3627-7316-4d1a-8d84-74438c6e484a">
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/f6dd5ba8-ff0e-4057-80f9-3ed3b20f511b">
+  <img width="250" alt="MCPJam logo" src="https://github.com/user-attachments/assets/f6dd5ba8-ff0e-4057-80f9-3ed3b20f511b">
 </picture>
 
 <br/>
