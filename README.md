@@ -1,6 +1,10 @@
 <div align="center">
 
-<img width="250" alt="MCPJam Inspector Interface" src="https://github.com/user-attachments/assets/9c652d77-5b33-4731-b964-2aed92957324" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/cdcc1e6c-8c11-456d-9bc5-c05096e6ca6f">
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/9c652d77-5b33-4731-b964-2aed92957324">
+  <img width="250" alt="MCPJam logo" src="https://github.com/user-attachments/assets/9c652d77-5b33-4731-b964-2aed92957324">
+</picture>
 
 <br/>
 
