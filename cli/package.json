@@ -1,6 +1,6 @@
 {
   "name": "@mcpjam/inspector-cli",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "CLI for the MCPJam inspector",
   "license": "Apache-2.0",
   "author": "MCPJam (https://mcpjam.com)",
