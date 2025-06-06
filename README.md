@@ -2,8 +2,8 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/MCPJam/inspector/blob/main/client/public/mcp_jam_dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/MCPJam/inspector/blob/main/client/public/mcp_jam_dark.png">
-  <img width="250" alt="MCPJam logo" src="https://github.com/MCPJam/inspector/blob/main/client/public/mcp_jam_dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/MCPJam/inspector/blob/main/client/public/mcp_jam_light.png">
+  <img width="250" alt="MCPJam logo" src="https://github.com/MCPJam/inspector/blob/main/client/public/mcp_jam_light.png">
 </picture>
 
 <br/>
