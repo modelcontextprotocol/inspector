@@ -20,7 +20,8 @@
     "lint": "eslint .",
     "preview": "vite preview --port 6274",
     "test": "jest --config jest.config.cjs",
-    "test:watch": "jest --config jest.config.cjs --watch"
+    "test:watch": "jest --config jest.config.cjs --watch",
+    "test:e2e": "playwright test e2e"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
