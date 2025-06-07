@@ -930,6 +930,7 @@ const App = () => {
           <HistoryAndNotifications
             requestHistory={requestHistory}
             toolResult={mcpOperations.toolResult}
+            onClearHistory={mcpOperations.clearRequestHistory}
           />
         </div>
       </div>
