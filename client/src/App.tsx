@@ -6,7 +6,13 @@ import {
   CreateMessageRequest,
   CreateMessageResult,
 } from "@modelcontextprotocol/sdk/types.js";
-import React, { Suspense, useCallback, useEffect, useRef } from "react";
+import React, {
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { StdErrNotification } from "./lib/notificationTypes";
 import { Activity } from "lucide-react";
 import { z } from "zod";
@@ -68,8 +74,25 @@ const App = () => {
   const rootsRef = useRef(mcpOperations.roots);
   const nextRequestId = useRef(0);
 
-  // Callbacks for connection
+  // States
+  const [currentPage, setCurrentPage] = useState<string>(() => {
+    const hash = window.location.hash.slice(1);
+    return hash || "tools";
+  });
+  // Handle hash changes for navigation
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      if (hash) {
+        setCurrentPage(hash);
+      }
+    };
 
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  // Callbacks for connection
   const onStdErrNotification = useCallback(
     (notification: StdErrNotification) => {
       mcpOperations.setStdErrNotifications((prev) => [...prev, notification]);
@@ -665,7 +688,7 @@ const App = () => {
     };
 
     const renderCurrentPage = () => {
-      switch (configState.currentPage) {
+      switch (currentPage) {
         case "resources":
           return (
             <ResourcesTab
@@ -862,7 +885,7 @@ const App = () => {
                   ? currentConfig.url.toString()
                   : "";
               })()}
-              onBack={() => configState.setCurrentPage("resources")}
+              onBack={() => setCurrentPage("resources")}
               authState={configState.authState}
               updateAuthState={configState.updateAuthState}
             />
@@ -914,8 +937,8 @@ const App = () => {
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Horizontal Tabs */}
           <Tabs
-            currentPage={configState.currentPage}
-            onPageChange={configState.setCurrentPage}
+            currentPage={currentPage}
+            onPageChange={setCurrentPage}
             serverCapabilities={serverCapabilities}
             pendingSampleRequests={mcpOperations.pendingSampleRequests}
             shouldDisableAll={!connectionState.mcpAgent}
