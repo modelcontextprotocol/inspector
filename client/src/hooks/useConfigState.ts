@@ -38,11 +38,6 @@ export const useConfigState = () => {
     return "";
   });
 
-  const [currentPage, setCurrentPage] = useState<string>(() => {
-    const hash = window.location.hash.slice(1);
-    return hash || "tools";
-  });
-
   // Auth debugger state
   const [authState, setAuthState] = useState<AuthDebuggerState>({
     isInitiatingAuth: false,
@@ -93,19 +88,6 @@ export const useConfigState = () => {
     localStorage.setItem("lastHeaderName", headerName);
   }, [headerName]);
 
-  // Handle hash changes for navigation
-  useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash.slice(1);
-      if (hash) {
-        setCurrentPage(hash);
-      }
-    };
-
-    window.addEventListener("hashchange", handleHashChange);
-    return () => window.removeEventListener("hashchange", handleHashChange);
-  }, []);
-
   // Ensure default hash is set
   useEffect(() => {
     if (!window.location.hash) {
@@ -122,8 +104,6 @@ export const useConfigState = () => {
     setHeaderName,
     claudeApiKey,
     updateClaudeApiKey,
-    currentPage,
-    setCurrentPage,
     authState,
     updateAuthState,
     validateClaudeApiKey,
