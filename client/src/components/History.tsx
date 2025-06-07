@@ -3,16 +3,18 @@ import {
   CompatibilityCallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { useEffect, useState } from "react";
-import { Activity, History, ChevronDown, ScrollText } from "lucide-react";
+import { Activity, History, ChevronDown, ScrollText, Trash2 } from "lucide-react";
 import JsonView from "./JsonView";
 import { useDraggablePane } from "../lib/hooks/useDraggablePane";
 
 const HistoryAndNotifications = ({
   requestHistory,
   toolResult,
+  onClearHistory,
 }: {
   requestHistory: Array<{ request: string; response?: string }>;
   toolResult: CompatibilityCallToolResult | null;
+  onClearHistory: () => void;
 }) => {
   const [expandedRequests, setExpandedRequests] = useState<{
     [key: number]: boolean;
@@ -134,10 +136,19 @@ const HistoryAndNotifications = ({
                 </h2>
                 <div className="flex items-center space-x-3">
                   {requestHistory.length > 0 && (
-                    <span className="text-sm text-muted-foreground bg-muted/50 px-3 py-1 rounded-full">
-                      {requestHistory.length} request
-                      {requestHistory.length !== 1 ? "s" : ""}
-                    </span>
+                    <>
+                      <span className="text-sm text-muted-foreground bg-muted/50 px-3 py-1 rounded-full">
+                        {requestHistory.length} request
+                        {requestHistory.length !== 1 ? "s" : ""}
+                      </span>
+                      <button
+                        onClick={onClearHistory}
+                        className="p-2 rounded-lg hover:bg-destructive/10 hover:text-destructive transition-all duration-200 group"
+                        title="Clear all activity"
+                      >
+                        <Trash2 className="w-4 h-4 text-muted-foreground group-hover:text-destructive" />
+                      </button>
+                    </>
                   )}
                   <button
                     onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}

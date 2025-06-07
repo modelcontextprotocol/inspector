@@ -489,6 +489,10 @@ export const useMCPOperations = () => {
     return requestHistory;
   }, [requestHistory]);
 
+  const clearRequestHistory = useCallback(() => {
+    setRequestHistory([]);
+  }, []);
+
   return {
     // State
     resources,
@@ -550,5 +554,6 @@ export const useMCPOperations = () => {
     handleRejectSampling,
     addRequestHistory,
     getRequestHistory,
+    clearRequestHistory,
   };
 };
