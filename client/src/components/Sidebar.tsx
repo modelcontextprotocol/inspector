@@ -15,6 +15,8 @@ import {
   WifiOff,
   AlertCircle,
   Edit2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
@@ -35,6 +37,8 @@ interface SidebarProps {
   onCreateClient: () => void;
   onEditClient: (serverName: string) => void;
   updateTrigger: number;
+  isExpanded: boolean;
+  onToggleExpanded: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -47,6 +51,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onCreateClient,
   onEditClient,
   updateTrigger,
+  isExpanded,
+  onToggleExpanded,
 }) => {
   const [theme, setTheme] = useTheme();
 
@@ -339,29 +345,102 @@ const Sidebar: React.FC<SidebarProps> = ({
     </div>
   );
 
+  const renderToggleExpandedButton = () => {
+    return (
+      <Button
+        onClick={onToggleExpanded}
+        size="sm"
+        variant="outline"
+        className="absolute top-1/2 -translate-y-1/2 -right-4 h-8 w-8 p-0 bg-background border border-border rounded-full shadow-md hover:shadow-lg z-10 transition-all duration-200"
+      >
+        {isExpanded ? (
+          <ChevronLeft className="w-4 h-4" />
+        ) : (
+          <ChevronRight className="w-4 h-4" />
+        )}
+      </Button>
+    );
+  };
+
+  const renderExpandedContent = () => {
+    return (
+      <>
+        {renderHeader()}
+        {renderConnectionsHeader()}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="flex-1 overflow-y-auto">
+              {shouldShowCreatePrompt && renderEmptyState()}
+
+              {serverConnections.length > 0 && (
+                <div className="p-3 space-y-2">
+                  {serverConnections.map(renderConnectionItem)}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        {renderThemeSelector()}
+      </>
+    );
+  };
+
+  const renderCollapsedContent = () => {
+    return (
+      <div className="flex-1 flex flex-col items-center pt-4 space-y-4">
+        <div className="flex flex-col space-y-2">
+          {serverConnections.slice(0, 5).map((connection) => (
+            <Tooltip key={connection.name}>
+              <TooltipTrigger asChild>
+                <div
+                  className={`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition-colors ${
+                    selectedServerName === connection.name
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-muted/50"
+                  }`}
+                  onClick={() => onServerSelect(connection.name)}
+                >
+                  {getConnectionStatusIcon(connection.connectionStatus)}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <div className="text-xs">
+                  <div className="font-medium">{connection.name}</div>
+                  <div className="text-muted-foreground capitalize">
+                    {connection.connectionStatus}
+                  </div>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          ))}
+
+          {/* Add Server Button in Collapsed State */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={onCreateClient}
+                size="sm"
+                variant="ghost"
+                className="w-8 h-8 p-0 rounded-full"
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Create new client</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+    );
+  };
+
   const shouldShowCreatePrompt = serverConnections.length === 0;
 
   return (
-    <div className="w-80 bg-card border-r border-border flex flex-col h-full">
-      {renderHeader()}
-      {renderConnectionsHeader()}
-
-      {/* Main Content Area */}
-      <div className="flex-1 overflow-hidden flex flex-col">
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 overflow-y-auto">
-            {shouldShowCreatePrompt && renderEmptyState()}
-
-            {serverConnections.length > 0 && (
-              <div className="p-3 space-y-2">
-                {serverConnections.map(renderConnectionItem)}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {renderThemeSelector()}
+    <div
+      className={`${isExpanded ? "w-80" : "w-16"} bg-card border-r border-border flex flex-col h-full transition-all duration-300 ease-in-out relative`}
+    >
+      {renderToggleExpandedButton()}
+      {isExpanded ? renderExpandedContent() : renderCollapsedContent()}
     </div>
   );
 };
