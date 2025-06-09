@@ -20,6 +20,10 @@ import { Anthropic } from "@anthropic-ai/sdk";
 import {
   MessageParam,
   Tool,
+  Message,
+  ContentBlock,
+  TextBlock,
+  ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import readline from "readline/promises";
 import packageJson from "../package.json";
@@ -562,136 +566,241 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
       throw new Error("Anthropic client not initialized");
     }
 
-    const messages: MessageParam[] = [
-      {
-        role: "user",
-        content: query,
-      },
-    ];
+    const context = this.initializeQueryContext(query, tools);
+    const response = await this.makeInitialApiCall(context);
 
-    const finalText: string[] = [];
-    const MAX_ITERATIONS = 5;
-    let iteration = 0;
+    return this.processIterations(response, context, onUpdate);
+  }
 
-    const sanitizedTools = mappedTools(tools);
+  private initializeQueryContext(query: string, tools: Tool[]) {
+    return {
+      messages: [{ role: "user" as const, content: query }] as MessageParam[],
+      finalText: [] as string[],
+      sanitizedTools: mappedTools(tools),
+      MAX_ITERATIONS: 5,
+    };
+  }
 
-    let response = await this.anthropic.messages.create({
+  private async makeInitialApiCall(
+    context: ReturnType<typeof this.initializeQueryContext>,
+  ) {
+    return this.anthropic!.messages.create({
       model: "claude-3-haiku-20240307",
       max_tokens: 1000,
-      messages,
-      tools: sanitizedTools,
+      messages: context.messages,
+      tools: context.sanitizedTools,
     });
+  }
 
-    while (iteration < MAX_ITERATIONS) {
+  private async processIterations(
+    initialResponse: Message,
+    context: ReturnType<typeof this.initializeQueryContext>,
+    onUpdate?: (content: string) => void,
+  ): Promise<string> {
+    let response = initialResponse;
+    let iteration = 0;
+
+    while (iteration < context.MAX_ITERATIONS) {
       iteration++;
-      let hasToolUse = false;
-      const iterationText: string[] = [];
 
-      const assistantContent = [];
+      const iterationResult = await this.processIteration(response, context);
 
-      for (const content of response.content) {
-        if (content.type === "text") {
-          iterationText.push(content.text);
-          finalText.push(content.text);
-          assistantContent.push(content);
-        } else if (content.type === "tool_use") {
-          hasToolUse = true;
-          assistantContent.push(content);
+      this.sendIterationUpdate(iterationResult.content, onUpdate);
 
-          try {
-            const toolName = content.name;
-            const toolArgs = content.input as
-              | { [x: string]: unknown }
-              | undefined;
-
-            const toolMessage = `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`;
-            iterationText.push(toolMessage);
-            finalText.push(toolMessage);
-
-            const result = await this.callTool({
-              name: toolName,
-              arguments: toolArgs,
-            });
-
-            if (assistantContent.length > 0) {
-              messages.push({
-                role: "assistant",
-                content: assistantContent,
-              });
-            }
-
-            messages.push({
-              role: "user",
-              content: [
-                {
-                  type: "tool_result",
-                  tool_use_id: content.id,
-                  content: result.content as string,
-                },
-              ],
-            });
-          } catch (error) {
-            console.error(`Tool ${content.name} failed:`, error);
-            const errorMessage = `[Tool ${content.name} failed: ${error}]`;
-            iterationText.push(errorMessage);
-            finalText.push(errorMessage);
-
-            messages.push({
-              role: "assistant",
-              content: assistantContent,
-            });
-
-            messages.push({
-              role: "user",
-              content: [
-                {
-                  type: "tool_result",
-                  tool_use_id: content.id,
-                  content: `Error: ${error}`,
-                  is_error: true,
-                },
-              ],
-            });
-          }
-        }
-      }
-
-      // Send update for this iteration if there's content and a callback
-      if (iterationText.length > 0 && onUpdate) {
-        onUpdate(iterationText.join("\n"));
-      }
-
-      if (!hasToolUse) {
+      if (!iterationResult.hasToolUse) {
         break;
       }
 
       try {
-        response = await this.anthropic.messages.create({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 1000,
-          messages,
-          tools: sanitizedTools,
-        });
+        response = await this.makeFollowUpApiCall(context);
       } catch (error) {
-        console.error("API call failed:", error);
         const errorMessage = `[API Error: ${error}]`;
-        finalText.push(errorMessage);
-        if (onUpdate) {
-          onUpdate(errorMessage);
-        }
+        context.finalText.push(errorMessage);
+        this.sendIterationUpdate(errorMessage, onUpdate);
         break;
       }
     }
 
-    if (iteration >= MAX_ITERATIONS) {
-      const warningMessage = `[Warning: Reached maximum iterations (${MAX_ITERATIONS}). Stopping to prevent excessive API usage.]`;
-      finalText.push(warningMessage);
-      if (onUpdate) {
-        onUpdate(warningMessage);
+    this.handleMaxIterationsWarning(iteration, context, onUpdate);
+    return context.finalText.join("\n");
+  }
+
+  private async processIteration(
+    response: Message,
+    context: ReturnType<typeof this.initializeQueryContext>,
+  ) {
+    const iterationContent: string[] = [];
+    const assistantContent: ContentBlock[] = [];
+    let hasToolUse = false;
+
+    for (const content of response.content) {
+      if (content.type === "text") {
+        this.handleTextContent(
+          content,
+          iterationContent,
+          context.finalText,
+          assistantContent,
+        );
+      } else if (content.type === "tool_use") {
+        hasToolUse = true;
+        await this.handleToolUse(
+          content,
+          iterationContent,
+          context,
+          assistantContent,
+        );
       }
     }
 
-    return finalText.join("\n");
+    return {
+      content: iterationContent,
+      hasToolUse,
+    };
+  }
+
+  private handleTextContent(
+    content: TextBlock,
+    iterationContent: string[],
+    finalText: string[],
+    assistantContent: ContentBlock[],
+  ) {
+    iterationContent.push(content.text);
+    finalText.push(content.text);
+    assistantContent.push(content);
+  }
+
+  private async handleToolUse(
+    content: ToolUseBlock,
+    iterationContent: string[],
+    context: ReturnType<typeof this.initializeQueryContext>,
+    assistantContent: ContentBlock[],
+  ) {
+    assistantContent.push(content);
+
+    const toolMessage = this.createToolMessage(content.name, content.input);
+    iterationContent.push(toolMessage);
+    context.finalText.push(toolMessage);
+
+    try {
+      await this.executeToolAndUpdateMessages(
+        content,
+        context,
+        assistantContent,
+      );
+    } catch (error) {
+      this.handleToolError(
+        error,
+        content,
+        iterationContent,
+        context,
+        assistantContent,
+      );
+    }
+  }
+
+  private createToolMessage(toolName: string, toolArgs: unknown): string {
+    return `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`;
+  }
+
+  private async executeToolAndUpdateMessages(
+    content: ToolUseBlock,
+    context: ReturnType<typeof this.initializeQueryContext>,
+    assistantContent: ContentBlock[],
+  ) {
+    const result = await this.callTool({
+      name: content.name,
+      arguments: content.input as { [x: string]: unknown } | undefined,
+    });
+
+    this.addMessagesToContext(
+      context,
+      assistantContent,
+      content.id,
+      result.content as string,
+    );
+  }
+
+  private handleToolError(
+    error: unknown,
+    content: ToolUseBlock,
+    iterationContent: string[],
+    context: ReturnType<typeof this.initializeQueryContext>,
+    assistantContent: ContentBlock[],
+  ) {
+    console.error(`Tool ${content.name} failed:`, error);
+    const errorMessage = `[Tool ${content.name} failed: ${error}]`;
+    iterationContent.push(errorMessage);
+    context.finalText.push(errorMessage);
+
+    this.addMessagesToContext(
+      context,
+      assistantContent,
+      content.id,
+      `Error: ${error}`,
+      true,
+    );
+  }
+
+  private addMessagesToContext(
+    context: ReturnType<typeof this.initializeQueryContext>,
+    assistantContent: ContentBlock[],
+    toolUseId: string,
+    resultContent: string,
+    isError = false,
+  ) {
+    if (assistantContent.length > 0) {
+      context.messages.push({
+        role: "assistant",
+        content: assistantContent,
+      });
+    }
+
+    context.messages.push({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: toolUseId,
+          content: resultContent,
+          ...(isError && { is_error: true }),
+        },
+      ],
+    });
+  }
+
+  private async makeFollowUpApiCall(
+    context: ReturnType<typeof this.initializeQueryContext>,
+  ) {
+    return this.anthropic!.messages.create({
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 1000,
+      messages: context.messages,
+      tools: context.sanitizedTools,
+    });
+  }
+
+  private sendIterationUpdate(
+    content: string | string[],
+    onUpdate?: (content: string) => void,
+  ) {
+    if (!onUpdate) return;
+
+    const message = Array.isArray(content) ? content.join("\n") : content;
+    if (message.length > 0) {
+      onUpdate(message);
+    }
+  }
+
+  private handleMaxIterationsWarning(
+    iteration: number,
+    context: ReturnType<typeof this.initializeQueryContext>,
+    onUpdate?: (content: string) => void,
+  ) {
+    if (iteration >= context.MAX_ITERATIONS) {
+      const warningMessage = `[Warning: Reached maximum iterations (${context.MAX_ITERATIONS}). Stopping to prevent excessive API usage.]`;
+      context.finalText.push(warningMessage);
+      this.sendIterationUpdate(warningMessage, onUpdate);
+    }
   }
 
   async chatLoop(tools: Tool[]) {
