@@ -20,6 +20,10 @@ import { Anthropic } from "@anthropic-ai/sdk";
 import {
   MessageParam,
   Tool,
+  Message,
+  ContentBlock,
+  TextBlock,
+  ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import readline from "readline/promises";
 import packageJson from "../package.json";
@@ -51,12 +55,18 @@ import {
   StdErrNotification,
 } from "./lib/notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
-import { HttpServerDefinition, MCPJamServerConfig } from "./lib/serverTypes";
+import { HttpServerDefinition, MCPJamServerConfig } from "@/lib/serverTypes";
+import { mappedTools } from "@/utils/mcpjamClientHelpers";
 
 // Add interface for extended MCP client with Anthropic
 export interface ExtendedMcpClient extends Client {
   anthropic: Anthropic;
-  processQuery: (query: string, tools: Tool[]) => Promise<string>;
+  processQuery: (
+    query: string,
+    tools: Tool[],
+    onUpdate?: (content: string) => void,
+    model?: string,
+  ) => Promise<string>;
   chatLoop: (tools: Tool[]) => Promise<void>;
   cleanup: () => Promise<void>;
 }
@@ -552,210 +562,252 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     this.serverCapabilities = capabilities;
   }
 
-  async processQuery(query: string, tools: Tool[]): Promise<string> {
+  async processQuery(
+    query: string,
+    tools: Tool[],
+    onUpdate?: (content: string) => void,
+    model: string = "claude-3-5-sonnet-latest",
+  ): Promise<string> {
     if (!this.anthropic) {
       throw new Error("Anthropic client not initialized");
     }
 
-    const messages: MessageParam[] = [
-      {
-        role: "user",
-        content: query,
-      },
-    ];
+    const context = this.initializeQueryContext(query, tools, model);
+    const response = await this.makeInitialApiCall(context);
 
-    const finalText: string[] = [];
-    const MAX_ITERATIONS = 5;
+    return this.processIterations(response, context, onUpdate);
+  }
+
+  private initializeQueryContext(query: string, tools: Tool[], model: string) {
+    return {
+      messages: [{ role: "user" as const, content: query }] as MessageParam[],
+      finalText: [] as string[],
+      sanitizedTools: mappedTools(tools),
+      model,
+      MAX_ITERATIONS: 5,
+    };
+  }
+
+  private async makeInitialApiCall(
+    context: ReturnType<typeof this.initializeQueryContext>,
+  ) {
+    return this.anthropic!.messages.create({
+      model: context.model,
+      max_tokens: 1000,
+      messages: context.messages,
+      tools: context.sanitizedTools,
+    });
+  }
+
+  private async processIterations(
+    initialResponse: Message,
+    context: ReturnType<typeof this.initializeQueryContext>,
+    onUpdate?: (content: string) => void,
+  ): Promise<string> {
+    let response = initialResponse;
     let iteration = 0;
 
-    // Helper function to recursively sanitize schema objects
-    const sanitizeSchema = (schema: unknown): unknown => {
-      if (!schema || typeof schema !== "object") return schema;
-
-      // Handle array
-      if (Array.isArray(schema)) {
-        return schema.map((item) => sanitizeSchema(item));
-      }
-
-      // Now we know it's an object
-      const schemaObj = schema as Record<string, unknown>;
-      const sanitized: Record<string, unknown> = {};
-
-      for (const [key, value] of Object.entries(schemaObj)) {
-        if (
-          key === "properties" &&
-          value &&
-          typeof value === "object" &&
-          !Array.isArray(value)
-        ) {
-          // Handle properties object
-          const propertiesObj = value as Record<string, unknown>;
-          const sanitizedProps: Record<string, unknown> = {};
-          const keyMapping: Record<string, string> = {};
-
-          for (const [propKey, propValue] of Object.entries(propertiesObj)) {
-            const sanitizedKey = propKey.replace(/[^a-zA-Z0-9_-]/g, "_");
-            keyMapping[propKey] = sanitizedKey;
-            sanitizedProps[sanitizedKey] = sanitizeSchema(propValue);
-          }
-
-          sanitized[key] = sanitizedProps;
-
-          // Update required fields if they exist
-          if ("required" in schemaObj && Array.isArray(schemaObj.required)) {
-            sanitized.required = (schemaObj.required as string[]).map(
-              (req: string) => keyMapping[req] || req,
-            );
-          }
-        } else {
-          sanitized[key] = sanitizeSchema(value);
-        }
-      }
-
-      return sanitized;
-    };
-
-    const mappedTools = tools.map((tool: Tool) => {
-      // Deep copy and sanitize the schema
-      let inputSchema;
-      if (tool.input_schema) {
-        inputSchema = JSON.parse(JSON.stringify(tool.input_schema));
-      } else {
-        // If no input schema, create a basic object schema
-        inputSchema = {
-          type: "object",
-          properties: {},
-          required: [],
-        };
-      }
-
-      // Ensure the schema has a type field
-      if (!inputSchema.type) {
-        inputSchema.type = "object";
-      }
-
-      // Ensure properties exists for object types
-      if (inputSchema.type === "object" && !inputSchema.properties) {
-        inputSchema.properties = {};
-      }
-
-      const sanitizedSchema = sanitizeSchema(inputSchema);
-
-      return {
-        name: tool.name,
-        description: tool.description,
-        input_schema: sanitizedSchema,
-      } as Tool;
-    });
-
-    let response = await this.anthropic.messages.create({
-      model: "claude-3-haiku-20240307",
-      max_tokens: 1000,
-      messages,
-      tools: mappedTools,
-    });
-
-    while (iteration < MAX_ITERATIONS) {
+    while (iteration < context.MAX_ITERATIONS) {
       iteration++;
-      let hasToolUse = false;
 
-      const assistantContent = [];
+      const iterationResult = await this.processIteration(response, context);
 
-      for (const content of response.content) {
-        if (content.type === "text") {
-          finalText.push(content.text);
-          assistantContent.push(content);
-        } else if (content.type === "tool_use") {
-          hasToolUse = true;
-          assistantContent.push(content);
+      this.sendIterationUpdate(iterationResult.content, onUpdate);
 
-          try {
-            const toolName = content.name;
-            const toolArgs = content.input as
-              | { [x: string]: unknown }
-              | undefined;
-
-            const result = await this.callTool({
-              name: toolName,
-              arguments: toolArgs,
-            });
-
-            finalText.push(
-              `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`,
-            );
-
-            if (assistantContent.length > 0) {
-              messages.push({
-                role: "assistant",
-                content: assistantContent,
-              });
-            }
-
-            messages.push({
-              role: "user",
-              content: [
-                {
-                  type: "tool_result",
-                  tool_use_id: content.id,
-                  content: result.content as string,
-                },
-              ],
-            });
-          } catch (error) {
-            console.error(`Tool ${content.name} failed:`, error);
-            finalText.push(`[Tool ${content.name} failed: ${error}]`);
-
-            messages.push({
-              role: "assistant",
-              content: assistantContent,
-            });
-
-            messages.push({
-              role: "user",
-              content: [
-                {
-                  type: "tool_result",
-                  tool_use_id: content.id,
-                  content: `Error: ${error}`,
-                  is_error: true,
-                },
-              ],
-            });
-          }
-        }
-      }
-
-      if (!hasToolUse) {
+      if (!iterationResult.hasToolUse) {
         break;
       }
 
       try {
-        response = await this.anthropic.messages.create({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 1000,
-          messages,
-          tools: mappedTools,
-        });
+        response = await this.makeFollowUpApiCall(context);
       } catch (error) {
-        console.error("API call failed:", error);
-        finalText.push(`[API Error: ${error}]`);
+        const errorMessage = `[API Error: ${error}]`;
+        context.finalText.push(errorMessage);
+        this.sendIterationUpdate(errorMessage, onUpdate);
         break;
       }
     }
 
+    this.handleMaxIterationsWarning(iteration, context, onUpdate);
+    return context.finalText.join("\n");
+  }
+
+  private async processIteration(
+    response: Message,
+    context: ReturnType<typeof this.initializeQueryContext>,
+  ) {
+    const iterationContent: string[] = [];
+    const assistantContent: ContentBlock[] = [];
+    let hasToolUse = false;
+
     for (const content of response.content) {
       if (content.type === "text") {
-        finalText.push(content.text);
+        this.handleTextContent(
+          content,
+          iterationContent,
+          context.finalText,
+          assistantContent,
+        );
+      } else if (content.type === "tool_use") {
+        hasToolUse = true;
+        await this.handleToolUse(
+          content,
+          iterationContent,
+          context,
+          assistantContent,
+        );
       }
     }
 
-    if (iteration >= MAX_ITERATIONS) {
-      finalText.push(
-        `[Warning: Reached maximum iterations (${MAX_ITERATIONS}). Stopping to prevent excessive API usage.]`,
+    return {
+      content: iterationContent,
+      hasToolUse,
+    };
+  }
+
+  private handleTextContent(
+    content: TextBlock,
+    iterationContent: string[],
+    finalText: string[],
+    assistantContent: ContentBlock[],
+  ) {
+    iterationContent.push(content.text);
+    finalText.push(content.text);
+    assistantContent.push(content);
+  }
+
+  private async handleToolUse(
+    content: ToolUseBlock,
+    iterationContent: string[],
+    context: ReturnType<typeof this.initializeQueryContext>,
+    assistantContent: ContentBlock[],
+  ) {
+    assistantContent.push(content);
+
+    const toolMessage = this.createToolMessage(content.name, content.input);
+    iterationContent.push(toolMessage);
+    context.finalText.push(toolMessage);
+
+    try {
+      await this.executeToolAndUpdateMessages(
+        content,
+        context,
+        assistantContent,
+      );
+    } catch (error) {
+      this.handleToolError(
+        error,
+        content,
+        iterationContent,
+        context,
+        assistantContent,
       );
     }
+  }
 
-    return finalText.join("\n");
+  private createToolMessage(toolName: string, toolArgs: unknown): string {
+    return `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`;
+  }
+
+  private async executeToolAndUpdateMessages(
+    content: ToolUseBlock,
+    context: ReturnType<typeof this.initializeQueryContext>,
+    assistantContent: ContentBlock[],
+  ) {
+    const result = await this.callTool({
+      name: content.name,
+      arguments: content.input as { [x: string]: unknown } | undefined,
+    });
+
+    this.addMessagesToContext(
+      context,
+      assistantContent,
+      content.id,
+      result.content as string,
+    );
+  }
+
+  private handleToolError(
+    error: unknown,
+    content: ToolUseBlock,
+    iterationContent: string[],
+    context: ReturnType<typeof this.initializeQueryContext>,
+    assistantContent: ContentBlock[],
+  ) {
+    console.error(`Tool ${content.name} failed:`, error);
+    const errorMessage = `[Tool ${content.name} failed: ${error}]`;
+    iterationContent.push(errorMessage);
+    context.finalText.push(errorMessage);
+
+    this.addMessagesToContext(
+      context,
+      assistantContent,
+      content.id,
+      `Error: ${error}`,
+      true,
+    );
+  }
+
+  private addMessagesToContext(
+    context: ReturnType<typeof this.initializeQueryContext>,
+    assistantContent: ContentBlock[],
+    toolUseId: string,
+    resultContent: string,
+    isError = false,
+  ) {
+    if (assistantContent.length > 0) {
+      context.messages.push({
+        role: "assistant",
+        content: assistantContent,
+      });
+    }
+
+    context.messages.push({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: toolUseId,
+          content: resultContent,
+          ...(isError && { is_error: true }),
+        },
+      ],
+    });
+  }
+
+  private async makeFollowUpApiCall(
+    context: ReturnType<typeof this.initializeQueryContext>,
+  ) {
+    return this.anthropic!.messages.create({
+      model: context.model,
+      max_tokens: 1000,
+      messages: context.messages,
+      tools: context.sanitizedTools,
+    });
+  }
+
+  private sendIterationUpdate(
+    content: string | string[],
+    onUpdate?: (content: string) => void,
+  ) {
+    if (!onUpdate) return;
+
+    const message = Array.isArray(content) ? content.join("\n") : content;
+    if (message.length > 0) {
+      onUpdate(message);
+    }
+  }
+
+  private handleMaxIterationsWarning(
+    iteration: number,
+    context: ReturnType<typeof this.initializeQueryContext>,
+    onUpdate?: (content: string) => void,
+  ) {
+    if (iteration >= context.MAX_ITERATIONS) {
+      const warningMessage = `[Warning: Reached maximum iterations (${context.MAX_ITERATIONS}). Stopping to prevent excessive API usage.]`;
+      context.finalText.push(warningMessage);
+      this.sendIterationUpdate(warningMessage, onUpdate);
+    }
   }
 
   async chatLoop(tools: Tool[]) {
