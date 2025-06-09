@@ -82,17 +82,23 @@ const ChatTab: React.FC = () => {
         "processQuery" in mcpClient &&
         typeof mcpClient.processQuery === "function"
       ) {
-        const response = await (
+        await (
           mcpClient as typeof mcpClient & {
-            processQuery: (query: string, tools: Tool[]) => Promise<string>;
+            processQuery: (
+              query: string,
+              tools: Tool[],
+              onUpdate?: (content: string) => void,
+            ) => Promise<string>;
           }
-        ).processQuery(userMessage, tools);
-        const assistantMessage: Message = {
-          role: "assistant",
-          content: response,
-          timestamp: new Date(),
-        };
-        setChat((prev) => [...prev, assistantMessage]);
+        ).processQuery(userMessage, tools, (content: string) => {
+          // Create a new assistant message for each iteration
+          const assistantMessage: Message = {
+            role: "assistant",
+            content: content,
+            timestamp: new Date(),
+          };
+          setChat((prev) => [...prev, assistantMessage]);
+        });
       } else {
         throw new Error(
           "Chat functionality is not available. Please ensure you have a valid API key and the server is connected.",

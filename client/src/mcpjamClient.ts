@@ -553,7 +553,11 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     this.serverCapabilities = capabilities;
   }
 
-  async processQuery(query: string, tools: Tool[]): Promise<string> {
+  async processQuery(
+    query: string,
+    tools: Tool[],
+    onUpdate?: (content: string) => void,
+  ): Promise<string> {
     if (!this.anthropic) {
       throw new Error("Anthropic client not initialized");
     }
@@ -581,11 +585,13 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     while (iteration < MAX_ITERATIONS) {
       iteration++;
       let hasToolUse = false;
+      const iterationText: string[] = [];
 
       const assistantContent = [];
 
       for (const content of response.content) {
         if (content.type === "text") {
+          iterationText.push(content.text);
           finalText.push(content.text);
           assistantContent.push(content);
         } else if (content.type === "tool_use") {
@@ -598,14 +604,14 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
               | { [x: string]: unknown }
               | undefined;
 
+            const toolMessage = `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`;
+            iterationText.push(toolMessage);
+            finalText.push(toolMessage);
+
             const result = await this.callTool({
               name: toolName,
               arguments: toolArgs,
             });
-
-            finalText.push(
-              `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`,
-            );
 
             if (assistantContent.length > 0) {
               messages.push({
@@ -626,7 +632,9 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
             });
           } catch (error) {
             console.error(`Tool ${content.name} failed:`, error);
-            finalText.push(`[Tool ${content.name} failed: ${error}]`);
+            const errorMessage = `[Tool ${content.name} failed: ${error}]`;
+            iterationText.push(errorMessage);
+            finalText.push(errorMessage);
 
             messages.push({
               role: "assistant",
@@ -648,6 +656,11 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         }
       }
 
+      // Send update for this iteration if there's content and a callback
+      if (iterationText.length > 0 && onUpdate) {
+        onUpdate(iterationText.join("\n"));
+      }
+
       if (!hasToolUse) {
         break;
       }
@@ -661,21 +674,34 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         });
       } catch (error) {
         console.error("API call failed:", error);
-        finalText.push(`[API Error: ${error}]`);
+        const errorMessage = `[API Error: ${error}]`;
+        finalText.push(errorMessage);
+        if (onUpdate) {
+          onUpdate(errorMessage);
+        }
         break;
       }
     }
 
+    // Handle final response content
+    const finalIterationText: string[] = [];
     for (const content of response.content) {
       if (content.type === "text") {
+        finalIterationText.push(content.text);
         finalText.push(content.text);
       }
     }
 
+    if (finalIterationText.length > 0 && onUpdate) {
+      onUpdate(finalIterationText.join("\n"));
+    }
+
     if (iteration >= MAX_ITERATIONS) {
-      finalText.push(
-        `[Warning: Reached maximum iterations (${MAX_ITERATIONS}). Stopping to prevent excessive API usage.]`,
-      );
+      const warningMessage = `[Warning: Reached maximum iterations (${MAX_ITERATIONS}). Stopping to prevent excessive API usage.]`;
+      finalText.push(warningMessage);
+      if (onUpdate) {
+        onUpdate(warningMessage);
+      }
     }
 
     return finalText.join("\n");
