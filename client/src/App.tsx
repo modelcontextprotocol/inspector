@@ -106,7 +106,7 @@ const App = () => {
     // Show modal after 1 minute (60000ms)
     const timer = setTimeout(() => {
       setShowStarModal(true);
-    }, 3000);
+    }, 15000);
 
     return () => clearTimeout(timer);
   }, []);

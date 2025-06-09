@@ -1,5 +1,5 @@
 import React from "react";
-import { Star, X, ExternalLink } from "lucide-react";
+import { Star, X, ExternalLink, Github } from "lucide-react";
 
 interface StarGitHubModalProps {
   isOpen: boolean;
@@ -13,7 +13,7 @@ const StarGitHubModal: React.FC<StarGitHubModalProps> = ({
   if (!isOpen) return null;
 
   const handleStarClick = () => {
-    window.open("https://github.com/modelcontextprotocol/inspector", "_blank");
+    window.open("https://github.com/MCPJam/inspector", "_blank");
     onClose();
   };
 
@@ -27,11 +27,11 @@ const StarGitHubModal: React.FC<StarGitHubModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
-              <Star className="w-5 h-5 text-white fill-current" />
+            <div className="w-10 h-10 bg-gradient-to-br from-gray-700 to-gray-900 rounded-full flex items-center justify-center">
+              <Github className="w-5 h-5 text-white" />
             </div>
             <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-              Loving MCP Inspector?
+              Support us!
             </h2>
           </div>
           <button
@@ -45,9 +45,8 @@ const StarGitHubModal: React.FC<StarGitHubModalProps> = ({
         {/* Content */}
         <div className="p-6">
           <p className="text-slate-600 dark:text-slate-300 text-center mb-6 leading-relaxed">
-            If you're finding MCP Inspector helpful, we'd love your support! A
-            GitHub star helps others discover this tool and motivates us to keep
-            improving it.
+            If you like the inspector, please consider giving the GitHub project
+            a star!
           </p>
 
           {/* Buttons */}
