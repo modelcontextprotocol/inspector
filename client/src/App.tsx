@@ -892,15 +892,7 @@ const App = () => {
             />
           );
         case "settings":
-          return (
-            <SettingsTab
-              onApiKeyChange={handleApiKeyChange}
-              disabled={
-                connectionStatus !== "connected" &&
-                connectionStatus !== "disconnected"
-              }
-            />
-          );
+          return <SettingsTab onApiKeyChange={handleApiKeyChange} />;
         default:
           return null;
       }
