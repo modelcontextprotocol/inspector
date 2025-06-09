@@ -4,51 +4,13 @@ import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Anthropic } from "@anthropic-ai/sdk";
 import { Send, Bot, User, Loader2, Key, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CLAUDE_MODELS } from "@/lib/constants";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
 }
-
-interface ClaudeModel {
-  id: string;
-  name: string;
-  description: string;
-}
-
-const CLAUDE_MODELS: ClaudeModel[] = [
-  {
-    id: "claude-opus-4-0",
-    name: "Claude Opus 4",
-    description: "Latest and most powerful model for complex reasoning",
-  },
-  {
-    id: "claude-sonnet-4-0",
-    name: "Claude Sonnet 4",
-    description: "Next generation balanced model with enhanced capabilities",
-  },
-  {
-    id: "claude-3-7-sonnet-latest",
-    name: "Claude Sonnet 3.7",
-    description: "Most intelligent model with extended thinking",
-  },
-  {
-    id: "claude-3-5-sonnet-latest",
-    name: "Claude Sonnet 3.5",
-    description: "High level of intelligence and capability",
-  },
-  {
-    id: "claude-3-5-haiku-latest",
-    name: "Claude Haiku 3.5",
-    description: "Fastest model - intelligence at blazing speeds",
-  },
-  {
-    id: "claude-3-opus-latest",
-    name: "Claude Opus 3",
-    description: "Top-level intelligence, fluency, and understanding",
-  },
-];
 
 const ChatTab: React.FC = () => {
   const mcpClient = useMcpClient();
