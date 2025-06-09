@@ -33,6 +33,7 @@ import Sidebar from "./components/Sidebar";
 import Tabs from "./components/Tabs";
 import SettingsTab from "./components/SettingsTab";
 import ClientFormSection from "./components/ClientFormSection";
+import StarGitHubModal from "./components/StarGitHubModal";
 
 // Context
 import { McpClientContext } from "@/context/McpClientContext";
@@ -80,6 +81,7 @@ const App = () => {
     return hash || "tools";
   });
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
+  const [showStarModal, setShowStarModal] = useState(false);
   // Handle hash changes for navigation
   useEffect(() => {
     const handleHashChange = () => {
@@ -92,6 +94,27 @@ const App = () => {
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
+
+  // Handle GitHub star modal timing
+  useEffect(() => {
+    // Check if user has already dismissed the modal
+    const hasSeenStarModal = localStorage.getItem("hasSeenStarModal");
+    if (hasSeenStarModal) {
+      return;
+    }
+
+    // Show modal after 1 minute (60000ms)
+    const timer = setTimeout(() => {
+      setShowStarModal(true);
+    }, 15000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleCloseStarModal = () => {
+    setShowStarModal(false);
+    localStorage.setItem("hasSeenStarModal", "true");
+  };
 
   // Callbacks for connection
   const onStdErrNotification = useCallback(
@@ -952,6 +975,9 @@ const App = () => {
           />
         </div>
       </div>
+
+      {/* GitHub Star Modal */}
+      <StarGitHubModal isOpen={showStarModal} onClose={handleCloseStarModal} />
     </McpClientContext.Provider>
   );
 };
