@@ -683,19 +683,6 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
       }
     }
 
-    // Handle final response content
-    const finalIterationText: string[] = [];
-    for (const content of response.content) {
-      if (content.type === "text") {
-        finalIterationText.push(content.text);
-        finalText.push(content.text);
-      }
-    }
-
-    if (finalIterationText.length > 0 && onUpdate) {
-      onUpdate(finalIterationText.join("\n"));
-    }
-
     if (iteration >= MAX_ITERATIONS) {
       const warningMessage = `[Warning: Reached maximum iterations (${MAX_ITERATIONS}). Stopping to prevent excessive API usage.]`;
       finalText.push(warningMessage);
