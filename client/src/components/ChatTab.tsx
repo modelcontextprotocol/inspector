@@ -91,7 +91,7 @@ const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
       )}
     >
       {!isUser && (
-        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
           <ClaudeLogo
             className="text-slate-600 dark:text-slate-300"
             size={20}
@@ -139,7 +139,7 @@ const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
       </div>
 
       {isUser && (
-        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
+        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
           <User className="w-3 h-3 text-slate-600 dark:text-slate-300" />
         </div>
       )}
@@ -477,7 +477,7 @@ const ChatTab: React.FC = () => {
             ))}
             {loading && (
               <div className="flex gap-3 px-6 py-4">
-                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
                   <ClaudeLogo
                     className="text-slate-600 dark:text-slate-300"
                     size={20}
