@@ -79,6 +79,7 @@ const App = () => {
     const hash = window.location.hash.slice(1);
     return hash || "tools";
   });
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
   // Handle hash changes for navigation
   useEffect(() => {
     const handleHashChange = () => {
@@ -931,6 +932,8 @@ const App = () => {
           onCreateClient={serverState.handleCreateClient}
           onEditClient={handleEditClient}
           updateTrigger={connectionState.sidebarUpdateTrigger}
+          isExpanded={isSidebarExpanded}
+          onToggleExpanded={() => setIsSidebarExpanded(!isSidebarExpanded)}
         />
 
         {/* Main Content Area - Right Side */}
