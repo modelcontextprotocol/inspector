@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useMcpClient } from "@/context/McpClientContext";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Anthropic } from "@anthropic-ai/sdk";
-import { Send, Bot, User, Loader2, Key } from "lucide-react";
+import { Send, Bot, User, Loader2, Key, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Message {
@@ -11,6 +11,45 @@ interface Message {
   timestamp: Date;
 }
 
+interface ClaudeModel {
+  id: string;
+  name: string;
+  description: string;
+}
+
+const CLAUDE_MODELS: ClaudeModel[] = [
+  {
+    id: "claude-opus-4-0",
+    name: "Claude Opus 4",
+    description: "Latest and most powerful model for complex reasoning",
+  },
+  {
+    id: "claude-sonnet-4-0",
+    name: "Claude Sonnet 4",
+    description: "Next generation balanced model with enhanced capabilities",
+  },
+  {
+    id: "claude-3-7-sonnet-latest",
+    name: "Claude Sonnet 3.7",
+    description: "Most intelligent model with extended thinking",
+  },
+  {
+    id: "claude-3-5-sonnet-latest",
+    name: "Claude Sonnet 3.5",
+    description: "High level of intelligence and capability",
+  },
+  {
+    id: "claude-3-5-haiku-latest",
+    name: "Claude Haiku 3.5",
+    description: "Fastest model - intelligence at blazing speeds",
+  },
+  {
+    id: "claude-3-opus-latest",
+    name: "Claude Opus 3",
+    description: "Top-level intelligence, fluency, and understanding",
+  },
+];
+
 const ChatTab: React.FC = () => {
   const mcpClient = useMcpClient();
   const [input, setInput] = useState("");
@@ -18,8 +57,13 @@ const ChatTab: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tools, setTools] = useState<Tool[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>(
+    "claude-3-5-sonnet-latest",
+  );
+  const [showModelSelector, setShowModelSelector] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const modelSelectorRef = useRef<HTMLDivElement>(null);
 
   // Get API key from the MCP client
   const claudeApiKey =
@@ -59,6 +103,26 @@ const ChatTab: React.FC = () => {
     }
   }, [claudeApiKey]);
 
+  // Close model selector when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        modelSelectorRef.current &&
+        !modelSelectorRef.current.contains(event.target as Node)
+      ) {
+        setShowModelSelector(false);
+      }
+    };
+
+    if (showModelSelector) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showModelSelector]);
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -88,17 +152,23 @@ const ChatTab: React.FC = () => {
               query: string,
               tools: Tool[],
               onUpdate?: (content: string) => void,
+              model?: string,
             ) => Promise<string>;
           }
-        ).processQuery(userMessage, tools, (content: string) => {
-          // Create a new assistant message for each iteration
-          const assistantMessage: Message = {
-            role: "assistant",
-            content: content,
-            timestamp: new Date(),
-          };
-          setChat((prev) => [...prev, assistantMessage]);
-        });
+        ).processQuery(
+          userMessage,
+          tools,
+          (content: string) => {
+            // Create a new assistant message for each iteration
+            const assistantMessage: Message = {
+              role: "assistant",
+              content: content,
+              timestamp: new Date(),
+            };
+            setChat((prev) => [...prev, assistantMessage]);
+          },
+          selectedModel,
+        );
       } else {
         throw new Error(
           "Chat functionality is not available. Please ensure you have a valid API key and the server is connected.",
@@ -199,16 +269,64 @@ const ChatTab: React.FC = () => {
       {/* Header */}
       <div className="flex-shrink-0 border-b border-border bg-background">
         <div className="px-4 sm:px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center">
-              <Bot className="w-4 h-4 text-white" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center">
+                <Bot className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <h1 className="text-base font-medium text-foreground">
+                  Claude
+                </h1>
+                <p className="text-xs text-muted-foreground">
+                  {claudeApiKey ? "Online" : "API key required"}
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-base font-medium text-foreground">Claude</h1>
-              <p className="text-xs text-muted-foreground">
-                {claudeApiKey ? "Online" : "API key required"}
-              </p>
-            </div>
+
+            {/* Model Selector */}
+            {claudeApiKey && (
+              <div className="relative" ref={modelSelectorRef}>
+                <button
+                  onClick={() => setShowModelSelector(!showModelSelector)}
+                  className="flex items-center gap-2 px-3 py-2 text-sm bg-muted hover:bg-muted/80 rounded-md transition-colors"
+                  disabled={loading}
+                >
+                  <span className="text-foreground">
+                    {CLAUDE_MODELS.find((m) => m.id === selectedModel)?.name ||
+                      selectedModel}
+                  </span>
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                </button>
+
+                {showModelSelector && (
+                  <div className="absolute right-0 top-full mt-1 w-64 bg-background border border-border rounded-md shadow-lg z-50">
+                    <div className="py-1">
+                      {CLAUDE_MODELS.map((model) => (
+                        <button
+                          key={model.id}
+                          onClick={() => {
+                            setSelectedModel(model.id);
+                            setShowModelSelector(false);
+                          }}
+                          className={cn(
+                            "w-full px-3 py-2 text-left hover:bg-muted transition-colors",
+                            selectedModel === model.id && "bg-muted",
+                          )}
+                        >
+                          <div className="text-sm font-medium text-foreground">
+                            {model.name}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {model.description}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

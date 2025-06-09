@@ -61,7 +61,12 @@ import { mappedTools } from "@/utils/mcpjamClientHelpers";
 // Add interface for extended MCP client with Anthropic
 export interface ExtendedMcpClient extends Client {
   anthropic: Anthropic;
-  processQuery: (query: string, tools: Tool[]) => Promise<string>;
+  processQuery: (
+    query: string,
+    tools: Tool[],
+    onUpdate?: (content: string) => void,
+    model?: string,
+  ) => Promise<string>;
   chatLoop: (tools: Tool[]) => Promise<void>;
   cleanup: () => Promise<void>;
 }
@@ -561,22 +566,24 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     query: string,
     tools: Tool[],
     onUpdate?: (content: string) => void,
+    model: string = "claude-3-5-sonnet-latest",
   ): Promise<string> {
     if (!this.anthropic) {
       throw new Error("Anthropic client not initialized");
     }
 
-    const context = this.initializeQueryContext(query, tools);
+    const context = this.initializeQueryContext(query, tools, model);
     const response = await this.makeInitialApiCall(context);
 
     return this.processIterations(response, context, onUpdate);
   }
 
-  private initializeQueryContext(query: string, tools: Tool[]) {
+  private initializeQueryContext(query: string, tools: Tool[], model: string) {
     return {
       messages: [{ role: "user" as const, content: query }] as MessageParam[],
       finalText: [] as string[],
       sanitizedTools: mappedTools(tools),
+      model,
       MAX_ITERATIONS: 5,
     };
   }
@@ -585,7 +592,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     context: ReturnType<typeof this.initializeQueryContext>,
   ) {
     return this.anthropic!.messages.create({
-      model: "claude-3-haiku-20240307",
+      model: context.model,
       max_tokens: 1000,
       messages: context.messages,
       tools: context.sanitizedTools,
@@ -772,7 +779,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     context: ReturnType<typeof this.initializeQueryContext>,
   ) {
     return this.anthropic!.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: context.model,
       max_tokens: 1000,
       messages: context.messages,
       tools: context.sanitizedTools,
