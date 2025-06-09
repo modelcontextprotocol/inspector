@@ -271,20 +271,20 @@ const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
             : "bg-muted text-foreground",
         )}
       >
-        {/* Tool calls */}
-        {parsedContent.toolCalls.length > 0 && (
-          <div className="mb-3">
-            {parsedContent.toolCalls.map((toolCall, index) => (
-              <ToolCallMessage key={index} toolCall={toolCall} />
-            ))}
-          </div>
-        )}
-
         {/* Regular text content */}
         {parsedContent.text && (
           <p className="text-sm leading-relaxed whitespace-pre-wrap">
             {parsedContent.text}
           </p>
+        )}
+
+        {/* Tool calls */}
+        {parsedContent.toolCalls.length > 0 && (
+          <div className="mt-3">
+            {parsedContent.toolCalls.map((toolCall, index) => (
+              <ToolCallMessage key={index} toolCall={toolCall} />
+            ))}
+          </div>
         )}
 
         <div
