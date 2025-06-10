@@ -5,8 +5,12 @@ import {
   registerClient,
   startAuthorization,
   exchangeAuthorization,
+  discoverOAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/client/auth.js";
-import { OAuthMetadataSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
+import {
+  OAuthMetadataSchema,
+  OAuthProtectedResourceMetadata,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 
 export interface StateMachineContext {
   state: AuthDebuggerState;
@@ -18,7 +22,6 @@ export interface StateMachineContext {
 export interface StateTransition {
   canTransition: (context: StateMachineContext) => Promise<boolean>;
   execute: (context: StateMachineContext) => Promise<void>;
-  nextStep: OAuthStep;
 }
 
 // State machine transitions
@@ -26,18 +29,41 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
   metadata_discovery: {
     canTransition: async () => true,
     execute: async (context) => {
-      const metadata = await discoverOAuthMetadata(context.serverUrl);
+      let authServerUrl = new URL(context.serverUrl);
+      let resourceMetadata: OAuthProtectedResourceMetadata | null = null;
+      let resourceMetadataError: Error | null = null;
+      try {
+        resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+          context.serverUrl,
+        );
+        if (
+          resourceMetadata &&
+          resourceMetadata.authorization_servers?.length
+        ) {
+          authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
+        }
+      } catch (e) {
+        if (e instanceof Error) {
+          resourceMetadataError = e;
+        } else {
+          resourceMetadataError = new Error(String(e));
+        }
+      }
+
+      const metadata = await discoverOAuthMetadata(authServerUrl);
       if (!metadata) {
         throw new Error("Failed to discover OAuth metadata");
       }
       const parsedMetadata = await OAuthMetadataSchema.parseAsync(metadata);
       context.provider.saveServerMetadata(parsedMetadata);
       context.updateState({
+        resourceMetadata,
+        resourceMetadataError,
+        authServerUrl,
         oauthMetadata: parsedMetadata,
         oauthStep: "client_registration",
       });
     },
-    nextStep: "client_registration",
   },
 
   client_registration: {
@@ -46,9 +72,13 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       const metadata = context.state.oauthMetadata!;
       const clientMetadata = context.provider.clientMetadata;
 
+      // Prefer scopes from resource metadata if available
+      const scopesSupported =
+        context.state.resourceMetadata?.scopes_supported ||
+        metadata.scopes_supported;
       // Add all supported scopes to client registration
-      if (metadata.scopes_supported) {
-        clientMetadata.scope = metadata.scopes_supported.join(" ");
+      if (scopesSupported) {
+        clientMetadata.scope = scopesSupported.join(" ");
       }
 
       const fullInformation = await registerClient(context.serverUrl, {
@@ -62,7 +92,6 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         oauthStep: "authorization_redirect",
       });
     },
-    nextStep: "authorization_redirect",
   },
 
   authorization_redirect: {
@@ -93,7 +122,6 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         oauthStep: "authorization_code",
       });
     },
-    nextStep: "authorization_code",
   },
 
   authorization_code: {
@@ -114,7 +142,6 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         oauthStep: "token_request",
       });
     },
-    nextStep: "token_request",
   },
 
   token_request: {
@@ -144,7 +171,6 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         oauthStep: "complete",
       });
     },
-    nextStep: "complete",
   },
 
   complete: {
@@ -152,7 +178,6 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
     execute: async () => {
       // No-op for complete state
     },
-    nextStep: "complete",
   },
 };
 

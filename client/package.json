@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-client",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Client-side application for the Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -23,7 +23,7 @@
     "test:watch": "jest --config jest.config.cjs --watch"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.11.5",
+    "@modelcontextprotocol/sdk": "^1.12.1",
     "@radix-ui/react-checkbox": "^1.1.4",
     "ajv": "^6.12.6",
     "@radix-ui/react-dialog": "^1.1.3",

@@ -19,7 +19,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
-import { AuthDebuggerState } from "./lib/auth-types";
+import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
+import { OAuthStateMachine } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
 import React, {
   Suspense,
@@ -29,7 +30,10 @@ import React, {
   useState,
 } from "react";
 import { useConnection } from "./lib/hooks/useConnection";
-import { useDraggablePane } from "./lib/hooks/useDraggablePane";
+import {
+  useDraggablePane,
+  useDraggableSidebar,
+} from "./lib/hooks/useDraggablePane";
 import { StdErrNotification } from "./lib/notificationTypes";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -121,19 +125,8 @@ const App = () => {
   const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
 
   // Auth debugger state
-  const [authState, setAuthState] = useState<AuthDebuggerState>({
-    isInitiatingAuth: false,
-    oauthTokens: null,
-    loading: true,
-    oauthStep: "metadata_discovery",
-    oauthMetadata: null,
-    oauthClientInfo: null,
-    authorizationUrl: null,
-    authorizationCode: "",
-    latestError: null,
-    statusMessage: null,
-    validationError: null,
-  });
+  const [authState, setAuthState] =
+    useState<AuthDebuggerState>(EMPTY_DEBUGGER_STATE);
 
   // Helper function to update specific auth state properties
   const updateAuthState = (updates: Partial<AuthDebuggerState>) => {
@@ -164,6 +157,11 @@ const App = () => {
   const progressTokenRef = useRef(0);
 
   const { height: historyPaneHeight, handleDragStart } = useDraggablePane(300);
+  const {
+    width: sidebarWidth,
+    isDragging: isSidebarDragging,
+    handleDragStart: handleSidebarDragStart,
+  } = useDraggableSidebar(320);
 
   const {
     connectionStatus,
@@ -243,27 +241,81 @@ const App = () => {
 
   // Update OAuth debug state during debug callback
   const onOAuthDebugConnect = useCallback(
-    ({
+    async ({
       authorizationCode,
       errorMsg,
+      restoredState,
     }: {
       authorizationCode?: string;
       errorMsg?: string;
+      restoredState?: AuthDebuggerState;
     }) => {
       setIsAuthDebuggerVisible(true);
-      if (authorizationCode) {
+
+      if (errorMsg) {
+        updateAuthState({
+          latestError: new Error(errorMsg),
+        });
+        return;
+      }
+
+      if (restoredState && authorizationCode) {
+        // Restore the previous auth state and continue the OAuth flow
+        let currentState: AuthDebuggerState = {
+          ...restoredState,
+          authorizationCode,
+          oauthStep: "token_request",
+          isInitiatingAuth: true,
+          statusMessage: null,
+          latestError: null,
+        };
+
+        try {
+          // Create a new state machine instance to continue the flow
+          const stateMachine = new OAuthStateMachine(sseUrl, (updates) => {
+            currentState = { ...currentState, ...updates };
+          });
+
+          // Continue stepping through the OAuth flow from where we left off
+          while (
+            currentState.oauthStep !== "complete" &&
+            currentState.oauthStep !== "authorization_code"
+          ) {
+            await stateMachine.executeStep(currentState);
+          }
+
+          if (currentState.oauthStep === "complete") {
+            // After the flow completes or reaches a user-input step, update the app state
+            updateAuthState({
+              ...currentState,
+              statusMessage: {
+                type: "success",
+                message: "Authentication completed successfully",
+              },
+              isInitiatingAuth: false,
+            });
+          }
+        } catch (error) {
+          console.error("OAuth continuation error:", error);
+          updateAuthState({
+            latestError:
+              error instanceof Error ? error : new Error(String(error)),
+            statusMessage: {
+              type: "error",
+              message: `Failed to complete OAuth flow: ${error instanceof Error ? error.message : String(error)}`,
+            },
+            isInitiatingAuth: false,
+          });
+        }
+      } else if (authorizationCode) {
+        // Fallback to the original behavior if no state was restored
         updateAuthState({
           authorizationCode,
           oauthStep: "token_request",
         });
       }
-      if (errorMsg) {
-        updateAuthState({
-          latestError: new Error(errorMsg),
-        });
-      }
     },
-    [],
+    [sseUrl],
   );
 
   // Load OAuth tokens when sseUrl changes
@@ -285,8 +337,6 @@ const App = () => {
         }
       } catch (error) {
         console.error("Error loading OAuth tokens:", error);
-      } finally {
-        updateAuthState({ loading: false });
       }
     };
 
@@ -565,32 +615,58 @@ const App = () => {
 
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar
-        connectionStatus={connectionStatus}
-        transportType={transportType}
-        setTransportType={setTransportType}
-        command={command}
-        setCommand={setCommand}
-        args={args}
-        setArgs={setArgs}
-        sseUrl={sseUrl}
-        setSseUrl={setSseUrl}
-        env={env}
-        setEnv={setEnv}
-        config={config}
-        setConfig={setConfig}
-        bearerToken={bearerToken}
-        setBearerToken={setBearerToken}
-        headerName={headerName}
-        setHeaderName={setHeaderName}
-        onConnect={connectMcpServer}
-        onDisconnect={disconnectMcpServer}
-        stdErrNotifications={stdErrNotifications}
-        logLevel={logLevel}
-        sendLogLevelRequest={sendLogLevelRequest}
-        loggingSupported={!!serverCapabilities?.logging || false}
-        clearStdErrNotifications={clearStdErrNotifications}
-      />
+      <div
+        style={{
+          width: sidebarWidth,
+          minWidth: 200,
+          maxWidth: 600,
+          transition: isSidebarDragging ? "none" : "width 0.15s",
+        }}
+        className="bg-card border-r border-border flex flex-col h-full relative"
+      >
+        <Sidebar
+          connectionStatus={connectionStatus}
+          transportType={transportType}
+          setTransportType={setTransportType}
+          command={command}
+          setCommand={setCommand}
+          args={args}
+          setArgs={setArgs}
+          sseUrl={sseUrl}
+          setSseUrl={setSseUrl}
+          env={env}
+          setEnv={setEnv}
+          config={config}
+          setConfig={setConfig}
+          bearerToken={bearerToken}
+          setBearerToken={setBearerToken}
+          headerName={headerName}
+          setHeaderName={setHeaderName}
+          onConnect={connectMcpServer}
+          onDisconnect={disconnectMcpServer}
+          stdErrNotifications={stdErrNotifications}
+          logLevel={logLevel}
+          sendLogLevelRequest={sendLogLevelRequest}
+          loggingSupported={!!serverCapabilities?.logging || false}
+          clearStdErrNotifications={clearStdErrNotifications}
+        />
+        {/* Drag handle for resizing sidebar */}
+        <div
+          onMouseDown={handleSidebarDragStart}
+          style={{
+            cursor: "col-resize",
+            position: "absolute",
+            top: 0,
+            right: 0,
+            width: 6,
+            height: "100%",
+            zIndex: 10,
+            background: isSidebarDragging ? "rgba(0,0,0,0.08)" : "transparent",
+          }}
+          aria-label="Resize sidebar"
+          data-testid="sidebar-drag-handle"
+        />
+      </div>
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
           {mcpClient ? (

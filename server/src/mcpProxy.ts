@@ -6,7 +6,15 @@ function onClientError(error: Error) {
 }
 
 function onServerError(error: Error) {
-  console.error("Error from MCP server:", error);
+  if (
+    (error?.message &&
+      error.message.includes("Error POSTing to endpoint (HTTP 404)")) ||
+    (error?.cause && JSON.stringify(error.cause).includes("ECONNREFUSED"))
+  ) {
+    console.error("Connection refused. Is the MCP server running?");
+  } else {
+    console.error("Error from MCP server:", error);
+  }
 }
 
 export default function mcpProxy({
@@ -18,6 +26,8 @@ export default function mcpProxy({
 }) {
   let transportToClientClosed = false;
   let transportToServerClosed = false;
+
+  let reportedServerSession = false;
 
   transportToClient.onmessage = (message) => {
     transportToServer.send(message).catch((error) => {
@@ -38,6 +48,15 @@ export default function mcpProxy({
   };
 
   transportToServer.onmessage = (message) => {
+    if (!reportedServerSession) {
+      if (transportToServer.sessionId) {
+        // Can only report for StreamableHttp
+        console.error(
+          "Proxy  <-> Server sessionId: " + transportToServer.sessionId,
+        );
+      }
+      reportedServerSession = true;
+    }
     transportToClient.send(message).catch(onClientError);
   };
 
