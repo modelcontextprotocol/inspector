@@ -6,6 +6,8 @@ import {
 } from "../lib/serverTypes";
 import { InspectorConfig } from "../lib/configurationTypes";
 import ConnectionSection from "./ConnectionSection";
+import { ParsedServerConfig } from "@/utils/configImportUtils";
+import { useToast } from "@/lib/hooks/useToast";
 
 interface ClientFormSectionProps {
   isCreating: boolean;
@@ -22,6 +24,7 @@ interface ClientFormSectionProps {
   setHeaderName: (name: string) => void;
   onSave: () => void;
   onCancel: () => void;
+  onImportMultipleServers?: (servers: ParsedServerConfig[]) => void;
 }
 
 const ClientFormSection: React.FC<ClientFormSectionProps> = ({
@@ -39,9 +42,11 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
   setHeaderName,
   onSave,
   onCancel,
+  onImportMultipleServers,
 }) => {
   // Local state to track raw args string while typing
   const [argsString, setArgsString] = useState<string>("");
+  const { toast } = useToast();
 
   // Initialize argsString when clientFormConfig changes
   useEffect(() => {
@@ -60,6 +65,32 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
         ...clientFormConfig,
         args: newArgsString.trim() ? newArgsString.split(/\s+/) : [],
       } as StdioServerDefinition);
+    }
+  };
+
+  // Handler for importing multiple servers
+  const handleImportServers = (servers: ParsedServerConfig[]) => {
+    if (onImportMultipleServers) {
+      onImportMultipleServers(servers);
+    } else {
+      // Fallback: if no handler provided, just set the first server as the current config
+      if (servers.length > 0) {
+        const firstServer = servers[0];
+        setClientFormConfig(firstServer.config);
+        if (!clientFormName.trim()) {
+          setClientFormName(firstServer.name);
+        }
+        
+        // Update args string if it's a stdio server
+        if (firstServer.config.transportType === "stdio" && "args" in firstServer.config) {
+          setArgsString(firstServer.config.args?.join(" ") || "");
+        }
+
+        toast({
+          title: "Configuration imported",
+          description: `Imported configuration for "${firstServer.name}". ${servers.length > 1 ? `${servers.length - 1} other server(s) were ignored.` : ""}`,
+        });
+      }
     }
   };
 
@@ -170,6 +201,7 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
               sendLogLevelRequest={async () => {}}
               loggingSupported={false}
               hideActionButtons={true}
+              onImportServers={handleImportServers}
             />
           </div>
 

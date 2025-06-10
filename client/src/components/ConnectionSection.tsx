@@ -8,6 +8,7 @@ import {
   RefreshCwOff,
   Copy,
   CheckCheck,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,8 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { useToast } from "../lib/hooks/useToast";
+import ConfigImportDialog from "./ConfigImportDialog";
+import { ParsedServerConfig } from "@/utils/configImportUtils";
 
 interface ConnectionSectionProps {
   connectionStatus: ConnectionStatus;
@@ -58,6 +61,7 @@ interface ConnectionSectionProps {
   config: InspectorConfig;
   setConfig: (config: InspectorConfig) => void;
   hideActionButtons?: boolean;
+  onImportServers?: (servers: ParsedServerConfig[]) => void;
 }
 
 const ConnectionSection = ({
@@ -86,11 +90,13 @@ const ConnectionSection = ({
   config,
   setConfig,
   hideActionButtons,
+  onImportServers,
 }: ConnectionSectionProps) => {
   const [activeTab, setActiveTab] = useState("connection");
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
   const [copiedServerEntry, setCopiedServerEntry] = useState(false);
   const [copiedServerFile, setCopiedServerFile] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
   const { toast } = useToast();
 
   // Reusable error reporter for copy actions
@@ -217,6 +223,7 @@ const ConnectionSection = ({
             : []),
           { key: "config", label: "Configuration" },
           ...(loggingSupported ? [{ key: "logging", label: "Logging" }] : []),
+          ...(onImportServers ? [{ key: "import", label: "Import" }] : []),
         ].map((tab) => (
           <button
             key={tab.key}
@@ -497,6 +504,24 @@ const ConnectionSection = ({
             </div>
           </div>
         )}
+
+        {activeTab === "import" && onImportServers && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+              Import Configuration
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Import multiple servers from a configuration file. Supports the same format used by Claude Desktop and Cursor.
+            </p>
+            <Button
+              onClick={() => setShowImportDialog(true)}
+              className="w-full h-8 text-xs"
+            >
+              <Upload className="w-3 h-3 mr-2" />
+              Import from Configuration File
+            </Button>
+          </div>
+        )}
       </div>
     );
   };
@@ -708,6 +733,15 @@ const ConnectionSection = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Config Import Dialog */}
+      {onImportServers && (
+        <ConfigImportDialog
+          open={showImportDialog}
+          onOpenChange={setShowImportDialog}
+          onImportServers={onImportServers}
+        />
       )}
     </div>
   );
