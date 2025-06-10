@@ -36,7 +36,10 @@ import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
 import { ConnectionStatus } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
-import { auth, discoverOAuthMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  auth,
+  discoverOAuthMetadata,
+} from "@modelcontextprotocol/sdk/client/auth.js";
 import { InspectorOAuthClientProvider } from "../auth";
 import packageJson from "../../../package.json";
 import {
@@ -273,7 +276,10 @@ export function useConnection({
       }
       const parsedMetadata = await OAuthMetadataSchema.parseAsync(metadata);
       const scope = parsedMetadata.scopes_supported?.join(" ");
-      const result = await auth(serverAuthProvider, { serverUrl: sseUrl, scope });
+      const result = await auth(serverAuthProvider, {
+        serverUrl: sseUrl,
+        scope,
+      });
       return result === "AUTHORIZED";
     }
 
