@@ -80,18 +80,21 @@ export const getConfigOverridesFromQueryParams = (
   for (const key of Object.keys(defaultConfig)) {
     const param = url.searchParams.get(key);
     if (param !== null) {
-      // Try to coerce to correct type based on default value
-      const defaultValue = defaultConfig[key as keyof InspectorConfig].value;
-      let value: string | number | boolean = param;
-      if (typeof defaultValue === "number") {
-        value = Number(param);
-      } else if (typeof defaultValue === "boolean") {
-        value = param === "true";
+      const defaultConfigItem = defaultConfig[key as keyof InspectorConfig];
+      if (defaultConfigItem) {
+        // Try to coerce to correct type based on default value
+        const defaultValue = defaultConfigItem.value;
+        let value: string | number | boolean = param;
+        if (typeof defaultValue === "number") {
+          value = Number(param);
+        } else if (typeof defaultValue === "boolean") {
+          value = param === "true";
+        }
+        overrides[key as keyof InspectorConfig] = {
+          ...defaultConfigItem,
+          value,
+        };
       }
-      overrides[key as keyof InspectorConfig] = {
-        ...defaultConfig[key as keyof InspectorConfig],
-        value,
-      };
     }
   }
   return overrides;
@@ -111,10 +114,13 @@ export const initializeInspectorConfig = (
 
     // update description of keys to match the new description (in case of any updates to the default config description)
     for (const [key, value] of Object.entries(mergedConfig)) {
-      mergedConfig[key as keyof InspectorConfig] = {
-        ...value,
-        label: DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].label,
-      };
+      const defaultConfigItem = DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig];
+      if (defaultConfigItem) {
+        mergedConfig[key as keyof InspectorConfig] = {
+          ...value,
+          label: defaultConfigItem.label,
+        };
+      }
     }
     baseConfig = mergedConfig;
   } else {
