@@ -241,7 +241,10 @@ export function useConnection({
 
   const checkProxyHealth = async () => {
     try {
-      const proxyHealthUrl = new URL(`${getMCPProxyAddress(config)}/health`);
+      // Remove additional slashes
+      const proxyBaseUrl = getMCPProxyAddress(config).replace(/\/+$/, "");
+      const proxyHealthUrl = new URL(`${proxyBaseUrl}/health`);
+
       const proxyHealthResponse = await fetch(proxyHealthUrl);
       const proxyHealth = await proxyHealthResponse.json();
       if (proxyHealth?.status !== "ok") {
