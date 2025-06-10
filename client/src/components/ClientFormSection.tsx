@@ -10,7 +10,8 @@ import { ParsedServerConfig } from "@/utils/configImportUtils";
 import { useToast } from "@/lib/hooks/useToast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Plus, Save, AlertCircle } from "lucide-react";
+import { X, Plus, Save, AlertCircle, Upload } from "lucide-react";
+import ConfigImportDialog from "./ConfigImportDialog";
 
 interface ClientConfig {
   id: string;
@@ -61,6 +62,7 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
   const [multipleClients, setMultipleClients] = useState<ClientConfig[]>([]);
   const [isMultipleMode, setIsMultipleMode] = useState(false);
   const { toast } = useToast();
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   // Initialize argsString when clientFormConfig changes
   useEffect(() => {
@@ -428,7 +430,43 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
           </p>
         </div>
 
+        {/* Import Configuration Section - Prominent Display */}
+        {isCreating && (
+          <div className="mb-6 p-4 rounded-lg bg-card border border-border/50 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-muted rounded-lg">
+                <Upload className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold mb-1">
+                  Import Configuration
+                </h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Import multiple servers from a configuration file. Supports the same format used by Claude Desktop and Cursor.
+                </p>
+                <Button
+                  onClick={() => setShowImportDialog(true)}
+                  size="sm"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Import from Configuration File
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Manual Configuration Section */}
         <div className="space-y-4">
+          {isCreating && (
+            <div className="border-t pt-4">
+              <h3 className="text-lg font-medium mb-1">Manual Configuration</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Or configure a single client manually with the options below.
+              </p>
+            </div>
+          )}
+
           <div>
             <label className="text-sm font-medium mb-2 block">
               Client Name
@@ -521,7 +559,6 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
               sendLogLevelRequest={async () => {}}
               loggingSupported={false}
               hideActionButtons={true}
-              onImportServers={handleImportServers}
             />
           </div>
 
@@ -541,6 +578,13 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Import Dialog */}
+        <ConfigImportDialog
+          open={showImportDialog}
+          onOpenChange={setShowImportDialog}
+          onImportServers={handleImportServers}
+        />
       </div>
     </div>
   );
