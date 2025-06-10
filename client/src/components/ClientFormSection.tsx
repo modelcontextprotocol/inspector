@@ -35,7 +35,7 @@ interface ClientFormSectionProps {
   onSave: () => void;
   onCancel: () => void;
   onImportMultipleServers?: (servers: ParsedServerConfig[]) => void;
-  onSaveMultiple?: (clients: Array<{ name: string; config: MCPJamServerConfig }>) => void;
+  onSaveMultiple?: (clients: Array<{ name: string; config: MCPJamServerConfig }>) => Promise<{ success: string[]; failed: Array<{ name: string; error: string }> }>;
 }
 
 const ClientFormSection: React.FC<ClientFormSectionProps> = ({
@@ -159,7 +159,7 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
   };
 
   // Handler for saving all clients in multiple mode
-  const handleSaveAll = () => {
+  const handleSaveAll = async () => {
     const validClients = multipleClients.filter(client => client.name.trim());
     
     if (validClients.length === 0) {
@@ -171,17 +171,49 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
       return;
     }
 
-    if (onSaveMultiple) {
-      onSaveMultiple(validClients.map(client => ({
-        name: client.name,
-        config: client.config,
-      })));
+    // Check for duplicate names
+    const names = validClients.map(c => c.name.trim());
+    const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
+    if (duplicates.length > 0) {
+      toast({
+        title: "Duplicate client names",
+        description: `Please ensure all client names are unique. Duplicates: ${[...new Set(duplicates)].join(', ')}`,
+        variant: "destructive",
+      });
+      return;
     }
 
-    toast({
-      title: "Clients created",
-      description: `Successfully created ${validClients.length} client(s).`,
-    });
+    if (onSaveMultiple) {
+      try {
+        const results = await onSaveMultiple(validClients.map(client => ({
+          name: client.name.trim(),
+          config: client.config,
+        })));
+
+        // Show appropriate toast based on results
+        if (results.success.length > 0) {
+          toast({
+            title: "Clients created",
+            description: `Successfully created ${results.success.length} client(s): ${results.success.join(', ')}`,
+          });
+        }
+        
+        if (results.failed.length > 0) {
+          toast({
+            title: "Some clients failed",
+            description: `${results.failed.length} client(s) failed to create. Check console for details.`,
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        console.error("Failed to create clients:", error);
+        toast({
+          title: "Creation failed",
+          description: `Failed to create clients: ${error instanceof Error ? error.message : String(error)}`,
+          variant: "destructive",
+        });
+      }
+    }
   };
 
   // Handler for going back to single mode
