@@ -287,6 +287,51 @@ const App = () => {
     }
   }, [serverState, handleAddServer, handleUpdateServer, handleRemoveServer]);
 
+  const handleSaveMultiple = useCallback(
+    async (clients: Array<{ name: string; config: MCPJamServerConfig }>) => {
+      const results: { success: string[]; failed: Array<{ name: string; error: string }> } = {
+        success: [],
+        failed: []
+      };
+      
+      console.log(`🔄 Creating ${clients.length} client(s)...`);
+      
+      // Create clients individually to handle failures gracefully
+      for (const client of clients) {
+        try {
+          console.log(`🔧 Creating client: "${client.name}"`);
+          await handleAddServer(client.name, client.config);
+          results.success.push(client.name);
+          console.log(`✅ Successfully created client: "${client.name}"`);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error(`❌ Failed to create client "${client.name}":`, errorMessage);
+          results.failed.push({ name: client.name, error: errorMessage });
+        }
+      }
+      
+      // Exit client form mode
+      serverState.handleCancelClientForm();
+      
+      // Log final results
+      if (results.success.length > 0) {
+        console.log(`✅ Successfully created ${results.success.length} client(s): ${results.success.join(', ')}`);
+      }
+      
+      if (results.failed.length > 0) {
+        console.error(`❌ Failed to create ${results.failed.length} client(s):`, results.failed);
+        
+        // Show error details in console for debugging
+        results.failed.forEach(({ name, error }) => {
+          console.error(`  - ${name}: ${error}`);
+        });
+      }
+      
+      return results;
+    },
+    [handleAddServer, serverState],
+  );
+
   const handleEditClient = useCallback(
     (serverName: string) => {
       const serverConnections = connectionState.mcpAgent
@@ -655,6 +700,7 @@ const App = () => {
           headerName={configState.headerName}
           setHeaderName={configState.setHeaderName}
           onSave={handleSaveClient}
+          onSaveMultiple={handleSaveMultiple}
           onCancel={serverState.handleCancelClientForm}
         />
       );

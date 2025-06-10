@@ -6,6 +6,19 @@ import {
 } from "../lib/serverTypes";
 import { InspectorConfig } from "../lib/configurationTypes";
 import ConnectionSection from "./ConnectionSection";
+import { ParsedServerConfig } from "@/utils/configImportUtils";
+import { useToast } from "@/lib/hooks/useToast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { X, Plus, Save, AlertCircle, Upload } from "lucide-react";
+import ConfigImportDialog from "./ConfigImportDialog";
+
+interface ClientConfig {
+  id: string;
+  name: string;
+  config: MCPJamServerConfig;
+  argsString: string;
+}
 
 interface ClientFormSectionProps {
   isCreating: boolean;
@@ -22,6 +35,8 @@ interface ClientFormSectionProps {
   setHeaderName: (name: string) => void;
   onSave: () => void;
   onCancel: () => void;
+  onImportMultipleServers?: (servers: ParsedServerConfig[]) => void;
+  onSaveMultiple?: (clients: Array<{ name: string; config: MCPJamServerConfig }>) => Promise<{ success: string[]; failed: Array<{ name: string; error: string }> }>;
 }
 
 const ClientFormSection: React.FC<ClientFormSectionProps> = ({
@@ -39,9 +54,15 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
   setHeaderName,
   onSave,
   onCancel,
+  onImportMultipleServers,
+  onSaveMultiple,
 }) => {
   // Local state to track raw args string while typing
   const [argsString, setArgsString] = useState<string>("");
+  const [multipleClients, setMultipleClients] = useState<ClientConfig[]>([]);
+  const [isMultipleMode, setIsMultipleMode] = useState(false);
+  const { toast } = useToast();
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   // Initialize argsString when clientFormConfig changes
   useEffect(() => {
@@ -63,6 +84,338 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
     }
   };
 
+  // Handler for importing multiple servers
+  const handleImportServers = (servers: ParsedServerConfig[]) => {
+    if (servers.length > 1) {
+      // Multiple servers - switch to multiple mode
+      const clients: ClientConfig[] = servers.map((server, index) => ({
+        id: `client-${Date.now()}-${index}`,
+        name: server.name,
+        config: server.config,
+        argsString: server.config.transportType === "stdio" && "args" in server.config 
+          ? server.config.args?.join(" ") || ""
+          : "",
+      }));
+      
+      setMultipleClients(clients);
+      setIsMultipleMode(true);
+      
+      toast({
+        title: "Multiple servers imported",
+        description: `Imported ${servers.length} server configurations. Configure each client below.`,
+      });
+    } else if (servers.length === 1) {
+      // Single server - use existing flow
+      const firstServer = servers[0];
+      setClientFormConfig(firstServer.config);
+      if (!clientFormName.trim()) {
+        setClientFormName(firstServer.name);
+      }
+      
+      // Update args string if it's a stdio server
+      if (firstServer.config.transportType === "stdio" && "args" in firstServer.config) {
+        setArgsString(firstServer.config.args?.join(" ") || "");
+      }
+
+      toast({
+        title: "Configuration imported",
+        description: `Imported configuration for "${firstServer.name}".`,
+      });
+    }
+
+    if (onImportMultipleServers) {
+      onImportMultipleServers(servers);
+    }
+  };
+
+  // Handler for updating individual client in multiple mode
+  const handleUpdateClient = (clientId: string, updates: Partial<ClientConfig>) => {
+    setMultipleClients(prev => 
+      prev.map(client => 
+        client.id === clientId 
+          ? { ...client, ...updates }
+          : client
+      )
+    );
+  };
+
+  // Handler for removing a client in multiple mode
+  const handleRemoveClient = (clientId: string) => {
+    setMultipleClients(prev => prev.filter(client => client.id !== clientId));
+  };
+
+  // Handler for adding a new client in multiple mode
+  const handleAddClient = () => {
+    const newClient: ClientConfig = {
+      id: `client-${Date.now()}`,
+      name: "",
+      config: {
+        transportType: "stdio",
+        command: "npx",
+        args: ["@modelcontextprotocol/server-everything"],
+        env: {},
+      } as StdioServerDefinition,
+      argsString: "@modelcontextprotocol/server-everything",
+    };
+    setMultipleClients(prev => [...prev, newClient]);
+  };
+
+  // Handler for saving all clients in multiple mode
+  const handleSaveAll = async () => {
+    const validClients = multipleClients.filter(client => client.name.trim());
+    
+    if (validClients.length === 0) {
+      toast({
+        title: "No valid clients",
+        description: "Please provide names for at least one client.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check for duplicate names
+    const names = validClients.map(c => c.name.trim());
+    const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
+    if (duplicates.length > 0) {
+      toast({
+        title: "Duplicate client names",
+        description: `Please ensure all client names are unique. Duplicates: ${[...new Set(duplicates)].join(', ')}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (onSaveMultiple) {
+      try {
+        const results = await onSaveMultiple(validClients.map(client => ({
+          name: client.name.trim(),
+          config: client.config,
+        })));
+
+        // Show appropriate toast based on results
+        if (results.success.length > 0) {
+          toast({
+            title: "Clients created",
+            description: `Successfully created ${results.success.length} client(s): ${results.success.join(', ')}`,
+          });
+        }
+        
+        if (results.failed.length > 0) {
+          toast({
+            title: "Some clients failed",
+            description: `${results.failed.length} client(s) failed to create. Check console for details.`,
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        console.error("Failed to create clients:", error);
+        toast({
+          title: "Creation failed",
+          description: `Failed to create clients: ${error instanceof Error ? error.message : String(error)}`,
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  // Handler for going back to single mode
+  const handleBackToSingle = () => {
+    setIsMultipleMode(false);
+    setMultipleClients([]);
+  };
+
+  if (isMultipleMode) {
+    return (
+      <div className="flex-1 flex flex-col overflow-auto p-6">
+        <div className="max-w-6xl mx-auto w-full">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold mb-2">
+              Create Multiple Clients
+            </h2>
+            <p className="text-muted-foreground">
+              Configure each imported server as a separate client. You can modify settings individually.
+            </p>
+          </div>
+
+          <div className="space-y-6">
+            {multipleClients.map((client, index) => (
+              <div key={client.id} className="border border-border rounded-lg p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">Client {index + 1}</h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleRemoveClient(client.id)}
+                    className="h-8 w-8 p-0"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium mb-2 block">
+                    Client Name
+                  </label>
+                  <Input
+                    value={client.name}
+                    onChange={(e) => handleUpdateClient(client.id, { name: e.target.value })}
+                    placeholder="Enter client name"
+                    className="w-full"
+                  />
+                </div>
+
+                <div className="border border-border rounded-lg">
+                  <ConnectionSection
+                    connectionStatus="disconnected"
+                    transportType={client.config.transportType}
+                    setTransportType={(type) => {
+                      let newConfig: MCPJamServerConfig;
+                      let newArgsString = "";
+                      
+                      if (type === "stdio") {
+                        newConfig = {
+                          transportType: type,
+                          command: "npx",
+                          args: ["@modelcontextprotocol/server-everything"],
+                          env: {},
+                        } as StdioServerDefinition;
+                        newArgsString = "@modelcontextprotocol/server-everything";
+                      } else {
+                        newConfig = {
+                          transportType: type,
+                          url: new URL("https://example.com"),
+                        } as HttpServerDefinition;
+                      }
+                      
+                      handleUpdateClient(client.id, { 
+                        config: newConfig,
+                        argsString: newArgsString
+                      });
+                    }}
+                    command={
+                      client.config.transportType === "stdio" &&
+                      "command" in client.config
+                        ? client.config.command || ""
+                        : ""
+                    }
+                    setCommand={(command) => {
+                      if (client.config.transportType === "stdio") {
+                        handleUpdateClient(client.id, {
+                          config: {
+                            ...client.config,
+                            command,
+                          } as StdioServerDefinition
+                        });
+                      }
+                    }}
+                    args={client.argsString}
+                    setArgs={(newArgsString) => {
+                      if (client.config.transportType === "stdio") {
+                        handleUpdateClient(client.id, {
+                          argsString: newArgsString,
+                          config: {
+                            ...client.config,
+                            args: newArgsString.trim() ? newArgsString.split(/\s+/) : [],
+                          } as StdioServerDefinition
+                        });
+                      }
+                    }}
+                    sseUrl={
+                      "url" in client.config && client.config.url
+                        ? client.config.url.toString()
+                        : ""
+                    }
+                    setSseUrl={(url) => {
+                      if (client.config.transportType !== "stdio") {
+                        handleUpdateClient(client.id, {
+                          config: {
+                            ...client.config,
+                            url: new URL(url),
+                          } as HttpServerDefinition
+                        });
+                      }
+                    }}
+                    env={
+                      client.config.transportType === "stdio" &&
+                      "env" in client.config
+                        ? client.config.env || {}
+                        : {}
+                    }
+                    setEnv={(env) => {
+                      if (client.config.transportType === "stdio") {
+                        handleUpdateClient(client.id, {
+                          config: {
+                            ...client.config,
+                            env,
+                          } as StdioServerDefinition
+                        });
+                      }
+                    }}
+                    config={config}
+                    setConfig={setConfig}
+                    bearerToken={bearerToken}
+                    setBearerToken={setBearerToken}
+                    headerName={headerName}
+                    setHeaderName={setHeaderName}
+                    onConnect={() => {}} // No-op for form
+                    onDisconnect={() => {}} // No-op for form
+                    stdErrNotifications={[]}
+                    clearStdErrNotifications={() => {}}
+                    logLevel="debug"
+                    sendLogLevelRequest={async () => {}}
+                    loggingSupported={false}
+                    hideActionButtons={true}
+                  />
+                </div>
+              </div>
+            ))}
+
+            <Button
+              variant="outline"
+              onClick={handleAddClient}
+              className="w-full"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Another Client
+            </Button>
+
+            <div className="flex space-x-3 pt-4 border-t">
+              <Button
+                onClick={handleSaveAll}
+                disabled={multipleClients.filter(c => c.name.trim()).length === 0}
+                className="flex-1"
+              >
+                <Save className="h-4 w-4 mr-2" />
+                Create {multipleClients.filter(c => c.name.trim()).length} Client(s)
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleBackToSingle}
+                className="flex-1"
+              >
+                Back to Single Mode
+              </Button>
+              <Button
+                variant="outline"
+                onClick={onCancel}
+              >
+                Cancel
+              </Button>
+            </div>
+
+            {multipleClients.some(c => !c.name.trim()) && (
+              <div className="flex items-center gap-2 text-amber-600 text-sm">
+                <AlertCircle className="h-4 w-4" />
+                Some clients don't have names and won't be created.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Single client mode (existing functionality)
   return (
     <div className="flex-1 flex flex-col overflow-auto p-6">
       <div className="max-w-4xl mx-auto w-full">
@@ -77,7 +430,43 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
           </p>
         </div>
 
+        {/* Import Configuration Section - Prominent Display */}
+        {isCreating && (
+          <div className="mb-6 p-4 rounded-lg bg-card border border-border/50 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-muted rounded-lg">
+                <Upload className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold mb-1">
+                  Import Configuration
+                </h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Import multiple servers from a configuration file. Supports the same format used by Claude Desktop and Cursor.
+                </p>
+                <Button
+                  onClick={() => setShowImportDialog(true)}
+                  size="sm"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Import from Configuration File
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Manual Configuration Section */}
         <div className="space-y-4">
+          {isCreating && (
+            <div className="border-t pt-4">
+              <h3 className="text-lg font-medium mb-1">Manual Configuration</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Or configure a single client manually with the options below.
+              </p>
+            </div>
+          )}
+
           <div>
             <label className="text-sm font-medium mb-2 block">
               Client Name
@@ -189,6 +578,13 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Import Dialog */}
+        <ConfigImportDialog
+          open={showImportDialog}
+          onOpenChange={setShowImportDialog}
+          onImportServers={handleImportServers}
+        />
       </div>
     </div>
   );
