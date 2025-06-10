@@ -153,7 +153,16 @@ export function convertToMCPJamServerConfig(
     };
   } else if (entry.url) {
     // HTTP configuration (SSE or Streamable HTTP)
-    const transportType = entry.type === "sse" ? "sse" : "streamable-http";
+    // Auto-detect SSE from URL if type is not specified
+    let transportType: "sse" | "streamable-http";
+    
+    if (entry.type) {
+      transportType = entry.type === "sse" ? "sse" : "streamable-http";
+    } else {
+      // Auto-detect: if URL contains "sse", use SSE, otherwise use streamable-http
+      transportType = entry.url.toLowerCase().includes("sse") ? "sse" : "streamable-http";
+    }
+    
     return {
       transportType,
       url: new URL(entry.url),

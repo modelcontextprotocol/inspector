@@ -287,6 +287,25 @@ const App = () => {
     }
   }, [serverState, handleAddServer, handleUpdateServer, handleRemoveServer]);
 
+  const handleSaveMultiple = useCallback(
+    async (clients: Array<{ name: string; config: MCPJamServerConfig }>) => {
+      try {
+        // Add all clients
+        for (const client of clients) {
+          await handleAddServer(client.name, client.config);
+        }
+        
+        // Exit client form mode
+        serverState.handleCancelClientForm();
+        
+        console.log(`✅ Successfully created ${clients.length} client(s)`);
+      } catch (error) {
+        console.error("Failed to save multiple clients:", error);
+      }
+    },
+    [handleAddServer, serverState],
+  );
+
   const handleEditClient = useCallback(
     (serverName: string) => {
       const serverConnections = connectionState.mcpAgent
@@ -655,6 +674,7 @@ const App = () => {
           headerName={configState.headerName}
           setHeaderName={configState.setHeaderName}
           onSave={handleSaveClient}
+          onSaveMultiple={handleSaveMultiple}
           onCancel={serverState.handleCancelClientForm}
         />
       );
