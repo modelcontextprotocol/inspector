@@ -323,7 +323,7 @@ export const useMCPOperations = () => {
         if (client) {
           const toolsResponse = await client.tools();
           addRequestHistory(
-            { method: "tools/list" },
+            { method: "tools/list", server: selectedServerName },
             { tools: toolsResponse.tools },
           );
           setTools(toolsResponse.tools);

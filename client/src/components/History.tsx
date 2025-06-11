@@ -22,8 +22,6 @@ const HistoryAndNotifications = ({
   } = useDraggablePane(500);
 
   const toggleCollapse = useCallback(() => {
-    console.log('toggleCollapse called, current state:', isHistoryCollapsed);
-    alert(`Toggle called! Current state: ${isHistoryCollapsed}`);
     setIsHistoryCollapsed(!isHistoryCollapsed);
   }, [isHistoryCollapsed]);
 
