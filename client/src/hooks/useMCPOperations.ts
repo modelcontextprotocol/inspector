@@ -74,7 +74,7 @@ export const useMCPOperations = () => {
     PendingRequest[]
   >([]);
   const [requestHistory, setRequestHistory] = useState<
-    { request: string; response?: string }[]
+    { request: string; response?: string; timestamp: string; latency?: number }[]
   >([]);
 
   const progressTokenRef = useRef(0);
@@ -85,10 +85,12 @@ export const useMCPOperations = () => {
   }, []);
 
   const addRequestHistory = useCallback(
-    (request: object, response?: object) => {
+    (request: object, response?: object, timestamp?: string, latency?: number) => {
       const requestEntry = {
         request: JSON.stringify(request, null, 2),
         response: response ? JSON.stringify(response, null, 2) : undefined,
+        timestamp: timestamp || new Date().toISOString(),
+        latency,
       };
       setRequestHistory((prev) => [...prev, requestEntry]);
     },
@@ -100,23 +102,36 @@ export const useMCPOperations = () => {
     async (mcpAgent: MCPJamAgent | null, selectedServerName: string) => {
       if (!mcpAgent) return;
 
+      const startTime = performance.now();
+      const operationTimestamp = new Date().toISOString();
+
       if (selectedServerName === "all") {
         const allServerResources = await mcpAgent.getAllResources();
         const flatResources = allServerResources.flatMap(
           ({ resources }) => resources,
         );
+        const endTime = performance.now();
+        const latency = Math.round(endTime - startTime);
+        
         addRequestHistory(
           { method: "resources/list/all" },
           { resources: flatResources },
+          operationTimestamp,
+          latency,
         );
         setResources(flatResources);
       } else {
         const client = mcpAgent.getClient(selectedServerName);
         if (client) {
           const resourcesResponse = await client.listResources();
+          const endTime = performance.now();
+          const latency = Math.round(endTime - startTime);
+          
           addRequestHistory(
             { method: "resources/list", server: selectedServerName },
             { resources: resourcesResponse.resources },
+            operationTimestamp,
+            latency,
           );
           setResources(resourcesResponse.resources);
         }
@@ -129,15 +144,23 @@ export const useMCPOperations = () => {
     async (mcpAgent: MCPJamAgent | null, selectedServerName: string) => {
       if (!mcpAgent) return;
 
+      const startTime = performance.now();
+      const operationTimestamp = new Date().toISOString();
+
       if (selectedServerName === "all") {
         const allServerResources = await mcpAgent.getAllResources();
         if (allServerResources.length > 0) {
           const client = mcpAgent.getClient(allServerResources[0].serverName);
           if (client) {
             const templatesResponse = await client.listResourceTemplates();
+            const endTime = performance.now();
+            const latency = Math.round(endTime - startTime);
+            
             addRequestHistory(
               { method: "resourceTemplates/list/all" },
               { resourceTemplates: templatesResponse.resourceTemplates },
+              operationTimestamp,
+              latency,
             );
             setResourceTemplates(templatesResponse.resourceTemplates);
           }
@@ -146,9 +169,14 @@ export const useMCPOperations = () => {
         const client = mcpAgent.getClient(selectedServerName);
         if (client) {
           const templatesResponse = await client.listResourceTemplates();
+          const endTime = performance.now();
+          const latency = Math.round(endTime - startTime);
+          
           addRequestHistory(
             { method: "resourceTemplates/list", server: selectedServerName },
             { resourceTemplates: templatesResponse.resourceTemplates },
+            operationTimestamp,
+            latency,
           );
           setResourceTemplates(templatesResponse.resourceTemplates);
         }
@@ -165,14 +193,22 @@ export const useMCPOperations = () => {
     ) => {
       if (!mcpAgent) return;
 
+      const startTime = performance.now();
+      const operationTimestamp = new Date().toISOString();
+
       if (selectedServerName !== "all") {
         const result = await mcpAgent.readResourceFromServer(
           selectedServerName,
           uri,
         );
+        const endTime = performance.now();
+        const latency = Math.round(endTime - startTime);
+        
         addRequestHistory(
           { method: "resources/read", server: selectedServerName, uri },
           result,
+          operationTimestamp,
+          latency,
         );
         return result;
       } else {
@@ -183,9 +219,14 @@ export const useMCPOperations = () => {
               serverName,
               uri,
             );
+            const endTime = performance.now();
+            const latency = Math.round(endTime - startTime);
+            
             addRequestHistory(
               { method: "resources/read", server: serverName, uri },
               result,
+              operationTimestamp,
+              latency,
             );
             return result;
           }
@@ -204,12 +245,19 @@ export const useMCPOperations = () => {
     ) => {
       if (!mcpAgent || selectedServerName === "all") return;
 
+      const startTime = performance.now();
+      const operationTimestamp = new Date().toISOString();
       const client = mcpAgent.getClient(selectedServerName);
       if (client) {
         const result = await client.subscribeResource({ uri });
+        const endTime = performance.now();
+        const latency = Math.round(endTime - startTime);
+        
         addRequestHistory(
           { method: "resources/subscribe", server: selectedServerName, uri },
           result,
+          operationTimestamp,
+          latency,
         );
         return result;
       }
@@ -225,12 +273,19 @@ export const useMCPOperations = () => {
     ) => {
       if (!mcpAgent || selectedServerName === "all") return;
 
+      const startTime = performance.now();
+      const operationTimestamp = new Date().toISOString();
       const client = mcpAgent.getClient(selectedServerName);
       if (client) {
         const result = await client.unsubscribeResource({ uri });
+        const endTime = performance.now();
+        const latency = Math.round(endTime - startTime);
+        
         addRequestHistory(
           { method: "resources/unsubscribe", server: selectedServerName, uri },
           result,
+          operationTimestamp,
+          latency,
         );
         return result;
       }
@@ -243,21 +298,34 @@ export const useMCPOperations = () => {
     async (mcpAgent: MCPJamAgent | null, selectedServerName: string) => {
       if (!mcpAgent) return;
 
+      const startTime = performance.now();
+      const operationTimestamp = new Date().toISOString();
+
       if (selectedServerName === "all") {
         const allServerPrompts = await mcpAgent.getAllPrompts();
         const flatPrompts = allServerPrompts.flatMap(({ prompts }) => prompts);
+        const endTime = performance.now();
+        const latency = Math.round(endTime - startTime);
+        
         addRequestHistory(
           { method: "prompts/list/all" },
           { prompts: flatPrompts },
+          operationTimestamp,
+          latency,
         );
         setPrompts(flatPrompts);
       } else {
         const client = mcpAgent.getClient(selectedServerName);
         if (client) {
           const promptsResponse = await client.listPrompts();
+          const endTime = performance.now();
+          const latency = Math.round(endTime - startTime);
+          
           addRequestHistory(
             { method: "prompts/list", server: selectedServerName },
             { prompts: promptsResponse.prompts },
+            operationTimestamp,
+            latency,
           );
           setPrompts(promptsResponse.prompts);
         }
@@ -275,15 +343,23 @@ export const useMCPOperations = () => {
     ) => {
       if (!mcpAgent) return;
 
+      const startTime = performance.now();
+      const operationTimestamp = new Date().toISOString();
+
       if (selectedServerName !== "all") {
         const result = await mcpAgent.getPromptFromServer(
           selectedServerName,
           name,
           args,
         );
+        const endTime = performance.now();
+        const latency = Math.round(endTime - startTime);
+        
         addRequestHistory(
           { method: "prompts/get", server: selectedServerName, name, args },
           result,
+          operationTimestamp,
+          latency,
         );
         return result;
       } else {
@@ -295,9 +371,14 @@ export const useMCPOperations = () => {
               name,
               args,
             );
+            const endTime = performance.now();
+            const latency = Math.round(endTime - startTime);
+            
             addRequestHistory(
               { method: "prompts/get", server: serverName, name, args },
               result,
+              operationTimestamp,
+              latency,
             );
             return result;
           }
@@ -313,18 +394,34 @@ export const useMCPOperations = () => {
     async (mcpAgent: MCPJamAgent | null, selectedServerName: string) => {
       if (!mcpAgent) return;
 
+      const startTime = performance.now();
+      const operationTimestamp = new Date().toISOString();
+
       if (selectedServerName === "all") {
         const allServerTools = await mcpAgent.getAllTools();
         const flatTools = allServerTools.flatMap(({ tools }) => tools);
-        addRequestHistory({ method: "tools/list/all" }, { tools: flatTools });
+        const endTime = performance.now();
+        const latency = Math.round(endTime - startTime);
+        
+        addRequestHistory(
+          { method: "tools/list/all" }, 
+          { tools: flatTools },
+          operationTimestamp,
+          latency,
+        );
         setTools(flatTools);
       } else {
         const client = mcpAgent.getClient(selectedServerName);
         if (client) {
           const toolsResponse = await client.tools();
+          const endTime = performance.now();
+          const latency = Math.round(endTime - startTime);
+          
           addRequestHistory(
-            { method: "tools/list" },
+            { method: "tools/list", server: selectedServerName },
             { tools: toolsResponse.tools },
+            operationTimestamp,
+            latency,
           );
           setTools(toolsResponse.tools);
         }
@@ -342,6 +439,9 @@ export const useMCPOperations = () => {
     ) => {
       if (!mcpAgent) return;
 
+      const startTime = performance.now();
+      const operationTimestamp = new Date().toISOString();
+
       try {
         if (selectedServerName !== "all") {
           const result = await mcpAgent.callToolOnServer(
@@ -349,9 +449,14 @@ export const useMCPOperations = () => {
             name,
             params,
           );
+          const endTime = performance.now();
+          const latency = Math.round(endTime - startTime);
+          
           addRequestHistory(
             { method: "tools/call", server: selectedServerName, name, params },
             result,
+            operationTimestamp,
+            latency,
           );
           setToolResult(result);
         } else {
@@ -363,9 +468,14 @@ export const useMCPOperations = () => {
                 name,
                 params,
               );
+              const endTime = performance.now();
+              const latency = Math.round(endTime - startTime);
+              
               addRequestHistory(
                 { method: "tools/call", server: serverName, name, params },
                 result,
+                operationTimestamp,
+                latency,
               );
               setToolResult(result);
               return;
@@ -374,6 +484,9 @@ export const useMCPOperations = () => {
           throw new Error(`Tool ${name} not found on any server`);
         }
       } catch (e) {
+        const endTime = performance.now();
+        const latency = Math.round(endTime - startTime);
+        
         const toolResult: CompatibilityCallToolResult = {
           content: [
             {
@@ -386,6 +499,8 @@ export const useMCPOperations = () => {
         addRequestHistory(
           { method: "tools/call", server: selectedServerName, name, params },
           { error: (e as Error).message ?? String(e) },
+          operationTimestamp,
+          latency,
         );
         setToolResult(toolResult);
       }
@@ -434,12 +549,17 @@ export const useMCPOperations = () => {
         return [];
       }
 
+      const startTime = performance.now();
+      const operationTimestamp = new Date().toISOString();
       const client = mcpAgent.getClient(selectedServerName);
       if (!client) {
         return [];
       }
 
       const result = await client.handleCompletion(ref, argName, value, signal);
+      const endTime = performance.now();
+      const latency = Math.round(endTime - startTime);
+      
       addRequestHistory(
         {
           method: "completion",
@@ -449,6 +569,8 @@ export const useMCPOperations = () => {
           value,
         },
         { completions: result },
+        operationTimestamp,
+        latency,
       );
       return result;
     },
