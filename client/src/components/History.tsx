@@ -1,5 +1,5 @@
 import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { History, ChevronDown } from "lucide-react";
 import { useDraggablePane } from "../lib/hooks/useDraggablePane";
 import TabbedHistoryPanel from "./TabbedHistoryPanel";
@@ -19,11 +19,13 @@ const HistoryAndNotifications = ({
     height: historyPaneHeight,
     handleDragStart,
     resetHeight,
-  } = useDraggablePane(isHistoryCollapsed ? 60 : 500);
+  } = useDraggablePane(500);
 
-  const toggleCollapse = () => {
+  const toggleCollapse = useCallback(() => {
+    console.log('toggleCollapse called, current state:', isHistoryCollapsed);
+    alert(`Toggle called! Current state: ${isHistoryCollapsed}`);
     setIsHistoryCollapsed(!isHistoryCollapsed);
-  };
+  }, [isHistoryCollapsed]);
 
   useEffect(() => {
     if (toolResult) {
