@@ -514,38 +514,44 @@ const ToolRunCard = ({
     <div className="bg-gradient-to-br from-card/95 via-card to-card/95 backdrop-blur-sm rounded-xl shadow-lg border border-border/40 overflow-hidden transition-all duration-300 hover:shadow-xl hover:border-border/60">
       <ToolHeader tool={selectedTool} />
 
-      <div className="p-3">
-        {selectedTool ? (
-          <div className="space-y-3">
-            <ParametersSection
-              tool={selectedTool}
-              params={params}
-              onParamChange={handleParamChange}
-            />
+      <div className="overflow-y-auto max-h-96">
+        <div className="p-3">
+          {selectedTool ? (
+            <div className="space-y-3">
+              <ParametersSection
+                tool={selectedTool}
+                params={params}
+                onParamChange={handleParamChange}
+              />
 
-            <ActionButtons
-              onSave={handleOpenSaveDialog}
-              onRun={handleRunTool}
-              isRunning={isToolRunning}
-              isUpdating={isUpdatingExistingRequest}
-            />
-
-            <SaveDialog
-              isOpen={showSaveDialog}
-              isUpdating={isUpdatingExistingRequest}
-              requestName={saveRequestName}
-              requestDescription={saveRequestDescription}
-              isSaving={isSaving}
-              onClose={() => setShowSaveDialog(false)}
-              onSave={handleSaveRequest}
-              onNameChange={setSaveRequestName}
-              onDescriptionChange={setSaveRequestDescription}
-            />
-          </div>
-        ) : (
-          <EmptyState />
-        )}
+              <SaveDialog
+                isOpen={showSaveDialog}
+                isUpdating={isUpdatingExistingRequest}
+                requestName={saveRequestName}
+                requestDescription={saveRequestDescription}
+                isSaving={isSaving}
+                onClose={() => setShowSaveDialog(false)}
+                onSave={handleSaveRequest}
+                onNameChange={setSaveRequestName}
+                onDescriptionChange={setSaveRequestDescription}
+              />
+            </div>
+          ) : (
+            <EmptyState />
+          )}
+        </div>
       </div>
+
+      {selectedTool && (
+        <div className="p-3 border-t border-border/20 bg-gradient-to-r from-card/80 to-card/60">
+          <ActionButtons
+            onSave={handleOpenSaveDialog}
+            onRun={handleRunTool}
+            isRunning={isToolRunning}
+            isUpdating={isUpdatingExistingRequest}
+          />
+        </div>
+      )}
     </div>
   );
 };
