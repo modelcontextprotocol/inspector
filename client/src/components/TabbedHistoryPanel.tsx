@@ -5,7 +5,7 @@ import ActivityTab from "./ActivityTab";
 import ResultsTab from "./ResultsTab";
 
 interface TabbedHistoryPanelProps {
-  requestHistory: Array<{ request: string; response?: string }>;
+  requestHistory: Array<{ request: string; response?: string; timestamp: string }>;
   toolResult: CompatibilityCallToolResult | null;
   onClearHistory: () => void;
   onToggleCollapse: () => void;

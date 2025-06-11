@@ -2,7 +2,7 @@ import { useState } from "react";
 import JsonView from "./JsonView";
 
 interface RequestHistoryItemProps {
-  request: { request: string; response?: string };
+  request: { request: string; response?: string; timestamp: string };
   index: number;
   totalRequests: number;
 }
@@ -16,6 +16,17 @@ const RequestHistoryItem = ({ request, index, totalRequests }: RequestHistoryIte
 
   const requestData = JSON.parse(request.request);
   const requestNumber = totalRequests - index;
+  
+  // Format timestamp to display time like "12:26:05 AM"
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('en-US', {
+      hour12: true,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  };
 
   return (
     <article className="text-sm bg-gradient-to-r from-secondary/50 via-secondary/70 to-secondary/50 backdrop-blur-sm p-4 rounded-xl border border-border/30 hover:border-border/60 transition-all duration-200 hover:shadow-lg">
@@ -23,6 +34,7 @@ const RequestHistoryItem = ({ request, index, totalRequests }: RequestHistoryIte
         requestNumber={requestNumber}
         method={requestData.method}
         server={requestData.server}
+        timestamp={formatTimestamp(request.timestamp)}
         isExpanded={isExpanded}
         onToggle={toggleExpansion}
       />
@@ -41,11 +53,12 @@ interface RequestHeaderProps {
   requestNumber: number;
   method: string;
   server?: string;
+  timestamp: string;
   isExpanded: boolean;
   onToggle: () => void;
 }
 
-const RequestHeader = ({ requestNumber, method, server, isExpanded, onToggle }: RequestHeaderProps) => (
+const RequestHeader = ({ requestNumber, method, server, timestamp, isExpanded, onToggle }: RequestHeaderProps) => (
   <header
     className="flex justify-between items-center cursor-pointer group"
     onClick={onToggle}
@@ -60,7 +73,7 @@ const RequestHeader = ({ requestNumber, method, server, isExpanded, onToggle }: 
     aria-expanded={isExpanded}
     aria-label={`Request ${requestNumber}: ${method}`}
   >
-    <RequestInfo requestNumber={requestNumber} method={method} server={server} />
+    <RequestInfo requestNumber={requestNumber} method={method} server={server} timestamp={timestamp} />
     <ExpandIcon isExpanded={isExpanded} />
   </header>
 );
@@ -69,11 +82,13 @@ interface RequestInfoProps {
   requestNumber: number;
   method: string;
   server?: string;
+  timestamp: string;
 }
 
-const RequestInfo = ({ requestNumber, method, server }: RequestInfoProps) => (
+const RequestInfo = ({ requestNumber, method, server, timestamp }: RequestInfoProps) => (
   <div className="flex items-center space-x-3">
     <RequestBadge number={requestNumber} />
+    <TimeStamp timestamp={timestamp} />
     <MethodLabel method={method} server={server} />
   </div>
 );
@@ -88,6 +103,16 @@ const RequestBadge = ({ number }: RequestBadgeProps) => (
     aria-label={`Request number ${number}`}
   >
     {number}
+  </span>
+);
+
+interface TimeStampProps {
+  timestamp: string;
+}
+
+const TimeStamp = ({ timestamp }: TimeStampProps) => (
+  <span className="text-xs text-muted-foreground font-mono">
+    {timestamp}
   </span>
 );
 

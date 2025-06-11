@@ -9,7 +9,7 @@ const HistoryAndNotifications = ({
   toolResult,
   onClearHistory,
 }: {
-  requestHistory: Array<{ request: string; response?: string }>;
+  requestHistory: Array<{ request: string; response?: string; timestamp: string }>;
   toolResult: CompatibilityCallToolResult | null;
   onClearHistory: () => void;
 }) => {
