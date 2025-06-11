@@ -2,7 +2,7 @@ import { Activity, ChevronDown, Trash2 } from "lucide-react";
 import RequestHistoryItem from "./RequestHistoryItem";
 
 interface ActivityTabProps {
-  requestHistory: Array<{ request: string; response?: string; timestamp: string }>;
+  requestHistory: Array<{ request: string; response?: string; timestamp: string; latency?: number }>;
   onClearHistory: () => void;
   onToggleCollapse?: () => void;
   showHeader?: boolean;

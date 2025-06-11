@@ -2,7 +2,7 @@ import { useState } from "react";
 import JsonView from "./JsonView";
 
 interface RequestHistoryItemProps {
-  request: { request: string; response?: string; timestamp: string };
+  request: { request: string; response?: string; timestamp: string; latency?: number };
   index: number;
   totalRequests: number;
 }
@@ -28,6 +28,12 @@ const RequestHistoryItem = ({ request, index, totalRequests }: RequestHistoryIte
     });
   };
 
+  // Format latency to display like "214ms"
+  const formatLatency = (latency?: number) => {
+    if (latency === undefined) return undefined;
+    return `${latency}ms`;
+  };
+
   return (
     <article className="text-sm bg-gradient-to-r from-secondary/50 via-secondary/70 to-secondary/50 backdrop-blur-sm p-4 rounded-xl border border-border/30 hover:border-border/60 transition-all duration-200 hover:shadow-lg">
       <RequestHeader
@@ -35,6 +41,7 @@ const RequestHistoryItem = ({ request, index, totalRequests }: RequestHistoryIte
         method={requestData.method}
         server={requestData.server}
         timestamp={formatTimestamp(request.timestamp)}
+        latency={formatLatency(request.latency)}
         isExpanded={isExpanded}
         onToggle={toggleExpansion}
       />
@@ -54,11 +61,12 @@ interface RequestHeaderProps {
   method: string;
   server?: string;
   timestamp: string;
+  latency?: string;
   isExpanded: boolean;
   onToggle: () => void;
 }
 
-const RequestHeader = ({ requestNumber, method, server, timestamp, isExpanded, onToggle }: RequestHeaderProps) => (
+const RequestHeader = ({ requestNumber, method, server, timestamp, latency, isExpanded, onToggle }: RequestHeaderProps) => (
   <header
     className="flex justify-between items-center cursor-pointer group"
     onClick={onToggle}
@@ -73,7 +81,7 @@ const RequestHeader = ({ requestNumber, method, server, timestamp, isExpanded, o
     aria-expanded={isExpanded}
     aria-label={`Request ${requestNumber}: ${method}`}
   >
-    <RequestInfo requestNumber={requestNumber} method={method} server={server} timestamp={timestamp} />
+    <RequestInfo requestNumber={requestNumber} method={method} server={server} timestamp={timestamp} latency={latency} />
     <ExpandIcon isExpanded={isExpanded} />
   </header>
 );
@@ -83,13 +91,19 @@ interface RequestInfoProps {
   method: string;
   server?: string;
   timestamp: string;
+  latency?: string;
 }
 
-const RequestInfo = ({ requestNumber, method, server, timestamp }: RequestInfoProps) => (
+const RequestInfo = ({ requestNumber, method, server, timestamp, latency }: RequestInfoProps) => (
   <div className="flex items-center space-x-3">
     <RequestBadge number={requestNumber} />
     <TimeStamp timestamp={timestamp} />
     <MethodLabel method={method} server={server} />
+    {latency && (
+      <span className="text-xs text-muted-foreground font-mono">
+        {latency}
+      </span>
+    )}
   </div>
 );
 
