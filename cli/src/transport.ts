@@ -38,8 +38,8 @@ function createStdioTransport(options: TransportOptions): Transport {
   const defaultEnv = getDefaultEnvironment();
 
   const env: Record<string, string> = {
-    ...processEnv,
     ...defaultEnv,
+    ...processEnv,
   };
 
   const { cmd: actualCommand, args: actualArgs } = findActualExecutable(
