@@ -26,6 +26,9 @@ jobs:
       # - run: npm ci
       - run: npm install --no-package-lock
 
+      - name: Check version consistency
+        run: npm run check-version
+
       - name: Check linting
         working-directory: ./client
         run: npm run lint
