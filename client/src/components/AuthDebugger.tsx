@@ -1,7 +1,7 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DebugInspectorOAuthClientProvider } from "../lib/auth";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Eye, EyeOff } from "lucide-react";
 import { AuthDebuggerState } from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
 import { OAuthStateMachine } from "../lib/oauth-state-machine";
@@ -59,6 +59,8 @@ const AuthDebugger = ({
   authState,
   updateAuthState,
 }: AuthDebuggerProps) => {
+  const [showFullToken, setShowFullToken] = useState(false);
+
   const startOAuthFlow = useCallback(() => {
     if (!serverUrl) {
       updateAuthState({
@@ -231,8 +233,25 @@ const AuthDebugger = ({
                   {authState.oauthTokens && (
                     <div className="space-y-2">
                       <p className="text-sm font-medium">Access Token:</p>
-                      <div className="bg-muted p-2 rounded-md text-xs overflow-x-auto">
-                        {authState.oauthTokens.access_token.substring(0, 25)}...
+                      <div className="relative">
+                        <div className="bg-muted p-2 rounded-md text-xs overflow-x-auto pr-10">
+                          {showFullToken
+                            ? authState.oauthTokens.access_token
+                            : "********************************"}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-1 top-1 h-6 w-6 p-0 hover:bg-muted-foreground/10"
+                          onClick={() => setShowFullToken(!showFullToken)}
+                          title={showFullToken ? "Hide token" : "Show full token"}
+                        >
+                          {showFullToken ? (
+                            <EyeOff className="h-3 w-3" />
+                          ) : (
+                            <Eye className="h-3 w-3" />
+                          )}
+                        </Button>
                       </div>
                     </div>
                   )}
