@@ -176,6 +176,14 @@ async function main() {
   let configPath = null;
   let serverName = null;
 
+  // Inspector can either be ran with a config file or a command to start an MCP server
+  // Order of precedence is:
+  // 1. Load configuration from MCP server config file
+  // 2. Use direct command (and args) provided on the command line (if no config file is provided)
+
+  // Early check if an MCP server config file is provided to make logic simpler below
+  const configProvided = args.includes("--config");
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
@@ -184,37 +192,58 @@ async function main() {
       continue;
     }
 
-    if (parsingFlags && arg === "--dev") {
-      isDev = true;
-      continue;
-    }
-
-    if (parsingFlags && arg === "--config" && i + 1 < args.length) {
-      configPath = args[++i];
-      continue;
-    }
-
-    if (parsingFlags && arg === "--server" && i + 1 < args.length) {
-      serverName = args[++i];
-      continue;
-    }
-
-    if (parsingFlags && arg === "-e" && i + 1 < args.length) {
-      const envVar = args[++i];
-      const equalsIndex = envVar.indexOf("=");
-
-      if (equalsIndex !== -1) {
-        const key = envVar.substring(0, equalsIndex);
-        const value = envVar.substring(equalsIndex + 1);
-        envVars[key] = value;
-      } else {
-        envVars[envVar] = "";
+    if (parsingFlags) {
+      // Parse the --dev flag to run the inspector in development mode
+      // This will ignore any command or args provided on the command line
+      if (parsingFlags && arg === "--dev") {
+        isDev = true;
+        continue;
       }
-      // If loading a config file, we don't need to pass the command or args
-    } else if (!command && !isDev && !configPath) {
-      command = arg;
-    } else if (!isDev) {
-      mcpServerArgs.push(arg);
+
+      // Parse a file path to an MCP servers' config file where each server has:
+      // - Server type (sse, streamable-http, or stdio)
+      // - Server URL (for sse/streamable-http)
+      // - Command and args (for stdio)
+      // - Environment variables
+      if (arg === "--config" && i + 1 < args.length) {
+        configPath = args[++i];
+        continue;
+      }
+
+      // Parse a server name to use from the relevant config file
+      if (arg === "--server" && i + 1 < args.length) {
+        serverName = args[++i];
+        continue;
+      }
+
+      // Process any environment variables (in addition to those provided in the config file)
+      // CLI env vars will override those in the config file - handled below
+      // Format: -e KEY=VALUE or -e KEY (empty value)
+      if (arg === "-e" && i + 1 < args.length) {
+        const envVar = args[++i];
+        const equalsIndex = envVar.indexOf("=");
+
+        if (equalsIndex !== -1) {
+          const key = envVar.substring(0, equalsIndex);
+          const value = envVar.substring(equalsIndex + 1);
+          envVars[key] = value;
+        } else {
+          envVars[envVar] = "";
+        }
+        continue;
+      }
+    }
+
+    // If a config file isn't provided, then an explicit command (and args) can be provided instead
+    // eg. node //some/path/to/a/build/index.js
+    if (!configProvided) {
+      // Set the first argument as the command to run
+      if (!command) {
+        command = arg;
+      } else {
+        // If a command has already been provided, then the remaining args as passed to the command
+        mcpServerArgs.push(arg);
+      }
     }
   }
 
@@ -276,6 +305,11 @@ async function main() {
 
   // Build server arguments based on config or command line
   let serverArgs = [];
+
+  // Environment variables precedence:
+  // 1. Command line env vars (-e flag) take highest precedence
+  // 2. Config file env vars are next
+  // 3. System environment variables are lowest precedence
   let envVarsToPass = { ...envVars };
 
   let serverEnv = {
