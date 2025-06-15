@@ -1,11 +1,16 @@
 import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Activity, ScrollText, ChevronDown } from "lucide-react";
 import ActivityTab from "./ActivityTab";
 import ResultsTab from "./ResultsTab";
 
 interface TabbedHistoryPanelProps {
-  requestHistory: Array<{ request: string; response?: string; timestamp: string; latency?: number }>;
+  requestHistory: Array<{
+    request: string;
+    response?: string;
+    timestamp: string;
+    latency?: number;
+  }>;
   toolResult: CompatibilityCallToolResult | null;
   onClearHistory: () => void;
   onToggleCollapse: () => void;
@@ -20,6 +25,12 @@ const TabbedHistoryPanel = ({
   onToggleCollapse,
 }: TabbedHistoryPanelProps) => {
   const [activeTab, setActiveTab] = useState<TabType>("activity");
+
+  useEffect(() => {
+    if (toolResult) {
+      setActiveTab("results");
+    }
+  }, [toolResult]);
 
   const tabs = [
     {
@@ -44,7 +55,7 @@ const TabbedHistoryPanel = ({
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
-            
+
             return (
               <button
                 key={tab.id}
@@ -69,7 +80,7 @@ const TabbedHistoryPanel = ({
             );
           })}
         </div>
-        
+
         <button
           onClick={onToggleCollapse}
           className="p-2 rounded-lg hover:bg-accent/50 transition-all duration-200"
@@ -91,10 +102,7 @@ const TabbedHistoryPanel = ({
         )}
         {activeTab === "results" && (
           <div className="h-full overflow-y-auto p-6">
-            <ResultsTab
-              toolResult={toolResult}
-              showHeader={false}
-            />
+            <ResultsTab toolResult={toolResult} showHeader={false} />
           </div>
         )}
       </div>
@@ -102,4 +110,4 @@ const TabbedHistoryPanel = ({
   );
 };
 
-export default TabbedHistoryPanel; 
+export default TabbedHistoryPanel;
