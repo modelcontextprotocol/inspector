@@ -1,7 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import "@testing-library/jest-dom";
 import { describe, it, expect, jest } from "@jest/globals";
-import HistoryAndNotifications from "../History";
+import HistoryAndNotifications from "../HistoryAndNotifications";
 import { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 
 // Mock JsonView component
@@ -25,12 +24,19 @@ describe("HistoryAndNotifications", () => {
 
   const mockNotifications: ServerNotification[] = [
     {
-      method: "notification/test1",
-      params: { message: "First notification" },
+      method: "notifications/message",
+      params: {
+        level: "info" as const,
+        message: "First notification",
+      },
     },
     {
-      method: "notification/test2",
-      params: { message: "Second notification" },
+      method: "notifications/progress",
+      params: {
+        progressToken: "test-token",
+        progress: 50,
+        message: "Second notification",
+      },
     },
   ];
 
@@ -42,8 +48,8 @@ describe("HistoryAndNotifications", () => {
       />,
     );
 
-    expect(screen.getByText("History")).toBeInTheDocument();
-    expect(screen.getByText("Server Notifications")).toBeInTheDocument();
+    expect(screen.getByText("History")).toBeTruthy();
+    expect(screen.getByText("Server Notifications")).toBeTruthy();
   });
 
   it("displays request history items with correct numbering", () => {
@@ -55,8 +61,8 @@ describe("HistoryAndNotifications", () => {
     );
 
     // Items should be numbered in reverse order (newest first)
-    expect(screen.getByText("2. test/method2")).toBeInTheDocument();
-    expect(screen.getByText("1. test/method1")).toBeInTheDocument();
+    expect(screen.getByText("2. test/method2")).toBeTruthy();
+    expect(screen.getByText("1. test/method1")).toBeTruthy();
   });
 
   it("displays server notifications with correct numbering", () => {
@@ -68,8 +74,8 @@ describe("HistoryAndNotifications", () => {
     );
 
     // Items should be numbered in reverse order (newest first)
-    expect(screen.getByText("2. notification/test2")).toBeInTheDocument();
-    expect(screen.getByText("1. notification/test1")).toBeInTheDocument();
+    expect(screen.getByText("2. notifications/progress")).toBeTruthy();
+    expect(screen.getByText("1. notifications/message")).toBeTruthy();
   });
 
   it("expands and collapses request items when clicked", () => {
@@ -84,16 +90,16 @@ describe("HistoryAndNotifications", () => {
 
     // Initially collapsed - should show ▶ arrows (there are multiple)
     expect(screen.getAllByText("▶")).toHaveLength(2);
-    expect(screen.queryByText("Request:")).not.toBeInTheDocument();
+    expect(screen.queryByText("Request:")).toBeNull();
 
     // Click to expand
     fireEvent.click(firstRequestHeader);
 
     // Should now be expanded - one ▼ and one ▶
-    expect(screen.getByText("▼")).toBeInTheDocument();
+    expect(screen.getByText("▼")).toBeTruthy();
     expect(screen.getAllByText("▶")).toHaveLength(1);
-    expect(screen.getByText("Request:")).toBeInTheDocument();
-    expect(screen.getByText("Response:")).toBeInTheDocument();
+    expect(screen.getByText("Request:")).toBeTruthy();
+    expect(screen.getByText("Response:")).toBeTruthy();
   });
 
   it("expands and collapses notification items when clicked", () => {
@@ -104,19 +110,21 @@ describe("HistoryAndNotifications", () => {
       />,
     );
 
-    const firstNotificationHeader = screen.getByText("2. notification/test2");
+    const firstNotificationHeader = screen.getByText(
+      "2. notifications/progress",
+    );
 
     // Initially collapsed
     expect(screen.getAllByText("▶")).toHaveLength(2);
-    expect(screen.queryByText("Details:")).not.toBeInTheDocument();
+    expect(screen.queryByText("Details:")).toBeNull();
 
     // Click to expand
     fireEvent.click(firstNotificationHeader);
 
     // Should now be expanded
-    expect(screen.getByText("▼")).toBeInTheDocument();
+    expect(screen.getByText("▼")).toBeTruthy();
     expect(screen.getAllByText("▶")).toHaveLength(1);
-    expect(screen.getByText("Details:")).toBeInTheDocument();
+    expect(screen.getByText("Details:")).toBeTruthy();
   });
 
   it("maintains expanded state when new notifications are added", () => {
@@ -127,18 +135,20 @@ describe("HistoryAndNotifications", () => {
       />,
     );
 
-    // Find and expand the older notification (should be "1. notification/test1")
-    const olderNotificationHeader = screen.getByText("1. notification/test1");
+    // Find and expand the older notification (should be "1. notifications/message")
+    const olderNotificationHeader = screen.getByText(
+      "1. notifications/message",
+    );
     fireEvent.click(olderNotificationHeader);
 
     // Verify it's expanded
-    expect(screen.getByText("Details:")).toBeInTheDocument();
+    expect(screen.getByText("Details:")).toBeTruthy();
 
     // Add a new notification at the beginning (simulating real behavior)
     const newNotifications: ServerNotification[] = [
       {
-        method: "notification/new",
-        params: { message: "New notification" },
+        method: "notifications/resources/updated",
+        params: { uri: "file://test.txt" },
       },
       ...mockNotifications,
     ];
@@ -152,13 +162,13 @@ describe("HistoryAndNotifications", () => {
     );
 
     // The original notification should still be expanded
-    // It's now numbered as "2. notification/test1" due to the new item
-    expect(screen.getByText("3. notification/test2")).toBeInTheDocument();
-    expect(screen.getByText("2. notification/test1")).toBeInTheDocument();
-    expect(screen.getByText("1. notification/new")).toBeInTheDocument();
+    // It's now numbered as "2. notifications/message" due to the new item
+    expect(screen.getByText("3. notifications/progress")).toBeTruthy();
+    expect(screen.getByText("2. notifications/message")).toBeTruthy();
+    expect(screen.getByText("1. notifications/resources/updated")).toBeTruthy();
 
     // The originally expanded notification should still show its details
-    expect(screen.getByText("Details:")).toBeInTheDocument();
+    expect(screen.getByText("Details:")).toBeTruthy();
   });
 
   it("maintains expanded state when new requests are added", () => {
@@ -174,8 +184,8 @@ describe("HistoryAndNotifications", () => {
     fireEvent.click(olderRequestHeader);
 
     // Verify it's expanded
-    expect(screen.getByText("Request:")).toBeInTheDocument();
-    expect(screen.getByText("Response:")).toBeInTheDocument();
+    expect(screen.getByText("Request:")).toBeTruthy();
+    expect(screen.getByText("Response:")).toBeTruthy();
 
     // Add a new request at the beginning
     const newRequestHistory = [
@@ -196,13 +206,13 @@ describe("HistoryAndNotifications", () => {
 
     // The original request should still be expanded
     // It's now numbered as "2. test/method1" due to the new item
-    expect(screen.getByText("3. test/method2")).toBeInTheDocument();
-    expect(screen.getByText("2. test/method1")).toBeInTheDocument();
-    expect(screen.getByText("1. test/new_method")).toBeInTheDocument();
+    expect(screen.getByText("3. test/method2")).toBeTruthy();
+    expect(screen.getByText("2. test/method1")).toBeTruthy();
+    expect(screen.getByText("1. test/new_method")).toBeTruthy();
 
     // The originally expanded request should still show its details
-    expect(screen.getByText("Request:")).toBeInTheDocument();
-    expect(screen.getByText("Response:")).toBeInTheDocument();
+    expect(screen.getByText("Request:")).toBeTruthy();
+    expect(screen.getByText("Response:")).toBeTruthy();
   });
 
   it("displays empty state messages when no data is available", () => {
@@ -210,7 +220,7 @@ describe("HistoryAndNotifications", () => {
       <HistoryAndNotifications requestHistory={[]} serverNotifications={[]} />,
     );
 
-    expect(screen.getByText("No history yet")).toBeInTheDocument();
-    expect(screen.getByText("No notifications yet")).toBeInTheDocument();
+    expect(screen.getByText("No history yet")).toBeTruthy();
+    expect(screen.getByText("No notifications yet")).toBeTruthy();
   });
 });
