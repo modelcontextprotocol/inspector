@@ -1,6 +1,6 @@
 import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useEffect, useState } from "react";
-import { Activity, ScrollText, ChevronDown } from "lucide-react";
+import { Activity, ScrollText, ChevronDown, Icon } from "lucide-react";
 import ActivityTab from "./ActivityTab";
 import ResultsTab from "./ResultsTab";
 
@@ -18,14 +18,6 @@ interface TabbedHistoryPanelProps {
 
 type TabType = "activity" | "results";
 
-interface Tab {
-  id: TabType;
-  label: string;
-  icon: React.ElementType;
-  count?: number;
-  hasContent?: boolean;
-}
-
 const TabbedHistoryPanel = ({
   requestHistory,
   toolResult,
@@ -33,50 +25,62 @@ const TabbedHistoryPanel = ({
   onToggleCollapse,
 }: TabbedHistoryPanelProps) => {
   const [activeTab, setActiveTab] = useState<TabType>("activity");
+  const [isToolResultError, setIsToolResultError] = useState(false);
 
   useEffect(() => {
     if (toolResult) {
+      console.log("toolResult", toolResult);
+      setIsToolResultError(toolResult.isError === true);
       setActiveTab("results");
     }
   }, [toolResult]);
 
-  const getTabConfig = (): Tab[] => [
-    {
-      id: "activity",
-      label: "Activity",
-      icon: Activity,
-      count: requestHistory.length,
-    },
-    {
-      id: "results",
-      label: "Results",
-      icon: ScrollText,
-      hasContent: !!toolResult,
-    },
-  ];
-
-  const renderTabHeader = (tab: Tab, isActive: boolean) => {
-    const Icon = tab.icon;
+  const renderActivityTabButton = () => {
     return (
       <button
-        key={tab.id}
-        onClick={() => setActiveTab(tab.id)}
+        key="activity"
+        onClick={() => setActiveTab("activity")}
         className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200 ${
-          isActive
+          activeTab === "activity"
             ? "bg-primary/10 text-primary border border-primary/20"
             : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
         }`}
       >
-        <Icon className="w-4 h-4" />
-        <span className="text-sm font-medium">{tab.label}</span>
-        {tab.count !== undefined && tab.count > 0 && (
+        <Activity className="w-4 h-4" />
+        <span className="text-sm font-medium">Activity</span>
+        {requestHistory.length > 0 && (
           <span className="px-2 py-1 text-xs bg-primary/10 text-primary rounded-full">
-            {tab.count}
+            {requestHistory.length}
           </span>
         )}
-        {tab.hasContent && (
-          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-        )}
+      </button>
+    );
+  };
+
+  const renderResultsTabButton = () => {
+    console.log("isToolResultError", isToolResultError);
+    const renderCircleIndicator = () => {
+      if (toolResult && !isToolResultError) {
+        return <div className="w-2 h-2 bg-green-500 rounded-full"></div>;
+      } else if (toolResult && isToolResultError) {
+        return <div className="w-2 h-2 bg-red-500 rounded-full"></div>;
+      } else {
+        return null;
+      }
+    };
+    return (
+      <button
+        key="results"
+        onClick={() => setActiveTab("results")}
+        className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+          activeTab === "results"
+            ? "bg-primary/10 text-primary border border-primary/20"
+            : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+        }`}
+      >
+        <ScrollText className="w-4 h-4" />
+        <span className="text-sm font-medium">Results</span>
+        {renderCircleIndicator()}
       </button>
     );
   };
@@ -109,11 +113,9 @@ const TabbedHistoryPanel = ({
       {/* Tab Headers */}
       <div className="flex items-center justify-between border-b border-border/20 px-6 py-3">
         <div className="flex space-x-1">
-          {getTabConfig().map((tab) =>
-            renderTabHeader(tab, activeTab === tab.id),
-          )}
+          {renderActivityTabButton()}
+          {renderResultsTabButton()}
         </div>
-
         <button
           onClick={onToggleCollapse}
           className="p-2 rounded-lg hover:bg-accent/50 transition-all duration-200"
