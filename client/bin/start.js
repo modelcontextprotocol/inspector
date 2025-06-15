@@ -7,11 +7,25 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+const MCP_BANNER = `
+███╗   ███╗ ██████╗██████╗     ██╗ █████╗ ███╗   ███╗
+████╗ ████║██╔════╝██╔══██╗    ██║██╔══██╗████╗ ████║
+██╔████╔██║██║     ██████╔╝    ██║███████║██╔████╔██║
+██║╚██╔╝██║██║     ██╔═══╝██   ██║██╔══██║██║╚██╔╝██║
+██║ ╚═╝ ██║╚██████╗██║    ╚█████╔╝██║  ██║██║ ╚═╝ ██║
+╚═╝     ╚═╝ ╚═════╝╚═╝     ╚════╝ ╚═╝  ╚═╝╚═╝     ╚═╝                                                    
+`;
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms, true));
 }
 
 async function main() {
+  // Clear console and display banner
+  console.clear();
+  console.log("\x1b[36m%s\x1b[0m", MCP_BANNER); // Cyan color
+  console.log("\x1b[33m%s\x1b[0m", "🚀 Launching MCP Inspector...\n"); // Yellow color
+
   // Parse command line arguments
   const args = process.argv.slice(2);
   const envVars = {};
@@ -65,14 +79,13 @@ async function main() {
   const CLIENT_PORT = process.env.CLIENT_PORT ?? "6274";
   const SERVER_PORT = process.env.SERVER_PORT ?? "6277";
 
-  console.log("Starting MCP inspector...");
-
   const abort = new AbortController();
 
   let cancelled = false;
   process.on("SIGINT", () => {
     cancelled = true;
     abort.abort();
+    console.log("\n\x1b[31m%s\x1b[0m", "⚠️  Shutting down MCP Inspector..."); // Red color
   });
   let server, serverOk;
   try {
@@ -96,13 +109,24 @@ async function main() {
 
     // Make sure server started before starting client
     serverOk = await Promise.race([server, delay(2 * 1000)]);
-  } catch (error) {}
+  } catch (error) {
+    console.log("\x1b[31m%s\x1b[0m", "❌ Server initialization failed"); // Red color
+  }
 
   if (serverOk) {
     try {
+      console.log("\x1b[32m%s\x1b[0m", "✅ Server initialized successfully"); // Green color
+      console.log(
+        "\x1b[36m%s\x1b[0m",
+        `🌐 Opening browser at http://127.0.0.1:${CLIENT_PORT}`,
+      );
+
       if (process.env.MCP_AUTO_OPEN_ENABLED !== "false") {
         open(`http://127.0.0.1:${CLIENT_PORT}`);
       }
+
+      console.log("\x1b[33m%s\x1b[0m", "🖥️  Starting client interface...");
+
       await spawnPromise("node", [inspectorClientPath], {
         env: { ...process.env, PORT: CLIENT_PORT },
         signal: abort.signal,
@@ -119,6 +143,6 @@ async function main() {
 main()
   .then((_) => process.exit(0))
   .catch((e) => {
-    console.error(e);
+    console.error("\x1b[31m%s\x1b[0m", "❌ Error:", e); // Red color
     process.exit(1);
   });

@@ -53,7 +53,6 @@ const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); /
 
 const createTransport = async (req: express.Request): Promise<Transport> => {
   const query = req.query;
-  console.log("Query parameters:", query);
 
   const transportType = query.transportType as string;
 
@@ -65,7 +64,7 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
 
     const { cmd, args } = findActualExecutable(command, origArgs);
 
-    console.log(`Stdio transport: command=${cmd}, args=${args}`);
+    console.log(`🚀 Stdio transport: command=${cmd}, args=${args}`);
 
     const transport = new StdioClientTransport({
       command: cmd,
@@ -75,8 +74,6 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
     });
 
     await transport.start();
-
-    console.log("Spawned stdio transport");
     return transport;
   } else if (transportType === "sse") {
     const url = query.url as string;
@@ -93,8 +90,6 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
       headers[key] = Array.isArray(value) ? value[value.length - 1] : value;
     }
 
-    console.log(`SSE transport: url=${url}, headers=${Object.keys(headers)}`);
-
     const transport = new SSEClientTransport(new URL(url), {
       eventSourceInit: {
         fetch: (url, init) => fetch(url, { ...init, headers }),
@@ -104,8 +99,6 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
       },
     });
     await transport.start();
-
-    console.log("Connected to SSE transport");
     return transport;
   } else if (transportType === "streamable-http") {
     const headers: HeadersInit = {
@@ -130,10 +123,9 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
       },
     );
     await transport.start();
-    console.log("Connected to Streamable HTTP transport");
     return transport;
   } else {
-    console.error(`Invalid transport type: ${transportType}`);
+    console.error(`❌ Invalid transport type: ${transportType}`);
     throw new Error("Invalid transport type specified");
   }
 };
@@ -142,7 +134,7 @@ let backingServerTransport: Transport | undefined;
 
 app.get("/mcp", async (req, res) => {
   const sessionId = req.headers["mcp-session-id"] as string;
-  console.log(`Received GET message for sessionId ${sessionId}`);
+  console.log(`📥 Received GET message for sessionId ${sessionId}`);
   try {
     const transport = webAppTransports.get(
       sessionId,
@@ -154,24 +146,24 @@ app.get("/mcp", async (req, res) => {
       await transport.handleRequest(req, res);
     }
   } catch (error) {
-    console.error("Error in /mcp route:", error);
+    console.error("❌ Error in /mcp route:", error);
     res.status(500).json(error);
   }
 });
 
 app.post("/mcp", async (req, res) => {
   const sessionId = req.headers["mcp-session-id"] as string | undefined;
-  console.log(`Received POST message for sessionId ${sessionId}`);
+  console.log(`📥 Received POST message for sessionId ${sessionId}`);
   if (!sessionId) {
     try {
-      console.log("New streamable-http connection");
+      console.log("🔄 New streamable-http connection");
       try {
         await backingServerTransport?.close();
         backingServerTransport = await createTransport(req);
       } catch (error) {
         if (error instanceof SseError && error.code === 401) {
           console.error(
-            "Received 401 Unauthorized from MCP server:",
+            "🔒 Received 401 Unauthorized from MCP server:",
             error.message,
           );
           res.status(401).json(error);
@@ -181,13 +173,13 @@ app.post("/mcp", async (req, res) => {
         throw error;
       }
 
-      console.log("Connected MCP client to backing server transport");
+      console.log("✨ Connected MCP client to backing server transport");
 
       const webAppTransport = new StreamableHTTPServerTransport({
         sessionIdGenerator: randomUUID,
         onsessioninitialized: (sessionId) => {
           webAppTransports.set(sessionId, webAppTransport);
-          console.log("Created streamable web app transport " + sessionId);
+          console.log("✨ Created streamable web app transport " + sessionId);
         },
       });
 
@@ -204,7 +196,7 @@ app.post("/mcp", async (req, res) => {
         req.body,
       );
     } catch (error) {
-      console.error("Error in /mcp POST route:", error);
+      console.error("❌ Error in /mcp POST route:", error);
       res.status(500).json(error);
     }
   } else {
@@ -221,7 +213,7 @@ app.post("/mcp", async (req, res) => {
         );
       }
     } catch (error) {
-      console.error("Error in /mcp route:", error);
+      console.error("❌ Error in /mcp route:", error);
       res.status(500).json(error);
     }
   }
@@ -229,7 +221,7 @@ app.post("/mcp", async (req, res) => {
 
 app.get("/stdio", async (req, res) => {
   try {
-    console.log("New connection");
+    console.log("🔄 New connection");
 
     try {
       await backingServerTransport?.close();
@@ -237,7 +229,7 @@ app.get("/stdio", async (req, res) => {
     } catch (error) {
       if (error instanceof SseError && error.code === 401) {
         console.error(
-          "Received 401 Unauthorized from MCP server:",
+          "🔒 Received 401 Unauthorized from MCP server:",
           error.message,
         );
         res.status(401).json(error);
@@ -247,12 +239,8 @@ app.get("/stdio", async (req, res) => {
       throw error;
     }
 
-    console.log("Connected MCP client to backing server transport");
-
     const webAppTransport = new SSEServerTransport("/message", res);
     webAppTransports.set(webAppTransport.sessionId, webAppTransport);
-
-    console.log("Created web app transport");
 
     await webAppTransport.start();
     (backingServerTransport as StdioClientTransport).stderr!.on(
@@ -272,27 +260,21 @@ app.get("/stdio", async (req, res) => {
       transportToClient: webAppTransport,
       transportToServer: backingServerTransport,
     });
-
-    console.log("Set up MCP proxy");
   } catch (error) {
-    console.error("Error in /stdio route:", error);
+    console.error("❌ Error in /stdio route:", error);
     res.status(500).json(error);
   }
 });
 
 app.get("/sse", async (req, res) => {
   try {
-    console.log(
-      "New SSE connection. NOTE: The sse transport is deprecated and has been replaced by streamable-http",
-    );
-
     try {
       await backingServerTransport?.close();
       backingServerTransport = await createTransport(req);
     } catch (error) {
       if (error instanceof SseError && error.code === 401) {
         console.error(
-          "Received 401 Unauthorized from MCP server:",
+          "🔒 Received 401 Unauthorized from MCP server:",
           error.message,
         );
         res.status(401).json(error);
@@ -302,11 +284,8 @@ app.get("/sse", async (req, res) => {
       throw error;
     }
 
-    console.log("Connected MCP client to backing server transport");
-
     const webAppTransport = new SSEServerTransport("/message", res);
     webAppTransports.set(webAppTransport.sessionId, webAppTransport);
-    console.log("Created web app transport");
 
     await webAppTransport.start();
 
@@ -314,10 +293,8 @@ app.get("/sse", async (req, res) => {
       transportToClient: webAppTransport,
       transportToServer: backingServerTransport,
     });
-
-    console.log("Set up MCP proxy");
   } catch (error) {
-    console.error("Error in /sse route:", error);
+    console.error("❌ Error in /sse route:", error);
     res.status(500).json(error);
   }
 });
@@ -325,7 +302,7 @@ app.get("/sse", async (req, res) => {
 app.post("/message", async (req, res) => {
   try {
     const sessionId = req.query.sessionId;
-    console.log(`Received message for sessionId ${sessionId}`);
+    console.log(`📥 Received message for sessionId ${sessionId}`);
 
     const transport = webAppTransports.get(
       sessionId as string,
@@ -336,7 +313,7 @@ app.post("/message", async (req, res) => {
     }
     await transport.handlePostMessage(req, res);
   } catch (error) {
-    console.error("Error in /message route:", error);
+    console.error("❌ Error in /message route:", error);
     res.status(500).json(error);
   }
 });
@@ -355,7 +332,7 @@ app.get("/config", (req, res) => {
       defaultArgs: values.args,
     });
   } catch (error) {
-    console.error("Error in /config route:", error);
+    console.error("❌ Error in /config route:", error);
     res.status(500).json(error);
   }
 });
@@ -364,18 +341,20 @@ app.get("/config", (req, res) => {
 const findAvailablePort = async (startPort: number): Promise<number> => {
   return new Promise((resolve, reject) => {
     const server = createServer();
-    
+
     server.listen(startPort, () => {
       const port = (server.address() as any)?.port;
       server.close(() => {
         resolve(port);
       });
     });
-    
-    server.on('error', (err: any) => {
-      if (err.code === 'EADDRINUSE') {
+
+    server.on("error", (err: any) => {
+      if (err.code === "EADDRINUSE") {
         // Port is in use, try the next one
-        findAvailablePort(startPort + 1).then(resolve).catch(reject);
+        findAvailablePort(startPort + 1)
+          .then(resolve)
+          .catch(reject);
       } else {
         reject(err);
       }
@@ -389,13 +368,19 @@ const PORT = process.env.PORT || 6277;
 const startServer = async () => {
   try {
     const availablePort = await findAvailablePort(Number(PORT));
-    
+
     const server = app.listen(availablePort);
     server.on("listening", () => {
       if (availablePort !== Number(PORT)) {
-        console.log(`⚠️  Port ${PORT} was in use, using available port ${availablePort} instead`);
+        console.log(
+          `⚠️  Port ${PORT} was in use, using available port ${availablePort} instead`,
+        );
       }
-      console.log(`⚙️ Proxy server listening on port ${availablePort}`);
+
+      console.log(
+        `\x1b[32m%s\x1b[0m`,
+        `⚙️ Proxy server listening on port ${availablePort}`,
+      );
     });
     server.on("error", (err) => {
       console.error(`❌ Server error: ${err.message}`);

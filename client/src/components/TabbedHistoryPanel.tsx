@@ -1,6 +1,6 @@
 import { CompatibilityCallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useEffect, useState } from "react";
-import { Activity, ScrollText, ChevronDown, Icon } from "lucide-react";
+import { Activity, ScrollText, ChevronDown } from "lucide-react";
 import ActivityTab from "./ActivityTab";
 import ResultsTab from "./ResultsTab";
 
