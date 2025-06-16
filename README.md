@@ -137,6 +137,53 @@ The inspector supports bearer token authentication for SSE connections. Enter yo
 
 The MCP Inspector includes a proxy server that can run and communicate with local MCP processes. The proxy server should not be exposed to untrusted networks as it has permissions to spawn local processes and can connect to any specified MCP server.
 
+#### Authentication
+
+The MCP Inspector proxy server requires authentication by default. When starting the server, a random session token is generated and printed to the console:
+
+```
+🔑 Session token: 3a1c267fad21f7150b7d624c160b7f09b0b8c4f623c7107bbf13378f051538d4
+
+🔗 Open inspector with token pre-filled:
+   http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=3a1c267fad21f7150b7d624c160b7f09b0b8c4f623c7107bbf13378f051538d4
+```
+
+This token must be included as a Bearer token in the Authorization header for all requests to the server. When authentication is enabled, auto-open is disabled by default to ensure you use the secure URL.
+
+**Recommended: Use the pre-filled URL** - Click or copy the link shown in the console to open the inspector with the token already configured.
+
+**Alternative: Manual configuration** - If you already have the inspector open:
+
+1. Click the "Configuration" button in the sidebar
+2. Find "Proxy Session Token" and enter the token displayed in the proxy console
+3. Click "Save" to apply the configuration
+
+The token will be saved in your browser's local storage for future use.
+
+If you need to disable authentication (NOT RECOMMENDED), you can set the `DANGEROUSLY_OMIT_AUTH` environment variable:
+
+```bash
+DANGEROUSLY_OMIT_AUTH=true npm start
+```
+
+#### Local-only Binding
+
+By default, the MCP Inspector proxy server binds only to `127.0.0.1` (localhost) to prevent network access. This ensures the server is not accessible from other devices on the network. If you need to bind to all interfaces for development purposes, you can override this with the `HOST` environment variable:
+
+```bash
+HOST=0.0.0.0 npm start
+```
+
+**Warning:** Only bind to all interfaces in trusted network environments, as this exposes the proxy server's ability to execute local processes.
+
+#### DNS Rebinding Protection
+
+To prevent DNS rebinding attacks, the MCP Inspector validates the `Origin` header on incoming requests. By default, only requests from the client origin are allowed (respects `CLIENT_PORT` if set, defaulting to port 6274). You can configure additional allowed origins by setting the `ALLOWED_ORIGINS` environment variable (comma-separated list):
+
+```bash
+ALLOWED_ORIGINS=http://localhost:6274,http://127.0.0.1:6274,http://localhost:8000 npm start
+```
+
 ### Configuration
 
 The MCP Inspector supports the following configuration settings. To change them, click on the `Configuration` button in the MCP Inspector UI:

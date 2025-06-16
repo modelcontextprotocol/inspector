@@ -28,6 +28,18 @@ export const getMCPServerRequestMaxTotalTimeout = (
   return config.MCP_REQUEST_MAX_TOTAL_TIMEOUT.value as number;
 };
 
+export const getMCPProxyAuthToken = (
+  config: InspectorConfig,
+): {
+  token: string;
+  header: string;
+} => {
+  return {
+    token: config.MCP_PROXY_AUTH_TOKEN.value as string,
+    header: "X-MCP-Proxy-Auth",
+  };
+};
+
 const getSearchParam = (key: string): string | null => {
   try {
     const url = new URL(window.location.href);
@@ -100,27 +112,67 @@ export const getConfigOverridesFromQueryParams = (
 export const initializeInspectorConfig = (
   localStorageKey: string,
 ): InspectorConfig => {
-  const savedConfig = localStorage.getItem(localStorageKey);
-  let baseConfig: InspectorConfig;
-  if (savedConfig) {
-    // merge default config with saved config
-    const mergedConfig = {
-      ...DEFAULT_INSPECTOR_CONFIG,
-      ...JSON.parse(savedConfig),
-    } as InspectorConfig;
+  // Read persistent config from localStorage
+  const savedPersistentConfig = localStorage.getItem(localStorageKey);
+  // Read ephemeral config from sessionStorage
+  const savedEphemeralConfig = sessionStorage.getItem(
+    `${localStorageKey}_ephemeral`,
+  );
 
-    // update description of keys to match the new description (in case of any updates to the default config description)
-    for (const [key, value] of Object.entries(mergedConfig)) {
-      mergedConfig[key as keyof InspectorConfig] = {
-        ...value,
-        label: DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].label,
-      };
-    }
-    baseConfig = mergedConfig;
-  } else {
-    baseConfig = DEFAULT_INSPECTOR_CONFIG;
+  // Start with default config
+  let baseConfig = { ...DEFAULT_INSPECTOR_CONFIG };
+
+  // Apply saved persistent config
+  if (savedPersistentConfig) {
+    const parsedPersistentConfig = JSON.parse(savedPersistentConfig);
+    baseConfig = { ...baseConfig, ...parsedPersistentConfig };
   }
+
+  // Apply saved ephemeral config
+  if (savedEphemeralConfig) {
+    const parsedEphemeralConfig = JSON.parse(savedEphemeralConfig);
+    baseConfig = { ...baseConfig, ...parsedEphemeralConfig };
+  }
+
+  // Ensure all config items have the latest labels/descriptions from defaults
+  for (const [key, value] of Object.entries(baseConfig)) {
+    baseConfig[key as keyof InspectorConfig] = {
+      ...value,
+      label: DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].label,
+      description:
+        DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].description,
+      is_session_item:
+        DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].is_session_item,
+    };
+  }
+
   // Apply query param overrides
   const overrides = getConfigOverridesFromQueryParams(DEFAULT_INSPECTOR_CONFIG);
   return { ...baseConfig, ...overrides };
+};
+
+export const saveInspectorConfig = (
+  localStorageKey: string,
+  config: InspectorConfig,
+): void => {
+  const persistentConfig: Partial<InspectorConfig> = {};
+  const ephemeralConfig: Partial<InspectorConfig> = {};
+
+  // Split config based on is_session_item flag
+  for (const [key, value] of Object.entries(config)) {
+    if (value.is_session_item) {
+      ephemeralConfig[key as keyof InspectorConfig] = value;
+    } else {
+      persistentConfig[key as keyof InspectorConfig] = value;
+    }
+  }
+
+  // Save persistent config to localStorage
+  localStorage.setItem(localStorageKey, JSON.stringify(persistentConfig));
+
+  // Save ephemeral config to sessionStorage
+  sessionStorage.setItem(
+    `${localStorageKey}_ephemeral`,
+    JSON.stringify(ephemeralConfig),
+  );
 };

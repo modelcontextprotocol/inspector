@@ -84,12 +84,6 @@ Object.defineProperty(window, "sessionStorage", {
   value: sessionStorageMock,
 });
 
-Object.defineProperty(window, "location", {
-  value: {
-    origin: "http://localhost:3000",
-  },
-});
-
 describe("AuthDebugger", () => {
   const defaultAuthState = EMPTY_DEBUGGER_STATE;
 
@@ -104,7 +98,7 @@ describe("AuthDebugger", () => {
     jest.clearAllMocks();
     sessionStorageMock.getItem.mockReturnValue(null);
 
-    // Supress
+    // Suppress console errors in tests to avoid JSDOM navigation noise
     jest.spyOn(console, "error").mockImplementation(() => {});
 
     mockDiscoverOAuthMetadata.mockResolvedValue(mockOAuthMetadata);
@@ -446,18 +440,6 @@ describe("AuthDebugger", () => {
   describe("OAuth State Persistence", () => {
     it("should store auth state to sessionStorage before redirect in Quick OAuth Flow", async () => {
       const updateAuthState = jest.fn();
-
-      // Mock window.location.href setter
-      const originalLocation = window.location;
-      const locationMock = {
-        ...originalLocation,
-        href: "",
-        origin: "http://localhost:3000",
-      };
-      Object.defineProperty(window, "location", {
-        writable: true,
-        value: locationMock,
-      });
 
       // Setup mocks for OAuth flow
       mockStartAuthorization.mockResolvedValue({

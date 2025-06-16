@@ -63,11 +63,13 @@ import ToolsTab from "./components/ToolsTab";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
   getMCPProxyAddress,
+  getMCPProxyAuthToken,
   getInitialSseUrl,
   getInitialTransportType,
   getInitialCommand,
   getInitialArgs,
   initializeInspectorConfig,
+  saveInspectorConfig,
 } from "./utils/configUtils";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
@@ -226,7 +228,7 @@ const App = () => {
   }, [headerName]);
 
   useEffect(() => {
-    localStorage.setItem(CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
+    saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
   }, [config]);
 
   // Auto-connect to previously saved serverURL after OAuth callback
@@ -344,7 +346,14 @@ const App = () => {
   }, [sseUrl]);
 
   useEffect(() => {
-    fetch(`${getMCPProxyAddress(config)}/config`)
+    const headers: HeadersInit = {};
+    const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
+      getMCPProxyAuthToken(config);
+    if (proxyAuthToken) {
+      headers[proxyAuthTokenHeader] = `Bearer ${proxyAuthToken}`;
+    }
+
+    fetch(`${getMCPProxyAddress(config)}/config`, { headers })
       .then((response) => response.json())
       .then((data) => {
         setEnv(data.defaultEnvironment);
@@ -358,8 +367,7 @@ const App = () => {
       .catch((error) =>
         console.error("Error fetching default environment:", error),
       );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [config]);
 
   useEffect(() => {
     rootsRef.current = roots;

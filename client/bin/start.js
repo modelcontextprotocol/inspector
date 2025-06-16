@@ -100,7 +100,9 @@ async function main() {
 
   if (serverOk) {
     try {
-      if (process.env.MCP_AUTO_OPEN_ENABLED !== "false") {
+      // Only auto-open when auth is disabled
+      const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
+      if (process.env.MCP_AUTO_OPEN_ENABLED !== "false" && authDisabled) {
         open(`http://127.0.0.1:${CLIENT_PORT}`);
       }
       await spawnPromise("node", [inspectorClientPath], {

@@ -666,8 +666,13 @@ const Sidebar = ({
                   switch (connectionStatus) {
                     case "connected":
                       return "Connected";
-                    case "error":
-                      return "Connection Error, is your MCP server running?";
+                    case "error": {
+                      const hasProxyToken = config.MCP_PROXY_AUTH_TOKEN?.value;
+                      if (!hasProxyToken) {
+                        return "Connection Error - Did you add the proxy session token in Configuration?";
+                      }
+                      return "Connection Error - Check if your MCP server is running and proxy token is correct";
+                    }
                     case "error-connecting-to-proxy":
                       return "Error Connecting to MCP Inspector Proxy - Check Console logs";
                     default:
