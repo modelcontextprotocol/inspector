@@ -41,11 +41,11 @@ const ResourcesTab = ({
 }: {
   resources: Resource[];
   resourceTemplates: ResourceTemplate[];
-  listResources: () => void;
+  listResources: (meta?: Record<string, unknown> | null) => void;
   clearResources: () => void;
-  listResourceTemplates: () => void;
+  listResourceTemplates: (meta?: Record<string, unknown> | null) => void;
   clearResourceTemplates: () => void;
-  readResource: (uri: string) => void;
+  readResource: (uri: string, meta?: Record<string, unknown>) => void;
   selectedResource: Resource | null;
   setSelectedResource: (resource: Resource | null) => void;
   handleCompletion: (

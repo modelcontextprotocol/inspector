@@ -107,6 +107,7 @@ export function useConnection({
     schema: T,
     options?: RequestOptions & { suppressToast?: boolean },
   ): Promise<z.output<T>> => {
+    console.log("makeRequest:", request);
     if (!mcpClient) {
       throw new Error("MCP client not connected");
     }

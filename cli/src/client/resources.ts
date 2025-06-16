@@ -2,9 +2,12 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { McpResponse } from "./types.js";
 
 // List available resources
-export async function listResources(client: Client): Promise<McpResponse> {
+export async function listResources(
+  client: Client,
+  _meta?: Record<string, unknown>,
+): Promise<McpResponse> {
   try {
-    const response = await client.listResources();
+    const response = await client.listResources({ _meta });
     return response;
   } catch (error) {
     throw new Error(
@@ -17,9 +20,10 @@ export async function listResources(client: Client): Promise<McpResponse> {
 export async function readResource(
   client: Client,
   uri: string,
+  _meta?: Record<string, unknown>,
 ): Promise<McpResponse> {
   try {
-    const response = await client.readResource({ uri });
+    const response = await client.readResource({ uri, _meta });
     return response;
   } catch (error) {
     throw new Error(
@@ -31,9 +35,10 @@ export async function readResource(
 // List resource templates
 export async function listResourceTemplates(
   client: Client,
+  _meta?: Record<string, unknown>,
 ): Promise<McpResponse> {
   try {
-    const response = await client.listResourceTemplates();
+    const response = await client.listResourceTemplates({ _meta });
     return response;
   } catch (error) {
     throw new Error(

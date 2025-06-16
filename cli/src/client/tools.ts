@@ -9,9 +9,12 @@ type JsonSchemaType = {
   items?: JsonSchemaType;
 };
 
-export async function listTools(client: Client): Promise<McpResponse> {
+export async function listTools(
+  client: Client,
+  _meta?: Record<string, unknown>,
+): Promise<McpResponse> {
   try {
-    const response = await client.listTools();
+    const response = await client.listTools({ _meta });
     return response;
   } catch (error) {
     throw new Error(
@@ -69,9 +72,10 @@ export async function callTool(
   client: Client,
   name: string,
   args: Record<string, string>,
+  _meta?: Record<string, unknown>,
 ): Promise<McpResponse> {
   try {
-    const toolsResponse = await listTools(client);
+    const toolsResponse = await listTools(client, _meta);
     const tools = toolsResponse.tools as Tool[];
     const tool = tools.find((t) => t.name === name);
 
@@ -85,6 +89,7 @@ export async function callTool(
     const response = await client.callTool({
       name: name,
       arguments: convertedArgs,
+      _meta,
     });
     return response;
   } catch (error) {
