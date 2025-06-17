@@ -8,13 +8,7 @@ import {
   Root,
 } from "@modelcontextprotocol/sdk/types.js";
 import { StdErrNotification } from "../lib/notificationTypes";
-
-type ExtendedConnectionStatus =
-  | "disconnected"
-  | "connected"
-  | "error"
-  | "error-connecting-to-proxy"
-  | "partial";
+import { ConnectionStatus } from "@/lib/constants";
 
 export const useConnectionState = (
   addRequestHistory: (request: object, response?: object) => void,
@@ -248,7 +242,7 @@ export const useConnectionState = (
     [mcpAgent, forceUpdateSidebar],
   );
 
-  const getConnectionStatus = useCallback((): ExtendedConnectionStatus => {
+  const getConnectionStatus = useCallback((): ConnectionStatus => {
     return mcpAgent?.getOverallConnectionStatus() || "disconnected";
   }, [mcpAgent]);
 

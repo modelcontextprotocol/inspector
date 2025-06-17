@@ -13,6 +13,7 @@ import {
   CreateMessageRequest,
   CreateMessageResult,
 } from "@modelcontextprotocol/sdk/types.js";
+import { ConnectionStatus } from "./lib/constants";
 
 export interface MCPClientOptions {
   id?: string;
@@ -362,11 +363,7 @@ export class MCPJamAgent {
   }
 
   // Get aggregated connection status
-  getOverallConnectionStatus():
-    | "connected"
-    | "partial"
-    | "disconnected"
-    | "error" {
+  getOverallConnectionStatus(): ConnectionStatus {
     const connections = this.getAllConnectionInfo();
     if (connections.length === 0) return "disconnected";
 
@@ -379,7 +376,6 @@ export class MCPJamAgent {
 
     if (errorCount > 0) return "error";
     if (connectedCount === connections.length) return "connected";
-    if (connectedCount > 0) return "partial";
     return "disconnected";
   }
 

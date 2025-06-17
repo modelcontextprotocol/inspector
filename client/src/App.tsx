@@ -57,13 +57,7 @@ import {
   StdioServerDefinition,
   HttpServerDefinition,
 } from "./lib/serverTypes";
-
-type ExtendedConnectionStatus =
-  | "disconnected"
-  | "connected"
-  | "error"
-  | "error-connecting-to-proxy"
-  | "partial";
+import { ConnectionStatus } from "./lib/constants";
 
 const App = () => {
   const serverState = useServerState();
@@ -141,7 +135,7 @@ const App = () => {
   const getRootsCallback = useCallback(() => rootsRef.current, []);
 
   // Connection info
-  const connectionStatus: ExtendedConnectionStatus =
+  const connectionStatus: ConnectionStatus =
     connectionState.getConnectionStatus();
   const serverCapabilities = connectionState.getServerCapabilities(
     serverState.selectedServerName,
@@ -289,13 +283,16 @@ const App = () => {
 
   const handleSaveMultiple = useCallback(
     async (clients: Array<{ name: string; config: MCPJamServerConfig }>) => {
-      const results: { success: string[]; failed: Array<{ name: string; error: string }> } = {
+      const results: {
+        success: string[];
+        failed: Array<{ name: string; error: string }>;
+      } = {
         success: [],
-        failed: []
+        failed: [],
       };
-      
+
       console.log(`🔄 Creating ${clients.length} client(s)...`);
-      
+
       // Create clients individually to handle failures gracefully
       for (const client of clients) {
         try {
@@ -304,29 +301,38 @@ const App = () => {
           results.success.push(client.name);
           console.log(`✅ Successfully created client: "${client.name}"`);
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          console.error(`❌ Failed to create client "${client.name}":`, errorMessage);
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          console.error(
+            `❌ Failed to create client "${client.name}":`,
+            errorMessage,
+          );
           results.failed.push({ name: client.name, error: errorMessage });
         }
       }
-      
+
       // Exit client form mode
       serverState.handleCancelClientForm();
-      
+
       // Log final results
       if (results.success.length > 0) {
-        console.log(`✅ Successfully created ${results.success.length} client(s): ${results.success.join(', ')}`);
+        console.log(
+          `✅ Successfully created ${results.success.length} client(s): ${results.success.join(", ")}`,
+        );
       }
-      
+
       if (results.failed.length > 0) {
-        console.error(`❌ Failed to create ${results.failed.length} client(s):`, results.failed);
-        
+        console.error(
+          `❌ Failed to create ${results.failed.length} client(s):`,
+          results.failed,
+        );
+
         // Show error details in console for debugging
         results.failed.forEach(({ name, error }) => {
           console.error(`  - ${name}: ${error}`);
         });
       }
-      
+
       return results;
     },
     [handleAddServer, serverState],

@@ -58,7 +58,6 @@ const TabbedHistoryPanel = ({
   };
 
   const renderResultsTabButton = () => {
-    console.log("isToolResultError", isToolResultError);
     const renderCircleIndicator = () => {
       if (toolResult && !isToolResultError) {
         return <div className="w-2 h-2 bg-green-500 rounded-full"></div>;
