@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { DebugInspectorOAuthClientProvider } from "@/lib/auth";
 import { useEffect, useMemo, useState } from "react";
 import { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { oauthAuthServerMetadataUrl } from "@/utils/oauthUtils.ts";
 
 interface OAuthStepProps {
   label: string;
@@ -196,10 +197,7 @@ export const OAuthFlowProgress = ({
                     <p className="text-xs text-muted-foreground">
                       From{" "}
                       {
-                        new URL(
-                          "/.well-known/oauth-authorization-server",
-                          authState.authServerUrl,
-                        ).href
+                        oauthAuthServerMetadataUrl(authState.authServerUrl).href
                       }
                     </p>
                   )}

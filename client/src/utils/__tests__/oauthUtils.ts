@@ -1,6 +1,7 @@
 import {
   generateOAuthErrorDescription,
   parseOAuthCallbackParams,
+  oauthAuthServerMetadataUrl,
 } from "@/utils/oauthUtils.ts";
 
 describe("parseOAuthCallbackParams", () => {
@@ -73,6 +74,40 @@ describe("generateOAuthErrorDescription", () => {
       }),
     ).toEqual(
       "Error: invalid_request.\nDetails: The request could not be completed as dialed.\nMore info: https://example.com/error-docs.",
+    );
+  });
+});
+
+describe("oauthAuthServerMetadataUrl", () => {
+  it("Returns metadata URL for simple auth server URL", () => {
+    const input = new URL("https://auth.example.com");
+    const result = oauthAuthServerMetadataUrl(input);
+    expect(result.href).toBe(
+      "https://auth.example.com/.well-known/oauth-authorization-server",
+    );
+  });
+
+  it("Returns metadata URL for auth server with path", () => {
+    const input = new URL("https://auth.example.com/oauth/tenant/xyz");
+    const result = oauthAuthServerMetadataUrl(input);
+    expect(result.href).toBe(
+      "https://auth.example.com/.well-known/oauth-authorization-server/oauth/tenant/xyz",
+    );
+  });
+
+  it("Strips trailing slash from path as per spec", () => {
+    const input = new URL("https://auth.example.com/oauth/");
+    const result = oauthAuthServerMetadataUrl(input);
+    expect(result.href).toBe(
+      "https://auth.example.com/.well-known/oauth-authorization-server/oauth",
+    );
+  });
+
+  it("Handles auth server URL with port", () => {
+    const input = new URL("https://auth.example.com:8080");
+    const result = oauthAuthServerMetadataUrl(input);
+    expect(result.href).toBe(
+      "https://auth.example.com:8080/.well-known/oauth-authorization-server",
     );
   });
 });
