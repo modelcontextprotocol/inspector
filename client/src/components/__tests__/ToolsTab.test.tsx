@@ -106,9 +106,13 @@ describe("ToolsTab", () => {
       fireEvent.click(submitButton);
     });
 
-    expect(defaultProps.callTool).toHaveBeenCalledWith(mockTools[1].name, {
-      count: 42,
-    });
+    expect(defaultProps.callTool).toHaveBeenCalledWith(
+      mockTools[1].name,
+      {
+        count: 42,
+      },
+      null,
+    );
   });
 
   it("should disable button and change text while tool is running", async () => {

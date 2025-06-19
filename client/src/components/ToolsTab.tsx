@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
+import MetaEditor from "./MetaEditor"; // Import MetaEditor
 
 const ToolsTab = ({
   tools,
@@ -30,9 +31,13 @@ const ToolsTab = ({
   nextCursor,
 }: {
   tools: Tool[];
-  listTools: () => void;
+  listTools: (meta?: Record<string, unknown> | null) => void; // Updated signature
   clearTools: () => void;
-  callTool: (name: string, params: Record<string, unknown>) => Promise<void>;
+  callTool: (
+    name: string,
+    params: Record<string, unknown>,
+    meta: Record<string, unknown> | null,
+  ) => Promise<void>; // Updated signature
   selectedTool: Tool | null;
   setSelectedTool: (tool: Tool | null) => void;
   toolResult: CompatibilityCallToolResult | null;
@@ -42,6 +47,9 @@ const ToolsTab = ({
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
+  const [metaValue, setMetaValue] = useState<Record<string, unknown> | null>(
+    null,
+  ); // State for MetaEditor
 
   useEffect(() => {
     const params = Object.entries(
@@ -230,11 +238,16 @@ const ToolsTab = ({
                     </div>
                   </div>
                 )}
+                <MetaEditor
+                  onChange={setMetaValue}
+                  initialCollapsed={true}
+                  initialValue={{}}
+                />
                 <Button
                   onClick={async () => {
                     try {
                       setIsToolRunning(true);
-                      await callTool(selectedTool.name, params);
+                      await callTool(selectedTool.name, params, metaValue); // Pass metaValue
                     } finally {
                       setIsToolRunning(false);
                     }

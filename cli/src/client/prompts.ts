@@ -2,9 +2,12 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { McpResponse } from "./types.js";
 
 // List available prompts
-export async function listPrompts(client: Client): Promise<McpResponse> {
+export async function listPrompts(
+  client: Client,
+  _meta?: Record<string, unknown>,
+): Promise<McpResponse> {
   try {
-    const response = await client.listPrompts();
+    const response = await client.listPrompts({ _meta });
     return response;
   } catch (error) {
     throw new Error(
@@ -18,11 +21,13 @@ export async function getPrompt(
   client: Client,
   name: string,
   args?: Record<string, string>,
+  _meta?: Record<string, unknown>,
 ): Promise<McpResponse> {
   try {
     const response = await client.getPrompt({
       name,
       arguments: args || {},
+      _meta,
     });
 
     return response;
