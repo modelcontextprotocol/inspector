@@ -321,7 +321,7 @@ const App = () => {
         try {
           console.log(`🔧 Creating client: "${client.name}"`);
           await handleAddServer(client.name, client.config, {
-            autoConnect: true,
+            autoConnect: false,
           });
           results.success.push(client.name);
           console.log(`✅ Successfully created client: "${client.name}"`);
