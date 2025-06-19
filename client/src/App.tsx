@@ -118,7 +118,7 @@ const App = () => {
     (notification: StdErrNotification) => {
       mcpOperations.setStdErrNotifications((prev) => [...prev, notification]);
     },
-    [mcpOperations.setStdErrNotifications],
+    [mcpOperations],
   );
 
   const onPendingRequest = useCallback(
@@ -132,7 +132,7 @@ const App = () => {
         { id: nextRequestId.current++, request, resolve, reject },
       ]);
     },
-    [mcpOperations.setPendingSampleRequests],
+    [mcpOperations],
   );
 
   const getRootsCallback = useCallback(() => rootsRef.current, []);
@@ -234,55 +234,58 @@ const App = () => {
 
   const handleUpdateServer = useCallback(
     async (serverName: string, config: MCPJamServerConfig) => {
-      await connectionState.updateServerWithoutConnecting(serverName, config);
+      await connectionState.updateServer(serverName, config, () => {
+        // Auto-load tools after successful reconnection
+        console.log(
+          `🛠️ Auto-loading tools for updated server "${serverName}"...`,
+        );
+        mcpOperations.listTools(connectionState.mcpAgent, serverName);
+      });
       serverState.updateServerConfig(serverName, config);
     },
-    [connectionState, serverState],
+    [connectionState, serverState, mcpOperations],
   );
 
-  const handleSaveClient = useCallback(async (config: MCPJamServerConfig) => {
-    if (!serverState.clientFormName.trim()) return;
+  const handleSaveClient = useCallback(
+    async (config: MCPJamServerConfig) => {
+      if (!serverState.clientFormName.trim()) return;
 
-    try {
-      if (serverState.isCreatingClient) {
-        await handleAddServer(
-          serverState.clientFormName,
-          config,
-        );
-      } else if (serverState.editingClientName) {
-        // Check if the server name has changed
-        const oldServerName = serverState.editingClientName;
-        const newServerName = serverState.clientFormName.trim();
+      try {
+        if (serverState.isCreatingClient) {
+          await handleAddServer(serverState.clientFormName, config);
+        } else if (serverState.editingClientName) {
+          // Check if the server name has changed
+          const oldServerName = serverState.editingClientName;
+          const newServerName = serverState.clientFormName.trim();
 
-        if (oldServerName !== newServerName) {
-          // Server name has changed - remove old and add new
-          console.log(
-            `🔄 Server name changed from "${oldServerName}" to "${newServerName}"`,
-          );
+          if (oldServerName !== newServerName) {
+            // Server name has changed - remove old and add new
+            console.log(
+              `🔄 Server name changed from "${oldServerName}" to "${newServerName}"`,
+            );
 
-          // Remove the old server
-          await handleRemoveServer(oldServerName);
+            // Remove the old server
+            await handleRemoveServer(oldServerName);
 
-          // Add the server with the new name
-          await handleAddServer(newServerName, config);
+            // Add the server with the new name
+            await handleAddServer(newServerName, config);
 
-          // Update the selected server name if the changed server was selected
-          if (serverState.selectedServerName === oldServerName) {
-            serverState.setSelectedServerName(newServerName);
+            // Update the selected server name if the changed server was selected
+            if (serverState.selectedServerName === oldServerName) {
+              serverState.setSelectedServerName(newServerName);
+            }
+          } else {
+            // Server name hasn't changed - just update the configuration
+            await handleUpdateServer(serverState.editingClientName, config);
           }
-        } else {
-          // Server name hasn't changed - just update the configuration
-          await handleUpdateServer(
-            serverState.editingClientName,
-            config,
-          );
         }
+        serverState.handleCancelClientForm();
+      } catch (error) {
+        console.error("Failed to save client:", error);
       }
-      serverState.handleCancelClientForm();
-    } catch (error) {
-      console.error("Failed to save client:", error);
-    }
-  }, [serverState, handleAddServer, handleUpdateServer, handleRemoveServer]);
+    },
+    [serverState, handleAddServer, handleUpdateServer, handleRemoveServer],
+  );
 
   const handleSaveMultiple = useCallback(
     async (clients: Array<{ name: string; config: MCPJamServerConfig }>) => {
@@ -374,6 +377,14 @@ const App = () => {
     configState.updateClaudeApiKey(newApiKey);
     updateApiKey(newApiKey);
   };
+
+  const handleConnectServer = useCallback(
+    async (serverName: string) => {
+      await connectionState.connectServer(serverName);
+      mcpOperations.listTools(connectionState.mcpAgent, serverName);
+    },
+    [connectionState, mcpOperations],
+  );
 
   // MCP operation wrappers
   const makeRequest = useCallback(
@@ -481,8 +492,7 @@ const App = () => {
     restoreAgentWithoutConnecting();
   }, [
     serverState.serverConfigs,
-    connectionState.mcpAgent,
-    connectionState.createAgentWithoutConnecting,
+    connectionState,
     configState.config,
     configState.bearerToken,
     configState.headerName,
@@ -582,13 +592,19 @@ const App = () => {
 
         // Then automatically connect to it since OAuth has completed
         console.log("🔌 Auto-connecting after OAuth success...");
-        await connectionState.connectServer(finalServerName);
+        await connectionState.connectServer(finalServerName, () => {
+          // Auto-load tools after successful connection
+          console.log(
+            `🛠️ Auto-loading tools for server "${finalServerName}"...`,
+          );
+          mcpOperations.listTools(connectionState.mcpAgent, finalServerName);
+        });
         console.log("✅ Auto-connected successfully after OAuth");
       } catch (error) {
         console.error("Failed to connect OAuth server:", error);
       }
     },
-    [serverState, handleAddServer, connectionState.connectServer],
+    [serverState, handleAddServer, connectionState, mcpOperations],
   );
 
   const onOAuthDebugConnect = useCallback(
@@ -997,7 +1013,7 @@ const App = () => {
           selectedServerName={serverState.selectedServerName}
           onServerSelect={serverState.setSelectedServerName}
           onRemoveServer={handleRemoveServer}
-          onConnectServer={connectionState.connectServer}
+          onConnectServer={handleConnectServer}
           onDisconnectServer={connectionState.disconnectServer}
           onCreateClient={serverState.handleCreateClient}
           onEditClient={handleEditClient}
