@@ -35,11 +35,25 @@ const TabbedHistoryPanel = ({
 
   useEffect(() => {
     if (toolResult) {
-      console.log("toolResult", toolResult);
       setIsToolResultError(toolResult.isError === true);
       setActiveTab("results");
     }
   }, [toolResult]);
+
+  useEffect(() => {
+    if (clientLogs.length > 0) {
+      const isLastLogError =
+        clientLogs[clientLogs.length - 1].level === "error";
+      const isLastLogToolCall =
+        clientLogs[clientLogs.length - 1].message.includes(
+          "Error calling tool",
+        ); // TODO: Fix this text check. not reliable.
+
+      if (isLastLogError && !isLastLogToolCall) {
+        setActiveTab("logs");
+      }
+    }
+  }, [clientLogs]);
 
   const renderActivityTabButton = () => {
     return (

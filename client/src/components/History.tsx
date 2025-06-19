@@ -42,6 +42,16 @@ const HistoryAndNotifications = ({
     }
   }, [toolResult, resetHeight]);
 
+  useEffect(() => {
+    if (clientLogs.length > 0) {
+      const isLastError = clientLogs[clientLogs.length - 1].level === "error";
+      if (isLastError) {
+        resetHeight();
+        setIsHistoryCollapsed(false);
+      }
+    }
+  }, [clientLogs, resetHeight]);
+
   return (
     <div
       className={`relative bg-gradient-to-r from-card/95 via-card to-card/95 backdrop-blur-md border-t border-border/30 transition-all duration-500 ease-out ${
