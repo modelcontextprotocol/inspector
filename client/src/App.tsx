@@ -79,6 +79,7 @@ const App = () => {
   });
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
   const [showStarModal, setShowStarModal] = useState(false);
+  const { addClientLog } = mcpOperations;
   // Handle hash changes for navigation
   useEffect(() => {
     const handleHashChange = () => {
@@ -150,10 +151,10 @@ const App = () => {
 
   const handleAddServer = useCallback(
     async (name: string, serverConfig: MCPJamServerConfig) => {
-      console.log("🔧 Adding server without auto-connect:", {
-        name,
-        serverConfig,
-      });
+      addClientLog(
+        `🔧 Adding server without auto-connect: ${name} ${JSON.stringify(serverConfig)}`,
+        "info",
+      );
 
       // Check if there are no other servers BEFORE adding the new one
       const shouldSelectNewServer =
@@ -169,8 +170,9 @@ const App = () => {
 
       // Create or update the agent with the new server config, but don't connect
       if (!connectionState.mcpAgent) {
-        console.log(
-          "🆕 Creating agent with server config (no auto-connect)...",
+        addClientLog(
+          `🆕 Creating agent with server config (no auto-connect) ${name} ${JSON.stringify(serverConfig)}`,
+          "info",
         );
         try {
           // Include ALL server configs (existing + new) when creating the agent
@@ -204,13 +206,11 @@ const App = () => {
     [
       serverState,
       connectionState,
-      configState.config,
-      configState.bearerToken,
-      configState.headerName,
-      configState.claudeApiKey,
+      configState,
       onStdErrNotification,
       onPendingRequest,
       getRootsCallback,
+      addClientLog,
     ],
   );
 
@@ -234,16 +234,14 @@ const App = () => {
 
   const handleUpdateServer = useCallback(
     async (serverName: string, config: MCPJamServerConfig) => {
-      await connectionState.updateServer(serverName, config, () => {
-        // Auto-load tools after successful reconnection
-        console.log(
-          `🛠️ Auto-loading tools for updated server "${serverName}"...`,
-        );
-        mcpOperations.listTools(connectionState.mcpAgent, serverName);
-      });
+      await connectionState.updateServer(serverName, config);
       serverState.updateServerConfig(serverName, config);
+      addClientLog(
+        `🔧 Updated server: ${serverName} ${JSON.stringify(config)}`,
+        "info",
+      );
     },
-    [connectionState, serverState, mcpOperations],
+    [connectionState, serverState, addClientLog],
   );
 
   const handleSaveClient = useCallback(
@@ -302,16 +300,18 @@ const App = () => {
       // Create clients individually to handle failures gracefully
       for (const client of clients) {
         try {
-          console.log(`🔧 Creating client: "${client.name}"`);
           await handleAddServer(client.name, client.config);
           results.success.push(client.name);
-          console.log(`✅ Successfully created client: "${client.name}"`);
+          addClientLog(
+            `✅ Successfully created client: "${client.name}"`,
+            "info",
+          );
         } catch (error) {
           const errorMessage =
             error instanceof Error ? error.message : String(error);
-          console.error(
-            `❌ Failed to create client "${client.name}":`,
-            errorMessage,
+          addClientLog(
+            `❌ Failed to create client "${client.name}": ${errorMessage}`,
+            "error",
           );
           results.failed.push({ name: client.name, error: errorMessage });
         }
@@ -322,26 +322,22 @@ const App = () => {
 
       // Log final results
       if (results.success.length > 0) {
-        console.log(
+        addClientLog(
           `✅ Successfully created ${results.success.length} client(s): ${results.success.join(", ")}`,
+          "info",
         );
       }
 
       if (results.failed.length > 0) {
-        console.error(
-          `❌ Failed to create ${results.failed.length} client(s):`,
-          results.failed,
+        addClientLog(
+          `❌ Failed to create ${results.failed.length} client(s): ${results.failed.map(({ name, error }) => `${name}: ${error}`).join(", ")}`,
+          "error",
         );
-
-        // Show error details in console for debugging
-        results.failed.forEach(({ name, error }) => {
-          console.error(`  - ${name}: ${error}`);
-        });
       }
 
       return results;
     },
-    [handleAddServer, serverState],
+    [handleAddServer, serverState, addClientLog],
   );
 
   const handleEditClient = useCallback(
@@ -573,10 +569,6 @@ const App = () => {
       // Use existing server name if found, otherwise use the determined name
       const finalServerName = existingServerName || serverName;
 
-      console.log(
-        `🔐 OAuth connecting to: ${serverUrl} as server "${finalServerName}"`,
-      );
-
       // Update the server config for the correct server
       const serverConfig: HttpServerDefinition = {
         transportType: "sse",
@@ -586,25 +578,13 @@ const App = () => {
       // Add the server first
       try {
         await handleAddServer(finalServerName, serverConfig);
-
-        // Switch to the newly connected server
         serverState.setSelectedServerName(finalServerName);
-
-        // Then automatically connect to it since OAuth has completed
-        console.log("🔌 Auto-connecting after OAuth success...");
-        await connectionState.connectServer(finalServerName, () => {
-          // Auto-load tools after successful connection
-          console.log(
-            `🛠️ Auto-loading tools for server "${finalServerName}"...`,
-          );
-          mcpOperations.listTools(connectionState.mcpAgent, finalServerName);
-        });
-        console.log("✅ Auto-connected successfully after OAuth");
+        await connectionState.connectServer(finalServerName);
       } catch (error) {
         console.error("Failed to connect OAuth server:", error);
       }
     },
-    [serverState, handleAddServer, connectionState, mcpOperations],
+    [serverState, handleAddServer, connectionState],
   );
 
   const onOAuthDebugConnect = useCallback(
