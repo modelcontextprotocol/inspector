@@ -1,6 +1,5 @@
 import { ClientLogInfo } from "@/hooks/helpers/types";
 import { Trash2, AlertCircle, Info, AlertTriangle, Bug } from "lucide-react";
-import { Button } from "./ui/button";
 
 interface ClientLogsTabProps {
   clientLogs: ClientLogInfo[];
@@ -100,29 +99,19 @@ const ClientLogsTab = ({
 
   return (
     <div className="h-full flex flex-col">
-      {showHeader && (
-        <div className="flex items-center justify-between p-4 border-b border-border/50">
-          <div className="flex items-center space-x-2">
-            <Bug className="w-5 h-5 text-muted-foreground" />
-            <h3 className="text-lg font-semibold">Client Logs</h3>
-            {clientLogs.length > 0 && (
-              <span className="px-2 py-1 text-xs bg-primary/10 text-primary rounded-full font-medium">
-                {clientLogs.length}
-              </span>
-            )}
-          </div>
-
-          {clientLogs.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onClearLogs}
-              className="flex items-center space-x-2"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span>Clear Logs</span>
-            </Button>
-          )}
+      {!showHeader && clientLogs.length > 0 && (
+        <div className="flex items-center justify-between mb-6">
+          <span className="text-sm text-muted-foreground bg-muted/50 px-3 py-1 rounded-full">
+            {clientLogs.length} log
+            {clientLogs.length !== 1 ? "s" : ""}
+          </span>
+          <button
+            onClick={onClearLogs}
+            className="p-2 rounded-lg hover:bg-destructive/10 hover:text-destructive transition-all duration-200 group"
+            title="Clear all activity"
+          >
+            <Trash2 className="w-4 h-4 text-muted-foreground group-hover:text-destructive" />
+          </button>
         </div>
       )}
 
