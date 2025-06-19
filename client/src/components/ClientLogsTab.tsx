@@ -13,43 +13,88 @@ const ClientLogsTab = ({
   onClearLogs,
   showHeader = true,
 }: ClientLogsTabProps) => {
-  const getLogLevelIcon = (level: string) => {
-    switch (level) {
-      case "error":
-        return <AlertCircle className="w-4 h-4 text-red-500" />;
-      case "warn":
-        return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
-      case "info":
-        return <Info className="w-4 h-4 text-blue-500" />;
-      case "debug":
-        return <Bug className="w-4 h-4 text-gray-500" />;
-      default:
-        return <Info className="w-4 h-4 text-gray-500" />;
-    }
-  };
-
-  const getLogLevelColor = (level: string) => {
-    switch (level) {
-      case "error":
-        return "text-red-600 dark:text-red-400";
-      case "warn":
-        return "text-yellow-600 dark:text-yellow-400";
-      case "info":
-        return "text-blue-600 dark:text-blue-400";
-      case "debug":
-        return "text-gray-600 dark:text-gray-400";
-      default:
-        return "text-gray-600 dark:text-gray-400";
-    }
-  };
-
   const formatTimestamp = (timestamp: string) => {
-    try {
-      const date = new Date(timestamp);
-      return date.toLocaleTimeString();
-    } catch {
-      return timestamp;
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString("en-US", {
+      hour12: true,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  };
+
+  const getLogLevelConfig = (level: ClientLogInfo["level"]) => {
+    switch (level) {
+      case "error":
+        return {
+          icon: AlertCircle,
+          bgColor: "bg-red-50 dark:bg-red-950/20",
+          borderColor: "border-red-200 dark:border-red-800/50",
+          textColor: "text-red-800 dark:text-red-300",
+          iconColor: "text-red-500",
+          label: "ERROR",
+        };
+      case "warn":
+        return {
+          icon: AlertTriangle,
+          bgColor: "bg-yellow-50 dark:bg-yellow-950/20",
+          borderColor: "border-yellow-200 dark:border-yellow-800/50",
+          textColor: "text-yellow-800 dark:text-yellow-300",
+          iconColor: "text-yellow-500",
+          label: "WARN",
+        };
+      case "debug":
+        return {
+          icon: Bug,
+          bgColor: "bg-gray-50 dark:bg-gray-950/20",
+          borderColor: "border-gray-200 dark:border-gray-800/50",
+          textColor: "text-gray-800 dark:text-gray-300",
+          iconColor: "text-gray-500",
+          label: "DEBUG",
+        };
+      case "info":
+      default:
+        return {
+          icon: Info,
+          bgColor: "bg-blue-50 dark:bg-blue-950/20",
+          borderColor: "border-blue-200 dark:border-blue-800/50",
+          textColor: "text-blue-800 dark:text-blue-300",
+          iconColor: "text-blue-500",
+          label: "INFO",
+        };
     }
+  };
+
+  const LogEntry = ({ log }: { log: ClientLogInfo }) => {
+    const config = getLogLevelConfig(log.level);
+    const IconComponent = config.icon;
+
+    return (
+      <div
+        className={`flex items-start space-x-3 p-3 rounded-lg border ${config.bgColor} ${config.borderColor} hover:shadow-sm transition-all duration-200`}
+      >
+        <div className={`flex-shrink-0 mt-0.5 ${config.iconColor}`}>
+          <IconComponent className="w-4 h-4" />
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center space-x-2 mb-1">
+            <span
+              className={`text-xs font-mono font-semibold px-2 py-0.5 rounded ${config.textColor} ${config.bgColor}`}
+            >
+              {config.label}
+            </span>
+            <span className="text-xs text-muted-foreground font-mono">
+              {formatTimestamp(log.timestamp)}
+            </span>
+          </div>
+
+          <div className={`text-sm ${config.textColor} font-mono break-words`}>
+            {log.message}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -60,65 +105,42 @@ const ClientLogsTab = ({
             <Bug className="w-5 h-5 text-muted-foreground" />
             <h3 className="text-lg font-semibold">Client Logs</h3>
             {clientLogs.length > 0 && (
-              <span className="px-2 py-1 text-xs bg-primary/10 text-primary rounded-full">
+              <span className="px-2 py-1 text-xs bg-primary/10 text-primary rounded-full font-medium">
                 {clientLogs.length}
               </span>
             )}
           </div>
+
           {clientLogs.length > 0 && (
             <Button
-              onClick={onClearLogs}
               variant="outline"
               size="sm"
-              className="text-muted-foreground hover:text-foreground"
+              onClick={onClearLogs}
+              className="flex items-center space-x-2"
             >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Clear Logs
+              <Trash2 className="w-4 h-4" />
+              <span>Clear Logs</span>
             </Button>
           )}
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-hidden">
         {clientLogs.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center p-8">
             <Bug className="w-12 h-12 text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-medium text-muted-foreground mb-2">
-              No Client Logs
+              No logs yet
             </h3>
-            <p className="text-sm text-muted-foreground max-w-md">
-              Client logs will appear here when you perform operations like
-              listing resources, calling tools, or making requests.
+            <p className="text-sm text-muted-foreground/70 max-w-sm">
+              Client logs will appear here when you perform operations. Logs
+              include info, warnings, errors, and debug messages.
             </p>
           </div>
         ) : (
-          <div className="space-y-2 p-4">
+          <div className="h-full overflow-y-auto p-4 space-y-2">
             {clientLogs.map((log, index) => (
-              <div
-                key={index}
-                className="flex items-start space-x-3 p-3 rounded-lg border border-border/50 bg-card/50 hover:bg-card/80 transition-colors"
-              >
-                <div className="flex-shrink-0 mt-0.5">
-                  {getLogLevelIcon(log.level)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <span
-                      className={`text-sm font-medium uppercase tracking-wide ${getLogLevelColor(
-                        log.level,
-                      )}`}
-                    >
-                      {log.level}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {formatTimestamp(log.timestamp)}
-                    </span>
-                  </div>
-                  <p className="text-sm text-foreground whitespace-pre-wrap break-words">
-                    {log.message}
-                  </p>
-                </div>
-              </div>
+              <LogEntry key={`${log.timestamp}-${index}`} log={log} />
             ))}
           </div>
         )}
