@@ -8,6 +8,9 @@ import {
   discoverOAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
+  resourceUrlFromServerUrl
+} from "@modelcontextprotocol/sdk/shared/auth-utils.js";
+import {
   OAuthMetadataSchema,
   OAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
@@ -37,7 +40,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(
           context.serverUrl,
         );
-        if (resourceMetadata.authorization_servers?.length) {
+        if (resourceMetadata?.authorization_servers?.length) {
           authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
         }
       } catch (e) {
@@ -48,11 +51,15 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         }
       }
 
-      // TODO: use SDK function selectResourceURL here once new version bump lands
-      if (resourceMetadata && resourceMetadata.resource !== context.serverUrl) {
-        resourceMetadataError = new Error(
-          `Warning: metadata resource ${resourceMetadata.resource} does not match serverUrl ${context.serverUrl}`,
-        );
+      let resource: string| undefined;
+      if (resourceMetadata) {
+        resource = resourceUrlFromServerUrl(context.serverUrl);
+        // TODO: use SDK function selectResourceURL once version bump lands to be consistent
+        if (resource !== resourceMetadata.resource)
+          resourceMetadataError = new Error(
+            `Warning: metadata resource ${resourceMetadata.resource} does not match serverUrl ${context.serverUrl}`,
+          );
+        }
       }
 
       const metadata = await discoverOAuthMetadata(authServerUrl);
@@ -63,6 +70,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       context.provider.saveServerMetadata(parsedMetadata);
       context.updateState({
         resourceMetadata,
+        resource,
         resourceMetadataError,
         authServerUrl,
         oauthMetadata: parsedMetadata,
@@ -118,7 +126,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
           clientInformation,
           redirectUrl: context.provider.redirectUrl,
           scope,
-          resource: new URL(context.serverUrl),
+          resource: context.state.resource,
         },
       );
 
@@ -169,7 +177,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         authorizationCode: context.state.authorizationCode,
         codeVerifier,
         redirectUri: context.provider.redirectUrl,
-        resource: new URL(context.serverUrl),
+        resource: context.state.resource,
       });
 
       context.provider.saveTokens(tokens);
