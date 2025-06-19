@@ -16,6 +16,11 @@ import { Prompt } from "../components/PromptsTab";
 import { StdErrNotification } from "../lib/notificationTypes";
 import { MCPJamAgent } from "../mcpjamAgent";
 import { z } from "zod";
+import {
+  ClientLogInfo,
+  ClientLogLevels,
+  RequestHistoryInfo,
+} from "./helpers/types";
 
 export interface PendingRequest {
   id: number;
@@ -73,9 +78,10 @@ export const useMCPOperations = () => {
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
     PendingRequest[]
   >([]);
-  const [requestHistory, setRequestHistory] = useState<
-    { request: string; response?: string; timestamp: string; latency?: number }[]
-  >([]);
+  const [requestHistory, setRequestHistory] = useState<RequestHistoryInfo[]>(
+    [],
+  );
+  const [clientLogs, setClientLogs] = useState<ClientLogInfo[]>([]);
 
   const progressTokenRef = useRef(0);
 
@@ -85,7 +91,12 @@ export const useMCPOperations = () => {
   }, []);
 
   const addRequestHistory = useCallback(
-    (request: object, response?: object, timestamp?: string, latency?: number) => {
+    (
+      request: object,
+      response?: object,
+      timestamp?: string,
+      latency?: number,
+    ) => {
       const requestEntry = {
         request: JSON.stringify(request, null, 2),
         response: response ? JSON.stringify(response, null, 2) : undefined,
@@ -96,6 +107,32 @@ export const useMCPOperations = () => {
     },
     [],
   );
+
+  const getRequestHistory = useCallback(() => {
+    return requestHistory;
+  }, [requestHistory]);
+
+  const clearRequestHistory = useCallback(() => {
+    setRequestHistory([]);
+  }, []);
+
+  const addClientLog = useCallback(
+    (message: string, level: ClientLogLevels) => {
+      setClientLogs((prev) => [
+        ...prev,
+        { message, level, timestamp: new Date().toISOString() },
+      ]);
+    },
+    [],
+  );
+
+  const clearClientLogs = useCallback(() => {
+    setClientLogs([]);
+  }, []);
+
+  const getClientLogs = useCallback(() => {
+    return clientLogs;
+  }, [clientLogs]);
 
   // Resource operations
   const listResources = useCallback(
@@ -112,7 +149,10 @@ export const useMCPOperations = () => {
         );
         const endTime = performance.now();
         const latency = Math.round(endTime - startTime);
-        
+        addClientLog(
+          `Listed ${flatResources.length} resources from all servers`,
+          "info",
+        );
         addRequestHistory(
           { method: "resources/list/all" },
           { resources: flatResources },
@@ -126,7 +166,10 @@ export const useMCPOperations = () => {
           const resourcesResponse = await client.listResources();
           const endTime = performance.now();
           const latency = Math.round(endTime - startTime);
-          
+          addClientLog(
+            `Listed ${resourcesResponse.resources.length} resources from ${selectedServerName}`,
+            "info",
+          );
           addRequestHistory(
             { method: "resources/list", server: selectedServerName },
             { resources: resourcesResponse.resources },
@@ -155,7 +198,10 @@ export const useMCPOperations = () => {
             const templatesResponse = await client.listResourceTemplates();
             const endTime = performance.now();
             const latency = Math.round(endTime - startTime);
-            
+            addClientLog(
+              `Listed ${templatesResponse.resourceTemplates.length} resource templates from all servers`,
+              "info",
+            );
             addRequestHistory(
               { method: "resourceTemplates/list/all" },
               { resourceTemplates: templatesResponse.resourceTemplates },
@@ -171,7 +217,10 @@ export const useMCPOperations = () => {
           const templatesResponse = await client.listResourceTemplates();
           const endTime = performance.now();
           const latency = Math.round(endTime - startTime);
-          
+          addClientLog(
+            `Listed ${templatesResponse.resourceTemplates.length} resource templates from ${selectedServerName}`,
+            "info",
+          );
           addRequestHistory(
             { method: "resourceTemplates/list", server: selectedServerName },
             { resourceTemplates: templatesResponse.resourceTemplates },
@@ -203,7 +252,7 @@ export const useMCPOperations = () => {
         );
         const endTime = performance.now();
         const latency = Math.round(endTime - startTime);
-        
+        addClientLog(`Read resource ${uri} from ${selectedServerName}`, "info");
         addRequestHistory(
           { method: "resources/read", server: selectedServerName, uri },
           result,
@@ -221,7 +270,7 @@ export const useMCPOperations = () => {
             );
             const endTime = performance.now();
             const latency = Math.round(endTime - startTime);
-            
+            addClientLog(`Read resource ${uri} from ${serverName}`, "info");
             addRequestHistory(
               { method: "resources/read", server: serverName, uri },
               result,
@@ -252,7 +301,10 @@ export const useMCPOperations = () => {
         const result = await client.subscribeResource({ uri });
         const endTime = performance.now();
         const latency = Math.round(endTime - startTime);
-        
+        addClientLog(
+          `Subscribed to resource ${uri} from ${selectedServerName}`,
+          "info",
+        );
         addRequestHistory(
           { method: "resources/subscribe", server: selectedServerName, uri },
           result,
@@ -280,7 +332,10 @@ export const useMCPOperations = () => {
         const result = await client.unsubscribeResource({ uri });
         const endTime = performance.now();
         const latency = Math.round(endTime - startTime);
-        
+        addClientLog(
+          `Unsubscribed from resource ${uri} from ${selectedServerName}`,
+          "info",
+        );
         addRequestHistory(
           { method: "resources/unsubscribe", server: selectedServerName, uri },
           result,
@@ -306,7 +361,10 @@ export const useMCPOperations = () => {
         const flatPrompts = allServerPrompts.flatMap(({ prompts }) => prompts);
         const endTime = performance.now();
         const latency = Math.round(endTime - startTime);
-        
+        addClientLog(
+          `Listed ${flatPrompts.length} prompts from all servers`,
+          "info",
+        );
         addRequestHistory(
           { method: "prompts/list/all" },
           { prompts: flatPrompts },
@@ -320,7 +378,10 @@ export const useMCPOperations = () => {
           const promptsResponse = await client.listPrompts();
           const endTime = performance.now();
           const latency = Math.round(endTime - startTime);
-          
+          addClientLog(
+            `Listed ${promptsResponse.prompts.length} prompts from ${selectedServerName}`,
+            "info",
+          );
           addRequestHistory(
             { method: "prompts/list", server: selectedServerName },
             { prompts: promptsResponse.prompts },
@@ -354,7 +415,7 @@ export const useMCPOperations = () => {
         );
         const endTime = performance.now();
         const latency = Math.round(endTime - startTime);
-        
+        addClientLog(`Got prompt ${name} from ${selectedServerName}`, "info");
         addRequestHistory(
           { method: "prompts/get", server: selectedServerName, name, args },
           result,
@@ -373,7 +434,7 @@ export const useMCPOperations = () => {
             );
             const endTime = performance.now();
             const latency = Math.round(endTime - startTime);
-            
+            addClientLog(`Got prompt ${name} from ${serverName}`, "info");
             addRequestHistory(
               { method: "prompts/get", server: serverName, name, args },
               result,
@@ -402,9 +463,12 @@ export const useMCPOperations = () => {
         const flatTools = allServerTools.flatMap(({ tools }) => tools);
         const endTime = performance.now();
         const latency = Math.round(endTime - startTime);
-        
+        addClientLog(
+          `Listed ${flatTools.length} tools from all servers`,
+          "info",
+        );
         addRequestHistory(
-          { method: "tools/list/all" }, 
+          { method: "tools/list/all" },
           { tools: flatTools },
           operationTimestamp,
           latency,
@@ -416,7 +480,10 @@ export const useMCPOperations = () => {
           const toolsResponse = await client.tools();
           const endTime = performance.now();
           const latency = Math.round(endTime - startTime);
-          
+          addClientLog(
+            `Listed ${toolsResponse.tools.length} tools from ${selectedServerName}`,
+            "info",
+          );
           addRequestHistory(
             { method: "tools/list", server: selectedServerName },
             { tools: toolsResponse.tools },
@@ -451,7 +518,7 @@ export const useMCPOperations = () => {
           );
           const endTime = performance.now();
           const latency = Math.round(endTime - startTime);
-          
+          addClientLog(`Called tool ${name} on ${selectedServerName}`, "info");
           addRequestHistory(
             { method: "tools/call", server: selectedServerName, name, params },
             result,
@@ -470,7 +537,7 @@ export const useMCPOperations = () => {
               );
               const endTime = performance.now();
               const latency = Math.round(endTime - startTime);
-              
+              addClientLog(`Called tool ${name} on ${serverName}`, "info");
               addRequestHistory(
                 { method: "tools/call", server: serverName, name, params },
                 result,
@@ -486,7 +553,10 @@ export const useMCPOperations = () => {
       } catch (e) {
         const endTime = performance.now();
         const latency = Math.round(endTime - startTime);
-        
+        addClientLog(
+          `Error calling tool ${name} on ${selectedServerName}`,
+          "error",
+        );
         const toolResult: CompatibilityCallToolResult = {
           content: [
             {
@@ -559,7 +629,10 @@ export const useMCPOperations = () => {
       const result = await client.handleCompletion(ref, argName, value, signal);
       const endTime = performance.now();
       const latency = Math.round(endTime - startTime);
-      
+      addClientLog(
+        `Completed completion for ${ref.type} ${ref.name} on ${selectedServerName}`,
+        "info",
+      );
       addRequestHistory(
         {
           method: "completion",
@@ -605,14 +678,6 @@ export const useMCPOperations = () => {
       });
       return updatedRequests;
     });
-  }, []);
-
-  const getRequestHistory = useCallback(() => {
-    return requestHistory;
-  }, [requestHistory]);
-
-  const clearRequestHistory = useCallback(() => {
-    setRequestHistory([]);
   }, []);
 
   return {
@@ -677,5 +742,8 @@ export const useMCPOperations = () => {
     addRequestHistory,
     getRequestHistory,
     clearRequestHistory,
+    addClientLog,
+    clearClientLogs,
+    getClientLogs,
   };
 };
