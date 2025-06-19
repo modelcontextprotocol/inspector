@@ -50,6 +50,7 @@ app.use((req, res, next) => {
 });
 
 const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Transports by sessionId
+const backingServerTransports = new Map<string, Transport>();
 
 const createTransport = async (req: express.Request): Promise<Transport> => {
   const query = req.query;
@@ -130,8 +131,6 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
   }
 };
 
-let backingServerTransport: Transport | undefined;
-
 app.get("/mcp", async (req, res) => {
   const sessionId = req.headers["mcp-session-id"] as string;
   console.log(`📥 Received GET message for sessionId ${sessionId}`);
@@ -157,8 +156,9 @@ app.post("/mcp", async (req, res) => {
   if (!sessionId) {
     try {
       console.log("🔄 New streamable-http connection");
+
+      let backingServerTransport: Transport;
       try {
-        await backingServerTransport?.close();
         backingServerTransport = await createTransport(req);
       } catch (error) {
         if (error instanceof SseError && error.code === 401) {
@@ -169,26 +169,35 @@ app.post("/mcp", async (req, res) => {
           res.status(401).json(error);
           return;
         }
-
         throw error;
       }
 
-      console.log("✨ Connected MCP client to backing server transport");
-
       const webAppTransport = new StreamableHTTPServerTransport({
         sessionIdGenerator: randomUUID,
-        onsessioninitialized: (sessionId) => {
-          webAppTransports.set(sessionId, webAppTransport);
-          console.log("✨ Created streamable web app transport " + sessionId);
+        onsessioninitialized: (newSessionId) => {
+          console.log("✨ Created streamable web app transport " + newSessionId);
+          webAppTransports.set(newSessionId, webAppTransport);
+          backingServerTransports.set(newSessionId, backingServerTransport);
+          console.log(
+            `✨ Connected MCP client to backing server transport for session ${newSessionId}`,
+          );
+
+          mcpProxy({
+            transportToClient: webAppTransport,
+            transportToServer: backingServerTransport,
+          });
+
+          webAppTransport.onclose = () => {
+            console.log(
+              `🧹 Cleaning up transports for session ${newSessionId}`,
+            );
+            webAppTransports.delete(newSessionId);
+            backingServerTransports.delete(newSessionId);
+          };
         },
       });
 
       await webAppTransport.start();
-
-      mcpProxy({
-        transportToClient: webAppTransport,
-        transportToServer: backingServerTransport,
-      });
 
       await (webAppTransport as StreamableHTTPServerTransport).handleRequest(
         req,
@@ -221,11 +230,42 @@ app.post("/mcp", async (req, res) => {
 
 app.get("/stdio", async (req, res) => {
   try {
-    console.log("🔄 New connection");
+    console.log("🔄 New stdio/sse connection");
+    const webAppTransport = new SSEServerTransport("/message", res);
+    const sessionId = webAppTransport.sessionId;
+    webAppTransports.set(sessionId, webAppTransport);
 
     try {
-      await backingServerTransport?.close();
-      backingServerTransport = await createTransport(req);
+      const backingServerTransport = await createTransport(req);
+      backingServerTransports.set(sessionId, backingServerTransport);
+
+      webAppTransport.onclose = () => {
+        console.log(`🧹 Cleaning up transports for session ${sessionId}`);
+        webAppTransports.delete(sessionId);
+        backingServerTransports.delete(sessionId);
+      };
+
+      await webAppTransport.start();
+      if (backingServerTransport instanceof StdioClientTransport) {
+        backingServerTransport.stderr!.on("data", (chunk) => {
+          webAppTransport.send({
+            jsonrpc: "2.0",
+            method: "stderr",
+            params: {
+              data: chunk.toString(),
+            },
+          });
+        });
+      }
+
+      mcpProxy({
+        transportToClient: webAppTransport,
+        transportToServer: backingServerTransport,
+      });
+
+      console.log(
+        `✨ Connected MCP client to backing server transport for session ${sessionId}`,
+      );
     } catch (error) {
       if (error instanceof SseError && error.code === 401) {
         console.error(
@@ -238,39 +278,39 @@ app.get("/stdio", async (req, res) => {
 
       throw error;
     }
-
-    const webAppTransport = new SSEServerTransport("/message", res);
-    webAppTransports.set(webAppTransport.sessionId, webAppTransport);
-
-    await webAppTransport.start();
-    (backingServerTransport as StdioClientTransport).stderr!.on(
-      "data",
-      (chunk) => {
-        webAppTransport.send({
-          jsonrpc: "2.0",
-          method: "notifications/stderr",
-          params: {
-            content: chunk.toString(),
-          },
-        });
-      },
-    );
-
-    mcpProxy({
-      transportToClient: webAppTransport,
-      transportToServer: backingServerTransport,
-    });
   } catch (error) {
     console.error("❌ Error in /stdio route:", error);
-    res.status(500).json(error);
+    // Can't send a 500 response if headers already sent (which they are for SSE)
   }
 });
 
 app.get("/sse", async (req, res) => {
   try {
+    console.log("🔄 New sse connection");
+    const webAppTransport = new SSEServerTransport("/message", res);
+    const sessionId = webAppTransport.sessionId;
+    webAppTransports.set(sessionId, webAppTransport);
+
     try {
-      await backingServerTransport?.close();
-      backingServerTransport = await createTransport(req);
+      const backingServerTransport = await createTransport(req);
+      backingServerTransports.set(sessionId, backingServerTransport);
+
+      webAppTransport.onclose = () => {
+        console.log(`🧹 Cleaning up transports for session ${sessionId}`);
+        webAppTransports.delete(sessionId);
+        backingServerTransports.delete(sessionId);
+      };
+
+      await webAppTransport.start();
+
+      mcpProxy({
+        transportToClient: webAppTransport,
+        transportToServer: backingServerTransport,
+      });
+
+      console.log(
+        `✨ Connected MCP client to backing server transport for session ${sessionId}`,
+      );
     } catch (error) {
       if (error instanceof SseError && error.code === 401) {
         console.error(
@@ -283,19 +323,9 @@ app.get("/sse", async (req, res) => {
 
       throw error;
     }
-
-    const webAppTransport = new SSEServerTransport("/message", res);
-    webAppTransports.set(webAppTransport.sessionId, webAppTransport);
-
-    await webAppTransport.start();
-
-    mcpProxy({
-      transportToClient: webAppTransport,
-      transportToServer: backingServerTransport,
-    });
   } catch (error) {
     console.error("❌ Error in /sse route:", error);
-    res.status(500).json(error);
+    // Can't send a 500 response if headers already sent (which they are for SSE)
   }
 });
 

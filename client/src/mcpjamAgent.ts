@@ -175,32 +175,6 @@ export class MCPJamAgent {
       return existingClient;
     }
 
-    // Check if this is a remote server and if there's already a connected remote server
-    if (this.isRemoteServer(config)) {
-      const connectedRemoteServerName = this.getConnectedRemoteServerName();
-      if (connectedRemoteServerName && connectedRemoteServerName !== name) {
-        // Automatically disconnect the existing remote server
-        console.log(
-          `Automatically disconnecting existing remote server: ${connectedRemoteServerName}`,
-        );
-        await this.disconnectFromServer(connectedRemoteServerName);
-
-        // Clear OAuth tokens for the old server
-        const connectedConfig = this.serverConfigs[connectedRemoteServerName];
-        if (
-          connectedConfig &&
-          "url" in connectedConfig &&
-          connectedConfig.url
-        ) {
-          const { InspectorOAuthClientProvider } = await import("./lib/auth");
-          const oldAuthProvider = new InspectorOAuthClientProvider(
-            connectedConfig.url.toString(),
-          );
-          oldAuthProvider.clear();
-        }
-      }
-    }
-
     // If client exists but is disconnected, reconnect it
     if (existingClient && existingClient.connectionStatus === "disconnected") {
       try {
