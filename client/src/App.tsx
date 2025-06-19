@@ -463,10 +463,6 @@ const App = () => {
         Object.keys(serverState.serverConfigs).length > 0 &&
         !connectionState.mcpAgent
       ) {
-        console.log(
-          "🔄 Restoring agent with saved server configs (no auto-connect)...",
-        );
-
         try {
           await connectionState.createAgentWithoutConnecting(
             serverState.serverConfigs,
@@ -478,9 +474,11 @@ const App = () => {
             onPendingRequest,
             getRootsCallback,
           );
-          console.log("✅ Successfully restored agent with server configs");
         } catch (error) {
-          console.error("❌ Failed to restore agent:", error);
+          addClientLog(
+            `❌ Failed to restore agent: ${error instanceof Error ? error.message : String(error)}`,
+            "error",
+          );
         }
       }
     };
@@ -496,6 +494,7 @@ const App = () => {
     onStdErrNotification,
     onPendingRequest,
     getRootsCallback,
+    addClientLog,
   ]);
 
   // Effect to persist server configs
