@@ -10,7 +10,7 @@ import ToolRunCard from "./ToolRunCard";
 import { McpJamRequest } from "@/lib/requestTypes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Bookmark, Trash2, Calendar, Star, Edit2, Copy } from "lucide-react";
+import { Bookmark, Trash2, Calendar, Star, Edit2, CopyPlus } from "lucide-react";
 import { RequestStorage } from "@/utils/requestStorage";
 import {
   sortRequests,
@@ -245,7 +245,7 @@ const ToolsTab = ({
                         className="h-6 w-6 p-0 hover:bg-blue-500/20 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity"
                         title="Duplicate request"
                       >
-                        <Copy className="w-3 h-3" />
+                        <CopyPlus className="w-3 h-3" />
                       </Button>
                       <Button
                         onClick={(e) => {
