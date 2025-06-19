@@ -149,10 +149,15 @@ const App = () => {
   );
 
   const handleAddServer = useCallback(
-    async (name: string, serverConfig: MCPJamServerConfig) => {
-      console.log("🔧 Adding server without auto-connect:", {
+    async (
+      name: string,
+      serverConfig: MCPJamServerConfig,
+      options: { autoConnect?: boolean } = {},
+    ) => {
+      console.log("🔧 Adding server with options:", {
         name,
         serverConfig,
+        options,
       });
 
       // Check if there are no other servers BEFORE adding the new one
@@ -197,6 +202,20 @@ const App = () => {
         // Add server to existing agent without connecting
         connectionState.mcpAgent.addServer(name, serverConfig);
         connectionState.forceUpdateSidebar();
+      }
+
+      // Auto-connect if requested
+      if (options.autoConnect) {
+        console.log(`🔌 Auto-connecting to server: "${name}"`);
+        try {
+          // It's important to select the server BEFORE connecting to it
+          serverState.setSelectedServerName(name);
+          await connectionState.connectServer(name);
+          console.log(`✅ Successfully auto-connected to "${name}"`);
+        } catch (error) {
+          console.error(`❌ Failed to auto-connect to "${name}":`, error);
+          // TODO: Maybe show a toast notification here
+        }
       }
 
       return name;
@@ -245,10 +264,9 @@ const App = () => {
 
     try {
       if (serverState.isCreatingClient) {
-        await handleAddServer(
-          serverState.clientFormName,
-          config,
-        );
+        await handleAddServer(serverState.clientFormName, config, {
+          autoConnect: true,
+        });
       } else if (serverState.editingClientName) {
         // Check if the server name has changed
         const oldServerName = serverState.editingClientName;
@@ -264,7 +282,9 @@ const App = () => {
           await handleRemoveServer(oldServerName);
 
           // Add the server with the new name
-          await handleAddServer(newServerName, config);
+          await handleAddServer(newServerName, config, {
+            autoConnect: true,
+          });
 
           // Update the selected server name if the changed server was selected
           if (serverState.selectedServerName === oldServerName) {
@@ -300,7 +320,9 @@ const App = () => {
       for (const client of clients) {
         try {
           console.log(`🔧 Creating client: "${client.name}"`);
-          await handleAddServer(client.name, client.config);
+          await handleAddServer(client.name, client.config, {
+            autoConnect: true,
+          });
           results.success.push(client.name);
           console.log(`✅ Successfully created client: "${client.name}"`);
         } catch (error) {
@@ -575,15 +597,9 @@ const App = () => {
 
       // Add the server first
       try {
-        await handleAddServer(finalServerName, serverConfig);
-
-        // Switch to the newly connected server
-        serverState.setSelectedServerName(finalServerName);
-
-        // Then automatically connect to it since OAuth has completed
-        console.log("🔌 Auto-connecting after OAuth success...");
-        await connectionState.connectServer(finalServerName);
-        console.log("✅ Auto-connected successfully after OAuth");
+        await handleAddServer(finalServerName, serverConfig, {
+          autoConnect: true,
+        });
       } catch (error) {
         console.error("Failed to connect OAuth server:", error);
       }
