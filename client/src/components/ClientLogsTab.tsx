@@ -13,6 +13,7 @@ const ClientLogsTab = ({
   onClearLogs,
   showHeader = true,
 }: ClientLogsTabProps) => {
+  const reversedClientLogs = [...clientLogs].reverse();
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString("en-US", {
@@ -139,7 +140,7 @@ const ClientLogsTab = ({
           </div>
         ) : (
           <div className="h-full overflow-y-auto p-4 space-y-2">
-            {clientLogs.map((log, index) => (
+            {reversedClientLogs.map((log, index) => (
               <LogEntry key={`${log.timestamp}-${index}`} log={log} />
             ))}
           </div>
