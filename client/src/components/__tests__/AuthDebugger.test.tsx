@@ -88,7 +88,7 @@ describe("AuthDebugger", () => {
   const defaultAuthState = EMPTY_DEBUGGER_STATE;
 
   const defaultProps = {
-    serverUrl: "https://example.com",
+    serverUrl: "https://example.com/mcp",
     onBack: jest.fn(),
     authState: defaultAuthState,
     updateAuthState: jest.fn(),
@@ -203,7 +203,7 @@ describe("AuthDebugger", () => {
 
       // Should first discover and save OAuth metadata
       expect(mockDiscoverOAuthMetadata).toHaveBeenCalledWith(
-        new URL("https://example.com"),
+        new URL("https://example.com/"),
       );
 
       // Check that updateAuthState was called with the right info message
@@ -361,7 +361,7 @@ describe("AuthDebugger", () => {
       });
 
       expect(mockDiscoverOAuthMetadata).toHaveBeenCalledWith(
-        new URL("https://example.com"),
+        new URL("https://example.com/"),
       );
     });
 
@@ -496,11 +496,11 @@ describe("AuthDebugger", () => {
     it("should successfully fetch and display protected resource metadata", async () => {
       const updateAuthState = jest.fn();
       const mockResourceMetadata = {
-        resource: "https://example.com/api",
+        resource: "https://example.com/mcp",
         authorization_servers: ["https://custom-auth.example.com"],
         bearer_methods_supported: ["header", "body"],
-        resource_documentation: "https://example.com/api/docs",
-        resource_policy_uri: "https://example.com/api/policy",
+        resource_documentation: "https://example.com/mcp/docs",
+        resource_policy_uri: "https://example.com/mcp/policy",
       };
 
       // Mock successful metadata discovery
@@ -538,7 +538,7 @@ describe("AuthDebugger", () => {
       // Wait for the metadata to be fetched
       await waitFor(() => {
         expect(mockDiscoverOAuthProtectedResourceMetadata).toHaveBeenCalledWith(
-          "https://example.com",
+          "https://example.com/mcp",
         );
       });
 
@@ -584,7 +584,7 @@ describe("AuthDebugger", () => {
       // Wait for the metadata fetch to fail
       await waitFor(() => {
         expect(mockDiscoverOAuthProtectedResourceMetadata).toHaveBeenCalledWith(
-          "https://example.com",
+          "https://example.com/mcp",
         );
       });
 
@@ -594,7 +594,7 @@ describe("AuthDebugger", () => {
           expect.objectContaining({
             resourceMetadataError: mockError,
             // Should use the original server URL as fallback
-            authServerUrl: new URL("https://example.com"),
+            authServerUrl: new URL("https://example.com/"),
             oauthStep: "client_registration",
           }),
         );
@@ -602,7 +602,7 @@ describe("AuthDebugger", () => {
 
       // Verify that regular OAuth metadata discovery was still called
       expect(mockDiscoverOAuthMetadata).toHaveBeenCalledWith(
-        new URL("https://example.com"),
+        new URL("https://example.com/"),
       );
     });
   });

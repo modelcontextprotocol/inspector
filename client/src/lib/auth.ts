@@ -9,10 +9,39 @@ import {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
 
+// Define a storage interface that can be implemented for different storage backends
+export interface StorageInterface {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+// Default browser session storage implementation
+export class SessionStorageAdapter implements StorageInterface {
+  getItem(key: string): string | null {
+    return sessionStorage.getItem(key);
+  }
+
+  setItem(key: string, value: string): void {
+    sessionStorage.setItem(key, value);
+  }
+
+  removeItem(key: string): void {
+    sessionStorage.removeItem(key);
+  }
+}
+
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
-  constructor(public serverUrl: string) {
-    // Save the server URL to session storage
-    sessionStorage.setItem(SESSION_KEYS.SERVER_URL, serverUrl);
+  protected storage: StorageInterface;
+
+  constructor(
+    public serverUrl: string,
+    storage?: StorageInterface
+  ) {
+    this.storage = storage || new SessionStorageAdapter();
+    
+    // Save the server URL to storage
+    this.storage.setItem(SESSION_KEYS.SERVER_URL, serverUrl);
   }
 
   get redirectUrl() {
@@ -35,7 +64,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
       SESSION_KEYS.CLIENT_INFORMATION,
       this.serverUrl,
     );
-    const value = sessionStorage.getItem(key);
+    const value = this.storage.getItem(key);
     if (!value) {
       return undefined;
     }
@@ -48,12 +77,12 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
       SESSION_KEYS.CLIENT_INFORMATION,
       this.serverUrl,
     );
-    sessionStorage.setItem(key, JSON.stringify(clientInformation));
+    this.storage.setItem(key, JSON.stringify(clientInformation));
   }
 
   async tokens() {
     const key = getServerSpecificKey(SESSION_KEYS.TOKENS, this.serverUrl);
-    const tokens = sessionStorage.getItem(key);
+    const tokens = this.storage.getItem(key);
     if (!tokens) {
       return undefined;
     }
@@ -63,11 +92,16 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
 
   saveTokens(tokens: OAuthTokens) {
     const key = getServerSpecificKey(SESSION_KEYS.TOKENS, this.serverUrl);
-    sessionStorage.setItem(key, JSON.stringify(tokens));
+    this.storage.setItem(key, JSON.stringify(tokens));
   }
 
   redirectToAuthorization(authorizationUrl: URL) {
-    window.location.href = authorizationUrl.href;
+    // This is a browser-specific method - will be overridden for CLI usage
+    if (typeof window !== 'undefined' && window.location) {
+      window.location.href = authorizationUrl.href;
+    } else {
+      console.log(`Please open this URL in your browser: ${authorizationUrl.href}`);
+    }
   }
 
   saveCodeVerifier(codeVerifier: string) {
@@ -75,7 +109,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
       SESSION_KEYS.CODE_VERIFIER,
       this.serverUrl,
     );
-    sessionStorage.setItem(key, codeVerifier);
+    this.storage.setItem(key, codeVerifier);
   }
 
   codeVerifier() {
@@ -83,7 +117,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
       SESSION_KEYS.CODE_VERIFIER,
       this.serverUrl,
     );
-    const verifier = sessionStorage.getItem(key);
+    const verifier = this.storage.getItem(key);
     if (!verifier) {
       throw new Error("No code verifier saved for session");
     }
@@ -92,13 +126,13 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   clear() {
-    sessionStorage.removeItem(
+    this.storage.removeItem(
       getServerSpecificKey(SESSION_KEYS.CLIENT_INFORMATION, this.serverUrl),
     );
-    sessionStorage.removeItem(
+    this.storage.removeItem(
       getServerSpecificKey(SESSION_KEYS.TOKENS, this.serverUrl),
     );
-    sessionStorage.removeItem(
+    this.storage.removeItem(
       getServerSpecificKey(SESSION_KEYS.CODE_VERIFIER, this.serverUrl),
     );
   }
@@ -107,8 +141,19 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
 // Overrides debug URL and allows saving server OAuth metadata to
 // display in debug UI.
 export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvider {
+  constructor(
+    serverUrl: string,
+    storage?: StorageInterface
+  ) {
+    super(serverUrl, storage);
+  }
+
   get redirectUrl(): string {
-    return `${window.location.origin}/oauth/callback/debug`;
+    if (typeof window !== 'undefined' && window.location) {
+      return `${window.location.origin}/oauth/callback/debug`;
+    }
+    // For CLI usage, default to a localhost URL
+    return 'http://localhost:3000/oauth/callback/debug';
   }
 
   saveServerMetadata(metadata: OAuthMetadata) {
@@ -116,7 +161,7 @@ export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvi
       SESSION_KEYS.SERVER_METADATA,
       this.serverUrl,
     );
-    sessionStorage.setItem(key, JSON.stringify(metadata));
+    this.storage.setItem(key, JSON.stringify(metadata));
   }
 
   getServerMetadata(): OAuthMetadata | null {
@@ -124,7 +169,7 @@ export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvi
       SESSION_KEYS.SERVER_METADATA,
       this.serverUrl,
     );
-    const metadata = sessionStorage.getItem(key);
+    const metadata = this.storage.getItem(key);
     if (!metadata) {
       return null;
     }
@@ -133,7 +178,7 @@ export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvi
 
   clear() {
     super.clear();
-    sessionStorage.removeItem(
+    this.storage.removeItem(
       getServerSpecificKey(SESSION_KEYS.SERVER_METADATA, this.serverUrl),
     );
   }

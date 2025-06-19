@@ -11,6 +11,8 @@ import {
   OAuthMetadataSchema,
   OAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 export interface StateMachineContext {
   state: AuthDebuggerState;
@@ -29,24 +31,32 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
   metadata_discovery: {
     canTransition: async () => true,
     execute: async (context) => {
-      let authServerUrl = new URL(context.serverUrl);
+      // Default to discovering from the server's URL
+      let authServerUrl = new URL("/", context.serverUrl);
       let resourceMetadata: OAuthProtectedResourceMetadata | null = null;
       let resourceMetadataError: Error | null = null;
       try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(
           context.serverUrl,
         );
-        if (
-          resourceMetadata &&
-          resourceMetadata.authorization_servers?.length
-        ) {
-          authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
+        if (resourceMetadata) {
+          if (resourceMetadata.authorization_servers?.length) {
+            authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
+          }
         }
       } catch (e) {
         if (e instanceof Error) {
           resourceMetadataError = e;
         } else {
           resourceMetadataError = new Error(String(e));
+        }
+      }
+
+      if (resourceMetadata) {
+        if (resourceMetadata.resource !== context.serverUrl) {
+          throw new Error(
+            `Resource URL from metadata does not match server URL. ${resourceMetadata.resource} != ${context.serverUrl}`,
+          );
         }
       }
 
@@ -113,6 +123,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
           clientInformation,
           redirectUrl: context.provider.redirectUrl,
           scope,
+          resource: new URL(context.serverUrl),
         },
       );
 
@@ -163,13 +174,59 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         authorizationCode: context.state.authorizationCode,
         codeVerifier,
         redirectUri: context.provider.redirectUrl,
+        resource: new URL(context.serverUrl),
       });
 
       context.provider.saveTokens(tokens);
       context.updateState({
         oauthTokens: tokens,
-        oauthStep: "complete",
+        oauthStep: "validate_token",
       });
+    },
+  },
+  
+  validate_token: {
+    canTransition: async (context) => {
+      return !!context.state.oauthTokens && !!context.state.oauthTokens.access_token;
+    },
+    execute: async (context) => {
+      if (!context.state.oauthTokens?.access_token) {
+        throw new Error("No access token available for validation");
+      }
+
+      try {
+        // Create a simple client with the StreamableHTTP transport
+        const transport = new StreamableHTTPClientTransport(
+          new URL(context.serverUrl), 
+          {
+            requestInit: {
+              headers: {
+                Authorization: `Bearer ${context.state.oauthTokens.access_token}`
+              }
+            }
+          }
+        );
+        
+        const client = new Client(
+          { name: "mcp-auth-validator", version: "1.0.0" },
+          { capabilities: {} }
+        );
+        
+        // Connect and list tools to validate the token
+        await client.connect(transport);
+        const response = await client.listTools();
+        
+        // Successfully validated token
+        context.updateState({
+          oauthStep: "complete",
+          statusMessage: {
+            type: "success",
+            message: `Token validated successfully! Found ${response.tools?.length || 0} tools.`,
+          },
+        });
+      } catch (error) {
+        throw new Error(`Token validation failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     },
   },
 

@@ -13,6 +13,7 @@ export type OAuthStep =
   | "authorization_redirect"
   | "authorization_code"
   | "token_request"
+  | "validate_token"
   | "complete";
 
 // Message types for inline feedback
