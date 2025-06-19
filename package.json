@@ -34,6 +34,7 @@
     "start-client": "cd client && npm run preview",
     "test": "npm run prettier-check && cd client && npm test",
     "test-cli": "cd cli && npm run test",
+    "run-package": "node cli/build/cli.js",
     "prettier-fix": "prettier --write .",
     "prettier-check": "prettier --check .",
     "prepare": "npm run build",
