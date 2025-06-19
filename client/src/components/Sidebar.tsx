@@ -105,16 +105,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // Helper function to check if connection should be disabled
   const shouldDisableConnection = (connection: ServerConnectionInfo) => {
-    if (!mcpAgent || connection.connectionStatus === "connected") {
-      return false;
-    }
-
-    if (connection.config.transportType !== "stdio") {
-      const hasConnectedRemote = mcpAgent.hasConnectedRemoteServer();
-      const connectedRemoteName = mcpAgent.getConnectedRemoteServerName();
-      return hasConnectedRemote && connectedRemoteName !== connection.name;
-    }
-
+    // Keeping this as false for now to allow multiple connections
     return false;
   };
 
