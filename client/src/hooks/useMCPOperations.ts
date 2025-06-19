@@ -647,7 +647,7 @@ export const useMCPOperations = () => {
       );
       return result;
     },
-    [addRequestHistory],
+    [addRequestHistory, addClientLog],
   );
 
   // Sampling operations
