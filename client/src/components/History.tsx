@@ -3,11 +3,14 @@ import { useEffect, useState, useCallback } from "react";
 import { History, ChevronDown } from "lucide-react";
 import { useDraggablePane } from "../lib/hooks/useDraggablePane";
 import TabbedHistoryPanel from "./TabbedHistoryPanel";
+import { ClientLogInfo } from "@/hooks/helpers/types";
 
 const HistoryAndNotifications = ({
   requestHistory,
   toolResult,
+  clientLogs,
   onClearHistory,
+  onClearLogs,
 }: {
   requestHistory: Array<{
     request: string;
@@ -16,7 +19,9 @@ const HistoryAndNotifications = ({
     latency?: number;
   }>;
   toolResult: CompatibilityCallToolResult | null;
+  clientLogs: ClientLogInfo[];
   onClearHistory: () => void;
+  onClearLogs: () => void;
 }) => {
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(true);
 
@@ -60,7 +65,9 @@ const HistoryAndNotifications = ({
           <TabbedHistoryPanel
             requestHistory={requestHistory}
             toolResult={toolResult}
+            clientLogs={clientLogs}
             onClearHistory={onClearHistory}
+            onClearLogs={onClearLogs}
             onToggleCollapse={toggleCollapse}
           />
         ) : (
@@ -74,6 +81,11 @@ const HistoryAndNotifications = ({
               {requestHistory.length > 0 && (
                 <span className="px-2 py-1 text-xs bg-primary/10 text-primary rounded-full">
                   {requestHistory.length}
+                </span>
+              )}
+              {clientLogs.length > 0 && (
+                <span className="px-2 py-1 text-xs bg-blue-500/10 text-blue-500 rounded-full">
+                  {clientLogs.length}
                 </span>
               )}
               <ChevronDown className="w-4 h-4 rotate-180" />

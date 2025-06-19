@@ -62,7 +62,10 @@ import { ConnectionStatus } from "./lib/constants";
 const App = () => {
   const serverState = useServerState();
   const mcpOperations = useMCPOperations();
-  const connectionState = useConnectionState(mcpOperations.addRequestHistory);
+  const connectionState = useConnectionState(
+    mcpOperations.addRequestHistory,
+    mcpOperations.addClientLog,
+  );
   const configState = useConfigState();
 
   // Refs
@@ -1023,7 +1026,9 @@ const App = () => {
           <HistoryAndNotifications
             requestHistory={requestHistory}
             toolResult={mcpOperations.toolResult}
+            clientLogs={mcpOperations.getClientLogs()}
             onClearHistory={mcpOperations.clearRequestHistory}
+            onClearLogs={mcpOperations.clearClientLogs}
           />
         </div>
       </div>

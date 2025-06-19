@@ -1,21 +1,24 @@
 import { Activity, ChevronDown, Trash2 } from "lucide-react";
+import { RequestHistoryInfo } from "@/hooks/helpers/types";
 import RequestHistoryItem from "./RequestHistoryItem";
 
 interface ActivityTabProps {
-  requestHistory: Array<{ request: string; response?: string; timestamp: string; latency?: number }>;
+  requestHistory: RequestHistoryInfo[];
   onClearHistory: () => void;
   onToggleCollapse?: () => void;
   showHeader?: boolean;
 }
 
-const ActivityTab = ({ 
-  requestHistory, 
-  onClearHistory, 
+const ActivityTab = ({
+  requestHistory,
+  onClearHistory,
   onToggleCollapse,
-  showHeader = true 
+  showHeader = true,
 }: ActivityTabProps) => {
   return (
-    <div className={`flex-1 overflow-y-auto ${showHeader ? 'p-6 border-r border-border/20' : ''}`}>
+    <div
+      className={`flex-1 overflow-y-auto ${showHeader ? "p-6 border-r border-border/20" : ""}`}
+    >
       {showHeader && (
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-bold text-foreground flex items-center space-x-2">
@@ -65,7 +68,8 @@ const ActivityTab = ({
           {!showHeader && requestHistory.length > 0 && (
             <div className="flex items-center justify-between mb-6">
               <span className="text-sm text-muted-foreground bg-muted/50 px-3 py-1 rounded-full">
-                {requestHistory.length} request{requestHistory.length !== 1 ? "s" : ""}
+                {requestHistory.length} request
+                {requestHistory.length !== 1 ? "s" : ""}
               </span>
               <button
                 onClick={onClearHistory}
@@ -95,4 +99,4 @@ const ActivityTab = ({
   );
 };
 
-export default ActivityTab; 
+export default ActivityTab;

@@ -14,6 +14,7 @@ import {
   CreateMessageResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { ConnectionStatus } from "./lib/constants";
+import { ClientLogLevels } from "./hooks/helpers/types";
 
 export interface MCPClientOptions {
   id?: string;
@@ -31,6 +32,7 @@ export interface MCPClientOptions {
   ) => void;
   getRoots?: () => unknown[];
   addRequestHistory: (request: object, response?: object) => void;
+  addClientLog: (message: string, level: ClientLogLevels) => void;
 }
 
 export interface ServerConnectionInfo {
@@ -56,6 +58,7 @@ export class MCPJamAgent {
   ) => void;
   private getRoots?: () => unknown[];
   private addRequestHistory: (request: object, response?: object) => void;
+  private addClientLog: (message: string, level: ClientLogLevels) => void;
 
   constructor(options: MCPClientOptions) {
     this.serverConfigs = options.servers;
@@ -68,6 +71,7 @@ export class MCPJamAgent {
     this.onPendingRequest = options.onPendingRequest;
     this.getRoots = options.getRoots;
     this.addRequestHistory = options.addRequestHistory;
+    this.addClientLog = options.addClientLog;
   }
 
   // Add or update a server configuration
@@ -213,6 +217,7 @@ export class MCPJamAgent {
       config, // serverConfig (first parameter)
       this.config, // config (second parameter)
       this.addRequestHistory, // addRequestHistory
+      this.addClientLog, // addClientLog
       this.bearerToken, // bearerToken
       this.headerName, // headerName
       this.onStdErrNotification, // onStdErrNotification
