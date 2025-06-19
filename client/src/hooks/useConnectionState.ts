@@ -1,15 +1,15 @@
 import { useState, useCallback } from "react";
-import { MCPJamAgent, MCPClientOptions } from "../mcpjamAgent";
-import { MCPJamServerConfig } from "../lib/serverTypes";
-import { InspectorConfig } from "../lib/configurationTypes";
+import { MCPJamAgent, MCPClientOptions } from "@/mcpjamAgent";
+import { MCPJamServerConfig } from "@/lib/serverTypes";
+import { InspectorConfig } from "@/lib/configurationTypes";
 import {
   CreateMessageRequest,
   CreateMessageResult,
   Root,
 } from "@modelcontextprotocol/sdk/types.js";
-import { StdErrNotification } from "../lib/notificationTypes";
+import { StdErrNotification } from "@/lib/notificationTypes";
 import { ConnectionStatus } from "@/lib/constants";
-import { ClientLogLevels } from "./helpers/types";
+import { ClientLogLevels } from "@/hooks/helpers/types";
 
 export const useConnectionState = (
   addRequestHistory: (request: object, response?: object) => void,
