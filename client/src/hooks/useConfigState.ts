@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
-import { InspectorConfig } from "../lib/configurationTypes";
-import { AuthDebuggerState } from "../lib/auth-types";
-import { initializeInspectorConfig } from "../utils/configUtils";
+import { InspectorConfig } from "@/lib/configurationTypes";
+import { AuthDebuggerState } from "@/lib/auth-types";
+import { initializeInspectorConfig } from "@/utils/configUtils";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 const CLAUDE_API_KEY_STORAGE_KEY = "claude-api-key";

@@ -12,15 +12,15 @@ import {
   CreateMessageRequest,
   CreateMessageResult,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Prompt } from "../components/PromptsTab";
-import { StdErrNotification } from "../lib/notificationTypes";
-import { MCPJamAgent } from "../mcpjamAgent";
+import { Prompt } from "@/components/PromptsTab";
+import { StdErrNotification } from "@/lib/notificationTypes";
+import { MCPJamAgent } from "@/mcpjamAgent";
 import { z } from "zod";
 import {
   ClientLogInfo,
   ClientLogLevels,
   RequestHistoryInfo,
-} from "./helpers/types";
+} from "@/hooks/helpers/types";
 
 export interface PendingRequest {
   id: number;

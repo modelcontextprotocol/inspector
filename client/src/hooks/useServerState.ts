@@ -1,42 +1,58 @@
 import { useState, useCallback, useEffect } from "react";
-import { MCPJamServerConfig, StdioServerDefinition } from "../lib/serverTypes";
+import { MCPJamServerConfig, StdioServerDefinition } from "@/lib/serverTypes";
 
 const SERVER_CONFIGS_STORAGE_KEY = "mcpServerConfigs_v1";
 const SELECTED_SERVER_STORAGE_KEY = "selectedServerName_v1";
 
 // Helper functions for serialization/deserialization
-const serializeServerConfigs = (configs: Record<string, MCPJamServerConfig>): string => {
-  const serializable = Object.entries(configs).reduce((acc, [name, config]) => {
-    if ('url' in config && config.url) {
-      // Convert URL object to string for serialization
-      acc[name] = {
-        ...config,
-        url: config.url.toString(),
-      };
-    } else {
-      acc[name] = config;
-    }
-    return acc;
-  }, {} as Record<string, MCPJamServerConfig | (Omit<MCPJamServerConfig, 'url'> & { url: string })>);
-  
+const serializeServerConfigs = (
+  configs: Record<string, MCPJamServerConfig>,
+): string => {
+  const serializable = Object.entries(configs).reduce(
+    (acc, [name, config]) => {
+      if ("url" in config && config.url) {
+        // Convert URL object to string for serialization
+        acc[name] = {
+          ...config,
+          url: config.url.toString(),
+        };
+      } else {
+        acc[name] = config;
+      }
+      return acc;
+    },
+    {} as Record<
+      string,
+      MCPJamServerConfig | (Omit<MCPJamServerConfig, "url"> & { url: string })
+    >,
+  );
+
   return JSON.stringify(serializable);
 };
 
-const deserializeServerConfigs = (serialized: string): Record<string, MCPJamServerConfig> => {
+const deserializeServerConfigs = (
+  serialized: string,
+): Record<string, MCPJamServerConfig> => {
   try {
-    const parsed = JSON.parse(serialized) as Record<string, MCPJamServerConfig | (Omit<MCPJamServerConfig, 'url'> & { url: string })>;
-    return Object.entries(parsed).reduce((acc, [name, config]) => {
-      if ('url' in config && config.url && typeof config.url === 'string') {
-        // Convert URL string back to URL object
-        acc[name] = {
-          ...config,
-          url: new URL(config.url),
-        } as MCPJamServerConfig;
-      } else {
-        acc[name] = config as MCPJamServerConfig;
-      }
-      return acc;
-    }, {} as Record<string, MCPJamServerConfig>);
+    const parsed = JSON.parse(serialized) as Record<
+      string,
+      MCPJamServerConfig | (Omit<MCPJamServerConfig, "url"> & { url: string })
+    >;
+    return Object.entries(parsed).reduce(
+      (acc, [name, config]) => {
+        if ("url" in config && config.url && typeof config.url === "string") {
+          // Convert URL string back to URL object
+          acc[name] = {
+            ...config,
+            url: new URL(config.url),
+          } as MCPJamServerConfig;
+        } else {
+          acc[name] = config as MCPJamServerConfig;
+        }
+        return acc;
+      },
+      {} as Record<string, MCPJamServerConfig>,
+    );
   } catch (error) {
     console.warn("Failed to deserialize server configs:", error);
     return {};
@@ -55,7 +71,9 @@ const loadServerConfigsFromStorage = (): Record<string, MCPJamServerConfig> => {
   return {};
 };
 
-const loadSelectedServerFromStorage = (serverConfigs: Record<string, MCPJamServerConfig>): string => {
+const loadSelectedServerFromStorage = (
+  serverConfigs: Record<string, MCPJamServerConfig>,
+): string => {
   try {
     const stored = localStorage.getItem(SELECTED_SERVER_STORAGE_KEY);
     if (stored && serverConfigs[stored]) {
@@ -64,7 +82,7 @@ const loadSelectedServerFromStorage = (serverConfigs: Record<string, MCPJamServe
   } catch (error) {
     console.warn("Failed to load selected server from localStorage:", error);
   }
-  
+
   // If there are no servers, default to empty string to show create prompt
   const serverNames = Object.keys(serverConfigs);
   return serverNames.length > 0 ? serverNames[0] : "";
@@ -82,9 +100,9 @@ export const useServerState = () => {
   >(state.configs);
 
   const [selectedServerName, setSelectedServerName] = useState<string>(
-    state.selectedServer
+    state.selectedServer,
   );
-  
+
   // Client form state for creating/editing
   const [isCreatingClient, setIsCreatingClient] = useState(false);
   const [editingClientName, setEditingClientName] = useState<string | null>(
