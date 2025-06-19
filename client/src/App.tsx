@@ -240,14 +240,14 @@ const App = () => {
     [connectionState, serverState],
   );
 
-  const handleSaveClient = useCallback(async () => {
+  const handleSaveClient = useCallback(async (config: MCPJamServerConfig) => {
     if (!serverState.clientFormName.trim()) return;
 
     try {
       if (serverState.isCreatingClient) {
         await handleAddServer(
           serverState.clientFormName,
-          serverState.clientFormConfig,
+          config,
         );
       } else if (serverState.editingClientName) {
         // Check if the server name has changed
@@ -264,7 +264,7 @@ const App = () => {
           await handleRemoveServer(oldServerName);
 
           // Add the server with the new name
-          await handleAddServer(newServerName, serverState.clientFormConfig);
+          await handleAddServer(newServerName, config);
 
           // Update the selected server name if the changed server was selected
           if (serverState.selectedServerName === oldServerName) {
@@ -274,7 +274,7 @@ const App = () => {
           // Server name hasn't changed - just update the configuration
           await handleUpdateServer(
             serverState.editingClientName,
-            serverState.clientFormConfig,
+            config,
           );
         }
       }

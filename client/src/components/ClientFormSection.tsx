@@ -18,6 +18,7 @@ interface ClientConfig {
   name: string;
   config: MCPJamServerConfig;
   argsString: string;
+  sseUrlString: string;
 }
 
 interface ClientFormSectionProps {
@@ -33,7 +34,7 @@ interface ClientFormSectionProps {
   setBearerToken: (token: string) => void;
   headerName: string;
   setHeaderName: (name: string) => void;
-  onSave: () => void;
+  onSave: (config: MCPJamServerConfig) => void;
   onCancel: () => void;
   onImportMultipleServers?: (servers: ParsedServerConfig[]) => void;
   onSaveMultiple?: (clients: Array<{ name: string; config: MCPJamServerConfig }>) => Promise<{ success: string[]; failed: Array<{ name: string; error: string }> }>;
@@ -59,6 +60,7 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
 }) => {
   // Local state to track raw args string while typing
   const [argsString, setArgsString] = useState<string>("");
+  const [sseUrlString, setSseUrlString] = useState<string>("");
   const [multipleClients, setMultipleClients] = useState<ClientConfig[]>([]);
   const [isMultipleMode, setIsMultipleMode] = useState(false);
   const { toast } = useToast();
@@ -68,6 +70,10 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
   useEffect(() => {
     if (clientFormConfig.transportType === "stdio" && "args" in clientFormConfig) {
       setArgsString(clientFormConfig.args?.join(" ") || "");
+      setSseUrlString("");
+    } else if (clientFormConfig.transportType !== "stdio" && "url" in clientFormConfig) {
+      setArgsString("");
+      setSseUrlString(clientFormConfig.url?.toString() || "");
     }
   }, [clientFormConfig]);
 
@@ -84,6 +90,10 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
     }
   };
 
+  const handleSseUrlChange = (newSseUrlString: string) => {
+    setSseUrlString(newSseUrlString);
+  };
+
   // Handler for importing multiple servers
   const handleImportServers = (servers: ParsedServerConfig[]) => {
     if (servers.length > 1) {
@@ -94,6 +104,9 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
         config: server.config,
         argsString: server.config.transportType === "stdio" && "args" in server.config 
           ? server.config.args?.join(" ") || ""
+          : "",
+        sseUrlString: server.config.transportType !== "stdio" && "url" in server.config
+          ? server.config.url?.toString() || ""
           : "",
       }));
       
@@ -115,6 +128,10 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
       // Update args string if it's a stdio server
       if (firstServer.config.transportType === "stdio" && "args" in firstServer.config) {
         setArgsString(firstServer.config.args?.join(" ") || "");
+        setSseUrlString("");
+      } else if (firstServer.config.transportType !== "stdio" && "url" in firstServer.config) {
+        setArgsString("");
+        setSseUrlString(firstServer.config.url?.toString() || "");
       }
 
       toast({
@@ -156,8 +173,31 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
         env: {},
       } as StdioServerDefinition,
       argsString: "@modelcontextprotocol/server-everything",
+      sseUrlString: "",
     };
     setMultipleClients(prev => [...prev, newClient]);
+  };
+
+  const handleSingleSave = () => {
+    let configToSave = { ...clientFormConfig };
+
+    if (configToSave.transportType !== 'stdio') {
+      try {
+        const url = new URL(sseUrlString);
+        configToSave = {
+          ...configToSave,
+          url,
+        } as HttpServerDefinition;
+      } catch {
+        toast({
+          title: "Invalid URL",
+          description: "Please enter a valid URL for the client.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    onSave(configToSave);
   };
 
   // Handler for saving all clients in multiple mode
@@ -173,8 +213,28 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
       return;
     }
 
+    // Validate URLs before saving
+    const clientsToSave = [];
+    for (const client of validClients) {
+      let config = { ...client.config };
+      if (config.transportType !== 'stdio') {
+        try {
+          const url = new URL(client.sseUrlString);
+          config = { ...config, url } as HttpServerDefinition;
+        } catch {
+          toast({
+            title: "Invalid URL",
+            description: `Please provide a valid URL for client: "${client.name}"`,
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+      clientsToSave.push({ name: client.name.trim(), config });
+    }
+
     // Check for duplicate names
-    const names = validClients.map(c => c.name.trim());
+    const names = clientsToSave.map(c => c.name);
     const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
     if (duplicates.length > 0) {
       toast({
@@ -187,10 +247,7 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
 
     if (onSaveMultiple) {
       try {
-        const results = await onSaveMultiple(validClients.map(client => ({
-          name: client.name.trim(),
-          config: client.config,
-        })));
+        const results = await onSaveMultiple(clientsToSave);
 
         // Show appropriate toast based on results
         if (results.success.length > 0) {
@@ -289,7 +346,8 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
                       
                       handleUpdateClient(client.id, { 
                         config: newConfig,
-                        argsString: newArgsString
+                        argsString: newArgsString,
+                        sseUrlString: newConfig.transportType !== 'stdio' && 'url' in newConfig && newConfig.url ? newConfig.url.toString() : ''
                       });
                     }}
                     command={
@@ -320,20 +378,9 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
                         });
                       }
                     }}
-                    sseUrl={
-                      "url" in client.config && client.config.url
-                        ? client.config.url.toString()
-                        : ""
-                    }
+                    sseUrl={client.sseUrlString}
                     setSseUrl={(url) => {
-                      if (client.config.transportType !== "stdio") {
-                        handleUpdateClient(client.id, {
-                          config: {
-                            ...client.config,
-                            url: new URL(url),
-                          } as HttpServerDefinition
-                        });
-                      }
+                      handleUpdateClient(client.id, { sseUrlString: url });
                     }}
                     env={
                       client.config.transportType === "stdio" &&
@@ -518,19 +565,8 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
               }}
               args={argsString}
               setArgs={handleArgsChange}
-              sseUrl={
-                "url" in clientFormConfig && clientFormConfig.url
-                  ? clientFormConfig.url.toString()
-                  : ""
-              }
-              setSseUrl={(url) => {
-                if (clientFormConfig.transportType !== "stdio") {
-                  setClientFormConfig({
-                    ...clientFormConfig,
-                    url: new URL(url),
-                  } as HttpServerDefinition);
-                }
-              }}
+              sseUrl={sseUrlString}
+              setSseUrl={handleSseUrlChange}
               env={
                 clientFormConfig.transportType === "stdio" &&
                 "env" in clientFormConfig
@@ -564,7 +600,7 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
 
           <div className="flex space-x-3 pt-4">
             <button
-              onClick={onSave}
+              onClick={handleSingleSave}
               disabled={!clientFormName.trim()}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
