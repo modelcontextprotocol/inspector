@@ -94,6 +94,7 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
   const [isManualConfigExpanded, setIsManualConfigExpanded] = useState(false);
   const { toast } = useToast();
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [nameError, setNameError] = useState<string>("");
 
   // Initialize argsString when clientFormConfig changes
   useEffect(() => {
@@ -111,6 +112,14 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
       setSseUrlString(clientFormConfig.url?.toString() || "");
     }
   }, [clientFormConfig]);
+
+  useEffect(() => {
+    if (clientFormName.trim()) {
+      setNameError("");
+    } else {
+      setNameError("Client name is required");
+    }
+  }, [clientFormName]);
 
   // Handler for args changes that preserves input while typing
   const handleArgsChange = (newArgsString: string) => {
@@ -575,9 +584,6 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
                 </div>
                 <div>
                   <CardTitle className="text-lg">Quick Import</CardTitle>
-                  <CardDescription>
-                    Import multiple servers from a configuration file
-                  </CardDescription>
                 </div>
                 <Badge variant="secondary" className="ml-auto">
                   <Sparkles className="h-3 w-3 mr-1" />
@@ -588,7 +594,6 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
             <CardContent>
               <p className="text-sm text-muted-foreground mb-4">
                 Supports the same format used by Claude Desktop and Cursor.
-                Import multiple servers at once for efficient setup.
               </p>
               <Button
                 onClick={() => setShowImportDialog(true)}
@@ -627,15 +632,8 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
                 </div>
                 <div>
                   <CardTitle className="text-lg">
-                    {isCreating
-                      ? "Manual Configuration"
-                      : `Edit Client: ${editingClientName}`}
+                    {isCreating ? "Manual Setup" : `Edit: ${editingClientName}`}
                   </CardTitle>
-                  <CardDescription>
-                    {isCreating
-                      ? "Configure a single client manually with the options below"
-                      : "Modify the client connection settings"}
-                  </CardDescription>
                 </div>
               </div>
               <Button
@@ -660,25 +658,26 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
               {/* Client Name */}
               <div className="space-y-2">
                 <Label htmlFor="client-name" className="text-sm font-medium">
-                  Client Name
+                  Name
                 </Label>
                 <Input
                   id="client-name"
                   value={clientFormName}
                   onChange={(e) => setClientFormName(e.target.value)}
-                  placeholder="Enter a descriptive name for this client"
-                  className="max-w-md"
+                  placeholder="Enter client name"
+                  className={`max-w-md ${nameError ? "border-red-500 focus:border-red-500 focus:ring-red-500" : ""}`}
                 />
+                {nameError && (
+                  <p className="text-sm text-red-500 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {nameError}
+                  </p>
+                )}
               </div>
 
               {/* Connection Configuration */}
               <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Settings className="h-4 w-4 text-muted-foreground" />
-                  <Label className="text-sm font-medium">
-                    Connection Settings
-                  </Label>
-                </div>
+                <Label className="text-sm font-medium">Connection</Label>
                 <div className="border border-border/50 rounded-lg p-4 bg-muted/30">
                   <ConnectionSection
                     connectionStatus="disconnected"
@@ -757,22 +756,21 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
         </Card>
 
         {/* Action Bar */}
-        <div className="flex items-center justify-center gap-4 pt-4">
-          <Button
-            variant="outline"
-            onClick={onCancel}
-            className="min-w-[120px]"
-          >
-            Cancel
-          </Button>
+        <div className="flex flex-col items-center gap-3 pt-4">
           <Button
             onClick={handleSingleSave}
             disabled={!clientFormName.trim()}
-            className="min-w-[160px]"
+            className="min-w-[180px] h-12 text-base font-semibold bg-primary hover:bg-primary/90 shadow-lg hover:shadow-xl transition-all duration-200 border-2 border-primary/20"
           >
-            <CheckCircle2 className="h-4 w-4 mr-2" />
+            <CheckCircle2 className="h-5 w-5 mr-2" />
             {isCreating ? "Create Client" : "Update Client"}
           </Button>
+          <button
+            onClick={onCancel}
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors underline-offset-4 hover:underline"
+          >
+            Cancel
+          </button>
         </div>
 
         {/* Import Dialog */}
