@@ -43,7 +43,7 @@ docker pull mcpjam/mcp-inspector:main
 
 Then, run the container:
 ```bash
-docker run --rm -p 6274:6274 mcpjam/mcp-inspector:main
+docker run --rm -p 6274:6274 -p 6277:6277 mcpjam/mcp-inspector:main
 ```
 
 The inspector will be available in your browser at `http://127.0.0.1:6274`.
