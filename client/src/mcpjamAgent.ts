@@ -387,9 +387,4 @@ export class MCPJamAgent {
     }
     return null;
   }
-
-  // Check if a server config is for a remote connection
-  private isRemoteServer(config: MCPJamServerConfig): boolean {
-    return config.transportType !== "stdio";
-  }
 }

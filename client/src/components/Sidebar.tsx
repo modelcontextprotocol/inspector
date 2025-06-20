@@ -104,14 +104,15 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // Helper function to check if connection should be disabled
-  const shouldDisableConnection = (connection: ServerConnectionInfo) => {
+  const shouldDisableConnection = () => {
     // Keeping this as false for now to allow multiple connections
+    // TODO: Fix this function
     return false;
   };
 
   // Helper function to get connect tooltip message
-  const getConnectTooltipMessage = (connection: ServerConnectionInfo) => {
-    if (shouldDisableConnection(connection)) {
+  const getConnectTooltipMessage = () => {
+    if (shouldDisableConnection()) {
       const connectedRemoteName = mcpAgent?.getConnectedRemoteServerName();
       return `Cannot connect: "${connectedRemoteName}" is already connected (only one remote server allowed at a time)`;
     }
@@ -262,13 +263,13 @@ const Sidebar: React.FC<SidebarProps> = ({
               }}
               size="sm"
               className="h-6 text-xs px-2"
-              disabled={shouldDisableConnection(connection)}
+              disabled={shouldDisableConnection()}
             >
               Connect
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent>{getConnectTooltipMessage(connection)}</TooltipContent>
+        <TooltipContent>{getConnectTooltipMessage()}</TooltipContent>
       </Tooltip>
     );
   };
