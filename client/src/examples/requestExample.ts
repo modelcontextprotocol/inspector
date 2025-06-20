@@ -113,7 +113,10 @@ export function exampleLoadAndUseRequests() {
 /**
  * Example of creating a request with default parameters
  */
-export function exampleCreateWithDefaults(tool: Tool, clientId: string = "default-client") {
+export function exampleCreateWithDefaults(
+  tool: Tool,
+  clientId: string = "default-client",
+) {
   // Generate default parameters based on the tool's schema
   const defaultParams = createDefaultParameters(tool);
 

@@ -114,7 +114,8 @@ export const initializeInspectorConfig = (
 
     // update description of keys to match the new description (in case of any updates to the default config description)
     for (const [key, value] of Object.entries(mergedConfig)) {
-      const defaultConfigItem = DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig];
+      const defaultConfigItem =
+        DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig];
       if (defaultConfigItem) {
         mergedConfig[key as keyof InspectorConfig] = {
           ...value,
@@ -139,23 +140,24 @@ export const createDefaultConfig = (): InspectorConfig => {
   return {
     MCP_SERVER_REQUEST_TIMEOUT: {
       label: "MCP Server Request Timeout",
-      description: "Maximum time in milliseconds to wait for a response from the MCP server",
-      value: 30000
+      description:
+        "Maximum time in milliseconds to wait for a response from the MCP server",
+      value: 30000,
     },
     MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS: {
       label: "Reset Timeout on Progress",
       description: "Whether to reset the timeout on progress notifications",
-      value: true
+      value: true,
     },
     MCP_REQUEST_MAX_TOTAL_TIMEOUT: {
       label: "Max Total Timeout",
       description: "Maximum total time in milliseconds to wait for a response",
-      value: 300000
+      value: 300000,
     },
     MCP_PROXY_FULL_ADDRESS: {
       label: "MCP Proxy Address",
       description: "The full address of the MCP Proxy Server",
-      value: "http://localhost:6277"
-    }
+      value: "http://localhost:6277",
+    },
   };
 };
