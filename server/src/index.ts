@@ -175,7 +175,9 @@ app.post("/mcp", async (req, res) => {
       const webAppTransport = new StreamableHTTPServerTransport({
         sessionIdGenerator: randomUUID,
         onsessioninitialized: (newSessionId) => {
-          console.log("✨ Created streamable web app transport " + newSessionId);
+          console.log(
+            "✨ Created streamable web app transport " + newSessionId,
+          );
           webAppTransports.set(newSessionId, webAppTransport);
           backingServerTransports.set(newSessionId, backingServerTransport);
           console.log(

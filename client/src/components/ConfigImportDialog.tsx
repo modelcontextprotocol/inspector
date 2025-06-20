@@ -9,19 +9,19 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { 
-  Upload, 
-  AlertCircle, 
-  CheckCircle, 
-  FileText, 
+import {
+  Upload,
+  AlertCircle,
+  CheckCircle,
+  FileText,
   Copy,
-  X 
+  X,
 } from "lucide-react";
-import { 
-  parseConfigFile, 
+import {
+  parseConfigFile,
   generateExampleConfig,
   ConfigImportResult,
-  ParsedServerConfig 
+  ParsedServerConfig,
 } from "@/utils/configImportUtils";
 import { useToast } from "@/lib/hooks/useToast";
 
@@ -37,7 +37,9 @@ const ConfigImportDialog = ({
   onImportServers,
 }: ConfigImportDialogProps) => {
   const [configText, setConfigText] = useState("");
-  const [parseResult, setParseResult] = useState<ConfigImportResult | null>(null);
+  const [parseResult, setParseResult] = useState<ConfigImportResult | null>(
+    null,
+  );
   const [isValidating, setIsValidating] = useState(false);
   const { toast } = useToast();
 
@@ -64,7 +66,9 @@ const ConfigImportDialog = ({
       setParseResult({
         success: false,
         servers: [],
-        errors: [`Unexpected error: ${error instanceof Error ? error.message : String(error)}`],
+        errors: [
+          `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+        ],
       });
     } finally {
       setIsValidating(false);
@@ -123,10 +127,9 @@ const ConfigImportDialog = ({
           </DialogTitle>
           <DialogDescription>
             Paste your MCP configuration JSON to import servers. Supports:
-            <br />
-            • <strong>Global config</strong>: Complete mcp.json with "mcpServers" wrapper
-            <br />
-            • <strong>Named server</strong>: Single server with name key
+            <br />• <strong>Global config</strong>: Complete mcp.json with
+            "mcpServers" wrapper
+            <br />• <strong>Named server</strong>: Single server with name key
           </DialogDescription>
         </DialogHeader>
 
@@ -221,21 +224,27 @@ or
                   <CheckCircle className="h-4 w-4" />
                   <AlertTitle>Configuration Valid</AlertTitle>
                   <AlertDescription>
-                    Found {parseResult.servers.length} server(s) ready to import:
+                    Found {parseResult.servers.length} server(s) ready to
+                    import:
                     <ul className="mt-2 space-y-1">
                       {parseResult.servers.map((server) => (
                         <li key={server.name} className="text-xs font-mono">
-                          • <strong>{server.name}</strong> ({server.config.transportType})
-                          {server.config.transportType === "stdio" && "command" in server.config && (
-                            <span className="text-muted-foreground ml-2">
-                              {server.config.command} {server.config.args?.join(" ")}
-                            </span>
-                          )}
-                          {server.config.transportType !== "stdio" && "url" in server.config && server.config.url && (
-                            <span className="text-muted-foreground ml-2">
-                              {server.config.url.toString()}
-                            </span>
-                          )}
+                          • <strong>{server.name}</strong> (
+                          {server.config.transportType})
+                          {server.config.transportType === "stdio" &&
+                            "command" in server.config && (
+                              <span className="text-muted-foreground ml-2">
+                                {server.config.command}{" "}
+                                {server.config.args?.join(" ")}
+                              </span>
+                            )}
+                          {server.config.transportType !== "stdio" &&
+                            "url" in server.config &&
+                            server.config.url && (
+                              <span className="text-muted-foreground ml-2">
+                                {server.config.url.toString()}
+                              </span>
+                            )}
                         </li>
                       ))}
                     </ul>
@@ -262,11 +271,7 @@ or
 
         {/* Action Buttons */}
         <div className="flex gap-2 pt-4 border-t">
-          <Button
-            variant="outline"
-            onClick={handleClose}
-            className="flex-1"
-          >
+          <Button variant="outline" onClick={handleClose} className="flex-1">
             <X className="h-4 w-4 mr-2" />
             Cancel
           </Button>
@@ -284,4 +289,4 @@ or
   );
 };
 
-export default ConfigImportDialog; 
+export default ConfigImportDialog;

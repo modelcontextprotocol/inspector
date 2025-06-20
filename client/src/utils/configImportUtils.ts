@@ -13,10 +13,10 @@ export interface MCPServerConfigEntry {
   env?: Record<string, string>;
   url?: string;
   type?: "sse" | "streamable-http";
-  requestInit?: StreamableHTTPClientTransportOptions['requestInit'];
-  eventSourceInit?: SSEClientTransportOptions['eventSourceInit'];
-  reconnectionOptions?: StreamableHTTPClientTransportOptions['reconnectionOptions'];
-  sessionId?: StreamableHTTPClientTransportOptions['sessionId'];
+  requestInit?: StreamableHTTPClientTransportOptions["requestInit"];
+  eventSourceInit?: SSEClientTransportOptions["eventSourceInit"];
+  reconnectionOptions?: StreamableHTTPClientTransportOptions["reconnectionOptions"];
+  sessionId?: StreamableHTTPClientTransportOptions["sessionId"];
   timeout?: number;
   capabilities?: ClientCapabilities;
   enableServerLogs?: boolean;
@@ -61,17 +61,20 @@ export function isValidMCPConfig(config: unknown): config is MCPConfigFile {
 /**
  * Checks if the config is a single server configuration
  */
-export function isValidServerConfig(config: unknown): config is MCPServerConfigEntry {
+export function isValidServerConfig(
+  config: unknown,
+): config is MCPServerConfigEntry {
   if (typeof config !== "object" || config === null) {
     return false;
   }
 
   const configObj = config as Record<string, unknown>;
-  
+
   // Must have either command or url
-  const hasCommand = "command" in configObj && typeof configObj.command === "string";
+  const hasCommand =
+    "command" in configObj && typeof configObj.command === "string";
   const hasUrl = "url" in configObj && typeof configObj.url === "string";
-  
+
   return hasCommand || hasUrl;
 }
 
@@ -85,12 +88,12 @@ export function isSingleNamedServerConfig(config: unknown): boolean {
 
   const configObj = config as Record<string, unknown>;
   const keys = Object.keys(configObj);
-  
+
   // Should have exactly one key, and that key should map to a valid server config
   if (keys.length !== 1) {
     return false;
   }
-  
+
   const serverConfig = configObj[keys[0]];
   return isValidServerConfig(serverConfig);
 }
@@ -98,7 +101,11 @@ export function isSingleNamedServerConfig(config: unknown): boolean {
 /**
  * Provides detailed validation for MCP config structure
  */
-export function validateMCPConfigStructure(config: unknown): { isGlobal: boolean; isSingleNamed: boolean; errors: string[] } {
+export function validateMCPConfigStructure(config: unknown): {
+  isGlobal: boolean;
+  isSingleNamed: boolean;
+  errors: string[];
+} {
   const errors: string[] = [];
 
   if (typeof config !== "object" || config === null) {
@@ -112,7 +119,9 @@ export function validateMCPConfigStructure(config: unknown): { isGlobal: boolean
     const serverNames = Object.keys(mcpServers);
 
     if (serverNames.length === 0) {
-      errors.push('"mcpServers" object is empty. Please add at least one server configuration');
+      errors.push(
+        '"mcpServers" object is empty. Please add at least one server configuration',
+      );
     }
 
     return { isGlobal: true, isSingleNamed: false, errors };
@@ -125,9 +134,9 @@ export function validateMCPConfigStructure(config: unknown): { isGlobal: boolean
 
   // Neither format is valid
   errors.push(
-    'Invalid configuration format. Please provide either:\n' +
-    '• A global config: {"mcpServers": {"server-name": {...}}}\n' +
-    '• A named server config: {"server-name": {"command": "npx", "args": [...]}}'
+    "Invalid configuration format. Please provide either:\n" +
+      '• A global config: {"mcpServers": {"server-name": {...}}}\n' +
+      '• A named server config: {"server-name": {"command": "npx", "args": [...]}}',
   );
 
   return { isGlobal: false, isSingleNamed: false, errors };
@@ -137,7 +146,7 @@ export function validateMCPConfigStructure(config: unknown): { isGlobal: boolean
  * Converts a raw server config entry to MCPJamServerConfig
  */
 export function convertToMCPJamServerConfig(
-  entry: MCPServerConfigEntry
+  entry: MCPServerConfigEntry,
 ): MCPJamServerConfig {
   // Determine transport type
   if (entry.command) {
@@ -155,14 +164,16 @@ export function convertToMCPJamServerConfig(
     // HTTP configuration (SSE or Streamable HTTP)
     // Auto-detect SSE from URL if type is not specified
     let transportType: "sse" | "streamable-http";
-    
+
     if (entry.type) {
       transportType = entry.type === "sse" ? "sse" : "streamable-http";
     } else {
       // Auto-detect: if URL contains "sse", use SSE, otherwise use streamable-http
-      transportType = entry.url.toLowerCase().includes("sse") ? "sse" : "streamable-http";
+      transportType = entry.url.toLowerCase().includes("sse")
+        ? "sse"
+        : "streamable-http";
     }
-    
+
     return {
       transportType,
       url: new URL(entry.url),
@@ -184,21 +195,21 @@ export function convertToMCPJamServerConfig(
  */
 export function validateServerConfig(
   name: string,
-  entry: MCPServerConfigEntry
+  entry: MCPServerConfigEntry,
 ): string[] {
   const errors: string[] = [];
 
   if (!entry.command && !entry.url) {
     errors.push(
       `Server "${name}": Must have either 'command' (for STDIO) or 'url' (for HTTP/SSE). ` +
-      `Example: {"command": "npx", "args": ["server-package"]} or {"url": "https://...", "type": "sse"}`
+        `Example: {"command": "npx", "args": ["server-package"]} or {"url": "https://...", "type": "sse"}`,
     );
   }
 
   if (entry.command && entry.url) {
     errors.push(
       `Server "${name}": Cannot have both 'command' and 'url'. ` +
-      `Use 'command' for STDIO servers or 'url' for HTTP/SSE servers, but not both`
+        `Use 'command' for STDIO servers or 'url' for HTTP/SSE servers, but not both`,
     );
   }
 
@@ -206,21 +217,21 @@ export function validateServerConfig(
     if (typeof entry.command !== "string" || entry.command.trim() === "") {
       errors.push(
         `Server "${name}": 'command' must be a non-empty string. ` +
-        `Example: "npx", "node", "python", etc.`
+          `Example: "npx", "node", "python", etc.`,
       );
     }
 
     if (entry.args && !Array.isArray(entry.args)) {
       errors.push(
         `Server "${name}": 'args' must be an array of strings. ` +
-        `Example: ["@modelcontextprotocol/server-everything"] or ["build/index.js", "--port", "3000"]`
+          `Example: ["@modelcontextprotocol/server-everything"] or ["build/index.js", "--port", "3000"]`,
       );
     }
 
     if (entry.env && typeof entry.env !== "object") {
       errors.push(
         `Server "${name}": 'env' must be an object with string keys and values. ` +
-        `Example: {"API_KEY": "your-key", "DEBUG": "true"}`
+          `Example: {"API_KEY": "your-key", "DEBUG": "true"}`,
       );
     }
   }
@@ -231,14 +242,14 @@ export function validateServerConfig(
     } catch {
       errors.push(
         `Server "${name}": 'url' must be a valid URL. ` +
-        `Example: "https://api.example.com/mcp" or "https://localhost:3000/sse"`
+          `Example: "https://api.example.com/mcp" or "https://localhost:3000/sse"`,
       );
     }
 
     if (entry.type && !["sse", "streamable-http"].includes(entry.type)) {
       errors.push(
         `Server "${name}": 'type' must be either 'sse' or 'streamable-http'. ` +
-        `If not specified, defaults to 'streamable-http'`
+          `If not specified, defaults to 'streamable-http'`,
       );
     }
   }
@@ -258,7 +269,9 @@ export function parseConfigFile(jsonString: string): ConfigImportResult {
 
   // Validate JSON syntax
   if (!isValidJSON(jsonString)) {
-    result.errors.push("Invalid JSON format. Please check for missing quotes, commas, or brackets");
+    result.errors.push(
+      "Invalid JSON format. Please check for missing quotes, commas, or brackets",
+    );
     return result;
   }
 
@@ -266,12 +279,18 @@ export function parseConfigFile(jsonString: string): ConfigImportResult {
   try {
     parsedConfig = JSON.parse(jsonString);
   } catch (error) {
-    result.errors.push(`JSON parsing error: ${error instanceof Error ? error.message : String(error)}`);
+    result.errors.push(
+      `JSON parsing error: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return result;
   }
 
   // Validate config structure
-  const { isGlobal, isSingleNamed, errors: structureErrors } = validateMCPConfigStructure(parsedConfig);
+  const {
+    isGlobal,
+    isSingleNamed,
+    errors: structureErrors,
+  } = validateMCPConfigStructure(parsedConfig);
   if (structureErrors.length > 0) {
     result.errors.push(...structureErrors);
     return result;
@@ -284,8 +303,10 @@ export function parseConfigFile(jsonString: string): ConfigImportResult {
   if (isGlobal) {
     // Handle global config format
     const validConfig = parsedConfig as MCPConfigFile;
-    
-    for (const [serverName, serverConfig] of Object.entries(validConfig.mcpServers)) {
+
+    for (const [serverName, serverConfig] of Object.entries(
+      validConfig.mcpServers,
+    )) {
       if (typeof serverName !== "string" || serverName.trim() === "") {
         allErrors.push("Server names must be non-empty strings");
         continue;
@@ -305,7 +326,7 @@ export function parseConfigFile(jsonString: string): ConfigImportResult {
         });
       } catch (error) {
         allErrors.push(
-          `Server "${serverName}": ${error instanceof Error ? error.message : String(error)}`
+          `Server "${serverName}": ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
@@ -314,7 +335,10 @@ export function parseConfigFile(jsonString: string): ConfigImportResult {
     const serverConfig = parsedConfig as Record<string, MCPServerConfigEntry>;
     const serverName = Object.keys(serverConfig)[0];
 
-    const validationErrors = validateServerConfig(serverName, serverConfig[serverName]);
+    const validationErrors = validateServerConfig(
+      serverName,
+      serverConfig[serverName],
+    );
     if (validationErrors.length > 0) {
       allErrors.push(...validationErrors);
     } else {
@@ -326,7 +350,7 @@ export function parseConfigFile(jsonString: string): ConfigImportResult {
         });
       } catch (error) {
         allErrors.push(
-          `Server configuration: ${error instanceof Error ? error.message : String(error)}`
+          `Server configuration: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
@@ -365,4 +389,4 @@ export function generateExampleConfig(): string {
   };
 
   return JSON.stringify(exampleConfig, null, 2);
-} 
+}

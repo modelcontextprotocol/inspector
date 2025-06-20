@@ -26,10 +26,10 @@ export type HttpServerDefinition = BaseServerOptions & {
   url: URL; // 'url' is required for HTTP or SSE
 
   // Include relevant options from SDK HTTP transport types
-  requestInit?: StreamableHTTPClientTransportOptions['requestInit'];
-  eventSourceInit?: SSEClientTransportOptions['eventSourceInit'];
-  reconnectionOptions?: StreamableHTTPClientTransportOptions['reconnectionOptions'];
-  sessionId?: StreamableHTTPClientTransportOptions['sessionId'];
+  requestInit?: StreamableHTTPClientTransportOptions["requestInit"];
+  eventSourceInit?: SSEClientTransportOptions["eventSourceInit"];
+  reconnectionOptions?: StreamableHTTPClientTransportOptions["reconnectionOptions"];
+  sessionId?: StreamableHTTPClientTransportOptions["sessionId"];
 };
 
-export type MCPJamServerConfig = StdioServerDefinition | HttpServerDefinition; 
+export type MCPJamServerConfig = StdioServerDefinition | HttpServerDefinition;

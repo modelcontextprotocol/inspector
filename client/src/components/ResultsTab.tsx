@@ -8,9 +8,13 @@ interface ResultsTabProps {
   showHeader?: boolean;
 }
 
-const ResultsTab = ({ toolResult, onToggleCollapse, showHeader = true }: ResultsTabProps) => {
+const ResultsTab = ({
+  toolResult,
+  onToggleCollapse,
+  showHeader = true,
+}: ResultsTabProps) => {
   return (
-    <div className={`flex-1 overflow-y-auto ${showHeader ? 'p-6' : ''}`}>
+    <div className={`flex-1 overflow-y-auto ${showHeader ? "p-6" : ""}`}>
       {showHeader && (
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-bold text-foreground flex items-center space-x-2">
@@ -49,4 +53,4 @@ const ResultsTab = ({ toolResult, onToggleCollapse, showHeader = true }: Results
   );
 };
 
-export default ResultsTab; 
+export default ResultsTab;
