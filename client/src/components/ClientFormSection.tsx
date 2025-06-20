@@ -17,9 +17,9 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
+} from "./ui/card";
+import { Separator } from "./ui/separator";
+import { Badge } from "./ui/badge";
 import {
   X,
   Plus,
@@ -31,6 +31,8 @@ import {
   ArrowLeft,
   CheckCircle2,
   Sparkles,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import ConfigImportDialog from "./ConfigImportDialog";
 
@@ -89,6 +91,7 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
   const [sseUrlString, setSseUrlString] = useState<string>("");
   const [multipleClients, setMultipleClients] = useState<ClientConfig[]>([]);
   const [isMultipleMode, setIsMultipleMode] = useState(false);
+  const [isManualConfigExpanded, setIsManualConfigExpanded] = useState(false);
   const { toast } = useToast();
   const [showImportDialog, setShowImportDialog] = useState(false);
 
@@ -598,120 +601,159 @@ const ClientFormSection: React.FC<ClientFormSectionProps> = ({
           </Card>
         )}
 
+        {/* Or separator - Only show when creating */}
+        {isCreating && (
+          <div className="flex items-center justify-center">
+            <div className="flex items-center gap-4">
+              <Separator className="w-16" />
+              <span className="text-sm font-medium text-muted-foreground">
+                or
+              </span>
+              <Separator className="w-16" />
+            </div>
+          </div>
+        )}
+
         {/* Manual Configuration Card */}
         <Card className="border-2 border-border/50">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-muted rounded-lg">
-                <Settings className="h-5 w-5 text-muted-foreground" />
+          <CardHeader
+            className="cursor-pointer"
+            onClick={() => setIsManualConfigExpanded(!isManualConfigExpanded)}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-muted rounded-lg">
+                  <Settings className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg">
+                    {isCreating
+                      ? "Manual Configuration"
+                      : `Edit Client: ${editingClientName}`}
+                  </CardTitle>
+                  <CardDescription>
+                    {isCreating
+                      ? "Configure a single client manually with the options below"
+                      : "Modify the client connection settings"}
+                  </CardDescription>
+                </div>
               </div>
-              <div>
-                <CardTitle className="text-lg">
-                  {isCreating ? "Manual Configuration" : "Client Configuration"}
-                </CardTitle>
-                <CardDescription>
-                  {isCreating
-                    ? "Configure a single client manually with the options below"
-                    : "Modify the client connection settings"}
-                </CardDescription>
-              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsManualConfigExpanded(!isManualConfigExpanded);
+                }}
+              >
+                {isManualConfigExpanded ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+              </Button>
             </div>
           </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Client Name */}
-            <div className="space-y-2">
-              <Label htmlFor="client-name" className="text-sm font-medium">
-                Client Name
-              </Label>
-              <Input
-                id="client-name"
-                value={clientFormName}
-                onChange={(e) => setClientFormName(e.target.value)}
-                placeholder="Enter a descriptive name for this client"
-                className="max-w-md"
-              />
-            </div>
-
-            {/* Connection Configuration */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Settings className="h-4 w-4 text-muted-foreground" />
-                <Label className="text-sm font-medium">
-                  Connection Settings
+          {isManualConfigExpanded && (
+            <CardContent className="space-y-6">
+              {/* Client Name */}
+              <div className="space-y-2">
+                <Label htmlFor="client-name" className="text-sm font-medium">
+                  Client Name
                 </Label>
-              </div>
-              <div className="border border-border/50 rounded-lg p-4 bg-muted/30">
-                <ConnectionSection
-                  connectionStatus="disconnected"
-                  transportType={clientFormConfig.transportType}
-                  setTransportType={(type) => {
-                    if (type === "stdio") {
-                      const newConfig = {
-                        transportType: type,
-                        command: "npx",
-                        args: ["@modelcontextprotocol/server-everything"],
-                        env: {},
-                      } as StdioServerDefinition;
-                      setClientFormConfig(newConfig);
-                      setArgsString("@modelcontextprotocol/server-everything");
-                    } else {
-                      setClientFormConfig({
-                        transportType: type,
-                        url: new URL("https://example.com"),
-                      } as HttpServerDefinition);
-                      setArgsString("");
-                    }
-                  }}
-                  command={
-                    clientFormConfig.transportType === "stdio" &&
-                    "command" in clientFormConfig
-                      ? clientFormConfig.command || ""
-                      : ""
-                  }
-                  setCommand={(command) => {
-                    if (clientFormConfig.transportType === "stdio") {
-                      setClientFormConfig({
-                        ...clientFormConfig,
-                        command,
-                      } as StdioServerDefinition);
-                    }
-                  }}
-                  args={argsString}
-                  setArgs={handleArgsChange}
-                  sseUrl={sseUrlString}
-                  setSseUrl={handleSseUrlChange}
-                  env={
-                    clientFormConfig.transportType === "stdio" &&
-                    "env" in clientFormConfig
-                      ? clientFormConfig.env || {}
-                      : {}
-                  }
-                  setEnv={(env) => {
-                    if (clientFormConfig.transportType === "stdio") {
-                      setClientFormConfig({
-                        ...clientFormConfig,
-                        env,
-                      } as StdioServerDefinition);
-                    }
-                  }}
-                  config={config}
-                  setConfig={setConfig}
-                  bearerToken={bearerToken}
-                  setBearerToken={setBearerToken}
-                  headerName={headerName}
-                  setHeaderName={setHeaderName}
-                  onConnect={() => {}} // No-op for form
-                  onDisconnect={() => {}} // No-op for form
-                  stdErrNotifications={[]}
-                  clearStdErrNotifications={() => {}}
-                  logLevel="debug"
-                  sendLogLevelRequest={async () => {}}
-                  loggingSupported={false}
-                  hideActionButtons={true}
+                <Input
+                  id="client-name"
+                  value={clientFormName}
+                  onChange={(e) => setClientFormName(e.target.value)}
+                  placeholder="Enter a descriptive name for this client"
+                  className="max-w-md"
                 />
               </div>
-            </div>
-          </CardContent>
+
+              {/* Connection Configuration */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Settings className="h-4 w-4 text-muted-foreground" />
+                  <Label className="text-sm font-medium">
+                    Connection Settings
+                  </Label>
+                </div>
+                <div className="border border-border/50 rounded-lg p-4 bg-muted/30">
+                  <ConnectionSection
+                    connectionStatus="disconnected"
+                    transportType={clientFormConfig.transportType}
+                    setTransportType={(type) => {
+                      if (type === "stdio") {
+                        const newConfig = {
+                          transportType: type,
+                          command: "npx",
+                          args: ["@modelcontextprotocol/server-everything"],
+                          env: {},
+                        } as StdioServerDefinition;
+                        setClientFormConfig(newConfig);
+                        setArgsString(
+                          "@modelcontextprotocol/server-everything",
+                        );
+                      } else {
+                        setClientFormConfig({
+                          transportType: type,
+                          url: new URL("https://example.com"),
+                        } as HttpServerDefinition);
+                        setArgsString("");
+                      }
+                    }}
+                    command={
+                      clientFormConfig.transportType === "stdio" &&
+                      "command" in clientFormConfig
+                        ? clientFormConfig.command || ""
+                        : ""
+                    }
+                    setCommand={(command) => {
+                      if (clientFormConfig.transportType === "stdio") {
+                        setClientFormConfig({
+                          ...clientFormConfig,
+                          command,
+                        } as StdioServerDefinition);
+                      }
+                    }}
+                    args={argsString}
+                    setArgs={handleArgsChange}
+                    sseUrl={sseUrlString}
+                    setSseUrl={handleSseUrlChange}
+                    env={
+                      clientFormConfig.transportType === "stdio" &&
+                      "env" in clientFormConfig
+                        ? clientFormConfig.env || {}
+                        : {}
+                    }
+                    setEnv={(env) => {
+                      if (clientFormConfig.transportType === "stdio") {
+                        setClientFormConfig({
+                          ...clientFormConfig,
+                          env,
+                        } as StdioServerDefinition);
+                      }
+                    }}
+                    config={config}
+                    setConfig={setConfig}
+                    bearerToken={bearerToken}
+                    setBearerToken={setBearerToken}
+                    headerName={headerName}
+                    setHeaderName={setHeaderName}
+                    onConnect={() => {}} // No-op for form
+                    onDisconnect={() => {}} // No-op for form
+                    stdErrNotifications={[]}
+                    clearStdErrNotifications={() => {}}
+                    logLevel="debug"
+                    sendLogLevelRequest={async () => {}}
+                    loggingSupported={false}
+                    hideActionButtons={true}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          )}
         </Card>
 
         {/* Action Bar */}
