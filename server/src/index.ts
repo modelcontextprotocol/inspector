@@ -4,6 +4,9 @@ import cors from "cors";
 import { parseArgs } from "node:util";
 import { parse as shellParseArgs } from "shell-quote";
 import { createServer } from "node:net";
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import {
   SSEClientTransport,
@@ -21,6 +24,9 @@ import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 import { randomUUID } from "node:crypto";
+import { logGeneral, logServer, logsDir } from './logger.js';
+import { launchMCPServer } from './processLauncher.js';
+import { Readable } from 'stream';
 
 const SSE_HEADERS_PASSTHROUGH = ["authorization"];
 const STREAMABLE_HTTP_HEADERS_PASSTHROUGH = [
@@ -48,6 +54,7 @@ app.use((req, res, next) => {
   res.header("Access-Control-Expose-Headers", "mcp-session-id");
   next();
 });
+app.use(express.json());
 
 const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Transports by sessionId
 
@@ -66,15 +73,10 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
 
     console.log(`🚀 Stdio transport: command=${cmd}, args=${args}`);
 
-    const transport = new StdioClientTransport({
-      command: cmd,
-      args,
-      env,
-      stderr: "pipe",
-    });
-
-    await transport.start();
-    return transport;
+    // Launch the MCP server process and log output
+    const child = launchMCPServer(cmd, args, env);
+    // For now, just return the process object (integration with protocol comes next)
+    return child;
   } else if (transportType === "sse") {
     const url = query.url as string;
     const headers: HeadersInit = {
@@ -221,47 +223,83 @@ app.post("/mcp", async (req, res) => {
 
 app.get("/stdio", async (req, res) => {
   try {
-    console.log("🔄 New connection");
+    console.log("🔄 New connection (custom stdio proxy)");
 
-    try {
-      await backingServerTransport?.close();
-      backingServerTransport = await createTransport(req);
-    } catch (error) {
-      if (error instanceof SseError && error.code === 401) {
-        console.error(
-          "🔒 Received 401 Unauthorized from MCP server:",
-          error.message,
-        );
-        res.status(401).json(error);
-        return;
+    const command = req.query.command as string;
+    const origArgs = shellParseArgs(req.query.args as string) as string[];
+    const queryEnv = req.query.env ? JSON.parse(req.query.env as string) : {};
+    const env = { ...process.env, ...defaultEnvironment, ...queryEnv };
+    const { cmd, args } = findActualExecutable(command, origArgs);
+
+    // Determine the intended server name
+    let serverName = req.query.serverName as string;
+    if (!serverName) {
+      // Fallback: if using npx, use the first arg as the server name if available
+      if (cmd === 'npx' && Array.isArray(args) && args.length > 0) {
+        serverName = args[0];
+      } else {
+        serverName = cmd || 'unknown';
       }
-
-      throw error;
     }
 
-    const webAppTransport = new SSEServerTransport("/message", res);
-    webAppTransports.set(webAppTransport.sessionId, webAppTransport);
+    // Launch the MCP server process and log output
+    const child = launchMCPServer(cmd, args, env, serverName);
 
-    await webAppTransport.start();
-    (backingServerTransport as StdioClientTransport).stderr!.on(
-      "data",
-      (chunk) => {
-        webAppTransport.send({
-          jsonrpc: "2.0",
-          method: "notifications/stderr",
-          params: {
-            content: chunk.toString(),
-          },
-        });
-      },
-    );
+    // Set up JSON-RPC proxy between HTTP client and MCP server process
+    req.setEncoding('utf8');
+    res.setHeader('Content-Type', 'application/json');
 
-    mcpProxy({
-      transportToClient: webAppTransport,
-      transportToServer: backingServerTransport,
+    // Buffer for stdout data
+    let buffer = '';
+    child.stdout.on('data', (chunk) => {
+      buffer += chunk.toString();
+      let boundary;
+      while ((boundary = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, boundary).trim();
+        buffer = buffer.slice(boundary + 1);
+        if (line) {
+          try {
+            const json = JSON.parse(line);
+            res.write(JSON.stringify(json) + '\n');
+          } catch (err) {
+            logServer(serverName, `[proxy] Failed to parse MCP server stdout as JSON: ${line}`);
+          }
+        }
+      }
+    });
+
+    // Forward client request body to MCP server stdin
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      if (body) {
+        try {
+          // Assume body is a JSON-RPC message or array
+          const messages = Array.isArray(JSON.parse(body)) ? JSON.parse(body) : [JSON.parse(body)];
+          for (const msg of messages) {
+            child.stdin.write(JSON.stringify(msg) + '\n');
+          }
+        } catch (err) {
+          logServer(serverName, `[proxy] Failed to parse client request as JSON: ${body}`);
+        }
+      }
+    });
+
+    // Handle process exit
+    child.on('exit', (code, signal) => {
+      res.end();
+      logServer(serverName, `[proxy] MCP server process exited with code ${code}, signal ${signal}`);
+    });
+
+    // Handle errors
+    child.on('error', (err) => {
+      res.status(500).end();
+      logServer(serverName, `[proxy] MCP server process error: ${err}`);
     });
   } catch (error) {
-    console.error("❌ Error in /stdio route:", error);
+    console.error("❌ Error in /stdio route (custom proxy):", error);
     res.status(500).json(error);
   }
 });
@@ -335,6 +373,34 @@ app.get("/config", (req, res) => {
     console.error("❌ Error in /config route:", error);
     res.status(500).json(error);
   }
+});
+
+// Logging endpoint
+app.post('/api/log', (req, res) => {
+  const { type, serverName, message } = req.body;
+  console.log('Received log:', { type, serverName, message });
+  if (typeof message !== 'string' || !message.trim()) {
+    res.status(400).json({ error: 'Message is required' });
+    return;
+  }
+  if (type === 'server' && serverName) {
+    logServer(serverName, message);
+  } else {
+    logGeneral(message);
+  }
+  res.sendStatus(200);
+});
+
+// Log file viewer endpoint
+app.get('/api/logs/:serverName', (req, res) => {
+  const { serverName } = req.params;
+  const logPath = path.join(logsDir, `server-${serverName}.log`);
+  console.log('[LogViewer] Looking for log file:', logPath, fs.existsSync(logPath));
+  if (!fs.existsSync(logPath)) {
+    return res.status(404).send('Log file not found');
+  }
+  res.type('text/plain');
+  fs.createReadStream(logPath).pipe(res);
 });
 
 // Function to find an available port

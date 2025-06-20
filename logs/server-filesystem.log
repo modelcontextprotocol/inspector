@@ -1,0 +1,137 @@
+[2025-06-20T04:11:27.627Z] [stderr] Usage: mcp-server-filesystem <allowed-directory> [additional-directories...]
+
+[2025-06-20T04:11:27.663Z] [info] Process exited with code 1, signal null
+[2025-06-20T04:11:27.664Z] [proxy] MCP server process exited with code 1, signal null
+[2025-06-20T04:11:27.702Z] Connection error: SSE error: Invalid content type, expected "text/event-stream"
+Stack: Error: SSE error: Invalid content type, expected "text/event-stream"
+    at _eventSource.onerror (http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:381:23)
+    at EventSource.failConnection_fn (http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:277:53)
+    at http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:123:74
+Config: {
+  "transportType": "stdio",
+  "command": "npx",
+  "args": [
+    "-y",
+    "@modelcontextprotocol/server-filesystem"
+  ]
+}
+[2025-06-20T04:17:01.907Z] [stderr] Usage: mcp-server-filesystem <allowed-directory> [additional-directories...]
+
+[2025-06-20T04:17:01.941Z] [info] Process exited with code 1, signal null
+[2025-06-20T04:17:01.942Z] [proxy] MCP server process exited with code 1, signal null
+[2025-06-20T04:17:01.998Z] Connection error: SSE error: Invalid content type, expected "text/event-stream"
+Stack: Error: SSE error: Invalid content type, expected "text/event-stream"
+    at _eventSource.onerror (http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:381:23)
+    at EventSource.failConnection_fn (http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:277:53)
+    at http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:123:74
+Config: {
+  "transportType": "stdio",
+  "command": "npx",
+  "args": [
+    "-y",
+    "@modelcontextprotocol/server-filesystem"
+  ],
+  "env": {
+    "APPDATA": "C:\\Users\\User\\AppData\\Roaming",
+    "HOMEDRIVE": "C:",
+    "HOMEPATH": "\\Users\\User",
+    "LOCALAPPDATA": "C:\\Users\\User\\AppData\\Local",
+    "PATH": "D:\\mcp-jam\\inspector\\server\\node_modules\\.bin;D:\\mcp-jam\\inspector\\node_modules\\.bin;D:\\mcp-jam\\node_modules\\.bin;D:\\node_modules\\.bin;C:\\Users\\User\\AppData\\Roaming\\npm\\node_modules\\npm\\node_modules\\@npmcli\\run-script\\lib\\node-gyp-bin;C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files (x86)\\Common Files\\Intel\\Shared Libraries\\redist\\intel64\\compiler;C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\Intel\\WiFi\\bin\\;C:\\Program Files\\Common Files\\Intel\\WirelessCommon\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files\\dotnet\\;C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\;C:\\Program Files (x86)\\Microsoft SQL Server\\150\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\150\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\150\\DTS\\Binn\\;C:\\Program Files (x86)\\Microsoft SQL Server\\150\\DTS\\Binn\\;C:\\Program Files\\MariaDB 10.5\\bin;C:\\Program Files\\Graphviz\\bin;C:\\Program Files\\Microsoft SQL Server\\130\\Tools\\Binn\\;C:\\Program Files\\nodejs\\;C:\\Program Files (x86)\\Yarn\\bin\\;C:\\Program Files (x86)\\Microsoft SQL Server\\160\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\160\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\160\\DTS\\Binn\\;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\ProgramData\\chocolatey\\bin;C:\\Program Files (x86)\\LuaRocks;C:\\Users\\User\\AppData\\Roaming\\LuaRocks\\bin;C:\\Program Files (x86)\\LuaRocks\\systree\\bin;C:\\Program Files\\Git\\cmd;D:\\anaconda;;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\PuTTY\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;c:\\Users\\User\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Users\\User\\.local\\bin;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python311\\Scripts\\;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python311\\;C:\\Program Files (x86)\\Haskell\\bin;C:\\ghc\\ghc-7.6.1\\bin;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python38-32\\Scripts\\;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python38-32\\;C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\User\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\User\\.dotnet\\tools;D:\\intelij\\IntelliJ IDEA Community Edition 2022.2.1\\bin;C:\\Users\\User\\AppData\\Roaming\\npm;C:\\Users\\User\\AppData\\Local\\Yarn\\bin;C:\\Users\\User\\AppData\\Local\\Programs\\Fiddler;C:\\Users\\User\\AppData\\Local\\Programs\\Ollama;C:\\xampp\\php;C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\User\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;c:\\Users\\User\\AppData\\Roaming\\Cursor\\User\\globalStorage\\github.copilot-chat\\debugCommand",
+    "PROCESSOR_ARCHITECTURE": "AMD64",
+    "SYSTEMDRIVE": "C:",
+    "SYSTEMROOT": "C:\\WINDOWS",
+    "TEMP": "C:\\Users\\User\\AppData\\Local\\Temp",
+    "USERNAME": "User",
+    "USERPROFILE": "C:\\Users\\User"
+  }
+}
+[2025-06-20T04:26:39.007Z] [stderr] Usage: mcp-server-filesystem <allowed-directory> [additional-directories...]
+
+[2025-06-20T04:26:39.037Z] [info] Process exited with code 1, signal null
+[2025-06-20T04:26:39.039Z] [proxy] MCP server process exited with code 1, signal null
+[2025-06-20T04:26:39.076Z] Connection error: SSE error: Invalid content type, expected "text/event-stream"
+Stack: Error: SSE error: Invalid content type, expected "text/event-stream"
+    at _eventSource.onerror (http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:381:23)
+    at EventSource.failConnection_fn (http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:277:53)
+    at http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:123:74
+Config: {
+  "transportType": "stdio",
+  "command": "npx",
+  "args": [
+    "-y",
+    "@modelcontextprotocol/server-filesystem"
+  ],
+  "env": {
+    "APPDATA": "C:\\Users\\User\\AppData\\Roaming",
+    "HOMEDRIVE": "C:",
+    "HOMEPATH": "\\Users\\User",
+    "LOCALAPPDATA": "C:\\Users\\User\\AppData\\Local",
+    "PATH": "D:\\mcp-jam\\inspector\\server\\node_modules\\.bin;D:\\mcp-jam\\inspector\\node_modules\\.bin;D:\\mcp-jam\\node_modules\\.bin;D:\\node_modules\\.bin;C:\\Users\\User\\AppData\\Roaming\\npm\\node_modules\\npm\\node_modules\\@npmcli\\run-script\\lib\\node-gyp-bin;C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files (x86)\\Common Files\\Intel\\Shared Libraries\\redist\\intel64\\compiler;C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\Intel\\WiFi\\bin\\;C:\\Program Files\\Common Files\\Intel\\WirelessCommon\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files\\dotnet\\;C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\;C:\\Program Files (x86)\\Microsoft SQL Server\\150\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\150\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\150\\DTS\\Binn\\;C:\\Program Files (x86)\\Microsoft SQL Server\\150\\DTS\\Binn\\;C:\\Program Files\\MariaDB 10.5\\bin;C:\\Program Files\\Graphviz\\bin;C:\\Program Files\\Microsoft SQL Server\\130\\Tools\\Binn\\;C:\\Program Files\\nodejs\\;C:\\Program Files (x86)\\Yarn\\bin\\;C:\\Program Files (x86)\\Microsoft SQL Server\\160\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\160\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\160\\DTS\\Binn\\;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\ProgramData\\chocolatey\\bin;C:\\Program Files (x86)\\LuaRocks;C:\\Users\\User\\AppData\\Roaming\\LuaRocks\\bin;C:\\Program Files (x86)\\LuaRocks\\systree\\bin;C:\\Program Files\\Git\\cmd;D:\\anaconda;;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\PuTTY\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;c:\\Users\\User\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Users\\User\\.local\\bin;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python311\\Scripts\\;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python311\\;C:\\Program Files (x86)\\Haskell\\bin;C:\\ghc\\ghc-7.6.1\\bin;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python38-32\\Scripts\\;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python38-32\\;C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\User\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\User\\.dotnet\\tools;D:\\intelij\\IntelliJ IDEA Community Edition 2022.2.1\\bin;C:\\Users\\User\\AppData\\Roaming\\npm;C:\\Users\\User\\AppData\\Local\\Yarn\\bin;C:\\Users\\User\\AppData\\Local\\Programs\\Fiddler;C:\\Users\\User\\AppData\\Local\\Programs\\Ollama;C:\\xampp\\php;C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\User\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;c:\\Users\\User\\AppData\\Roaming\\Cursor\\User\\globalStorage\\github.copilot-chat\\debugCommand",
+    "PROCESSOR_ARCHITECTURE": "AMD64",
+    "SYSTEMDRIVE": "C:",
+    "SYSTEMROOT": "C:\\WINDOWS",
+    "TEMP": "C:\\Users\\User\\AppData\\Local\\Temp",
+    "USERNAME": "User",
+    "USERPROFILE": "C:\\Users\\User"
+  }
+}
+[2025-06-20T04:27:46.356Z] [stderr] Usage: mcp-server-filesystem <allowed-directory> [additional-directories...]
+
+[2025-06-20T04:27:46.397Z] [info] Process exited with code 1, signal null
+[2025-06-20T04:27:46.399Z] [proxy] MCP server process exited with code 1, signal null
+[2025-06-20T04:27:46.446Z] Connection error: SSE error: Invalid content type, expected "text/event-stream"
+Stack: Error: SSE error: Invalid content type, expected "text/event-stream"
+    at _eventSource.onerror (http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:381:23)
+    at EventSource.failConnection_fn (http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:277:53)
+    at http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:123:74
+Config: {
+  "transportType": "stdio",
+  "command": "npx",
+  "args": [
+    "-y",
+    "@modelcontextprotocol/server-filesystem"
+  ],
+  "env": {
+    "APPDATA": "C:\\Users\\User\\AppData\\Roaming",
+    "HOMEDRIVE": "C:",
+    "HOMEPATH": "\\Users\\User",
+    "LOCALAPPDATA": "C:\\Users\\User\\AppData\\Local",
+    "PATH": "D:\\mcp-jam\\inspector\\server\\node_modules\\.bin;D:\\mcp-jam\\inspector\\node_modules\\.bin;D:\\mcp-jam\\node_modules\\.bin;D:\\node_modules\\.bin;C:\\Users\\User\\AppData\\Roaming\\npm\\node_modules\\npm\\node_modules\\@npmcli\\run-script\\lib\\node-gyp-bin;C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files (x86)\\Common Files\\Intel\\Shared Libraries\\redist\\intel64\\compiler;C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\Intel\\WiFi\\bin\\;C:\\Program Files\\Common Files\\Intel\\WirelessCommon\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files\\dotnet\\;C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\;C:\\Program Files (x86)\\Microsoft SQL Server\\150\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\150\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\150\\DTS\\Binn\\;C:\\Program Files (x86)\\Microsoft SQL Server\\150\\DTS\\Binn\\;C:\\Program Files\\MariaDB 10.5\\bin;C:\\Program Files\\Graphviz\\bin;C:\\Program Files\\Microsoft SQL Server\\130\\Tools\\Binn\\;C:\\Program Files\\nodejs\\;C:\\Program Files (x86)\\Yarn\\bin\\;C:\\Program Files (x86)\\Microsoft SQL Server\\160\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\160\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\160\\DTS\\Binn\\;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\ProgramData\\chocolatey\\bin;C:\\Program Files (x86)\\LuaRocks;C:\\Users\\User\\AppData\\Roaming\\LuaRocks\\bin;C:\\Program Files (x86)\\LuaRocks\\systree\\bin;C:\\Program Files\\Git\\cmd;D:\\anaconda;;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\PuTTY\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;c:\\Users\\User\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Users\\User\\.local\\bin;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python311\\Scripts\\;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python311\\;C:\\Program Files (x86)\\Haskell\\bin;C:\\ghc\\ghc-7.6.1\\bin;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python38-32\\Scripts\\;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python38-32\\;C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\User\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\User\\.dotnet\\tools;D:\\intelij\\IntelliJ IDEA Community Edition 2022.2.1\\bin;C:\\Users\\User\\AppData\\Roaming\\npm;C:\\Users\\User\\AppData\\Local\\Yarn\\bin;C:\\Users\\User\\AppData\\Local\\Programs\\Fiddler;C:\\Users\\User\\AppData\\Local\\Programs\\Ollama;C:\\xampp\\php;C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\User\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;c:\\Users\\User\\AppData\\Roaming\\Cursor\\User\\globalStorage\\github.copilot-chat\\debugCommand",
+    "PROCESSOR_ARCHITECTURE": "AMD64",
+    "SYSTEMDRIVE": "C:",
+    "SYSTEMROOT": "C:\\WINDOWS",
+    "TEMP": "C:\\Users\\User\\AppData\\Local\\Temp",
+    "USERNAME": "User",
+    "USERPROFILE": "C:\\Users\\User"
+  }
+}
+[2025-06-20T04:37:48.977Z] [stderr] Usage: mcp-server-filesystem <allowed-directory> [additional-directories...]
+
+[2025-06-20T04:37:49.006Z] [info] Process exited with code 1, signal null
+[2025-06-20T04:37:49.008Z] [proxy] MCP server process exited with code 1, signal null
+[2025-06-20T04:37:49.045Z] Connection error: SSE error: Invalid content type, expected "text/event-stream"
+Stack: Error: SSE error: Invalid content type, expected "text/event-stream"
+    at _eventSource.onerror (http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:381:23)
+    at EventSource.failConnection_fn (http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:277:53)
+    at http://localhost:6274/node_modules/.vite/deps/@modelcontextprotocol_sdk_client_sse__js.js?v=a901f16e:123:74
+Config: {
+  "transportType": "stdio",
+  "command": "npx",
+  "args": [
+    "-y",
+    "@modelcontextprotocol/server-filesystem"
+  ],
+  "env": {
+    "APPDATA": "C:\\Users\\User\\AppData\\Roaming",
+    "HOMEDRIVE": "C:",
+    "HOMEPATH": "\\Users\\User",
+    "LOCALAPPDATA": "C:\\Users\\User\\AppData\\Local",
+    "PATH": "D:\\mcp-jam\\inspector\\server\\node_modules\\.bin;D:\\mcp-jam\\inspector\\node_modules\\.bin;D:\\mcp-jam\\node_modules\\.bin;D:\\node_modules\\.bin;C:\\Users\\User\\AppData\\Roaming\\npm\\node_modules\\npm\\node_modules\\@npmcli\\run-script\\lib\\node-gyp-bin;C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files (x86)\\Common Files\\Intel\\Shared Libraries\\redist\\intel64\\compiler;C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\Intel\\WiFi\\bin\\;C:\\Program Files\\Common Files\\Intel\\WirelessCommon\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files\\dotnet\\;C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\;C:\\Program Files (x86)\\Microsoft SQL Server\\150\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\150\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\150\\DTS\\Binn\\;C:\\Program Files (x86)\\Microsoft SQL Server\\150\\DTS\\Binn\\;C:\\Program Files\\MariaDB 10.5\\bin;C:\\Program Files\\Graphviz\\bin;C:\\Program Files\\Microsoft SQL Server\\130\\Tools\\Binn\\;C:\\Program Files\\nodejs\\;C:\\Program Files (x86)\\Yarn\\bin\\;C:\\Program Files (x86)\\Microsoft SQL Server\\160\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\160\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\160\\DTS\\Binn\\;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\ProgramData\\chocolatey\\bin;C:\\Program Files (x86)\\LuaRocks;C:\\Users\\User\\AppData\\Roaming\\LuaRocks\\bin;C:\\Program Files (x86)\\LuaRocks\\systree\\bin;C:\\Program Files\\Git\\cmd;D:\\anaconda;;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\PuTTY\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;c:\\Users\\User\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Users\\User\\.local\\bin;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python311\\Scripts\\;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python311\\;C:\\Program Files (x86)\\Haskell\\bin;C:\\ghc\\ghc-7.6.1\\bin;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python38-32\\Scripts\\;C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python38-32\\;C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\User\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\User\\.dotnet\\tools;D:\\intelij\\IntelliJ IDEA Community Edition 2022.2.1\\bin;C:\\Users\\User\\AppData\\Roaming\\npm;C:\\Users\\User\\AppData\\Local\\Yarn\\bin;C:\\Users\\User\\AppData\\Local\\Programs\\Fiddler;C:\\Users\\User\\AppData\\Local\\Programs\\Ollama;C:\\xampp\\php;C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\User\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;c:\\Users\\User\\AppData\\Roaming\\Cursor\\User\\globalStorage\\github.copilot-chat\\debugCommand",
+    "PROCESSOR_ARCHITECTURE": "AMD64",
+    "SYSTEMDRIVE": "C:",
+    "SYSTEMROOT": "C:\\WINDOWS",
+    "TEMP": "C:\\Users\\User\\AppData\\Local\\Temp",
+    "USERNAME": "User",
+    "USERPROFILE": "C:\\Users\\User"
+  }
+}

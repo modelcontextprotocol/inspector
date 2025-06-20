@@ -7,6 +7,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: true,
+    proxy: {
+      '/api': 'http://localhost:6277', // Proxy API requests to backend
+    },
   },
   resolve: {
     alias: {

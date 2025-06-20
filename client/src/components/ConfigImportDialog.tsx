@@ -24,6 +24,7 @@ import {
   ParsedServerConfig 
 } from "@/utils/configImportUtils";
 import { useToast } from "@/lib/hooks/useToast";
+import { logError } from "@/utils/logError";
 
 interface ConfigImportDialogProps {
   open: boolean;
@@ -60,11 +61,21 @@ const ConfigImportDialog = ({
     try {
       const result = parseConfigFile(configText);
       setParseResult(result);
+      if (!result.success) {
+        logError({
+          type: 'general',
+          message: `Config validation failed: ${result.errors?.join('; ')}\nConfig: ${configText}`
+        });
+      }
     } catch (error) {
       setParseResult({
         success: false,
         servers: [],
         errors: [`Unexpected error: ${error instanceof Error ? error.message : String(error)}`],
+      });
+      logError({
+        type: 'general',
+        message: `Config parse error: ${error instanceof Error ? error.message : String(error)}\nConfig: ${configText}`
       });
     } finally {
       setIsValidating(false);

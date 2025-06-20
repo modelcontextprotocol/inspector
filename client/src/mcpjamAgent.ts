@@ -210,8 +210,9 @@ export class MCPJamAgent {
 
     // Create new client (either no client exists or reconnection failed)
     const newClient = new MCPJamClient(
-      config, // serverConfig (first parameter)
-      this.config, // config (second parameter)
+      name, // Pass server name as first argument
+      config, // serverConfig
+      this.config, // config
       this.addRequestHistory, // addRequestHistory
       this.bearerToken, // bearerToken
       this.headerName, // headerName

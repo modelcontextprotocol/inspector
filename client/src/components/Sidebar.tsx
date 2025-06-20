@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Select,
   SelectContent,
@@ -17,6 +17,7 @@ import {
   Edit2,
   ChevronLeft,
   ChevronRight,
+  FileText,
 } from "lucide-react";
 import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
@@ -26,6 +27,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import LogViewerPanel from "@/components/LogViewerPanel";
 
 interface SidebarProps {
   mcpAgent: MCPJamAgent | null;
@@ -55,6 +57,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onToggleExpanded,
 }) => {
   const [theme, setTheme] = useTheme();
+  const [showLogViewer, setShowLogViewer] = useState(false);
 
   // Get server connections directly from the agent
   const serverConnections = React.useMemo(() => {
@@ -174,25 +177,85 @@ const Sidebar: React.FC<SidebarProps> = ({
             {serverConnections.length}
           </span>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              onClick={onCreateClient}
-              size="sm"
-              variant="ghost"
-              className="h-7 w-7 p-0 hover:bg-primary/20 hover:text-primary"
-              title="Create new client"
-            >
-              <Plus className="w-4 h-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {mcpAgent?.hasConnectedRemoteServer()
-              ? "Note: Creating a remote client will disconnect the current remote connection"
-              : "Create new client"}
-          </TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={onCreateClient}
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 hover:bg-primary/20 hover:text-primary"
+                title="Create new client"
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {mcpAgent?.hasConnectedRemoteServer()
+                ? "Note: Creating a remote client will disconnect the current remote connection"
+                : "Create new client"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={() => setShowLogViewer(true)}
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 hover:bg-primary/20 hover:text-primary"
+                title="View logs"
+              >
+                <FileText className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>View server logs</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
+      {showLogViewer && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            background: "rgba(0,0,0,0.4)",
+            zIndex: 1000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          onClick={() => setShowLogViewer(false)}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 8,
+              boxShadow: "0 2px 16px rgba(0,0,0,0.2)",
+              width: "90vw",
+              maxWidth: 800,
+              height: "80vh",
+              padding: 24,
+              position: "relative",
+              display: "flex",
+              flexDirection: "column",
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowLogViewer(false)}
+              style={{ position: "absolute", top: 12, right: 12, background: "none", border: "none", fontSize: 20, cursor: "pointer" }}
+              title="Close"
+            >
+              ×
+            </button>
+            <LogViewerPanel
+              serverNames={mcpAgent ? Array.from(mcpAgent.getAllClients().keys()) : []}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 

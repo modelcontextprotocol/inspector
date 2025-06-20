@@ -57,6 +57,7 @@ import {
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { HttpServerDefinition, MCPJamServerConfig } from "@/lib/serverTypes";
 import { mappedTools } from "@/utils/mcpjamClientHelpers";
+import { logError } from "@/utils/logError";
 
 // Add interface for extended MCP client with Anthropic
 export interface ExtendedMcpClient extends Client {
@@ -72,6 +73,7 @@ export interface ExtendedMcpClient extends Client {
 }
 
 export class MCPJamClient extends Client<Request, Notification, Result> {
+  name: string;
   anthropic?: Anthropic;
   clientTransport: Transport | undefined;
   config: InspectorConfig;
@@ -93,6 +95,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
   getRoots?: () => unknown[];
   addRequestHistory: (request: object, response?: object) => void;
   constructor(
+    name: string,
     serverConfig: MCPJamServerConfig,
     config: InspectorConfig,
     addRequestHistory: (request: object, response?: object) => void,
@@ -118,6 +121,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         },
       },
     );
+    this.name = name;
     this.anthropic = new Anthropic({
       apiKey: claudeApiKey,
       dangerouslyAllowBrowser: true,
@@ -138,6 +142,18 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     this.onPendingRequest = onPendingRequest;
     this.getRoots = getRoots;
     this.addRequestHistory = addRequestHistory;
+
+    // Log stderr notifications
+    this.setNotificationHandler(StdErrNotificationSchema, (notification) => {
+      logError({
+        type: 'server',
+        serverName: this.name,
+        message: `[stderr] ${notification.content}`
+      });
+      if (this.onStdErrNotification) {
+        this.onStdErrNotification(notification);
+      }
+    });
   }
 
   async connectStdio() {
@@ -160,6 +176,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     }
 
     serverUrl.searchParams.append("transportType", "stdio");
+    serverUrl.searchParams.append("serverName", this.name);
 
     const transportOptions: SSEClientTransportOptions = {
       eventSourceInit: {
@@ -418,6 +435,16 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     } catch (e) {
       console.error(e);
       this.connectionStatus = "error";
+      // Log the connection error
+      logError({
+        type: "server",
+        serverName: this.name,
+        message: [
+          `Connection error: ${e instanceof Error ? e.message : String(e)}`,
+          e instanceof Error && e.stack ? `Stack: ${e.stack}` : "",
+          `Config: ${JSON.stringify(this.serverConfig, null, 2)}`
+        ].filter(Boolean).join("\n")
+      });
     }
   }
 
