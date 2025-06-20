@@ -20,6 +20,8 @@ import {
 import { handleError } from "./error-handler.js";
 import { createTransport, TransportOptions } from "./transport.js";
 
+import packageJson from "../package.json" with { type: "json" };
+
 type Args = {
   target: string[];
   method?: string;
@@ -61,10 +63,12 @@ function createTransportOptions(target: string[]): TransportOptions {
 async function callMethod(args: Args): Promise<void> {
   const transportOptions = createTransportOptions(args.target);
   const transport = createTransport(transportOptions);
-  const client = new Client({
-    name: "inspector-cli",
-    version: "0.5.1",
-  });
+
+  const [_, name = packageJson.name] = packageJson.name.split("/");
+  const version = packageJson.version;
+  const clientIdentity = { name, version };
+
+  const client = new Client(clientIdentity);
 
   try {
     await connect(client, transport);
