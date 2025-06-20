@@ -33,7 +33,7 @@ const SettingsTab: React.FC<SettingsTabProps> = ({
     } catch (error) {
       console.warn("Failed to load API key from localStorage:", error);
     }
-  }, [onApiKeyChange]);
+  }, []);
 
   // Validate API key format
   const validateApiKey = (key: string): boolean => {
