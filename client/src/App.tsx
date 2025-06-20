@@ -172,11 +172,9 @@ const App = () => {
         serverState.setSelectedServerName(name);
       }
 
-      // Create or update the agent with the new server config, but don't connect
+      // Create or update the agent with the new server config
       if (!connectionState.mcpAgent) {
-        console.log(
-          "🆕 Creating agent with server config (no auto-connect)...",
-        );
+        console.log("🆕 Creating agent with server config...");
         try {
           // Include ALL server configs (existing + new) when creating the agent
           const allServerConfigs = {
@@ -184,7 +182,7 @@ const App = () => {
             [name]: serverConfig,
           };
 
-          await connectionState.createAgentWithoutConnecting(
+          const agent = await connectionState.createAgentWithoutConnecting(
             allServerConfigs,
             configState.config,
             configState.bearerToken,
@@ -194,27 +192,34 @@ const App = () => {
             onPendingRequest,
             getRootsCallback,
           );
+          if (options.autoConnect) {
+            console.log("🔌 Auto-connecting to all servers...");
+            await agent.connectToAllServers();
+            console.log("✅ Successfully connected to all servers");
+            serverState.setSelectedServerName(name);
+            connectionState.forceUpdateSidebar();
+          }
         } catch (error) {
-          console.error("❌ Failed to create agent:", error);
+          console.error("❌ Failed to create agent and connect:", error);
           throw error;
         }
       } else {
         // Add server to existing agent without connecting
         connectionState.mcpAgent.addServer(name, serverConfig);
         connectionState.forceUpdateSidebar();
-      }
 
-      // Auto-connect if requested
-      if (options.autoConnect) {
-        console.log(`🔌 Auto-connecting to server: "${name}"`);
-        try {
-          // It's important to select the server BEFORE connecting to it
-          serverState.setSelectedServerName(name);
-          await connectionState.connectServer(name);
-          console.log(`✅ Successfully auto-connected to "${name}"`);
-        } catch (error) {
-          console.error(`❌ Failed to auto-connect to "${name}":`, error);
-          // TODO: Maybe show a toast notification here
+        // Auto-connect if requested
+        if (options.autoConnect) {
+          console.log(`🔌 Auto-connecting to server: "${name}"`);
+          try {
+            // It's important to select the server BEFORE connecting to it
+            serverState.setSelectedServerName(name);
+            await connectionState.connectServer(name);
+            console.log(`✅ Successfully auto-connected to "${name}"`);
+          } catch (error) {
+            console.error(`❌ Failed to auto-connect to "${name}":`, error);
+            // TODO: Maybe show a toast notification here
+          }
         }
       }
 
@@ -473,6 +478,10 @@ const App = () => {
   // Effect to restore agent with saved server configs (without connecting)
   useEffect(() => {
     const restoreAgentWithoutConnecting = async () => {
+      // Don't restore on oauth callback pages, this is handled by onOAuthConnect
+      if (window.location.pathname.startsWith("/oauth/callback")) {
+        return;
+      }
       // Only restore if we have server configs but no active agent
       if (
         Object.keys(serverState.serverConfigs).length > 0 &&
