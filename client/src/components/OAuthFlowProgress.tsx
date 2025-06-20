@@ -156,7 +156,7 @@ export const OAuthFlowProgress = ({
               {authState.resourceMetadataError && (
                 <div className="mt-2 p-3 border border-blue-300 bg-blue-50 rounded-md">
                   <p className="text-sm font-medium text-blue-700">
-                    ℹ️ No resource metadata available from{" "}
+                    ℹ️ Problem with resource metadata from{" "}
                     <a
                       href={
                         new URL(
