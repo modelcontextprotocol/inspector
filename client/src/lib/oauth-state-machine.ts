@@ -37,10 +37,8 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(
           context.serverUrl,
         );
-        if (resourceMetadata) {
-          if (resourceMetadata.authorization_servers?.length) {
-            authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
-          }
+        if (resourceMetadata.authorization_servers?.length) {
+          authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
         }
       } catch (e) {
         if (e instanceof Error) {
@@ -50,12 +48,11 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         }
       }
 
-      if (resourceMetadata) {
-        if (resourceMetadata.resource !== context.serverUrl) {
-          throw new Error(
-            `Resource URL from metadata does not match server URL. ${resourceMetadata.resource} != ${context.serverUrl}`,
-          );
-        }
+      // TODO: use SDK function selectResourceURL here once new version bump lands
+      if (resourceMetadata && resourceMetadata.resource !== context.serverUrl) {
+        resourceMetadataError = new Error(
+          `Warning: metadata resource ${resourceMetadata.resource} does not match serverUrl ${context.serverUrl}`,
+        );
       }
 
       const metadata = await discoverOAuthMetadata(authServerUrl);
