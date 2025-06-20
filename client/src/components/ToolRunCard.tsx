@@ -417,10 +417,14 @@ const ToolRunCard = ({
       setParams(loadedRequest.parameters);
       setParamsInitialized(true);
       setCurrentRequestId(loadedRequest.id);
-    } else if (selectedTool && !paramsInitialized) {
-      setParams(initializeParams(selectedTool));
-      setParamsInitialized(true);
-      setCurrentRequestId(null);
+    } else if (selectedTool) {
+      if (!paramsInitialized) {
+        setParams(initializeParams(selectedTool));
+        setParamsInitialized(true);
+        setCurrentRequestId(null);
+      } else if (!loadedRequest) {
+        setCurrentRequestId(null);
+      }
     }
   }, [selectedTool, loadedRequest, paramsInitialized]);
 
