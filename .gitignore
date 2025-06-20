@@ -9,3 +9,5 @@ client/tsconfig.app.tsbuildinfo
 client/tsconfig.node.tsbuildinfo
 cli/build
 test-output
+# symlinked by `npm run link:sdk`:
+sdk

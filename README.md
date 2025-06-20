@@ -254,6 +254,12 @@ Development mode:
 
 ```bash
 npm run dev
+
+# To co-develop with the typescript-sdk package (assuming it's cloned in ../typescript-sdk; set MCP_SDK otherwise):
+npm run dev:sdk "cd sdk && npm run examples:simple-server:w"
+# then open http://localhost:3000/mcp as SHTTP in the inspector.
+# To go back to the deployed SDK version:
+#   npm run unlink:sdk && npm i
 ```
 
 > **Note for Windows users:**
