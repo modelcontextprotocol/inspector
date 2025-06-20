@@ -4,11 +4,30 @@ The MCP inspector is a developer tool for testing and debugging MCP servers.
 
 ![MCP Inspector Screenshot](https://raw.githubusercontent.com/modelcontextprotocol/inspector/main/mcp-inspector.png)
 
+## Architecture Overview
+
+The MCP Inspector consists of two main components that work together:
+
+- **MCP Inspector Client (MCPI)**: A React-based web UI that provides an interactive interface for testing and debugging MCP servers
+- **MCP Proxy (MCPP)**: A Node.js server that acts as a protocol bridge, connecting the web UI to MCP servers via various transport methods (stdio, SSE, streamable-http)
+
+Note that the proxy is not a network proxy for intercepting traffic. Instead, it functions as both an MCP client (connecting to your MCP server) and an HTTP server (serving the web UI), enabling browser-based interaction with MCP servers that use different transport protocols.
+
 ## Running the Inspector
 
 ### Requirements
 
 - Node.js: ^22.7.5
+
+### Quick Start (UI mode)
+
+To get up and running right away with the UI, just execute the following:
+
+```bash
+npx @modelcontextprotocol/inspector
+```
+
+The server will start up and the UI will be accessible at `http://localhost:6274`.
 
 ### From an MCP server repository
 
@@ -42,6 +61,74 @@ CLIENT_PORT=8080 SERVER_PORT=9000 npx @modelcontextprotocol/inspector node build
 
 For more details on ways to use the inspector, see the [Inspector section of the MCP docs site](https://modelcontextprotocol.io/docs/tools/inspector). For help with debugging, see the [Debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
 
+### Servers File Export
+
+The MCP Inspector provides convenient buttons to export server launch configurations for use in clients such as Cursor, Claude Code, or the Inspector's CLI. The file is usually called `mcp.json`.
+
+- **Server Entry** - Copies a single server configuration entry to your clipboard. This can be added to your `mcp.json` file inside the `mcpServers` object with your preferred server name.
+
+  **STDIO transport example:**
+
+  ```json
+  {
+    "command": "node",
+    "args": ["build/index.js", "--debug"],
+    "env": {
+      "API_KEY": "your-api-key",
+      "DEBUG": "true"
+    }
+  }
+  ```
+
+  **SSE transport example:**
+
+  ```json
+  {
+    "type": "sse",
+    "url": "http://localhost:3000/events",
+    "note": "For SSE connections, add this URL directly in Client"
+  }
+  ```
+
+- **Servers File** - Copies a complete MCP configuration file structure to your clipboard, with your current server configuration added as `default-server`. This can be saved directly as `mcp.json`.
+
+  **STDIO transport example:**
+
+  ```json
+  {
+    "mcpServers": {
+      "default-server": {
+        "command": "node",
+        "args": ["build/index.js", "--debug"],
+        "env": {
+          "API_KEY": "your-api-key",
+          "DEBUG": "true"
+        }
+      }
+    }
+  }
+  ```
+
+  **SSE transport example:**
+
+  ```json
+  {
+    "mcpServers": {
+      "default-server": {
+        "type": "sse",
+        "url": "http://localhost:3000/events",
+        "note": "For SSE connections, add this URL directly in Client"
+      }
+    }
+  }
+  ```
+
+These buttons appear in the Inspector UI after you've configured your server settings, making it easy to save and reuse your configurations.
+
+For SSE transport connections, the Inspector provides similar functionality for both buttons. The "Server Entry" button copies the SSE URL configuration that can be added to your existing configuration file, while the "Servers File" button creates a complete configuration file containing the SSE URL for direct use in clients.
+
+You can paste the Server Entry into your existing `mcp.json` file under your chosen server name, or use the complete Servers File payload to create a new configuration file.
+
 ### Authentication
 
 The inspector supports bearer token authentication for SSE connections. Enter your token in the UI when connecting to an MCP server, and it will be sent in the Authorization header. You can override the header name using the input field in the sidebar.
@@ -50,17 +137,64 @@ The inspector supports bearer token authentication for SSE connections. Enter yo
 
 The MCP Inspector includes a proxy server that can run and communicate with local MCP processes. The proxy server should not be exposed to untrusted networks as it has permissions to spawn local processes and can connect to any specified MCP server.
 
+#### Authentication
+
+The MCP Inspector proxy server requires authentication by default. When starting the server, a random session token is generated and printed to the console:
+
+```
+🔑 Session token: 3a1c267fad21f7150b7d624c160b7f09b0b8c4f623c7107bbf13378f051538d4
+
+🔗 Open inspector with token pre-filled:
+   http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=3a1c267fad21f7150b7d624c160b7f09b0b8c4f623c7107bbf13378f051538d4
+```
+
+This token must be included as a Bearer token in the Authorization header for all requests to the server. The inspector will automatically open your browser with the token pre-filled in the URL.
+
+**Automatic browser opening** - The inspector now automatically opens your browser with the token pre-filled in the URL when authentication is enabled.
+
+**Alternative: Manual configuration** - If you already have the inspector open:
+
+1. Click the "Configuration" button in the sidebar
+2. Find "Proxy Session Token" and enter the token displayed in the proxy console
+3. Click "Save" to apply the configuration
+
+The token will be saved in your browser's local storage for future use.
+
+If you need to disable authentication (NOT RECOMMENDED), you can set the `DANGEROUSLY_OMIT_AUTH` environment variable:
+
+```bash
+DANGEROUSLY_OMIT_AUTH=true npm start
+```
+
+#### Local-only Binding
+
+By default, the MCP Inspector proxy server binds only to `127.0.0.1` (localhost) to prevent network access. This ensures the server is not accessible from other devices on the network. If you need to bind to all interfaces for development purposes, you can override this with the `HOST` environment variable:
+
+```bash
+HOST=0.0.0.0 npm start
+```
+
+**Warning:** Only bind to all interfaces in trusted network environments, as this exposes the proxy server's ability to execute local processes.
+
+#### DNS Rebinding Protection
+
+To prevent DNS rebinding attacks, the MCP Inspector validates the `Origin` header on incoming requests. By default, only requests from the client origin are allowed (respects `CLIENT_PORT` if set, defaulting to port 6274). You can configure additional allowed origins by setting the `ALLOWED_ORIGINS` environment variable (comma-separated list):
+
+```bash
+ALLOWED_ORIGINS=http://localhost:6274,http://127.0.0.1:6274,http://localhost:8000 npm start
+```
+
 ### Configuration
 
 The MCP Inspector supports the following configuration settings. To change them, click on the `Configuration` button in the MCP Inspector UI:
 
-| Setting                                 | Description                                                                                                   | Default |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------- |
-| `MCP_SERVER_REQUEST_TIMEOUT`            | Timeout for requests to the MCP server (ms)                                                                   | 10000   |
-| `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                       | true    |
-| `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)              | 60000   |
-| `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577  | ""      |
-| `MCP_AUTO_OPEN_ENABLED`                 | Enable automatic browser opening when inspector starts. Only as environment var, not configurable in browser. | true    |
+| Setting                                 | Description                                                                                                                                       | Default |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `MCP_SERVER_REQUEST_TIMEOUT`            | Timeout for requests to the MCP server (ms)                                                                                                       | 10000   |
+| `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                                                           | true    |
+| `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)                                                  | 60000   |
+| `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577                                      | ""      |
+| `MCP_AUTO_OPEN_ENABLED`                 | Enable automatic browser opening when inspector starts (works with authentication enabled). Only as environment var, not configurable in browser. | true    |
 
 These settings can be adjusted in real-time through the UI and will persist across sessions.
 
@@ -93,6 +227,8 @@ Example server configuration file:
   }
 }
 ```
+
+> **Tip:** You can easily generate this configuration format using the **Server Entry** and **Servers File** buttons in the Inspector UI, as described in the Servers File Export section above.
 
 You can also set the initial `transport` type, `serverUrl`, `serverCommand`, and `serverArgs` via query params, for example:
 

@@ -29,7 +29,9 @@ const HistoryAndNotifications = ({
       <div className="flex-1 overflow-y-auto p-4 border-r">
         <h2 className="text-lg font-semibold mb-4">History</h2>
         {requestHistory.length === 0 ? (
-          <p className="text-sm text-gray-500 italic">No history yet</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+            No history yet
+          </p>
         ) : (
           <ul className="space-y-3">
             {requestHistory
@@ -38,7 +40,7 @@ const HistoryAndNotifications = ({
               .map((request, index) => (
                 <li
                   key={index}
-                  className="text-sm text-foreground bg-secondary p-2 rounded"
+                  className="text-sm text-foreground bg-secondary py-2 px-3 rounded"
                 >
                   <div
                     className="flex justify-between items-center cursor-pointer"
@@ -93,7 +95,9 @@ const HistoryAndNotifications = ({
       <div className="flex-1 overflow-y-auto p-4">
         <h2 className="text-lg font-semibold mb-4">Server Notifications</h2>
         {serverNotifications.length === 0 ? (
-          <p className="text-sm text-gray-500 italic">No notifications yet</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+            No notifications yet
+          </p>
         ) : (
           <ul className="space-y-3">
             {serverNotifications
@@ -102,7 +106,7 @@ const HistoryAndNotifications = ({
               .map((notification, index) => (
                 <li
                   key={index}
-                  className="text-sm text-foreground bg-secondary p-2 rounded"
+                  className="text-sm text-foreground bg-secondary py-2 px-3 rounded"
                 >
                   <div
                     className="flex justify-between items-center cursor-pointer"

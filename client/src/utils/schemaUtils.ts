@@ -1,4 +1,82 @@
 import type { JsonValue, JsonSchemaType, JsonObject } from "./jsonUtils";
+import Ajv from "ajv";
+import type { ValidateFunction } from "ajv";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+
+const ajv = new Ajv();
+
+// Cache for compiled validators
+const toolOutputValidators = new Map<string, ValidateFunction>();
+
+/**
+ * Compiles and caches output schema validators for a list of tools
+ * Following the same pattern as SDK's Client.cacheToolOutputSchemas
+ * @param tools Array of tools that may have output schemas
+ */
+export function cacheToolOutputSchemas(tools: Tool[]): void {
+  toolOutputValidators.clear();
+  for (const tool of tools) {
+    if (tool.outputSchema) {
+      try {
+        const validator = ajv.compile(tool.outputSchema);
+        toolOutputValidators.set(tool.name, validator);
+      } catch (error) {
+        console.warn(
+          `Failed to compile output schema for tool ${tool.name}:`,
+          error,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Gets the cached output schema validator for a tool
+ * Following the same pattern as SDK's Client.getToolOutputValidator
+ * @param toolName Name of the tool
+ * @returns The compiled validator function, or undefined if not found
+ */
+export function getToolOutputValidator(
+  toolName: string,
+): ValidateFunction | undefined {
+  return toolOutputValidators.get(toolName);
+}
+
+/**
+ * Validates structured content against a tool's output schema
+ * Returns validation result with detailed error messages
+ * @param toolName Name of the tool
+ * @param structuredContent The structured content to validate
+ * @returns An object with isValid boolean and optional error message
+ */
+export function validateToolOutput(
+  toolName: string,
+  structuredContent: unknown,
+): { isValid: boolean; error?: string } {
+  const validator = getToolOutputValidator(toolName);
+  if (!validator) {
+    return { isValid: true }; // No validator means no schema to validate against
+  }
+
+  const isValid = validator(structuredContent);
+  if (!isValid) {
+    return {
+      isValid: false,
+      error: ajv.errorsText(validator.errors),
+    };
+  }
+
+  return { isValid: true };
+}
+
+/**
+ * Checks if a tool has an output schema
+ * @param toolName Name of the tool
+ * @returns true if the tool has an output schema
+ */
+export function hasOutputSchema(toolName: string): boolean {
+  return toolOutputValidators.has(toolName);
+}
 
 /**
  * Generates a default value based on a JSON schema type
