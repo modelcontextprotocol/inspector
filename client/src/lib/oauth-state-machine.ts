@@ -6,8 +6,8 @@ import {
   startAuthorization,
   exchangeAuthorization,
   discoverOAuthProtectedResourceMetadata,
+  selectResourceURL,
 } from "@modelcontextprotocol/sdk/client/auth.js";
-import { resourceUrlFromServerUrl } from "@modelcontextprotocol/sdk/shared/auth-utils.js";
 import {
   OAuthMetadataSchema,
   OAuthProtectedResourceMetadata,
@@ -49,16 +49,11 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         }
       }
 
-      let resource: URL | undefined;
-      if (resourceMetadata) {
-        // TODO: use SDK function selectResourceURL once version bump lands to be consistent
-        resource = resourceUrlFromServerUrl(new URL(context.serverUrl));
-        if (resource.href !== resourceMetadata.resource) {
-          resourceMetadataError = new Error(
-            `Warning: metadata resource ${resourceMetadata.resource} does not match serverUrl ${context.serverUrl}`,
-          );
-        }
-      }
+      const resource = selectResourceURL(
+        context.serverUrl,
+        context.provider,
+        resourceMetadata,
+      );
 
       const metadata = await discoverOAuthMetadata(authServerUrl);
       if (!metadata) {
