@@ -7,9 +7,7 @@ import {
   exchangeAuthorization,
   discoverOAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/client/auth.js";
-import {
-  resourceUrlFromServerUrl
-} from "@modelcontextprotocol/sdk/shared/auth-utils.js";
+import { resourceUrlFromServerUrl } from "@modelcontextprotocol/sdk/shared/auth-utils.js";
 import {
   OAuthMetadataSchema,
   OAuthProtectedResourceMetadata,
@@ -51,11 +49,11 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         }
       }
 
-      let resource: string| undefined;
+      let resource: URL | undefined;
       if (resourceMetadata) {
-        resource = resourceUrlFromServerUrl(context.serverUrl);
         // TODO: use SDK function selectResourceURL once version bump lands to be consistent
-        if (resource !== resourceMetadata.resource)
+        resource = resourceUrlFromServerUrl(new URL(context.serverUrl));
+        if (resource.href !== resourceMetadata.resource) {
           resourceMetadataError = new Error(
             `Warning: metadata resource ${resourceMetadata.resource} does not match serverUrl ${context.serverUrl}`,
           );
@@ -126,7 +124,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
           clientInformation,
           redirectUrl: context.provider.redirectUrl,
           scope,
-          resource: context.state.resource,
+          resource: context.state.resource ?? undefined,
         },
       );
 
@@ -177,7 +175,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         authorizationCode: context.state.authorizationCode,
         codeVerifier,
         redirectUri: context.provider.redirectUrl,
-        resource: context.state.resource,
+        resource: context.state.resource ?? undefined,
       });
 
       context.provider.saveTokens(tokens);

@@ -320,6 +320,7 @@ describe("AuthDebugger", () => {
         isInitiatingAuth: false,
         resourceMetadata: null,
         resourceMetadataError: null,
+        resource: null,
         oauthTokens: null,
         oauthStep: "metadata_discovery",
         latestError: null,
