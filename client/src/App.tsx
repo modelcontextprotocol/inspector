@@ -279,8 +279,9 @@ const App = () => {
 
           if (oldServerName !== newServerName) {
             // Server name has changed - remove old and add new
-            console.log(
+            addClientLog(
               `🔄 Server name changed from "${oldServerName}" to "${newServerName}"`,
+              "info",
             );
 
             // Remove the old server
@@ -305,7 +306,13 @@ const App = () => {
         console.error("Failed to save client:", error);
       }
     },
-    [serverState, handleAddServer, handleUpdateServer, handleRemoveServer],
+    [
+      serverState,
+      handleAddServer,
+      handleUpdateServer,
+      handleRemoveServer,
+      addClientLog,
+    ],
   );
 
   const handleSaveMultiple = useCallback(
