@@ -111,6 +111,27 @@ describe("ToolsTab", () => {
     });
   });
 
+  it("should allow typing negative numbers", async () => {
+    renderToolsTab({
+      selectedTool: mockTools[0],
+    });
+
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+
+    // Complete the negative number
+    fireEvent.change(input, { target: { value: "-42" } });
+    expect(input.value).toBe("-42");
+
+    const submitButton = screen.getByRole("button", { name: /run tool/i });
+    await act(async () => {
+      fireEvent.click(submitButton);
+    });
+
+    expect(defaultProps.callTool).toHaveBeenCalledWith(mockTools[0].name, {
+      num: -42,
+    });
+  });
+
   it("should disable button and change text while tool is running", async () => {
     // Create a promise that we can resolve later
     let resolvePromise: ((value: unknown) => void) | undefined;
