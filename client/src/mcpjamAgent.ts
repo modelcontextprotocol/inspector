@@ -188,16 +188,17 @@ export class MCPJamAgent {
 
     // Create new client (either no client exists or reconnection failed)
     const newClient = new MCPJamClient(
-      serverConfig, // serverConfig (first parameter)
-      this.inspectorConfig, // config (second parameter)
-      this.addRequestHistory, // addRequestHistory
-      this.addClientLog, // addClientLog
-      this.bearerToken, // bearerToken
-      this.headerName, // headerName
-      this.onStdErrNotification, // onStdErrNotification
-      this.claudeApiKey, // claudeApiKey
-      this.onPendingRequest, // onPendingRequest
-      this.getRoots, // getRoots
+      name,
+      serverConfig,
+      this.inspectorConfig,
+      this.addRequestHistory,
+      this.addClientLog,
+      this.bearerToken,
+      this.headerName,
+      this.onStdErrNotification,
+      this.claudeApiKey,
+      this.onPendingRequest,
+      this.getRoots,
     );
 
     await newClient.connectToServer();
