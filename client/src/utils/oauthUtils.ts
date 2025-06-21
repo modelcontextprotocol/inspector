@@ -63,3 +63,19 @@ export const generateOAuthErrorDescription = (
     .filter(Boolean)
     .join("\n");
 };
+
+/**
+ * Build the well-known OAuth 2.0 metadata URL from an authServerUrl.
+ * Handles auth server paths per RFC 8414 §3.1.
+ *
+ * @param {URL} authServerUrl e.g. new URL("https://my.auth-server.com/oauth/tenant/xyz")
+ * @returns {URL}         e.g. new URL("https://my.auth-server.com/.well-known/oauth-authorization-server/oauth/tenant/xyz")
+ */
+export const oauthAuthServerMetadataUrl = (authServerUrl: URL): URL => {
+  // Strip a trailing slash from the path (required by the spec)
+  const path = authServerUrl.pathname.replace(/\/$/, "");
+
+  return new URL(
+    `${authServerUrl.origin}/.well-known/oauth-authorization-server${path}`,
+  );
+};
