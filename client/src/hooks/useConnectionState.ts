@@ -43,7 +43,7 @@ export const useConnectionState = (
 
       const options: MCPClientOptions = {
         servers: serverConfigs,
-        config: config,
+        inspectorConfig: config,
         bearerToken,
         headerName,
         claudeApiKey,
@@ -86,7 +86,7 @@ export const useConnectionState = (
     ) => {
       const options: MCPClientOptions = {
         servers: serverConfigs,
-        config: config,
+        inspectorConfig: config,
         bearerToken,
         headerName,
         claudeApiKey,
@@ -126,7 +126,7 @@ export const useConnectionState = (
         console.log("🆕 No agent exists, creating new one...");
         const options: MCPClientOptions = {
           servers: { [name]: serverConfig },
-          config: config,
+          inspectorConfig: config,
           bearerToken,
           headerName,
           claudeApiKey,
