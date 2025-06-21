@@ -7,7 +7,7 @@ Thanks for your interest in contributing! This guide explains how to get involve
 1. Fork the repository and clone it locally
 2. Install dependencies with `npm install`
 3. Run `npm run dev` to start both client and server in development mode
-4. Use the web UI at http://127.0.0.1:6274 to interact with the inspector
+4. Use the web UI at http://localhost:6274 to interact with the inspector
 
 ## Development Process & Pull Requests
 
