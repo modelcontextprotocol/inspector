@@ -244,7 +244,9 @@ const AuthDebugger = ({
                           size="sm"
                           className="absolute right-1 top-1 h-6 w-6 p-0 hover:bg-muted-foreground/10"
                           onClick={() => setShowFullToken(!showFullToken)}
-                          title={showFullToken ? "Hide token" : "Show full token"}
+                          title={
+                            showFullToken ? "Hide token" : "Show full token"
+                          }
                         >
                           {showFullToken ? (
                             <EyeOff className="h-3 w-3" />

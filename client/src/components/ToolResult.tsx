@@ -78,4 +78,4 @@ const ToolResult = ({ toolResult }: ToolResultProps) => {
   return null;
 };
 
-export default ToolResult; 
+export default ToolResult;

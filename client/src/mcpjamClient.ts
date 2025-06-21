@@ -32,7 +32,6 @@ import {
   getMCPServerRequestMaxTotalTimeout,
   getMCPServerRequestTimeout,
   resetRequestTimeoutOnProgress,
-  createDefaultConfig,
 } from "@/utils/configUtils";
 import { InspectorConfig } from "./lib/configurationTypes";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -58,6 +57,7 @@ import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { HttpServerDefinition, MCPJamServerConfig } from "@/lib/serverTypes";
 import { mappedTools } from "@/utils/mcpjamClientHelpers";
 import { logError } from "@/utils/logError";
+import { ClientLogLevels } from "./hooks/helpers/types";
 
 // Add interface for extended MCP client with Anthropic
 export interface ExtendedMcpClient extends Client {
@@ -76,7 +76,6 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
   name: string;
   anthropic?: Anthropic;
   clientTransport: Transport | undefined;
-  config: InspectorConfig;
   serverConfig: MCPJamServerConfig;
   headers: HeadersInit;
   mcpProxyServerUrl: URL;
@@ -94,11 +93,13 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
   ) => void;
   getRoots?: () => unknown[];
   addRequestHistory: (request: object, response?: object) => void;
+  addClientLog: (message: string, level: ClientLogLevels) => void;
   constructor(
     name: string,
     serverConfig: MCPJamServerConfig,
-    config: InspectorConfig,
+    inspectorConfig: InspectorConfig,
     addRequestHistory: (request: object, response?: object) => void,
+    addClientLog: (message: string, level: ClientLogLevels) => void,
     bearerToken?: string,
     headerName?: string,
     onStdErrNotification?: (notification: StdErrNotification) => void,
@@ -126,18 +127,17 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
       apiKey: claudeApiKey,
       dangerouslyAllowBrowser: true,
     });
-    this.config = config;
     this.serverConfig = serverConfig;
     this.headers = {};
     this.mcpProxyServerUrl = new URL(
-      `${getMCPProxyAddress(this.config)}/stdio`,
+      `${getMCPProxyAddress(inspectorConfig)}/stdio`,
     );
     this.bearerToken = bearerToken;
     this.headerName = headerName;
     this.connectionStatus = "disconnected";
     this.serverCapabilities = null;
     this.completionsSupported = true;
-    this.inspectorConfig = createDefaultConfig();
+    this.inspectorConfig = inspectorConfig;
     this.onStdErrNotification = onStdErrNotification;
     this.onPendingRequest = onPendingRequest;
     this.getRoots = getRoots;
@@ -154,10 +154,12 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         this.onStdErrNotification(notification);
       }
     });
+    this.addClientLog = addClientLog;
   }
-
   async connectStdio() {
-    const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/stdio`);
+    const serverUrl = new URL(
+      `${getMCPProxyAddress(this.inspectorConfig)}/stdio`,
+    );
 
     // Type guard to ensure we have a stdio server config
     if (
@@ -192,6 +194,12 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
 
     this.mcpProxyServerUrl = serverUrl;
     try {
+      const command =
+        "command" in this.serverConfig ? this.serverConfig.command : "unknown";
+      this.addClientLog(
+        `Connecting to MCP server via stdio: ${command}`,
+        "info",
+      );
       // We do this because we're proxying through the inspector server first.
       this.clientTransport = new SSEClientTransport(
         serverUrl,
@@ -199,7 +207,17 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
       );
       await this.connect(this.clientTransport);
       this.connectionStatus = "connected";
+      this.addClientLog(
+        "Successfully connected to MCP server via stdio",
+        "info",
+      );
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.addClientLog(
+        `Failed to connect to MCP server via stdio: ${errorMessage}`,
+        "error",
+      );
       console.error("Error connecting to MCP server:", error);
       this.connectionStatus = "error";
       throw error; // Re-throw to allow proper error handling
@@ -208,7 +226,9 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
 
   async connectSSE() {
     try {
-      const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/sse`);
+      const serverUrl = new URL(
+        `${getMCPProxyAddress(this.inspectorConfig)}/sse`,
+      );
       serverUrl.searchParams.append(
         "url",
         (this.serverConfig as HttpServerDefinition).url.toString(),
@@ -230,9 +250,20 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         transportOptions,
       );
       this.mcpProxyServerUrl = serverUrl;
+      this.addClientLog(
+        `Connecting to MCP server via SSE: ${(this.serverConfig as HttpServerDefinition).url}`,
+        "info",
+      );
       await this.connect(this.clientTransport);
       this.connectionStatus = "connected";
+      this.addClientLog("Successfully connected to MCP server via SSE", "info");
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.addClientLog(
+        `Failed to connect to MCP server via SSE: ${errorMessage}`,
+        "error",
+      );
       console.error("Error connecting to MCP server:", error);
       this.connectionStatus = "error";
       throw error; // Re-throw to allow proper error handling
@@ -241,7 +272,9 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
 
   async connectStreamableHttp() {
     try {
-      const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/mcp`);
+      const serverUrl = new URL(
+        `${getMCPProxyAddress(this.inspectorConfig)}/mcp`,
+      );
       serverUrl.searchParams.append(
         "url",
         (this.serverConfig as HttpServerDefinition).url.toString(),
@@ -263,9 +296,23 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         transportOptions,
       );
       this.mcpProxyServerUrl = serverUrl;
+      this.addClientLog(
+        `Connecting to MCP server via Streamable HTTP: ${(this.serverConfig as HttpServerDefinition).url}`,
+        "info",
+      );
       await this.connect(this.clientTransport);
       this.connectionStatus = "connected";
+      this.addClientLog(
+        "Successfully connected to MCP server via Streamable HTTP",
+        "info",
+      );
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.addClientLog(
+        `Failed to connect to MCP server via Streamable HTTP: ${errorMessage}`,
+        "error",
+      );
       console.error("Error connecting to MCP server:", error);
       this.connectionStatus = "error";
       throw error; // Re-throw to allow proper error handling
@@ -277,12 +324,20 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
       const proxyHealthUrl = new URL(
         `${getMCPProxyAddress(this.inspectorConfig)}/health`,
       );
+      this.addClientLog("Checking MCP proxy server health", "debug");
       const proxyHealthResponse = await fetch(proxyHealthUrl);
       const proxyHealth = await proxyHealthResponse.json();
       if (proxyHealth?.status !== "ok") {
+        this.addClientLog("MCP Proxy Server is not healthy", "error");
         throw new Error("MCP Proxy Server is not healthy");
       }
+      this.addClientLog("MCP proxy server health check passed", "debug");
     } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      this.addClientLog(
+        `Failed to connect to MCP Proxy Server: ${errorMessage}`,
+        "error",
+      );
       console.error("Couldn't connect to MCP Proxy Server", e);
       throw e;
     }
@@ -298,6 +353,10 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
 
   handleAuthError = async (error: unknown) => {
     if (this.is401Error(error)) {
+      this.addClientLog(
+        "Authentication error detected, attempting OAuth flow",
+        "warn",
+      );
       // Only handle OAuth for HTTP-based transports
       if (
         this.serverConfig.transportType !== "stdio" &&
@@ -310,6 +369,11 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         const result = await auth(serverAuthProvider, {
           serverUrl: this.serverConfig.url.toString(),
         });
+        if (result === "AUTHORIZED") {
+          this.addClientLog("OAuth authentication successful", "info");
+        } else {
+          this.addClientLog("OAuth authentication failed", "error");
+        }
         return result === "AUTHORIZED";
       }
     }
@@ -324,10 +388,15 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
       await this.checkProxyHealth();
     } catch {
       this.connectionStatus = "error-connecting-to-proxy";
+      this.addClientLog("Failed to connect to proxy server", "error");
       return;
     }
 
     try {
+      this.addClientLog(
+        `Attempting to connect to MCP server (attempt ${retryCount + 1}/${MAX_RETRIES + 1})`,
+        "info",
+      );
       // Inject auth manually instead of using SSEClientTransport, because we're
       // proxying through the inspector server first.
       const headers: HeadersInit = {};
@@ -338,6 +407,10 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         "url" in this.serverConfig &&
         this.serverConfig.url
       ) {
+        this.addClientLog(
+          "Setting up OAuth authentication for HTTP transport",
+          "debug",
+        );
         // Create an auth provider with the current server URL
         const serverAuthProvider = new InspectorOAuthClientProvider(
           this.serverConfig.url.toString(),
@@ -349,11 +422,24 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         if (token) {
           const authHeaderName = this.headerName || "Authorization";
           headers[authHeaderName] = `Bearer ${token}`;
+          this.addClientLog(
+            "Bearer token configured for authentication",
+            "debug",
+          );
+        } else {
+          this.addClientLog(
+            "No bearer token available for authentication",
+            "warn",
+          );
         }
       } else if (this.bearerToken) {
         // For stdio or when manually providing bearer token, still apply it
         const authHeaderName = this.headerName || "Authorization";
         headers[authHeaderName] = `Bearer ${this.bearerToken}`;
+        this.addClientLog(
+          "Bearer token configured for stdio transport",
+          "debug",
+        );
       }
 
       // Update the headers property with auth headers
@@ -364,6 +450,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
           StdErrNotificationSchema,
           this.onStdErrNotification,
         );
+        this.addClientLog("StdErr notification handler configured", "debug");
       }
 
       try {
@@ -381,7 +468,10 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
 
         // Update server capabilities after successful connection
         this.serverCapabilities = this.getServerCapabilities() ?? null;
-        console.log("capabilities", this.serverCapabilities);
+        this.addClientLog(
+          `Server capabilities retrieved: ${JSON.stringify(this.serverCapabilities)}`,
+          "debug",
+        );
 
         const initializeRequest = {
           method: "initialize",
@@ -391,7 +481,14 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
           serverInfo: this.getServerVersion(),
           instructions: this.getInstructions(),
         });
+        this.addClientLog("MCP client initialization completed", "info");
       } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.addClientLog(
+          `Failed to connect to MCP Server via the MCP Inspector Proxy: ${errorMessage}`,
+          "error",
+        );
         console.error(
           `Failed to connect to MCP Server via the MCP Inspector Proxy: ${this.getMCPProxyServerUrl()}:`,
           error,
@@ -401,8 +498,9 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         if (retryCount < MAX_RETRIES) {
           const shouldRetry = await this.handleAuthError(error);
           if (shouldRetry) {
-            console.log(
+            this.addClientLog(
               `Retrying connection (attempt ${retryCount + 1}/${MAX_RETRIES})`,
+              "info",
             );
             return this.connectToServer(undefined, retryCount + 1);
           }
@@ -411,6 +509,10 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         if (this.is401Error(error)) {
           // Don't set error state if we're about to redirect for auth
           this.connectionStatus = "error";
+          this.addClientLog(
+            "Authentication failed, connection terminated",
+            "error",
+          );
           return;
         }
         throw error;
@@ -429,10 +531,17 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         this.setRequestHandler(ListRootsRequestSchema, async () => {
           return { roots: this.getRoots?.() ?? [] };
         });
+        this.addClientLog("Roots request handler configured", "debug");
       }
 
       this.connectionStatus = "connected";
+      this.addClientLog(
+        "MCP client connection established successfully",
+        "info",
+      );
     } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      this.addClientLog(`Connection failed: ${errorMessage}`, "error");
       console.error(e);
       this.connectionStatus = "error";
       // Log the connection error
@@ -462,6 +571,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         apiKey: newApiKey,
         dangerouslyAllowBrowser: true,
       });
+      this.addClientLog("Anthropic API key updated", "info");
     }
   };
 
@@ -471,6 +581,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     options?: RequestOptions & { suppressToast?: boolean },
   ): Promise<z.output<T>> {
     console.log("makeRequestTriggered");
+    this.addClientLog(`Making MCP request: ${request.method}`, "debug");
     try {
       const abortController = new AbortController();
 
@@ -494,17 +605,22 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         mcpRequestOptions.onprogress = (_params: Progress) => {
           // Add progress notification to `Server Notification` window in the UI
           // TODO: Add Notification to UI
+          this.addClientLog("Progress notification received", "debug");
         };
       }
 
       let response;
       try {
         response = await this.request(request, schema, mcpRequestOptions);
-
+        this.addClientLog(`MCP request successful: ${request.method}`, "info");
         this.addRequestHistory(request, response);
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        this.addClientLog(
+          `MCP request failed: ${request.method} - ${errorMessage}`,
+          "error",
+        );
         this.addRequestHistory(request, { error: errorMessage });
         throw error;
       }
@@ -513,6 +629,10 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     } catch (e: unknown) {
       if (!options?.suppressToast) {
         const errorString = (e as Error).message ?? String(e);
+        this.addClientLog(
+          `Request error (toast shown): ${errorString}`,
+          "error",
+        );
         toast({
           title: "Error",
           description: errorString,
@@ -530,6 +650,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     signal?: AbortSignal,
   ): Promise<string[]> => {
     if (!this.completionsSupported) {
+      this.addClientLog("Completions not supported by server", "debug");
       return [];
     }
 
@@ -545,23 +666,35 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     };
 
     try {
+      this.addClientLog(`Requesting completion for ${argName}`, "debug");
       const response = await this.makeRequest(request, CompleteResultSchema, {
         signal,
         suppressToast: true,
       });
+      const completionCount = response?.completion.values?.length || 0;
+      this.addClientLog(
+        `Received ${completionCount} completion suggestions`,
+        "debug",
+      );
       return response?.completion.values || [];
     } catch (e: unknown) {
       // Disable completions silently if the server doesn't support them.
       // See https://github.com/modelcontextprotocol/specification/discussions/122
       if (e instanceof McpError && e.code === ErrorCode.MethodNotFound) {
         this.completionsSupported = false;
+        this.addClientLog(
+          "Completions disabled - server does not support them",
+          "warn",
+        );
         return [];
       }
 
       // Unexpected errors - show toast and rethrow
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      this.addClientLog(`Completion request failed: ${errorMessage}`, "error");
       toast({
         title: "Error",
-        description: e instanceof Error ? e.message : String(e),
+        description: errorMessage,
         variant: "destructive",
       });
       throw e;
@@ -569,11 +702,14 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
   };
 
   async tools() {
+    this.addClientLog("Listing available tools", "debug");
     const tools = await this.listTools();
+    this.addClientLog(`Found ${tools.tools.length} tools`, "info");
     return tools;
   }
 
   async disconnect() {
+    this.addClientLog("Disconnecting from MCP server", "info");
     await this.close();
     this.connectionStatus = "disconnected";
     if (this.serverConfig.transportType !== "stdio") {
@@ -581,12 +717,15 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         (this.serverConfig as HttpServerDefinition).url.toString(),
       );
       authProvider.clear();
+      this.addClientLog("OAuth tokens cleared", "debug");
     }
     this.serverCapabilities = null;
+    this.addClientLog("MCP client disconnected successfully", "info");
   }
 
   async setServerCapabilities(capabilities: ServerCapabilities) {
     this.serverCapabilities = capabilities;
+    this.addClientLog("Server capabilities updated", "debug");
   }
 
   async processQuery(
@@ -596,9 +735,15 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     model: string = "claude-3-5-sonnet-latest",
   ): Promise<string> {
     if (!this.anthropic) {
-      throw new Error("Anthropic client not initialized");
+      const errorMessage = "Anthropic client not initialized";
+      this.addClientLog(errorMessage, "error");
+      throw new Error(errorMessage);
     }
 
+    this.addClientLog(
+      `Processing query with ${tools.length} tools using model ${model}`,
+      "info",
+    );
     const context = this.initializeQueryContext(query, tools, model);
     const response = await this.makeInitialApiCall(context);
 
@@ -606,6 +751,10 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
   }
 
   private initializeQueryContext(query: string, tools: Tool[], model: string) {
+    this.addClientLog(
+      `Initializing query context with ${tools.length} tools`,
+      "debug",
+    );
     return {
       messages: [{ role: "user" as const, content: query }] as MessageParam[],
       finalText: [] as string[],
@@ -618,6 +767,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
   private async makeInitialApiCall(
     context: ReturnType<typeof this.initializeQueryContext>,
   ) {
+    this.addClientLog("Making initial API call to Anthropic", "debug");
     return this.anthropic!.messages.create({
       model: context.model,
       max_tokens: 1000,
@@ -636,12 +786,17 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
 
     while (iteration < context.MAX_ITERATIONS) {
       iteration++;
+      this.addClientLog(
+        `Processing iteration ${iteration}/${context.MAX_ITERATIONS}`,
+        "debug",
+      );
 
       const iterationResult = await this.processIteration(response, context);
 
       this.sendIterationUpdate(iterationResult.content, onUpdate);
 
       if (!iterationResult.hasToolUse) {
+        this.addClientLog("No tool use detected, ending iterations", "debug");
         break;
       }
 
@@ -649,6 +804,10 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         response = await this.makeFollowUpApiCall(context);
       } catch (error) {
         const errorMessage = `[API Error: ${error}]`;
+        this.addClientLog(
+          `API error in iteration ${iteration}: ${error}`,
+          "error",
+        );
         context.finalText.push(errorMessage);
         this.sendIterationUpdate(errorMessage, onUpdate);
         break;
@@ -656,6 +815,10 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     }
 
     this.handleMaxIterationsWarning(iteration, context, onUpdate);
+    this.addClientLog(
+      `Query processing completed in ${iteration} iterations`,
+      "info",
+    );
     return context.finalText.join("\n");
   }
 
@@ -677,6 +840,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
         );
       } else if (content.type === "tool_use") {
         hasToolUse = true;
+        this.addClientLog(`Tool use detected: ${content.name}`, "debug");
         await this.handleToolUse(
           content,
           iterationContent,
@@ -716,12 +880,18 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     context.finalText.push(toolMessage);
 
     try {
+      this.addClientLog(`Executing tool: ${content.name}`, "debug");
       await this.executeToolAndUpdateMessages(
         content,
         context,
         assistantContent,
       );
+      this.addClientLog(`Tool execution successful: ${content.name}`, "debug");
     } catch (error) {
+      this.addClientLog(
+        `Tool execution failed: ${content.name} - ${error}`,
+        "error",
+      );
       this.handleToolError(
         error,
         content,
@@ -805,6 +975,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
   private async makeFollowUpApiCall(
     context: ReturnType<typeof this.initializeQueryContext>,
   ) {
+    this.addClientLog("Making follow-up API call to Anthropic", "debug");
     return this.anthropic!.messages.create({
       model: context.model,
       max_tokens: 1000,
@@ -832,12 +1003,17 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
   ) {
     if (iteration >= context.MAX_ITERATIONS) {
       const warningMessage = `[Warning: Reached maximum iterations (${context.MAX_ITERATIONS}). Stopping to prevent excessive API usage.]`;
+      this.addClientLog(
+        `Maximum iterations reached (${context.MAX_ITERATIONS})`,
+        "warn",
+      );
       context.finalText.push(warningMessage);
       this.sendIterationUpdate(warningMessage, onUpdate);
     }
   }
 
   async chatLoop(tools: Tool[]) {
+    this.addClientLog("Starting interactive chat loop", "info");
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -850,17 +1026,24 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
       while (true) {
         const message = await rl.question("\nQuery: ");
         if (message.toLowerCase() === "quit") {
+          this.addClientLog("Chat loop terminated by user", "info");
           break;
         }
+        this.addClientLog(
+          `Processing user query: ${message.substring(0, 50)}${message.length > 50 ? "..." : ""}`,
+          "debug",
+        );
         const response = await this.processQuery(message, tools);
         console.log("\n" + response);
       }
     } finally {
       rl.close();
+      this.addClientLog("Chat loop interface closed", "debug");
     }
   }
 
   async cleanup() {
+    this.addClientLog("Cleaning up MCP client", "info");
     await this.close();
   }
 }

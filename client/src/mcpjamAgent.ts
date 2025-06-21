@@ -14,12 +14,13 @@ import {
   CreateMessageResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { ConnectionStatus } from "./lib/constants";
+import { ClientLogLevels } from "./hooks/helpers/types";
 
 export interface MCPClientOptions {
   id?: string;
   servers: Record<string, MCPJamServerConfig>;
   timeout?: number; // Optional global timeout
-  config?: InspectorConfig; // Add optional config
+  inspectorConfig?: InspectorConfig; // Add optional config
   bearerToken?: string;
   headerName?: string;
   claudeApiKey?: string;
@@ -31,6 +32,7 @@ export interface MCPClientOptions {
   ) => void;
   getRoots?: () => unknown[];
   addRequestHistory: (request: object, response?: object) => void;
+  addClientLog: (message: string, level: ClientLogLevels) => void;
 }
 
 export interface ServerConnectionInfo {
@@ -44,7 +46,7 @@ export interface ServerConnectionInfo {
 export class MCPJamAgent {
   private mcpClientsById = new Map<string, MCPJamClient>();
   private serverConfigs: Record<string, MCPJamServerConfig>;
-  private config: InspectorConfig;
+  private inspectorConfig: InspectorConfig;
   private bearerToken?: string;
   private headerName?: string;
   private claudeApiKey?: string;
@@ -56,11 +58,12 @@ export class MCPJamAgent {
   ) => void;
   private getRoots?: () => unknown[];
   private addRequestHistory: (request: object, response?: object) => void;
+  private addClientLog: (message: string, level: ClientLogLevels) => void;
 
   constructor(options: MCPClientOptions) {
     this.serverConfigs = options.servers;
     // Use provided config or create default config
-    this.config = options.config || createDefaultConfig();
+    this.inspectorConfig = options.inspectorConfig || createDefaultConfig();
     this.bearerToken = options.bearerToken;
     this.headerName = options.headerName;
     this.claudeApiKey = options.claudeApiKey;
@@ -68,6 +71,7 @@ export class MCPJamAgent {
     this.onPendingRequest = options.onPendingRequest;
     this.getRoots = options.getRoots;
     this.addRequestHistory = options.addRequestHistory;
+    this.addClientLog = options.addClientLog;
   }
 
   // Add or update a server configuration
@@ -162,39 +166,13 @@ export class MCPJamAgent {
 
   private async getOrCreateClient(
     name: string,
-    config: MCPJamServerConfig,
+    serverConfig: MCPJamServerConfig,
   ): Promise<MCPJamClient> {
     const existingClient = this.mcpClientsById.get(name);
 
     // If client exists and is connected, return it
     if (existingClient && existingClient.connectionStatus === "connected") {
       return existingClient;
-    }
-
-    // Check if this is a remote server and if there's already a connected remote server
-    if (this.isRemoteServer(config)) {
-      const connectedRemoteServerName = this.getConnectedRemoteServerName();
-      if (connectedRemoteServerName && connectedRemoteServerName !== name) {
-        // Automatically disconnect the existing remote server
-        console.log(
-          `Automatically disconnecting existing remote server: ${connectedRemoteServerName}`,
-        );
-        await this.disconnectFromServer(connectedRemoteServerName);
-
-        // Clear OAuth tokens for the old server
-        const connectedConfig = this.serverConfigs[connectedRemoteServerName];
-        if (
-          connectedConfig &&
-          "url" in connectedConfig &&
-          connectedConfig.url
-        ) {
-          const { InspectorOAuthClientProvider } = await import("./lib/auth");
-          const oldAuthProvider = new InspectorOAuthClientProvider(
-            connectedConfig.url.toString(),
-          );
-          oldAuthProvider.clear();
-        }
-      }
     }
 
     // If client exists but is disconnected, reconnect it
@@ -210,10 +188,10 @@ export class MCPJamAgent {
 
     // Create new client (either no client exists or reconnection failed)
     const newClient = new MCPJamClient(
-      name, // Pass server name as first argument
-      config, // serverConfig
-      this.config, // config
+      serverConfig, // serverConfig (first parameter)
+      this.inspectorConfig, // config (second parameter)
       this.addRequestHistory, // addRequestHistory
+      this.addClientLog, // addClientLog
       this.bearerToken, // bearerToken
       this.headerName, // headerName
       this.onStdErrNotification, // onStdErrNotification
@@ -342,8 +320,8 @@ export class MCPJamAgent {
   }
 
   // Update configuration methods
-  updateConfig(newConfig: Partial<InspectorConfig>) {
-    this.config = { ...this.config, ...newConfig };
+  updateConfig(newInspectorConfig: Partial<InspectorConfig>) {
+    this.inspectorConfig = { ...this.inspectorConfig, ...newInspectorConfig };
   }
 
   updateCredentials(
@@ -408,10 +386,5 @@ export class MCPJamAgent {
       }
     }
     return null;
-  }
-
-  // Check if a server config is for a remote connection
-  private isRemoteServer(config: MCPJamServerConfig): boolean {
-    return config.transportType !== "stdio";
   }
 }

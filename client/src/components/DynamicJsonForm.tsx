@@ -65,12 +65,10 @@ const DynamicJsonForm = ({
 
   // Update rawJsonValue when value prop changes
   useEffect(() => {
-    if (!isJsonMode) {
-      setRawJsonValue(
-        JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
-      );
-    }
-  }, [value, schema, isJsonMode]);
+    setRawJsonValue(
+      JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
+    );
+  }, [value, schema]);
 
   const handleSwitchToFormMode = () => {
     if (isJsonMode) {

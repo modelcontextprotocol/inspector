@@ -511,7 +511,8 @@ const ConnectionSection = ({
               Import Configuration
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              Import multiple servers from a configuration file. Supports the same format used by Claude Desktop and Cursor.
+              Import multiple servers from a configuration file. Supports the
+              same format used by Claude Desktop and Cursor.
             </p>
             <Button
               onClick={() => setShowImportDialog(true)}

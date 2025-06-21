@@ -1,17 +1,19 @@
 import { useState, useCallback } from "react";
-import { MCPJamAgent, MCPClientOptions } from "../mcpjamAgent";
-import { MCPJamServerConfig } from "../lib/serverTypes";
-import { InspectorConfig } from "../lib/configurationTypes";
+import { MCPJamAgent, MCPClientOptions } from "@/mcpjamAgent";
+import { MCPJamServerConfig } from "@/lib/serverTypes";
+import { InspectorConfig } from "@/lib/configurationTypes";
 import {
   CreateMessageRequest,
   CreateMessageResult,
   Root,
 } from "@modelcontextprotocol/sdk/types.js";
-import { StdErrNotification } from "../lib/notificationTypes";
+import { StdErrNotification } from "@/lib/notificationTypes";
 import { ConnectionStatus } from "@/lib/constants";
+import { ClientLogLevels } from "@/hooks/helpers/types";
 
 export const useConnectionState = (
   addRequestHistory: (request: object, response?: object) => void,
+  addClientLog: (message: string, level: ClientLogLevels) => void,
 ) => {
   const [mcpAgent, setMcpAgent] = useState<MCPJamAgent | null>(null);
   const [sidebarUpdateTrigger, setSidebarUpdateTrigger] = useState(0);
@@ -41,7 +43,7 @@ export const useConnectionState = (
 
       const options: MCPClientOptions = {
         servers: serverConfigs,
-        config: config,
+        inspectorConfig: config,
         bearerToken,
         headerName,
         claudeApiKey,
@@ -49,6 +51,7 @@ export const useConnectionState = (
         onPendingRequest,
         getRoots,
         addRequestHistory: addRequestHistory,
+        addClientLog: addClientLog,
       };
 
       const agent = new MCPJamAgent(options);
@@ -63,7 +66,7 @@ export const useConnectionState = (
         throw error;
       }
     },
-    [addRequestHistory],
+    [addRequestHistory, addClientLog],
   );
 
   const createAgentWithoutConnecting = useCallback(
@@ -83,7 +86,7 @@ export const useConnectionState = (
     ) => {
       const options: MCPClientOptions = {
         servers: serverConfigs,
-        config: config,
+        inspectorConfig: config,
         bearerToken,
         headerName,
         claudeApiKey,
@@ -91,13 +94,14 @@ export const useConnectionState = (
         onPendingRequest,
         getRoots,
         addRequestHistory: addRequestHistory,
+        addClientLog: addClientLog,
       };
 
       const agent = new MCPJamAgent(options);
       setMcpAgent(agent);
       return agent;
     },
-    [addRequestHistory],
+    [addRequestHistory, addClientLog],
   );
 
   const addServer = useCallback(
@@ -122,7 +126,7 @@ export const useConnectionState = (
         console.log("🆕 No agent exists, creating new one...");
         const options: MCPClientOptions = {
           servers: { [name]: serverConfig },
-          config: config,
+          inspectorConfig: config,
           bearerToken,
           headerName,
           claudeApiKey,
@@ -130,6 +134,7 @@ export const useConnectionState = (
           onPendingRequest,
           getRoots,
           addRequestHistory: addRequestHistory,
+          addClientLog: addClientLog,
         };
 
         const agent = new MCPJamAgent(options);
@@ -166,7 +171,7 @@ export const useConnectionState = (
         }
       }
     },
-    [mcpAgent, forceUpdateSidebar, addRequestHistory],
+    [mcpAgent, forceUpdateSidebar, addRequestHistory, addClientLog],
   );
 
   const removeServer = useCallback(

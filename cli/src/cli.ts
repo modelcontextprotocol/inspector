@@ -9,6 +9,15 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+const MCP_BANNER = `
+███╗   ███╗ ██████╗██████╗     ██╗ █████╗ ███╗   ███╗
+████╗ ████║██╔════╝██╔══██╗    ██║██╔══██╗████╗ ████║
+██╔████╔██║██║     ██████╔╝    ██║███████║██╔████╔██║
+██║╚██╔╝██║██║     ██╔═══╝██   ██║██╔══██║██║╚██╔╝██║
+██║ ╚═╝ ██║╚██████╗██║    ╚█████╔╝██║  ██║██║ ╚═╝ ██║
+╚═╝     ╚═╝ ╚═════╝╚═╝     ╚════╝ ╚═╝  ╚═╝╚═╝     ╚═╝                                                    
+`;
+
 type Args = {
   command: string;
   args: string[];
@@ -40,7 +49,7 @@ function handleError(error: unknown): never {
     message = "Unknown error";
   }
 
-  console.error(message);
+  console.error("\x1b[31m%s\x1b[0m", "❌ Error:", message); // Red color
 
   process.exit(1);
 }
@@ -70,13 +79,17 @@ async function runWebClient(args: Args): Promise<void> {
   const CLIENT_PORT: string = process.env.CLIENT_PORT ?? "6274";
   const SERVER_PORT: string = process.env.SERVER_PORT ?? "6277";
 
-  console.log("Starting MCP inspector...");
+  // Clear console and display banner
+  console.clear();
+  console.log("\x1b[36m%s\x1b[0m", MCP_BANNER); // Cyan color
+  console.log("\x1b[33m%s\x1b[0m", "🚀 Launching MCP Inspector...\n"); // Yellow color
 
   const abort = new AbortController();
   let cancelled: boolean = false;
   process.on("SIGINT", () => {
     cancelled = true;
     abort.abort();
+    console.log("\n\x1b[31m%s\x1b[0m", "⚠️  Shutting down MCP Inspector..."); // Red color
   });
 
   let server: ReturnType<typeof spawnPromise>;
@@ -103,10 +116,26 @@ async function runWebClient(args: Args): Promise<void> {
 
     // Make sure server started before starting client
     serverOk = await Promise.race([server, delay(2 * 1000)]);
-  } catch (error) {}
+  } catch (error) {
+    console.log("\x1b[31m%s\x1b[0m", "❌ Server initialization failed"); // Red color
+  }
 
   if (serverOk) {
     try {
+      console.log("\x1b[32m%s\x1b[0m", "✅ Server initialized successfully"); // Green color
+      console.log(
+        "\x1b[36m%s\x1b[0m",
+        `🌐 Opening browser at http://127.0.0.1:${CLIENT_PORT}`,
+      );
+
+      if (process.env.MCP_AUTO_OPEN_ENABLED !== "false") {
+        // Note: We need to import 'open' if we want to auto-open browser
+        // import open from "open";
+        // open(`http://127.0.0.1:${CLIENT_PORT}`);
+      }
+
+      console.log("\x1b[33m%s\x1b[0m", "🖥️  Starting client interface...");
+
       await spawnPromise("node", [inspectorClientPath], {
         env: { ...process.env, PORT: CLIENT_PORT },
         signal: abort.signal,

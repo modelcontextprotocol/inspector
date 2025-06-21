@@ -2,12 +2,21 @@ import { useState } from "react";
 import JsonView from "./JsonView";
 
 interface RequestHistoryItemProps {
-  request: { request: string; response?: string; timestamp: string; latency?: number };
+  request: {
+    request: string;
+    response?: string;
+    timestamp: string;
+    latency?: number;
+  };
   index: number;
   totalRequests: number;
 }
 
-const RequestHistoryItem = ({ request, index, totalRequests }: RequestHistoryItemProps) => {
+const RequestHistoryItem = ({
+  request,
+  index,
+  totalRequests,
+}: RequestHistoryItemProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const toggleExpansion = () => {
@@ -16,15 +25,15 @@ const RequestHistoryItem = ({ request, index, totalRequests }: RequestHistoryIte
 
   const requestData = JSON.parse(request.request);
   const requestNumber = totalRequests - index;
-  
+
   // Format timestamp to display time like "12:26:05 AM"
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', {
+    return date.toLocaleTimeString("en-US", {
       hour12: true,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
     });
   };
 
@@ -45,7 +54,7 @@ const RequestHistoryItem = ({ request, index, totalRequests }: RequestHistoryIte
         isExpanded={isExpanded}
         onToggle={toggleExpansion}
       />
-      
+
       {isExpanded && (
         <RequestDetails
           requestData={request.request}
@@ -66,14 +75,22 @@ interface RequestHeaderProps {
   onToggle: () => void;
 }
 
-const RequestHeader = ({ requestNumber, method, server, timestamp, latency, isExpanded, onToggle }: RequestHeaderProps) => (
+const RequestHeader = ({
+  requestNumber,
+  method,
+  server,
+  timestamp,
+  latency,
+  isExpanded,
+  onToggle,
+}: RequestHeaderProps) => (
   <header
     className="flex justify-between items-center cursor-pointer group"
     onClick={onToggle}
     role="button"
     tabIndex={0}
     onKeyDown={(e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
+      if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         onToggle();
       }
@@ -81,7 +98,13 @@ const RequestHeader = ({ requestNumber, method, server, timestamp, latency, isEx
     aria-expanded={isExpanded}
     aria-label={`Request ${requestNumber}: ${method}`}
   >
-    <RequestInfo requestNumber={requestNumber} method={method} server={server} timestamp={timestamp} latency={latency} />
+    <RequestInfo
+      requestNumber={requestNumber}
+      method={method}
+      server={server}
+      timestamp={timestamp}
+      latency={latency}
+    />
     <ExpandIcon isExpanded={isExpanded} />
   </header>
 );
@@ -94,15 +117,19 @@ interface RequestInfoProps {
   latency?: string;
 }
 
-const RequestInfo = ({ requestNumber, method, server, timestamp, latency }: RequestInfoProps) => (
+const RequestInfo = ({
+  requestNumber,
+  method,
+  server,
+  timestamp,
+  latency,
+}: RequestInfoProps) => (
   <div className="flex items-center space-x-3">
     <RequestBadge number={requestNumber} />
     <TimeStamp timestamp={timestamp} />
     <MethodLabel method={method} server={server} />
     {latency && (
-      <span className="text-xs text-muted-foreground font-mono">
-        {latency}
-      </span>
+      <span className="text-xs text-muted-foreground font-mono">{latency}</span>
     )}
   </div>
 );
@@ -112,7 +139,7 @@ interface RequestBadgeProps {
 }
 
 const RequestBadge = ({ number }: RequestBadgeProps) => (
-  <span 
+  <span
     className="flex items-center justify-center w-6 h-6 bg-primary/10 text-primary text-xs font-bold rounded-full"
     aria-label={`Request number ${number}`}
   >
@@ -125,9 +152,7 @@ interface TimeStampProps {
 }
 
 const TimeStamp = ({ timestamp }: TimeStampProps) => (
-  <span className="text-xs text-muted-foreground font-mono">
-    {timestamp}
-  </span>
+  <span className="text-xs text-muted-foreground font-mono">{timestamp}</span>
 );
 
 interface MethodLabelProps {
@@ -147,7 +172,7 @@ interface ExpandIconProps {
 }
 
 const ExpandIcon = ({ isExpanded }: ExpandIconProps) => (
-  <span 
+  <span
     className="text-muted-foreground group-hover:text-foreground transition-colors duration-200"
     aria-hidden="true"
   >
@@ -163,9 +188,7 @@ interface RequestDetailsProps {
 const RequestDetails = ({ requestData, responseData }: RequestDetailsProps) => (
   <section className="mt-4 space-y-4" aria-label="Request and response details">
     <RequestSection title="Request" data={requestData} />
-    {responseData && (
-      <RequestSection title="Response" data={responseData} />
-    )}
+    {responseData && <RequestSection title="Response" data={responseData} />}
   </section>
 );
 
@@ -190,10 +213,8 @@ interface SectionHeaderProps {
 
 const SectionHeader = ({ title }: SectionHeaderProps) => (
   <h3 className="flex items-center mb-2">
-    <span className="font-semibold text-foreground text-sm">
-      {title}
-    </span>
+    <span className="font-semibold text-foreground text-sm">{title}</span>
   </h3>
 );
 
-export default RequestHistoryItem; 
+export default RequestHistoryItem;

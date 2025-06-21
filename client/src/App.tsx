@@ -62,7 +62,10 @@ import { ConnectionStatus } from "./lib/constants";
 const App = () => {
   const serverState = useServerState();
   const mcpOperations = useMCPOperations();
-  const connectionState = useConnectionState(mcpOperations.addRequestHistory);
+  const connectionState = useConnectionState(
+    mcpOperations.addRequestHistory,
+    mcpOperations.addClientLog,
+  );
   const configState = useConfigState();
 
   // Refs
@@ -76,6 +79,7 @@ const App = () => {
   });
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
   const [showStarModal, setShowStarModal] = useState(false);
+  const { addClientLog } = mcpOperations;
   // Handle hash changes for navigation
   useEffect(() => {
     const handleHashChange = () => {
@@ -115,7 +119,7 @@ const App = () => {
     (notification: StdErrNotification) => {
       mcpOperations.setStdErrNotifications((prev) => [...prev, notification]);
     },
-    [mcpOperations.setStdErrNotifications],
+    [mcpOperations],
   );
 
   const onPendingRequest = useCallback(
@@ -129,7 +133,7 @@ const App = () => {
         { id: nextRequestId.current++, request, resolve, reject },
       ]);
     },
-    [mcpOperations.setPendingSampleRequests],
+    [mcpOperations],
   );
 
   const getRootsCallback = useCallback(() => rootsRef.current, []);
@@ -146,10 +150,15 @@ const App = () => {
   );
 
   const handleAddServer = useCallback(
-    async (name: string, serverConfig: MCPJamServerConfig) => {
-      console.log("🔧 Adding server without auto-connect:", {
+    async (
+      name: string,
+      serverConfig: MCPJamServerConfig,
+      options: { autoConnect?: boolean } = {},
+    ) => {
+      console.log("🔧 Adding server with options:", {
         name,
         serverConfig,
+        options,
       });
 
       // Check if there are no other servers BEFORE adding the new one
@@ -164,10 +173,12 @@ const App = () => {
         serverState.setSelectedServerName(name);
       }
 
-      // Create or update the agent with the new server config, but don't connect
+      // Create or update the agent with the new server config
       if (!connectionState.mcpAgent) {
-        console.log(
-          "🆕 Creating agent with server config (no auto-connect)...",
+        console.log("🆕 Creating agent with server config...");
+        addClientLog(
+          `🆕 Creating agent with server config (no auto-connect) ${name} ${JSON.stringify(serverConfig)}`,
+          "info",
         );
         try {
           // Include ALL server configs (existing + new) when creating the agent
@@ -176,7 +187,7 @@ const App = () => {
             [name]: serverConfig,
           };
 
-          await connectionState.createAgentWithoutConnecting(
+          const agent = await connectionState.createAgentWithoutConnecting(
             allServerConfigs,
             configState.config,
             configState.bearerToken,
@@ -186,14 +197,35 @@ const App = () => {
             onPendingRequest,
             getRootsCallback,
           );
+          if (options.autoConnect) {
+            console.log("🔌 Auto-connecting to all servers...");
+            await agent.connectToAllServers();
+            console.log("✅ Successfully connected to all servers");
+            serverState.setSelectedServerName(name);
+            connectionState.forceUpdateSidebar();
+          }
         } catch (error) {
-          console.error("❌ Failed to create agent:", error);
+          console.error("❌ Failed to create agent and connect:", error);
           throw error;
         }
       } else {
         // Add server to existing agent without connecting
         connectionState.mcpAgent.addServer(name, serverConfig);
         connectionState.forceUpdateSidebar();
+
+        // Auto-connect if requested
+        if (options.autoConnect) {
+          console.log(`🔌 Auto-connecting to server: "${name}"`);
+          try {
+            // It's important to select the server BEFORE connecting to it
+            serverState.setSelectedServerName(name);
+            await connectionState.connectServer(name);
+            console.log(`✅ Successfully auto-connected to "${name}"`);
+          } catch (error) {
+            console.error(`❌ Failed to auto-connect to "${name}":`, error);
+            // TODO: Maybe show a toast notification here
+          }
+        }
       }
 
       return name;
@@ -201,13 +233,11 @@ const App = () => {
     [
       serverState,
       connectionState,
-      configState.config,
-      configState.bearerToken,
-      configState.headerName,
-      configState.claudeApiKey,
+      configState,
       onStdErrNotification,
       onPendingRequest,
       getRootsCallback,
+      addClientLog,
     ],
   );
 
@@ -231,55 +261,67 @@ const App = () => {
 
   const handleUpdateServer = useCallback(
     async (serverName: string, config: MCPJamServerConfig) => {
-      await connectionState.updateServerWithoutConnecting(serverName, config);
+      await connectionState.updateServer(serverName, config);
       serverState.updateServerConfig(serverName, config);
+      addClientLog(
+        `🔧 Updated server: ${serverName} ${JSON.stringify(config)}`,
+        "info",
+      );
     },
-    [connectionState, serverState],
+    [connectionState, serverState, addClientLog],
   );
 
-  const handleSaveClient = useCallback(async () => {
-    if (!serverState.clientFormName.trim()) return;
+  const handleSaveClient = useCallback(
+    async (config: MCPJamServerConfig) => {
+      if (!serverState.clientFormName.trim()) return;
 
-    try {
-      if (serverState.isCreatingClient) {
-        await handleAddServer(
-          serverState.clientFormName,
-          serverState.clientFormConfig,
-        );
-      } else if (serverState.editingClientName) {
-        // Check if the server name has changed
-        const oldServerName = serverState.editingClientName;
-        const newServerName = serverState.clientFormName.trim();
+      try {
+        if (serverState.isCreatingClient) {
+          await handleAddServer(serverState.clientFormName, config, {
+            autoConnect: true,
+          });
+        } else if (serverState.editingClientName) {
+          // Check if the server name has changed
+          const oldServerName = serverState.editingClientName;
+          const newServerName = serverState.clientFormName.trim();
 
-        if (oldServerName !== newServerName) {
-          // Server name has changed - remove old and add new
-          console.log(
-            `🔄 Server name changed from "${oldServerName}" to "${newServerName}"`,
-          );
+          if (oldServerName !== newServerName) {
+            // Server name has changed - remove old and add new
+            addClientLog(
+              `🔄 Server name changed from "${oldServerName}" to "${newServerName}"`,
+              "info",
+            );
 
-          // Remove the old server
-          await handleRemoveServer(oldServerName);
+            // Remove the old server
+            await handleRemoveServer(oldServerName);
 
-          // Add the server with the new name
-          await handleAddServer(newServerName, serverState.clientFormConfig);
+            // Add the server with the new name
+            await handleAddServer(newServerName, config, {
+              autoConnect: true,
+            });
 
-          // Update the selected server name if the changed server was selected
-          if (serverState.selectedServerName === oldServerName) {
-            serverState.setSelectedServerName(newServerName);
+            // Update the selected server name if the changed server was selected
+            if (serverState.selectedServerName === oldServerName) {
+              serverState.setSelectedServerName(newServerName);
+            }
+          } else {
+            // Server name hasn't changed - just update the configuration
+            await handleUpdateServer(serverState.editingClientName, config);
           }
-        } else {
-          // Server name hasn't changed - just update the configuration
-          await handleUpdateServer(
-            serverState.editingClientName,
-            serverState.clientFormConfig,
-          );
         }
+        serverState.handleCancelClientForm();
+      } catch (error) {
+        console.error("Failed to save client:", error);
       }
-      serverState.handleCancelClientForm();
-    } catch (error) {
-      console.error("Failed to save client:", error);
-    }
-  }, [serverState, handleAddServer, handleUpdateServer, handleRemoveServer]);
+    },
+    [
+      serverState,
+      handleAddServer,
+      handleUpdateServer,
+      handleRemoveServer,
+      addClientLog,
+    ],
+  );
 
   const handleSaveMultiple = useCallback(
     async (clients: Array<{ name: string; config: MCPJamServerConfig }>) => {
@@ -297,15 +339,20 @@ const App = () => {
       for (const client of clients) {
         try {
           console.log(`🔧 Creating client: "${client.name}"`);
-          await handleAddServer(client.name, client.config);
+          await handleAddServer(client.name, client.config, {
+            autoConnect: false,
+          });
           results.success.push(client.name);
-          console.log(`✅ Successfully created client: "${client.name}"`);
+          addClientLog(
+            `✅ Successfully created client: "${client.name}"`,
+            "info",
+          );
         } catch (error) {
           const errorMessage =
             error instanceof Error ? error.message : String(error);
-          console.error(
-            `❌ Failed to create client "${client.name}":`,
-            errorMessage,
+          addClientLog(
+            `❌ Failed to create client "${client.name}": ${errorMessage}`,
+            "error",
           );
           results.failed.push({ name: client.name, error: errorMessage });
         }
@@ -316,26 +363,22 @@ const App = () => {
 
       // Log final results
       if (results.success.length > 0) {
-        console.log(
+        addClientLog(
           `✅ Successfully created ${results.success.length} client(s): ${results.success.join(", ")}`,
+          "info",
         );
       }
 
       if (results.failed.length > 0) {
-        console.error(
-          `❌ Failed to create ${results.failed.length} client(s):`,
-          results.failed,
+        addClientLog(
+          `❌ Failed to create ${results.failed.length} client(s): ${results.failed.map(({ name, error }) => `${name}: ${error}`).join(", ")}`,
+          "error",
         );
-
-        // Show error details in console for debugging
-        results.failed.forEach(({ name, error }) => {
-          console.error(`  - ${name}: ${error}`);
-        });
       }
 
       return results;
     },
-    [handleAddServer, serverState],
+    [handleAddServer, serverState, addClientLog],
   );
 
   const handleEditClient = useCallback(
@@ -371,6 +414,14 @@ const App = () => {
     configState.updateClaudeApiKey(newApiKey);
     updateApiKey(newApiKey);
   };
+
+  const handleConnectServer = useCallback(
+    async (serverName: string) => {
+      await connectionState.connectServer(serverName);
+      mcpOperations.listTools(connectionState.mcpAgent, serverName);
+    },
+    [connectionState, mcpOperations],
+  );
 
   // MCP operation wrappers
   const makeRequest = useCallback(
@@ -448,15 +499,15 @@ const App = () => {
   // Effect to restore agent with saved server configs (without connecting)
   useEffect(() => {
     const restoreAgentWithoutConnecting = async () => {
+      // Don't restore on oauth callback pages, this is handled by onOAuthConnect
+      if (window.location.pathname.startsWith("/oauth/callback")) {
+        return;
+      }
       // Only restore if we have server configs but no active agent
       if (
         Object.keys(serverState.serverConfigs).length > 0 &&
         !connectionState.mcpAgent
       ) {
-        console.log(
-          "🔄 Restoring agent with saved server configs (no auto-connect)...",
-        );
-
         try {
           await connectionState.createAgentWithoutConnecting(
             serverState.serverConfigs,
@@ -468,9 +519,11 @@ const App = () => {
             onPendingRequest,
             getRootsCallback,
           );
-          console.log("✅ Successfully restored agent with server configs");
         } catch (error) {
-          console.error("❌ Failed to restore agent:", error);
+          addClientLog(
+            `❌ Failed to restore agent: ${error instanceof Error ? error.message : String(error)}`,
+            "error",
+          );
         }
       }
     };
@@ -478,8 +531,7 @@ const App = () => {
     restoreAgentWithoutConnecting();
   }, [
     serverState.serverConfigs,
-    connectionState.mcpAgent,
-    connectionState.createAgentWithoutConnecting,
+    connectionState,
     configState.config,
     configState.bearerToken,
     configState.headerName,
@@ -487,6 +539,7 @@ const App = () => {
     onStdErrNotification,
     onPendingRequest,
     getRootsCallback,
+    addClientLog,
   ]);
 
   // Effect to persist server configs
@@ -560,10 +613,6 @@ const App = () => {
       // Use existing server name if found, otherwise use the determined name
       const finalServerName = existingServerName || serverName;
 
-      console.log(
-        `🔐 OAuth connecting to: ${serverUrl} as server "${finalServerName}"`,
-      );
-
       // Update the server config for the correct server
       const serverConfig: HttpServerDefinition = {
         transportType: "sse",
@@ -572,20 +621,14 @@ const App = () => {
 
       // Add the server first
       try {
-        await handleAddServer(finalServerName, serverConfig);
-
-        // Switch to the newly connected server
-        serverState.setSelectedServerName(finalServerName);
-
-        // Then automatically connect to it since OAuth has completed
-        console.log("🔌 Auto-connecting after OAuth success...");
-        await connectionState.connectServer(finalServerName);
-        console.log("✅ Auto-connected successfully after OAuth");
+        await handleAddServer(finalServerName, serverConfig, {
+          autoConnect: true,
+        });
       } catch (error) {
         console.error("Failed to connect OAuth server:", error);
       }
     },
-    [serverState, handleAddServer, connectionState.connectServer],
+    [serverState, handleAddServer],
   );
 
   const onOAuthDebugConnect = useCallback(
@@ -994,7 +1037,7 @@ const App = () => {
           selectedServerName={serverState.selectedServerName}
           onServerSelect={serverState.setSelectedServerName}
           onRemoveServer={handleRemoveServer}
-          onConnectServer={connectionState.connectServer}
+          onConnectServer={handleConnectServer}
           onDisconnectServer={connectionState.disconnectServer}
           onCreateClient={serverState.handleCreateClient}
           onEditClient={handleEditClient}
@@ -1023,7 +1066,9 @@ const App = () => {
           <HistoryAndNotifications
             requestHistory={requestHistory}
             toolResult={mcpOperations.toolResult}
+            clientLogs={mcpOperations.getClientLogs()}
             onClearHistory={mcpOperations.clearRequestHistory}
+            onClearLogs={mcpOperations.clearClientLogs}
           />
         </div>
       </div>
