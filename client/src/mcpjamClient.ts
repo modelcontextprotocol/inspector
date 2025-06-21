@@ -32,7 +32,6 @@ import {
   getMCPServerRequestMaxTotalTimeout,
   getMCPServerRequestTimeout,
   resetRequestTimeoutOnProgress,
-  createDefaultConfig,
 } from "@/utils/configUtils";
 import { InspectorConfig } from "./lib/configurationTypes";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -136,7 +135,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     this.connectionStatus = "disconnected";
     this.serverCapabilities = null;
     this.completionsSupported = true;
-    this.inspectorConfig = createDefaultConfig();
+    this.inspectorConfig = config;
     this.onStdErrNotification = onStdErrNotification;
     this.onPendingRequest = onPendingRequest;
     this.getRoots = getRoots;
