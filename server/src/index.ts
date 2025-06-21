@@ -33,6 +33,10 @@ const defaultEnvironment = {
   ...(process.env.MCP_ENV_VARS ? JSON.parse(process.env.MCP_ENV_VARS) : {}),
 };
 
+const serverConfig = process.env.MCP_SERVER_CONFIG
+  ? JSON.parse(process.env.MCP_SERVER_CONFIG)
+  : null;
+
 const { values } = parseArgs({
   args: process.argv.slice(2),
   options: {
@@ -523,6 +527,7 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
       defaultEnvironment,
       defaultCommand: values.env,
       defaultArgs: values.args,
+      serverConfig,
     });
   } catch (error) {
     console.error("Error in /config route:", error);
