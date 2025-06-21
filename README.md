@@ -34,14 +34,17 @@ npx @mcpjam/inspector@latest
 That's it! The inspector will launch automatically in your browser at `http://localhost:6274`.
 
 ### Running with Docker
+
 You can also run the inspector using Docker. First, make sure you have Docker installed and running.
 
 Pull the latest image from Docker Hub:
+
 ```bash
 docker pull mcpjam/mcp-inspector:main
 ```
 
 Then, run the container:
+
 ```bash
 docker run --rm -p 6274:6274 -p 6277:6277 mcpjam/mcp-inspector:main
 ```

@@ -32,7 +32,6 @@ import {
   getMCPServerRequestMaxTotalTimeout,
   getMCPServerRequestTimeout,
   resetRequestTimeoutOnProgress,
-  createDefaultConfig,
 } from "@/utils/configUtils";
 import { InspectorConfig } from "./lib/configurationTypes";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -75,7 +74,6 @@ export interface ExtendedMcpClient extends Client {
 export class MCPJamClient extends Client<Request, Notification, Result> {
   anthropic?: Anthropic;
   clientTransport: Transport | undefined;
-  config: InspectorConfig;
   serverConfig: MCPJamServerConfig;
   headers: HeadersInit;
   mcpProxyServerUrl: URL;
@@ -96,7 +94,7 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
   addClientLog: (message: string, level: ClientLogLevels) => void;
   constructor(
     serverConfig: MCPJamServerConfig,
-    config: InspectorConfig,
+    inspectorConfig: InspectorConfig,
     addRequestHistory: (request: object, response?: object) => void,
     addClientLog: (message: string, level: ClientLogLevels) => void,
     bearerToken?: string,
@@ -125,18 +123,17 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
       apiKey: claudeApiKey,
       dangerouslyAllowBrowser: true,
     });
-    this.config = config;
     this.serverConfig = serverConfig;
     this.headers = {};
     this.mcpProxyServerUrl = new URL(
-      `${getMCPProxyAddress(this.config)}/stdio`,
+      `${getMCPProxyAddress(inspectorConfig)}/stdio`,
     );
     this.bearerToken = bearerToken;
     this.headerName = headerName;
     this.connectionStatus = "disconnected";
     this.serverCapabilities = null;
     this.completionsSupported = true;
-    this.inspectorConfig = createDefaultConfig();
+    this.inspectorConfig = inspectorConfig;
     this.onStdErrNotification = onStdErrNotification;
     this.onPendingRequest = onPendingRequest;
     this.getRoots = getRoots;
@@ -144,7 +141,9 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
     this.addClientLog = addClientLog;
   }
   async connectStdio() {
-    const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/stdio`);
+    const serverUrl = new URL(
+      `${getMCPProxyAddress(this.inspectorConfig)}/stdio`,
+    );
 
     // Type guard to ensure we have a stdio server config
     if (
@@ -210,7 +209,9 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
 
   async connectSSE() {
     try {
-      const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/sse`);
+      const serverUrl = new URL(
+        `${getMCPProxyAddress(this.inspectorConfig)}/sse`,
+      );
       serverUrl.searchParams.append(
         "url",
         (this.serverConfig as HttpServerDefinition).url.toString(),
@@ -254,7 +255,9 @@ export class MCPJamClient extends Client<Request, Notification, Result> {
 
   async connectStreamableHttp() {
     try {
-      const serverUrl = new URL(`${getMCPProxyAddress(this.config)}/mcp`);
+      const serverUrl = new URL(
+        `${getMCPProxyAddress(this.inspectorConfig)}/mcp`,
+      );
       serverUrl.searchParams.append(
         "url",
         (this.serverConfig as HttpServerDefinition).url.toString(),

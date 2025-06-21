@@ -20,7 +20,7 @@ export interface MCPClientOptions {
   id?: string;
   servers: Record<string, MCPJamServerConfig>;
   timeout?: number; // Optional global timeout
-  config?: InspectorConfig; // Add optional config
+  inspectorConfig?: InspectorConfig; // Add optional config
   bearerToken?: string;
   headerName?: string;
   claudeApiKey?: string;
@@ -46,7 +46,7 @@ export interface ServerConnectionInfo {
 export class MCPJamAgent {
   private mcpClientsById = new Map<string, MCPJamClient>();
   private serverConfigs: Record<string, MCPJamServerConfig>;
-  private config: InspectorConfig;
+  private inspectorConfig: InspectorConfig;
   private bearerToken?: string;
   private headerName?: string;
   private claudeApiKey?: string;
@@ -63,7 +63,7 @@ export class MCPJamAgent {
   constructor(options: MCPClientOptions) {
     this.serverConfigs = options.servers;
     // Use provided config or create default config
-    this.config = options.config || createDefaultConfig();
+    this.inspectorConfig = options.inspectorConfig || createDefaultConfig();
     this.bearerToken = options.bearerToken;
     this.headerName = options.headerName;
     this.claudeApiKey = options.claudeApiKey;
@@ -166,7 +166,7 @@ export class MCPJamAgent {
 
   private async getOrCreateClient(
     name: string,
-    config: MCPJamServerConfig,
+    serverConfig: MCPJamServerConfig,
   ): Promise<MCPJamClient> {
     const existingClient = this.mcpClientsById.get(name);
 
@@ -188,8 +188,8 @@ export class MCPJamAgent {
 
     // Create new client (either no client exists or reconnection failed)
     const newClient = new MCPJamClient(
-      config, // serverConfig (first parameter)
-      this.config, // config (second parameter)
+      serverConfig, // serverConfig (first parameter)
+      this.inspectorConfig, // config (second parameter)
       this.addRequestHistory, // addRequestHistory
       this.addClientLog, // addClientLog
       this.bearerToken, // bearerToken
@@ -320,8 +320,8 @@ export class MCPJamAgent {
   }
 
   // Update configuration methods
-  updateConfig(newConfig: Partial<InspectorConfig>) {
-    this.config = { ...this.config, ...newConfig };
+  updateConfig(newInspectorConfig: Partial<InspectorConfig>) {
+    this.inspectorConfig = { ...this.inspectorConfig, ...newInspectorConfig };
   }
 
   updateCredentials(
