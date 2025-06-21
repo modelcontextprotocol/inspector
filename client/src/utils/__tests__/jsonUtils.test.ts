@@ -4,7 +4,7 @@ import {
   updateValueAtPath,
   getValueAtPath,
 } from "../jsonUtils";
-import type { JsonValue } from "../jsonUtils";
+import type { JsonValue, JsonSchemaType } from "../jsonUtils";
 
 describe("getDataType", () => {
   test("should return 'string' for string values", () => {
@@ -315,5 +315,114 @@ describe("getValueAtPath", () => {
   test("navigates through mixed object and array paths", () => {
     const obj = { users: [{ name: "John" }, { name: "Jane" }] };
     expect(getValueAtPath(obj, ["users", "1", "name"])).toBe("Jane");
+  });
+});
+
+describe("JsonSchemaType elicitation field support", () => {
+  const sampleSchema: JsonSchemaType = {
+    type: "object",
+    title: "User Info",
+    description: "User information form",
+    properties: {
+      name: {
+        type: "string",
+        title: "Full Name",
+        description: "Your full name",
+        minLength: 2,
+        maxLength: 50,
+        pattern: "^[A-Za-z\\s]+$",
+      },
+      email: {
+        type: "string",
+        format: "email",
+        title: "Email Address",
+      },
+      age: {
+        type: "integer",
+        minimum: 18,
+        maximum: 120,
+        default: 25,
+      },
+      role: {
+        type: "string",
+        enum: ["admin", "user", "guest"],
+        enumNames: ["Administrator", "User", "Guest"],
+      },
+    },
+    required: ["name", "email"],
+  };
+
+  test("should parse JsonSchemaType with elicitation fields", () => {
+    const schemaString = JSON.stringify(sampleSchema);
+    const result = tryParseJson(schemaString);
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(sampleSchema);
+  });
+
+  test("should update schema properties with new validation fields", () => {
+    const updated = updateValueAtPath(
+      sampleSchema,
+      ["properties", "name", "minLength"],
+      5,
+    );
+
+    expect(getValueAtPath(updated, ["properties", "name", "minLength"])).toBe(
+      5,
+    );
+  });
+
+  test("should handle enum and enumNames fields", () => {
+    const schema = {
+      type: "string" as const,
+      enum: ["option1", "option2"],
+      enumNames: ["Option 1", "Option 2"],
+    };
+
+    expect(getValueAtPath(schema, ["enum", "0"])).toBe("option1");
+    expect(getValueAtPath(schema, ["enumNames", "1"])).toBe("Option 2");
+  });
+
+  test("should handle validation constraints", () => {
+    const numberSchema = {
+      type: "number" as const,
+      minimum: 0,
+      maximum: 100,
+      default: 50,
+    };
+
+    expect(getValueAtPath(numberSchema, ["minimum"])).toBe(0);
+    expect(getValueAtPath(numberSchema, ["maximum"])).toBe(100);
+    expect(getValueAtPath(numberSchema, ["default"])).toBe(50);
+  });
+
+  test("should handle string format and pattern fields", () => {
+    const stringSchema = {
+      type: "string" as const,
+      format: "email",
+      pattern: "^[a-z]+@[a-z]+\\.[a-z]+$",
+      minLength: 5,
+      maxLength: 100,
+    };
+
+    expect(getValueAtPath(stringSchema, ["format"])).toBe("email");
+    expect(getValueAtPath(stringSchema, ["pattern"])).toBe(
+      "^[a-z]+@[a-z]+\\.[a-z]+$",
+    );
+    expect(getValueAtPath(stringSchema, ["minLength"])).toBe(5);
+  });
+
+  test("should handle title and description fields", () => {
+    const schema = {
+      type: "boolean" as const,
+      title: "Accept Terms",
+      description: "Do you accept the terms and conditions?",
+      default: false,
+    };
+
+    expect(getValueAtPath(schema, ["title"])).toBe("Accept Terms");
+    expect(getValueAtPath(schema, ["description"])).toBe(
+      "Do you accept the terms and conditions?",
+    );
   });
 });

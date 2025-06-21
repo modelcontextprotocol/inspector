@@ -4,6 +4,10 @@ import { z } from "zod";
 import { ClientRequest } from "@modelcontextprotocol/sdk/types.js";
 import { DEFAULT_INSPECTOR_CONFIG } from "../../constants";
 import { SSEClientTransportOptions } from "@modelcontextprotocol/sdk/client/sse.js";
+import {
+  ElicitResult,
+  ElicitRequest,
+} from "@modelcontextprotocol/sdk/types.js";
 
 // Mock fetch
 global.fetch = jest.fn().mockResolvedValue({
@@ -196,6 +200,252 @@ describe("useConnection", () => {
     await expect(
       result.current.makeRequest(mockRequest, mockSchema),
     ).rejects.toThrow("MCP client not connected");
+  });
+
+  describe("Elicitation Support", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    test("declares elicitation capability during client initialization", async () => {
+      const Client = jest.requireMock(
+        "@modelcontextprotocol/sdk/client/index.js",
+      ).Client;
+
+      const { result } = renderHook(() => useConnection(defaultProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      expect(Client).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "mcp-inspector",
+          version: expect.any(String),
+        }),
+        expect.objectContaining({
+          capabilities: expect.objectContaining({
+            elicitation: {},
+          }),
+        }),
+      );
+    });
+
+    test("sets up elicitation request handler when onElicitationRequest is provided", async () => {
+      const mockOnElicitationRequest = jest.fn();
+      const propsWithElicitation = {
+        ...defaultProps,
+        onElicitationRequest: mockOnElicitationRequest,
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithElicitation));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const elicitRequestHandlerCall =
+        mockClient.setRequestHandler.mock.calls.find((call) => {
+          try {
+            const schema = call[0];
+            const testRequest = {
+              method: "elicitation/create",
+              params: {
+                message: "test message",
+                requestedSchema: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                  },
+                },
+              },
+            };
+            const parseResult =
+              schema.safeParse && schema.safeParse(testRequest);
+            return parseResult?.success;
+          } catch {
+            return false;
+          }
+        });
+
+      expect(elicitRequestHandlerCall).toBeDefined();
+      expect(mockClient.setRequestHandler).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+
+    test("does not set up elicitation request handler when onElicitationRequest is not provided", async () => {
+      const { result } = renderHook(() => useConnection(defaultProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const elicitRequestHandlerCall =
+        mockClient.setRequestHandler.mock.calls.find((call) => {
+          try {
+            const schema = call[0];
+            const testRequest = {
+              method: "elicitation/create",
+              params: {
+                message: "test message",
+                requestedSchema: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                  },
+                },
+              },
+            };
+            const parseResult =
+              schema.safeParse && schema.safeParse(testRequest);
+            return parseResult?.success;
+          } catch {
+            return false;
+          }
+        });
+
+      expect(elicitRequestHandlerCall).toBeUndefined();
+    });
+
+    test("elicitation request handler calls onElicitationRequest callback", async () => {
+      const mockOnElicitationRequest = jest.fn();
+      const propsWithElicitation = {
+        ...defaultProps,
+        onElicitationRequest: mockOnElicitationRequest,
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithElicitation));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const elicitRequestHandlerCall =
+        mockClient.setRequestHandler.mock.calls.find((call) => {
+          try {
+            const schema = call[0];
+            const testRequest = {
+              method: "elicitation/create",
+              params: {
+                message: "test message",
+                requestedSchema: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                  },
+                },
+              },
+            };
+            const parseResult =
+              schema.safeParse && schema.safeParse(testRequest);
+            return parseResult?.success;
+          } catch {
+            return false;
+          }
+        });
+
+      expect(elicitRequestHandlerCall).toBeDefined();
+      const [, handler] = elicitRequestHandlerCall;
+
+      const mockElicitationRequest: ElicitRequest = {
+        method: "elicitation/create",
+        params: {
+          message: "Please provide your name",
+          requestedSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+            },
+            required: ["name"],
+          },
+        },
+      };
+
+      mockOnElicitationRequest.mockImplementation((_request, resolve) => {
+        resolve({ action: "accept", content: { name: "test" } });
+      });
+
+      await act(async () => {
+        await handler(mockElicitationRequest);
+      });
+
+      expect(mockOnElicitationRequest).toHaveBeenCalledWith(
+        mockElicitationRequest,
+        expect.any(Function),
+      );
+    });
+
+    test("elicitation request handler returns a promise that resolves with the callback result", async () => {
+      const mockOnElicitationRequest = jest.fn();
+      const propsWithElicitation = {
+        ...defaultProps,
+        onElicitationRequest: mockOnElicitationRequest,
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithElicitation));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const elicitRequestHandlerCall =
+        mockClient.setRequestHandler.mock.calls.find((call) => {
+          try {
+            const schema = call[0];
+            const testRequest = {
+              method: "elicitation/create",
+              params: {
+                message: "test message",
+                requestedSchema: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                  },
+                },
+              },
+            };
+            const parseResult =
+              schema.safeParse && schema.safeParse(testRequest);
+            return parseResult?.success;
+          } catch {
+            return false;
+          }
+        });
+
+      const [, handler] = elicitRequestHandlerCall;
+
+      const mockElicitationRequest: ElicitRequest = {
+        method: "elicitation/create",
+        params: {
+          message: "Please provide your name",
+          requestedSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+            },
+            required: ["name"],
+          },
+        },
+      };
+
+      const mockResponse: ElicitResult = {
+        action: "accept",
+        content: { name: "John Doe" },
+      };
+
+      mockOnElicitationRequest.mockImplementation((_request, resolve) => {
+        resolve(mockResponse);
+      });
+
+      let handlerResult;
+      await act(async () => {
+        handlerResult = await handler(mockElicitationRequest);
+      });
+
+      expect(handlerResult).toEqual(mockResponse);
+    });
   });
 
   describe("URL Port Handling", () => {

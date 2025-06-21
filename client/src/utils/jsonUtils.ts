@@ -16,11 +16,20 @@ export type JsonSchemaType = {
     | "array"
     | "object"
     | "null";
+  title?: string;
   description?: string;
-  required?: boolean;
+  required?: boolean | string[];
   default?: JsonValue;
   properties?: Record<string, JsonSchemaType>;
   items?: JsonSchemaType;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  format?: string;
+  enum?: string[];
+  enumNames?: string[];
 };
 
 export type JsonObject = { [key: string]: JsonValue };
