@@ -65,4 +65,10 @@ export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
     value: "",
     is_session_item: true,
   },
+  MCP_CUSTOM_HEADERS: {
+    label: "Custom Headers",
+    description: "Custom headers for authentication with the MCP server (stored as JSON array)",
+    value: "[]",
+    is_session_item: true,
+  },
 } as const;
