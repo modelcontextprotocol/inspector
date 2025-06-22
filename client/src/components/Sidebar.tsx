@@ -14,6 +14,9 @@ import {
   RefreshCwOff,
   Copy,
   CheckCheck,
+  Hash,
+  Plus,
+  Minus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -97,6 +100,7 @@ const Sidebar = ({
   const [showEnvVars, setShowEnvVars] = useState(false);
   const [showBearerToken, setShowBearerToken] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+  const [showHeaders, setShowHeaders] = useState(false);
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
   const [copiedServerEntry, setCopiedServerEntry] = useState(false);
   const [copiedServerFile, setCopiedServerFile] = useState(false);
@@ -616,6 +620,109 @@ const Sidebar = ({
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+
+          {/* Headers */}
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowHeaders(!showHeaders)}
+              className="flex items-center w-full"
+              data-testid="headers-button"
+              aria-expanded={showHeaders}
+            >
+              {showHeaders ? (
+                <ChevronDown className="w-4 h-4 mr-2" />
+              ) : (
+                <ChevronRight className="w-4 h-4 mr-2" />
+              )}
+              <Hash className="w-4 h-4 mr-2" />
+              Headers
+            </Button>
+            {showHeaders && (
+              <div className="space-y-2">
+                {(() => {
+                  const headersJson = config.MCP_CUSTOM_HEADERS?.value as string || "[]";
+                  let headers: Array<{ name: string; value: string }> = [];
+
+                  try {
+                    headers = JSON.parse(headersJson);
+                  } catch {
+                    headers = [];
+                  }
+
+                  const updateHeaders = (newHeaders: Array<{ name: string; value: string }>) => {
+                    const newConfig = { ...config };
+                    newConfig.MCP_CUSTOM_HEADERS = {
+                      ...config.MCP_CUSTOM_HEADERS,
+                      value: JSON.stringify(newHeaders),
+                    };
+                    setConfig(newConfig);
+                  };
+
+                  const addHeader = () => {
+                    updateHeaders([...headers, { name: "", value: "" }]);
+                  };
+
+                  const removeHeader = (index: number) => {
+                    const newHeaders = headers.filter((_, i) => i !== index);
+                    updateHeaders(newHeaders);
+                  };
+
+                  const updateHeader = (index: number, field: "name" | "value", value: string) => {
+                    const newHeaders = [...headers];
+                    newHeaders[index] = { ...newHeaders[index], [field]: value };
+                    updateHeaders(newHeaders);
+                  };
+
+                  return (
+                    <>
+                      {headers.map((header, index) => (
+                        <div key={index} className="space-y-2 p-2 border rounded">
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium text-green-600">
+                              Header {index + 1}
+                            </label>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => removeHeader(index)}
+                              data-testid={`remove-header-${index}`}
+                            >
+                              <Minus className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <Input
+                            placeholder="Header name (e.g., X-API-Key)"
+                            value={header.name}
+                            onChange={(e) => updateHeader(index, "name", e.target.value)}
+                            data-testid={`header-name-${index}`}
+                            className="font-mono"
+                          />
+                          <Input
+                            placeholder="Header value"
+                            value={header.value}
+                            onChange={(e) => updateHeader(index, "value", e.target.value)}
+                            data-testid={`header-value-${index}`}
+                            className="font-mono"
+                            type="password"
+                          />
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        onClick={addHeader}
+                        className="w-full"
+                        data-testid="add-header-button"
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Header
+                      </Button>
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
