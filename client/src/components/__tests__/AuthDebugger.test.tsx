@@ -41,6 +41,7 @@ jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
   startAuthorization: jest.fn(),
   exchangeAuthorization: jest.fn(),
   discoverOAuthProtectedResourceMetadata: jest.fn(),
+  selectResourceURL: jest.fn(),
 }));
 
 // Import the functions to get their types

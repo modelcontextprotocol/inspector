@@ -49,10 +49,11 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         }
       }
 
-      const resource = selectResourceURL(
+      const resource: URL | undefined = await selectResourceURL(
         context.serverUrl,
         context.provider,
-        resourceMetadata,
+        // we default to null, so swap it for undefined if not set
+        resourceMetadata ?? undefined,
       );
 
       const metadata = await discoverOAuthMetadata(authServerUrl);
