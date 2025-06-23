@@ -89,7 +89,9 @@ app.use((req, res, next) => {
 const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Web app transports by web app sessionId
 const serverTransports: Map<string, Transport> = new Map<string, Transport>(); // Server Transports by web app sessionId
 
-const sessionToken = randomBytes(32).toString("hex");
+// Use provided token from environment or generate a new one
+const sessionToken =
+  process.env.MCP_PROXY_TOKEN || randomBytes(32).toString("hex");
 const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
 
 // Origin validation middleware to prevent DNS rebinding attacks
@@ -544,7 +546,7 @@ server.on("listening", () => {
     const clientPort = process.env.CLIENT_PORT || "6274";
     const clientUrl = `http://localhost:${clientPort}/?MCP_PROXY_AUTH_TOKEN=${sessionToken}`;
     console.log(
-      `\n🔗 Open inspector with token pre-filled:\n   ${clientUrl}\n   (Auto-open is disabled when authentication is enabled)\n`,
+      `\n🔗 Open inspector with token pre-filled:\n   ${clientUrl}\n`,
     );
   } else {
     console.log(
