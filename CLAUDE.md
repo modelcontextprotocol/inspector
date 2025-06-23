@@ -30,4 +30,4 @@ The project is organized as a monorepo with workspaces:
 
 - `client/`: React frontend with Vite, TypeScript and Tailwind
 - `server/`: Express backend with TypeScript
-- `bin/`: CLI scripts
+- `cli/`: Command-line interface for testing and invoking MCP server methods directly
