@@ -138,8 +138,10 @@ async function runCli(args: Args): Promise<void> {
       echoOutput: true,
     });
   } catch (e) {
-    if (!cancelled || process.env.DEBUG) {
-      throw e;
+    if (!cancelled) {
+      // Don't re-throw the error since the child process already handled it
+      // Just exit with the same code
+      process.exit(1);
     }
   }
 }
@@ -267,15 +269,11 @@ function parseArgs(): Args {
 }
 
 async function main(): Promise<void> {
-  process.on("uncaughtException", (error) => {
-    handleError(error);
-  });
-
   try {
     const args = parseArgs();
 
     if (args.cli) {
-      runCli(args);
+      await runCli(args);
     } else {
       await runWebClient(args);
     }

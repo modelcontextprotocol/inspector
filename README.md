@@ -324,6 +324,54 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --me
 | **Automation**           | N/A                                                                       | Ideal for CI/CD pipelines, batch processing, and integration with coding assistants                                                                  |
 | **Learning MCP**         | Rich visual interface helps new users understand server capabilities      | Simplified commands for focused learning of specific endpoints                                                                                       |
 
+## Evaluation (Evals) Mode
+
+The inspector includes an evaluation framework for automated testing of LLM interactions with MCP servers. This enables systematic testing of tool usage, safety constraints, and output quality.
+
+```bash
+# Run evaluations with a config file
+npx @modelcontextprotocol/inspector --cli --evals path/to/eval-config.json node build/index.js
+```
+
+**Requirements:** Set your `ANTHROPIC_API_KEY` environment variable to use the evaluation framework.
+
+Evaluation configurations support:
+
+- **Tool call validation**: Specify required, allowed, or prohibited tools
+- **Output scoring**: Validate responses using regex, JSON schema, or LLM judge
+- **Multi-step conversations**: Test complex interactions with multiple LLM turns
+- **Safety testing**: Verify the LLM refuses dangerous operations
+
+For a complete example configuration, see [sample-evals.json](sample-evals.json).
+
+Example eval configuration:
+
+```json
+{
+  "config": {
+    "model": "claude-3-haiku-20240307",
+    "timeout": 30000,
+    "maxSteps": 3
+  },
+  "evals": [
+    {
+      "name": "tool_usage_test",
+      "description": "Test correct tool selection",
+      "prompt": "List available tools",
+      "expectedToolCalls": {
+        "required": ["list_tools"]
+      },
+      "responseScorers": [
+        {
+          "type": "regex",
+          "pattern": "tool"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## License
 
 This project is licensed under the MIT License—see the [LICENSE](LICENSE) file for details.

@@ -19,6 +19,7 @@ import {
 } from "./client/index.js";
 import { handleError } from "./error-handler.js";
 import { createTransport, TransportOptions } from "./transport.js";
+import { runEvals } from "./eval/engine.js";
 
 type Args = {
   target: string[];
@@ -30,6 +31,7 @@ type Args = {
   toolName?: string;
   toolArg?: Record<string, string>;
   transport?: "sse" | "stdio" | "http";
+  evals?: string;
 };
 
 function createTransportOptions(
@@ -94,6 +96,12 @@ async function callMethod(args: Args): Promise<void> {
 
   try {
     await connect(client, transport);
+
+    // Handle eval mode
+    if (args.evals) {
+      await runEvals(client, args.evals);
+      return;
+    }
 
     let result: McpResponse;
 
@@ -256,7 +264,11 @@ function parseArgs(): Args {
         }
         return value as "sse" | "http" | "stdio";
       },
-    );
+    )
+    //
+    // Eval options
+    //
+    .option("--evals <path>", "Path to eval configuration file");
 
   // Parse only the arguments before --
   program.parse(preArgs);
@@ -267,9 +279,9 @@ function parseArgs(): Args {
   // Add back any arguments that came after --
   const finalArgs = [...remainingArgs, ...postArgs];
 
-  if (!options.method) {
+  if (!options.method && !options.evals) {
     throw new Error(
-      "Method is required. Use --method to specify the method to invoke.",
+      "Either --method or --evals is required. Use --method to specify the method to invoke, or --evals to run evaluations.",
     );
   }
 
