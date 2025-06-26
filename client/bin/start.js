@@ -12,6 +12,14 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms, true));
 }
 
+function getClientUrl(port, authDisabled, sessionToken) {
+  const host = process.env.HOST || "localhost";
+  const baseUrl = `http://${host}:${port}`;
+  return authDisabled
+    ? baseUrl
+    : `${baseUrl}/?MCP_PROXY_AUTH_TOKEN=${sessionToken}`;
+}
+
 async function startDevServer(serverOptions) {
   const { SERVER_PORT, CLIENT_PORT, sessionToken, envVars, abort } =
     serverOptions;
@@ -23,7 +31,7 @@ async function startDevServer(serverOptions) {
     cwd: resolve(__dirname, "../..", "server"),
     env: {
       ...process.env,
-      PORT: SERVER_PORT,
+      SERVER_PORT: SERVER_PORT,
       CLIENT_PORT: CLIENT_PORT,
       MCP_PROXY_TOKEN: sessionToken,
       MCP_ENV_VARS: JSON.stringify(envVars),
@@ -82,7 +90,7 @@ async function startProdServer(serverOptions) {
     {
       env: {
         ...process.env,
-        PORT: SERVER_PORT,
+        SERVER_PORT: SERVER_PORT,
         CLIENT_PORT: CLIENT_PORT,
         MCP_PROXY_TOKEN: sessionToken,
         MCP_ENV_VARS: JSON.stringify(envVars),
@@ -102,20 +110,19 @@ async function startDevClient(clientOptions) {
   const { CLIENT_PORT, authDisabled, sessionToken, abort, cancelled } =
     clientOptions;
   const clientCommand = "npx";
-  const clientArgs = ["vite", "--port", CLIENT_PORT];
+  const host = process.env.HOST || "localhost";
+  const clientArgs = ["vite", "--port", CLIENT_PORT, "--host", host];
 
   const client = spawn(clientCommand, clientArgs, {
     cwd: resolve(__dirname, ".."),
-    env: { ...process.env, PORT: CLIENT_PORT },
+    env: { ...process.env, CLIENT_PORT: CLIENT_PORT },
     signal: abort.signal,
     echoOutput: true,
   });
 
   // Auto-open browser after vite starts
   if (process.env.MCP_AUTO_OPEN_ENABLED !== "false") {
-    const url = authDisabled
-      ? `http://127.0.0.1:${CLIENT_PORT}`
-      : `http://127.0.0.1:${CLIENT_PORT}/?MCP_PROXY_AUTH_TOKEN=${sessionToken}`;
+    const url = getClientUrl(CLIENT_PORT, authDisabled, sessionToken);
 
     // Give vite time to start before opening browser
     setTimeout(() => {
@@ -139,7 +146,8 @@ async function startDevClient(clientOptions) {
 }
 
 async function startProdClient(clientOptions) {
-  const { CLIENT_PORT, authDisabled, sessionToken, abort } = clientOptions;
+  const { CLIENT_PORT, authDisabled, sessionToken, abort, cancelled } =
+    clientOptions;
   const inspectorClientPath = resolve(
     __dirname,
     "../..",
@@ -148,16 +156,14 @@ async function startProdClient(clientOptions) {
     "client.js",
   );
 
-  // Auto-open browser with token
-  if (process.env.MCP_AUTO_OPEN_ENABLED !== "false") {
-    const url = authDisabled
-      ? `http://127.0.0.1:${CLIENT_PORT}`
-      : `http://127.0.0.1:${CLIENT_PORT}/?MCP_PROXY_AUTH_TOKEN=${sessionToken}`;
+  // Only auto-open browser if not cancelled
+  if (process.env.MCP_AUTO_OPEN_ENABLED !== "false" && !cancelled) {
+    const url = getClientUrl(CLIENT_PORT, authDisabled, sessionToken);
     open(url);
   }
 
   await spawnPromise("node", [inspectorClientPath], {
-    env: { ...process.env, PORT: CLIENT_PORT },
+    env: { ...process.env, CLIENT_PORT: CLIENT_PORT },
     signal: abort.signal,
     echoOutput: true,
   });

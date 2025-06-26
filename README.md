@@ -168,20 +168,20 @@ DANGEROUSLY_OMIT_AUTH=true npm start
 
 #### Local-only Binding
 
-By default, the MCP Inspector proxy server binds only to `127.0.0.1` (localhost) to prevent network access. This ensures the server is not accessible from other devices on the network. If you need to bind to all interfaces for development purposes, you can override this with the `HOST` environment variable:
+By default, both the MCP Inspector proxy server and client bind only to `localhost` to prevent network access. This ensures they are not accessible from other devices on the network. If you need to bind to all interfaces for development purposes, you can override this with the `HOST` environment variable:
 
 ```bash
 HOST=0.0.0.0 npm start
 ```
 
-**Warning:** Only bind to all interfaces in trusted network environments, as this exposes the proxy server's ability to execute local processes.
+**Warning:** Only bind to all interfaces in trusted network environments, as this exposes the proxy server's ability to execute local processes and both services to network access.
 
 #### DNS Rebinding Protection
 
 To prevent DNS rebinding attacks, the MCP Inspector validates the `Origin` header on incoming requests. By default, only requests from the client origin are allowed (respects `CLIENT_PORT` if set, defaulting to port 6274). You can configure additional allowed origins by setting the `ALLOWED_ORIGINS` environment variable (comma-separated list):
 
 ```bash
-ALLOWED_ORIGINS=http://localhost:6274,http://127.0.0.1:6274,http://localhost:8000 npm start
+ALLOWED_ORIGINS=http://localhost:6274,http://localhost:8000 npm start
 ```
 
 ### Configuration

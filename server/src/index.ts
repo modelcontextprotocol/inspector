@@ -104,12 +104,10 @@ const originValidationMiddleware = (
 
   // Default origins based on CLIENT_PORT or use environment variable
   const clientPort = process.env.CLIENT_PORT || "6274";
-  const defaultOrigins = [
-    `http://localhost:${clientPort}`,
-    `http://127.0.0.1:${clientPort}`,
+  const defaultOrigin = `http://localhost:${clientPort}`;
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
+    defaultOrigin,
   ];
-  const allowedOrigins =
-    process.env.ALLOWED_ORIGINS?.split(",") || defaultOrigins;
 
   if (origin && !allowedOrigins.includes(origin)) {
     console.error(`Invalid origin: ${origin}`);
@@ -530,8 +528,8 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
   }
 });
 
-const PORT = parseInt(process.env.PORT || "6277", 10);
-const HOST = process.env.HOST || "127.0.0.1";
+const PORT = parseInt(process.env.SERVER_PORT || "6277", 10);
+const HOST = process.env.HOST || "localhost";
 
 const server = app.listen(PORT, HOST);
 server.on("listening", () => {
@@ -544,7 +542,8 @@ server.on("listening", () => {
 
     // Display clickable URL with pre-filled token
     const clientPort = process.env.CLIENT_PORT || "6274";
-    const clientUrl = `http://localhost:${clientPort}/?MCP_PROXY_AUTH_TOKEN=${sessionToken}`;
+    const clientHost = process.env.HOST || "localhost";
+    const clientUrl = `http://${clientHost}:${clientPort}/?MCP_PROXY_AUTH_TOKEN=${sessionToken}`;
     console.log(
       `\n🔗 Open inspector with token pre-filled:\n   ${clientUrl}\n`,
     );
