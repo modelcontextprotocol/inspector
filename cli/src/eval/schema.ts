@@ -118,18 +118,19 @@ export const evalConfigSchema = {
                   type: "object",
                   properties: {
                     type: { const: "llm-judge" },
-                    prompt: {
+                    criteria: {
                       type: "string",
-                      description: "Prompt for LLM judge evaluation",
+                      description: "Evaluation criteria for the LLM judge",
                     },
                     threshold: {
                       type: "number",
                       minimum: 0,
                       maximum: 1,
                       description: "Minimum score threshold (0.0 to 1.0)",
+                      default: 0.8,
                     },
                   },
-                  required: ["type", "prompt"],
+                  required: ["type", "criteria"],
                   additionalProperties: false,
                   description: "LLM judge scorer",
                 },
@@ -166,7 +167,7 @@ export interface EvalConfig {
       type: "json-schema" | "llm-judge" | "regex";
       schema?: any;
       pattern?: string;
-      prompt?: string;
+      criteria?: string;
       threshold?: number;
     }>;
   }>;

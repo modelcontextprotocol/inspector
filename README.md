@@ -338,9 +338,10 @@ npx @modelcontextprotocol/inspector --cli --evals path/to/eval-config.json node 
 Evaluation configurations support:
 
 - **Tool call validation**: Specify required, allowed, or prohibited tools
-- **Output scoring**: Validate responses using regex, JSON schema, or LLM judge
-- **Multi-step conversations**: Test complex interactions with multiple LLM turns
+- **Response scoring**: Validate responses using regex, JSON schema, or LLM judge
+- **Multi-step conversations**: Test complex interactions with multiple LLM turns  
 - **Safety testing**: Verify the LLM refuses dangerous operations
+- **Intelligent evaluation**: LLM judges provide nuanced scoring (0.0-1.0) with configurable thresholds
 
 For a complete example configuration, see [sample-evals.json](sample-evals.json).
 
@@ -365,6 +366,11 @@ Example eval configuration:
         {
           "type": "regex",
           "pattern": "tool"
+        },
+        {
+          "type": "llm-judge", 
+          "criteria": "Did the assistant provide a helpful and accurate response about the available tools?",
+          "threshold": 0.8
         }
       ]
     }
