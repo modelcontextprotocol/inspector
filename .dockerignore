@@ -1,0 +1,35 @@
+# Version control
+.git
+.gitignore
+
+# Node.js
+node_modules
+npm-debug.log
+
+# Build artifacts
+client/dist
+client/build
+server/dist
+server/build
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Editor files
+.vscode
+.idea
+
+# Logs
+logs
+*.log
+
+# Testing
+coverage
+
+# Docker
+Dockerfile
+.dockerignore

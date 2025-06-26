@@ -17,6 +17,11 @@ import {
   Tool,
   LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
+import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
+import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
+import { OAuthStateMachine } from "./lib/oauth-state-machine";
+import { cacheToolOutputSchemas } from "./utils/schemaUtils";
 import React, {
   Suspense,
   useCallback,
@@ -25,21 +30,27 @@ import React, {
   useState,
 } from "react";
 import { useConnection } from "./lib/hooks/useConnection";
-import { useDraggablePane } from "./lib/hooks/useDraggablePane";
+import {
+  useDraggablePane,
+  useDraggableSidebar,
+} from "./lib/hooks/useDraggablePane";
 import { StdErrNotification } from "./lib/notificationTypes";
 
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import {
   Bell,
   Files,
   FolderTree,
   Hammer,
   Hash,
+  Key,
   MessageSquare,
 } from "lucide-react";
 
 import { z } from "zod";
 import "./App.css";
+import AuthDebugger from "./components/AuthDebugger";
 import ConsoleTab from "./components/ConsoleTab";
 import HistoryAndNotifications from "./components/History";
 import PingTab from "./components/PingTab";
@@ -52,11 +63,13 @@ import ToolsTab from "./components/ToolsTab";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
   getMCPProxyAddress,
+  getMCPProxyAuthToken,
   getInitialSseUrl,
   getInitialTransportType,
   getInitialCommand,
   getInitialArgs,
   initializeInspectorConfig,
+  saveInspectorConfig,
 } from "./utils/configUtils";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
@@ -111,6 +124,16 @@ const App = () => {
       }
     >
   >([]);
+  const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
+
+  // Auth debugger state
+  const [authState, setAuthState] =
+    useState<AuthDebuggerState>(EMPTY_DEBUGGER_STATE);
+
+  // Helper function to update specific auth state properties
+  const updateAuthState = (updates: Partial<AuthDebuggerState>) => {
+    setAuthState((prev) => ({ ...prev, ...updates }));
+  };
   const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
 
@@ -136,6 +159,11 @@ const App = () => {
   const progressTokenRef = useRef(0);
 
   const { height: historyPaneHeight, handleDragStart } = useDraggablePane(300);
+  const {
+    width: sidebarWidth,
+    isDragging: isSidebarDragging,
+    handleDragStart: handleSidebarDragStart,
+  } = useDraggableSidebar(320);
 
   const {
     connectionStatus,
@@ -201,21 +229,132 @@ const App = () => {
   }, [headerName]);
 
   useEffect(() => {
-    localStorage.setItem(CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
+    saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
   }, [config]);
 
   // Auto-connect to previously saved serverURL after OAuth callback
   const onOAuthConnect = useCallback(
     (serverUrl: string) => {
       setSseUrl(serverUrl);
-      setTransportType("sse");
+      setIsAuthDebuggerVisible(false);
       void connectMcpServer();
     },
     [connectMcpServer],
   );
 
+  // Update OAuth debug state during debug callback
+  const onOAuthDebugConnect = useCallback(
+    async ({
+      authorizationCode,
+      errorMsg,
+      restoredState,
+    }: {
+      authorizationCode?: string;
+      errorMsg?: string;
+      restoredState?: AuthDebuggerState;
+    }) => {
+      setIsAuthDebuggerVisible(true);
+
+      if (errorMsg) {
+        updateAuthState({
+          latestError: new Error(errorMsg),
+        });
+        return;
+      }
+
+      if (restoredState && authorizationCode) {
+        // Restore the previous auth state and continue the OAuth flow
+        let currentState: AuthDebuggerState = {
+          ...restoredState,
+          authorizationCode,
+          oauthStep: "token_request",
+          isInitiatingAuth: true,
+          statusMessage: null,
+          latestError: null,
+        };
+
+        try {
+          // Create a new state machine instance to continue the flow
+          const stateMachine = new OAuthStateMachine(sseUrl, (updates) => {
+            currentState = { ...currentState, ...updates };
+          });
+
+          // Continue stepping through the OAuth flow from where we left off
+          while (
+            currentState.oauthStep !== "complete" &&
+            currentState.oauthStep !== "authorization_code"
+          ) {
+            await stateMachine.executeStep(currentState);
+          }
+
+          if (currentState.oauthStep === "complete") {
+            // After the flow completes or reaches a user-input step, update the app state
+            updateAuthState({
+              ...currentState,
+              statusMessage: {
+                type: "success",
+                message: "Authentication completed successfully",
+              },
+              isInitiatingAuth: false,
+            });
+          }
+        } catch (error) {
+          console.error("OAuth continuation error:", error);
+          updateAuthState({
+            latestError:
+              error instanceof Error ? error : new Error(String(error)),
+            statusMessage: {
+              type: "error",
+              message: `Failed to complete OAuth flow: ${error instanceof Error ? error.message : String(error)}`,
+            },
+            isInitiatingAuth: false,
+          });
+        }
+      } else if (authorizationCode) {
+        // Fallback to the original behavior if no state was restored
+        updateAuthState({
+          authorizationCode,
+          oauthStep: "token_request",
+        });
+      }
+    },
+    [sseUrl],
+  );
+
+  // Load OAuth tokens when sseUrl changes
   useEffect(() => {
-    fetch(`${getMCPProxyAddress(config)}/config`)
+    const loadOAuthTokens = async () => {
+      try {
+        if (sseUrl) {
+          const key = getServerSpecificKey(SESSION_KEYS.TOKENS, sseUrl);
+          const tokens = sessionStorage.getItem(key);
+          if (tokens) {
+            const parsedTokens = await OAuthTokensSchema.parseAsync(
+              JSON.parse(tokens),
+            );
+            updateAuthState({
+              oauthTokens: parsedTokens,
+              oauthStep: "complete",
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error loading OAuth tokens:", error);
+      }
+    };
+
+    loadOAuthTokens();
+  }, [sseUrl]);
+
+  useEffect(() => {
+    const headers: HeadersInit = {};
+    const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
+      getMCPProxyAuthToken(config);
+    if (proxyAuthToken) {
+      headers[proxyAuthTokenHeader] = `Bearer ${proxyAuthToken}`;
+    }
+
+    fetch(`${getMCPProxyAddress(config)}/config`, { headers })
       .then((response) => response.json())
       .then((data) => {
         setEnv(data.defaultEnvironment);
@@ -229,8 +368,7 @@ const App = () => {
       .catch((error) =>
         console.error("Error fetching default environment:", error),
       );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [config]);
 
   useEffect(() => {
     rootsRef.current = roots;
@@ -395,6 +533,8 @@ const App = () => {
     );
     setTools(response.tools);
     setNextToolCursor(response.nextCursor);
+    // Cache output schemas for validation
+    cacheToolOutputSchemas(response.tools);
   };
 
   const callTool = async (name: string, params: Record<string, unknown>) => {
@@ -447,6 +587,19 @@ const App = () => {
     setStdErrNotifications([]);
   };
 
+  // Helper component for rendering the AuthDebugger
+  const AuthDebuggerWrapper = () => (
+    <TabsContent value="auth">
+      <AuthDebugger
+        serverUrl={sseUrl}
+        onBack={() => setIsAuthDebuggerVisible(false)}
+        authState={authState}
+        updateAuthState={updateAuthState}
+      />
+    </TabsContent>
+  );
+
+  // Helper function to render OAuth callback components
   if (window.location.pathname === "/oauth/callback") {
     const OAuthCallback = React.lazy(
       () => import("./components/OAuthCallback"),
@@ -458,34 +611,71 @@ const App = () => {
     );
   }
 
+  if (window.location.pathname === "/oauth/callback/debug") {
+    const OAuthDebugCallback = React.lazy(
+      () => import("./components/OAuthDebugCallback"),
+    );
+    return (
+      <Suspense fallback={<div>Loading...</div>}>
+        <OAuthDebugCallback onConnect={onOAuthDebugConnect} />
+      </Suspense>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar
-        connectionStatus={connectionStatus}
-        transportType={transportType}
-        setTransportType={setTransportType}
-        command={command}
-        setCommand={setCommand}
-        args={args}
-        setArgs={setArgs}
-        sseUrl={sseUrl}
-        setSseUrl={setSseUrl}
-        env={env}
-        setEnv={setEnv}
-        config={config}
-        setConfig={setConfig}
-        bearerToken={bearerToken}
-        setBearerToken={setBearerToken}
-        headerName={headerName}
-        setHeaderName={setHeaderName}
-        onConnect={connectMcpServer}
-        onDisconnect={disconnectMcpServer}
-        stdErrNotifications={stdErrNotifications}
-        logLevel={logLevel}
-        sendLogLevelRequest={sendLogLevelRequest}
-        loggingSupported={!!serverCapabilities?.logging || false}
-        clearStdErrNotifications={clearStdErrNotifications}
-      />
+      <div
+        style={{
+          width: sidebarWidth,
+          minWidth: 200,
+          maxWidth: 600,
+          transition: isSidebarDragging ? "none" : "width 0.15s",
+        }}
+        className="bg-card border-r border-border flex flex-col h-full relative"
+      >
+        <Sidebar
+          connectionStatus={connectionStatus}
+          transportType={transportType}
+          setTransportType={setTransportType}
+          command={command}
+          setCommand={setCommand}
+          args={args}
+          setArgs={setArgs}
+          sseUrl={sseUrl}
+          setSseUrl={setSseUrl}
+          env={env}
+          setEnv={setEnv}
+          config={config}
+          setConfig={setConfig}
+          bearerToken={bearerToken}
+          setBearerToken={setBearerToken}
+          headerName={headerName}
+          setHeaderName={setHeaderName}
+          onConnect={connectMcpServer}
+          onDisconnect={disconnectMcpServer}
+          stdErrNotifications={stdErrNotifications}
+          logLevel={logLevel}
+          sendLogLevelRequest={sendLogLevelRequest}
+          loggingSupported={!!serverCapabilities?.logging || false}
+          clearStdErrNotifications={clearStdErrNotifications}
+        />
+        {/* Drag handle for resizing sidebar */}
+        <div
+          onMouseDown={handleSidebarDragStart}
+          style={{
+            cursor: "col-resize",
+            position: "absolute",
+            top: 0,
+            right: 0,
+            width: 6,
+            height: "100%",
+            zIndex: 10,
+            background: isSidebarDragging ? "rgba(0,0,0,0.08)" : "transparent",
+          }}
+          aria-label="Resize sidebar"
+          data-testid="sidebar-drag-handle"
+        />
+      </div>
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
           {mcpClient ? (
@@ -506,7 +696,7 @@ const App = () => {
               className="w-full p-4"
               onValueChange={(value) => (window.location.hash = value)}
             >
-              <TabsList className="mb-4 p-0">
+              <TabsList className="mb-4 py-0">
                 <TabsTrigger
                   value="resources"
                   disabled={!serverCapabilities?.resources}
@@ -545,6 +735,10 @@ const App = () => {
                   <FolderTree className="w-4 h-4 mr-2" />
                   Roots
                 </TabsTrigger>
+                <TabsTrigger value="auth">
+                  <Key className="w-4 h-4 mr-2" />
+                  Auth
+                </TabsTrigger>
               </TabsList>
 
               <div className="w-full">
@@ -553,7 +747,7 @@ const App = () => {
                 !serverCapabilities?.tools ? (
                   <>
                     <div className="flex items-center justify-center p-4">
-                      <p className="text-lg text-gray-500">
+                      <p className="text-lg text-gray-500 dark:text-gray-400">
                         The connected server does not support any MCP
                         capabilities
                       </p>
@@ -653,6 +847,8 @@ const App = () => {
                       clearTools={() => {
                         setTools([]);
                         setNextToolCursor(undefined);
+                        // Clear cached output schemas
+                        cacheToolOutputSchemas([]);
                       }}
                       callTool={async (name, params) => {
                         clearError("tools");
@@ -690,15 +886,36 @@ const App = () => {
                       setRoots={setRoots}
                       onRootsChange={handleRootsChange}
                     />
+                    <AuthDebuggerWrapper />
                   </>
                 )}
               </div>
             </Tabs>
+          ) : isAuthDebuggerVisible ? (
+            <Tabs
+              defaultValue={"auth"}
+              className="w-full p-4"
+              onValueChange={(value) => (window.location.hash = value)}
+            >
+              <AuthDebuggerWrapper />
+            </Tabs>
           ) : (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-lg text-gray-500">
+            <div className="flex flex-col items-center justify-center h-full gap-4">
+              <p className="text-lg text-gray-500 dark:text-gray-400">
                 Connect to an MCP server to start inspecting
               </p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-muted-foreground">
+                  Need to configure authentication?
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsAuthDebuggerVisible(true)}
+                >
+                  Open Auth Settings
+                </Button>
+              </div>
             </div>
           )}
         </div>
@@ -709,7 +926,7 @@ const App = () => {
           }}
         >
           <div
-            className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50"
+            className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50 dark:hover:bg-input/40"
             onMouseDown={handleDragStart}
           >
             <div className="w-8 h-1 rounded-full bg-border" />

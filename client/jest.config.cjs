@@ -21,6 +21,7 @@ module.exports = {
     "/node_modules/",
     "/dist/",
     "/bin/",
+    "/e2e/",
     "\\.config\\.(js|ts|cjs|mjs)$",
   ],
   // Exclude the same patterns from coverage reports
@@ -28,6 +29,7 @@ module.exports = {
     "/node_modules/",
     "/dist/",
     "/bin/",
+    "/e2e/",
     "\\.config\\.(js|ts|cjs|mjs)$",
   ],
 };

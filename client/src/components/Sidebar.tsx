@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   Play,
   ChevronDown,
@@ -12,6 +12,8 @@ import {
   Settings,
   HelpCircle,
   RefreshCwOff,
+  Copy,
+  CheckCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +38,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import { useToast } from "../lib/hooks/useToast";
 
 interface SidebarProps {
   connectionStatus: ConnectionStatus;
@@ -95,10 +98,124 @@ const Sidebar = ({
   const [showBearerToken, setShowBearerToken] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
+  const [copiedServerEntry, setCopiedServerEntry] = useState(false);
+  const [copiedServerFile, setCopiedServerFile] = useState(false);
+  const { toast } = useToast();
+
+  // Reusable error reporter for copy actions
+  const reportError = useCallback(
+    (error: unknown) => {
+      toast({
+        title: "Error",
+        description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
+        variant: "destructive",
+      });
+    },
+    [toast],
+  );
+
+  // Shared utility function to generate server config
+  const generateServerConfig = useCallback(() => {
+    if (transportType === "stdio") {
+      return {
+        command,
+        args: args.trim() ? args.split(/\s+/) : [],
+        env: { ...env },
+      };
+    }
+    if (transportType === "sse") {
+      return {
+        type: "sse",
+        url: sseUrl,
+        note: "For SSE connections, add this URL directly in your MCP Client",
+      };
+    }
+    if (transportType === "streamable-http") {
+      return {
+        type: "streamable-http",
+        url: sseUrl,
+        note: "For Streamable HTTP connections, add this URL directly in your MCP Client",
+      };
+    }
+    return {};
+  }, [transportType, command, args, env, sseUrl]);
+
+  // Memoized config entry generator
+  const generateMCPServerEntry = useCallback(() => {
+    return JSON.stringify(generateServerConfig(), null, 4);
+  }, [generateServerConfig]);
+
+  // Memoized config file generator
+  const generateMCPServerFile = useCallback(() => {
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "default-server": generateServerConfig(),
+        },
+      },
+      null,
+      4,
+    );
+  }, [generateServerConfig]);
+
+  // Memoized copy handlers
+  const handleCopyServerEntry = useCallback(() => {
+    try {
+      const configJson = generateMCPServerEntry();
+      navigator.clipboard
+        .writeText(configJson)
+        .then(() => {
+          setCopiedServerEntry(true);
+
+          toast({
+            title: "Config entry copied",
+            description:
+              transportType === "stdio"
+                ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
+                : "SSE URL has been copied. Use this URL directly in your MCP Client.",
+          });
+
+          setTimeout(() => {
+            setCopiedServerEntry(false);
+          }, 2000);
+        })
+        .catch((error) => {
+          reportError(error);
+        });
+    } catch (error) {
+      reportError(error);
+    }
+  }, [generateMCPServerEntry, transportType, toast, reportError]);
+
+  const handleCopyServerFile = useCallback(() => {
+    try {
+      const configJson = generateMCPServerFile();
+      navigator.clipboard
+        .writeText(configJson)
+        .then(() => {
+          setCopiedServerFile(true);
+
+          toast({
+            title: "Servers file copied",
+            description:
+              "Servers configuration has been copied to clipboard. Add this to your mcp.json file. Current testing server will be added as 'default-server'",
+          });
+
+          setTimeout(() => {
+            setCopiedServerFile(false);
+          }, 2000);
+        })
+        .catch((error) => {
+          reportError(error);
+        });
+    } catch (error) {
+      reportError(error);
+    }
+  }, [generateMCPServerFile, toast, reportError]);
 
   return (
-    <div className="w-80 bg-card border-r border-border flex flex-col h-full">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800">
+    <div className="bg-card border-r border-border flex flex-col h-full">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-border">
         <div className="flex items-center">
           <h1 className="ml-2 text-lg font-semibold">
             MCP Inspector v{version}
@@ -168,13 +285,28 @@ const Sidebar = ({
                 <label className="text-sm font-medium" htmlFor="sse-url-input">
                   URL
                 </label>
-                <Input
-                  id="sse-url-input"
-                  placeholder="URL"
-                  value={sseUrl}
-                  onChange={(e) => setSseUrl(e.target.value)}
-                  className="font-mono"
-                />
+                {sseUrl ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Input
+                        id="sse-url-input"
+                        placeholder="URL"
+                        value={sseUrl}
+                        onChange={(e) => setSseUrl(e.target.value)}
+                        className="font-mono"
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>{sseUrl}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Input
+                    id="sse-url-input"
+                    placeholder="URL"
+                    value={sseUrl}
+                    onChange={(e) => setSseUrl(e.target.value)}
+                    className="font-mono"
+                  />
+                )}
               </div>
               <div className="space-y-2">
                 <Button
@@ -223,6 +355,7 @@ const Sidebar = ({
               </div>
             </>
           )}
+
           {transportType === "stdio" && (
             <div className="space-y-2">
               <Button
@@ -347,6 +480,46 @@ const Sidebar = ({
               )}
             </div>
           )}
+
+          {/* Always show both copy buttons for all transport types */}
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyServerEntry}
+                  className="w-full"
+                >
+                  {copiedServerEntry ? (
+                    <CheckCheck className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-2" />
+                  )}
+                  Server Entry
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Copy Server Entry</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyServerFile}
+                  className="w-full"
+                >
+                  {copiedServerFile ? (
+                    <CheckCheck className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-2" />
+                  )}
+                  Servers File
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Copy Servers File</TooltipContent>
+            </Tooltip>
+          </div>
 
           {/* Configuration */}
           <div className="space-y-2">
@@ -488,13 +661,18 @@ const Sidebar = ({
                   }
                 })()}`}
               />
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-gray-600 dark:text-gray-400">
                 {(() => {
                   switch (connectionStatus) {
                     case "connected":
                       return "Connected";
-                    case "error":
-                      return "Connection Error, is your MCP server running?";
+                    case "error": {
+                      const hasProxyToken = config.MCP_PROXY_AUTH_TOKEN?.value;
+                      if (!hasProxyToken) {
+                        return "Connection Error - Did you add the proxy session token in Configuration?";
+                      }
+                      return "Connection Error - Check if your MCP server is running and proxy token is correct";
+                    }
                     case "error-connecting-to-proxy":
                       return "Error Connecting to MCP Inspector Proxy - Check Console logs";
                     default:

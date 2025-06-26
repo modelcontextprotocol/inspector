@@ -29,9 +29,13 @@ type Args = {
   logLevel?: LogLevel;
   toolName?: string;
   toolArg?: Record<string, string>;
+  transport?: "sse" | "stdio" | "http";
 };
 
-function createTransportOptions(target: string[]): TransportOptions {
+function createTransportOptions(
+  target: string[],
+  transport?: "sse" | "stdio" | "http",
+): TransportOptions {
   if (target.length === 0) {
     throw new Error(
       "Target is required. Specify a URL or a command to execute.",
@@ -50,8 +54,30 @@ function createTransportOptions(target: string[]): TransportOptions {
     throw new Error("Arguments cannot be passed to a URL-based MCP server.");
   }
 
+  let transportType: "sse" | "stdio" | "http";
+  if (transport) {
+    if (!isUrl && transport !== "stdio") {
+      throw new Error("Only stdio transport can be used with local commands.");
+    }
+    if (isUrl && transport === "stdio") {
+      throw new Error("stdio transport cannot be used with URLs.");
+    }
+    transportType = transport;
+  } else if (isUrl) {
+    const url = new URL(command);
+    if (url.pathname.endsWith("/mcp")) {
+      transportType = "http";
+    } else if (url.pathname.endsWith("/sse")) {
+      transportType = "sse";
+    } else {
+      transportType = "sse";
+    }
+  } else {
+    transportType = "stdio";
+  }
+
   return {
-    transportType: isUrl ? "sse" : "stdio",
+    transportType,
     command: isUrl ? undefined : command,
     args: isUrl ? undefined : commandArgs,
     url: isUrl ? command : undefined,
@@ -59,7 +85,7 @@ function createTransportOptions(target: string[]): TransportOptions {
 }
 
 async function callMethod(args: Args): Promise<void> {
-  const transportOptions = createTransportOptions(args.target);
+  const transportOptions = createTransportOptions(args.target, args.transport);
   const transport = createTransport(transportOptions);
   const client = new Client({
     name: "inspector-cli",
@@ -213,6 +239,22 @@ function parseArgs(): Args {
         }
 
         return value as LogLevel;
+      },
+    )
+    //
+    // Transport options
+    //
+    .option(
+      "--transport <type>",
+      "Transport type (sse, http, or stdio). Auto-detected from URL: /mcp → http, /sse → sse, commands → stdio",
+      (value: string) => {
+        const validTransports = ["sse", "http", "stdio"];
+        if (!validTransports.includes(value)) {
+          throw new Error(
+            `Invalid transport type: ${value}. Valid types are: ${validTransports.join(", ")}`,
+          );
+        }
+        return value as "sse" | "http" | "stdio";
       },
     );
 
