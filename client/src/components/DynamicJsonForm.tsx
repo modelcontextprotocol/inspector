@@ -140,26 +140,136 @@ const DynamicJsonForm = ({
       );
     }
 
+    const isFieldRequired = (fieldPath: string[]): boolean => {
+      if (typeof schema.required === "boolean") {
+        return schema.required;
+      }
+      if (Array.isArray(schema.required) && fieldPath.length > 0) {
+        return schema.required.includes(fieldPath[fieldPath.length - 1]);
+      }
+      return false;
+    };
+
+    if (propSchema.type === "object" && propSchema.properties) {
+      const objectValue = (currentValue as Record<string, JsonValue>) || {};
+
+      return (
+        <div className="space-y-4">
+          {Object.entries(propSchema.properties).map(
+            ([fieldName, fieldSchema]) => {
+              const fieldPath = [...path, fieldName];
+              const fieldValue = objectValue[fieldName];
+              const fieldRequired = isFieldRequired([fieldName]);
+
+              return (
+                <div key={fieldName} className="space-y-2">
+                  <label
+                    htmlFor={fieldName}
+                    className="block text-sm font-medium"
+                  >
+                    {fieldSchema.title || fieldName}
+                    {fieldRequired && (
+                      <span className="text-red-500 ml-1">*</span>
+                    )}
+                  </label>
+                  {fieldSchema.description && (
+                    <p className="text-xs text-gray-500">
+                      {fieldSchema.description}
+                    </p>
+                  )}
+                  <div>
+                    {renderFieldInput(
+                      fieldSchema,
+                      fieldValue,
+                      fieldPath,
+                      fieldRequired,
+                    )}
+                  </div>
+                </div>
+              );
+            },
+          )}
+        </div>
+      );
+    }
+
+    const fieldRequired = isFieldRequired(path);
+    return renderFieldInput(propSchema, currentValue, path, fieldRequired);
+  };
+
+  const renderFieldInput = (
+    propSchema: JsonSchemaType,
+    currentValue: JsonValue,
+    path: string[],
+    fieldRequired: boolean,
+  ) => {
     switch (propSchema.type) {
-      case "string":
+      case "string": {
+        if (propSchema.enum) {
+          return (
+            <select
+              value={(currentValue as string) ?? ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (!val && !fieldRequired) {
+                  handleFieldChange(path, undefined);
+                } else {
+                  handleFieldChange(path, val);
+                }
+              }}
+              required={fieldRequired}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+            >
+              <option value="">Select an option...</option>
+              {propSchema.enum.map((option, index) => (
+                <option key={option} value={option}>
+                  {propSchema.enumNames?.[index] || option}
+                </option>
+              ))}
+            </select>
+          );
+        }
+
+        let inputType = "text";
+        switch (propSchema.format) {
+          case "email":
+            inputType = "email";
+            break;
+          case "uri":
+            inputType = "url";
+            break;
+          case "date":
+            inputType = "date";
+            break;
+          case "date-time":
+            inputType = "datetime-local";
+            break;
+          default:
+            inputType = "text";
+            break;
+        }
+
         return (
           <Input
-            type="text"
+            type={inputType}
             value={(currentValue as string) ?? ""}
             onChange={(e) => {
               const val = e.target.value;
-              // Allow clearing non-required fields by setting undefined
-              // This preserves the distinction between empty string and unset
-              if (!val && !propSchema.required) {
+              if (!val && !fieldRequired) {
                 handleFieldChange(path, undefined);
               } else {
                 handleFieldChange(path, val);
               }
             }}
             placeholder={propSchema.description}
-            required={propSchema.required}
+            required={fieldRequired}
+            minLength={propSchema.minLength}
+            maxLength={propSchema.maxLength}
+            pattern={propSchema.pattern}
           />
         );
+      }
+
       case "number":
         return (
           <Input
@@ -167,9 +277,7 @@ const DynamicJsonForm = ({
             value={(currentValue as number)?.toString() ?? ""}
             onChange={(e) => {
               const val = e.target.value;
-              // Allow clearing non-required number fields
-              // This preserves the distinction between 0 and unset
-              if (!val && !propSchema.required) {
+              if (!val && !fieldRequired) {
                 handleFieldChange(path, undefined);
               } else {
                 const num = Number(val);
@@ -179,9 +287,12 @@ const DynamicJsonForm = ({
               }
             }}
             placeholder={propSchema.description}
-            required={propSchema.required}
+            required={fieldRequired}
+            min={propSchema.minimum}
+            max={propSchema.maximum}
           />
         );
+
       case "integer":
         return (
           <Input
@@ -190,32 +301,38 @@ const DynamicJsonForm = ({
             value={(currentValue as number)?.toString() ?? ""}
             onChange={(e) => {
               const val = e.target.value;
-              // Allow clearing non-required integer fields
-              // This preserves the distinction between 0 and unset
-              if (!val && !propSchema.required) {
+              if (!val && !fieldRequired) {
                 handleFieldChange(path, undefined);
               } else {
                 const num = Number(val);
-                // Only update if it's a valid integer
                 if (!isNaN(num) && Number.isInteger(num)) {
                   handleFieldChange(path, num);
                 }
               }
             }}
             placeholder={propSchema.description}
-            required={propSchema.required}
+            required={fieldRequired}
+            min={propSchema.minimum}
+            max={propSchema.maximum}
           />
         );
+
       case "boolean":
         return (
-          <Input
-            type="checkbox"
-            checked={(currentValue as boolean) ?? false}
-            onChange={(e) => handleFieldChange(path, e.target.checked)}
-            className="w-4 h-4"
-            required={propSchema.required}
-          />
+          <div className="flex items-center space-x-2">
+            <Input
+              type="checkbox"
+              checked={(currentValue as boolean) ?? false}
+              onChange={(e) => handleFieldChange(path, e.target.checked)}
+              className="w-4 h-4"
+              required={fieldRequired}
+            />
+            <span className="text-sm">
+              {propSchema.description || "Enable this option"}
+            </span>
+          </div>
         );
+
       default:
         return null;
     }

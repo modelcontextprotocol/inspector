@@ -71,6 +71,9 @@ import {
   initializeInspectorConfig,
   saveInspectorConfig,
 } from "./utils/configUtils";
+import ElicitationModal, {
+  ElicitationRequest,
+} from "./components/ElicitationModal";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
@@ -124,6 +127,8 @@ const App = () => {
       }
     >
   >([]);
+  const [pendingElicitationRequest, setPendingElicitationRequest] =
+    useState<ElicitationRequest | null>(null);
   const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
 
   // Auth debugger state
@@ -199,6 +204,14 @@ const App = () => {
         ...prev,
         { id: nextRequestId.current++, request, resolve, reject },
       ]);
+    },
+    onElicitationRequest: (request, resolve) => {
+      setPendingElicitationRequest({
+        id: nextRequestId.current++,
+        message: request.params.message,
+        requestedSchema: request.params.requestedSchema,
+        resolve,
+      });
     },
     getRoots: () => rootsRef.current,
   });
@@ -586,6 +599,10 @@ const App = () => {
     setStdErrNotifications([]);
   };
 
+  const handleCloseElicitationModal = () => {
+    setPendingElicitationRequest(null);
+  };
+
   // Helper component for rendering the AuthDebugger
   const AuthDebuggerWrapper = () => (
     <TabsContent value="auth">
@@ -938,6 +955,11 @@ const App = () => {
           </div>
         </div>
       </div>
+
+      <ElicitationModal
+        request={pendingElicitationRequest}
+        onClose={handleCloseElicitationModal}
+      />
     </div>
   );
 };
