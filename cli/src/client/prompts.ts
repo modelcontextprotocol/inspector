@@ -1,8 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { McpResponse } from "./types.js";
+import {
+  ListPromptsResult,
+  GetPromptResult,
+} from "@modelcontextprotocol/sdk/types.js";
 
 // List available prompts
-export async function listPrompts(client: Client): Promise<McpResponse> {
+export async function listPrompts(client: Client): Promise<ListPromptsResult> {
   try {
     const response = await client.listPrompts();
     return response;
@@ -18,7 +21,7 @@ export async function getPrompt(
   client: Client,
   name: string,
   args?: Record<string, string>,
-): Promise<McpResponse> {
+): Promise<GetPromptResult> {
   try {
     const response = await client.getPrompt({
       name,

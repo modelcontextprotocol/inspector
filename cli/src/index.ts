@@ -11,12 +11,12 @@ import {
   listResources,
   listResourceTemplates,
   listTools,
-  LogLevel,
   McpResponse,
   readResource,
   setLoggingLevel,
   validLogLevels,
 } from "./client/index.js";
+import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { handleError } from "./error-handler.js";
 import { createTransport, TransportOptions } from "./transport.js";
 
@@ -26,7 +26,7 @@ type Args = {
   promptName?: string;
   promptArgs?: Record<string, string>;
   uri?: string;
-  logLevel?: LogLevel;
+  logLevel?: LoggingLevel;
   toolName?: string;
   toolArg?: Record<string, string>;
   transport?: "sse" | "stdio" | "http";
@@ -232,13 +232,13 @@ function parseArgs(): Args {
       "--log-level <level>",
       "Logging level (for logging/setLevel method)",
       (value: string) => {
-        if (!validLogLevels.includes(value as any)) {
+        if (!validLogLevels.includes(value as LoggingLevel)) {
           throw new Error(
             `Invalid log level: ${value}. Valid levels are: ${validLogLevels.join(", ")}`,
           );
         }
 
-        return value as LogLevel;
+        return value as LoggingLevel;
       },
     )
     //
