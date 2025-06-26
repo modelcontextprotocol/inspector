@@ -1,16 +1,14 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { McpResponse } from "./types.js";
+import type {
+  LoggingLevel,
+  EmptyResult,
+} from "@modelcontextprotocol/sdk/types.js";
+import { LoggingLevelSchema } from "@modelcontextprotocol/sdk/types.js";
 
-export const validLogLevels = [
-  "trace",
-  "debug",
-  "info",
-  "warn",
-  "error",
-] as const;
-
-export type LogLevel = (typeof validLogLevels)[number];
+// Extract valid log levels directly from the SDK's Zod schema to avoid drift
+// This ensures CLI validation stays in sync with what the SDK accepts
+export const validLogLevels = LoggingLevelSchema.options;
 
 export async function connect(
   client: Client,
@@ -38,10 +36,10 @@ export async function disconnect(transport: Transport): Promise<void> {
 // Set logging level
 export async function setLoggingLevel(
   client: Client,
-  level: LogLevel,
-): Promise<McpResponse> {
+  level: LoggingLevel,
+): Promise<EmptyResult> {
   try {
-    const response = await client.setLoggingLevel(level as any);
+    const response = await client.setLoggingLevel(level);
     return response;
   } catch (error) {
     throw new Error(
