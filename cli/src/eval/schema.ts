@@ -1,5 +1,6 @@
 import AjvLib from "ajv";
 import * as addFormats from "ajv-formats";
+import type { EvalConfig } from "./types.js";
 
 // JSON Schema for validating eval configuration files
 export const evalConfigSchema = {
@@ -7,6 +8,7 @@ export const evalConfigSchema = {
   properties: {
     config: {
       type: "object",
+      default: {},
       properties: {
         model: {
           type: "string",
@@ -23,7 +25,7 @@ export const evalConfigSchema = {
         maxSteps: {
           type: "number",
           minimum: 1,
-          maximum: 10,
+          maximum: 25,
           description: "Maximum number of LLM steps",
           default: 3,
         },
@@ -139,7 +141,7 @@ export const evalConfigSchema = {
             description: "Array of scorers to validate the LLM response",
           },
         },
-        required: ["name", "prompt", "responseScorers"],
+        required: ["name", "prompt"],
         additionalProperties: false,
       },
     },
@@ -148,30 +150,6 @@ export const evalConfigSchema = {
   additionalProperties: false,
 } as const;
 
-export interface EvalConfig {
-  config?: {
-    model?: string;
-    timeout?: number;
-    maxSteps?: number;
-  };
-  evals: Array<{
-    name: string;
-    description?: string;
-    prompt: string;
-    expectedToolCalls?: {
-      required?: string[];
-      allowed?: string[];
-      prohibited?: string[];
-    };
-    responseScorers: Array<{
-      type: "json-schema" | "llm-judge" | "regex";
-      schema?: any;
-      pattern?: string;
-      criteria?: string;
-      threshold?: number;
-    }>;
-  }>;
-}
 
 export function validateEvalConfig(config: unknown): {
   valid: boolean;
@@ -180,7 +158,8 @@ export function validateEvalConfig(config: unknown): {
   const Ajv = AjvLib.default || AjvLib;
   const ajv = new Ajv({
     allErrors: true,
-    verbose: true,
+    useDefaults: true, // Let AJV apply schema defaults
+    strict: false, // Allow defaults on optional properties
   });
 
   // Add format validation
@@ -190,49 +169,35 @@ export function validateEvalConfig(config: unknown): {
   const valid = validate(config);
 
   if (!valid) {
-    const errors = validate.errors?.map((error: any) => {
-      const path = error.instancePath
-        ? error.instancePath.replace(/\//g, ".").substring(1)
-        : "root";
-      const message = error.message || "validation failed";
-
-      let actualText = "";
-      if (error.data !== undefined) {
-        const actualValue =
-          typeof error.data === "string"
-            ? error.data
-            : JSON.stringify(error.data);
-        actualText = ` (got: ${actualValue})`;
-      }
-
-      return `${path}: ${message}${actualText}`;
-    }) || ["Unknown validation error"];
-
+    const errors = validate.errors?.map((error: any) => 
+      `${error.instancePath || 'root'}: ${error.message}`
+    ) || ["Unknown validation error"];
     return { valid: false, errors };
   }
 
-  // Additional semantic validation
-  const semanticErrors: string[] = [];
   const evalConfig = config as EvalConfig;
-
+  
   // Check for duplicate eval names
   const names = evalConfig.evals.map((e) => e.name);
-  const duplicates = names.filter(
-    (name, index) => names.indexOf(name) !== index,
-  );
+  const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
   if (duplicates.length > 0) {
-    semanticErrors.push(`Duplicate eval names: ${duplicates.join(", ")}`);
+    return { 
+      valid: false, 
+      errors: [`Duplicate eval names: ${duplicates.join(", ")}`] 
+    };
   }
 
-  // Validate JSON schemas in responseScorers
+  // Validate JSON schemas and regex patterns
+  const validationErrors: string[] = [];
   for (const [evalIndex, evalItem] of evalConfig.evals.entries()) {
+    if (!evalItem.responseScorers) continue;
     for (const [scorerIndex, scorer] of evalItem.responseScorers.entries()) {
       if (scorer.type === "json-schema" && scorer.schema) {
         try {
           ajv.compile(scorer.schema);
         } catch (error: any) {
-          semanticErrors.push(
-            `evals[${evalIndex}].responseScorers[${scorerIndex}].schema: Invalid JSON Schema - ${error instanceof Error ? error.message : "Unknown error"}`,
+          validationErrors.push(
+            `evals[${evalIndex}].responseScorers[${scorerIndex}].schema: Invalid JSON Schema - ${error instanceof Error ? error.message : "Unknown error"}`
           );
         }
       }
@@ -241,16 +206,16 @@ export function validateEvalConfig(config: unknown): {
         try {
           new RegExp(scorer.pattern);
         } catch (error: any) {
-          semanticErrors.push(
-            `evals[${evalIndex}].outputScorers[${scorerIndex}].pattern: Invalid regex - ${error instanceof Error ? error.message : "Unknown error"}`,
+          validationErrors.push(
+            `evals[${evalIndex}].responseScorers[${scorerIndex}].pattern: Invalid regex - ${error instanceof Error ? error.message : "Unknown error"}`
           );
         }
       }
     }
   }
 
-  if (semanticErrors.length > 0) {
-    return { valid: false, errors: semanticErrors };
+  if (validationErrors.length > 0) {
+    return { valid: false, errors: validationErrors };
   }
 
   return { valid: true };

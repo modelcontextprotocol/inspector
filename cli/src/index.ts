@@ -19,7 +19,7 @@ import {
 } from "./client/index.js";
 import { handleError } from "./error-handler.js";
 import { createTransport, TransportOptions } from "./transport.js";
-import { runEvals } from "./eval/engine.js";
+import { runEvals } from "./eval/index.js";
 
 type Args = {
   target: string[];
@@ -99,7 +99,11 @@ async function callMethod(args: Args): Promise<void> {
 
     // Handle eval mode
     if (args.evals) {
-      await runEvals(client, args.evals);
+      const summary = await runEvals(client, args.evals);
+      // Exit with error code if any tests failed
+      if (summary.failed > 0) {
+        process.exit(1);
+      }
       return;
     }
 
