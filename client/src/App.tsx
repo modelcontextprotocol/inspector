@@ -148,6 +148,7 @@ const App = () => {
     completionsSupported,
     connect: connectMcpServer,
     disconnect: disconnectMcpServer,
+    setRequestHistory,
   } = useConnection({
     transportType,
     command,
@@ -717,6 +718,7 @@ const App = () => {
             <HistoryAndNotifications
               requestHistory={requestHistory}
               serverNotifications={notifications}
+              onClearHistory={() => setRequestHistory([])}
             />
           </div>
         </div>

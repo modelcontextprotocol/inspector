@@ -5,9 +5,11 @@ import JsonView from "./JsonView";
 const HistoryAndNotifications = ({
   requestHistory,
   serverNotifications,
+  onClearHistory,
 }: {
   requestHistory: Array<{ request: string; response?: string }>;
   serverNotifications: ServerNotification[];
+  onClearHistory?: () => void;
 }) => {
   const [expandedRequests, setExpandedRequests] = useState<{
     [key: number]: boolean;
@@ -28,6 +30,12 @@ const HistoryAndNotifications = ({
     <div className="bg-card overflow-hidden flex h-full">
       <div className="flex-1 overflow-y-auto p-4 border-r">
         <h2 className="text-lg font-semibold mb-4">History</h2>
+        <button
+          className="mb-4 px-3 py-1 bg-gray-800 text-white rounded hover:bg-gray-900 transition-colors"
+          onClick={onClearHistory}
+        >
+          Clear History
+        </button>
         {requestHistory.length === 0 ? (
           <p className="text-sm text-gray-500 italic">No history yet</p>
         ) : (
