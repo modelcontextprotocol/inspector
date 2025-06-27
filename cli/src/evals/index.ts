@@ -8,7 +8,7 @@ import { executeConversation } from "./conversation.js";
 import { validateExpectedToolCalls } from "./validation.js";
 import { extractToolCallNames } from "./message-parser.js";
 import { runResponseScorers } from "./scorers.js";
-import { displayEvalResults } from "./display.js";
+// TODO: Enhanced display formatting in follow-up PR
 
 
 export async function runEvals(
@@ -42,8 +42,21 @@ export async function runEvals(
     results,
   };
 
-  // Display results
-  displayEvalResults(summary);
+  // Simple console output for now
+  console.log(`\nRunning ${summary.total} eval tests...\n`);
+  
+  summary.results.forEach(result => {
+    if (result.passed) {
+      console.log(`✅ ${result.name}: PASSED`);
+    } else {
+      console.log(`❌ ${result.name}: FAILED`);
+      result.errors.forEach(error => {
+        console.log(`   • ${error}`);
+      });
+    }
+  });
+  
+  console.log(`\nResults: ${summary.passed}/${summary.total} tests passed`);
 
   return summary;
 }

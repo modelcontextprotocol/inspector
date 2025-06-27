@@ -10,7 +10,7 @@ import type {
   LlmJudgeScorer,
   LlmJudgeResult
 } from "./types.js";
-import { getAllAssistantText, getOriginalPrompt, formatMessagesForDisplay } from "./message-parser.js";
+import { getAllAssistantText, getOriginalPrompt, formatMessagesForLLM } from "./message-parser.js";
 
 export async function runResponseScorers(
   scorers: ResponseScorer[],
@@ -115,10 +115,10 @@ async function scoreLlmJudge(
   }
   
   try {
-    const conversation = formatMessagesForDisplay(messages);
+    const conversation = formatMessagesForLLM(messages);
     const originalPrompt = getOriginalPrompt(messages);
     const judgeResult = await runLlmJudge(anthropicClient, scorer.criteria, originalPrompt, conversation);
-    const threshold = scorer.threshold || 0.8;
+    const threshold = scorer.threshold || 1.0;
     
     if (judgeResult.score < threshold) {
       return { 
@@ -139,31 +139,38 @@ async function runLlmJudge(
   originalPrompt: string, 
   conversation: string
 ): Promise<LlmJudgeResult> {
-  const systemMessage = `You are an expert evaluator of AI assistant conversations. You will be given a conversation between a user and an AI assistant, along with evaluation criteria.
+  const systemMessage = `You are an expert evaluator of AI assistant conversations. Your task is to assess how well the assistant's response meets the specified evaluation criteria.
 
-Your task is to determine how well the assistant met the specified criteria. Provide a score between 0.0 and 1.0, where:
-- 1.0 = Criteria fully met, excellent performance
-- 0.8 = Criteria mostly met, good performance  
-- 0.6 = Criteria partially met, acceptable performance
-- 0.4 = Criteria poorly met, significant issues
-- 0.2 = Criteria barely met, major problems
-- 0.0 = Criteria not met at all, complete failure`;
+Evaluate the response considering:
+- Does it directly address what was requested?
+- Is the information accurate and helpful? 
+- Does it fully satisfy the user's needs?
 
-  const userMessage = `CONVERSATION:
-${conversation}
+Rate the response on a scale of 0.0 to 1.0:
+- 1.0 = Excellent, fully meets criteria
+- 0.8 = Good, mostly meets criteria with minor gaps
+- 0.6 = Acceptable, partially meets criteria  
+- 0.4 = Poor, significant issues or gaps
+- 0.2 = Inadequate, major problems
+- 0.0 = Failed, does not meet criteria at all
 
-ORIGINAL REQUEST: 
+Respond with valid JSON containing your numeric score and brief rationale.`;
+
+  const userMessage = `ORIGINAL REQUEST:
 ${originalPrompt}
+
+ASSISTANT'S RESPONSE:
+${conversation}
 
 EVALUATION CRITERIA:
 ${criteria}
 
-Respond with valid JSON:
-{"score": <number 0.0-1.0>, "rationale": "<explanation>"}`;
+Provide your assessment as JSON:
+{"score": <number>, "rationale": "<explanation>"}`;
 
   const response = await anthropicClient.messages.create({
     model: "claude-3-haiku-20240307",
-    max_tokens: 200,
+    max_tokens: 250,
     system: systemMessage,
     messages: [
       {

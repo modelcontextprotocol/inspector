@@ -19,7 +19,7 @@ import {
 } from "./client/index.js";
 import { handleError } from "./error-handler.js";
 import { createTransport, TransportOptions } from "./transport.js";
-import { runEvals } from "./eval/index.js";
+import { runEvals } from "./evals/index.js";
 
 type Args = {
   target: string[];
