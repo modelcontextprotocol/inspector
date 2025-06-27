@@ -1,11 +1,14 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import fs from "node:fs";
 import path from "node:path";
+import debug from "debug";
 import { validateEvalConfig } from "./schema.js";
-import type { EvalConfig, EvalResult, EvalSummary, EvalTest, ConversationConfig } from "./types.js";
+import type { EvalsConfig, EvalResult, EvalSummary, EvalTest, SingleEvalConfig } from "./types.js";
 import { validateToolCalls } from "./validate-tools.js";
 import { runResponseScorers } from "./scorers.js";
 import { AnthropicProvider } from "./providers/anthropic-provider.js";
+
+const debugEvals = debug('evals');
 
 /**
  * Main entry point for running eval tests against an MCP server
@@ -20,30 +23,42 @@ export async function runEvals(
   // Create LLM provider (currently only Anthropic)
   const llmProvider = new AnthropicProvider();
 
-  console.log(`\nRunning ${config.evals.length} eval tests...\n`);
+  const totalTests = config.evals.length * config.options.models.length;
+  console.log(`\nRunning ${config.evals.length} eval tests across ${config.options.models.length} model(s) (${totalTests} total runs)...`);
 
-  // Execute tests in parallel for speed, display results as each completes
+  // Run all tests completely serially
   const results: EvalResult[] = [];
-  const evalPromises = config.evals.map(async (evalTest) => {
-    const result = await runSingleEval(mcpClient, llmProvider, evalTest, config.conversationConfig);
+  
+  for (const model of config.options.models) {
+    console.log(`\n🤖 Running tests with model: ${model}`);
     
-    // Show immediate feedback for better UX
-    if (result.passed) {
-      console.log(`✅ ${result.name}: PASSED`);
-    } else {
-      console.log(`❌ ${result.name}: FAILED`);
-      console.log(`   Prompt: "${evalTest.prompt}"`);
-      result.errors.forEach(error => {
-        console.log(`   • ${error}`);
-      });
-    }
-    
-    results.push(result);
-    return result;
-  });
+    // Run each test one at a time
+    for (const evalTest of config.evals) {
+      const singleEvalConfig: SingleEvalConfig = {
+        model,
+        maxSteps: config.options.maxSteps,
+        timeout: config.options.timeout,
+      };
+      
+      const result = await runSingleEval(mcpClient, llmProvider, evalTest, singleEvalConfig);
+      
+      // Show immediate feedback for better UX
+      if (result.passed) {
+        console.log(`✅ ${result.name}: PASSED`);
+      } else {
+        console.log(`❌ ${result.name}: FAILED`);
+        console.log(`   Prompt: "${evalTest.prompt}"`);
+        result.errors.forEach(error => {
+          console.log(`   • ${error}`);
+        });
+      }
+      
+      // Additional debug logging (only when DEBUG=evals is set)
+      debugLog(JSON.stringify(result.messages, null, 2));
 
-  // Wait for all to complete
-  await Promise.all(evalPromises);
+      results.push(result);
+    }
+  }
 
   const summary: EvalSummary = {
     total: results.length,
@@ -65,7 +80,7 @@ async function runSingleEval(
   mcpClient: Client,
   llmProvider: AnthropicProvider,
   evalTest: EvalTest,
-  config: ConversationConfig,
+  config: SingleEvalConfig,
 ): Promise<EvalResult> {
   try {
 
@@ -73,8 +88,8 @@ async function runSingleEval(
     const messages = await llmProvider.executeConversation(mcpClient, evalTest.prompt, config);
 
     // Validate tool usage against expected behavior
-    const toolCallNames = llmProvider.extractToolCallNames(messages);
-    const toolValidationErrors = validateToolCalls(evalTest.expectedToolCalls, toolCallNames);
+    const toolResults = llmProvider.extractToolCallResults(messages);
+    const toolValidationErrors = validateToolCalls(evalTest.expectedToolCalls, toolResults);
 
     // Evaluate response quality using configured scorers (regex, schema, LLM judge)
     const scorerResults = evalTest.responseScorers 
@@ -88,15 +103,17 @@ async function runSingleEval(
 
     return {
       name: evalTest.name,
+      model: config.model,
       passed,
       errors: allErrors,
       scorerResults,
-      messages: passed ? undefined : messages, // Include conversation only for failures (debugging)
+      messages,
     };
   } catch (error) {
     // Handle unexpected errors (connection issues, provider failures, etc.)
     return {
       name: evalTest.name,
+      model: config.model,
       passed: false,
       errors: [error instanceof Error ? error.message : "Unknown error"],
       scorerResults: [],
@@ -108,7 +125,7 @@ async function runSingleEval(
  * Load and validate evals configuration from JSON file
  * Resolves relative paths and applies schema validation with helpful error messages
  */
-function loadConfig(configPath: string): EvalConfig & { conversationConfig: ConversationConfig } {
+function loadConfig(configPath: string): EvalsConfig {
   // Handle both absolute and relative config file paths
   const resolvedPath = path.isAbsolute(configPath)
     ? configPath
@@ -148,19 +165,7 @@ function loadConfig(configPath: string): EvalConfig & { conversationConfig: Conv
     throw new Error(errorMessage);
   }
 
-  const baseConfig = config as EvalConfig;
-  
-  // Extract conversation settings for LLM provider (schema defaults already applied)
-  const conversationConfig: ConversationConfig = {
-    model: baseConfig.config.model,
-    maxSteps: baseConfig.config.maxSteps,
-    timeout: baseConfig.config.timeout,
-  };
-
-  return {
-    ...baseConfig,
-    conversationConfig,
-  };
+  return config as EvalsConfig;
 }
 
 /**
@@ -196,3 +201,8 @@ function createScorerErrorMessage(
   const errorMessage = result.error || 'Unknown error';
   return `Output scorer ${index + 1} (${scorerType}) failed: ${errorMessage}`;
 }
+
+// Helper to add subtle styling to debug output
+const debugLog = (message: string) => {
+  debugEvals(`\x1b[90m${message}\x1b[0m`); // slightly darker than default
+};

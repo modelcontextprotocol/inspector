@@ -7,7 +7,7 @@ import type {
   ToolUseBlockParam,
   ToolResultBlockParam
 } from "@anthropic-ai/sdk/resources/messages";
-import type { ConversationConfig, LlmJudgeResult } from "../types.js";
+import type { SingleEvalConfig, LlmJudgeResult, ToolCallResult } from "../types.js";
 import type { LLMProvider } from "./llm-provider.js";
 
 interface AnthropicTool {
@@ -35,7 +35,7 @@ export class AnthropicProvider implements LLMProvider<MessageParam> {
   async executeConversation(
     mcpClient: Client,
     prompt: string,
-    config: ConversationConfig
+    config: SingleEvalConfig
   ): Promise<MessageParam[]> {
     const tools = await this.getTools(mcpClient);
     let messages: MessageParam[] = [{ role: "user", content: prompt }];
@@ -231,21 +231,53 @@ Provide your assessment as JSON:
     return "Unable to extract prompt";
   }
 
-  extractToolCallNames(messages: MessageParam[]): string[] {
-    const names: string[] = [];
+  extractToolCallResults(messages: MessageParam[]): ToolCallResult[] {
+    // Map MCP request IDs to tool call results
+    const toolUseMap = new Map<string, ToolCallResult>();
     
     for (const message of messages) {
-      if (message.role === "assistant" && Array.isArray(message.content)) {
+      if (Array.isArray(message.content)) {
         for (const content of message.content) {
-          if (content.type === "tool_use") {
+          // Collect tool uses (assistant messages)
+          if (content.type === "tool_use" && message.role === "assistant") {
             const toolUse = content as ToolUseBlockParam;
-            names.push(toolUse.name);
+            // Use MCP request ID as the key to match with results
+            toolUseMap.set(toolUse.id, {
+              name: toolUse.name,
+              success: false, // Default to false until we find the result
+              error: undefined
+            });
+          }
+          // Update with tool results (user messages)
+          else if (content.type === "tool_result" && message.role === "user") {
+            const toolResult = content as ToolResultBlockParam;
+            // Match result to original request using MCP request ID
+            const toolCall = toolUseMap.get(toolResult.tool_use_id);
+            if (toolCall) {
+              toolCall.success = !toolResult.is_error;
+              if (toolResult.is_error && typeof toolResult.content === "string") {
+                // Clean up error message - extract text from JSON structure if present
+                let errorMessage = toolResult.content;
+                if (errorMessage.startsWith('Error: [{"type":"text","text":"') && errorMessage.endsWith('"}]')) {
+                  // Extract just the text content from the JSON structure
+                  try {
+                    const parsed = JSON.parse(errorMessage.replace('Error: ', ''));
+                    if (Array.isArray(parsed) && parsed[0]?.type === 'text' && parsed[0]?.text) {
+                      errorMessage = parsed[0].text;
+                    }
+                  } catch {
+                    // If parsing fails, use the original message
+                  }
+                }
+                toolCall.error = errorMessage;
+              }
+            }
           }
         }
       }
     }
     
-    return names;
+    return Array.from(toolUseMap.values());
   }
 
   formatMessagesForLLM(messages: MessageParam[]): string {

@@ -1,19 +1,24 @@
 import AjvLib from "ajv";
 import * as addFormats from "ajv-formats";
-import type { EvalConfig } from "./types.js";
+import type { EvalsConfig } from "./types.js";
 
 // JSON Schema for validating eval configuration files
 export const evalConfigSchema = {
   type: "object",
   properties: {
-    config: {
+    options: {
       type: "object",
       default: {},
       properties: {
-        model: {
-          type: "string",
-          description: "Claude model to use for evals",
-          default: "claude-3-haiku-20240307",
+        models: {
+          type: "array",
+          items: {
+            type: "string",
+            minLength: 1,
+          },
+          minItems: 1,
+          description: "Claude models to use for evals (will run separately for each)",
+          default: ["claude-3-haiku-20240307"],
         },
         timeout: {
           type: "number",
@@ -174,7 +179,7 @@ export function validateEvalConfig(config: unknown): {
     return { valid: false, errors };
   }
 
-  const evalConfig = config as EvalConfig;
+  const evalConfig = config as EvalsConfig;
   
   // Check for duplicate eval names
   const names = evalConfig.evals.map((e) => e.name);

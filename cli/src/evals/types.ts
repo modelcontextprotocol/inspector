@@ -8,6 +8,7 @@ export interface ScorerResult {
 
 export interface EvalResult {
   name: string;
+  model: string;
   passed: boolean;
   errors: string[];
   scorerResults: ScorerResult[];
@@ -22,7 +23,7 @@ export interface EvalSummary {
   results: EvalResult[];
 }
 
-export interface ConversationConfig {
+export interface SingleEvalConfig {
   model: string;
   maxSteps: number;
   timeout: number;
@@ -32,6 +33,12 @@ export interface ToolCallRules {
   required?: string[];
   prohibited?: string[];
   allowed?: string[];
+}
+
+export interface ToolCallResult {
+  name: string;
+  success: boolean;
+  error?: string;
 }
 
 export interface JsonSchemaScorer {
@@ -60,9 +67,9 @@ export interface EvalTest {
   responseScorers?: ResponseScorer[];
 }
 
-export interface EvalConfig {
-  config: {
-    model: string;
+export interface EvalsConfig {
+  options: {
+    models: string[];
     maxSteps: number;
     timeout: number;
   };

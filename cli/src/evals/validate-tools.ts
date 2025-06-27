@@ -1,12 +1,20 @@
-import type { ToolCallRules } from "./types.js";
+import type { ToolCallRules, ToolCallResult } from "./types.js";
 
 export function validateToolCalls(
   rules: ToolCallRules | undefined,
-  toolCallNames: string[]
+  toolResults: ToolCallResult[]
 ): string[] {
-  if (!rules) return [];
-  
   const errors: string[] = [];
+  
+  // Always check for failed tool calls
+  const failureErrors = toolResults
+    .filter(result => !result.success)
+    .map(failed => `Tool call '${failed.name}' failed: ${failed.error || 'Unknown error'}`);
+  errors.push(...failureErrors);
+  
+  if (!rules) return errors;
+  
+  const toolCallNames = toolResults.map(result => result.name);
   const required = rules.required; // undefined means no requirements
   const prohibited = rules.prohibited; // undefined means no prohibitions
   const allowed = rules.allowed; // undefined means any tools allowed
