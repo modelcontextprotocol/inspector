@@ -285,7 +285,7 @@ function parseArgs(): Args {
 
   if (!options.method && !options.evals) {
     throw new Error(
-      "Either --method or --evals is required. Use --method to specify the method to invoke, or --evals to run evaluations.",
+      "Either --method or --evals is required. Use --method to specify the method to invoke, or --evals to run evals test suite.",
     );
   }
 

@@ -1,5 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
-import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import AjvLib from "ajv";
 const Ajv = AjvLib.default || AjvLib;
 import type { 
@@ -7,21 +5,20 @@ import type {
   ScorerResult, 
   JsonSchemaScorer, 
   RegexScorer, 
-  LlmJudgeScorer,
-  LlmJudgeResult
+  LlmJudgeScorer
 } from "./types.js";
-import { getAllAssistantText, getOriginalPrompt, formatMessagesForLLM } from "./message-parser.js";
+import type { LLMProvider } from "./providers/llm-provider.js";
 
-export async function runResponseScorers(
+export async function runResponseScorers<LlmMessage>(
   scorers: ResponseScorer[],
-  messages: MessageParam[],
-  anthropicClient: Anthropic
+  messages: LlmMessage[],
+  llmProvider: LLMProvider<LlmMessage>
 ): Promise<ScorerResult[]> {
   const results: ScorerResult[] = [];
   
   for (const scorer of scorers) {
     try {
-      const result = await scoreResponse(scorer, messages, anthropicClient);
+      const result = await scoreResponse(scorer, messages, llmProvider);
       results.push(result);
     } catch (error) {
       results.push({ 
@@ -34,18 +31,18 @@ export async function runResponseScorers(
   return results;
 }
 
-async function scoreResponse(
+async function scoreResponse<LlmMessage>(
   scorer: ResponseScorer,
-  messages: MessageParam[],
-  anthropicClient: Anthropic
+  messages: LlmMessage[],
+  llmProvider: LLMProvider<LlmMessage>
 ): Promise<ScorerResult> {
   switch (scorer.type) {
     case "json-schema":
-      return scoreJsonSchema(scorer, messages);
+      return scoreJsonSchema(scorer, messages, llmProvider);
     case "regex":
-      return scoreRegex(scorer, messages);
+      return scoreRegex(scorer, messages, llmProvider);
     case "llm-judge":
-      return scoreLlmJudge(scorer, messages, anthropicClient);
+      return scoreLlmJudge(scorer, messages, llmProvider);
     default:
       return {
         passed: false,
@@ -54,7 +51,11 @@ async function scoreResponse(
   }
 }
 
-function scoreJsonSchema(scorer: JsonSchemaScorer, messages: MessageParam[]): ScorerResult {
+function scoreJsonSchema<LlmMessage>(
+  scorer: JsonSchemaScorer, 
+  messages: LlmMessage[], 
+  llmProvider: LLMProvider<LlmMessage>
+): ScorerResult {
   if (!scorer.schema) {
     return {
       passed: false,
@@ -62,7 +63,7 @@ function scoreJsonSchema(scorer: JsonSchemaScorer, messages: MessageParam[]): Sc
     };
   }
 
-  const output = getAllAssistantText(messages);
+  const output = llmProvider.getAllAssistantText(messages);
   const ajv = new Ajv();
   const isValid = ajv.validate(scorer.schema, output);
   
@@ -76,16 +77,13 @@ function scoreJsonSchema(scorer: JsonSchemaScorer, messages: MessageParam[]): Sc
   return { passed: true };
 }
 
-function scoreRegex(scorer: RegexScorer, messages: MessageParam[]): ScorerResult {
-  if (!scorer.pattern) {
-    return {
-      passed: false,
-      error: "No pattern provided for regex scorer",
-    };
-  }
-
+function scoreRegex<LlmMessage>(
+  scorer: RegexScorer, 
+  messages: LlmMessage[], 
+  llmProvider: LLMProvider<LlmMessage>
+): ScorerResult {
   try {
-    const output = getAllAssistantText(messages);
+    const output = llmProvider.getAllAssistantText(messages);
     const regex = new RegExp(scorer.pattern, "i");
     const matches = regex.test(output);
     
@@ -105,95 +103,33 @@ function scoreRegex(scorer: RegexScorer, messages: MessageParam[]): ScorerResult
   }
 }
 
-async function scoreLlmJudge(
+async function scoreLlmJudge<LlmMessage>(
   scorer: LlmJudgeScorer, 
-  messages: MessageParam[],
-  anthropicClient: Anthropic
+  messages: LlmMessage[],
+  llmProvider: LLMProvider<LlmMessage>
 ): Promise<ScorerResult> {
   if (!scorer.criteria) {
     return { passed: false, error: "No criteria provided for llm-judge scorer" };
   }
   
   try {
-    const conversation = formatMessagesForLLM(messages);
-    const originalPrompt = getOriginalPrompt(messages);
-    const judgeResult = await runLlmJudge(anthropicClient, scorer.criteria, originalPrompt, conversation);
+    const conversation = llmProvider.formatMessagesForLLM(messages);
+    const originalPrompt = llmProvider.getOriginalPrompt(messages);
+    const judgeResult = await llmProvider.runLLMJudge(scorer.criteria, originalPrompt, conversation);
     const threshold = scorer.threshold || 1.0;
     
     if (judgeResult.score < threshold) {
       return { 
         passed: false, 
-        error: `LLM judge score ${judgeResult.score.toFixed(2)} below threshold ${threshold}`,
-        judgeRationale: judgeResult.rationale
+        error: `LLM judge score ${judgeResult.score.toFixed(2)} below threshold ${threshold}. Rationale: ${judgeResult.rationale}`,
       };
     }
     return { passed: true };
   } catch (error) {
-    return { passed: false, error: `LLM judge error: ${error instanceof Error ? error.message : "Unknown error"}` };
+    return { 
+      passed: false, 
+      error: `LLM judge error: ${error instanceof Error ? error.message : "Unknown error"}` 
+    };
   }
 }
 
-async function runLlmJudge(
-  anthropicClient: Anthropic,
-  criteria: string, 
-  originalPrompt: string, 
-  conversation: string
-): Promise<LlmJudgeResult> {
-  const systemMessage = `You are an expert evaluator of AI assistant conversations. Your task is to assess how well the assistant's response meets the specified evaluation criteria.
-
-Evaluate the response considering:
-- Does it directly address what was requested?
-- Is the information accurate and helpful? 
-- Does it fully satisfy the user's needs?
-
-Rate the response on a scale of 0.0 to 1.0:
-- 1.0 = Excellent, fully meets criteria
-- 0.8 = Good, mostly meets criteria with minor gaps
-- 0.6 = Acceptable, partially meets criteria  
-- 0.4 = Poor, significant issues or gaps
-- 0.2 = Inadequate, major problems
-- 0.0 = Failed, does not meet criteria at all
-
-Respond with valid JSON containing your numeric score and brief rationale.`;
-
-  const userMessage = `ORIGINAL REQUEST:
-${originalPrompt}
-
-ASSISTANT'S RESPONSE:
-${conversation}
-
-EVALUATION CRITERIA:
-${criteria}
-
-Provide your assessment as JSON:
-{"score": <number>, "rationale": "<explanation>"}`;
-
-  const response = await anthropicClient.messages.create({
-    model: "claude-3-haiku-20240307",
-    max_tokens: 250,
-    system: systemMessage,
-    messages: [
-      {
-        role: "user",
-        content: userMessage,
-      },
-    ],
-  });
-
-  // Extract and parse JSON response
-  const responseText = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
-  
-  try {
-    const parsed = JSON.parse(responseText);
-    const score = parseFloat(parsed.score);
-    const rationale = parsed.rationale || "No rationale provided";
-    
-    if (isNaN(score) || score < 0 || score > 1) {
-      throw new Error(`Invalid score: ${parsed.score}`);
-    }
-    
-    return { score, rationale };
-  } catch (error) {
-    throw new Error(`Invalid JSON response from LLM judge: "${responseText}". Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
-}

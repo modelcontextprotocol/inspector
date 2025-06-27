@@ -1,39 +1,49 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import Anthropic from "@anthropic-ai/sdk";
 import fs from "node:fs";
 import path from "node:path";
 import { validateEvalConfig } from "./schema.js";
 import type { EvalConfig, EvalResult, EvalSummary, EvalTest, ConversationConfig } from "./types.js";
-import { executeConversation } from "./conversation.js";
-import { validateExpectedToolCalls } from "./validation.js";
-import { extractToolCallNames } from "./message-parser.js";
+import { validateToolCalls } from "./validate-tools.js";
 import { runResponseScorers } from "./scorers.js";
-// TODO: Enhanced display formatting in follow-up PR
+import { AnthropicProvider } from "./providers/anthropic-provider.js";
 
-
+/**
+ * Main entry point for running eval tests against an MCP server
+ * Executes tests in parallel and displays results as they complete
+ */
 export async function runEvals(
   mcpClient: Client,
   configPath: string,
 ): Promise<EvalSummary> {
   const config = loadConfig(configPath);
   
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error(
-      "ANTHROPIC_API_KEY environment variable is required for evaluation mode.\n" +
-        "Please set your API key: export ANTHROPIC_API_KEY=your_api_key_here",
-    );
-  }
+  // Create LLM provider (currently only Anthropic)
+  const llmProvider = new AnthropicProvider();
 
-  const anthropicClient = new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY,
+  console.log(`\nRunning ${config.evals.length} eval tests...\n`);
+
+  // Execute tests in parallel for speed, display results as each completes
+  const results: EvalResult[] = [];
+  const evalPromises = config.evals.map(async (evalTest) => {
+    const result = await runSingleEval(mcpClient, llmProvider, evalTest, config.conversationConfig);
+    
+    // Show immediate feedback for better UX
+    if (result.passed) {
+      console.log(`✅ ${result.name}: PASSED`);
+    } else {
+      console.log(`❌ ${result.name}: FAILED`);
+      console.log(`   Prompt: "${evalTest.prompt}"`);
+      result.errors.forEach(error => {
+        console.log(`   • ${error}`);
+      });
+    }
+    
+    results.push(result);
+    return result;
   });
 
-  // Run all evals in parallel
-  const results = await Promise.all(
-    config.evals.map(evalTest => 
-      runSingleEval(mcpClient, anthropicClient, evalTest, config.conversationConfig)
-    )
-  );
+  // Wait for all to complete
+  await Promise.all(evalPromises);
 
   const summary: EvalSummary = {
     total: results.length,
@@ -41,49 +51,38 @@ export async function runEvals(
     failed: results.filter(r => !r.passed).length,
     results,
   };
-
-  // Simple console output for now
-  console.log(`\nRunning ${summary.total} eval tests...\n`);
-  
-  summary.results.forEach(result => {
-    if (result.passed) {
-      console.log(`✅ ${result.name}: PASSED`);
-    } else {
-      console.log(`❌ ${result.name}: FAILED`);
-      result.errors.forEach(error => {
-        console.log(`   • ${error}`);
-      });
-    }
-  });
   
   console.log(`\nResults: ${summary.passed}/${summary.total} tests passed`);
 
   return summary;
 }
 
+/**
+ * Execute a single eval test with comprehensive validation
+ * Combines tool call validation and response scoring
+ */
 async function runSingleEval(
   mcpClient: Client,
-  anthropicClient: Anthropic,
+  llmProvider: AnthropicProvider,
   evalTest: EvalTest,
   config: ConversationConfig,
 ): Promise<EvalResult> {
   try {
 
-    // Run the conversation
-    const messages = await executeConversation(mcpClient, anthropicClient, evalTest.prompt, config);
+    // Execute LLM conversation with tool calling enabled
+    const messages = await llmProvider.executeConversation(mcpClient, evalTest.prompt, config);
 
-    // Extract tool call names for validation, then validate expected tool calls
-    const toolCallNames = extractToolCallNames(messages);
-    const toolValidationErrors = validateExpectedToolCalls(evalTest.expectedToolCalls, toolCallNames);
+    // Validate tool usage against expected behavior
+    const toolCallNames = llmProvider.extractToolCallNames(messages);
+    const toolValidationErrors = validateToolCalls(evalTest.expectedToolCalls, toolCallNames);
 
-    // Run response scorers (if any)
+    // Evaluate response quality using configured scorers (regex, schema, LLM judge)
     const scorerResults = evalTest.responseScorers 
-      ? await runResponseScorers(evalTest.responseScorers, messages, anthropicClient)
+      ? await runResponseScorers(evalTest.responseScorers, messages, llmProvider)
       : [];
-    const scorerErrors = scorerResults.filter(r => !r.passed).map((r, i) => 
-      `Output scorer ${i + 1} (${evalTest.responseScorers?.[i]?.type}) failed: ${r.error || 'Unknown error'}`
-    );
+    const scorerErrors = createScorerErrorMessages(scorerResults, evalTest.responseScorers);
 
+    // Combine all validation errors to determine pass/fail
     const allErrors = [...toolValidationErrors, ...scorerErrors];
     const passed = allErrors.length === 0;
 
@@ -92,10 +91,10 @@ async function runSingleEval(
       passed,
       errors: allErrors,
       scorerResults,
-      // Only include messages for failed tests (for detailed display)
-      messages: passed ? undefined : messages,
+      messages: passed ? undefined : messages, // Include conversation only for failures (debugging)
     };
   } catch (error) {
+    // Handle unexpected errors (connection issues, provider failures, etc.)
     return {
       name: evalTest.name,
       passed: false,
@@ -105,7 +104,12 @@ async function runSingleEval(
   }
 }
 
+/**
+ * Load and validate evals configuration from JSON file
+ * Resolves relative paths and applies schema validation with helpful error messages
+ */
 function loadConfig(configPath: string): EvalConfig & { conversationConfig: ConversationConfig } {
+  // Handle both absolute and relative config file paths
   const resolvedPath = path.isAbsolute(configPath)
     ? configPath
     : path.resolve(process.cwd(), configPath);
@@ -125,10 +129,10 @@ function loadConfig(configPath: string): EvalConfig & { conversationConfig: Conv
     );
   }
 
-  // Validate the config
+  // Validate config structure and provide detailed error feedback
   const validation = validateEvalConfig(config);
   if (!validation.valid) {
-    let errorMessage = `Invalid evaluation configuration format in: ${resolvedPath}\n\n`;
+    let errorMessage = `Invalid eval configuration format in: ${resolvedPath}\n\n`;
 
     if (validation.errors && validation.errors.length > 0) {
       errorMessage += "Validation errors:\n";
@@ -138,7 +142,6 @@ function loadConfig(configPath: string): EvalConfig & { conversationConfig: Conv
       errorMessage += "\n";
     }
 
-    // Show sample configuration
     errorMessage +=
       "For a valid configuration example, see sample-evals.json in the inspector directory.\n";
 
@@ -147,7 +150,7 @@ function loadConfig(configPath: string): EvalConfig & { conversationConfig: Conv
 
   const baseConfig = config as EvalConfig;
   
-  // AJV has already applied schema defaults, so we can use them directly
+  // Extract conversation settings for LLM provider (schema defaults already applied)
   const conversationConfig: ConversationConfig = {
     model: baseConfig.config.model,
     maxSteps: baseConfig.config.maxSteps,
@@ -158,4 +161,38 @@ function loadConfig(configPath: string): EvalConfig & { conversationConfig: Conv
     ...baseConfig,
     conversationConfig,
   };
+}
+
+/**
+ * Create error messages for failed scorers, preserving the correct scorer type and index
+ */
+function createScorerErrorMessages(
+  scorerResults: { passed: boolean; error?: string }[],
+  scorers?: { type: string }[]
+): string[] {
+  if (!scorers) return [];
+  
+  const errors: string[] = [];
+  
+  scorerResults.forEach((result, index) => {
+    if (result && !result.passed) {
+      const errorMessage = createScorerErrorMessage(result, scorers[index], index);
+      errors.push(errorMessage);
+    }
+  });
+  
+  return errors;
+}
+
+/**
+ * Create error message for a single failed scorer
+ */
+function createScorerErrorMessage(
+  result: { passed: boolean; error?: string },
+  scorer: { type: string } | undefined,
+  index: number
+): string {
+  const scorerType = scorer?.type || 'unknown';
+  const errorMessage = result.error || 'Unknown error';
+  return `Output scorer ${index + 1} (${scorerType}) failed: ${errorMessage}`;
 }

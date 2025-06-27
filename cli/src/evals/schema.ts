@@ -12,7 +12,7 @@ export const evalConfigSchema = {
       properties: {
         model: {
           type: "string",
-          description: "Claude model to use for evaluation",
+          description: "Claude model to use for evals",
           default: "claude-3-haiku-20240307",
         },
         timeout: {
@@ -62,7 +62,7 @@ export const evalConfigSchema = {
                   type: "string",
                   minLength: 1,
                 },
-                description: "Tools that must be called",
+                description: "Tools that must be called. If omitted, no tools are required. If empty array [], no tools are required.",
               },
               allowed: {
                 type: "array",
@@ -70,8 +70,7 @@ export const evalConfigSchema = {
                   type: "string",
                   minLength: 1,
                 },
-                description:
-                  "Tools that may be called (in addition to required)",
+                description: "Tools that may be called (in addition to required). If omitted, any tools are allowed. If empty array [], no additional tools are allowed beyond required.",
               },
               prohibited: {
                 type: "array",
@@ -79,11 +78,11 @@ export const evalConfigSchema = {
                   type: "string",
                   minLength: 1,
                 },
-                description: "Tools that must not be called",
+                description: "Tools that must not be called. If omitted, no tools are prohibited. If empty array [], no tools are prohibited.",
               },
             },
             additionalProperties: false,
-            description: "Tool call expectations",
+            description: "Tool call validation rules. Each property is optional - omit to skip that type of validation, provide empty array to enforce 'none'.",
           },
           responseScorers: {
             type: "array",
@@ -122,7 +121,7 @@ export const evalConfigSchema = {
                     type: { const: "llm-judge" },
                     criteria: {
                       type: "string",
-                      description: "Evaluation criteria for the LLM judge",
+                      description: "Eval criteria for the LLM judge",
                     },
                     threshold: {
                       type: "number",

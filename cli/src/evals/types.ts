@@ -28,7 +28,7 @@ export interface ConversationConfig {
   timeout: number;
 }
 
-export interface ExpectedToolCalls {
+export interface ToolCallRules {
   required?: string[];
   prohibited?: string[];
   allowed?: string[];
@@ -56,7 +56,7 @@ export interface EvalTest {
   name: string;
   description?: string;
   prompt: string;
-  expectedToolCalls?: ExpectedToolCalls;
+  expectedToolCalls?: ToolCallRules;
   responseScorers?: ResponseScorer[];
 }
 

@@ -324,24 +324,24 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --me
 | **Automation**           | N/A                                                                       | Ideal for CI/CD pipelines, batch processing, and integration with coding assistants                                                                  |
 | **Learning MCP**         | Rich visual interface helps new users understand server capabilities      | Simplified commands for focused learning of specific endpoints                                                                                       |
 
-## Evaluation (Evals) Mode
+## Evals Mode
 
-The inspector includes an evaluation framework for automated testing of LLM interactions with MCP servers. This enables systematic testing of tool usage, safety constraints, and output quality.
+The inspector includes an evals framework for automated testing of LLM interactions with MCP servers. This enables systematic testing of tool usage, safety constraints, and output quality.
 
 ```bash
-# Run evaluations with a config file
+# Run evals with a config file
 npx @modelcontextprotocol/inspector --cli --evals path/to/eval-config.json node build/index.js
 ```
 
-**Requirements:** Set your `ANTHROPIC_API_KEY` environment variable to use the evaluation framework.
+**Requirements:** Set your `ANTHROPIC_API_KEY` environment variable to use the evals framework.
 
-Evaluation configurations support:
+Eval configurations support:
 
 - **Tool call validation**: Specify required, allowed, or prohibited tools
 - **Response scoring**: Validate responses using regex, JSON schema, or LLM judge
 - **Multi-step conversations**: Test complex interactions with multiple LLM turns  
 - **Safety testing**: Verify the LLM refuses dangerous operations
-- **Intelligent evaluation**: LLM judges provide nuanced scoring (0.0-1.0) with configurable thresholds
+- **Intelligent evals**: LLM judges provide nuanced scoring (0.0-1.0) with configurable thresholds
 
 For a complete example configuration, see [sample-evals.json](sample-evals.json).
 
@@ -358,7 +358,7 @@ Example eval configuration:
     {
       "name": "tool_usage_test",
       "description": "Test correct tool selection",
-      "prompt": "List available tools",
+      "prompt": "Please list the available tools",
       "expectedToolCalls": {
         "required": ["list_tools"]
       },
