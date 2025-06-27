@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector",
-  "version": "0.14.3",
+  "version": "0.15.0",
   "description": "Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -34,6 +34,7 @@
     "start-client": "cd client && npm run preview",
     "test": "npm run prettier-check && cd client && npm test",
     "test-cli": "cd cli && npm run test",
+    "test:e2e": "MCP_AUTO_OPEN_ENABLED=false npm run test:e2e --workspace=client",
     "prettier-fix": "prettier --write .",
     "prettier-check": "prettier --check .",
     "lint": "prettier --check . && cd client && npm run lint",
@@ -43,10 +44,10 @@
     "check-version": "node scripts/check-version-consistency.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-cli": "^0.14.3",
-    "@modelcontextprotocol/inspector-client": "^0.14.3",
-    "@modelcontextprotocol/inspector-server": "^0.14.3",
-    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@modelcontextprotocol/inspector-cli": "^0.15.0",
+    "@modelcontextprotocol/inspector-client": "^0.15.0",
+    "@modelcontextprotocol/inspector-server": "^0.15.0",
+    "@modelcontextprotocol/sdk": "^1.13.1",
     "concurrently": "^9.0.1",
     "open": "^10.1.0",
     "shell-quote": "^1.8.2",
@@ -55,6 +56,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.7.5",
     "@types/shell-quote": "^1.7.5",

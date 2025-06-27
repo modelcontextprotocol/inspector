@@ -44,7 +44,14 @@ console.log(`${colors.BLUE}- Resource-related options (--uri)${colors.NC}`);
 console.log(
   `${colors.BLUE}- Prompt-related options (--prompt-name, --prompt-args)${colors.NC}`,
 );
-console.log(`${colors.BLUE}- Logging options (--log-level)${colors.NC}\n`);
+console.log(`${colors.BLUE}- Logging options (--log-level)${colors.NC}`);
+console.log(
+  `${colors.BLUE}- Transport types (--transport http/sse/stdio)${colors.NC}`,
+);
+console.log(
+  `${colors.BLUE}- Transport inference from URL suffixes (/mcp, /sse)${colors.NC}`,
+);
+console.log(`\n`);
 
 // Get directory paths
 const SCRIPTS_DIR = __dirname;
@@ -62,9 +69,11 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 }
 
 // Create a temporary directory for test files
-const TEMP_DIR = fs.mkdirSync(path.join(os.tmpdir(), "mcp-inspector-tests"), {
-  recursive: true,
-});
+const TEMP_DIR = path.join(os.tmpdir(), "mcp-inspector-tests");
+fs.mkdirSync(TEMP_DIR, { recursive: true });
+
+// Track servers for cleanup
+let runningServers = [];
 
 process.on("exit", () => {
   try {
@@ -74,6 +83,21 @@ process.on("exit", () => {
       `${colors.RED}Failed to remove temp directory: ${err.message}${colors.NC}`,
     );
   }
+
+  runningServers.forEach((server) => {
+    try {
+      process.kill(-server.pid);
+    } catch (e) {}
+  });
+});
+
+process.on("SIGINT", () => {
+  runningServers.forEach((server) => {
+    try {
+      process.kill(-server.pid);
+    } catch (e) {}
+  });
+  process.exit(1);
 });
 
 // Use the existing sample config file
@@ -121,6 +145,11 @@ async function runBasicTest(testName, ...args) {
         stdio: ["ignore", "pipe", "pipe"],
       });
 
+      const timeout = setTimeout(() => {
+        console.log(`${colors.YELLOW}Test timed out: ${testName}${colors.NC}`);
+        child.kill();
+      }, 10000);
+
       // Pipe stdout and stderr to the output file
       child.stdout.pipe(outputStream);
       child.stderr.pipe(outputStream);
@@ -135,6 +164,7 @@ async function runBasicTest(testName, ...args) {
       });
 
       child.on("close", (code) => {
+        clearTimeout(timeout);
         outputStream.end();
 
         if (code === 0) {
@@ -201,6 +231,13 @@ async function runErrorTest(testName, ...args) {
         stdio: ["ignore", "pipe", "pipe"],
       });
 
+      const timeout = setTimeout(() => {
+        console.log(
+          `${colors.YELLOW}Error test timed out: ${testName}${colors.NC}`,
+        );
+        child.kill();
+      }, 10000);
+
       // Pipe stdout and stderr to the output file
       child.stdout.pipe(outputStream);
       child.stderr.pipe(outputStream);
@@ -215,6 +252,7 @@ async function runErrorTest(testName, ...args) {
       });
 
       child.on("close", (code) => {
+        clearTimeout(timeout);
         outputStream.end();
 
         // For error tests, we expect a non-zero exit code
@@ -610,6 +648,79 @@ async function runTests() {
     "--log-level",
     "debug",
   );
+
+  console.log(
+    `\n${colors.YELLOW}=== Running HTTP Transport Tests ===${colors.NC}`,
+  );
+
+  console.log(
+    `${colors.BLUE}Starting server-everything in streamableHttp mode.${colors.NC}`,
+  );
+  const httpServer = spawn(
+    "npx",
+    ["@modelcontextprotocol/server-everything", "streamableHttp"],
+    {
+      detached: true,
+      stdio: "ignore",
+    },
+  );
+  runningServers.push(httpServer);
+
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+
+  // Test 25: HTTP transport inferred from URL ending with /mcp
+  await runBasicTest(
+    "http_transport_inferred",
+    "http://127.0.0.1:3001/mcp",
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  // Test 26: HTTP transport with explicit --transport http flag
+  await runBasicTest(
+    "http_transport_with_explicit_flag",
+    "http://127.0.0.1:3001",
+    "--transport",
+    "http",
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  // Test 27: HTTP transport with suffix and --transport http flag
+  await runBasicTest(
+    "http_transport_with_explicit_flag_and_suffix",
+    "http://127.0.0.1:3001/mcp",
+    "--transport",
+    "http",
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  // Test 28: SSE transport given to HTTP server (should fail)
+  await runErrorTest(
+    "sse_transport_given_to_http_server",
+    "http://127.0.0.1:3001",
+    "--transport",
+    "sse",
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  // Kill HTTP server
+  try {
+    process.kill(-httpServer.pid);
+    console.log(
+      `${colors.BLUE}HTTP server killed, waiting for port to be released...${colors.NC}`,
+    );
+  } catch (e) {
+    console.log(
+      `${colors.RED}Error killing HTTP server: ${e.message}${colors.NC}`,
+    );
+  }
 
   // Print test summary
   console.log(`\n${colors.YELLOW}=== Test Summary ===${colors.NC}`);

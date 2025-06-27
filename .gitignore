@@ -9,3 +9,7 @@ client/tsconfig.app.tsbuildinfo
 client/tsconfig.node.tsbuildinfo
 cli/build
 test-output
+client/playwright-report/
+client/results.json
+client/test-results/
+
