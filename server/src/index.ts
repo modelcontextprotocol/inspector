@@ -96,6 +96,33 @@ const maybeSetAuthHeader = (res: express.Response, header?: string) => {
   }
 };
 
+interface ErrorWithAuthHeader extends Error {
+  authHeader?: string;
+}
+
+const captureAuthHeader = async <T>(
+  fn: () => Promise<T>,
+): Promise<{ result: T; header?: string }> => {
+  const originalFetch = globalThis.fetch;
+  let header: string | undefined;
+  globalThis.fetch = async (...args: Parameters<typeof fetch>) => {
+    const response = await originalFetch(...args);
+    if (response.status === 401 && response.headers.has("WWW-Authenticate")) {
+      header = response.headers.get("WWW-Authenticate") ?? undefined;
+    }
+    return response;
+  };
+
+  try {
+    return { result: await fn(), header };
+  } catch (error) {
+    (error as ErrorWithAuthHeader).authHeader = header;
+    throw error;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+};
+
 const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Web app transports by web app sessionId
 const serverTransports: Map<string, Transport> = new Map<string, Transport>(); // Server Transports by web app sessionId
 
@@ -186,19 +213,9 @@ const createTransport = async (
   const query = req.query;
   console.log("Query parameters:", JSON.stringify(query));
 
-  const originalFetch = globalThis.fetch;
-  let authHeader: string | undefined;
-  globalThis.fetch = async (...args: Parameters<typeof fetch>) => {
-    const response = await originalFetch(...args);
-    if (response.status === 401 && response.headers.has("WWW-Authenticate")) {
-      authHeader = response.headers.get("WWW-Authenticate") ?? undefined;
-    }
-    return response;
-  };
+  const { result: transport, header } = await captureAuthHeader(async () => {
+    const transportType = query.transportType as string;
 
-  const transportType = query.transportType as string;
-
-  try {
     if (transportType === "stdio") {
       const command = query.command as string;
       const origArgs = shellParseArgs(query.args as string) as string[];
@@ -217,7 +234,7 @@ const createTransport = async (
       });
 
       await transport.start();
-      return { transport, authHeader };
+      return transport;
     } else if (transportType === "sse") {
       const url = query.url as string;
 
@@ -236,7 +253,7 @@ const createTransport = async (
         },
       });
       await transport.start();
-      return { transport, authHeader };
+      return transport;
     } else if (transportType === "streamable-http") {
       const headers = getHttpHeaders(req, transportType);
 
@@ -249,17 +266,14 @@ const createTransport = async (
         },
       );
       await transport.start();
-      return { transport, authHeader };
+      return transport;
     } else {
       console.error(`Invalid transport type: ${transportType}`);
       throw new Error("Invalid transport type specified");
     }
-  } catch (error) {
-    (error as any).authHeader = authHeader;
-    throw error;
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  });
+
+  return { transport, authHeader: header };
 };
 
 app.get(
@@ -301,7 +315,7 @@ app.post(
           serverTransport = transport;
           maybeSetAuthHeader(res, authHeader);
         } catch (error) {
-          const header = (error as any).authHeader;
+          const header = (error as ErrorWithAuthHeader).authHeader;
           maybeSetAuthHeader(res, header);
           if (error instanceof SseError && error.code === 401) {
             console.error(
@@ -411,7 +425,7 @@ app.get(
         console.log("Created server transport");
         maybeSetAuthHeader(res, authHeader);
       } catch (error) {
-        const header = (error as any).authHeader;
+        const header = (error as ErrorWithAuthHeader).authHeader;
         maybeSetAuthHeader(res, header);
         if (error instanceof SseError && error.code === 401) {
           console.error(
@@ -483,7 +497,7 @@ app.get(
         serverTransport = transport;
         maybeSetAuthHeader(res, authHeader);
       } catch (error) {
-        const header = (error as any).authHeader;
+        const header = (error as ErrorWithAuthHeader).authHeader;
         maybeSetAuthHeader(res, header);
         if (error instanceof SseError && error.code === 401) {
           console.error(
