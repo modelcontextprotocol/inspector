@@ -101,9 +101,9 @@ const setAuthHeaderFromError = (res: express.Response, error: unknown) => {
     error &&
     typeof error === "object" &&
     "authHeader" in error &&
-    typeof (error as { authHeader?: unknown }).authHeader === "string"
+    typeof error.authHeader === "string"
   ) {
-    maybeSetAuthHeader(res, (error as { authHeader: string }).authHeader);
+    maybeSetAuthHeader(res, error.authHeader);
   }
 };
 
