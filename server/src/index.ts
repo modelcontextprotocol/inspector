@@ -96,31 +96,13 @@ const maybeSetAuthHeader = (res: express.Response, header?: string) => {
   }
 };
 
-interface ErrorWithAuthHeader extends Error {
+class TransportCreationError extends Error {
   authHeader?: string;
 }
 
-const captureAuthHeader = async <T>(
-  fn: () => Promise<T>,
-): Promise<{ result: T; header?: string }> => {
-  const originalFetch = globalThis.fetch;
-  let header: string | undefined;
-  globalThis.fetch = async (...args: Parameters<typeof fetch>) => {
-    const response = await originalFetch(...args);
-    if (response.status === 401 && response.headers.has("WWW-Authenticate")) {
-      header = response.headers.get("WWW-Authenticate") ?? undefined;
-    }
-    return response;
-  };
-
-  try {
-    return { result: await fn(), header };
-  } catch (error) {
-    (error as ErrorWithAuthHeader).authHeader = header;
-    throw error;
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+const setAuthHeaderFromError = (res: express.Response, error: unknown) => {
+  const header = (error as TransportCreationError).authHeader;
+  maybeSetAuthHeader(res, header);
 };
 
 const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Web app transports by web app sessionId
@@ -213,9 +195,22 @@ const createTransport = async (
   const query = req.query;
   console.log("Query parameters:", JSON.stringify(query));
 
-  const { result: transport, header } = await captureAuthHeader(async () => {
-    const transportType = query.transportType as string;
+  const originalFetch = globalThis.fetch;
+  let authHeader: string | undefined;
 
+  const interceptingFetch = async (
+    ...args: Parameters<typeof fetch>
+  ): Promise<Response> => {
+    const response = await originalFetch(...args);
+    if (response.status === 401 && response.headers.has("WWW-Authenticate")) {
+      authHeader = response.headers.get("WWW-Authenticate") ?? undefined;
+    }
+    return response;
+  };
+
+  const transportType = query.transportType as string;
+
+  try {
     if (transportType === "stdio") {
       const command = query.command as string;
       const origArgs = shellParseArgs(query.args as string) as string[];
@@ -234,7 +229,7 @@ const createTransport = async (
       });
 
       await transport.start();
-      return transport;
+      return { transport, authHeader };
     } else if (transportType === "sse") {
       const url = query.url as string;
 
@@ -246,14 +241,14 @@ const createTransport = async (
 
       const transport = new SSEClientTransport(new URL(url), {
         eventSourceInit: {
-          fetch: (url, init) => fetch(url, { ...init, headers }),
-        },
+          fetch: (url, init) => interceptingFetch(url, { ...init, headers }),
+        } as EventSourceInit & { fetch?: typeof fetch },
         requestInit: {
           headers,
         },
       });
       await transport.start();
-      return transport;
+      return { transport, authHeader };
     } else if (transportType === "streamable-http") {
       const headers = getHttpHeaders(req, transportType);
 
@@ -262,18 +257,23 @@ const createTransport = async (
         {
           requestInit: {
             headers,
-          },
+            // Cast to allow non-standard fetch property
+            fetch: interceptingFetch,
+          } as RequestInit & { fetch?: typeof fetch },
         },
       );
       await transport.start();
-      return transport;
+      return { transport, authHeader };
     } else {
       console.error(`Invalid transport type: ${transportType}`);
       throw new Error("Invalid transport type specified");
     }
-  });
-
-  return { transport, authHeader: header };
+  } catch (error) {
+    (error as TransportCreationError).authHeader = authHeader;
+    throw error;
+  } finally {
+    // nothing to clean up
+  }
 };
 
 app.get(
@@ -315,8 +315,7 @@ app.post(
           serverTransport = transport;
           maybeSetAuthHeader(res, authHeader);
         } catch (error) {
-          const header = (error as ErrorWithAuthHeader).authHeader;
-          maybeSetAuthHeader(res, header);
+          setAuthHeaderFromError(res, error);
           if (error instanceof SseError && error.code === 401) {
             console.error(
               "Received 401 Unauthorized from MCP server:",
@@ -425,8 +424,7 @@ app.get(
         console.log("Created server transport");
         maybeSetAuthHeader(res, authHeader);
       } catch (error) {
-        const header = (error as ErrorWithAuthHeader).authHeader;
-        maybeSetAuthHeader(res, header);
+        setAuthHeaderFromError(res, error);
         if (error instanceof SseError && error.code === 401) {
           console.error(
             "Received 401 Unauthorized from MCP server. Authentication failure.",
@@ -497,8 +495,7 @@ app.get(
         serverTransport = transport;
         maybeSetAuthHeader(res, authHeader);
       } catch (error) {
-        const header = (error as ErrorWithAuthHeader).authHeader;
-        maybeSetAuthHeader(res, header);
+        setAuthHeaderFromError(res, error);
         if (error instanceof SseError && error.code === 401) {
           console.error(
             "Received 401 Unauthorized from MCP server. Authentication failure.",
