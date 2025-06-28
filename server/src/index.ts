@@ -90,6 +90,12 @@ app.use((req, res, next) => {
   next();
 });
 
+const maybeSetAuthHeader = (res: express.Response, header?: string) => {
+  if (header) {
+    res.setHeader("WWW-Authenticate", header);
+  }
+};
+
 const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Web app transports by web app sessionId
 const serverTransports: Map<string, Transport> = new Map<string, Transport>(); // Server Transports by web app sessionId
 
@@ -174,66 +180,85 @@ const authMiddleware = (
   next();
 };
 
-const createTransport = async (req: express.Request): Promise<Transport> => {
+const createTransport = async (
+  req: express.Request,
+): Promise<{ transport: Transport; authHeader?: string }> => {
   const query = req.query;
   console.log("Query parameters:", JSON.stringify(query));
 
+  const originalFetch = globalThis.fetch;
+  let authHeader: string | undefined;
+  globalThis.fetch = async (...args: Parameters<typeof fetch>) => {
+    const response = await originalFetch(...args);
+    if (response.status === 401 && response.headers.has("WWW-Authenticate")) {
+      authHeader = response.headers.get("WWW-Authenticate") ?? undefined;
+    }
+    return response;
+  };
+
   const transportType = query.transportType as string;
 
-  if (transportType === "stdio") {
-    const command = query.command as string;
-    const origArgs = shellParseArgs(query.args as string) as string[];
-    const queryEnv = query.env ? JSON.parse(query.env as string) : {};
-    const env = { ...process.env, ...defaultEnvironment, ...queryEnv };
+  try {
+    if (transportType === "stdio") {
+      const command = query.command as string;
+      const origArgs = shellParseArgs(query.args as string) as string[];
+      const queryEnv = query.env ? JSON.parse(query.env as string) : {};
+      const env = { ...process.env, ...defaultEnvironment, ...queryEnv };
 
-    const { cmd, args } = findActualExecutable(command, origArgs);
+      const { cmd, args } = findActualExecutable(command, origArgs);
 
-    console.log(`STDIO transport: command=${cmd}, args=${args}`);
+      console.log(`STDIO transport: command=${cmd}, args=${args}`);
 
-    const transport = new StdioClientTransport({
-      command: cmd,
-      args,
-      env,
-      stderr: "pipe",
-    });
+      const transport = new StdioClientTransport({
+        command: cmd,
+        args,
+        env,
+        stderr: "pipe",
+      });
 
-    await transport.start();
-    return transport;
-  } else if (transportType === "sse") {
-    const url = query.url as string;
+      await transport.start();
+      return { transport, authHeader };
+    } else if (transportType === "sse") {
+      const url = query.url as string;
 
-    const headers = getHttpHeaders(req, transportType);
+      const headers = getHttpHeaders(req, transportType);
 
-    console.log(
-      `SSE transport: url=${url}, headers=${JSON.stringify(headers)}`,
-    );
+      console.log(
+        `SSE transport: url=${url}, headers=${JSON.stringify(headers)}`,
+      );
 
-    const transport = new SSEClientTransport(new URL(url), {
-      eventSourceInit: {
-        fetch: (url, init) => fetch(url, { ...init, headers }),
-      },
-      requestInit: {
-        headers,
-      },
-    });
-    await transport.start();
-    return transport;
-  } else if (transportType === "streamable-http") {
-    const headers = getHttpHeaders(req, transportType);
-
-    const transport = new StreamableHTTPClientTransport(
-      new URL(query.url as string),
-      {
+      const transport = new SSEClientTransport(new URL(url), {
+        eventSourceInit: {
+          fetch: (url, init) => fetch(url, { ...init, headers }),
+        },
         requestInit: {
           headers,
         },
-      },
-    );
-    await transport.start();
-    return transport;
-  } else {
-    console.error(`Invalid transport type: ${transportType}`);
-    throw new Error("Invalid transport type specified");
+      });
+      await transport.start();
+      return { transport, authHeader };
+    } else if (transportType === "streamable-http") {
+      const headers = getHttpHeaders(req, transportType);
+
+      const transport = new StreamableHTTPClientTransport(
+        new URL(query.url as string),
+        {
+          requestInit: {
+            headers,
+          },
+        },
+      );
+      await transport.start();
+      return { transport, authHeader };
+    } else {
+      console.error(`Invalid transport type: ${transportType}`);
+      throw new Error("Invalid transport type specified");
+    }
+  } catch (error) {
+    (error as any).authHeader = authHeader;
+    throw error;
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 };
 
@@ -272,8 +297,12 @@ app.post(
       try {
         console.log("New StreamableHttp connection request");
         try {
-          serverTransport = await createTransport(req);
+          const { transport, authHeader } = await createTransport(req);
+          serverTransport = transport;
+          maybeSetAuthHeader(res, authHeader);
         } catch (error) {
+          const header = (error as any).authHeader;
+          maybeSetAuthHeader(res, header);
           if (error instanceof SseError && error.code === 401) {
             console.error(
               "Received 401 Unauthorized from MCP server:",
@@ -377,9 +406,13 @@ app.get(
       console.log("New STDIO connection request");
       let serverTransport: Transport | undefined;
       try {
-        serverTransport = await createTransport(req);
+        const { transport, authHeader } = await createTransport(req);
+        serverTransport = transport;
         console.log("Created server transport");
+        maybeSetAuthHeader(res, authHeader);
       } catch (error) {
+        const header = (error as any).authHeader;
+        maybeSetAuthHeader(res, header);
         if (error instanceof SseError && error.code === 401) {
           console.error(
             "Received 401 Unauthorized from MCP server. Authentication failure.",
@@ -446,8 +479,12 @@ app.get(
       );
       let serverTransport: Transport | undefined;
       try {
-        serverTransport = await createTransport(req);
+        const { transport, authHeader } = await createTransport(req);
+        serverTransport = transport;
+        maybeSetAuthHeader(res, authHeader);
       } catch (error) {
+        const header = (error as any).authHeader;
+        maybeSetAuthHeader(res, header);
         if (error instanceof SseError && error.code === 401) {
           console.error(
             "Received 401 Unauthorized from MCP server. Authentication failure.",
