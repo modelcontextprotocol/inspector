@@ -120,6 +120,44 @@ try {
 const invalidConfigPath = path.join(TEMP_DIR, "invalid-config.json");
 fs.writeFileSync(invalidConfigPath, '{\n  "mcpServers": {\n    "invalid": {');
 
+// Create evals test files
+const validEvalsConfigPath = path.join(TEMP_DIR, "valid-evals.json");
+fs.writeFileSync(validEvalsConfigPath, JSON.stringify({
+  "options": {
+    "models": ["claude-3-haiku-20240307"],
+    "timeout": 30000,
+    "maxSteps": 3
+  },
+  "evals": [
+    {
+      "name": "test_eval",
+      "prompt": "Please list all available tools",
+      "expectedToolCalls": {
+        "required": ["list_tools"]
+      },
+      "responseScorers": [
+        {
+          "type": "regex",
+          "pattern": "tool"
+        }
+      ]
+    }
+  ]
+}, null, 2));
+
+const invalidEvalsConfigPath = path.join(TEMP_DIR, "invalid-evals.json");
+fs.writeFileSync(invalidEvalsConfigPath, JSON.stringify({
+  "evals": [
+    {
+      "name": "incomplete_eval"
+      // Missing required "prompt" and "responseScorers" fields
+    }
+  ]
+}, null, 2));
+
+const malformedEvalsConfigPath = path.join(TEMP_DIR, "malformed-evals.json");
+fs.writeFileSync(malformedEvalsConfigPath, '{\n  "evals": [');
+
 // Function to run a basic test
 async function runBasicTest(testName, ...args) {
   const outputFile = path.join(
@@ -721,6 +759,59 @@ async function runTests() {
       `${colors.RED}Error killing HTTP server: ${e.message}${colors.NC}`,
     );
   }
+
+  console.log(
+    `\n${colors.YELLOW}=== Running Evals Framework Tests ===${colors.NC}`,
+  );
+
+  // Test 29: Evals with malformed JSON config (should fail)
+  await runErrorTest(
+    "evals_malformed_config",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "--cli",
+    "--evals",
+    malformedEvalsConfigPath,
+  );
+
+  // Test 30: Evals with invalid schema (should fail)
+  await runErrorTest(
+    "evals_invalid_schema",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "--cli",
+    "--evals",
+    invalidEvalsConfigPath,
+  );
+
+  // Test 31: Evals with missing API key (should fail)
+  // First ensure ANTHROPIC_API_KEY is not set for this test
+  const originalApiKey = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  
+  await runErrorTest(
+    "evals_missing_api_key",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "--cli",
+    "--evals",
+    validEvalsConfigPath,
+  );
+
+  // Restore the original API key if it existed
+  if (originalApiKey) {
+    process.env.ANTHROPIC_API_KEY = originalApiKey;
+  }
+
+  // Test 32: Evals with non-existent config file (should fail)
+  await runErrorTest(
+    "evals_nonexistent_config",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "--cli",
+    "--evals",
+    "./nonexistent-evals.json",
+  );
 
   // Print test summary
   console.log(`\n${colors.YELLOW}=== Test Summary ===${colors.NC}`);

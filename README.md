@@ -326,7 +326,7 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --me
 
 ## Evals Mode
 
-The inspector includes an evals framework for automated testing of LLM interactions with MCP servers. This is crucial for MCP server development because LLMs can behave unpredictably - they might call the wrong tools, ignore safety constraints, or provide poor quality responses even when using tools correctly. 
+The inspector includes an evals framework for automated testing of LLM interactions with MCP servers. This is crucial for MCP server development because LLMs can behave unpredictably - they might call the wrong tools, ignore safety constraints, or provide poor quality responses even when using tools correctly.
 
 The evals framework validates both tool usage correctness and tool call success, helping ensure your MCP server works reliably with LLMs in production.
 
@@ -335,6 +335,7 @@ The evals framework validates both tool usage correctness and tool call success,
 ### Quick Example
 
 Create `my-evals.json`:
+
 ```json
 {
   "options": {
@@ -357,11 +358,13 @@ Create `my-evals.json`:
 ```
 
 Run the eval:
+
 ```bash
 ANTHROPIC_API_KEY=your-key npx @modelcontextprotocol/inspector --cli --evals my-evals.json node build/index.js
 ```
 
 Example output:
+
 ```
 Running 1 eval tests across 1 model(s) (1 total runs)...
 
@@ -404,6 +407,7 @@ For more comprehensive testing with response quality scoring, you can test again
 ```
 
 Example output:
+
 ```
 Running 1 eval tests across 2 model(s) (4 total runs)...
 
