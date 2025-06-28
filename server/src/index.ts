@@ -101,8 +101,10 @@ class TransportCreationError extends Error {
 }
 
 const setAuthHeaderFromError = (res: express.Response, error: unknown) => {
-  const header = (error as TransportCreationError).authHeader;
-  maybeSetAuthHeader(res, header);
+  if (error && typeof error === "object" && "authHeader" in error) {
+    const header = (error as { authHeader?: string }).authHeader;
+    maybeSetAuthHeader(res, header);
+  }
 };
 
 const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Web app transports by web app sessionId
