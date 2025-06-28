@@ -555,5 +555,6 @@ export function useConnection({
     completionsSupported,
     connect,
     disconnect,
+    setRequestHistory,
   };
 }
