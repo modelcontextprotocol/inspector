@@ -96,14 +96,14 @@ const maybeSetAuthHeader = (res: express.Response, header?: string) => {
   }
 };
 
-class TransportCreationError extends Error {
-  authHeader?: string;
-}
-
 const setAuthHeaderFromError = (res: express.Response, error: unknown) => {
-  if (error && typeof error === "object" && "authHeader" in error) {
-    const header = (error as { authHeader?: string }).authHeader;
-    maybeSetAuthHeader(res, header);
+  if (
+    error &&
+    typeof error === "object" &&
+    "authHeader" in error &&
+    typeof (error as { authHeader?: unknown }).authHeader === "string"
+  ) {
+    maybeSetAuthHeader(res, (error as { authHeader: string }).authHeader);
   }
 };
 
@@ -272,7 +272,7 @@ const createTransport = async (
     }
   } catch (error) {
     if (error && typeof error === "object") {
-      (error as TransportCreationError).authHeader = authHeader;
+      (error as { authHeader?: string }).authHeader = authHeader;
     }
     throw error;
   } finally {
