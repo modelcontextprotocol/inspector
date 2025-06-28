@@ -271,7 +271,9 @@ const createTransport = async (
       throw new Error("Invalid transport type specified");
     }
   } catch (error) {
-    (error as TransportCreationError).authHeader = authHeader;
+    if (error && typeof error === "object") {
+      (error as TransportCreationError).authHeader = authHeader;
+    }
     throw error;
   } finally {
     // nothing to clean up
