@@ -122,38 +122,52 @@ fs.writeFileSync(invalidConfigPath, '{\n  "mcpServers": {\n    "invalid": {');
 
 // Create evals test files
 const validEvalsConfigPath = path.join(TEMP_DIR, "valid-evals.json");
-fs.writeFileSync(validEvalsConfigPath, JSON.stringify({
-  "options": {
-    "models": ["claude-3-haiku-20240307"],
-    "timeout": 30000,
-    "maxSteps": 3
-  },
-  "evals": [
+fs.writeFileSync(
+  validEvalsConfigPath,
+  JSON.stringify(
     {
-      "name": "test_eval",
-      "prompt": "Please list all available tools",
-      "expectedToolCalls": {
-        "required": ["list_tools"]
+      options: {
+        models: ["claude-3-haiku-20240307"],
+        timeout: 30000,
+        maxSteps: 3,
       },
-      "responseScorers": [
+      evals: [
         {
-          "type": "regex",
-          "pattern": "tool"
-        }
-      ]
-    }
-  ]
-}, null, 2));
+          name: "test_eval",
+          prompt: "Please list all available tools",
+          expectedToolCalls: {
+            required: ["list_tools"],
+          },
+          responseScorers: [
+            {
+              type: "regex",
+              pattern: "tool",
+            },
+          ],
+        },
+      ],
+    },
+    null,
+    2,
+  ),
+);
 
 const invalidEvalsConfigPath = path.join(TEMP_DIR, "invalid-evals.json");
-fs.writeFileSync(invalidEvalsConfigPath, JSON.stringify({
-  "evals": [
+fs.writeFileSync(
+  invalidEvalsConfigPath,
+  JSON.stringify(
     {
-      "name": "incomplete_eval"
-      // Missing required "prompt" and "responseScorers" fields
-    }
-  ]
-}, null, 2));
+      evals: [
+        {
+          name: "incomplete_eval",
+          // Missing required "prompt" and "responseScorers" fields
+        },
+      ],
+    },
+    null,
+    2,
+  ),
+);
 
 const malformedEvalsConfigPath = path.join(TEMP_DIR, "malformed-evals.json");
 fs.writeFileSync(malformedEvalsConfigPath, '{\n  "evals": [');
@@ -788,7 +802,7 @@ async function runTests() {
   // First ensure ANTHROPIC_API_KEY is not set for this test
   const originalApiKey = process.env.ANTHROPIC_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
-  
+
   await runErrorTest(
     "evals_missing_api_key",
     TEST_CMD,
