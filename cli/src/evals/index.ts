@@ -3,12 +3,18 @@ import fs from "node:fs";
 import path from "node:path";
 import debug from "debug";
 import { validateEvalConfig } from "./schema.js";
-import type { EvalsConfig, EvalResult, EvalSummary, EvalTest, SingleEvalConfig } from "./types.js";
+import type {
+  EvalsConfig,
+  EvalResult,
+  EvalSummary,
+  EvalTest,
+  SingleEvalConfig,
+} from "./types.js";
 import { validateToolCalls } from "./validate-tools.js";
 import { runResponseScorers } from "./scorers.js";
 import { AnthropicProvider } from "./providers/anthropic-provider.js";
 
-const debugEvals = debug('evals');
+const debugEvals = debug("evals");
 
 /**
  * Main entry point for running eval tests against an MCP server
@@ -19,19 +25,21 @@ export async function runEvals(
   configPath: string,
 ): Promise<EvalSummary> {
   const config = loadConfig(configPath);
-  
+
   // Create LLM provider (currently only Anthropic)
   const llmProvider = new AnthropicProvider();
 
   const totalTests = config.evals.length * config.options.models.length;
-  console.log(`\nRunning ${config.evals.length} eval tests across ${config.options.models.length} model(s) (${totalTests} total runs)...`);
+  console.log(
+    `\nRunning ${config.evals.length} eval tests across ${config.options.models.length} model(s) (${totalTests} total runs)...`,
+  );
 
   // Run all tests completely serially
   const results: EvalResult[] = [];
-  
+
   for (const model of config.options.models) {
     console.log(`\n🤖 Running tests with model: ${model}`);
-    
+
     // Run each test one at a time
     for (const evalTest of config.evals) {
       const singleEvalConfig: SingleEvalConfig = {
@@ -39,20 +47,25 @@ export async function runEvals(
         maxSteps: config.options.maxSteps,
         timeout: config.options.timeout,
       };
-      
-      const result = await runSingleEval(mcpClient, llmProvider, evalTest, singleEvalConfig);
-      
+
+      const result = await runSingleEval(
+        mcpClient,
+        llmProvider,
+        evalTest,
+        singleEvalConfig,
+      );
+
       // Show immediate feedback for better UX
       if (result.passed) {
         console.log(`✅ ${result.name}: PASSED`);
       } else {
         console.log(`❌ ${result.name}: FAILED`);
         console.log(`   Prompt: "${evalTest.prompt}"`);
-        result.errors.forEach(error => {
+        result.errors.forEach((error) => {
           console.log(`   • ${error}`);
         });
       }
-      
+
       // Additional debug logging (only when DEBUG=evals is set)
       debugLog(JSON.stringify(result.messages, null, 2));
 
@@ -62,11 +75,11 @@ export async function runEvals(
 
   const summary: EvalSummary = {
     total: results.length,
-    passed: results.filter(r => r.passed).length,
-    failed: results.filter(r => !r.passed).length,
+    passed: results.filter((r) => r.passed).length,
+    failed: results.filter((r) => !r.passed).length,
     results,
   };
-  
+
   console.log(`\nResults: ${summary.passed}/${summary.total} tests passed`);
 
   return summary;
@@ -83,19 +96,32 @@ async function runSingleEval(
   config: SingleEvalConfig,
 ): Promise<EvalResult> {
   try {
-
     // Execute LLM conversation with tool calling enabled
-    const messages = await llmProvider.executeConversation(mcpClient, evalTest.prompt, config);
+    const messages = await llmProvider.executeConversation(
+      mcpClient,
+      evalTest.prompt,
+      config,
+    );
 
     // Validate tool usage against expected behavior
     const toolResults = llmProvider.extractToolCallResults(messages);
-    const toolValidationErrors = validateToolCalls(evalTest.expectedToolCalls, toolResults);
+    const toolValidationErrors = validateToolCalls(
+      evalTest.expectedToolCalls,
+      toolResults,
+    );
 
     // Evaluate response quality using configured scorers (regex, schema, LLM judge)
-    const scorerResults = evalTest.responseScorers 
-      ? await runResponseScorers(evalTest.responseScorers, messages, llmProvider)
+    const scorerResults = evalTest.responseScorers
+      ? await runResponseScorers(
+          evalTest.responseScorers,
+          messages,
+          llmProvider,
+        )
       : [];
-    const scorerErrors = createScorerErrorMessages(scorerResults, evalTest.responseScorers);
+    const scorerErrors = createScorerErrorMessages(
+      scorerResults,
+      evalTest.responseScorers,
+    );
 
     // Combine all validation errors to determine pass/fail
     const allErrors = [...toolValidationErrors, ...scorerErrors];
@@ -173,19 +199,23 @@ function loadConfig(configPath: string): EvalsConfig {
  */
 function createScorerErrorMessages(
   scorerResults: { passed: boolean; error?: string }[],
-  scorers?: { type: string }[]
+  scorers?: { type: string }[],
 ): string[] {
   if (!scorers) return [];
-  
+
   const errors: string[] = [];
-  
+
   scorerResults.forEach((result, index) => {
     if (result && !result.passed) {
-      const errorMessage = createScorerErrorMessage(result, scorers[index], index);
+      const errorMessage = createScorerErrorMessage(
+        result,
+        scorers[index],
+        index,
+      );
       errors.push(errorMessage);
     }
   });
-  
+
   return errors;
 }
 
@@ -195,10 +225,10 @@ function createScorerErrorMessages(
 function createScorerErrorMessage(
   result: { passed: boolean; error?: string },
   scorer: { type: string } | undefined,
-  index: number
+  index: number,
 ): string {
-  const scorerType = scorer?.type || 'unknown';
-  const errorMessage = result.error || 'Unknown error';
+  const scorerType = scorer?.type || "unknown";
+  const errorMessage = result.error || "Unknown error";
   return `Output scorer ${index + 1} (${scorerType}) failed: ${errorMessage}`;
 }
 

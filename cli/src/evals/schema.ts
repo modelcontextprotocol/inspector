@@ -17,7 +17,8 @@ export const evalConfigSchema = {
             minLength: 1,
           },
           minItems: 1,
-          description: "Claude models to use for evals (will run separately for each)",
+          description:
+            "Claude models to use for evals (will run separately for each)",
           default: ["claude-3-haiku-20240307"],
         },
         timeout: {
@@ -67,7 +68,8 @@ export const evalConfigSchema = {
                   type: "string",
                   minLength: 1,
                 },
-                description: "Tools that must be called. If omitted, no tools are required. If empty array [], no tools are required.",
+                description:
+                  "Tools that must be called. If omitted, no tools are required. If empty array [], no tools are required.",
               },
               allowed: {
                 type: "array",
@@ -75,7 +77,8 @@ export const evalConfigSchema = {
                   type: "string",
                   minLength: 1,
                 },
-                description: "Tools that may be called (in addition to required). If omitted, any tools are allowed. If empty array [], no additional tools are allowed beyond required.",
+                description:
+                  "Tools that may be called (in addition to required). If omitted, any tools are allowed. If empty array [], no additional tools are allowed beyond required.",
               },
               prohibited: {
                 type: "array",
@@ -83,11 +86,13 @@ export const evalConfigSchema = {
                   type: "string",
                   minLength: 1,
                 },
-                description: "Tools that must not be called. If omitted, no tools are prohibited. If empty array [], no tools are prohibited.",
+                description:
+                  "Tools that must not be called. If omitted, no tools are prohibited. If empty array [], no tools are prohibited.",
               },
             },
             additionalProperties: false,
-            description: "Tool call validation rules. Each property is optional - omit to skip that type of validation, provide empty array to enforce 'none'.",
+            description:
+              "Tool call validation rules. Each property is optional - omit to skip that type of validation, provide empty array to enforce 'none'.",
           },
           responseScorers: {
             type: "array",
@@ -154,7 +159,6 @@ export const evalConfigSchema = {
   additionalProperties: false,
 } as const;
 
-
 export function validateEvalConfig(config: unknown): {
   valid: boolean;
   errors?: string[];
@@ -173,21 +177,23 @@ export function validateEvalConfig(config: unknown): {
   const valid = validate(config);
 
   if (!valid) {
-    const errors = validate.errors?.map((error: any) => 
-      `${error.instancePath || 'root'}: ${error.message}`
+    const errors = validate.errors?.map(
+      (error: any) => `${error.instancePath || "root"}: ${error.message}`,
     ) || ["Unknown validation error"];
     return { valid: false, errors };
   }
 
   const evalConfig = config as EvalsConfig;
-  
+
   // Check for duplicate eval names
   const names = evalConfig.evals.map((e) => e.name);
-  const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
+  const duplicates = names.filter(
+    (name, index) => names.indexOf(name) !== index,
+  );
   if (duplicates.length > 0) {
-    return { 
-      valid: false, 
-      errors: [`Duplicate eval names: ${duplicates.join(", ")}`] 
+    return {
+      valid: false,
+      errors: [`Duplicate eval names: ${duplicates.join(", ")}`],
     };
   }
 
@@ -201,7 +207,7 @@ export function validateEvalConfig(config: unknown): {
           ajv.compile(scorer.schema);
         } catch (error: any) {
           validationErrors.push(
-            `evals[${evalIndex}].responseScorers[${scorerIndex}].schema: Invalid JSON Schema - ${error instanceof Error ? error.message : "Unknown error"}`
+            `evals[${evalIndex}].responseScorers[${scorerIndex}].schema: Invalid JSON Schema - ${error instanceof Error ? error.message : "Unknown error"}`,
           );
         }
       }
@@ -211,7 +217,7 @@ export function validateEvalConfig(config: unknown): {
           new RegExp(scorer.pattern);
         } catch (error: any) {
           validationErrors.push(
-            `evals[${evalIndex}].responseScorers[${scorerIndex}].pattern: Invalid regex - ${error instanceof Error ? error.message : "Unknown error"}`
+            `evals[${evalIndex}].responseScorers[${scorerIndex}].pattern: Invalid regex - ${error instanceof Error ? error.message : "Unknown error"}`,
           );
         }
       }

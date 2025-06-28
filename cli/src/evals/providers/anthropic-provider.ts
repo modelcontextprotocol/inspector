@@ -2,12 +2,16 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Tool, ListToolsResult } from "@modelcontextprotocol/sdk/types.js";
-import type { 
+import type {
   MessageParam,
   ToolUseBlockParam,
-  ToolResultBlockParam
+  ToolResultBlockParam,
 } from "@anthropic-ai/sdk/resources/messages";
-import type { SingleEvalConfig, LlmJudgeResult, ToolCallResult } from "../types.js";
+import type {
+  SingleEvalConfig,
+  LlmJudgeResult,
+  ToolCallResult,
+} from "../types.js";
 import type { LLMProvider } from "./llm-provider.js";
 
 interface AnthropicTool {
@@ -23,10 +27,10 @@ export class AnthropicProvider implements LLMProvider<MessageParam> {
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error(
         "ANTHROPIC_API_KEY environment variable is required.\n" +
-        "Please set your API key: export ANTHROPIC_API_KEY=your_api_key_here"
+          "Please set your API key: export ANTHROPIC_API_KEY=your_api_key_here",
       );
     }
-    
+
     this.client = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
@@ -35,18 +39,19 @@ export class AnthropicProvider implements LLMProvider<MessageParam> {
   async executeConversation(
     mcpClient: Client,
     prompt: string,
-    config: SingleEvalConfig
+    config: SingleEvalConfig,
   ): Promise<MessageParam[]> {
     const tools = await this.getTools(mcpClient);
     let messages: MessageParam[] = [{ role: "user", content: prompt }];
-    
+
     let currentStep = 0;
     while (currentStep < config.maxSteps) {
       const response = await this.client.messages.create({
         model: config.model,
         max_tokens: 1024,
         messages: messages,
-        system: "You are an assistant that helps with tasks using the available tools. Use tools when appropriate to complete the user's request.",
+        system:
+          "You are an assistant that helps with tasks using the available tools. Use tools when appropriate to complete the user's request.",
         tools: tools.length > 0 ? tools : undefined,
       });
 
@@ -57,8 +62,11 @@ export class AnthropicProvider implements LLMProvider<MessageParam> {
       });
 
       // Process tool calls if any
-      const toolResults = await this.processToolCalls(mcpClient, response.content);
-      
+      const toolResults = await this.processToolCalls(
+        mcpClient,
+        response.content,
+      );
+
       if (toolResults.length === 0) {
         break; // No tool calls, conversation is done
       }
@@ -71,14 +79,14 @@ export class AnthropicProvider implements LLMProvider<MessageParam> {
 
       currentStep++;
     }
-    
+
     return messages;
   }
 
   async runLLMJudge(
     criteria: string,
     originalPrompt: string,
-    conversation: string
+    conversation: string,
   ): Promise<LlmJudgeResult> {
     const systemMessage = `You are an expert evaluator of AI assistant conversations. Your task is to assess how well the assistant's response meets the specified eval criteria.
 
@@ -124,20 +132,25 @@ Provide your assessment as JSON:
     });
 
     // Extract and parse JSON response
-    const responseText = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
-    
+    const responseText =
+      response.content[0]?.type === "text"
+        ? response.content[0].text.trim()
+        : "";
+
     try {
       const parsed = JSON.parse(responseText);
       const score = parseFloat(parsed.score);
       const rationale = parsed.rationale || "No rationale provided";
-      
+
       if (isNaN(score) || score < 0 || score > 1) {
         throw new Error(`Invalid score: ${parsed.score}`);
       }
-      
+
       return { score, rationale };
     } catch (error) {
-      throw new Error(`Invalid JSON response from LLM judge: "${responseText}". Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Invalid JSON response from LLM judge: "${responseText}". Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   }
 
@@ -156,14 +169,14 @@ Provide your assessment as JSON:
 
   private async processToolCalls(
     mcpClient: Client,
-    content: any[]
+    content: any[],
   ): Promise<ToolResultBlockParam[]> {
     const toolResults: ToolResultBlockParam[] = [];
-    
+
     for (const item of content) {
       if (item.type === "tool_use") {
         const toolUse = item as ToolUseBlockParam;
-        
+
         try {
           const toolInput = (toolUse.input as Record<string, any>) || {};
           const toolResult = await mcpClient.callTool({
@@ -180,7 +193,8 @@ Provide your assessment as JSON:
             });
           } else {
             // Handle both structured content and regular content
-            const resultContent = toolResult.structuredContent || toolResult.content || [];
+            const resultContent =
+              toolResult.structuredContent || toolResult.content || [];
             toolResults.push({
               type: "tool_result",
               tool_use_id: toolUse.id,
@@ -188,7 +202,8 @@ Provide your assessment as JSON:
             });
           }
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : "Tool execution failed";
+          const errorMessage =
+            error instanceof Error ? error.message : "Tool execution failed";
           toolResults.push({
             type: "tool_result",
             tool_use_id: toolUse.id,
@@ -198,14 +213,14 @@ Provide your assessment as JSON:
         }
       }
     }
-    
+
     return toolResults;
   }
 
   // Message parsing methods - move from message-parser.ts
   getAllAssistantText(messages: MessageParam[]): string {
     const assistantTexts: string[] = [];
-    
+
     for (const message of messages) {
       if (message.role === "assistant") {
         if (typeof message.content === "string") {
@@ -219,12 +234,12 @@ Provide your assessment as JSON:
         }
       }
     }
-    
+
     return assistantTexts.join(" ");
   }
 
   getOriginalPrompt(messages: MessageParam[]): string {
-    const firstUserMessage = messages.find(msg => msg.role === "user");
+    const firstUserMessage = messages.find((msg) => msg.role === "user");
     if (firstUserMessage && typeof firstUserMessage.content === "string") {
       return firstUserMessage.content;
     }
@@ -234,7 +249,7 @@ Provide your assessment as JSON:
   extractToolCallResults(messages: MessageParam[]): ToolCallResult[] {
     // Map MCP request IDs to tool call results
     const toolUseMap = new Map<string, ToolCallResult>();
-    
+
     for (const message of messages) {
       if (Array.isArray(message.content)) {
         for (const content of message.content) {
@@ -245,7 +260,7 @@ Provide your assessment as JSON:
             toolUseMap.set(toolUse.id, {
               name: toolUse.name,
               success: false, // Default to false until we find the result
-              error: undefined
+              error: undefined,
             });
           }
           // Update with tool results (user messages)
@@ -255,14 +270,26 @@ Provide your assessment as JSON:
             const toolCall = toolUseMap.get(toolResult.tool_use_id);
             if (toolCall) {
               toolCall.success = !toolResult.is_error;
-              if (toolResult.is_error && typeof toolResult.content === "string") {
+              if (
+                toolResult.is_error &&
+                typeof toolResult.content === "string"
+              ) {
                 // Clean up error message - extract text from JSON structure if present
                 let errorMessage = toolResult.content;
-                if (errorMessage.startsWith('Error: [{"type":"text","text":"') && errorMessage.endsWith('"}]')) {
+                if (
+                  errorMessage.startsWith('Error: [{"type":"text","text":"') &&
+                  errorMessage.endsWith('"}]')
+                ) {
                   // Extract just the text content from the JSON structure
                   try {
-                    const parsed = JSON.parse(errorMessage.replace('Error: ', ''));
-                    if (Array.isArray(parsed) && parsed[0]?.type === 'text' && parsed[0]?.text) {
+                    const parsed = JSON.parse(
+                      errorMessage.replace("Error: ", ""),
+                    );
+                    if (
+                      Array.isArray(parsed) &&
+                      parsed[0]?.type === "text" &&
+                      parsed[0]?.text
+                    ) {
                       errorMessage = parsed[0].text;
                     }
                   } catch {
@@ -276,32 +303,34 @@ Provide your assessment as JSON:
         }
       }
     }
-    
+
     return Array.from(toolUseMap.values());
   }
 
   formatMessagesForLLM(messages: MessageParam[]): string {
-    return messages.map(message => {
-      if (message.role === "user") {
-        return `User: ${typeof message.content === "string" ? message.content : "[complex content]"}`;  
-      } else {
-        // Extract text and tool calls from assistant message
-        let result = "";
-        if (Array.isArray(message.content)) {
-          for (const content of message.content) {
-            if (content.type === "text") {
-              const textContent = content as any; // We know this is TextBlockParam
-              result += `Assistant: ${textContent.text}\n`;
-            } else if (content.type === "tool_use") {
-              const toolUse = content as ToolUseBlockParam;
-              result += `Tool called: ${toolUse.name}\n`;
+    return messages
+      .map((message) => {
+        if (message.role === "user") {
+          return `User: ${typeof message.content === "string" ? message.content : "[complex content]"}`;
+        } else {
+          // Extract text and tool calls from assistant message
+          let result = "";
+          if (Array.isArray(message.content)) {
+            for (const content of message.content) {
+              if (content.type === "text") {
+                const textContent = content as any; // We know this is TextBlockParam
+                result += `Assistant: ${textContent.text}\n`;
+              } else if (content.type === "tool_use") {
+                const toolUse = content as ToolUseBlockParam;
+                result += `Tool called: ${toolUse.name}\n`;
+              }
             }
+          } else if (typeof message.content === "string") {
+            result = `Assistant: ${message.content}\n`;
           }
-        } else if (typeof message.content === "string") {
-          result = `Assistant: ${message.content}\n`;
+          return result.trim();
         }
-        return result.trim();
-      }
-    }).join('\n\n');
+      })
+      .join("\n\n");
   }
 }

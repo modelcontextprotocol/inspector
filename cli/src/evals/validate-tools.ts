@@ -2,38 +2,47 @@ import type { ToolCallRules, ToolCallResult } from "./types.js";
 
 export function validateToolCalls(
   rules: ToolCallRules | undefined,
-  toolResults: ToolCallResult[]
+  toolResults: ToolCallResult[],
 ): string[] {
   const errors: string[] = [];
-  
+
   // Always check for failed tool calls
   const failureErrors = toolResults
-    .filter(result => !result.success)
-    .map(failed => `Tool call '${failed.name}' failed: ${failed.error || 'Unknown error'}`);
+    .filter((result) => !result.success)
+    .map(
+      (failed) =>
+        `Tool call '${failed.name}' failed: ${failed.error || "Unknown error"}`,
+    );
   errors.push(...failureErrors);
-  
+
   if (!rules) return errors;
-  
-  const toolCallNames = toolResults.map(result => result.name);
+
+  const toolCallNames = toolResults.map((result) => result.name);
   const required = rules.required; // undefined means no requirements
   const prohibited = rules.prohibited; // undefined means no prohibitions
   const allowed = rules.allowed; // undefined means any tools allowed
-  
+
   // Get unique tool names to avoid duplicate error messages
   const uniqueToolNames = [...new Set(toolCallNames)];
-  
+
   // Single pass through unique tool calls
   for (const tool of uniqueToolNames) {
     // Check if tool is prohibited
     if (prohibited && prohibited.includes(tool)) {
       errors.push(`Prohibited tool '${tool}' was called`);
-    } 
+    }
     // Check if tool is allowed (only if allowed array is explicitly provided)
-    else if (allowed !== undefined && (!required?.includes(tool)) && !allowed.includes(tool)) {
-      errors.push(`Unexpected tool '${tool}' was called (not in required or allowed list)`);
+    else if (
+      allowed !== undefined &&
+      !required?.includes(tool) &&
+      !allowed.includes(tool)
+    ) {
+      errors.push(
+        `Unexpected tool '${tool}' was called (not in required or allowed list)`,
+      );
     }
   }
-  
+
   // Check for missing required tools (only if required array is provided)
   if (required) {
     for (const tool of required) {
@@ -42,7 +51,6 @@ export function validateToolCalls(
       }
     }
   }
-  
+
   return errors;
 }
-
