@@ -324,6 +324,114 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --me
 | **Automation**           | N/A                                                                       | Ideal for CI/CD pipelines, batch processing, and integration with coding assistants                                                                  |
 | **Learning MCP**         | Rich visual interface helps new users understand server capabilities      | Simplified commands for focused learning of specific endpoints                                                                                       |
 
+## Evals Mode
+
+The inspector includes an evals framework for automated testing of LLM interactions with MCP servers. This is crucial for MCP server development because LLMs can behave unpredictably - they might call the wrong tools, ignore safety constraints, or provide poor quality responses even when using tools correctly.
+
+The evals framework validates both tool usage correctness and tool call success, helping ensure your MCP server works reliably with LLMs in production.
+
+**Requirements:** Set your `ANTHROPIC_API_KEY` environment variable to use the evals framework.
+
+### Quick Example
+
+Create `my-evals.json`:
+
+```json
+{
+  "options": {
+    "models": ["claude-3-haiku-20240307"],
+    "timeout": 30000,
+    "maxSteps": 3
+  },
+  "evals": [
+    {
+      "name": "review_only_test",
+      "prompt": "Please review my README file and suggest some edits",
+      "expectedToolCalls": {
+        "required": ["read_file"],
+        "allowed": ["list_files"],
+        "prohibited": ["write_file", "delete_file"]
+      }
+    }
+  ]
+}
+```
+
+Run the eval:
+
+```bash
+ANTHROPIC_API_KEY=your-key npx @modelcontextprotocol/inspector --cli --evals my-evals.json node build/index.js
+```
+
+Example output:
+
+```
+Running 1 eval tests across 1 model(s) (1 total runs)...
+
+🤖 Running tests with model: claude-3-haiku-20240307
+❌ review_only_test: FAILED
+   Prompt: "Please review my README file and suggest some edits"
+   • Prohibited tool 'write_file' was called
+
+Results: 0/1 tests passed
+```
+
+### Advanced Example
+
+For more comprehensive testing with response quality scoring, you can test against multiple models and use LLM-as-judge testing where you provide criteria to an LLM to evaluate the resulting interaction.
+
+```json
+{
+  "options": {
+    "models": ["claude-3-haiku-20240307", "claude-3-5-sonnet-20241022"],
+    "timeout": 30000,
+    "maxSteps": 3
+  },
+  "evals": [
+    {
+      "name": "quality_test",
+      "prompt": "Analyze the data in analytics.csv and provide insights",
+      "expectedToolCalls": {
+        "required": ["read_file"]
+      },
+      "responseScorers": [
+        {
+          "type": "llm-judge",
+          "criteria": "Did the assistant provide specific data insights with numbers, trends, or patterns? The response should show quantitative analysis, not just generic commentary.",
+          "threshold": 0.8
+        }
+      ]
+    }
+  ]
+}
+```
+
+Example output:
+
+```
+Running 1 eval tests across 2 model(s) (4 total runs)...
+
+🤖 Running tests with model: claude-3-haiku-20240307
+✅ quality_test: PASSED
+
+🤖 Running tests with model: claude-3-5-sonnet-20241022
+❌ quality_test: FAILED
+   Prompt: "Analyze the data in analytics.csv and provide insights"
+   • Output scorer 1 (llm-judge) failed with score 0.6: Response was too generic and lacked specific quantitative insights
+
+Results: 1/2 tests passed
+```
+
+### Key Features
+
+- **Multi-model testing**: Test against multiple Claude models simultaneously
+- **Tool call validation**: Validates both that tools are called AND that they succeed
+- **Response scoring**: Regex patterns, JSON schema validation, and LLM judge scoring
+- **Safety testing**: Verify LLMs refuse dangerous operations
+- **Debug output**: Use `DEBUG=evals* your-command` for detailed logging
+
+For a detailed example, see [sample-evals.json](sample-evals.json).
+
 ## License
 
 This project is licensed under the MIT License—see the [LICENSE](LICENSE) file for details.
