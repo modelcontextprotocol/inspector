@@ -15,20 +15,30 @@ export type TransportOptions = {
 };
 
 function createSSETransport(options: TransportOptions): Transport {
-  const baseUrl = new URL(options.url ?? "");
-  const sseUrl = baseUrl.pathname.endsWith("/sse")
-    ? baseUrl
-    : new URL("/sse", baseUrl);
+  if (!options.url) {
+    throw new Error("URL is required for SSE transport");
+  }
 
+  const sseUrl = new URL(options.url);
+  
+  if (!sseUrl.pathname.endsWith("/sse")) {
+    console.warn(`[warn] SSE transport URL does not end with /sse: ${options.url}`);
+  }
+  
   return new SSEClientTransport(sseUrl);
 }
 
 function createHTTPTransport(options: TransportOptions): Transport {
-  const baseUrl = new URL(options.url ?? "");
-  const mcpUrl = baseUrl.pathname.endsWith("/mcp")
-    ? baseUrl
-    : new URL("/mcp", baseUrl);
+  if (!options.url) {
+    throw new Error("URL is required for HTTP transport");
+  }
 
+  const mcpUrl = new URL(options.url);
+  
+  if (!mcpUrl.pathname.endsWith("/mcp")) {
+    console.warn(`[warn] HTTP transport URL does not end with /mcp: ${options.url}`);
+  }
+  
   return new StreamableHTTPClientTransport(mcpUrl);
 }
 
