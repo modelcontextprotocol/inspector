@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import cors from "cors";
+import path from "path"
 import { parseArgs } from "node:util";
 import { parse as shellParseArgs } from "shell-quote";
 
@@ -87,6 +88,26 @@ app.use((req, res, next) => {
   next();
 });
 
+// -------------------
+// ADD THIS BLOCK ↓
+// -------------------
+const clientDist = path.resolve(__dirname, "../..", "client", "dist")
+app.use(express.static(clientDist))
+
+// any GET not starting with an API prefix should return index.html
+app.get("*", (req, res, next) => {
+  const apiPrefixes = ["/mcp", "/health", "/config", "/stdio", "/sse", "/message"]
+  if (
+    req.method === "GET" &&
+    !apiPrefixes.some((p) => req.path.startsWith(p))
+  ) {
+    return res.sendFile(path.join(clientDist, "index.html"))
+  }
+  next()
+})
+// -------------------
+// ADD THIS BLOCK ↑
+// -------------------
 const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Web app transports by web app sessionId
 const serverTransports: Map<string, Transport> = new Map<string, Transport>(); // Server Transports by web app sessionId
 
