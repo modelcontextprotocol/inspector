@@ -462,4 +462,67 @@ describe("useConnection", () => {
       ).toHaveProperty("X-MCP-Proxy-Auth", "Bearer test-proxy-token");
     });
   });
+
+  describe("Server Configuration Loading", () => {
+    const SSEClientTransport = jest.requireMock(
+      "@modelcontextprotocol/sdk/client/sse.js",
+    ).SSEClientTransport;
+    const StreamableHTTPClientTransport = jest.requireMock(
+      "@modelcontextprotocol/sdk/client/streamableHttp.js",
+    ).StreamableHTTPClientTransport;
+
+    let originalFetch: typeof global.fetch;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      originalFetch = global.fetch;
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    test.each([
+      {
+        transportType: "sse" as const,
+        url: "http://localhost:60157/sse",
+        Transport: SSEClientTransport,
+      },
+      {
+        transportType: "streamable-http" as const,
+        url: "http://localhost:60157/http",
+        Transport: StreamableHTTPClientTransport,
+      },
+    ])(
+      "should handle server config with $transportType transport",
+      async ({ transportType, url, Transport }) => {
+        global.fetch = jest.fn().mockResolvedValue({
+          json: () =>
+            Promise.resolve({
+              status: "ok",
+              serverConfig: {
+                type: transportType,
+                url,
+              },
+            }),
+        });
+
+        const props = {
+          ...defaultProps,
+          transportType,
+          sseUrl: url,
+        };
+
+        const { result } = renderHook(() => useConnection(props));
+
+        await act(async () => {
+          await result.current.connect();
+        });
+
+        const call = Transport.mock.calls[0][0];
+        expect(call.toString()).toContain(`url=${encodeURIComponent(url)}`);
+        expect(call.toString()).toContain(`transportType=${transportType}`);
+      },
+    );
+  });
 });
