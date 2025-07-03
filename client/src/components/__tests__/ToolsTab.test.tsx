@@ -106,9 +106,13 @@ describe("ToolsTab", () => {
       fireEvent.click(submitButton);
     });
 
-    expect(defaultProps.callTool).toHaveBeenCalledWith(mockTools[1].name, {
-      count: 42,
-    });
+    expect(defaultProps.callTool).toHaveBeenCalledWith(
+      mockTools[1].name,
+      {
+        count: 42,
+      },
+      null,
+    );
   });
 
   it("should allow typing negative numbers", async () => {
