@@ -77,6 +77,20 @@ const getHttpHeaders = (
       headers[customHeaderName] = value as string;
     }
   }
+
+  // Handle multiple custom headers sent by the new client implementation
+  // Look for headers that start with 'x-mcp-custom-' prefix
+  Object.keys(req.headers).forEach((headerName) => {
+    if (headerName.startsWith('x-mcp-custom-')) {
+      // Extract the actual header name from x-mcp-custom-[actual-header-name]
+      const actualHeaderName = headerName.substring('x-mcp-custom-'.length);
+      const headerValue = req.headers[headerName];
+      const value = Array.isArray(headerValue) ? headerValue[headerValue.length - 1] : headerValue;
+      if (value) {
+        headers[actualHeaderName] = value;
+      }
+    }
+  });
   return headers;
 };
 
