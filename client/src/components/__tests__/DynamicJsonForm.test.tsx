@@ -117,8 +117,11 @@ describe("DynamicJsonForm Complex Fields", () => {
       const input = screen.getByRole("textbox");
       expect(input).toHaveProperty("type", "textarea");
       const buttons = screen.getAllByRole("button");
-      expect(buttons).toHaveLength(1);
-      expect(buttons[0]).toHaveProperty("textContent", "Format JSON");
+      expect(buttons).toHaveLength(2); // Copy JSON + Format JSON
+      const copyButton = screen.getByRole("button", { name: /copy json/i });
+      const formatButton = screen.getByRole("button", { name: /format json/i });
+      expect(copyButton).toBeTruthy();
+      expect(formatButton).toBeTruthy();
     });
 
     it("should pass changed values to onChange", () => {
@@ -133,6 +136,75 @@ describe("DynamicJsonForm Complex Fields", () => {
       // The onChange handler is debounced when using the JSON view, so we need to wait a little bit
       waitFor(() => {
         expect(onChange).toHaveBeenCalledWith(`{ "nested": "i am string" }`);
+      });
+    });
+  });
+});
+
+describe("DynamicJsonForm Copy JSON Functionality", () => {
+  const mockWriteText = jest.fn(() => Promise.resolve());
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: mockWriteText,
+      },
+    });
+  });
+
+  const renderFormInJsonMode = (props = {}) => {
+    const defaultProps = {
+      schema: {
+        type: "object",
+        properties: {
+          nested: { oneOf: [{ type: "string" }, { type: "integer" }] },
+        },
+      } as unknown as JsonSchemaType,
+      value: { nested: "test value" },
+      onChange: jest.fn(),
+    };
+    return render(<DynamicJsonForm {...defaultProps} {...props} />);
+  };
+
+  describe("Copy JSON Button", () => {
+    it("should render Copy JSON button when in JSON mode", () => {
+      renderFormInJsonMode();
+
+      const copyButton = screen.getByRole("button", { name: "Copy JSON" });
+      expect(copyButton).toBeTruthy();
+    });
+
+    it("should not render Copy JSON button when not in JSON mode", () => {
+      const simpleSchema = {
+        type: "string" as const,
+        description: "Test string field",
+      };
+
+      render(
+        <DynamicJsonForm
+          schema={simpleSchema}
+          value="test"
+          onChange={jest.fn()}
+        />,
+      );
+
+      const copyButton = screen.queryByRole("button", { name: "Copy JSON" });
+      expect(copyButton).toBeNull();
+    });
+
+    it("should copy JSON to clipboard when clicked", async () => {
+      const testValue = { nested: "test value", number: 42 };
+
+      renderFormInJsonMode({ value: testValue });
+
+      const copyButton = screen.getByRole("button", { name: "Copy JSON" });
+      fireEvent.click(copyButton);
+
+      await waitFor(() => {
+        expect(mockWriteText).toHaveBeenCalledWith(
+          JSON.stringify(testValue, null, 2),
+        );
       });
     });
   });
