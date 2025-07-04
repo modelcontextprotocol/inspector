@@ -15,7 +15,8 @@ function delay(ms) {
 
 function getClientUrl(port, authDisabled, sessionToken, serverPort) {
   const host = process.env.HOST || "localhost";
-  const baseUrl = `http://${host}:${port}`;
+  const protocol = (process.env.INSPECTOR_SSL_CERT_PATH && process.env.INSPECTOR_SSL_KEY_PATH) ? "https" : "http";
+  const baseUrl = `${protocol}://${host}:${port}`;
 
   const params = new URLSearchParams();
   if (serverPort && serverPort !== DEFAULT_MCP_PROXY_LISTEN_PORT) {
@@ -42,6 +43,8 @@ async function startDevServer(serverOptions) {
       CLIENT_PORT,
       MCP_PROXY_TOKEN: sessionToken,
       MCP_ENV_VARS: JSON.stringify(envVars),
+      INSPECTOR_SSL_CERT_PATH: process.env.INSPECTOR_SSL_CERT_PATH,
+      INSPECTOR_SSL_KEY_PATH: process.env.INSPECTOR_SSL_KEY_PATH,
     },
     signal: abort.signal,
     echoOutput: true,
@@ -128,7 +131,12 @@ async function startDevClient(clientOptions) {
 
   const client = spawn(clientCommand, clientArgs, {
     cwd: resolve(__dirname, ".."),
-    env: { ...process.env, CLIENT_PORT },
+    env: { 
+      ...process.env, 
+      CLIENT_PORT,
+      INSPECTOR_SSL_CERT_PATH: process.env.INSPECTOR_SSL_CERT_PATH,
+      INSPECTOR_SSL_KEY_PATH: process.env.INSPECTOR_SSL_KEY_PATH
+    },
     signal: abort.signal,
     echoOutput: true,
   });
