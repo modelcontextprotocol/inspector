@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import JsonEditor from "./JsonEditor";
@@ -11,6 +11,10 @@ interface DynamicJsonFormProps {
   value: JsonValue;
   onChange: (value: JsonValue) => void;
   maxDepth?: number;
+}
+
+export interface DynamicJsonFormRef {
+  validateJson: () => { isValid: boolean; error: string | null };
 }
 
 const isSimpleObject = (schema: JsonSchemaType): boolean => {
@@ -51,12 +55,12 @@ const getArrayItemDefault = (schema: JsonSchemaType): JsonValue => {
   }
 };
 
-const DynamicJsonForm = ({
+const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(({
   schema,
   value,
   onChange,
   maxDepth = 3,
-}: DynamicJsonFormProps) => {
+}, ref) => {
   const isOnlyJSON = !isSimpleObject(schema);
   const [isJsonMode, setIsJsonMode] = useState(isOnlyJSON);
   const [jsonError, setJsonError] = useState<string>();
@@ -136,6 +140,25 @@ const DynamicJsonForm = ({
       setJsonError(err instanceof Error ? err.message : "Invalid JSON");
     }
   };
+
+  const validateJson = () => {
+    if (!isJsonMode) return { isValid: true, error: null };
+    try {
+      const jsonStr = rawJsonValue.trim();
+      if (!jsonStr) return { isValid: true, error: null };
+      JSON.parse(jsonStr);
+      setJsonError(undefined);
+      return { isValid: true, error: null };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Invalid JSON";
+      setJsonError(errorMessage);
+      return { isValid: false, error: errorMessage };
+    }
+  };
+
+  useImperativeHandle(ref, () => ({
+    validateJson,
+  }));
 
   const renderFormFields = (
     propSchema: JsonSchemaType,
@@ -456,6 +479,6 @@ const DynamicJsonForm = ({
       )}
     </div>
   );
-};
+});
 
 export default DynamicJsonForm;
