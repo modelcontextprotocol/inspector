@@ -7,6 +7,7 @@ export const SESSION_KEYS = {
   TOKENS: "mcp_tokens",
   CLIENT_INFORMATION: "mcp_client_information",
   SERVER_METADATA: "mcp_server_metadata",
+  AUTH_DEBUGGER_STATE: "mcp_auth_debugger_state",
 } as const;
 
 // Generate server-specific session storage keys
@@ -35,22 +36,33 @@ export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
     label: "Request Timeout",
     description: "Timeout for requests to the MCP server (ms)",
     value: 10000,
+    is_session_item: false,
   },
   MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS: {
     label: "Reset Timeout on Progress",
     description: "Reset timeout on progress notifications",
     value: true,
+    is_session_item: false,
   },
   MCP_REQUEST_MAX_TOTAL_TIMEOUT: {
     label: "Maximum Total Timeout",
     description:
       "Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)",
     value: 60000,
+    is_session_item: false,
   },
   MCP_PROXY_FULL_ADDRESS: {
     label: "Inspector Proxy Address",
     description:
       "Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577",
     value: "",
+    is_session_item: false,
+  },
+  MCP_PROXY_AUTH_TOKEN: {
+    label: "Proxy Session Token",
+    description:
+      "Session token for authenticating with the MCP Proxy Server (displayed in proxy console on startup)",
+    value: "",
+    is_session_item: true,
   },
 } as const;

@@ -4,14 +4,17 @@ import {
   generateOAuthErrorDescription,
   parseOAuthCallbackParams,
 } from "@/utils/oauthUtils.ts";
+import { AuthDebuggerState } from "@/lib/auth-types";
 
 interface OAuthCallbackProps {
   onConnect: ({
     authorizationCode,
     errorMsg,
+    restoredState,
   }: {
     authorizationCode?: string;
     errorMsg?: string;
+    restoredState?: AuthDebuggerState;
   }) => void;
 }
 
@@ -35,6 +38,21 @@ const OAuthDebugCallback = ({ onConnect }: OAuthCallbackProps) => {
 
       const serverUrl = sessionStorage.getItem(SESSION_KEYS.SERVER_URL);
 
+      // Try to restore the auth state
+      const storedState = sessionStorage.getItem(
+        SESSION_KEYS.AUTH_DEBUGGER_STATE,
+      );
+      let restoredState = null;
+      if (storedState) {
+        try {
+          restoredState = JSON.parse(storedState);
+          // Clean up the stored state
+          sessionStorage.removeItem(SESSION_KEYS.AUTH_DEBUGGER_STATE);
+        } catch (e) {
+          console.error("Failed to parse stored auth state:", e);
+        }
+      }
+
       // ServerURL isn't set, this can happen if we've opened the
       // authentication request in a new tab, so we don't have the same
       // session storage
@@ -50,8 +68,8 @@ const OAuthDebugCallback = ({ onConnect }: OAuthCallbackProps) => {
       }
 
       // Instead of storing in sessionStorage, pass the code directly
-      // to the auth state manager through onConnect
-      onConnect({ authorizationCode: params.code });
+      // to the auth state manager through onConnect, along with restored state
+      onConnect({ authorizationCode: params.code, restoredState });
     };
 
     handleCallback().finally(() => {

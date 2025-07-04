@@ -16,6 +16,7 @@ import ListPane from "./ListPane";
 import { useEffect, useState } from "react";
 import { useCompletionState } from "@/lib/hooks/useCompletionState";
 import JsonView from "./JsonView";
+import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 
 const ResourcesTab = ({
   resources,
@@ -79,10 +80,7 @@ const ResourcesTab = ({
     template: string,
     values: Record<string, string>,
   ): string => {
-    return template.replace(
-      /{([^}]+)}/g,
-      (_, key) => values[key] || `{${key}}`,
-    );
+    return new UriTemplate(template).expand(values);
   };
 
   const handleTemplateValueChange = async (key: string, value: string) => {
@@ -237,28 +235,27 @@ const ResourcesTab = ({
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   {selectedTemplate.description}
                 </p>
-                {selectedTemplate.uriTemplate
-                  .match(/{([^}]+)}/g)
-                  ?.map((param) => {
-                    const key = param.slice(1, -1);
-                    return (
-                      <div key={key}>
-                        <Label htmlFor={key}>{key}</Label>
-                        <Combobox
-                          id={key}
-                          placeholder={`Enter ${key}`}
-                          value={templateValues[key] || ""}
-                          onChange={(value) =>
-                            handleTemplateValueChange(key, value)
-                          }
-                          onInputChange={(value) =>
-                            handleTemplateValueChange(key, value)
-                          }
-                          options={completions[key] || []}
-                        />
-                      </div>
-                    );
-                  })}
+                {new UriTemplate(
+                  selectedTemplate.uriTemplate,
+                ).variableNames?.map((key) => {
+                  return (
+                    <div key={key}>
+                      <Label htmlFor={key}>{key}</Label>
+                      <Combobox
+                        id={key}
+                        placeholder={`Enter ${key}`}
+                        value={templateValues[key] || ""}
+                        onChange={(value) =>
+                          handleTemplateValueChange(key, value)
+                        }
+                        onInputChange={(value) =>
+                          handleTemplateValueChange(key, value)
+                        }
+                        options={completions[key] || []}
+                      />
+                    </div>
+                  );
+                })}
                 <Button
                   onClick={handleReadTemplateResource}
                   disabled={Object.keys(templateValues).length === 0}

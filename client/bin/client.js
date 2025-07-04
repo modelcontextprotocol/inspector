@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import open from "open";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import handler from "serve-handler";
@@ -90,13 +91,29 @@ if (INSPECTOR_SSL_CERT_PATH && INSPECTOR_SSL_KEY_PATH) {
   });
 }
 
+// Parse port and host from environment
+const parsedPort = parseInt(process.env.CLIENT_PORT || "6274", 10);
+const host = process.env.HOST || "localhost";
+
+// Override the port variable to use parsed version
+const port = parsedPort;
+
+server.on("listening", () => {
+  const protocol = (INSPECTOR_SSL_CERT_PATH && INSPECTOR_SSL_KEY_PATH) ? "https" : "http";
+  const url = process.env.INSPECTOR_URL || `${protocol}://${host}:${port}`;
+  console.log(`\n🚀 MCP Inspector is up and running at:\n   ${url}\n`);
+  if (process.env.MCP_AUTO_OPEN_ENABLED !== "false") {
+    console.log(`🌐 Opening browser...`);
+    open(url);
+  }
+});
 server.on("error", (err) => {
   if (err.message.includes(`EADDRINUSE`)) {
     console.error(
-      `❌  MCP Inspector PORT IS IN USE at http://127.0.0.1:${port} ❌ `,
+      `❌  MCP Inspector PORT IS IN USE at http://${host}:${port} ❌ `,
     );
   } else {
     throw err;
   }
 });
-server.listen(port);
+server.listen(port, host);

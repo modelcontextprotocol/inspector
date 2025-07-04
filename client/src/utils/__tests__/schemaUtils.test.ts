@@ -11,72 +11,68 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 describe("generateDefaultValue", () => {
   test("generates default string", () => {
-    expect(generateDefaultValue({ type: "string", required: true })).toBe("");
+    const parentSchema = { type: "object" as const, required: ["testProp"] };
+    expect(
+      generateDefaultValue({ type: "string" }, "testProp", parentSchema),
+    ).toBe("");
   });
 
   test("generates default number", () => {
-    expect(generateDefaultValue({ type: "number", required: true })).toBe(0);
+    const parentSchema = { type: "object" as const, required: ["testProp"] };
+    expect(
+      generateDefaultValue({ type: "number" }, "testProp", parentSchema),
+    ).toBe(0);
   });
 
   test("generates default integer", () => {
-    expect(generateDefaultValue({ type: "integer", required: true })).toBe(0);
+    const parentSchema = { type: "object" as const, required: ["testProp"] };
+    expect(
+      generateDefaultValue({ type: "integer" }, "testProp", parentSchema),
+    ).toBe(0);
   });
 
   test("generates default boolean", () => {
-    expect(generateDefaultValue({ type: "boolean", required: true })).toBe(
-      false,
-    );
+    const parentSchema = { type: "object" as const, required: ["testProp"] };
+    expect(
+      generateDefaultValue({ type: "boolean" }, "testProp", parentSchema),
+    ).toBe(false);
   });
 
   test("generates default array", () => {
-    expect(generateDefaultValue({ type: "array", required: true })).toEqual([]);
+    expect(generateDefaultValue({ type: "array" })).toEqual([]);
   });
 
   test("generates default empty object", () => {
-    expect(generateDefaultValue({ type: "object", required: true })).toEqual(
-      {},
-    );
+    expect(generateDefaultValue({ type: "object" })).toEqual({});
   });
 
   test("generates default null for unknown types", () => {
     // @ts-expect-error Testing with invalid type
-    expect(generateDefaultValue({ type: "unknown", required: true })).toBe(
-      null,
-    );
+    expect(generateDefaultValue({ type: "unknown" })).toBe(undefined);
   });
 
   test("generates empty array for non-required array", () => {
-    expect(generateDefaultValue({ type: "array", required: false })).toEqual(
-      [],
-    );
+    expect(generateDefaultValue({ type: "array" })).toEqual([]);
   });
 
   test("generates empty object for non-required object", () => {
-    expect(generateDefaultValue({ type: "object", required: false })).toEqual(
-      {},
-    );
+    expect(generateDefaultValue({ type: "object" })).toEqual({});
   });
 
-  test("generates null for non-required primitive types", () => {
-    expect(generateDefaultValue({ type: "string", required: false })).toBe(
-      undefined,
-    );
-    expect(generateDefaultValue({ type: "number", required: false })).toBe(
-      undefined,
-    );
-    expect(generateDefaultValue({ type: "boolean", required: false })).toBe(
-      undefined,
-    );
+  test("generates undefined for non-required primitive types", () => {
+    expect(generateDefaultValue({ type: "string" })).toBe(undefined);
+    expect(generateDefaultValue({ type: "number" })).toBe(undefined);
+    expect(generateDefaultValue({ type: "boolean" })).toBe(undefined);
   });
 
   test("generates object with properties", () => {
     const schema: JsonSchemaType = {
       type: "object",
-      required: true,
+      required: ["name", "age", "isActive"],
       properties: {
-        name: { type: "string", required: true },
-        age: { type: "number", required: true },
-        isActive: { type: "boolean", required: true },
+        name: { type: "string" },
+        age: { type: "number" },
+        isActive: { type: "boolean" },
       },
     };
     expect(generateDefaultValue(schema)).toEqual({
@@ -89,18 +85,18 @@ describe("generateDefaultValue", () => {
   test("handles nested objects", () => {
     const schema: JsonSchemaType = {
       type: "object",
-      required: true,
+      required: ["user"],
       properties: {
         user: {
           type: "object",
-          required: true,
+          required: ["name", "address"],
           properties: {
-            name: { type: "string", required: true },
+            name: { type: "string" },
             address: {
               type: "object",
-              required: true,
+              required: ["city"],
               properties: {
-                city: { type: "string", required: true },
+                city: { type: "string" },
               },
             },
           },

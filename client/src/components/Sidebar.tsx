@@ -214,7 +214,7 @@ const Sidebar = ({
   }, [generateMCPServerFile, toast, reportError]);
 
   return (
-    <div className="w-80 bg-card border-r border-border flex flex-col h-full">
+    <div className="bg-card border-r border-border flex flex-col h-full">
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-border">
         <div className="flex items-center">
           <h1 className="ml-2 text-lg font-semibold">
@@ -285,13 +285,28 @@ const Sidebar = ({
                 <label className="text-sm font-medium" htmlFor="sse-url-input">
                   URL
                 </label>
-                <Input
-                  id="sse-url-input"
-                  placeholder="URL"
-                  value={sseUrl}
-                  onChange={(e) => setSseUrl(e.target.value)}
-                  className="font-mono"
-                />
+                {sseUrl ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Input
+                        id="sse-url-input"
+                        placeholder="URL"
+                        value={sseUrl}
+                        onChange={(e) => setSseUrl(e.target.value)}
+                        className="font-mono"
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>{sseUrl}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Input
+                    id="sse-url-input"
+                    placeholder="URL"
+                    value={sseUrl}
+                    onChange={(e) => setSseUrl(e.target.value)}
+                    className="font-mono"
+                  />
+                )}
               </div>
               <div className="space-y-2">
                 <Button
@@ -651,8 +666,13 @@ const Sidebar = ({
                   switch (connectionStatus) {
                     case "connected":
                       return "Connected";
-                    case "error":
-                      return "Connection Error, is your MCP server running?";
+                    case "error": {
+                      const hasProxyToken = config.MCP_PROXY_AUTH_TOKEN?.value;
+                      if (!hasProxyToken) {
+                        return "Connection Error - Did you add the proxy session token in Configuration?";
+                      }
+                      return "Connection Error - Check if your MCP server is running and proxy token is correct";
+                    }
                     case "error-connecting-to-proxy":
                       return "Error Connecting to MCP Inspector Proxy - Check Console logs";
                     default:

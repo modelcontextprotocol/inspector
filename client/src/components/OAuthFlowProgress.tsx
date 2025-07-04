@@ -128,15 +128,86 @@ export const OAuthFlowProgress = ({
           label="Metadata Discovery"
           {...getStepProps("metadata_discovery")}
         >
-          {provider.getServerMetadata() && (
+          {authState.oauthMetadata && (
             <details className="text-xs mt-2">
               <summary className="cursor-pointer text-muted-foreground font-medium">
-                Retrieved OAuth Metadata from {serverUrl}
-                /.well-known/oauth-authorization-server
+                OAuth Metadata Sources
+                {!authState.resourceMetadata && " ℹ️"}
               </summary>
-              <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
-                {JSON.stringify(provider.getServerMetadata(), null, 2)}
-              </pre>
+
+              {authState.resourceMetadata && (
+                <div className="mt-2">
+                  <p className="font-medium">Resource Metadata:</p>
+                  <p className="text-xs text-muted-foreground">
+                    From{" "}
+                    {
+                      new URL(
+                        "/.well-known/oauth-protected-resource",
+                        serverUrl,
+                      ).href
+                    }
+                  </p>
+                  <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
+                    {JSON.stringify(authState.resourceMetadata, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {authState.resourceMetadataError && (
+                <div className="mt-2 p-3 border border-blue-300 bg-blue-50 rounded-md">
+                  <p className="text-sm font-medium text-blue-700">
+                    ℹ️ Problem with resource metadata from{" "}
+                    <a
+                      href={
+                        new URL(
+                          "/.well-known/oauth-protected-resource",
+                          serverUrl,
+                        ).href
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-500 hover:text-blue-700"
+                    >
+                      {
+                        new URL(
+                          "/.well-known/oauth-protected-resource",
+                          serverUrl,
+                        ).href
+                      }
+                    </a>
+                  </p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    Resource metadata was added in the{" "}
+                    <a href="https://modelcontextprotocol.io/specification/draft/basic/authorization#2-3-1-authorization-server-location">
+                      2025-DRAFT-v2 specification update
+                    </a>
+                    <br />
+                    {authState.resourceMetadataError.message}
+                    {authState.resourceMetadataError instanceof TypeError &&
+                      " (This could indicate the endpoint doesn't exist or does not have CORS configured)"}
+                  </p>
+                </div>
+              )}
+
+              {authState.oauthMetadata && (
+                <div className="mt-2">
+                  <p className="font-medium">Authorization Server Metadata:</p>
+                  {authState.authServerUrl && (
+                    <p className="text-xs text-muted-foreground">
+                      From{" "}
+                      {
+                        new URL(
+                          "/.well-known/oauth-authorization-server",
+                          authState.authServerUrl,
+                        ).href
+                      }
+                    </p>
+                  )}
+                  <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
+                    {JSON.stringify(authState.oauthMetadata, null, 2)}
+                  </pre>
+                </div>
+              )}
             </details>
           )}
         </OAuthStepDetails>

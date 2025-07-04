@@ -519,6 +519,7 @@ describe("Sidebar Environment Variables", () => {
             label: "Request Timeout",
             description: "Timeout for requests to the MCP server (ms)",
             value: 5000,
+            is_session_item: false,
           },
         }),
       );
@@ -544,6 +545,7 @@ describe("Sidebar Environment Variables", () => {
             description:
               "Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577",
             value: "http://localhost:8080",
+            is_session_item: false,
           },
         }),
       );
@@ -569,6 +571,7 @@ describe("Sidebar Environment Variables", () => {
             description:
               "Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)",
             value: 10000,
+            is_session_item: false,
           },
         }),
       );
@@ -591,6 +594,7 @@ describe("Sidebar Environment Variables", () => {
             label: "Request Timeout",
             description: "Timeout for requests to the MCP server (ms)",
             value: 0,
+            is_session_item: false,
           },
         }),
       );
@@ -637,6 +641,7 @@ describe("Sidebar Environment Variables", () => {
             label: "Request Timeout",
             description: "Timeout for requests to the MCP server (ms)",
             value: 3000,
+            is_session_item: false,
           },
         }),
       );

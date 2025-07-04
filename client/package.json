@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-client",
-  "version": "0.13.0",
+  "version": "0.15.0",
   "description": "Client-side application for the Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -20,10 +20,12 @@
     "lint": "eslint .",
     "preview": "vite preview --port 6274",
     "test": "jest --config jest.config.cjs",
-    "test:watch": "jest --config jest.config.cjs --watch"
+    "test:watch": "jest --config jest.config.cjs --watch",
+    "test:e2e": "playwright test e2e && npm run cleanup:e2e",
+    "cleanup:e2e": "node e2e/global-teardown.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.11.5",
+    "@modelcontextprotocol/sdk": "^1.13.1",
     "@radix-ui/react-checkbox": "^1.1.4",
     "ajv": "^6.12.6",
     "@radix-ui/react-dialog": "^1.1.3",
@@ -38,7 +40,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.4",
-    "lucide-react": "^0.447.0",
+    "lucide-react": "^0.523.0",
     "pkce-challenge": "^4.1.0",
     "prismjs": "^1.30.0",
     "react": "^18.3.1",
