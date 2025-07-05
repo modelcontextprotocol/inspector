@@ -1,4 +1,5 @@
 import JsonView from "./JsonView";
+import ResourceLinkView from "./ResourceLinkView";
 import {
   CallToolResultSchema,
   CompatibilityCallToolResult,
@@ -200,6 +201,14 @@ const ToolResults = ({ toolResult, selectedTool }: ToolResultsProps) => {
                   ) : (
                     <JsonView data={item.resource} />
                   ))}
+                {item.type === "resource_link" && (
+                  <ResourceLinkView
+                    uri={item.uri}
+                    name={item.name}
+                    description={item.description}
+                    mimeType={item.mimeType}
+                  />
+                )}
               </div>
             ))}
           </div>
