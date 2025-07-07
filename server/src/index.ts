@@ -3,6 +3,8 @@
 import cors from "cors";
 import { parseArgs } from "node:util";
 import { parse as shellParseArgs } from "shell-quote";
+import https from "https";
+import fs from "fs";
 
 import {
   SSEClientTransport,
@@ -105,9 +107,11 @@ const originValidationMiddleware = (
 
   // Default origins based on CLIENT_PORT or use environment variable
   const clientPort = process.env.CLIENT_PORT || "6274";
-  const defaultOrigin = `http://localhost:${clientPort}`;
+  const defaultHttpOrigin = `http://localhost:${clientPort}`;
+  const defaultHttpsOrigin = `https://localhost:${clientPort}`;
   const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
-    defaultOrigin,
+    defaultHttpOrigin,
+    defaultHttpsOrigin,
   ];
 
   if (origin && !allowedOrigins.includes(origin)) {
@@ -535,20 +539,79 @@ const PORT = parseInt(
 );
 const HOST = process.env.HOST || "localhost";
 
-const server = app.listen(PORT, HOST);
-server.on("listening", () => {
-  console.log(`⚙️ Proxy server listening on ${HOST}:${PORT}`);
-  if (!authDisabled) {
-    console.log(
-      `🔑 Session token: ${sessionToken}\n   ` +
-        `Use this token to authenticate requests or set DANGEROUSLY_OMIT_AUTH=true to disable auth`,
-    );
-  } else {
-    console.log(
-      `⚠️  WARNING: Authentication is disabled. This is not recommended.`,
-    );
+// HTTPS configuration
+const INSPECTOR_SSL_CERT_PATH = process.env.INSPECTOR_SSL_CERT_PATH;
+const INSPECTOR_SSL_KEY_PATH = process.env.INSPECTOR_SSL_KEY_PATH;
+
+let server;
+
+if (INSPECTOR_SSL_CERT_PATH && INSPECTOR_SSL_KEY_PATH) {
+  // HTTPS server
+  try {
+    const options = {
+      cert: fs.readFileSync(INSPECTOR_SSL_CERT_PATH),
+      key: fs.readFileSync(INSPECTOR_SSL_KEY_PATH)
+    };
+    server = https.createServer(options, app);
+    server.listen(PORT, HOST);
+    server.on("listening", () => {
+      console.log(`⚙️ Proxy server listening on https://${HOST}:${PORT} 🔒`);
+      if (!authDisabled) {
+        console.log(
+          `🔑 Session token: ${sessionToken}\n   ` +
+            `Use this token to authenticate requests or set DANGEROUSLY_OMIT_AUTH=true to disable auth`,
+        );
+      } else {
+        console.log(
+          `⚠️  WARNING: Authentication is disabled. This is not recommended.`,
+        );
+      }
+    });
+  } catch (error) {
+    console.error(`❌ Failed to load SSL certificates: ${error instanceof Error ? error.message : String(error)}`);
+    console.log(`🔄 Falling back to HTTP mode`);
+    server = app.listen(PORT, HOST);
+    server.on("listening", () => {
+      console.log(`⚙️ Proxy server listening on http://${HOST}:${PORT} (SSL fallback)`);
+      if (!authDisabled) {
+        console.log(
+          `🔑 Session token: ${sessionToken}\n   ` +
+            `Use this token to authenticate requests or set DANGEROUSLY_OMIT_AUTH=true to disable auth`,
+        );
+      } else {
+        console.log(
+          `⚠️  WARNING: Authentication is disabled. This is not recommended.`,
+        );
+      }
+    });
   }
-});
+} else {
+  // HTTP server (default)
+  if (!INSPECTOR_SSL_CERT_PATH && !INSPECTOR_SSL_KEY_PATH) {
+    console.log(`🔓 No SSL certificates configured - using HTTP`);
+    console.log(`💡 To enable HTTPS, set INSPECTOR_SSL_CERT_PATH and INSPECTOR_SSL_KEY_PATH environment variables`);
+  } else {
+    console.log(`⚠️  Incomplete SSL configuration:`);
+    if (!INSPECTOR_SSL_CERT_PATH) console.log(`   Missing INSPECTOR_SSL_CERT_PATH`);
+    if (!INSPECTOR_SSL_KEY_PATH) console.log(`   Missing INSPECTOR_SSL_KEY_PATH`);
+    console.log(`🔄 Using HTTP mode`);
+  }
+  
+  server = app.listen(PORT, HOST);
+  server.on("listening", () => {
+    console.log(`⚙️ Proxy server listening on http://${HOST}:${PORT}`);
+    if (!authDisabled) {
+      console.log(
+        `🔑 Session token: ${sessionToken}\n   ` +
+          `Use this token to authenticate requests or set DANGEROUSLY_OMIT_AUTH=true to disable auth`,
+      );
+    } else {
+      console.log(
+        `⚠️  WARNING: Authentication is disabled. This is not recommended.`,
+      );
+    }
+  });
+}
 server.on("error", (err) => {
   if (err.message.includes(`EADDRINUSE`)) {
     console.error(`❌  Proxy Server PORT IS IN USE at port ${PORT} ❌ `);
