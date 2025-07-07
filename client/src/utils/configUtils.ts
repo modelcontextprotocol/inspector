@@ -4,12 +4,27 @@ import {
   DEFAULT_INSPECTOR_CONFIG,
 } from "@/lib/constants";
 
+const getSearchParam = (key: string): string | null => {
+  try {
+    const url = new URL(window.location.href);
+    return url.searchParams.get(key);
+  } catch {
+    return null;
+  }
+};
+
 export const getMCPProxyAddress = (config: InspectorConfig): string => {
-  const proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS.value as string;
+  let proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS.value as string;
   if (proxyFullAddress) {
+    proxyFullAddress = proxyFullAddress.replace(/\/+$/, "");
     return proxyFullAddress;
   }
-  return `${window.location.protocol}//${window.location.hostname}:${DEFAULT_MCP_PROXY_LISTEN_PORT}`;
+
+  // Check for proxy port from query params, fallback to default
+  const proxyPort =
+    getSearchParam("MCP_PROXY_PORT") || DEFAULT_MCP_PROXY_LISTEN_PORT;
+
+  return `${window.location.protocol}//${window.location.hostname}:${proxyPort}`;
 };
 
 export const getMCPServerRequestTimeout = (config: InspectorConfig): number => {
@@ -38,15 +53,6 @@ export const getMCPProxyAuthToken = (
     token: config.MCP_PROXY_AUTH_TOKEN.value as string,
     header: "X-MCP-Proxy-Auth",
   };
-};
-
-const getSearchParam = (key: string): string | null => {
-  try {
-    const url = new URL(window.location.href);
-    return url.searchParams.get(key);
-  } catch {
-    return null;
-  }
 };
 
 export const getInitialTransportType = ():
