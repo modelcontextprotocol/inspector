@@ -18,7 +18,7 @@ import { Loader2, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
-import { HtmlResource } from "@mcp-ui/client";
+import { remoteTextDefinition, remoteButtonDefinition, remoteStackDefinition, remoteImageDefinition, UIResourceRenderer, basicComponentLibrary } from "@mcp-ui/client";
 
 const ToolsTab = ({
   tools,
@@ -97,10 +97,24 @@ const ToolsTab = ({
                   />
                 )}
                 {item.type === "resource" &&
-                  (item.resource?.mimeType === "text/html" ? (
-                    <HtmlResource
+                  (item.resource?.uri.startsWith("ui://") ? (
+                    <UIResourceRenderer
+                      key={item.resource.uri}
                       resource={item.resource}
-                      style={{ minHeight: "500px" }}
+                      htmlProps={{
+                        style: {
+                          minHeight: "500px",
+                        },
+                      }}
+                      remoteDomProps={{
+                        remoteElements: [
+                          remoteTextDefinition,
+                          remoteButtonDefinition,
+                          remoteStackDefinition,
+                          remoteImageDefinition
+                        ],
+                        library: basicComponentLibrary,
+                      }}
                     />
                   ) : item.resource?.mimeType?.startsWith("audio/") ? (
                     <audio
