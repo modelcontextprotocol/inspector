@@ -71,6 +71,10 @@ import {
   initializeInspectorConfig,
   saveInspectorConfig,
 } from "./utils/configUtils";
+import ElicitationTab, {
+  PendingElicitationRequest,
+  ElicitationResponse,
+} from "./components/ElicitationTab";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
@@ -121,6 +125,14 @@ const App = () => {
       PendingRequest & {
         resolve: (result: CreateMessageResult) => void;
         reject: (error: Error) => void;
+      }
+    >
+  >([]);
+  const [pendingElicitationRequests, setPendingElicitationRequests] = useState<
+    Array<
+      PendingElicitationRequest & {
+        resolve: (response: ElicitationResponse) => void;
+        decline: (error: Error) => void;
       }
     >
   >([]);
@@ -198,6 +210,23 @@ const App = () => {
       setPendingSampleRequests((prev) => [
         ...prev,
         { id: nextRequestId.current++, request, resolve, reject },
+      ]);
+    },
+    onElicitationRequest: (request, resolve) => {
+      setPendingElicitationRequests((prev) => [
+        ...prev,
+        {
+          id: nextRequestId.current++,
+          request: {
+            id: nextRequestId.current,
+            message: request.params.message,
+            requestedSchema: request.params.requestedSchema,
+          },
+          resolve,
+          decline: (error: Error) => {
+            console.error("Elicitation request rejected:", error);
+          },
+        },
       ]);
     },
     getRoots: () => rootsRef.current,
@@ -391,6 +420,17 @@ const App = () => {
     setPendingSampleRequests((prev) => {
       const request = prev.find((r) => r.id === id);
       request?.reject(new Error("Sampling request rejected"));
+      return prev.filter((r) => r.id !== id);
+    });
+  };
+
+  const handleResolveElicitation = (
+    id: number,
+    response: ElicitationResponse,
+  ) => {
+    setPendingElicitationRequests((prev) => {
+      const request = prev.find((r) => r.id === id);
+      request?.resolve(response);
       return prev.filter((r) => r.id !== id);
     });
   };
@@ -730,6 +770,15 @@ const App = () => {
                     </span>
                   )}
                 </TabsTrigger>
+                <TabsTrigger value="elicitations" className="relative">
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Elicitations
+                  {pendingElicitationRequests.length > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                      {pendingElicitationRequests.length}
+                    </span>
+                  )}
+                </TabsTrigger>
                 <TabsTrigger value="roots">
                   <FolderTree className="w-4 h-4 mr-2" />
                   Roots
@@ -879,6 +928,10 @@ const App = () => {
                       pendingRequests={pendingSampleRequests}
                       onApprove={handleApproveSampling}
                       onReject={handleRejectSampling}
+                    />
+                    <ElicitationTab
+                      pendingRequests={pendingElicitationRequests}
+                      onResolve={handleResolveElicitation}
                     />
                     <RootsTab
                       roots={roots}

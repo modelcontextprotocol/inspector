@@ -17,10 +17,10 @@ interface DynamicJsonFormProps {
 
 const isSimpleObject = (schema: JsonSchemaType): boolean => {
   const supportedTypes = ["string", "number", "integer", "boolean", "null"];
-  if (supportedTypes.includes(schema.type)) return true;
+  if (schema.type && supportedTypes.includes(schema.type)) return true;
   if (schema.type === "object") {
-    return Object.values(schema.properties ?? {}).every((prop) =>
-      supportedTypes.includes(prop.type),
+    return Object.values(schema.properties ?? {}).every(
+      (prop) => prop.type && supportedTypes.includes(prop.type),
     );
   }
   if (schema.type === "array") {
@@ -182,10 +182,89 @@ const DynamicJsonForm = ({
       parentSchema?.required?.includes(propertyName || "") ?? false;
 
     switch (propSchema.type) {
-      case "string":
+      case "string": {
+        if (
+          propSchema.oneOf &&
+          propSchema.oneOf.every(
+            (option) =>
+              typeof option.const === "string" &&
+              typeof option.title === "string",
+          )
+        ) {
+          return (
+            <select
+              value={(currentValue as string) ?? ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (!val && !isRequired) {
+                  handleFieldChange(path, undefined);
+                } else {
+                  handleFieldChange(path, val);
+                }
+              }}
+              required={isRequired}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+            >
+              <option value="">Select an option...</option>
+              {propSchema.oneOf.map((option) => (
+                <option
+                  key={option.const as string}
+                  value={option.const as string}
+                >
+                  {option.title as string}
+                </option>
+              ))}
+            </select>
+          );
+        }
+
+        if (propSchema.enum) {
+          return (
+            <select
+              value={(currentValue as string) ?? ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (!val && !isRequired) {
+                  handleFieldChange(path, undefined);
+                } else {
+                  handleFieldChange(path, val);
+                }
+              }}
+              required={isRequired}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+            >
+              <option value="">Select an option...</option>
+              {propSchema.enum.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          );
+        }
+
+        let inputType = "text";
+        switch (propSchema.format) {
+          case "email":
+            inputType = "email";
+            break;
+          case "uri":
+            inputType = "url";
+            break;
+          case "date":
+            inputType = "date";
+            break;
+          case "date-time":
+            inputType = "datetime-local";
+            break;
+          default:
+            inputType = "text";
+            break;
+        }
+
         return (
           <Input
-            type="text"
+            type={inputType}
             value={(currentValue as string) ?? ""}
             onChange={(e) => {
               const val = e.target.value;
@@ -194,8 +273,13 @@ const DynamicJsonForm = ({
             }}
             placeholder={propSchema.description}
             required={isRequired}
+            minLength={propSchema.minLength}
+            maxLength={propSchema.maxLength}
+            pattern={propSchema.pattern}
           />
         );
+      }
+
       case "number":
         return (
           <Input
@@ -214,8 +298,11 @@ const DynamicJsonForm = ({
             }}
             placeholder={propSchema.description}
             required={isRequired}
+            min={propSchema.minimum}
+            max={propSchema.maximum}
           />
         );
+
       case "integer":
         return (
           <Input
@@ -228,7 +315,6 @@ const DynamicJsonForm = ({
                 handleFieldChange(path, undefined);
               } else {
                 const num = Number(val);
-                // Only update if it's a valid integer
                 if (!isNaN(num) && Number.isInteger(num)) {
                   handleFieldChange(path, num);
                 }
@@ -236,8 +322,11 @@ const DynamicJsonForm = ({
             }}
             placeholder={propSchema.description}
             required={isRequired}
+            min={propSchema.minimum}
+            max={propSchema.maximum}
           />
         );
+
       case "boolean":
         return (
           <Input

@@ -47,7 +47,7 @@
     "@modelcontextprotocol/inspector-cli": "^0.15.0",
     "@modelcontextprotocol/inspector-client": "^0.15.0",
     "@modelcontextprotocol/inspector-server": "^0.15.0",
-    "@modelcontextprotocol/sdk": "^1.13.1",
+    "@modelcontextprotocol/sdk": "^1.14.0",
     "concurrently": "^9.0.1",
     "open": "^10.1.0",
     "shell-quote": "^1.8.2",
