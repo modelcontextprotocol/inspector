@@ -242,12 +242,10 @@ const createTransport = async (
       );
 
       const transport = new SSEClientTransport(new URL(url), {
-        eventSourceInit: {
-          fetch: (url, init) => interceptingFetch(url, { ...init, headers }),
-        } as EventSourceInit & { fetch?: typeof fetch },
         requestInit: {
           headers,
         },
+        fetch: (url, init) => interceptingFetch(url, { ...init, headers }),
       });
       await transport.start();
       return { transport, authHeader };
@@ -259,9 +257,8 @@ const createTransport = async (
         {
           requestInit: {
             headers,
-            // Cast to allow non-standard fetch property
-            fetch: interceptingFetch,
-          } as RequestInit & { fetch?: typeof fetch },
+          },
+          fetch: (url, init) => interceptingFetch(url, { ...init, headers }),
         },
       );
       await transport.start();
