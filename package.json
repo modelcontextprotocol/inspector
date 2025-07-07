@@ -56,6 +56,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@modelcontextprotocol/inspector": "^0.15.0",
     "@playwright/test": "^1.52.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.7.5",

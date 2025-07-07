@@ -20,6 +20,7 @@ import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
+import { OAuthCallbackManager } from "./oauthCallbacks.js";
 
 const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 const SSE_HEADERS_PASSTHROUGH = ["authorization"];
@@ -522,6 +523,8 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
       defaultEnvironment,
       defaultCommand: values.env,
       defaultArgs: values.args,
+      oauthCallback: process.env.OAUTH_MCP_INSPECTOR_CALLBACK || null,
+      oauthDebugCallback: process.env.OAUTH_MCP_INSPECTOR_DEBUG_CALLBACK || null,
     });
   } catch (error) {
     console.error("Error in /config route:", error);
@@ -534,6 +537,11 @@ const PORT = parseInt(
   10,
 );
 const HOST = process.env.HOST || "localhost";
+const CLIENT_PORT = process.env.CLIENT_PORT || "6274";
+
+// Initialize OAuth callback manager
+const mcpInspectorUrl = `http://${HOST}:${CLIENT_PORT}`;
+const oauthCallbackManager = new OAuthCallbackManager(mcpInspectorUrl);
 
 const server = app.listen(PORT, HOST);
 server.on("listening", () => {
@@ -548,6 +556,9 @@ server.on("listening", () => {
       `⚠️  WARNING: Authentication is disabled. This is not recommended.`,
     );
   }
+  
+  // Start OAuth callback servers
+  oauthCallbackManager.start();
 });
 server.on("error", (err) => {
   if (err.message.includes(`EADDRINUSE`)) {
@@ -556,4 +567,23 @@ server.on("error", (err) => {
     console.error(err.message);
   }
   process.exit(1);
+});
+
+// Graceful shutdown
+process.on("SIGINT", () => {
+  console.log("\nShutting down MCP Inspector...");
+  oauthCallbackManager.stop();
+  server.close(() => {
+    console.log("Server closed");
+    process.exit(0);
+  });
+});
+
+process.on("SIGTERM", () => {
+  console.log("\nShutting down MCP Inspector...");
+  oauthCallbackManager.stop();
+  server.close(() => {
+    console.log("Server closed");
+    process.exit(0);
+  });
 });
