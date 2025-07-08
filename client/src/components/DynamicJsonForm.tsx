@@ -5,6 +5,8 @@ import JsonEditor from "./JsonEditor";
 import { updateValueAtPath } from "@/utils/jsonUtils";
 import { generateDefaultValue } from "@/utils/schemaUtils";
 import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
+import { useToast } from "@/lib/hooks/useToast";
+import { CheckCheck, Copy } from "lucide-react";
 
 interface DynamicJsonFormProps {
   schema: JsonSchemaType;
@@ -60,6 +62,9 @@ const DynamicJsonForm = ({
   const isOnlyJSON = !isSimpleObject(schema);
   const [isJsonMode, setIsJsonMode] = useState(isOnlyJSON);
   const [jsonError, setJsonError] = useState<string>();
+  const [copiedJson, setCopiedJson] = useState<boolean>(false);
+  const { toast } = useToast();
+
   // Store the raw JSON string to allow immediate feedback during typing
   // while deferring parsing until the user stops typing
   const [rawJsonValue, setRawJsonValue] = useState<string>(
@@ -399,19 +404,64 @@ const DynamicJsonForm = ({
     }
   }, [shouldUseJsonMode, isJsonMode]);
 
+  const handleCopyJson = useCallback(() => {
+    const copyToClipboard = async () => {
+      try {
+        await navigator.clipboard.writeText(
+          JSON.stringify(value, null, 2) ?? "[]",
+        );
+        setCopiedJson(true);
+
+        toast({
+          title: "JSON copied",
+          description:
+            "The JSON data has been successfully copied to your clipboard.",
+        });
+
+        setTimeout(() => {
+          setCopiedJson(false);
+        }, 2000);
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: `Failed to copy JSON: ${error instanceof Error ? error.message : String(error)}`,
+          variant: "destructive",
+        });
+      }
+    };
+
+    copyToClipboard();
+  }, [toast, value]);
+
   return (
     <div className="space-y-4">
       <div className="flex justify-end space-x-2">
         {isJsonMode && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={formatJson}
-          >
-            Format JSON
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleCopyJson}
+            >
+              {copiedJson ? (
+                <CheckCheck className="h-4 w-4 mr-2" />
+              ) : (
+                <Copy className="h-4 w-4 mr-2" />
+              )}
+              Copy JSON
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={formatJson}
+            >
+              Format JSON
+            </Button>
+          </>
         )}
+
         {!isOnlyJSON && (
           <Button variant="outline" size="sm" onClick={handleSwitchToFormMode}>
             {isJsonMode ? "Switch to Form" : "Switch to JSON"}
