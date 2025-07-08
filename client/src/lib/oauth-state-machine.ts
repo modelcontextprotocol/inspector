@@ -109,8 +109,12 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       const clientInformation = context.state.oauthClientInfo!;
 
       let scope: string | undefined = undefined;
-      if (metadata.scopes_supported) {
-        scope = metadata.scopes_supported.join(" ");
+      // Prefer scopes from resource metadata if available
+      const scopesSupported =
+        context.state.resourceMetadata?.scopes_supported ||
+        metadata.scopes_supported;
+      if (scopesSupported) {
+        scope = scopesSupported.join(" ");
       }
 
       const { authorizationUrl, codeVerifier } = await startAuthorization(
