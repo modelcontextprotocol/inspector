@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const inspectorUrl = "http://localhost:6274"
+
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
@@ -8,11 +10,16 @@ export default defineConfig({
   webServer: {
     cwd: "..",
     command: "npm run dev",
-    url: "http://localhost:6274",
+    url: inspectorUrl,
     reuseExistingServer: !process.env.CI,
+    stdout: "pipe",
+    env: {
+      MCP_AUTO_OPEN_ENABLED: false,
+    }
   },
 
   testDir: "./e2e",
+  testIgnore: "**/everything-server.spec.ts",
   outputDir: "./e2e/test-results",
   /* Run tests in files in parallel */
   fullyParallel: true,
@@ -33,7 +40,7 @@ export default defineConfig({
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: "http://localhost:6274",
+    baseURL: inspectorUrl,
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: "on-first-retry",

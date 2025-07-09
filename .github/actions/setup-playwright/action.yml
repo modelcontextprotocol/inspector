@@ -1,0 +1,47 @@
+name: 'Setup Playwright'
+description: 'Install dependencies and setup Playwright'
+inputs:
+  working-directory:
+    description: 'Directory where the project is located'
+    required: false
+    default: '.'
+runs:
+  using: 'composite'
+  steps:
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libwoff1
+      shell: bash
+
+    - uses: actions/setup-node@v4
+      id: setup_node
+      with:
+        node-version-file: ${{ inputs.working-directory }}/package.json
+        cache: npm
+        cache-dependency-path: ${{ inputs.working-directory }}
+
+    - name: Install dependencies
+      run: npm ci
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+
+    - name: Cache Playwright browsers
+      id: cache-playwright
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles(format('{0}/package-lock.json', inputs.working-directory)) }}
+        restore-keys: |
+          ${{ runner.os }}-playwright-
+
+    - name: Install Playwright dependencies
+      run: npx playwright install-deps
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+
+    - name: Install Playwright and browsers unless cached
+      run: npx playwright install --with-deps
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      if: steps.cache-playwright.outputs.cache-hit != 'true'

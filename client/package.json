@@ -22,6 +22,7 @@
     "test": "jest --config jest.config.cjs",
     "test:watch": "jest --config jest.config.cjs --watch",
     "test:e2e": "playwright test e2e && npm run cleanup:e2e",
+    "test:e2e:everything": "playwright test --config=playwright.everything.config.ts e2e/everything-server.spec.ts && npm run cleanup:e2e",
     "cleanup:e2e": "node e2e/global-teardown.js"
   },
   "dependencies": {

@@ -2,49 +2,21 @@ name: Playwright Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, e2e-tests-everything-server]
   pull_request:
     branches: [main]
 
 jobs:
   test:
-    # Installing Playright dependencies can take quite awhile, and also depends on GitHub CI load.
+    # Installing Playwright dependencies can take quite awhile, and also depends on GitHub CI load.
     timeout-minutes: 15
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwoff1
-
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        id: setup_node
-        with:
-          node-version-file: package.json
-          cache: npm
-
-      # Cache Playwright browsers
-      - name: Cache Playwright browsers
-        id: cache-playwright
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright # The default Playwright cache path
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }} # Cache key based on OS and package-lock.json
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright dependencies
-        run: npx playwright install-deps
-
-      - name: Install Playwright and browsers unless cached
-        run: npx playwright install --with-deps
-        if: steps.cache-playwright.outputs.cache-hit != 'true'
+      # FIXME: Explicit path through .github is really necessary?
+      - uses: ./.github/actions/setup-playwright
 
       - name: Run Playwright tests
         id: playwright-tests
@@ -70,9 +42,93 @@ jobs:
           comment-title: "🎭 Playwright E2E Test Results"
           job-summary: true
           icon-style: "emojis"
+          # FIXME: Node version should come from the composite setup-playwright action
           custom-info: |
             **Test Environment:** Ubuntu Latest, Node.js ${{ steps.setup_node.outputs.node-version }}
             **Browsers:** Chromium, Firefox
 
             📊 [View Detailed HTML Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) (download artifacts)
           test-command: "npm run test:e2e"
+
+  test-everything-server:
+    if: github.ref == 'refs/heads/e2e-tests-everything-server'
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: inspector
+
+      - uses: ./inspector/.github/actions/setup-playwright
+        with:
+          working-directory: inspector
+
+      - uses: actions/checkout@v4
+        with:
+          repository: richardkmichael/servers
+          ref: add-structured-content-tool
+          path: servers
+
+      - name: Install and build everything server
+        working-directory: servers/src/everything
+        run: |
+          npm clean-install
+          npm run prepare
+
+      - name: Run Everything Server Playwright tests
+        working-directory: inspector
+        run: npm run test:e2e:everything
+        env:
+          EVERYTHING_SERVER_PATH: ${{ github.workspace }}/servers/src/everything
+
+        # FIXME:
+        #
+        # Revert to: always(), GitHub Actions are difficult to control with clarity.
+        #
+        # This step needs to run when the playwright-tests step ran whatsoever.  These step conclusions
+        # seem to be: success, fail, cancelled (GitHub Action timeout; not Playwright timeout--
+        # that's fail).
+        #
+        # But not if the setup action didn't finish.  For example, job timeout -- which is `cancelled()`:
+        # https://github.com/modelcontextprotocol/inspector/actions/runs/15860838530/job/44717383789#step:7:1152
+        #
+        # But yes, if the playwright-tests step caused the timeout -- `cancelled()`.
+        #
+        # It seems we need to know which *step* caused the overall job to be cancelled.  The
+        # expression functions: success(), failure(), cancelled(), etc. refer to the *overall*
+        # job.
+        #
+        # Also, there is an implicit `success()` even with an `if: <CONDITION>`, i.e., `if: success() && <CONDITION>
+        # https://docs.github.com/en/actions/reference/evaluate-expressions-in-workflows-and-actions#failure-with-conditions
+        #
+        # Consider: cancelled() && step.[NAME].conclusion == "ANY"
+        #
+      - name: Upload Everything Server Playwright Report and Screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-everything-server
+          path: |
+            inspector/client/report-everything/
+            inspector/client/report-everything.json
+            inspector/client/report-everything.xml
+            inspector/client/e2e/results-everything/
+          retention-days: 2
+
+#     - name: Publish Everything Server Playwright Test Summary
+#       uses: daun/playwright-report-summary@v3
+#       if: always()
+#       with:
+#         create-comment: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+#         report-file: client/results-everything.json
+#         comment-title: "🎭 Everything Server E2E Test Results"
+#         job-summary: true
+#         icon-style: "emojis"
+#         custom-info: |
+#           **Test Environment:** Ubuntu Latest, Node.js 20
+#           **Browsers:** Chromium
+#           **MCP Server:** Everything Server
+
+#           📊 [View Detailed HTML Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) (download artifacts)
+#         test-command: "npm run test:e2e:everything"

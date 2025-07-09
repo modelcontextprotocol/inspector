@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright output, see: playwright.everything.config.ts
+report-everything/
+report-everything.json
+report-everything.xml
+e2e/results-everything/
