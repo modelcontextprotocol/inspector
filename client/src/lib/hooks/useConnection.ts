@@ -30,12 +30,16 @@ import {
   Progress,
 } from "@modelcontextprotocol/sdk/types.js";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import { OAuthMetadataSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { useState } from "react";
 import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
 import { ConnectionStatus } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
-import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  auth,
+  discoverOAuthMetadata,
+} from "@modelcontextprotocol/sdk/client/auth.js";
 import { InspectorOAuthClientProvider } from "../auth";
 import packageJson from "../../../package.json";
 import {
@@ -279,7 +283,17 @@ export function useConnection({
     if (is401Error(error)) {
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
-      const result = await auth(serverAuthProvider, { serverUrl: sseUrl });
+      // Use all supported scopes if available
+      const metadata = await discoverOAuthMetadata(sseUrl);
+      if (!metadata) {
+        throw new Error("Failed to discover OAuth metadata");
+      }
+      const parsedMetadata = await OAuthMetadataSchema.parseAsync(metadata);
+      const scope = parsedMetadata.scopes_supported?.join(" ");
+      const result = await auth(serverAuthProvider, {
+        serverUrl: sseUrl,
+        scope,
+      });
       return result === "AUTHORIZED";
     }
 

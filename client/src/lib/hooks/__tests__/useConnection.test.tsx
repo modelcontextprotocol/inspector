@@ -68,6 +68,15 @@ jest.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
 
 jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
   auth: jest.fn().mockResolvedValue("AUTHORIZED"),
+  discoverOAuthMetadata: jest.fn().mockResolvedValue({
+    issuer: "https://oauth.example.com",
+    authorization_endpoint: "https://oauth.example.com/authorize",
+    token_endpoint: "https://oauth.example.com/token",
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
+    code_challenge_methods_supported: ["S256"],
+    scopes_supported: ["read", "write"],
+  }),
 }));
 
 // Mock the toast hook
