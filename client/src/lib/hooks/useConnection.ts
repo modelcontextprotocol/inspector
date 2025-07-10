@@ -287,19 +287,22 @@ export function useConnection({
   };
 
   const connect = async (_e?: unknown, retryCount: number = 0) => {
-    const client = new Client<Request, Notification, Result>(
-      {
-        name: "mcp-inspector",
-        version: packageJson.version,
-      },
-      {
-        capabilities: {
-          sampling: {},
-          roots: {
-            listChanged: true,
-          },
+    const [_, name = packageJson.name] = packageJson.name.split("/");
+    const version = packageJson.version;
+    const clientIdentity = { name, version };
+
+    const clientCapabilities = {
+      capabilities: {
+        sampling: {},
+        roots: {
+          listChanged: true,
         },
       },
+    };
+
+    const client = new Client<Request, Notification, Result>(
+      clientIdentity,
+      clientCapabilities,
     );
 
     try {
