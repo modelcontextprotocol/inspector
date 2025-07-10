@@ -363,6 +363,25 @@ const App = () => {
         if (data.defaultArgs) {
           setArgs(data.defaultArgs);
         }
+        if (data.serverConfig) {
+          if (data.serverConfig.type === "stdio") {
+            setTransportType("stdio");
+            setCommand(data.serverConfig.command);
+            setArgs(data.serverConfig.args);
+          } else if (
+            data.serverConfig.type === "sse" &&
+            data.serverConfig.url
+          ) {
+            setTransportType("sse");
+            setSseUrl(data.serverConfig.url);
+          } else if (
+            data.serverConfig.type === "streamable-http" &&
+            data.serverConfig.url
+          ) {
+            setTransportType("streamable-http");
+            setSseUrl(data.serverConfig.url);
+          }
+        }
       })
       .catch((error) =>
         console.error("Error fetching default environment:", error),
