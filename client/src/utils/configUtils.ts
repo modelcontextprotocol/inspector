@@ -142,6 +142,12 @@ export const initializeInspectorConfig = (
 
   // Ensure all config items have the latest labels/descriptions from defaults
   for (const [key, value] of Object.entries(baseConfig)) {
+    // Skip if key doesn't exist in DEFAULT_INSPECTOR_CONFIG
+    if (!(key in DEFAULT_INSPECTOR_CONFIG)) {
+      delete baseConfig[key as keyof InspectorConfig];
+      continue;
+    }
+    
     baseConfig[key as keyof InspectorConfig] = {
       ...value,
       label: DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].label,

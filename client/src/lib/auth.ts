@@ -16,6 +16,11 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   get redirectUrl() {
+    // Check for runtime configuration
+    const configuredCallback = sessionStorage.getItem('OAUTH_MCP_INSPECTOR_CALLBACK');
+    if (configuredCallback) {
+      return configuredCallback;
+    }
     return window.location.origin + "/oauth/callback";
   }
 
@@ -108,6 +113,11 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
 // display in debug UI.
 export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvider {
   get redirectUrl(): string {
+    // Check for runtime configuration
+    const configuredDebugCallback = sessionStorage.getItem('OAUTH_MCP_INSPECTOR_DEBUG_CALLBACK');
+    if (configuredDebugCallback) {
+      return configuredDebugCallback;
+    }
     return `${window.location.origin}/oauth/callback/debug`;
   }
 
