@@ -6,8 +6,10 @@ import path from "node:path";
 import { dirname, resolve } from "path";
 import { spawnPromise } from "spawn-rx";
 import { fileURLToPath } from "url";
+import { randomBytes } from "crypto";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 
 type Args = {
   command: string;
@@ -68,9 +70,14 @@ async function runWebClient(args: Args): Promise<void> {
   );
 
   const CLIENT_PORT: string = process.env.CLIENT_PORT ?? "6274";
-  const SERVER_PORT: string = process.env.SERVER_PORT ?? "6277";
+  const SERVER_PORT: string =
+    process.env.SERVER_PORT ?? DEFAULT_MCP_PROXY_LISTEN_PORT;
 
   console.log("Starting MCP inspector...");
+
+  // Generate session token for authentication
+  const sessionToken = randomBytes(32).toString("hex");
+  const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
 
   const abort = new AbortController();
   let cancelled: boolean = false;
@@ -93,7 +100,9 @@ async function runWebClient(args: Args): Promise<void> {
       {
         env: {
           ...process.env,
-          PORT: SERVER_PORT,
+          SERVER_PORT,
+          CLIENT_PORT,
+          MCP_PROXY_TOKEN: sessionToken,
           MCP_ENV_VARS: JSON.stringify(args.envArgs),
         },
         signal: abort.signal,
@@ -107,8 +116,27 @@ async function runWebClient(args: Args): Promise<void> {
 
   if (serverOk) {
     try {
+      // Build the client URL with authentication parameters
+      const host = process.env.HOST || "localhost";
+      const baseUrl = `http://${host}:${CLIENT_PORT}`;
+      const params = new URLSearchParams();
+
+      if (SERVER_PORT !== DEFAULT_MCP_PROXY_LISTEN_PORT) {
+        params.set("MCP_PROXY_PORT", SERVER_PORT);
+      }
+      if (!authDisabled) {
+        params.set("MCP_PROXY_AUTH_TOKEN", sessionToken);
+      }
+
+      const url =
+        params.size > 0 ? `${baseUrl}/?${params.toString()}` : baseUrl;
+
       await spawnPromise("node", [inspectorClientPath], {
-        env: { ...process.env, PORT: CLIENT_PORT },
+        env: {
+          ...process.env,
+          CLIENT_PORT,
+          INSPECTOR_URL: url,
+        },
         signal: abort.signal,
         echoOutput: true,
       });
