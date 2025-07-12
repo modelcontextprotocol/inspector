@@ -170,6 +170,7 @@ export function useConnection({
     ref: ResourceReference | PromptReference,
     argName: string,
     value: string,
+    context?: Record<string, string>,
     signal?: AbortSignal,
   ): Promise<string[]> => {
     if (!mcpClient || !completionsSupported) {
@@ -186,6 +187,12 @@ export function useConnection({
         ref,
       },
     };
+
+    if (context) {
+      request["params"]["context"] = {
+        arguments: context,
+      };
+    }
 
     try {
       const response = await makeRequest(request, CompleteResultSchema, {
