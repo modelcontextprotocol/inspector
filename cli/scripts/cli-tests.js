@@ -710,6 +710,26 @@ async function runTests() {
     "tools/list",
   );
 
+  // Test 29: HTTP transport without URL (should fail)
+  await runErrorTest(
+    "http_transport_without_url",
+    "--transport",
+    "http",
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  // Test 30: SSE transport without URL (should fail)
+  await runErrorTest(
+    "sse_transport_without_url",
+    "--transport",
+    "sse",
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
   // Kill HTTP server
   try {
     process.kill(-httpServer.pid);

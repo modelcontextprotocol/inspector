@@ -14,24 +14,6 @@ export type TransportOptions = {
   url?: string;
 };
 
-function createSSETransport(options: TransportOptions): Transport {
-  const baseUrl = new URL(options.url ?? "");
-  const sseUrl = baseUrl.pathname.endsWith("/sse")
-    ? baseUrl
-    : new URL("/sse", baseUrl);
-
-  return new SSEClientTransport(sseUrl);
-}
-
-function createHTTPTransport(options: TransportOptions): Transport {
-  const baseUrl = new URL(options.url ?? "");
-  const mcpUrl = baseUrl.pathname.endsWith("/mcp")
-    ? baseUrl
-    : new URL("/mcp", baseUrl);
-
-  return new StreamableHTTPClientTransport(mcpUrl);
-}
-
 function createStdioTransport(options: TransportOptions): Transport {
   let args: string[] = [];
 
@@ -75,12 +57,18 @@ export function createTransport(options: TransportOptions): Transport {
       return createStdioTransport(options);
     }
 
+    // If not STDIO, then it must be either SSE or HTTP.
+    if (!options.url) {
+      throw new Error("URL must be provided for SSE or HTTP transport types.");
+    }
+    const url = new URL(options.url);
+
     if (transportType === "sse") {
-      return createSSETransport(options);
+      return new SSEClientTransport(url);
     }
 
     if (transportType === "http") {
-      return createHTTPTransport(options);
+      return new StreamableHTTPClientTransport(url);
     }
 
     throw new Error(`Unsupported transport type: ${transportType}`);
