@@ -1,52 +1,53 @@
+import { useToast } from "@/lib/hooks/useToast";
+import {
+  getMCPProxyAddress,
+  getMCPProxyAuthToken,
+  getMCPServerRequestMaxTotalTimeout,
+  getMCPServerRequestTimeout,
+  resetRequestTimeoutOnProgress,
+} from "@/utils/configUtils";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   SSEClientTransport,
-  SseError,
   SSEClientTransportOptions,
+  SseError,
 } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
   StreamableHTTPClientTransport,
   StreamableHTTPClientTransportOptions,
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
+  CancelledNotificationSchema,
   ClientNotification,
   ClientRequest,
+  CompleteResultSchema,
   CreateMessageRequestSchema,
+  ErrorCode,
   ListRootsRequestSchema,
-  ResourceUpdatedNotificationSchema,
   LoggingMessageNotificationSchema,
+  McpError,
+  Progress,
+  PromptListChangedNotificationSchema,
+  PromptReference,
   Request,
+  ResourceListChangedNotificationSchema,
+  ResourceReference,
+  ResourceUpdatedNotificationSchema,
   Result,
   ServerCapabilities,
-  PromptReference,
-  ResourceReference,
-  McpError,
-  CompleteResultSchema,
-  ErrorCode,
-  CancelledNotificationSchema,
-  ResourceListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
-  PromptListChangedNotificationSchema,
-  Progress,
 } from "@modelcontextprotocol/sdk/types.js";
-import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useState } from "react";
-import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
+import packageJson from "../../../package.json";
+import { InspectorOAuthClientProvider } from "../auth";
+import { InspectorConfig } from "../configurationTypes";
 import { ConnectionStatus } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
-import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
-import { InspectorOAuthClientProvider } from "../auth";
-import packageJson from "../../../package.json";
-import {
-  getMCPProxyAddress,
-  getMCPServerRequestMaxTotalTimeout,
-  resetRequestTimeoutOnProgress,
-  getMCPProxyAuthToken,
-} from "@/utils/configUtils";
-import { getMCPServerRequestTimeout } from "@/utils/configUtils";
-import { InspectorConfig } from "../configurationTypes";
-import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { isTokenExpired } from "../token-utils";
 
 interface UseConnectionOptions {
   transportType: "stdio" | "sse" | "streamable-http";
@@ -275,12 +276,50 @@ export function useConnection({
     );
   };
 
+  const ensureValidToken = async (
+    authProvider: InspectorOAuthClientProvider,
+  ) => {
+    const tokens = await authProvider.tokens();
+
+    // If no tokens exist, initiate authorization flow
+    if (!tokens) {
+      try {
+        const result = await auth(authProvider, { serverUrl: sseUrl });
+        return result === "AUTHORIZED";
+      } catch (error) {
+        console.error("Token refresh/authorization failed:", error);
+        return false;
+      }
+    }
+
+    // Check if token is expired (but handle potential parsing errors gracefully)
+    try {
+      if (isTokenExpired(tokens)) {
+        const result = await auth(authProvider, { serverUrl: sseUrl });
+        return result === "AUTHORIZED";
+      }
+    } catch (error) {
+      // If token format is invalid, treat as expired and refresh
+      console.warn("Token format invalid, refreshing:", error);
+      try {
+        const result = await auth(authProvider, { serverUrl: sseUrl });
+        return result === "AUTHORIZED";
+      } catch (refreshError) {
+        console.error("Token refresh/authorization failed:", refreshError);
+        return false;
+      }
+    }
+
+    return true; // Token is still valid
+  };
+
   const handleAuthError = async (error: unknown) => {
     if (is401Error(error)) {
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
-      const result = await auth(serverAuthProvider, { serverUrl: sseUrl });
-      return result === "AUTHORIZED";
+      // Try to use existing tokens (refresh if needed) or initiate new authorization flow
+      const hasValidToken = await ensureValidToken(serverAuthProvider);
+      return hasValidToken;
     }
 
     return false;
@@ -318,8 +357,13 @@ export function useConnection({
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
       // Use manually provided bearer token if available, otherwise use OAuth tokens
-      const token =
-        bearerToken || (await serverAuthProvider.tokens())?.access_token;
+      let token = bearerToken;
+      if (!token) {
+        // Ensure we have a valid token before proceeding
+        await ensureValidToken(serverAuthProvider);
+        token = (await serverAuthProvider.tokens())?.access_token;
+      }
+
       if (token) {
         const authHeaderName = headerName || "Authorization";
 
