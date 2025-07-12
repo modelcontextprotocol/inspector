@@ -425,11 +425,14 @@ const App = () => {
     }
   };
 
-  const listResources = async () => {
+  const listResources = async (meta?: Record<string, unknown> | null) => {
     const response = await sendMCPRequest(
       {
         method: "resources/list" as const,
-        params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
+        params: {
+          ...(nextResourceCursor ? { cursor: nextResourceCursor } : {}),
+          ...(meta && { _meta: meta }),
+        },
       },
       ListResourcesResultSchema,
       "resources",
@@ -438,13 +441,18 @@ const App = () => {
     setNextResourceCursor(response.nextCursor);
   };
 
-  const listResourceTemplates = async () => {
+  const listResourceTemplates = async (
+    meta?: Record<string, unknown> | null,
+  ) => {
     const response = await sendMCPRequest(
       {
         method: "resources/templates/list" as const,
-        params: nextResourceTemplateCursor
-          ? { cursor: nextResourceTemplateCursor }
-          : {},
+        params: {
+          ...(nextResourceTemplateCursor
+            ? { cursor: nextResourceTemplateCursor }
+            : {}),
+          ...(meta && { _meta: meta }),
+        },
       },
       ListResourceTemplatesResultSchema,
       "resources",
@@ -455,11 +463,14 @@ const App = () => {
     setNextResourceTemplateCursor(response.nextCursor);
   };
 
-  const readResource = async (uri: string) => {
+  const readResource = async (
+    uri: string,
+    meta?: Record<string, unknown> | null,
+  ) => {
     const response = await sendMCPRequest(
       {
         method: "resources/read" as const,
-        params: { uri },
+        params: { uri, ...(meta && { _meta: meta }) },
       },
       ReadResourceResultSchema,
       "resources",
@@ -472,12 +483,15 @@ const App = () => {
     }));
   };
 
-  const subscribeToResource = async (uri: string) => {
+  const subscribeToResource = async (
+    uri: string,
+    meta?: Record<string, unknown> | null,
+  ) => {
     if (!resourceSubscriptions.has(uri)) {
       await sendMCPRequest(
         {
           method: "resources/subscribe" as const,
-          params: { uri },
+          params: { uri, ...(meta && { _meta: meta }) },
         },
         z.object({}),
         "resources",
@@ -488,12 +502,15 @@ const App = () => {
     }
   };
 
-  const unsubscribeFromResource = async (uri: string) => {
+  const unsubscribeFromResource = async (
+    uri: string,
+    meta?: Record<string, unknown> | null,
+  ) => {
     if (resourceSubscriptions.has(uri)) {
       await sendMCPRequest(
         {
           method: "resources/unsubscribe" as const,
-          params: { uri },
+          params: { uri, ...(meta && { _meta: meta }) },
         },
         z.object({}),
         "resources",
@@ -504,11 +521,14 @@ const App = () => {
     }
   };
 
-  const listPrompts = async () => {
+  const listPrompts = async (meta?: Record<string, unknown> | null) => {
     const response = await sendMCPRequest(
       {
         method: "prompts/list" as const,
-        params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
+        params: {
+          ...(nextPromptCursor ? { cursor: nextPromptCursor } : {}),
+          ...(meta && { _meta: meta }),
+        },
       },
       ListPromptsResultSchema,
       "prompts",
@@ -517,11 +537,28 @@ const App = () => {
     setNextPromptCursor(response.nextCursor);
   };
 
-  const getPrompt = async (name: string, args: Record<string, string> = {}) => {
+  const getPrompt = async (
+    name: string,
+    args: Record<string, string> = {},
+    meta?: Record<string, unknown> | null,
+  ) => {
+    console.log("getPrompt _meta", meta);
+    const requestParams: {
+      name: string;
+      arguments: Record<string, string>;
+      _meta?: Record<string, unknown>;
+    } = { name, arguments: args };
+
+    // Simplified condition: if meta is a non-null object, add it.
+    // This covers both empty and non-empty objects.
+    if (meta && typeof meta === "object") {
+      requestParams._meta = meta;
+    }
+
     const response = await sendMCPRequest(
       {
         method: "prompts/get" as const,
-        params: { name, arguments: args },
+        params: requestParams,
       },
       GetPromptResultSchema,
       "prompts",
@@ -529,11 +566,14 @@ const App = () => {
     setPromptContent(JSON.stringify(response, null, 2));
   };
 
-  const listTools = async () => {
+  const listTools = async (meta?: Record<string, unknown> | null) => {
     const response = await sendMCPRequest(
       {
         method: "tools/list" as const,
-        params: nextToolCursor ? { cursor: nextToolCursor } : {},
+        params: {
+          ...(nextToolCursor ? { cursor: nextToolCursor } : {}),
+          ...(meta && { _meta: meta }),
+        },
       },
       ListToolsResultSchema,
       "tools",
@@ -544,7 +584,11 @@ const App = () => {
     cacheToolOutputSchemas(response.tools);
   };
 
-  const callTool = async (name: string, params: Record<string, unknown>) => {
+  const callTool = async (
+    name: string,
+    params: Record<string, unknown>,
+    meta?: Record<string, unknown> | null,
+  ) => {
     try {
       const response = await sendMCPRequest(
         {
@@ -553,7 +597,8 @@ const App = () => {
             name,
             arguments: params,
             _meta: {
-              progressToken: progressTokenRef.current++,
+              ...(meta && meta), // Spread incoming meta
+              progressToken: progressTokenRef.current++, // Keep existing progressToken
             },
           },
         },
@@ -775,25 +820,29 @@ const App = () => {
                     <ResourcesTab
                       resources={resources}
                       resourceTemplates={resourceTemplates}
-                      listResources={() => {
+                      listResources={(
+                        meta?: Record<string, unknown> | null,
+                      ) => {
                         clearError("resources");
-                        listResources();
+                        listResources(meta);
                       }}
                       clearResources={() => {
                         setResources([]);
                         setNextResourceCursor(undefined);
                       }}
-                      listResourceTemplates={() => {
+                      listResourceTemplates={(
+                        meta?: Record<string, unknown> | null,
+                      ) => {
                         clearError("resources");
-                        listResourceTemplates();
+                        listResourceTemplates(meta);
                       }}
                       clearResourceTemplates={() => {
                         setResourceTemplates([]);
                         setNextResourceTemplateCursor(undefined);
                       }}
-                      readResource={(uri) => {
+                      readResource={(uri, meta) => {
                         clearError("resources");
-                        readResource(uri);
+                        readResource(uri, meta);
                       }}
                       selectedResource={selectedResource}
                       setSelectedResource={(resource) => {
@@ -829,9 +878,9 @@ const App = () => {
                         setPrompts([]);
                         setNextPromptCursor(undefined);
                       }}
-                      getPrompt={(name, args) => {
+                      getPrompt={(name, args, meta) => {
                         clearError("prompts");
-                        getPrompt(name, args);
+                        getPrompt(name, args, meta);
                       }}
                       selectedPrompt={selectedPrompt}
                       setSelectedPrompt={(prompt) => {
@@ -849,7 +898,7 @@ const App = () => {
                       tools={tools}
                       listTools={() => {
                         clearError("tools");
-                        listTools();
+                        listTools(); // TODO: Pass meta from ToolsTab if MetaEditor is added there
                       }}
                       clearTools={() => {
                         setTools([]);
@@ -857,10 +906,11 @@ const App = () => {
                         // Clear cached output schemas
                         cacheToolOutputSchemas([]);
                       }}
-                      callTool={async (name, params) => {
+                      callTool={async (name, params, meta) => {
+                        // Accept meta here
                         clearError("tools");
                         setToolResult(null);
-                        await callTool(name, params);
+                        await callTool(name, params, meta); // Pass meta
                       }}
                       selectedTool={selectedTool}
                       setSelectedTool={(tool) => {

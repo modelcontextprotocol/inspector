@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import { useCompletionState } from "@/lib/hooks/useCompletionState";
 import JsonView from "./JsonView";
+import MetaEditor from "./MetaEditor"; // Import MetaEditor
 
 export type Prompt = {
   name: string;
@@ -39,9 +40,13 @@ const PromptsTab = ({
   error,
 }: {
   prompts: Prompt[];
-  listPrompts: () => void;
+  listPrompts: (meta?: Record<string, unknown> | null) => void; // Updated signature
   clearPrompts: () => void;
-  getPrompt: (name: string, args: Record<string, string>) => void;
+  getPrompt: (
+    name: string,
+    args: Record<string, string>,
+    _meta: Record<string, unknown> | null,
+  ) => void; // Updated signature
   selectedPrompt: Prompt | null;
   setSelectedPrompt: (prompt: Prompt | null) => void;
   handleCompletion: (
@@ -55,6 +60,9 @@ const PromptsTab = ({
   error: string | null;
 }) => {
   const [promptArgs, setPromptArgs] = useState<Record<string, string>>({});
+  const [metaValue, setMetaValue] = useState<Record<string, unknown> | null>(
+    null,
+  ); // State for MetaEditor
   const { completions, clearCompletions, requestCompletions } =
     useCompletionState(handleCompletion, completionsSupported);
 
@@ -79,7 +87,8 @@ const PromptsTab = ({
 
   const handleGetPrompt = () => {
     if (selectedPrompt) {
-      getPrompt(selectedPrompt.name, promptArgs);
+      console.log(metaValue);
+      getPrompt(selectedPrompt.name, promptArgs, metaValue); // Pass metaValue
     }
   };
 
@@ -154,6 +163,11 @@ const PromptsTab = ({
                     )}
                   </div>
                 ))}
+                <MetaEditor
+                  onChange={setMetaValue}
+                  initialCollapsed={true}
+                  initialValue={{}}
+                />
                 <Button onClick={handleGetPrompt} className="w-full">
                   Get Prompt
                 </Button>
