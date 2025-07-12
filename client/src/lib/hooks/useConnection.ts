@@ -279,38 +279,20 @@ export function useConnection({
   const ensureValidToken = async (
     authProvider: InspectorOAuthClientProvider,
   ) => {
-    const tokens = await authProvider.tokens();
-
-    // If no tokens exist, initiate authorization flow
-    if (!tokens) {
-      try {
-        const result = await auth(authProvider, { serverUrl: sseUrl });
-        return result === "AUTHORIZED";
-      } catch (error) {
-        console.error("Token refresh/authorization failed:", error);
-        return false;
-      }
-    }
-
-    // Check if token is expired (but handle potential parsing errors gracefully)
     try {
-      if (isTokenExpired(tokens)) {
-        const result = await auth(authProvider, { serverUrl: sseUrl });
-        return result === "AUTHORIZED";
-      }
-    } catch (error) {
-      // If token format is invalid, treat as expired and refresh
-      console.warn("Token format invalid, refreshing:", error);
-      try {
-        const result = await auth(authProvider, { serverUrl: sseUrl });
-        return result === "AUTHORIZED";
-      } catch (refreshError) {
-        console.error("Token refresh/authorization failed:", refreshError);
-        return false;
-      }
-    }
+      const tokens = await authProvider.tokens();
 
-    return true; // Token is still valid
+      // If no tokens exist, initiate authorization flow
+      if (!tokens || isTokenExpired(tokens)) {
+        const result = await auth(authProvider, { serverUrl: sseUrl });
+        return result === "AUTHORIZED";
+      }
+
+      return true; // Token is still valid
+    } catch (error) {
+      console.error("Token refresh/authorization failed:", error);
+      return false;
+    }
   };
 
   const handleAuthError = async (error: unknown) => {
