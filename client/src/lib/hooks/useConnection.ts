@@ -28,6 +28,7 @@ import {
   ToolListChangedNotificationSchema,
   PromptListChangedNotificationSchema,
   Progress,
+  LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useState } from "react";
@@ -63,6 +64,7 @@ interface UseConnectionOptions {
   onPendingRequest?: (request: any, resolve: any, reject: any) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getRoots?: () => any[];
+  defaultLoggingLevel?: LoggingLevel,
 }
 
 export function useConnection({
@@ -78,6 +80,7 @@ export function useConnection({
   onStdErrNotification,
   onPendingRequest,
   getRoots,
+  defaultLoggingLevel,
 }: UseConnectionOptions) {
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("disconnected");
@@ -519,6 +522,10 @@ export function useConnection({
         client.setRequestHandler(ListRootsRequestSchema, async () => {
           return { roots: getRoots() };
         });
+      }
+
+      if (capabilities?.logging && defaultLoggingLevel) {
+        await client.setLoggingLevel(defaultLoggingLevel);
       }
 
       setMcpClient(client);
