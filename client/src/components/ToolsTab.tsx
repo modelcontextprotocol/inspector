@@ -48,7 +48,7 @@ const ToolsTab = ({
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
-  const [paramsInputMode, setParamsInputMode] = useState<string>("raw");
+  const [paramsInputMode, setParamsInputMode] = useState<string>("form");
 
   const jsonEditor = JsonEditor({
     value: JSON.stringify(params, null, 2),
