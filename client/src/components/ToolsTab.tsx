@@ -292,7 +292,7 @@ const ToolsTab = ({
                   {
                     <ToggleGroup
                       type="single"
-                      defaultValue="bold"
+                      defaultValue="form"
                       onValueChange={setParamsInputMode}
                     >
                       <ToggleGroupItem value="form">form</ToggleGroupItem>
