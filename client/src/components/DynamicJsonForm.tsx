@@ -13,6 +13,7 @@ interface DynamicJsonFormProps {
   value: JsonValue;
   onChange: (value: JsonValue) => void;
   maxDepth?: number;
+  forceSimpleObject?: boolean;
 }
 
 const isSimpleObject = (schema: JsonSchemaType): boolean => {
@@ -58,8 +59,9 @@ const DynamicJsonForm = ({
   value,
   onChange,
   maxDepth = 3,
+  forceSimpleObject = false,
 }: DynamicJsonFormProps) => {
-  const isOnlyJSON = !isSimpleObject(schema);
+  const isOnlyJSON = forceSimpleObject || !isSimpleObject(schema);
   const [isJsonMode, setIsJsonMode] = useState(isOnlyJSON);
   const [jsonError, setJsonError] = useState<string>();
   const [copiedJson, setCopiedJson] = useState<boolean>(false);

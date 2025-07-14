@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import DynamicJsonForm from "./DynamicJsonForm";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/togglegroup";
 import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
 import { generateDefaultValue, isPropertyRequired } from "@/utils/schemaUtils";
 import {
@@ -16,10 +16,9 @@ import {
 import { Loader2, Send, ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
+import DynamicJsonForm from "./DynamicJsonForm";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
-import JsonEditor from "./JsonEditor";
-import { ToggleGroup, ToggleGroupItem } from "./ui/togglegroup";
 
 const ToolsTab = ({
   tools,
@@ -49,13 +48,6 @@ const ToolsTab = ({
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
   const [paramsInputMode, setParamsInputMode] = useState<string>("form");
-
-  const jsonEditor = JsonEditor({
-    value: JSON.stringify(params, null, 2),
-    onChange: (str: string) => {
-      setParams(JSON.parse(str));
-    },
-  });
 
   useEffect(() => {
     const params = Object.entries(
@@ -221,7 +213,22 @@ const ToolsTab = ({
                       );
                     },
                   )}
-                {paramsInputMode === "raw" && jsonEditor}
+                {paramsInputMode === "raw" && (
+                  <DynamicJsonForm
+                    forceSimpleObject
+                    schema={{
+                      type: "object",
+                      properties: selectedTool.inputSchema.properties as Record<
+                        string,
+                        JsonSchemaType
+                      >,
+                    }}
+                    value={params as JsonValue}
+                    onChange={(newValue: JsonValue) => {
+                      setParams(newValue as Record<string, unknown>);
+                    }}
+                  />
+                )}
                 {selectedTool.outputSchema && (
                   <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
                     <div className="flex items-center justify-between mb-2">
@@ -282,14 +289,16 @@ const ToolsTab = ({
                       </>
                     )}
                   </Button>
-                  <ToggleGroup
-                    type="single"
-                    defaultValue="bold"
-                    onValueChange={setParamsInputMode}
-                  >
-                    <ToggleGroupItem value="form">form</ToggleGroupItem>
-                    <ToggleGroupItem value="raw">raw</ToggleGroupItem>
-                  </ToggleGroup>
+                  {
+                    <ToggleGroup
+                      type="single"
+                      defaultValue="bold"
+                      onValueChange={setParamsInputMode}
+                    >
+                      <ToggleGroupItem value="form">form</ToggleGroupItem>
+                      <ToggleGroupItem value="raw">raw</ToggleGroupItem>
+                    </ToggleGroup>
+                  }
                 </div>
                 <ToolResults
                   toolResult={toolResult}
