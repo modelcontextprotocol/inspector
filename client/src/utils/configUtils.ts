@@ -14,8 +14,9 @@ const getSearchParam = (key: string): string | null => {
 };
 
 export const getMCPProxyAddress = (config: InspectorConfig): string => {
-  const proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS.value as string;
+  let proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS.value as string;
   if (proxyFullAddress) {
+    proxyFullAddress = proxyFullAddress.replace(/\/+$/, "");
     return proxyFullAddress;
   }
 

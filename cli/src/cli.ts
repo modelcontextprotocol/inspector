@@ -50,27 +50,14 @@ function delay(ms: number): Promise<void> {
 }
 
 async function runWebClient(args: Args): Promise<void> {
-  const inspectorServerPath = resolve(
-    __dirname,
-    "../../",
-    "server",
-    "build",
-    "index.js",
-  );
-
   // Path to the client entry point
   const inspectorClientPath = resolve(
     __dirname,
     "../../",
     "client",
     "bin",
-    "client.js",
+    "start.js",
   );
-
-  const CLIENT_PORT: string = process.env.CLIENT_PORT ?? "6274";
-  const SERVER_PORT: string = process.env.SERVER_PORT ?? "6277";
-
-  console.log("Starting MCP inspector...");
 
   const abort = new AbortController();
   let cancelled: boolean = false;
@@ -79,42 +66,13 @@ async function runWebClient(args: Args): Promise<void> {
     abort.abort();
   });
 
-  let server: ReturnType<typeof spawnPromise>;
-  let serverOk: unknown;
-
   try {
-    server = spawnPromise(
-      "node",
-      [
-        inspectorServerPath,
-        ...(args.command ? [`--env`, args.command] : []),
-        ...(args.args ? [`--args=${args.args.join(" ")}`] : []),
-      ],
-      {
-        env: {
-          ...process.env,
-          PORT: SERVER_PORT,
-          MCP_ENV_VARS: JSON.stringify(args.envArgs),
-        },
-        signal: abort.signal,
-        echoOutput: true,
-      },
-    );
-
-    // Make sure server started before starting client
-    serverOk = await Promise.race([server, delay(2 * 1000)]);
-  } catch (error) {}
-
-  if (serverOk) {
-    try {
-      await spawnPromise("node", [inspectorClientPath], {
-        env: { ...process.env, PORT: CLIENT_PORT },
-        signal: abort.signal,
-        echoOutput: true,
-      });
-    } catch (e) {
-      if (!cancelled || process.env.DEBUG) throw e;
-    }
+    await spawnPromise("node", [inspectorClientPath], {
+      signal: abort.signal,
+      echoOutput: true,
+    });
+  } catch (e) {
+    if (!cancelled || process.env.DEBUG) throw e;
   }
 }
 

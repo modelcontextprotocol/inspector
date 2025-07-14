@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector",
-  "version": "0.15.0",
+  "version": "0.16.1",
   "description": "Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -29,6 +29,9 @@
     "clean": "rimraf ./node_modules ./client/node_modules ./cli/node_modules ./build ./client/dist ./server/build ./cli/build ./package-lock.json && npm install",
     "dev": "node client/bin/start.js --dev",
     "dev:windows": "node client/bin/start.js --dev",
+    "dev:sdk": "npm run link:sdk && concurrently \"npm run dev\" \"cd sdk && npm run build:esm:w\"",
+    "link:sdk": "(test -d sdk || ln -sf ${MCP_SDK:-$PWD/../typescript-sdk} sdk) && (cd sdk && npm link && (test -d node_modules || npm i)) && npm link @modelcontextprotocol/sdk",
+    "unlink:sdk": "(cd sdk && npm unlink -g) && rm sdk && npm unlink @modelcontextprotocol/sdk",
     "start": "node client/bin/start.js",
     "start-server": "cd server && npm run start",
     "start-client": "cd client && npm run preview",
@@ -44,9 +47,9 @@
     "check-version": "node scripts/check-version-consistency.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-cli": "^0.15.0",
-    "@modelcontextprotocol/inspector-client": "^0.15.0",
-    "@modelcontextprotocol/inspector-server": "^0.15.0",
+    "@modelcontextprotocol/inspector-cli": "^0.16.1",
+    "@modelcontextprotocol/inspector-client": "^0.16.1",
+    "@modelcontextprotocol/inspector-server": "^0.16.1",
     "@modelcontextprotocol/sdk": "^1.13.1",
     "concurrently": "^9.0.1",
     "open": "^10.1.0",

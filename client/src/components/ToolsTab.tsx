@@ -28,6 +28,8 @@ const ToolsTab = ({
   setSelectedTool,
   toolResult,
   nextCursor,
+  resourceContent,
+  onReadResource,
 }: {
   tools: Tool[];
   listTools: () => void;
@@ -38,6 +40,8 @@ const ToolsTab = ({
   toolResult: CompatibilityCallToolResult | null;
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
+  resourceContent: Record<string, string>;
+  onReadResource?: (uri: string) => void;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
@@ -267,6 +271,8 @@ const ToolsTab = ({
                 <ToolResults
                   toolResult={toolResult}
                   selectedTool={selectedTool}
+                  resourceContent={resourceContent}
+                  onReadResource={onReadResource}
                 />
               </div>
             ) : (

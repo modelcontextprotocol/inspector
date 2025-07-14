@@ -40,7 +40,7 @@ async function startDevServer(serverOptions) {
       ...process.env,
       SERVER_PORT,
       CLIENT_PORT,
-      MCP_PROXY_TOKEN: sessionToken,
+      MCP_PROXY_AUTH_TOKEN: sessionToken,
       MCP_ENV_VARS: JSON.stringify(envVars),
     },
     signal: abort.signal,
@@ -99,7 +99,7 @@ async function startProdServer(serverOptions) {
         ...process.env,
         SERVER_PORT,
         CLIENT_PORT,
-        MCP_PROXY_TOKEN: sessionToken,
+        MCP_PROXY_AUTH_TOKEN: sessionToken,
         MCP_ENV_VARS: JSON.stringify(envVars),
       },
       signal: abort.signal,
@@ -247,8 +247,9 @@ async function main() {
       : "Starting MCP inspector...",
   );
 
-  // Generate session token for authentication
-  const sessionToken = randomBytes(32).toString("hex");
+  // Use provided token from environment or generate a new one
+  const sessionToken =
+    process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
   const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
 
   const abort = new AbortController();
