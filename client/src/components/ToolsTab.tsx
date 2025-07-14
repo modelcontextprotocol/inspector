@@ -215,7 +215,7 @@ const ToolsTab = ({
                   )}
                 {paramsInputMode === "raw" && (
                   <DynamicJsonForm
-                    forceSimpleObject
+                    forceJsonMode
                     schema={{
                       type: "object",
                       properties: selectedTool.inputSchema.properties as Record<
