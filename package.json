@@ -51,6 +51,7 @@
     "@modelcontextprotocol/inspector-client": "^0.16.1",
     "@modelcontextprotocol/inspector-server": "^0.16.1",
     "@modelcontextprotocol/sdk": "^1.13.1",
+    "@radix-ui/react-toggle-group": "^1.1.10",
     "concurrently": "^9.0.1",
     "open": "^10.1.0",
     "shell-quote": "^1.8.2",
