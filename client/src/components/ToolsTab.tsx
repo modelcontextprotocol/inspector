@@ -7,7 +7,7 @@ import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import DynamicJsonForm from "./DynamicJsonForm";
 import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
-import { generateDefaultValue } from "@/utils/schemaUtils";
+import { generateDefaultValue, isPropertyRequired } from "@/utils/schemaUtils";
 import {
   CompatibilityCallToolResult,
   ListToolsResult,
@@ -28,6 +28,8 @@ const ToolsTab = ({
   setSelectedTool,
   toolResult,
   nextCursor,
+  resourceContent,
+  onReadResource,
 }: {
   tools: Tool[];
   listTools: () => void;
@@ -38,6 +40,8 @@ const ToolsTab = ({
   toolResult: CompatibilityCallToolResult | null;
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
+  resourceContent: Record<string, string>;
+  onReadResource?: (uri: string) => void;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
@@ -48,7 +52,11 @@ const ToolsTab = ({
       selectedTool?.inputSchema.properties ?? [],
     ).map(([key, value]) => [
       key,
-      generateDefaultValue(value as JsonSchemaType),
+      generateDefaultValue(
+        value as JsonSchemaType,
+        key,
+        selectedTool?.inputSchema as JsonSchemaType,
+      ),
     ]);
     setParams(Object.fromEntries(params));
   }, [selectedTool]);
@@ -92,6 +100,9 @@ const ToolsTab = ({
                 {Object.entries(selectedTool.inputSchema.properties ?? []).map(
                   ([key, value]) => {
                     const prop = value as JsonSchemaType;
+                    const inputSchema =
+                      selectedTool.inputSchema as JsonSchemaType;
+                    const required = isPropertyRequired(key, inputSchema);
                     return (
                       <div key={key}>
                         <Label
@@ -99,6 +110,9 @@ const ToolsTab = ({
                           className="block text-sm font-medium text-gray-700 dark:text-gray-300"
                         >
                           {key}
+                          {required && (
+                            <span className="text-red-500 ml-1">*</span>
+                          )}
                         </Label>
                         {prop.type === "boolean" ? (
                           <div className="flex items-center space-x-2 mt-2">
@@ -163,12 +177,13 @@ const ToolsTab = ({
                             name={key}
                             placeholder={prop.description}
                             value={(params[key] as string) ?? ""}
-                            onChange={(e) =>
+                            onChange={(e) => {
+                              const value = e.target.value;
                               setParams({
                                 ...params,
-                                [key]: Number(e.target.value),
-                              })
-                            }
+                                [key]: value === "" ? "" : Number(value),
+                              });
+                            }}
                             className="mt-1"
                           />
                         ) : (
@@ -256,6 +271,8 @@ const ToolsTab = ({
                 <ToolResults
                   toolResult={toolResult}
                   selectedTool={selectedTool}
+                  resourceContent={resourceContent}
+                  onReadResource={onReadResource}
                 />
               </div>
             ) : (

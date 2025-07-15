@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import open from "open";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import handler from "serve-handler";
@@ -42,9 +43,12 @@ const server = http.createServer((request, response) => {
 const port = parseInt(process.env.CLIENT_PORT || "6274", 10);
 const host = process.env.HOST || "localhost";
 server.on("listening", () => {
-  console.log(
-    `🔍 MCP Inspector is up and running at http://${host}:${port} 🚀`,
-  );
+  const url = process.env.INSPECTOR_URL || `http://${host}:${port}`;
+  console.log(`\n🚀 MCP Inspector is up and running at:\n   ${url}\n`);
+  if (process.env.MCP_AUTO_OPEN_ENABLED !== "false") {
+    console.log(`🌐 Opening browser...`);
+    open(url);
+  }
 });
 server.on("error", (err) => {
   if (err.message.includes(`EADDRINUSE`)) {

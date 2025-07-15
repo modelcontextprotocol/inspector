@@ -98,12 +98,12 @@ const PromptsTab = ({
             setPromptArgs({});
           }}
           renderItem={(prompt) => (
-            <>
+            <div className="flex flex-col items-start">
               <span className="flex-1">{prompt.name}</span>
-              <span className="text-sm text-gray-500">
+              <span className="text-sm text-gray-500 text-left">
                 {prompt.description}
               </span>
-            </>
+            </div>
           )}
           title="Prompts"
           buttonText={nextCursor ? "List More Prompts" : "List Prompts"}

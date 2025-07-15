@@ -1,4 +1,5 @@
 import JsonView from "./JsonView";
+import ResourceLinkView from "./ResourceLinkView";
 import {
   CallToolResultSchema,
   CompatibilityCallToolResult,
@@ -9,6 +10,8 @@ import { validateToolOutput, hasOutputSchema } from "@/utils/schemaUtils";
 interface ToolResultsProps {
   toolResult: CompatibilityCallToolResult | null;
   selectedTool: Tool | null;
+  resourceContent: Record<string, string>;
+  onReadResource?: (uri: string) => void;
 }
 
 const checkContentCompatibility = (
@@ -19,49 +22,54 @@ const checkContentCompatibility = (
     [key: string]: unknown;
   }>,
 ): { isCompatible: boolean; message: string } => {
-  if (
-    unstructuredContent.length !== 1 ||
-    unstructuredContent[0].type !== "text"
-  ) {
+  // Look for at least one text content block that matches the structured content
+  const textBlocks = unstructuredContent.filter(
+    (block) => block.type === "text",
+  );
+
+  if (textBlocks.length === 0) {
     return {
       isCompatible: false,
-      message: "Unstructured content is not a single text block",
+      message: "No text blocks to match structured content",
     };
   }
 
-  const textContent = unstructuredContent[0].text;
-  if (!textContent) {
-    return {
-      isCompatible: false,
-      message: "Text content is empty",
-    };
-  }
-
-  try {
-    const parsedContent = JSON.parse(textContent);
-    const isEqual =
-      JSON.stringify(parsedContent) === JSON.stringify(structuredContent);
-
-    if (isEqual) {
-      return {
-        isCompatible: true,
-        message: "Unstructured content matches structured content",
-      };
-    } else {
-      return {
-        isCompatible: false,
-        message: "Parsed JSON does not match structured content",
-      };
+  // Check if any text block contains JSON that matches the structured content
+  for (const textBlock of textBlocks) {
+    const textContent = textBlock.text;
+    if (!textContent) {
+      continue;
     }
-  } catch {
-    return {
-      isCompatible: false,
-      message: "Unstructured content is not valid JSON",
-    };
+
+    try {
+      const parsedContent = JSON.parse(textContent);
+      const isEqual =
+        JSON.stringify(parsedContent) === JSON.stringify(structuredContent);
+
+      if (isEqual) {
+        return {
+          isCompatible: true,
+          message: `Structured content matches text block${textBlocks.length > 1 ? " (multiple blocks)" : ""}${unstructuredContent.length > textBlocks.length ? " + other content" : ""}`,
+        };
+      }
+    } catch {
+      // Continue to next text block if this one doesn't parse as JSON
+      continue;
+    }
   }
+
+  return {
+    isCompatible: false,
+    message: "No text block matches structured content",
+  };
 };
 
-const ToolResults = ({ toolResult, selectedTool }: ToolResultsProps) => {
+const ToolResults = ({
+  toolResult,
+  selectedTool,
+  resourceContent,
+  onReadResource,
+}: ToolResultsProps) => {
   if (!toolResult) return null;
 
   if ("content" in toolResult) {
@@ -200,6 +208,16 @@ const ToolResults = ({ toolResult, selectedTool }: ToolResultsProps) => {
                   ) : (
                     <JsonView data={item.resource} />
                   ))}
+                {item.type === "resource_link" && (
+                  <ResourceLinkView
+                    uri={item.uri}
+                    name={item.name}
+                    description={item.description}
+                    mimeType={item.mimeType}
+                    resourceContent={resourceContent[item.uri] || ""}
+                    onReadResource={onReadResource}
+                  />
+                )}
               </div>
             ))}
           </div>
