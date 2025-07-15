@@ -233,7 +233,7 @@ async function main(): Promise<void> {
     const args = parseArgs();
 
     if (args.cli) {
-      runCli(args);
+      await runCli(args);
     } else {
       await runWebClient(args);
     }
