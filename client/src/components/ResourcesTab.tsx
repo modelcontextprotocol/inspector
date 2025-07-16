@@ -52,6 +52,7 @@ const ResourcesTab = ({
     ref: ResourceReference | PromptReference,
     argName: string,
     value: string,
+    context?: Record<string, string>,
   ) => Promise<string[]>;
   completionsSupported: boolean;
   resourceContent: string;
@@ -94,6 +95,7 @@ const ResourcesTab = ({
         },
         key,
         value,
+        templateValues,
       );
     }
   };

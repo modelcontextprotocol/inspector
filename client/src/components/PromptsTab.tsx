@@ -48,6 +48,7 @@ const PromptsTab = ({
     ref: PromptReference | ResourceReference,
     argName: string,
     value: string,
+    context?: Record<string, string>,
   ) => Promise<string[]>;
   completionsSupported: boolean;
   promptContent: string;
@@ -73,6 +74,7 @@ const PromptsTab = ({
         },
         argName,
         value,
+        promptArgs,
       );
     }
   };
