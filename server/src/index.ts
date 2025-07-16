@@ -92,7 +92,7 @@ const serverTransports: Map<string, Transport> = new Map<string, Transport>(); /
 
 // Use provided token from environment or generate a new one
 const sessionToken =
-  process.env.MCP_PROXY_TOKEN || randomBytes(32).toString("hex");
+  process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
 const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
 
 // Origin validation middleware to prevent DNS rebinding attacks

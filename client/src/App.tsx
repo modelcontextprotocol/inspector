@@ -80,6 +80,9 @@ const App = () => {
     ResourceTemplate[]
   >([]);
   const [resourceContent, setResourceContent] = useState<string>("");
+  const [resourceContentMap, setResourceContentMap] = useState<
+    Record<string, string>
+  >({});
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
   const [tools, setTools] = useState<Tool[]>([]);
@@ -461,7 +464,12 @@ const App = () => {
       ReadResourceResultSchema,
       "resources",
     );
-    setResourceContent(JSON.stringify(response, null, 2));
+    const content = JSON.stringify(response, null, 2);
+    setResourceContent(content);
+    setResourceContentMap((prev) => ({
+      ...prev,
+      [uri]: content,
+    }));
   };
 
   const subscribeToResource = async (uri: string) => {
@@ -863,6 +871,11 @@ const App = () => {
                       toolResult={toolResult}
                       nextCursor={nextToolCursor}
                       error={errors.tools}
+                      resourceContent={resourceContentMap}
+                      onReadResource={(uri: string) => {
+                        clearError("resources");
+                        readResource(uri);
+                      }}
                     />
                     <ConsoleTab />
                     <PingTab
