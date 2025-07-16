@@ -245,6 +245,7 @@ const Sidebar = ({
                 <SelectItem value="stdio">STDIO</SelectItem>
                 <SelectItem value="sse">SSE</SelectItem>
                 <SelectItem value="streamable-http">Streamable HTTP</SelectItem>
+                <SelectItem value="bill">Bill</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -496,7 +497,7 @@ const Sidebar = ({
                   ) : (
                     <Copy className="h-4 w-4 mr-2" />
                   )}
-                  Server Entry
+                  Copy Server Entry
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Copy Server Entry</TooltipContent>
@@ -546,7 +547,7 @@ const Sidebar = ({
                     <div key={key} className="space-y-2">
                       <div className="flex items-center gap-1">
                         <label
-                          className="text-sm font-medium text-green-600 break-all"
+                          className="text-sm font-medium text-red-600 break-all"
                           htmlFor={`${configKey}-input`}
                         >
                           {configItem.label}

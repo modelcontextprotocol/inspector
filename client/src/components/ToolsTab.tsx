@@ -13,7 +13,7 @@ import {
   ListToolsResult,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Loader2, Send, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, Send, ChevronDown, ChevronUp, ArrowBigRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
@@ -80,8 +80,8 @@ const ToolsTab = ({
               </span>
             </div>
           )}
-          title="Tools"
-          buttonText={nextCursor ? "List More Tools" : "List Tools"}
+          title="TOOL"
+          buttonText={nextCursor ? "List More Tools" : "List Tools2222222222"}
           isButtonDisabled={!nextCursor && tools.length > 0}
         />
 
@@ -246,6 +246,7 @@ const ToolsTab = ({
                   </div>
                 )}
                 <Button
+                  variant="destructive"
                   onClick={async () => {
                     try {
                       setIsToolRunning(true);
@@ -263,7 +264,7 @@ const ToolsTab = ({
                     </>
                   ) : (
                     <>
-                      <Send className="w-4 h-4 mr-2" />
+                      <ArrowBigRight className="w-4 h-4 mr-2" />
                       Run Tool
                     </>
                   )}

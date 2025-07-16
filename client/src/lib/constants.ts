@@ -33,7 +33,7 @@ export const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
  **/
 export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
   MCP_SERVER_REQUEST_TIMEOUT: {
-    label: "Request Timeout",
+    label: "R2equest Timeout",
     description: "Timeout for requests to the MCP server (ms)",
     value: 10000,
     is_session_item: false,

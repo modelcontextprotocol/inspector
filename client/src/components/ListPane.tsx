@@ -40,7 +40,7 @@ const ListPane = <T extends object>({
         onClick={clearItems}
         disabled={items.length === 0}
       >
-        Clear
+        Delete
       </Button>
       <div className="space-y-2 overflow-y-auto max-h-96">
         {items.map((item, index) => (

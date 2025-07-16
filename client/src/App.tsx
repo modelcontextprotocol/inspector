@@ -39,6 +39,7 @@ import { StdErrNotification } from "./lib/notificationTypes";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
+  Airplay,
   Bell,
   Files,
   FolderTree,
@@ -722,8 +723,8 @@ const App = () => {
                   value="tools"
                   disabled={!serverCapabilities?.tools}
                 >
-                  <Hammer className="w-4 h-4 mr-2" />
-                  Tools
+                  <Airplay className="w-4 h-4 mr-2" />
+                  TOOLS
                 </TabsTrigger>
                 <TabsTrigger value="ping">
                   <Bell className="w-4 h-4 mr-2" />
