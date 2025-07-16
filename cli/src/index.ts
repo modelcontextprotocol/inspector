@@ -287,6 +287,8 @@ async function main(): Promise<void> {
   try {
     const args = parseArgs();
     await callMethod(args);
+    // Explicitly exit to ensure process terminates in CI
+    process.exit(0);
   } catch (error) {
     handleError(error);
   }

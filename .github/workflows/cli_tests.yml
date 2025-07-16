@@ -1,0 +1,41 @@
+name: CLI Tests
+
+on:
+  push:
+    paths:
+      - "cli/**"
+  pull_request:
+    paths:
+      - "cli/**"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          cd ..
+          npm ci --ignore-scripts
+
+      - name: Build CLI
+        run: npm run build
+
+      - name: Explicitly pre-install test dependencies
+        run: npx -y @modelcontextprotocol/server-everything --help || true
+
+      - name: Run tests
+        run: npm test
+        env:
+          NPM_CONFIG_YES: true
+          CI: true
