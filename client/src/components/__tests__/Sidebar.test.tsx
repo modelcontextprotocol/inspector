@@ -648,6 +648,144 @@ describe("Sidebar Environment Variables", () => {
     });
   });
 
+  describe("Headers Operations", () => {
+    const openHeadersSection = () => {
+      const button = screen.getByTestId("headers-button");
+      fireEvent.click(button);
+    };
+
+    it("should add a new header", () => {
+      const setConfig = jest.fn();
+      renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });
+
+      openHeadersSection();
+
+      const addButton = screen.getByTestId("add-header-button");
+      fireEvent.click(addButton);
+
+      expect(setConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          MCP_CUSTOM_HEADERS: {
+            label: "Custom Headers",
+            description: "Custom headers for authentication with the MCP server (stored as JSON array)",
+            value: '[{"name":"","value":""}]',
+            is_session_item: true,
+          },
+        }),
+      );
+    });
+
+    it("should update header name", () => {
+      const setConfig = jest.fn();
+      const config = {
+        ...DEFAULT_INSPECTOR_CONFIG,
+        MCP_CUSTOM_HEADERS: {
+          ...DEFAULT_INSPECTOR_CONFIG.MCP_CUSTOM_HEADERS,
+          value: '[{"name":"","value":""}]',
+        },
+      };
+
+      renderSidebar({ config, setConfig });
+
+      openHeadersSection();
+
+      const headerNameInput = screen.getByTestId("header-name-0");
+
+      fireEvent.change(headerNameInput, { target: { value: "X-API-Key" } });
+
+      expect(setConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          MCP_CUSTOM_HEADERS: {
+            label: "Custom Headers",
+            description: "Custom headers for authentication with the MCP server (stored as JSON array)",
+            value: '[{"name":"X-API-Key","value":""}]',
+            is_session_item: true,
+          },
+        }),
+      );
+    });
+
+    it("should update header value", () => {
+      const setConfig = jest.fn();
+      const config = {
+        ...DEFAULT_INSPECTOR_CONFIG,
+        MCP_CUSTOM_HEADERS: {
+          ...DEFAULT_INSPECTOR_CONFIG.MCP_CUSTOM_HEADERS,
+          value: '[{"name":"","value":""}]',
+        },
+      };
+
+      renderSidebar({ config, setConfig });
+
+      openHeadersSection();
+
+      const headerValueInput = screen.getByTestId("header-value-0");
+
+      fireEvent.change(headerValueInput, { target: { value: "secret-key-123" } });
+
+      expect(setConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          MCP_CUSTOM_HEADERS: {
+            label: "Custom Headers",
+            description: "Custom headers for authentication with the MCP server (stored as JSON array)",
+            value: '[{"name":"","value":"secret-key-123"}]',
+            is_session_item: true,
+          },
+        }),
+      );
+    });
+
+    it("should remove a header", () => {
+      const setConfig = jest.fn();
+      const config = {
+        ...DEFAULT_INSPECTOR_CONFIG,
+        MCP_CUSTOM_HEADERS: {
+          ...DEFAULT_INSPECTOR_CONFIG.MCP_CUSTOM_HEADERS,
+          value: '[{"name":"X-API-Key","value":"secret-key-123"}]',
+        },
+      };
+
+      renderSidebar({ config, setConfig });
+
+      openHeadersSection();
+
+      const removeButton = screen.getByTestId("remove-header-0");
+      fireEvent.click(removeButton);
+
+      expect(setConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          MCP_CUSTOM_HEADERS: {
+            label: "Custom Headers",
+            description: "Custom headers for authentication with the MCP server (stored as JSON array)",
+            value: "[]",
+            is_session_item: true,
+          },
+        }),
+      );
+    });
+
+    it("should handle multiple headers", () => {
+      const setConfig = jest.fn();
+      const config = {
+        ...DEFAULT_INSPECTOR_CONFIG,
+        MCP_CUSTOM_HEADERS: {
+          ...DEFAULT_INSPECTOR_CONFIG.MCP_CUSTOM_HEADERS,
+          value: '[{"name":"X-API-Key","value":"key1"},{"name":"Authorization","value":"Bearer token"}]',
+        },
+      };
+
+      renderSidebar({ config, setConfig });
+
+      openHeadersSection();
+
+      // Verify both headers are displayed
+      expect(screen.getByTestId("header-name-0")).toHaveValue("X-API-Key");
+      expect(screen.getByTestId("header-value-0")).toHaveValue("key1");
+      expect(screen.getByTestId("header-name-1")).toHaveValue("Authorization");
+      expect(screen.getByTestId("header-value-1")).toHaveValue("Bearer token");
+    });
+  });
+
   describe("Copy Configuration Features", () => {
     beforeEach(() => {
       jest.clearAllMocks();

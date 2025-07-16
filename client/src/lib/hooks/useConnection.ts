@@ -320,7 +320,32 @@ export function useConnection({
       // Use manually provided bearer token if available, otherwise use OAuth tokens
       const token =
         bearerToken || (await serverAuthProvider.tokens())?.access_token;
+
+      // Check for custom headers from configuration
+      const customHeadersJson = config.MCP_CUSTOM_HEADERS?.value as string;
+      let customHeaders: Array<{ name: string; value: string }> = [];
+
+      try {
+        if (customHeadersJson) {
+          customHeaders = JSON.parse(customHeadersJson);
+        }
+      } catch (error) {
+        console.warn("Failed to parse custom headers:", error);
+      }
+
+      if (customHeaders.length > 0) {
+        // Use custom headers from configuration
+        // Send headers with x-mcp-custom- prefix so server can identify them
+        customHeaders.forEach(({ name, value }) => {
+          if (name && value) {
+            const headerKey = `x-mcp-custom-${name.toLowerCase()}`;
+            headers[headerKey] = value;
+          }
+        });
+      }
+
       if (token) {
+        // Fallback to bearer token with header name
         const authHeaderName = headerName || "Authorization";
 
         // Add custom header name as a special request header to let the server know which header to pass through
@@ -346,6 +371,7 @@ export function useConnection({
         | SSEClientTransportOptions;
 
       let mcpProxyServerUrl;
+
       switch (transportType) {
         case "stdio":
           mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/stdio`);
