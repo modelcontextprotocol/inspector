@@ -15,17 +15,36 @@ interface DynamicJsonFormProps {
   maxDepth?: number;
 }
 
-const isSimpleObject = (schema: JsonSchemaType): boolean => {
+const isSimpleObject = (schema: JsonSchemaType, depth: number = 0): boolean => {
   const supportedTypes = ["string", "number", "integer", "boolean", "null"];
+  
+  // Prevent infinite recursion and limit complexity
+  // Allow deeper nesting for arrays since they're the main use case we're trying to fix
+  if (depth > 4) return false;
+  
+  // Check for complex schema constructs that we can't handle in form mode
+  if ("oneOf" in schema || "anyOf" in schema || "allOf" in schema) {
+    return false;
+  }
+  
+  // Handle basic types (including strings with enums)
   if (supportedTypes.includes(schema.type)) return true;
+  
   if (schema.type === "object") {
-    return Object.values(schema.properties ?? {}).every((prop) =>
-      supportedTypes.includes(prop.type),
+    // An object is simple if it has properties and all properties are simple
+    if (!schema.properties || Object.keys(schema.properties).length === 0) {
+      return false;
+    }
+    
+    return Object.values(schema.properties).every((prop) =>
+      isSimpleObject(prop as JsonSchemaType, depth + 1),
     );
   }
+  
   if (schema.type === "array") {
-    return !!schema.items && isSimpleObject(schema.items);
+    return !!schema.items && isSimpleObject(schema.items as JsonSchemaType, depth + 1);
   }
+  
   return false;
 };
 
@@ -59,7 +78,14 @@ const DynamicJsonForm = ({
   onChange,
   maxDepth = 3,
 }: DynamicJsonFormProps) => {
-  const isOnlyJSON = !isSimpleObject(schema);
+  // For object schemas, check if we can render at least some fields as forms
+  // rather than requiring the entire schema to be simple
+  const canRenderAsForm = schema.type === "object" 
+    ? schema.properties && Object.keys(schema.properties).length > 0 && 
+      Object.values(schema.properties).some(prop => isSimpleObject(prop as JsonSchemaType))
+    : isSimpleObject(schema);
+  
+  const isOnlyJSON = !canRenderAsForm;
   const [isJsonMode, setIsJsonMode] = useState(isOnlyJSON);
   const [jsonError, setJsonError] = useState<string>();
   const [copiedJson, setCopiedJson] = useState<boolean>(false);
@@ -150,31 +176,35 @@ const DynamicJsonForm = ({
     parentSchema?: JsonSchemaType,
     propertyName?: string,
   ) => {
-    if (
-      depth >= maxDepth &&
-      (propSchema.type === "object" || propSchema.type === "array")
-    ) {
-      // Render as JSON editor when max depth is reached
-      return (
-        <JsonEditor
-          value={JSON.stringify(
-            currentValue ??
-              generateDefaultValue(propSchema, propertyName, parentSchema),
-            null,
-            2,
-          )}
-          onChange={(newValue) => {
-            try {
-              const parsed = JSON.parse(newValue);
-              handleFieldChange(path, parsed);
-              setJsonError(undefined);
-            } catch (err) {
-              setJsonError(err instanceof Error ? err.message : "Invalid JSON");
-            }
-          }}
-          error={jsonError}
-        />
-      );
+    // For objects and arrays, check if they can be rendered as simple forms
+    // before falling back to JSON editor due to depth
+    if (depth >= maxDepth && (propSchema.type === "object" || propSchema.type === "array")) {
+      // If it's still a simple object/array, allow it to render as form
+      if (isSimpleObject(propSchema)) {
+        // Continue with form rendering even at max depth for simple structures
+      } else {
+        // Render as JSON editor when max depth is reached for complex structures
+        return (
+          <JsonEditor
+            value={JSON.stringify(
+              currentValue ??
+                generateDefaultValue(propSchema, propertyName, parentSchema),
+              null,
+              2,
+            )}
+            onChange={(newValue) => {
+              try {
+                const parsed = JSON.parse(newValue);
+                handleFieldChange(path, parsed);
+                setJsonError(undefined);
+              } catch (err) {
+                setJsonError(err instanceof Error ? err.message : "Invalid JSON");
+              }
+            }}
+            error={jsonError}
+          />
+        );
+      }
     }
 
     // Check if this property is required in the parent schema
@@ -183,6 +213,28 @@ const DynamicJsonForm = ({
 
     switch (propSchema.type) {
       case "string":
+        // Handle enum fields as dropdowns
+        if ("enum" in propSchema && Array.isArray(propSchema.enum)) {
+          return (
+            <select
+              value={(currentValue as string) ?? ""}
+              onChange={(e) => {
+                handleFieldChange(path, e.target.value);
+              }}
+              required={isRequired}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {!isRequired && <option value="">Select an option...</option>}
+              {propSchema.enum.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          );
+        }
+        
+        // Regular text input for non-enum strings
         return (
           <Input
             type="text"
