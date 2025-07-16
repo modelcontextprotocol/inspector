@@ -234,6 +234,36 @@ const App = () => {
     saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
   }, [config]);
 
+  // Load OAuth configuration from server
+  useEffect(() => {
+    const loadOAuthConfig = async () => {
+      try {
+        const proxyUrl = getMCPProxyAddress(config);
+        const authConfig = getMCPProxyAuthToken(config);
+        const headers: Record<string, string> = {};
+        
+        if (authConfig.token) {
+          headers[authConfig.header] = `Bearer ${authConfig.token}`;
+        }
+        
+        const response = await fetch(`${proxyUrl}/config`, { headers });
+        if (response.ok) {
+          const serverConfig = await response.json();
+          if (serverConfig.oauthCallback) {
+            sessionStorage.setItem('OAUTH_MCP_INSPECTOR_CALLBACK', serverConfig.oauthCallback);
+          }
+          if (serverConfig.oauthDebugCallback) {
+            sessionStorage.setItem('OAUTH_MCP_INSPECTOR_DEBUG_CALLBACK', serverConfig.oauthDebugCallback);
+          }
+        }
+      } catch (error) {
+        // Silently fail - OAuth config is optional
+        console.debug('Failed to load OAuth configuration:', error);
+      }
+    };
+    loadOAuthConfig();
+  }, [config]);
+
   // Auto-connect to previously saved serverURL after OAuth callback
   const onOAuthConnect = useCallback(
     (serverUrl: string) => {

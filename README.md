@@ -204,6 +204,37 @@ The MCP Inspector supports the following configuration settings. To change them,
 
 These settings can be adjusted in real-time through the UI and will persist across sessions.
 
+#### OAuth Callback Configuration
+
+The MCP Inspector supports configurable OAuth callback URLs through environment variables. This allows you to run the inspector with custom OAuth callback endpoints that OAuth providers can redirect to:
+
+| Environment Variable                 | Description                                         | Default                                         |
+| ------------------------------------ | --------------------------------------------------- | ----------------------------------------------- |
+| `OAUTH_MCP_INSPECTOR_CALLBACK`       | OAuth callback URL for standard authentication flow | `{window.location.origin}/oauth/callback`       |
+| `OAUTH_MCP_INSPECTOR_DEBUG_CALLBACK` | OAuth callback URL for debug authentication flow    | `{window.location.origin}/oauth/callback/debug` |
+
+**How it works:**
+1. MCP Inspector automatically starts HTTP servers on the ports specified in your OAuth callback URLs
+2. When an OAuth provider redirects to your callback URL, these servers capture the authorization code
+3. The servers then redirect the browser to the MCP Inspector UI to complete the OAuth flow
+
+**Example usage:**
+
+```bash
+export OAUTH_MCP_INSPECTOR_CALLBACK="http://localhost:3060"
+export OAUTH_MCP_INSPECTOR_DEBUG_CALLBACK="http://localhost:3061"
+npx @modelcontextprotocol/inspector
+```
+
+**What happens:**
+- MCP Inspector starts on `http://localhost:6274` (default)
+- OAuth callback server starts on `http://localhost:3060` 
+- OAuth debug callback server starts on `http://localhost:3061`
+- OAuth providers redirect to your configured URLs (3060/3061)
+- These servers capture the authorization code and redirect to MCP Inspector (6274)
+
+**Note:** The OAuth callback URLs are configured at runtime, so no rebuild is required when changing them.
+
 The inspector also supports configuration files to store settings for different MCP servers. This is useful when working with multiple servers or complex configurations:
 
 ```bash
