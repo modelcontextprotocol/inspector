@@ -104,29 +104,33 @@ const Sidebar = ({
   const { toast } = useToast();
 
   // Reset connecting state when connection status changes
-  React.useEffect(() => {
-    if (connectionStatus !== "disconnected") {
-      setIsConnecting(false);
-    }
-  }, [connectionStatus]);
+  // React.useEffect(() => {
+  //   if (connectionStatus !== "disconnected") {
+  //     setIsConnecting(false);
+  //   }
+  // }, [connectionStatus]);
 
   // Wrapper for onConnect that manages loading state
   const handleConnect = useCallback(async () => {
-    setIsConnecting(true);
+    // setIsConnecting(true);
     try {
+      setIsConnecting(true);
       await onConnect();
     } finally {
+      setIsConnecting(false);
       // The useEffect above will reset isConnecting when connectionStatus changes
     }
   }, [onConnect]);
 
   // Wrapper for restart that manages loading state
   const handleRestart = useCallback(async () => {
-    setIsConnecting(true);
+    //setIsConnecting(true);
     try {
+      setIsConnecting(true);
       onDisconnect();
       await onConnect();
     } finally {
+      setIsConnecting(false);
       // The useEffect above will reset isConnecting when connectionStatus changes
     }
   }, [onConnect, onDisconnect]);
