@@ -667,9 +667,9 @@ const Sidebar = ({
               </div>
             )}
             {connectionStatus !== "connected" && (
-              <Button 
-                className="w-full" 
-                onClick={handleConnect} 
+              <Button
+                className="w-full"
+                onClick={handleConnect}
                 loading={isConnecting}
               >
                 <Play className="w-4 h-4 mr-2" />
