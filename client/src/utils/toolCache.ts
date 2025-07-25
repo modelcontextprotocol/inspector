@@ -51,15 +51,7 @@ export function loadToolParamsFromCache(
 
     const cacheData = JSON.parse(cached);
 
-    // Validate cache data structure
-    if (!cacheData.params || !cacheData.timestamp) {
-      return null;
-    }
-
-    // Optional: Check if cache is too old (e.g., 30 days)
-    const maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
-    if (Date.now() - cacheData.timestamp > maxAge) {
-      localStorage.removeItem(cacheKey);
+    if (!cacheData.params) {
       return null;
     }
 
