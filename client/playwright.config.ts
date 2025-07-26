@@ -1,5 +1,24 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const getWebServerCommand = () => {
+  /**
+   * The content of the fixture configuration file matches the inline arguments such
+   * that the same set of tests (tagged `@cli`) can run in both scenarios.
+   */
+  switch (process.env.CLI_TEST_SCENARIO) {
+    case "inline":
+      return "npx . -e FOO=bar -e BAZ=bat uv run main.py";
+    case "file":
+      return "npx . --config client/e2e/fixtures/test-cli-config.json --server test-server";
+    /* FIXME: With and without a mock localStorage
+     * case "none":
+     *   return "npx . ";
+     */
+    default:
+      return "npm run dev";
+  }
+};
+
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
@@ -7,9 +26,13 @@ export default defineConfig({
   /* Run your local dev server before starting the tests */
   webServer: {
     cwd: "..",
-    command: "npm run dev",
+    command: getWebServerCommand(),
     url: "http://localhost:6274",
     reuseExistingServer: !process.env.CI,
+    env: {
+      MCP_AUTO_OPEN_ENABLED: "false",
+      DANGEROUSLY_OMIT_AUTH: "true",
+    },
   },
 
   testDir: "./e2e",

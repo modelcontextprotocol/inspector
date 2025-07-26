@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "test-server": {
+      "command": "uv",
+      "args": ["run", "main.py"],
+      "env": {
+        "FOO": "bar",
+        "BAZ": "bat"
+      }
+    }
+  }
+}
