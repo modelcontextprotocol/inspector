@@ -25,6 +25,31 @@ export interface StateTransition {
   execute: (context: StateMachineContext) => Promise<void>;
 }
 
+/**
+ * Discover OAuth metadata for all industry standard endpoints
+ */
+async function discoverOAuthMetadataWithFallback(authServerUrl: URL): ReturnType<typeof discoverOAuthMetadata> {
+  let metadata = await discoverOAuthMetadata(authServerUrl);
+  if (metadata) return metadata;
+
+  // Fallback to OpenID Connect Discovery endpoint
+  // Include both standard OIDC appending to issuer and path, as well as RFC 8414 compatible of inserting between base and existing path
+  const openidConfigUrls = [
+    new URL(`${authServerUrl.origin}${authServerUrl.pathname}/.well-known/openid-configuration`), // OIDC standard
+    new URL(`${authServerUrl.origin}/.well-known/openid-configuration${authServerUrl.pathname}`), // RFC 8414 compatible
+  ];
+
+  for (const url of openidConfigUrls) {
+    try {
+      const response = await fetch(url);
+      metadata = await response.json();
+      if (metadata) return metadata;
+    } catch (e) {
+      console.error(e)
+    }
+  }
+}
+
 // State machine transitions
 export const oauthTransitions: Record<OAuthStep, StateTransition> = {
   metadata_discovery: {
@@ -56,7 +81,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         resourceMetadata ?? undefined,
       );
 
-      const metadata = await discoverOAuthMetadata(authServerUrl);
+      const metadata = await discoverOAuthMetadataWithFallback(authServerUrl);
       if (!metadata) {
         throw new Error("Failed to discover OAuth metadata");
       }
