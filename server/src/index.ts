@@ -522,7 +522,7 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
     res.json({
       defaultEnvironment,
       defaultCommand: values.command,
-      defaultArgs: values.args,
+      defaultArgs: values.args.substring(1, values.args.length - 1), // Remove quotes from args
     });
   } catch (error) {
     console.error("Error in /config route:", error);
