@@ -465,10 +465,24 @@ const App = () => {
   }, [roots]);
 
   useEffect(() => {
-    if (!window.location.hash) {
-      window.location.hash = "resources";
+    if (mcpClient && !window.location.hash) {
+      const defaultTab = serverCapabilities?.resources
+        ? "resources"
+        : serverCapabilities?.prompts
+          ? "prompts"
+          : serverCapabilities?.tools
+            ? "tools"
+            : "ping";
+      window.location.hash = defaultTab;
+    } else if (!mcpClient && window.location.hash) {
+      // Clear hash when disconnected - completely remove the fragment
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
     }
-  }, []);
+  }, [mcpClient, serverCapabilities]);
 
   useEffect(() => {
     const handleHashChange = () => {
