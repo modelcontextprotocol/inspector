@@ -39,6 +39,7 @@ const { values } = parseArgs({
   options: {
     env: { type: "string", default: "" },
     args: { type: "string", default: "" },
+    command: { type: "string", default: "" },
   },
 });
 
@@ -520,7 +521,7 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
   try {
     res.json({
       defaultEnvironment,
-      defaultCommand: values.env,
+      defaultCommand: values.command,
       defaultArgs: values.args,
     });
   } catch (error) {

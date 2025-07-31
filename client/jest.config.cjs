@@ -32,4 +32,5 @@ module.exports = {
     "/e2e/",
     "\\.config\\.(js|ts|cjs|mjs)$",
   ],
+  randomize: true,
 };

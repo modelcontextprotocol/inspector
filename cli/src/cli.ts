@@ -66,8 +66,21 @@ async function runWebClient(args: Args): Promise<void> {
     abort.abort();
   });
 
+  // Build arguments to pass to start.js
+  const startArgs: string[] = [];
+
+  // Pass environment variables
+  for (const [key, value] of Object.entries(args.envArgs)) {
+    startArgs.push("-e", `${key}=${value}`);
+  }
+
+  // Pass command and args (using -- to separate them)
+  if (args.command) {
+    startArgs.push("--", args.command, ...args.args);
+  }
+
   try {
-    await spawnPromise("node", [inspectorClientPath], {
+    await spawnPromise("node", [inspectorClientPath, ...startArgs], {
       signal: abort.signal,
       echoOutput: true,
     });

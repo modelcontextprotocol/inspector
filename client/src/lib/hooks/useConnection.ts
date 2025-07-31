@@ -28,15 +28,20 @@ import {
   ToolListChangedNotificationSchema,
   PromptListChangedNotificationSchema,
   Progress,
+  ElicitRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
 import { ConnectionStatus } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
-import { InspectorOAuthClientProvider } from "../auth";
+import {
+  clearClientInformationFromSessionStorage,
+  InspectorOAuthClientProvider,
+  saveClientInformationToSessionStorage,
+} from "../auth";
 import packageJson from "../../../package.json";
 import {
   getMCPProxyAddress,
@@ -56,11 +61,15 @@ interface UseConnectionOptions {
   env: Record<string, string>;
   bearerToken?: string;
   headerName?: string;
+  oauthClientId?: string;
+  oauthScope?: string;
   config: InspectorConfig;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onPendingRequest?: (request: any, resolve: any, reject: any) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onElicitationRequest?: (request: any, resolve: any) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getRoots?: () => any[];
 }
@@ -73,10 +82,13 @@ export function useConnection({
   env,
   bearerToken,
   headerName,
+  oauthClientId,
+  oauthScope,
   config,
   onNotification,
   onStdErrNotification,
   onPendingRequest,
+  onElicitationRequest,
   getRoots,
 }: UseConnectionOptions) {
   const [connectionStatus, setConnectionStatus] =
@@ -92,6 +104,22 @@ export function useConnection({
     { request: string; response?: string }[]
   >([]);
   const [completionsSupported, setCompletionsSupported] = useState(false);
+
+  useEffect(() => {
+    if (!oauthClientId) {
+      clearClientInformationFromSessionStorage({
+        serverUrl: sseUrl,
+        isPreregistered: true,
+      });
+      return;
+    }
+
+    saveClientInformationToSessionStorage({
+      serverUrl: sseUrl,
+      clientInformation: { client_id: oauthClientId },
+      isPreregistered: true,
+    });
+  }, [oauthClientId, sseUrl]);
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
@@ -170,6 +198,7 @@ export function useConnection({
     ref: ResourceReference | PromptReference,
     argName: string,
     value: string,
+    context?: Record<string, string>,
     signal?: AbortSignal,
   ): Promise<string[]> => {
     if (!mcpClient || !completionsSupported) {
@@ -186,6 +215,12 @@ export function useConnection({
         ref,
       },
     };
+
+    if (context) {
+      request["params"]["context"] = {
+        arguments: context,
+      };
+    }
 
     try {
       const response = await makeRequest(request, CompleteResultSchema, {
@@ -279,7 +314,10 @@ export function useConnection({
     if (is401Error(error)) {
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
-      const result = await auth(serverAuthProvider, { serverUrl: sseUrl });
+      const result = await auth(serverAuthProvider, {
+        serverUrl: sseUrl,
+        scope: oauthScope,
+      });
       return result === "AUTHORIZED";
     }
 
@@ -295,6 +333,7 @@ export function useConnection({
       {
         capabilities: {
           sampling: {},
+          elicitation: {},
           roots: {
             listChanged: true,
           },
@@ -518,6 +557,14 @@ export function useConnection({
       if (getRoots) {
         client.setRequestHandler(ListRootsRequestSchema, async () => {
           return { roots: getRoots() };
+        });
+      }
+
+      if (onElicitationRequest) {
+        client.setRequestHandler(ElicitRequestSchema, async (request) => {
+          return new Promise((resolve) => {
+            onElicitationRequest(request, resolve);
+          });
         });
       }
 
