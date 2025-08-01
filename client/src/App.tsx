@@ -264,6 +264,7 @@ const App = () => {
       window.location.hash = "elicitations";
     },
     getRoots: () => rootsRef.current,
+    defaultLoggingLevel: logLevel,
   });
 
   useEffect(() => {
