@@ -166,22 +166,28 @@ If you need to disable authentication (NOT RECOMMENDED), you can set the `DANGER
 DANGEROUSLY_OMIT_AUTH=true npm start
 ```
 
+You can also set the token via the `MCP_PROXY_AUTH_TOKEN` environment variable when starting the server:
+
+```bash
+MCP_PROXY_AUTH_TOKEN=$(openssl rand -hex 32) npm start
+```
+
 #### Local-only Binding
 
-By default, the MCP Inspector proxy server binds only to `127.0.0.1` (localhost) to prevent network access. This ensures the server is not accessible from other devices on the network. If you need to bind to all interfaces for development purposes, you can override this with the `HOST` environment variable:
+By default, both the MCP Inspector proxy server and client bind only to `localhost` to prevent network access. This ensures they are not accessible from other devices on the network. If you need to bind to all interfaces for development purposes, you can override this with the `HOST` environment variable:
 
 ```bash
 HOST=0.0.0.0 npm start
 ```
 
-**Warning:** Only bind to all interfaces in trusted network environments, as this exposes the proxy server's ability to execute local processes.
+**Warning:** Only bind to all interfaces in trusted network environments, as this exposes the proxy server's ability to execute local processes and both services to network access.
 
 #### DNS Rebinding Protection
 
 To prevent DNS rebinding attacks, the MCP Inspector validates the `Origin` header on incoming requests. By default, only requests from the client origin are allowed (respects `CLIENT_PORT` if set, defaulting to port 6274). You can configure additional allowed origins by setting the `ALLOWED_ORIGINS` environment variable (comma-separated list):
 
 ```bash
-ALLOWED_ORIGINS=http://localhost:6274,http://127.0.0.1:6274,http://localhost:8000 npm start
+ALLOWED_ORIGINS=http://localhost:6274,http://localhost:8000 npm start
 ```
 
 ### Configuration
@@ -254,6 +260,12 @@ Development mode:
 
 ```bash
 npm run dev
+
+# To co-develop with the typescript-sdk package (assuming it's cloned in ../typescript-sdk; set MCP_SDK otherwise):
+npm run dev:sdk "cd sdk && npm run examples:simple-server:w"
+# then open http://localhost:3000/mcp as SHTTP in the inspector.
+# To go back to the deployed SDK version:
+#   npm run unlink:sdk && npm i
 ```
 
 > **Note for Windows users:**
@@ -299,8 +311,11 @@ npx @modelcontextprotocol/inspector --cli node build/index.js --method resources
 # List available prompts
 npx @modelcontextprotocol/inspector --cli node build/index.js --method prompts/list
 
-# Connect to a remote MCP server
+# Connect to a remote MCP server (default is SSE transport)
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com
+
+# Connect to a remote MCP server (with Streamable HTTP transport)
+npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --transport http --method tools/list
 
 # Call a tool on a remote server
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --method tools/call --tool-name remotetool --tool-arg param=value

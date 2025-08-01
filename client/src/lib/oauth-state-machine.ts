@@ -6,6 +6,7 @@ import {
   startAuthorization,
   exchangeAuthorization,
   discoverOAuthProtectedResourceMetadata,
+  selectResourceURL,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   OAuthMetadataSchema,
@@ -29,17 +30,15 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
   metadata_discovery: {
     canTransition: async () => true,
     execute: async (context) => {
-      let authServerUrl = new URL(context.serverUrl);
+      // Default to discovering from the server's URL
+      let authServerUrl = new URL("/", context.serverUrl);
       let resourceMetadata: OAuthProtectedResourceMetadata | null = null;
       let resourceMetadataError: Error | null = null;
       try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(
           context.serverUrl,
         );
-        if (
-          resourceMetadata &&
-          resourceMetadata.authorization_servers?.length
-        ) {
+        if (resourceMetadata?.authorization_servers?.length) {
           authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
         }
       } catch (e) {
@@ -50,6 +49,13 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         }
       }
 
+      const resource: URL | undefined = await selectResourceURL(
+        context.serverUrl,
+        context.provider,
+        // we default to null, so swap it for undefined if not set
+        resourceMetadata ?? undefined,
+      );
+
       const metadata = await discoverOAuthMetadata(authServerUrl);
       if (!metadata) {
         throw new Error("Failed to discover OAuth metadata");
@@ -58,6 +64,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       context.provider.saveServerMetadata(parsedMetadata);
       context.updateState({
         resourceMetadata,
+        resource,
         resourceMetadataError,
         authServerUrl,
         oauthMetadata: parsedMetadata,
@@ -106,6 +113,13 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         scope = metadata.scopes_supported.join(" ");
       }
 
+      // Generate a random state
+      const array = new Uint8Array(32);
+      crypto.getRandomValues(array);
+      const state = Array.from(array, (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
+
       const { authorizationUrl, codeVerifier } = await startAuthorization(
         context.serverUrl,
         {
@@ -113,6 +127,8 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
           clientInformation,
           redirectUrl: context.provider.redirectUrl,
           scope,
+          state: state,
+          resource: context.state.resource ?? undefined,
         },
       );
 
@@ -163,6 +179,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         authorizationCode: context.state.authorizationCode,
         codeVerifier,
         redirectUri: context.provider.redirectUrl,
+        resource: context.state.resource ?? undefined,
       });
 
       context.provider.saveTokens(tokens);

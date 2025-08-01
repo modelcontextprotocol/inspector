@@ -110,15 +110,27 @@ const HistoryAndNotifications = ({
                 >
                   <div
                     className="flex justify-between items-center cursor-pointer"
-                    onClick={() => toggleNotificationExpansion(index)}
+                    onClick={() =>
+                      toggleNotificationExpansion(
+                        serverNotifications.length - 1 - index,
+                      )
+                    }
                   >
                     <span className="font-mono">
                       {serverNotifications.length - index}.{" "}
                       {notification.method}
                     </span>
-                    <span>{expandedNotifications[index] ? "▼" : "▶"}</span>
+                    <span>
+                      {expandedNotifications[
+                        serverNotifications.length - 1 - index
+                      ]
+                        ? "▼"
+                        : "▶"}
+                    </span>
                   </div>
-                  {expandedNotifications[index] && (
+                  {expandedNotifications[
+                    serverNotifications.length - 1 - index
+                  ] && (
                     <div className="mt-2">
                       <div className="flex justify-between items-center mb-1">
                         <span className="font-semibold text-purple-600">

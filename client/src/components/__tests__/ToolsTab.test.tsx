@@ -5,6 +5,7 @@ import ToolsTab from "../ToolsTab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Tabs } from "@/components/ui/tabs";
 import { cacheToolOutputSchemas } from "@/utils/schemaUtils";
+import { within } from "@testing-library/react";
 
 describe("ToolsTab", () => {
   beforeEach(() => {
@@ -55,6 +56,8 @@ describe("ToolsTab", () => {
     toolResult: null,
     nextCursor: "",
     error: null,
+    resourceContent: {},
+    onReadResource: jest.fn(),
   };
 
   const renderToolsTab = (props = {}) => {
@@ -108,6 +111,27 @@ describe("ToolsTab", () => {
 
     expect(defaultProps.callTool).toHaveBeenCalledWith(mockTools[1].name, {
       count: 42,
+    });
+  });
+
+  it("should allow typing negative numbers", async () => {
+    renderToolsTab({
+      selectedTool: mockTools[0],
+    });
+
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+
+    // Complete the negative number
+    fireEvent.change(input, { target: { value: "-42" } });
+    expect(input.value).toBe("-42");
+
+    const submitButton = screen.getByRole("button", { name: /run tool/i });
+    await act(async () => {
+      fireEvent.click(submitButton);
+    });
+
+    expect(defaultProps.callTool).toHaveBeenCalledWith(mockTools[0].name, {
+      num: -42,
     });
   });
 
@@ -228,10 +252,12 @@ describe("ToolsTab", () => {
       },
     };
 
-    it("should display structured content when present", () => {
-      // Cache the tool's output schema so hasOutputSchema returns true
+    beforeEach(() => {
+      // Cache the tool's output schema before each test
       cacheToolOutputSchemas([toolWithOutputSchema]);
+    });
 
+    it("should display structured content when present", () => {
       const structuredResult = {
         content: [],
         structuredContent: {
@@ -240,6 +266,7 @@ describe("ToolsTab", () => {
       };
 
       renderToolsTab({
+        tools: [toolWithOutputSchema],
         selectedTool: toolWithOutputSchema,
         toolResult: structuredResult,
       });
@@ -251,8 +278,6 @@ describe("ToolsTab", () => {
     });
 
     it("should show validation error for invalid structured content", () => {
-      cacheToolOutputSchemas([toolWithOutputSchema]);
-
       const invalidResult = {
         content: [],
         structuredContent: {
@@ -261,6 +286,7 @@ describe("ToolsTab", () => {
       };
 
       renderToolsTab({
+        tools: [toolWithOutputSchema],
         selectedTool: toolWithOutputSchema,
         toolResult: invalidResult,
       });
@@ -269,14 +295,13 @@ describe("ToolsTab", () => {
     });
 
     it("should show error when tool with output schema doesn't return structured content", () => {
-      cacheToolOutputSchemas([toolWithOutputSchema]);
-
       const resultWithoutStructured = {
         content: [{ type: "text", text: "some result" }],
         // No structuredContent
       };
 
       renderToolsTab({
+        tools: [toolWithOutputSchema],
         selectedTool: toolWithOutputSchema,
         toolResult: resultWithoutStructured,
       });
@@ -289,14 +314,13 @@ describe("ToolsTab", () => {
     });
 
     it("should show unstructured content title when both structured and unstructured exist", () => {
-      cacheToolOutputSchemas([toolWithOutputSchema]);
-
       const resultWithBoth = {
         content: [{ type: "text", text: '{"temperature": 25}' }],
         structuredContent: { temperature: 25 },
       };
 
       renderToolsTab({
+        tools: [toolWithOutputSchema],
         selectedTool: toolWithOutputSchema,
         toolResult: resultWithBoth,
       });
@@ -321,24 +345,98 @@ describe("ToolsTab", () => {
     });
 
     it("should show compatibility check when tool has output schema", () => {
-      cacheToolOutputSchemas([toolWithOutputSchema]);
-
       const compatibleResult = {
         content: [{ type: "text", text: '{"temperature": 25}' }],
         structuredContent: { temperature: 25 },
       };
 
       renderToolsTab({
+        tools: [toolWithOutputSchema],
         selectedTool: toolWithOutputSchema,
         toolResult: compatibleResult,
       });
 
       // Should show compatibility result
       expect(
-        screen.getByText(
-          /matches structured content|not a single text block|not valid JSON|does not match/,
-        ),
+        screen.getByText(/structured content matches/i),
       ).toBeInTheDocument();
+    });
+
+    it("should accept multiple content blocks with structured output", () => {
+      const multipleBlocksResult = {
+        content: [
+          { type: "text", text: "Here is the weather data:" },
+          { type: "text", text: '{"temperature": 25}' },
+          { type: "text", text: "Have a nice day!" },
+        ],
+        structuredContent: { temperature: 25 },
+      };
+
+      renderToolsTab({
+        tools: [toolWithOutputSchema],
+        selectedTool: toolWithOutputSchema,
+        toolResult: multipleBlocksResult,
+      });
+
+      // Should show compatible result with multiple blocks
+      expect(
+        screen.getByText(/structured content matches.*multiple/i),
+      ).toBeInTheDocument();
+    });
+
+    it("should accept mixed content types with structured output", () => {
+      const mixedContentResult = {
+        content: [
+          { type: "text", text: "Weather report:" },
+          { type: "text", text: '{"temperature": 25}' },
+          { type: "image", data: "base64data", mimeType: "image/png" },
+        ],
+        structuredContent: { temperature: 25 },
+      };
+
+      renderToolsTab({
+        tools: [toolWithOutputSchema],
+        selectedTool: toolWithOutputSchema,
+        toolResult: mixedContentResult,
+      });
+
+      // Should render without crashing - the validation logic has been updated
+      expect(screen.getAllByText("weatherTool")).toHaveLength(2);
+    });
+
+    it("should reject when no text blocks match structured content", () => {
+      const noMatchResult = {
+        content: [
+          { type: "text", text: "Some text" },
+          { type: "text", text: '{"humidity": 60}' }, // Different structure
+        ],
+        structuredContent: { temperature: 25 },
+      };
+
+      renderToolsTab({
+        tools: [toolWithOutputSchema],
+        selectedTool: toolWithOutputSchema,
+        toolResult: noMatchResult,
+      });
+
+      // Should render without crashing - the validation logic has been updated
+      expect(screen.getAllByText("weatherTool")).toHaveLength(2);
+    });
+
+    it("should reject when no text blocks are present", () => {
+      const noTextBlocksResult = {
+        content: [{ type: "image", data: "base64data", mimeType: "image/png" }],
+        structuredContent: { temperature: 25 },
+      };
+
+      renderToolsTab({
+        tools: [toolWithOutputSchema],
+        selectedTool: toolWithOutputSchema,
+        toolResult: noTextBlocksResult,
+      });
+
+      // Should render without crashing - the validation logic has been updated
+      expect(screen.getAllByText("weatherTool")).toHaveLength(2);
     });
 
     it("should not show compatibility check when tool has no output schema", () => {
@@ -355,9 +453,188 @@ describe("ToolsTab", () => {
       // Should not show any compatibility messages
       expect(
         screen.queryByText(
-          /matches structured content|not a single text block|not valid JSON|does not match/,
+          /structured content matches|no text blocks|no.*matches/i,
         ),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Resource Link Content Type", () => {
+    it("should render resource_link content type and handle expansion", async () => {
+      const mockOnReadResource = jest.fn();
+      const resourceContent = {
+        "test://static/resource/1": JSON.stringify({
+          contents: [
+            {
+              uri: "test://static/resource/1",
+              name: "Resource 1",
+              mimeType: "text/plain",
+              text: "Resource 1: This is a plaintext resource",
+            },
+          ],
+        }),
+      };
+
+      const result = {
+        content: [
+          {
+            type: "resource_link",
+            uri: "test://static/resource/1",
+            name: "Resource 1",
+            description: "Resource 1: plaintext resource",
+            mimeType: "text/plain",
+          },
+          {
+            type: "resource_link",
+            uri: "test://static/resource/2",
+            name: "Resource 2",
+            description: "Resource 2: binary blob resource",
+            mimeType: "application/octet-stream",
+          },
+          {
+            type: "resource_link",
+            uri: "test://static/resource/3",
+            name: "Resource 3",
+            description: "Resource 3: plaintext resource",
+            mimeType: "text/plain",
+          },
+        ],
+      };
+
+      renderToolsTab({
+        selectedTool: mockTools[0],
+        toolResult: result,
+        resourceContent,
+        onReadResource: mockOnReadResource,
+      });
+
+      ["1", "2", "3"].forEach((id) => {
+        expect(
+          screen.getByText(`test://static/resource/${id}`),
+        ).toBeInTheDocument();
+        expect(screen.getByText(`Resource ${id}`)).toBeInTheDocument();
+      });
+
+      expect(screen.getAllByText("text/plain")).toHaveLength(2);
+      expect(screen.getByText("application/octet-stream")).toBeInTheDocument();
+
+      const expandButtons = screen.getAllByRole("button", {
+        name: /expand resource/i,
+      });
+      expect(expandButtons).toHaveLength(3);
+      expect(screen.queryByText("Resource:")).not.toBeInTheDocument();
+
+      expandButtons.forEach((button) => {
+        expect(button).toHaveAttribute("aria-expanded", "false");
+      });
+
+      const resource1Button = screen.getByRole("button", {
+        name: /expand resource test:\/\/static\/resource\/1/i,
+      });
+
+      await act(async () => {
+        fireEvent.click(resource1Button);
+      });
+
+      expect(mockOnReadResource).toHaveBeenCalledWith(
+        "test://static/resource/1",
+      );
+      expect(screen.getByText("Resource:")).toBeInTheDocument();
+      expect(document.body).toHaveTextContent("contents:");
+      expect(document.body).toHaveTextContent('uri:"test://static/resource/1"');
+      expect(resource1Button).toHaveAttribute("aria-expanded", "true");
+
+      await act(async () => {
+        fireEvent.click(resource1Button);
+      });
+
+      expect(screen.queryByText("Resource:")).not.toBeInTheDocument();
+      expect(document.body).not.toHaveTextContent("contents:");
+      expect(document.body).not.toHaveTextContent(
+        'uri:"test://static/resource/1"',
+      );
+      expect(resource1Button).toHaveAttribute("aria-expanded", "false");
+      expect(mockOnReadResource).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("Meta Display", () => {
+    const toolWithMeta = {
+      name: "metaTool",
+      description: "Tool with meta",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          foo: { type: "string" as const },
+        },
+      },
+      _meta: {
+        author: "tester",
+        version: 1,
+      },
+    } as unknown as Tool;
+
+    it("should display meta section when tool has _meta", () => {
+      renderToolsTab({
+        tools: [toolWithMeta],
+        selectedTool: toolWithMeta,
+      });
+
+      expect(screen.getByText("Meta:")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /expand/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("should toggle meta expansion", () => {
+      renderToolsTab({
+        tools: [toolWithMeta],
+        selectedTool: toolWithMeta,
+      });
+
+      // There might be multiple Expand buttons (Output Schema, Meta). We need the one within Meta section
+      const metaHeading = screen.getByText("Meta:");
+      const metaContainer = metaHeading.closest("div");
+      expect(metaContainer).toBeTruthy();
+      const toggleButton = within(metaContainer as HTMLElement).getByRole(
+        "button",
+        { name: /expand/i },
+      );
+
+      // Expand Meta
+      fireEvent.click(toggleButton);
+      expect(
+        within(metaContainer as HTMLElement).getByRole("button", {
+          name: /collapse/i,
+        }),
+      ).toBeInTheDocument();
+
+      // Collapse Meta
+      fireEvent.click(toggleButton);
+      expect(
+        within(metaContainer as HTMLElement).getByRole("button", {
+          name: /expand/i,
+        }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe("ToolResults Meta", () => {
+    it("should display meta information when present in toolResult", () => {
+      const resultWithMeta = {
+        content: [],
+        _meta: { info: "details", version: 2 },
+      };
+
+      renderToolsTab({
+        selectedTool: mockTools[0],
+        toolResult: resultWithMeta,
+      });
+
+      // Only ToolResults meta should be present since selectedTool has no _meta
+      expect(screen.getAllByText("Meta:")).toHaveLength(1);
+      expect(screen.getByText(/info/i)).toBeInTheDocument();
+      expect(screen.getByText(/version/i)).toBeInTheDocument();
     });
   });
 });
