@@ -2,6 +2,8 @@ import { InspectorConfig } from "@/lib/configurationTypes";
 import {
   DEFAULT_MCP_PROXY_LISTEN_PORT,
   DEFAULT_INSPECTOR_CONFIG,
+  TransportType,
+  TRANSPORT_TYPES,
 } from "@/lib/constants";
 
 const getSearchParam = (key: string): string | null => {
@@ -55,19 +57,18 @@ export const getMCPProxyAuthToken = (
   };
 };
 
-export const getInitialTransportType = ():
-  | "stdio"
-  | "sse"
-  | "streamable-http" => {
+export const getInitialTransportType = (): TransportType => {
   const param = getSearchParam("transport");
-  if (param === "stdio" || param === "sse" || param === "streamable-http") {
+  if (
+    param === TRANSPORT_TYPES.STDIO ||
+    param === TRANSPORT_TYPES.SSE ||
+    param === TRANSPORT_TYPES.STREAMABLE_HTTP
+  ) {
     return param;
   }
   return (
-    (localStorage.getItem("lastTransportType") as
-      | "stdio"
-      | "sse"
-      | "streamable-http") || "stdio"
+    (localStorage.getItem("lastTransportType") as TransportType) ||
+    TRANSPORT_TYPES.STDIO
   );
 };
 
