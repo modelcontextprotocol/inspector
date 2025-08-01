@@ -19,7 +19,7 @@ import {
   Result,
   ServerCapabilities,
   PromptReference,
-  ResourceReference,
+  ResourceTemplateReference,
   McpError,
   CompleteResultSchema,
   ErrorCode,
@@ -34,7 +34,7 @@ import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useEffect, useState } from "react";
 import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
-import { ConnectionStatus } from "../constants";
+import { ConnectionStatus, TRANSPORT_TYPES, TransportType } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
@@ -54,7 +54,7 @@ import { InspectorConfig } from "../configurationTypes";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 interface UseConnectionOptions {
-  transportType: "stdio" | "sse" | "streamable-http";
+  transportType: TransportType;
   command: string;
   args: string;
   sseUrl: string;
@@ -195,7 +195,7 @@ export function useConnection({
   };
 
   const handleCompletion = async (
-    ref: ResourceReference | PromptReference,
+    ref: ResourceTemplateReference | PromptReference,
     argName: string,
     value: string,
     context?: Record<string, string>,
@@ -386,7 +386,7 @@ export function useConnection({
 
       let mcpProxyServerUrl;
       switch (transportType) {
-        case "stdio":
+        case TRANSPORT_TYPES.STDIO:
           mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/stdio`);
           mcpProxyServerUrl.searchParams.append("command", command);
           mcpProxyServerUrl.searchParams.append("args", args);
@@ -409,7 +409,7 @@ export function useConnection({
           };
           break;
 
-        case "sse":
+        case TRANSPORT_TYPES.SSE:
           mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
           mcpProxyServerUrl.searchParams.append("url", sseUrl);
           transportOptions = {
@@ -429,7 +429,7 @@ export function useConnection({
           };
           break;
 
-        case "streamable-http":
+        case TRANSPORT_TYPES.STREAMABLE_HTTP:
           mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
           mcpProxyServerUrl.searchParams.append("url", sseUrl);
           transportOptions = {
@@ -491,7 +491,7 @@ export function useConnection({
       let capabilities;
       try {
         const transport =
-          transportType === "streamable-http"
+          transportType === TRANSPORT_TYPES.STREAMABLE_HTTP
             ? new StreamableHTTPClientTransport(mcpProxyServerUrl as URL, {
                 sessionId: undefined,
                 ...transportOptions,
@@ -577,7 +577,7 @@ export function useConnection({
   };
 
   const disconnect = async () => {
-    if (transportType === "streamable-http")
+    if (transportType === TRANSPORT_TYPES.STREAMABLE_HTTP)
       await (
         clientTransport as StreamableHTTPClientTransport
       ).terminateSession();

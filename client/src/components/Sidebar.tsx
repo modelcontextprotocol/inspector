@@ -30,7 +30,7 @@ import {
   LoggingLevelSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorConfig } from "@/lib/configurationTypes";
-import { ConnectionStatus } from "@/lib/constants";
+import { CONNECTION_STATUSES, ConnectionStatus, TRANSPORT_TYPES, TransportType } from "@/lib/constants";
 import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
 import {
@@ -42,8 +42,8 @@ import { useToast } from "../lib/hooks/useToast";
 
 interface SidebarProps {
   connectionStatus: ConnectionStatus;
-  transportType: "stdio" | "sse" | "streamable-http";
-  setTransportType: (type: "stdio" | "sse" | "streamable-http") => void;
+  transportType: TransportType;
+  setTransportType: (type: TransportType) => void;
   command: string;
   setCommand: (command: string) => void;
   args: string;
@@ -124,23 +124,23 @@ const Sidebar = ({
 
   // Shared utility function to generate server config
   const generateServerConfig = useCallback(() => {
-    if (transportType === "stdio") {
+    if (transportType === TRANSPORT_TYPES.STDIO) {
       return {
         command,
         args: args.trim() ? args.split(/\s+/) : [],
         env: { ...env },
       };
     }
-    if (transportType === "sse") {
+    if (transportType === TRANSPORT_TYPES.SSE) {
       return {
-        type: "sse",
+        type: TRANSPORT_TYPES.SSE,
         url: sseUrl,
         note: "For SSE connections, add this URL directly in your MCP Client",
       };
     }
-    if (transportType === "streamable-http") {
+    if (transportType === TRANSPORT_TYPES.STREAMABLE_HTTP) {
       return {
-        type: "streamable-http",
+        type: TRANSPORT_TYPES.STREAMABLE_HTTP,
         url: sseUrl,
         note: "For Streamable HTTP connections, add this URL directly in your MCP Client",
       };
@@ -178,7 +178,7 @@ const Sidebar = ({
           toast({
             title: "Config entry copied",
             description:
-              transportType === "stdio"
+              transportType === TRANSPORT_TYPES.STDIO
                 ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
                 : "SSE URL has been copied. Use this URL directly in your MCP Client.",
           });
@@ -242,7 +242,7 @@ const Sidebar = ({
             </label>
             <Select
               value={transportType}
-              onValueChange={(value: "stdio" | "sse" | "streamable-http") =>
+              onValueChange={(value: TransportType) =>
                 setTransportType(value)
               }
             >
@@ -250,14 +250,14 @@ const Sidebar = ({
                 <SelectValue placeholder="Select transport type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="stdio">STDIO</SelectItem>
-                <SelectItem value="sse">SSE</SelectItem>
-                <SelectItem value="streamable-http">Streamable HTTP</SelectItem>
+                <SelectItem value={TRANSPORT_TYPES.STDIO}>STDIO</SelectItem>
+                <SelectItem value={TRANSPORT_TYPES.SSE}>SSE</SelectItem>
+                <SelectItem value={TRANSPORT_TYPES.STREAMABLE_HTTP}>Streamable HTTP</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {transportType === "stdio" ? (
+          {transportType === TRANSPORT_TYPES.STDIO ? (
             <>
               <div className="space-y-2">
                 <label className="text-sm font-medium" htmlFor="command-input">
@@ -319,7 +319,7 @@ const Sidebar = ({
             </>
           )}
 
-          {transportType === "stdio" && (
+          {transportType === TRANSPORT_TYPES.STDIO && (
             <div className="space-y-2">
               <Button
                 variant="outline"
@@ -534,7 +534,7 @@ const Sidebar = ({
                     />
                   </div>
                 </div>
-                {transportType !== "stdio" && (
+                {transportType !== TRANSPORT_TYPES.STDIO && (
                   // OAuth Configuration
                   <div className="space-y-2 p-3  rounded border">
                     <h4 className="text-sm font-semibold flex items-center">
@@ -672,7 +672,7 @@ const Sidebar = ({
           </div>
 
           <div className="space-y-2">
-            {connectionStatus === "connected" && (
+            {connectionStatus === CONNECTION_STATUSES.CONNECTED && (
               <div className="grid grid-cols-2 gap-4">
                 <Button
                   data-testid="connect-button"
@@ -682,7 +682,7 @@ const Sidebar = ({
                   }}
                 >
                   <RotateCcw className="w-4 h-4 mr-2" />
-                  {transportType === "stdio" ? "Restart" : "Reconnect"}
+                  {transportType === TRANSPORT_TYPES.STDIO ? "Restart" : "Reconnect"}
                 </Button>
                 <Button onClick={onDisconnect}>
                   <RefreshCwOff className="w-4 h-4 mr-2" />
@@ -690,7 +690,7 @@ const Sidebar = ({
                 </Button>
               </div>
             )}
-            {connectionStatus !== "connected" && (
+            {connectionStatus !== CONNECTION_STATUSES.CONNECTED && (
               <Button className="w-full" onClick={onConnect}>
                 <Play className="w-4 h-4 mr-2" />
                 Connect
@@ -715,9 +715,9 @@ const Sidebar = ({
               <span className="text-sm text-gray-600 dark:text-gray-400">
                 {(() => {
                   switch (connectionStatus) {
-                    case "connected":
+                    case CONNECTION_STATUSES.CONNECTED:
                       return "Connected";
-                    case "error": {
+                    case CONNECTION_STATUSES.ERROR: {
                       const hasProxyToken = config.MCP_PROXY_AUTH_TOKEN?.value;
                       if (!hasProxyToken) {
                         return "Connection Error - Did you add the proxy session token in Configuration?";
@@ -733,7 +733,7 @@ const Sidebar = ({
               </span>
             </div>
 
-            {loggingSupported && connectionStatus === "connected" && (
+            {loggingSupported && connectionStatus === CONNECTION_STATUSES.CONNECTED && (
               <div className="space-y-2">
                 <label
                   className="text-sm font-medium"

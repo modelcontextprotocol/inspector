@@ -20,11 +20,14 @@ export const getServerSpecificKey = (
   return `[${serverUrl}] ${baseKey}`;
 };
 
-export type ConnectionStatus =
-  | "disconnected"
-  | "connected"
-  | "error"
-  | "error-connecting-to-proxy";
+export const CONNECTION_STATUSES = {
+  DISCONNECTED: "disconnected",
+  CONNECTED: "connected",
+  ERROR: "error",
+  ERROR_CONNECTING_TO_PROXY: "error-connecting-to-proxy",
+} as const;
+
+export type ConnectionStatus = (typeof CONNECTION_STATUSES)[keyof typeof CONNECTION_STATUSES];
 
 export const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 
@@ -67,3 +70,11 @@ export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
     is_session_item: true,
   },
 } as const;
+
+export const TRANSPORT_TYPES = {
+  STDIO: "stdio",
+  SSE: "sse",
+  STREAMABLE_HTTP: "streamable-http",
+} as const;
+
+export type TransportType = (typeof TRANSPORT_TYPES)[keyof typeof TRANSPORT_TYPES];
