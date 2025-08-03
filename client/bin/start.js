@@ -91,10 +91,10 @@ async function startProdServer(serverOptions) {
     "node",
     [
       inspectorServerPath,
-      ...(command ? [`--command`, command] : []),
-      ...(mcpServerArgs && mcpServerArgs.length > 0
-        ? [`--args`, mcpServerArgs.join(" ")]
-        : []),
+      command ? `--command=${command}` : "",
+      mcpServerArgs && mcpServerArgs.length > 0
+        ? `--args=${mcpServerArgs.join(" ")}`
+        : "",
     ],
     {
       env: {
