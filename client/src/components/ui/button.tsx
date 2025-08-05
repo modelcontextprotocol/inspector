@@ -72,7 +72,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       variant,
       size,
       asChild = false,
-      loading,
+      loading = false,
       loadingText = "Loading...",
       children,
       ...props
