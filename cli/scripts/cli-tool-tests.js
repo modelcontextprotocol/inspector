@@ -26,27 +26,20 @@ let FAILED_TESTS = 0;
 let SKIPPED_TESTS = 0;
 let TOTAL_TESTS = 0;
 
+console.log(`${colors.YELLOW}=== MCP Inspector CLI Tool Tests ===${colors.NC}`);
 console.log(
-  `${colors.YELLOW}=== MCP Inspector CLI Test Script ===${colors.NC}`,
+  `${colors.BLUE}This script tests the MCP Inspector CLI's tool-related functionality:${colors.NC}`,
+);
+console.log(`${colors.BLUE}- Tool discovery and listing${colors.NC}`);
+console.log(
+  `${colors.BLUE}- JSON argument parsing (strings, numbers, booleans, objects, arrays)${colors.NC}`,
+);
+console.log(`${colors.BLUE}- Tool schema validation${colors.NC}`);
+console.log(
+  `${colors.BLUE}- Tool execution with various argument types${colors.NC}`,
 );
 console.log(
-  `${colors.BLUE}This script tests the MCP Inspector CLI's ability to handle various command line options:${colors.NC}`,
-);
-console.log(`${colors.BLUE}- Basic CLI mode${colors.NC}`);
-console.log(`${colors.BLUE}- Environment variables (-e)${colors.NC}`);
-console.log(`${colors.BLUE}- Config file (--config)${colors.NC}`);
-console.log(`${colors.BLUE}- Server selection (--server)${colors.NC}`);
-console.log(`${colors.BLUE}- Method selection (--method)${colors.NC}`);
-console.log(`${colors.BLUE}- Resource-related options (--uri)${colors.NC}`);
-console.log(
-  `${colors.BLUE}- Prompt-related options (--prompt-name, --prompt-args)${colors.NC}`,
-);
-console.log(`${colors.BLUE}- Logging options (--log-level)${colors.NC}`);
-console.log(
-  `${colors.BLUE}- Transport types (--transport http/sse/stdio)${colors.NC}`,
-);
-console.log(
-  `${colors.BLUE}- Transport inference from URL suffixes (/mcp, /sse)${colors.NC}`,
+  `${colors.BLUE}- Error handling for invalid tools and arguments${colors.NC}`,
 );
 console.log(`\n`);
 
@@ -60,13 +53,13 @@ const TEST_CMD = "npx";
 const TEST_ARGS = ["@modelcontextprotocol/server-everything"];
 
 // Create output directory for test results
-const OUTPUT_DIR = path.join(SCRIPTS_DIR, "test-output");
+const OUTPUT_DIR = path.join(SCRIPTS_DIR, "tool-test-output");
 if (!fs.existsSync(OUTPUT_DIR)) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 }
 
 // Create a temporary directory for test files
-const TEMP_DIR = path.join(os.tmpdir(), "mcp-inspector-tests");
+const TEMP_DIR = path.join(os.tmpdir(), "mcp-inspector-tool-tests");
 fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 // Track servers for cleanup
@@ -96,26 +89,6 @@ process.on("SIGINT", () => {
   });
   process.exit(1);
 });
-
-// Use the existing sample config file
-console.log(
-  `${colors.BLUE}Using existing sample config file: ${PROJECT_ROOT}/sample-config.json${colors.NC}`,
-);
-try {
-  const sampleConfig = fs.readFileSync(
-    path.join(PROJECT_ROOT, "sample-config.json"),
-    "utf8",
-  );
-  console.log(sampleConfig);
-} catch (error) {
-  console.error(
-    `${colors.RED}Error reading sample config: ${error.message}${colors.NC}`,
-  );
-}
-
-// Create an invalid config file for testing
-const invalidConfigPath = path.join(TEMP_DIR, "invalid-config.json");
-fs.writeFileSync(invalidConfigPath, '{\n  "mcpServers": {\n    "invalid": {');
 
 // Function to run a basic test
 async function runBasicTest(testName, ...args) {
@@ -299,203 +272,265 @@ async function runErrorTest(testName, ...args) {
 // Run all tests
 async function runTests() {
   console.log(
-    `\n${colors.YELLOW}=== Running Basic CLI Mode Tests ===${colors.NC}`,
+    `\n${colors.YELLOW}=== Running Tool Discovery Tests ===${colors.NC}`,
   );
 
-  // Test 1: Basic CLI mode with method
+  // Test 1: List available tools
   await runBasicTest(
-    "basic_cli_mode",
+    "tool_discovery_list",
     TEST_CMD,
     ...TEST_ARGS,
-    "--cli",
-    "--method",
-    "tools/list",
-  );
-
-  // Test 2: CLI mode with non-existent method (should fail)
-  await runErrorTest(
-    "nonexistent_method",
-    TEST_CMD,
-    ...TEST_ARGS,
-    "--cli",
-    "--method",
-    "nonexistent/method",
-  );
-
-  // Test 3: CLI mode without method (should fail)
-  await runErrorTest("missing_method", TEST_CMD, ...TEST_ARGS, "--cli");
-
-  console.log(
-    `\n${colors.YELLOW}=== Running Environment Variable Tests ===${colors.NC}`,
-  );
-
-  // Test 4: CLI mode with environment variables
-  await runBasicTest(
-    "env_variables",
-    TEST_CMD,
-    ...TEST_ARGS,
-    "-e",
-    "KEY1=value1",
-    "-e",
-    "KEY2=value2",
-    "--cli",
-    "--method",
-    "tools/list",
-  );
-
-  // Test 5: CLI mode with invalid environment variable format (should fail)
-  await runErrorTest(
-    "invalid_env_format",
-    TEST_CMD,
-    ...TEST_ARGS,
-    "-e",
-    "INVALID_FORMAT",
-    "--cli",
-    "--method",
-    "tools/list",
-  );
-
-  // Test 5b: CLI mode with environment variable containing equals sign in value
-  await runBasicTest(
-    "env_variable_with_equals",
-    TEST_CMD,
-    ...TEST_ARGS,
-    "-e",
-    "API_KEY=abc123=xyz789==",
-    "--cli",
-    "--method",
-    "tools/list",
-  );
-
-  // Test 5c: CLI mode with environment variable containing base64-encoded value
-  await runBasicTest(
-    "env_variable_with_base64",
-    TEST_CMD,
-    ...TEST_ARGS,
-    "-e",
-    "JWT_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0=",
     "--cli",
     "--method",
     "tools/list",
   );
 
   console.log(
-    `\n${colors.YELLOW}=== Running Config File Tests ===${colors.NC}`,
+    `\n${colors.YELLOW}=== Running JSON Argument Parsing Tests ===${colors.NC}`,
   );
 
-  // Test 6: Using config file with CLI mode
+  // Test 2: String arguments (backward compatibility)
   await runBasicTest(
-    "config_file",
-    "--config",
-    path.join(PROJECT_ROOT, "sample-config.json"),
-    "--server",
-    "everything",
+    "json_args_string",
+    TEST_CMD,
+    ...TEST_ARGS,
     "--cli",
     "--method",
-    "tools/list",
+    "tools/call",
+    "--tool-name",
+    "echo",
+    "--tool-arg",
+    "message=hello world",
   );
 
-  // Test 7: Using config file without server name (should fail)
-  await runErrorTest(
-    "config_without_server",
-    "--config",
-    path.join(PROJECT_ROOT, "sample-config.json"),
+  // Test 3: Number arguments
+  await runBasicTest(
+    "json_args_number_integer",
+    TEST_CMD,
+    ...TEST_ARGS,
     "--cli",
     "--method",
-    "tools/list",
+    "tools/call",
+    "--tool-name",
+    "add",
+    "--tool-arg",
+    "a=42",
+    "b=58",
   );
 
-  // Test 8: Using server name without config file (should fail)
-  await runErrorTest(
-    "server_without_config",
-    "--server",
-    "everything",
+  // Test 4: Number arguments with decimals (using add tool with decimal numbers)
+  await runBasicTest(
+    "json_args_number_decimal",
+    TEST_CMD,
+    ...TEST_ARGS,
     "--cli",
     "--method",
-    "tools/list",
+    "tools/call",
+    "--tool-name",
+    "add",
+    "--tool-arg",
+    "a=19.99",
+    "b=20.01",
   );
 
-  // Test 9: Using non-existent config file (should fail)
-  await runErrorTest(
-    "nonexistent_config",
-    "--config",
-    "./nonexistent-config.json",
-    "--server",
-    "everything",
+  // Test 5: Boolean arguments - true
+  await runBasicTest(
+    "json_args_boolean_true",
+    TEST_CMD,
+    ...TEST_ARGS,
     "--cli",
     "--method",
-    "tools/list",
+    "tools/call",
+    "--tool-name",
+    "annotatedMessage",
+    "--tool-arg",
+    "messageType=success",
+    "includeImage=true",
   );
 
-  // Test 10: Using invalid config file format (should fail)
-  await runErrorTest(
-    "invalid_config",
-    "--config",
-    invalidConfigPath,
-    "--server",
-    "everything",
+  // Test 6: Boolean arguments - false
+  await runBasicTest(
+    "json_args_boolean_false",
+    TEST_CMD,
+    ...TEST_ARGS,
     "--cli",
     "--method",
-    "tools/list",
+    "tools/call",
+    "--tool-name",
+    "annotatedMessage",
+    "--tool-arg",
+    "messageType=error",
+    "includeImage=false",
   );
 
-  // Test 11: Using config file with non-existent server (should fail)
-  await runErrorTest(
-    "nonexistent_server",
-    "--config",
-    path.join(PROJECT_ROOT, "sample-config.json"),
-    "--server",
-    "nonexistent",
+  // Test 7: Null arguments (using echo with string "null")
+  await runBasicTest(
+    "json_args_null",
+    TEST_CMD,
+    ...TEST_ARGS,
     "--cli",
     "--method",
-    "tools/list",
+    "tools/call",
+    "--tool-name",
+    "echo",
+    "--tool-arg",
+    'message="null"',
+  );
+
+  // Test 14: Multiple arguments with mixed types (using add tool)
+  await runBasicTest(
+    "json_args_multiple_mixed",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "--cli",
+    "--method",
+    "tools/call",
+    "--tool-name",
+    "add",
+    "--tool-arg",
+    "a=42.5",
+    "b=57.5",
   );
 
   console.log(
-    `\n${colors.YELLOW}=== Running Resource-Related Tests ===${colors.NC}`,
+    `\n${colors.YELLOW}=== Running JSON Parsing Edge Cases ===${colors.NC}`,
   );
 
-  // Test 16: CLI mode with resource read
+  // Test 15: Invalid JSON should fall back to string
   await runBasicTest(
-    "resource_read",
+    "json_args_invalid_fallback",
     TEST_CMD,
     ...TEST_ARGS,
     "--cli",
     "--method",
-    "resources/read",
-    "--uri",
-    "test://static/resource/1",
+    "tools/call",
+    "--tool-name",
+    "echo",
+    "--tool-arg",
+    "message={invalid json}",
   );
 
-  // Test 17: CLI mode with resource read but missing URI (should fail)
-  await runErrorTest(
-    "missing_uri",
+  // Test 16: Empty string value
+  await runBasicTest(
+    "json_args_empty_value",
     TEST_CMD,
     ...TEST_ARGS,
     "--cli",
     "--method",
-    "resources/read",
+    "tools/call",
+    "--tool-name",
+    "echo",
+    "--tool-arg",
+    'message=""',
+  );
+
+  // Test 17: Special characters in strings
+  await runBasicTest(
+    "json_args_special_chars",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "--cli",
+    "--method",
+    "tools/call",
+    "--tool-name",
+    "echo",
+    "--tool-arg",
+    'message="C:\\\\Users\\\\test"',
+  );
+
+  // Test 18: Unicode characters
+  await runBasicTest(
+    "json_args_unicode",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "--cli",
+    "--method",
+    "tools/call",
+    "--tool-name",
+    "echo",
+    "--tool-arg",
+    'message="🚀🎉✨"',
+  );
+
+  // Test 19: Arguments with equals signs in values
+  await runBasicTest(
+    "json_args_equals_in_value",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "--cli",
+    "--method",
+    "tools/call",
+    "--tool-name",
+    "echo",
+    "--tool-arg",
+    "message=2+2=4",
+  );
+
+  // Test 20: Base64-like strings
+  await runBasicTest(
+    "json_args_base64_like",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "--cli",
+    "--method",
+    "tools/call",
+    "--tool-name",
+    "echo",
+    "--tool-arg",
+    "message=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0=",
   );
 
   console.log(
-    `\n${colors.YELLOW}=== Running Prompt-Related Tests ===${colors.NC}`,
+    `\n${colors.YELLOW}=== Running Tool Error Handling Tests ===${colors.NC}`,
   );
 
-  // Test 18: CLI mode with prompt get
-  await runBasicTest(
-    "prompt_get",
+  // Test 21: Non-existent tool
+  await runErrorTest(
+    "tool_error_nonexistent",
     TEST_CMD,
     ...TEST_ARGS,
     "--cli",
     "--method",
-    "prompts/get",
-    "--prompt-name",
-    "simple_prompt",
+    "tools/call",
+    "--tool-name",
+    "nonexistent_tool",
+    "--tool-arg",
+    "message=test",
   );
 
-  // Test 19: CLI mode with prompt get and args
+  // Test 22: Missing tool name
+  await runErrorTest(
+    "tool_error_missing_name",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "--cli",
+    "--method",
+    "tools/call",
+    "--tool-arg",
+    "message=test",
+  );
+
+  // Test 23: Invalid tool argument format
+  await runErrorTest(
+    "tool_error_invalid_arg_format",
+    TEST_CMD,
+    ...TEST_ARGS,
+    "--cli",
+    "--method",
+    "tools/call",
+    "--tool-name",
+    "echo",
+    "--tool-arg",
+    "invalid_format_no_equals",
+  );
+
+  console.log(
+    `\n${colors.YELLOW}=== Running Prompt JSON Argument Tests ===${colors.NC}`,
+  );
+
+  // Test 24: Prompt with JSON arguments
   await runBasicTest(
-    "prompt_get_with_args",
+    "prompt_json_args_mixed",
     TEST_CMD,
     ...TEST_ARGS,
     "--cli",
@@ -505,180 +540,57 @@ async function runTests() {
     "complex_prompt",
     "--prompt-args",
     "temperature=0.7",
-    "style=concise",
+    'style="concise"',
+    'options={"format":"json","max_tokens":100}',
   );
 
-  // Test 20: CLI mode with prompt get but missing prompt name (should fail)
-  await runErrorTest(
-    "missing_prompt_name",
+  // Test 25: Prompt with simple arguments
+  await runBasicTest(
+    "prompt_json_args_simple",
     TEST_CMD,
     ...TEST_ARGS,
     "--cli",
     "--method",
     "prompts/get",
-  );
-
-  console.log(`\n${colors.YELLOW}=== Running Logging Tests ===${colors.NC}`);
-
-  // Test 21: CLI mode with log level
-  await runBasicTest(
-    "log_level",
-    TEST_CMD,
-    ...TEST_ARGS,
-    "--cli",
-    "--method",
-    "logging/setLevel",
-    "--log-level",
-    "debug",
-  );
-
-  // Test 22: CLI mode with invalid log level (should fail)
-  await runErrorTest(
-    "invalid_log_level",
-    TEST_CMD,
-    ...TEST_ARGS,
-    "--cli",
-    "--method",
-    "logging/setLevel",
-    "--log-level",
-    "invalid",
+    "--prompt-name",
+    "simple_prompt",
+    "--prompt-args",
+    "name=test",
+    "count=5",
   );
 
   console.log(
-    `\n${colors.YELLOW}=== Running Combined Option Tests ===${colors.NC}`,
+    `\n${colors.YELLOW}=== Running Backward Compatibility Tests ===${colors.NC}`,
   );
 
-  // Note about the combined options issue
-  console.log(
-    `${colors.BLUE}Testing combined options with environment variables and config file.${colors.NC}`,
-  );
-
-  // Test 23: CLI mode with config file, environment variables, and tool call
+  // Test 26: Ensure existing string-only usage still works
   await runBasicTest(
-    "combined_options",
-    "--config",
-    path.join(PROJECT_ROOT, "sample-config.json"),
-    "--server",
-    "everything",
-    "-e",
-    "CLI_ENV_VAR=cli_value",
-    "--cli",
-    "--method",
-    "tools/list",
-  );
-
-  // Test 24: CLI mode with all possible options (that make sense together)
-  await runBasicTest(
-    "all_options",
-    "--config",
-    path.join(PROJECT_ROOT, "sample-config.json"),
-    "--server",
-    "everything",
-    "-e",
-    "CLI_ENV_VAR=cli_value",
+    "backward_compatibility_strings",
+    TEST_CMD,
+    ...TEST_ARGS,
     "--cli",
     "--method",
     "tools/call",
     "--tool-name",
     "echo",
     "--tool-arg",
-    "message=Hello",
-    "--log-level",
-    "debug",
+    "message=hello",
   );
 
-  console.log(
-    `\n${colors.YELLOW}=== Running HTTP Transport Tests ===${colors.NC}`,
-  );
-
-  console.log(
-    `${colors.BLUE}Starting server-everything in streamableHttp mode.${colors.NC}`,
-  );
-  const httpServer = spawn(
-    "npx",
-    ["@modelcontextprotocol/server-everything", "streamableHttp"],
-    {
-      detached: true,
-      stdio: "ignore",
-    },
-  );
-  runningServers.push(httpServer);
-
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-
-  // Test 25: HTTP transport inferred from URL ending with /mcp
+  // Test 27: Multiple string arguments (existing pattern) - using add tool
   await runBasicTest(
-    "http_transport_inferred",
-    "http://127.0.0.1:3001/mcp",
+    "backward_compatibility_multiple_strings",
+    TEST_CMD,
+    ...TEST_ARGS,
     "--cli",
     "--method",
-    "tools/list",
+    "tools/call",
+    "--tool-name",
+    "add",
+    "--tool-arg",
+    "a=10",
+    "b=20",
   );
-
-  // Test 26: HTTP transport with explicit --transport http flag
-  await runBasicTest(
-    "http_transport_with_explicit_flag",
-    "http://127.0.0.1:3001/mcp",
-    "--transport",
-    "http",
-    "--cli",
-    "--method",
-    "tools/list",
-  );
-
-  // Test 27: HTTP transport with suffix and --transport http flag
-  await runBasicTest(
-    "http_transport_with_explicit_flag_and_suffix",
-    "http://127.0.0.1:3001/mcp",
-    "--transport",
-    "http",
-    "--cli",
-    "--method",
-    "tools/list",
-  );
-
-  // Test 28: SSE transport given to HTTP server (should fail)
-  await runErrorTest(
-    "sse_transport_given_to_http_server",
-    "http://127.0.0.1:3001",
-    "--transport",
-    "sse",
-    "--cli",
-    "--method",
-    "tools/list",
-  );
-
-  // Test 29: HTTP transport without URL (should fail)
-  await runErrorTest(
-    "http_transport_without_url",
-    "--transport",
-    "http",
-    "--cli",
-    "--method",
-    "tools/list",
-  );
-
-  // Test 30: SSE transport without URL (should fail)
-  await runErrorTest(
-    "sse_transport_without_url",
-    "--transport",
-    "sse",
-    "--cli",
-    "--method",
-    "tools/list",
-  );
-
-  // Kill HTTP server
-  try {
-    process.kill(-httpServer.pid);
-    console.log(
-      `${colors.BLUE}HTTP server killed, waiting for port to be released...${colors.NC}`,
-    );
-  } catch (e) {
-    console.log(
-      `${colors.RED}Error killing HTTP server: ${e.message}${colors.NC}`,
-    );
-  }
 
   // Print test summary
   console.log(`\n${colors.YELLOW}=== Test Summary ===${colors.NC}`);
@@ -690,7 +602,7 @@ async function runTests() {
     `${colors.BLUE}Detailed logs saved to: ${OUTPUT_DIR}${colors.NC}`,
   );
 
-  console.log(`\n${colors.GREEN}All tests completed!${colors.NC}`);
+  console.log(`\n${colors.GREEN}All tool tests completed!${colors.NC}`);
 }
 
 // Run all tests

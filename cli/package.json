@@ -17,7 +17,9 @@
   "scripts": {
     "build": "tsc",
     "postbuild": "node scripts/make-executable.js",
-    "test": "node scripts/cli-tests.js"
+    "test": "node scripts/cli-tests.js && node scripts/cli-tool-tests.js",
+    "test:cli": "node scripts/cli-tests.js",
+    "test:cli-tools": "node scripts/cli-tool-tests.js"
   },
   "devDependencies": {},
   "dependencies": {

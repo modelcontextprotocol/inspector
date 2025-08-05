@@ -20,15 +20,25 @@ import {
 import { handleError } from "./error-handler.js";
 import { createTransport, TransportOptions } from "./transport.js";
 
+// JSON value type for CLI arguments
+type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
 type Args = {
   target: string[];
   method?: string;
   promptName?: string;
-  promptArgs?: Record<string, string>;
+  promptArgs?: Record<string, JsonValue>;
   uri?: string;
   logLevel?: LogLevel;
   toolName?: string;
-  toolArg?: Record<string, string>;
+  toolArg?: Record<string, JsonValue>;
   transport?: "sse" | "stdio" | "http";
 };
 
@@ -162,8 +172,8 @@ async function callMethod(args: Args): Promise<void> {
 
 function parseKeyValuePair(
   value: string,
-  previous: Record<string, string> = {},
-): Record<string, string> {
+  previous: Record<string, JsonValue> = {},
+): Record<string, JsonValue> {
   const parts = value.split("=");
   const key = parts[0];
   const val = parts.slice(1).join("=");
@@ -174,7 +184,16 @@ function parseKeyValuePair(
     );
   }
 
-  return { ...previous, [key as string]: val };
+  // Try to parse as JSON first
+  let parsedValue: JsonValue;
+  try {
+    parsedValue = JSON.parse(val) as JsonValue;
+  } catch {
+    // If JSON parsing fails, keep as string
+    parsedValue = val;
+  }
+
+  return { ...previous, [key as string]: parsedValue };
 }
 
 function parseArgs(): Args {
