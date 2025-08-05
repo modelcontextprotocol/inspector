@@ -299,8 +299,111 @@ async function runErrorTest(testName, ...args) {
   }
 }
 
+// Function to run a web client startup test
+async function runWebClientTest(testName, ...args) {
+  const outputFile = path.join(
+    OUTPUT_DIR,
+    `${testName.replace(/\//g, "_")}.log`,
+  );
+
+  console.log(`\n${colors.YELLOW}Testing: ${testName}${colors.NC}`);
+  TOTAL_TESTS++;
+
+  // Run the command and capture output
+  console.log(
+    `${colors.BLUE}Command: node ${BUILD_DIR}/cli.js ${args.join(" ")}${colors.NC}`,
+  );
+
+  try {
+    // Create a write stream for the output file
+    const outputStream = fs.createWriteStream(outputFile);
+
+    // Spawn the process
+    return new Promise((resolve) => {
+      const child = spawn("node", [path.join(BUILD_DIR, "cli.js"), ...args], {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          MCP_AUTO_OPEN_ENABLED: "false", // Prevent browser from opening
+          SERVER_PORT: "9999", // Use a different port for testing
+          CLIENT_PORT: "9998", // Use a different port for testing
+        },
+      });
+
+      let output = "";
+      let serverStarted = false;
+
+      child.stdout.on("data", (data) => {
+        output += data.toString();
+        outputStream.write(data);
+        
+        // Check if server started successfully
+        if (output.includes("MCP Inspector is up and running")) {
+          serverStarted = true;
+          // Kill the process after successful startup
+          child.kill();
+        }
+      });
+
+      child.stderr.on("data", (data) => {
+        output += data.toString();
+        outputStream.write(data);
+      });
+
+      const timeout = setTimeout(() => {
+        console.log(`${colors.YELLOW}Test timed out: ${testName}${colors.NC}`);
+        child.kill();
+      }, 5000); // 5 second timeout for web client startup
+
+      child.on("close", (code) => {
+        clearTimeout(timeout);
+        outputStream.end();
+
+        if (serverStarted) {
+          console.log(`${colors.GREEN}✓ Test passed: ${testName}${colors.NC}`);
+          console.log(`${colors.BLUE}Server started successfully${colors.NC}`);
+          PASSED_TESTS++;
+          resolve(true);
+        } else {
+          console.log(`${colors.RED}✗ Test failed: ${testName}${colors.NC}`);
+          console.log(`${colors.RED}Error output:${colors.NC}`);
+          console.log(
+            output
+              .split("\n")
+              .map((line) => `  ${line}`)
+              .join("\n"),
+          );
+          FAILED_TESTS++;
+          
+          // Stop after any error is encountered
+          console.log(
+            `${colors.YELLOW}Stopping tests due to error. Please validate and fix before continuing.${colors.NC}`,
+          );
+          process.exit(1);
+        }
+      });
+    });
+  } catch (error) {
+    console.error(
+      `${colors.RED}Error running test: ${error.message}${colors.NC}`,
+    );
+    FAILED_TESTS++;
+    process.exit(1);
+  }
+}
+
 // Run all tests
 async function runTests() {
+  console.log(
+    `\n${colors.YELLOW}=== Running Basic Tests ===${colors.NC}`,
+  );
+
+  // Test 0: Basic web client mode without any arguments (regression test for npx .)
+  await runWebClientTest(
+    "web_client_no_args"
+    // No arguments - should start web client without error
+  );
+
   console.log(
     `\n${colors.YELLOW}=== Running Basic CLI Mode Tests ===${colors.NC}`,
   );

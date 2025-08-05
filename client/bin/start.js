@@ -95,7 +95,7 @@ async function startProdServer(serverOptions) {
       mcpServerArgs && mcpServerArgs.length > 0
         ? `--args=${mcpServerArgs.join(" ")}`
         : "",
-    ],
+    ].filter(arg => arg !== ""),
     {
       env: {
         ...process.env,
