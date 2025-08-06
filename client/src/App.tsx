@@ -18,7 +18,11 @@ import {
   LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
+import {
+  SESSION_KEYS,
+  TransportType,
+  getServerSpecificKey,
+} from "./lib/constants";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
 import { OAuthStateMachine } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
@@ -101,9 +105,9 @@ const App = () => {
   const [args, setArgs] = useState<string>(getInitialArgs);
 
   const [sseUrl, setSseUrl] = useState<string>(getInitialSseUrl);
-  const [transportType, setTransportType] = useState<
-    "stdio" | "sse" | "streamable-http"
-  >(getInitialTransportType);
+  const [transportType, setTransportType] = useState<TransportType>(
+    getInitialTransportType,
+  );
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [stdErrNotifications, setStdErrNotifications] = useState<
