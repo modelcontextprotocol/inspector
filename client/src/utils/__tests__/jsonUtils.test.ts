@@ -4,7 +4,7 @@ import {
   updateValueAtPath,
   getValueAtPath,
 } from "../jsonUtils";
-import type { JsonValue } from "../jsonUtils";
+import type { JsonValue, JsonSchemaType } from "../jsonUtils";
 
 describe("getDataType", () => {
   test("should return 'string' for string values", () => {
@@ -315,5 +315,212 @@ describe("getValueAtPath", () => {
   test("navigates through mixed object and array paths", () => {
     const obj = { users: [{ name: "John" }, { name: "Jane" }] };
     expect(getValueAtPath(obj, ["users", "1", "name"])).toBe("Jane");
+  });
+});
+
+describe("JsonSchemaType elicitation field support", () => {
+  const sampleSchema: JsonSchemaType = {
+    type: "object",
+    title: "User Info",
+    description: "User information form",
+    properties: {
+      name: {
+        type: "string",
+        title: "Full Name",
+        description: "Your full name",
+        minLength: 2,
+        maxLength: 50,
+        pattern: "^[A-Za-z\\s]+$",
+      },
+      email: {
+        type: "string",
+        format: "email",
+        title: "Email Address",
+      },
+      age: {
+        type: "integer",
+        minimum: 18,
+        maximum: 120,
+        default: 25,
+      },
+      role: {
+        type: "string",
+        oneOf: [
+          { const: "admin", title: "Administrator" },
+          { const: "user", title: "User" },
+          { const: "guest", title: "Guest" },
+        ],
+      },
+    },
+    required: ["name", "email"],
+  };
+
+  test("should parse JsonSchemaType with elicitation fields", () => {
+    const schemaString = JSON.stringify(sampleSchema);
+    const result = tryParseJson(schemaString);
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(sampleSchema);
+  });
+
+  test("should update schema properties with new validation fields", () => {
+    const updated = updateValueAtPath(
+      sampleSchema,
+      ["properties", "name", "minLength"],
+      5,
+    );
+
+    expect(getValueAtPath(updated, ["properties", "name", "minLength"])).toBe(
+      5,
+    );
+  });
+
+  test("should handle oneOf with const and title fields", () => {
+    const schema = {
+      type: "string",
+      oneOf: [
+        { const: "option1", title: "Option 1" },
+        { const: "option2", title: "Option 2" },
+      ],
+    };
+
+    expect(getValueAtPath(schema, ["oneOf", "0", "const"])).toBe("option1");
+    expect(getValueAtPath(schema, ["oneOf", "1", "title"])).toBe("Option 2");
+  });
+
+  test("should handle validation constraints", () => {
+    const numberSchema = {
+      type: "number" as const,
+      minimum: 0,
+      maximum: 100,
+      default: 50,
+    };
+
+    expect(getValueAtPath(numberSchema, ["minimum"])).toBe(0);
+    expect(getValueAtPath(numberSchema, ["maximum"])).toBe(100);
+    expect(getValueAtPath(numberSchema, ["default"])).toBe(50);
+  });
+
+  test("should handle string format and pattern fields", () => {
+    const stringSchema = {
+      type: "string" as const,
+      format: "email",
+      pattern: "^[a-z]+@[a-z]+\\.[a-z]+$",
+      minLength: 5,
+      maxLength: 100,
+    };
+
+    expect(getValueAtPath(stringSchema, ["format"])).toBe("email");
+    expect(getValueAtPath(stringSchema, ["pattern"])).toBe(
+      "^[a-z]+@[a-z]+\\.[a-z]+$",
+    );
+    expect(getValueAtPath(stringSchema, ["minLength"])).toBe(5);
+  });
+
+  test("should handle title and description fields", () => {
+    const schema = {
+      type: "boolean" as const,
+      title: "Accept Terms",
+      description: "Do you accept the terms and conditions?",
+      default: false,
+    };
+
+    expect(getValueAtPath(schema, ["title"])).toBe("Accept Terms");
+    expect(getValueAtPath(schema, ["description"])).toBe(
+      "Do you accept the terms and conditions?",
+    );
+  });
+
+  test("should handle JSON Schema spec compliant oneOf with const for labeled enums", () => {
+    // Example from JSON Schema spec: labeled enums using oneOf with const
+    const trafficLightSchema = {
+      type: "string" as const,
+      title: "Traffic Light",
+      description: "Select a traffic light color",
+      oneOf: [
+        { const: "red", title: "Stop" },
+        { const: "amber", title: "Caution" },
+        { const: "green", title: "Go" },
+      ],
+    };
+
+    // Verify the schema structure
+    expect(trafficLightSchema.type).toBe("string");
+    expect(trafficLightSchema.oneOf).toHaveLength(3);
+
+    // Verify each oneOf option has const and title
+    expect(trafficLightSchema.oneOf[0].const).toBe("red");
+    expect(trafficLightSchema.oneOf[0].title).toBe("Stop");
+
+    expect(trafficLightSchema.oneOf[1].const).toBe("amber");
+    expect(trafficLightSchema.oneOf[1].title).toBe("Caution");
+
+    expect(trafficLightSchema.oneOf[2].const).toBe("green");
+    expect(trafficLightSchema.oneOf[2].title).toBe("Go");
+
+    // Test with JsonValue operations
+    const schemaAsJsonValue = trafficLightSchema as JsonValue;
+    expect(getValueAtPath(schemaAsJsonValue, ["oneOf", "0", "const"])).toBe(
+      "red",
+    );
+    expect(getValueAtPath(schemaAsJsonValue, ["oneOf", "1", "title"])).toBe(
+      "Caution",
+    );
+    expect(getValueAtPath(schemaAsJsonValue, ["oneOf", "2", "const"])).toBe(
+      "green",
+    );
+  });
+
+  test("should handle complex oneOf scenarios with mixed schema types", () => {
+    const complexSchema = {
+      type: "object" as const,
+      title: "User Preference",
+      properties: {
+        theme: {
+          type: "string" as const,
+          oneOf: [
+            { const: "light", title: "Light Mode" },
+            { const: "dark", title: "Dark Mode" },
+            { const: "auto", title: "Auto (System)" },
+          ],
+        },
+        notifications: {
+          type: "string" as const,
+          oneOf: [
+            { const: "all", title: "All Notifications" },
+            { const: "important", title: "Important Only" },
+            { const: "none", title: "None" },
+          ],
+        },
+      },
+    };
+
+    expect(
+      getValueAtPath(complexSchema, [
+        "properties",
+        "theme",
+        "oneOf",
+        "0",
+        "const",
+      ]),
+    ).toBe("light");
+    expect(
+      getValueAtPath(complexSchema, [
+        "properties",
+        "theme",
+        "oneOf",
+        "1",
+        "title",
+      ]),
+    ).toBe("Dark Mode");
+    expect(
+      getValueAtPath(complexSchema, [
+        "properties",
+        "notifications",
+        "oneOf",
+        "2",
+        "const",
+      ]),
+    ).toBe("none");
   });
 });

@@ -56,6 +56,10 @@ interface SidebarProps {
   setBearerToken: (token: string) => void;
   headerName?: string;
   setHeaderName?: (name: string) => void;
+  oauthClientId: string;
+  setOauthClientId: (id: string) => void;
+  oauthScope: string;
+  setOauthScope: (scope: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
   stdErrNotifications: StdErrNotification[];
@@ -83,6 +87,10 @@ const Sidebar = ({
   setBearerToken,
   headerName,
   setHeaderName,
+  oauthClientId,
+  setOauthClientId,
+  oauthScope,
+  setOauthScope,
   onConnect,
   onDisconnect,
   stdErrNotifications,
@@ -95,7 +103,7 @@ const Sidebar = ({
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
-  const [showBearerToken, setShowBearerToken] = useState(false);
+  const [showAuthConfig, setShowAuthConfig] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
   const [copiedServerEntry, setCopiedServerEntry] = useState(false);
@@ -308,51 +316,6 @@ const Sidebar = ({
                   />
                 )}
               </div>
-              <div className="space-y-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowBearerToken(!showBearerToken)}
-                  className="flex items-center w-full"
-                  data-testid="auth-button"
-                  aria-expanded={showBearerToken}
-                >
-                  {showBearerToken ? (
-                    <ChevronDown className="w-4 h-4 mr-2" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 mr-2" />
-                  )}
-                  Authentication
-                </Button>
-                {showBearerToken && (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Header Name</label>
-                    <Input
-                      placeholder="Authorization"
-                      onChange={(e) =>
-                        setHeaderName && setHeaderName(e.target.value)
-                      }
-                      data-testid="header-input"
-                      className="font-mono"
-                      value={headerName}
-                    />
-                    <label
-                      className="text-sm font-medium"
-                      htmlFor="bearer-token-input"
-                    >
-                      Bearer Token
-                    </label>
-                    <Input
-                      id="bearer-token-input"
-                      placeholder="Bearer Token"
-                      value={bearerToken}
-                      onChange={(e) => setBearerToken(e.target.value)}
-                      data-testid="bearer-token-input"
-                      className="font-mono"
-                      type="password"
-                    />
-                  </div>
-                )}
-              </div>
             </>
           )}
 
@@ -521,6 +484,94 @@ const Sidebar = ({
             </Tooltip>
           </div>
 
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowAuthConfig(!showAuthConfig)}
+              className="flex items-center w-full"
+              data-testid="auth-button"
+              aria-expanded={showAuthConfig}
+            >
+              {showAuthConfig ? (
+                <ChevronDown className="w-4 h-4 mr-2" />
+              ) : (
+                <ChevronRight className="w-4 h-4 mr-2" />
+              )}
+              Authentication
+            </Button>
+            {showAuthConfig && (
+              <>
+                {/* Bearer Token Section */}
+                <div className="space-y-2 p-3 rounded border">
+                  <h4 className="text-sm font-semibold flex items-center">
+                    API Token Authentication
+                  </h4>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Header Name</label>
+                    <Input
+                      placeholder="Authorization"
+                      onChange={(e) =>
+                        setHeaderName && setHeaderName(e.target.value)
+                      }
+                      data-testid="header-input"
+                      className="font-mono"
+                      value={headerName}
+                    />
+                    <label
+                      className="text-sm font-medium"
+                      htmlFor="bearer-token-input"
+                    >
+                      Bearer Token
+                    </label>
+                    <Input
+                      id="bearer-token-input"
+                      placeholder="Bearer Token"
+                      value={bearerToken}
+                      onChange={(e) => setBearerToken(e.target.value)}
+                      data-testid="bearer-token-input"
+                      className="font-mono"
+                      type="password"
+                    />
+                  </div>
+                </div>
+                {transportType !== "stdio" && (
+                  // OAuth Configuration
+                  <div className="space-y-2 p-3  rounded border">
+                    <h4 className="text-sm font-semibold flex items-center">
+                      OAuth 2.0 Flow
+                    </h4>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Client ID</label>
+                      <Input
+                        placeholder="Client ID"
+                        onChange={(e) => setOauthClientId(e.target.value)}
+                        value={oauthClientId}
+                        data-testid="oauth-client-id-input"
+                        className="font-mono"
+                      />
+                      <label className="text-sm font-medium">
+                        Redirect URL
+                      </label>
+                      <Input
+                        readOnly
+                        placeholder="Redirect URL"
+                        value={window.location.origin + "/oauth/callback"}
+                        className="font-mono"
+                      />
+                      <label className="text-sm font-medium">Scope</label>
+                      <Input
+                        placeholder="Scope (space-separated)"
+                        onChange={(e) => setOauthScope(e.target.value)}
+                        value={oauthScope}
+                        data-testid="oauth-scope-input"
+                        className="font-mono"
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
           {/* Configuration */}
           <div className="space-y-2">
             <Button

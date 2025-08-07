@@ -118,6 +118,13 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         scope = metadata.scopes_supported.join(" ");
       }
 
+      // Generate a random state
+      const array = new Uint8Array(32);
+      crypto.getRandomValues(array);
+      const state = Array.from(array, (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
+
       const { authorizationUrl, codeVerifier } = await startAuthorization(
         context.serverUrl,
         {
@@ -125,6 +132,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
           clientInformation,
           redirectUrl: context.provider.redirectUrl,
           scope,
+          state: state,
           resource: context.state.resource ?? undefined,
         },
       );
