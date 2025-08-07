@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
+import { loadToolParamsFromCache } from "@/utils/toolCache";
 
 // Type guard to safely detect the optional _meta field without using `any`
 const hasMeta = (tool: Tool): tool is Tool & { _meta: unknown } =>
@@ -34,6 +35,7 @@ const ToolsTab = ({
   nextCursor,
   resourceContent,
   onReadResource,
+  serverUrl,
 }: {
   tools: Tool[];
   listTools: () => void;
@@ -46,6 +48,7 @@ const ToolsTab = ({
   error: string | null;
   resourceContent: Record<string, string>;
   onReadResource?: (uri: string) => void;
+  serverUrl: string;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
@@ -53,18 +56,36 @@ const ToolsTab = ({
   const [isMetaExpanded, setIsMetaExpanded] = useState(false);
 
   useEffect(() => {
-    const params = Object.entries(
-      selectedTool?.inputSchema.properties ?? [],
+    if (!selectedTool) {
+      setParams({});
+      return;
+    }
+
+    // Generate default parameters from schema
+    const defaultParams = Object.entries(
+      selectedTool.inputSchema.properties ?? [],
     ).map(([key, value]) => [
       key,
       generateDefaultValue(
         value as JsonSchemaType,
         key,
-        selectedTool?.inputSchema as JsonSchemaType,
+        selectedTool.inputSchema as JsonSchemaType,
       ),
     ]);
-    setParams(Object.fromEntries(params));
-  }, [selectedTool]);
+    const defaultParamsObj = Object.fromEntries(defaultParams);
+
+    // Fetch cached params from localStorage if they exist
+    const cachedParams = loadToolParamsFromCache(
+      serverUrl,
+      selectedTool.name,
+      selectedTool,
+    );
+
+    // Merge cached params with defaults, giving preference to cached values
+    const mergedParams = { ...defaultParamsObj, ...cachedParams };
+
+    setParams(mergedParams);
+  }, [selectedTool, serverUrl]);
 
   return (
     <TabsContent value="tools">
