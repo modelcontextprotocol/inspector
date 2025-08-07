@@ -28,6 +28,7 @@ import {
   ToolListChangedNotificationSchema,
   PromptListChangedNotificationSchema,
   Progress,
+  LoggingLevel,
   ElicitRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
@@ -72,6 +73,7 @@ interface UseConnectionOptions {
   onElicitationRequest?: (request: any, resolve: any) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getRoots?: () => any[];
+  defaultLoggingLevel?: LoggingLevel;
 }
 
 export function useConnection({
@@ -90,6 +92,7 @@ export function useConnection({
   onPendingRequest,
   onElicitationRequest,
   getRoots,
+  defaultLoggingLevel,
 }: UseConnectionOptions) {
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("disconnected");
@@ -198,6 +201,7 @@ export function useConnection({
     ref: ResourceReference | PromptReference,
     argName: string,
     value: string,
+    context?: Record<string, string>,
     signal?: AbortSignal,
   ): Promise<string[]> => {
     if (!mcpClient || !completionsSupported) {
@@ -214,6 +218,12 @@ export function useConnection({
         ref,
       },
     };
+
+    if (context) {
+      request["params"]["context"] = {
+        arguments: context,
+      };
+    }
 
     try {
       const response = await makeRequest(request, CompleteResultSchema, {
@@ -551,6 +561,10 @@ export function useConnection({
         client.setRequestHandler(ListRootsRequestSchema, async () => {
           return { roots: getRoots() };
         });
+      }
+
+      if (capabilities?.logging && defaultLoggingLevel) {
+        await client.setLoggingLevel(defaultLoggingLevel);
       }
 
       if (onElicitationRequest) {
