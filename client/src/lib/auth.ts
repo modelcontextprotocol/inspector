@@ -135,10 +135,7 @@ export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvi
    * Saves the resource URL to session storage to persist it across the redirect.
    */
   saveResource(resource: URL): void {
-    const key = getServerSpecificKey(
-      SESSION_KEYS.RESOURCE_URL,
-      this.serverUrl,
-    );
+    const key = getServerSpecificKey(SESSION_KEYS.RESOURCE_URL, this.serverUrl);
     sessionStorage.setItem(key, resource.toString());
   }
 
@@ -146,10 +143,7 @@ export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvi
    * Retrieves the persisted resource URL from session storage.
    */
   getResource(): URL | undefined {
-    const key = getServerSpecificKey(
-      SESSION_KEYS.RESOURCE_URL,
-      this.serverUrl,
-    );
+    const key = getServerSpecificKey(SESSION_KEYS.RESOURCE_URL, this.serverUrl);
     const urlString = sessionStorage.getItem(key);
     if (!urlString) {
       return undefined;
