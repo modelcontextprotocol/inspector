@@ -7,8 +7,14 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+export type JsonSchemaConst = {
+  const: JsonValue;
+  title?: string;
+  description?: string;
+};
+
 export type JsonSchemaType = {
-  type:
+  type?:
     | "string"
     | "number"
     | "integer"
@@ -16,11 +22,22 @@ export type JsonSchemaType = {
     | "array"
     | "object"
     | "null";
+  title?: string;
   description?: string;
   required?: string[];
   default?: JsonValue;
   properties?: Record<string, JsonSchemaType>;
   items?: JsonSchemaType;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  format?: string;
+  enum?: string[];
+  const?: JsonValue;
+  oneOf?: (JsonSchemaType | JsonSchemaConst)[];
+  anyOf?: (JsonSchemaType | JsonSchemaConst)[];
 };
 
 export type JsonObject = { [key: string]: JsonValue };
