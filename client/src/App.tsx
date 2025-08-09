@@ -455,6 +455,14 @@ const App = () => {
         if (data.defaultArgs) {
           setArgs(data.defaultArgs);
         }
+        if (data.defaultTransport) {
+          setTransportType(
+            data.defaultTransport as "stdio" | "sse" | "streamable-http",
+          );
+        }
+        if (data.defaultServerUrl) {
+          setSseUrl(data.defaultServerUrl);
+        }
       })
       .catch((error) =>
         console.error("Error fetching default environment:", error),

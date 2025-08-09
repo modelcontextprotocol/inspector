@@ -234,6 +234,78 @@ Example server configuration file:
 }
 ```
 
+#### Transport Types in Config Files
+
+The inspector automatically detects the transport type from your config file. You can specify different transport types:
+
+**STDIO (default):**
+
+```json
+{
+  "mcpServers": {
+    "my-stdio-server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-everything"]
+    }
+  }
+}
+```
+
+**SSE (Server-Sent Events):**
+
+```json
+{
+  "mcpServers": {
+    "my-sse-server": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
+```
+
+**Streamable HTTP:**
+
+```json
+{
+  "mcpServers": {
+    "my-http-server": {
+      "type": "streamable-http",
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+#### Default Server Selection
+
+You can launch the inspector without specifying a server name if your config has:
+
+1. **A single server** - automatically selected:
+
+```bash
+# Automatically uses "my-server" if it's the only one
+npx @modelcontextprotocol/inspector --config mcp.json
+```
+
+2. **A server named "default-server"** - automatically selected:
+
+```json
+{
+  "mcpServers": {
+    "default-server": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-everything"]
+    },
+    "other-server": {
+      "command": "node",
+      "args": ["other.js"]
+    }
+  }
+}
+```
+
 > **Tip:** You can easily generate this configuration format using the **Server Entry** and **Servers File** buttons in the Inspector UI, as described in the Servers File Export section above.
 
 You can also set the initial `transport` type, `serverUrl`, `serverCommand`, and `serverArgs` via query params, for example:
