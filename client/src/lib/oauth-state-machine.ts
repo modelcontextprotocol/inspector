@@ -88,12 +88,23 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         clientMetadata.scope = scopesSupported.join(" ");
       }
 
-      const fullInformation = await registerClient(context.serverUrl, {
-        metadata,
-        clientMetadata,
-      });
+      // Try DCR first, with static client as fallback
+      let fullInformation;
+      try {
+        fullInformation = await registerClient(context.serverUrl, {
+          metadata,
+          clientMetadata,
+        });
+        context.provider.saveClientInformation(fullInformation);
+      } catch (dcrError) {
+        // DCR failed, fallback to preregistered client
+        fullInformation = await context.provider.clientInformation();
+        if (!fullInformation) {
+          console.error("Neither dynamic client registration or preregistered client information was found");
+          throw dcrError;
+        }
+      }
 
-      context.provider.saveClientInformation(fullInformation);
       context.updateState({
         oauthClientInfo: fullInformation,
         oauthStep: "authorization_redirect",
