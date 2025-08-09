@@ -21,7 +21,16 @@ export type JsonSchemaType = {
     | "boolean"
     | "array"
     | "object"
-    | "null";
+    | "null"
+    | (
+        | "string"
+        | "number"
+        | "integer"
+        | "boolean"
+        | "array"
+        | "object"
+        | "null"
+      )[];
   title?: string;
   description?: string;
   required?: string[];
