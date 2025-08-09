@@ -1,11 +1,11 @@
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import DynamicJsonForm from "./DynamicJsonForm";
+import DynamicJsonForm, { DynamicJsonFormRef } from "./DynamicJsonForm";
 import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
 import { generateDefaultValue, isPropertyRequired } from "@/utils/schemaUtils";
 import {
@@ -13,8 +13,14 @@ import {
   ListToolsResult,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Loader2, Send, ChevronDown, ChevronUp } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  Loader2,
+  Send,
+  ChevronDown,
+  ChevronUp,
+  AlertCircle,
+} from "lucide-react";
+import { useEffect, useState, useRef } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
@@ -32,6 +38,7 @@ const ToolsTab = ({
   setSelectedTool,
   toolResult,
   nextCursor,
+  error,
   resourceContent,
   onReadResource,
 }: {
@@ -51,6 +58,7 @@ const ToolsTab = ({
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
   const [isMetaExpanded, setIsMetaExpanded] = useState(false);
+  const formRefs = useRef<Record<string, DynamicJsonFormRef | null>>({});
 
   useEffect(() => {
     const params = Object.entries(
@@ -97,7 +105,13 @@ const ToolsTab = ({
             </h3>
           </div>
           <div className="p-4">
-            {selectedTool ? (
+            {error ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : selectedTool ? (
               <div className="space-y-4">
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   {selectedTool.description}
@@ -156,6 +170,7 @@ const ToolsTab = ({
                         ) : prop.type === "object" || prop.type === "array" ? (
                           <div className="mt-1">
                             <DynamicJsonForm
+                              ref={(ref) => (formRefs.current[key] = ref)}
                               schema={{
                                 type: prop.type,
                                 properties: prop.properties,
@@ -194,6 +209,7 @@ const ToolsTab = ({
                         ) : (
                           <div className="mt-1">
                             <DynamicJsonForm
+                              ref={(ref) => (formRefs.current[key] = ref)}
                               schema={{
                                 type: prop.type,
                                 properties: prop.properties,
@@ -286,6 +302,12 @@ const ToolsTab = ({
                   )}
                 <Button
                   onClick={async () => {
+                    // Validate JSON inputs before calling tool
+                    const hasValidationErrors = Object.values(
+                      formRefs.current,
+                    ).some((ref) => ref && !ref.validateJson().isValid);
+                    if (hasValidationErrors) return;
+
                     try {
                       setIsToolRunning(true);
                       await callTool(selectedTool.name, params);
