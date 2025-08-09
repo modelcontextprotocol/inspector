@@ -53,8 +53,18 @@ const ToolsTab = ({
   const [isMetaExpanded, setIsMetaExpanded] = useState(false);
 
   useEffect(() => {
+    if (!selectedTool?.inputSchema?.properties) {
+      console.warn("No input schema properties found for tool:", selectedTool?.name);
+      setParams({});
+      return;
+    }
+
+    // Debug logging for parameter analysis
+    const allProperties = Object.keys(selectedTool.inputSchema.properties);
+    console.log(`Tool ${selectedTool.name} has ${allProperties.length} parameters:`, allProperties);
+    
     const params = Object.entries(
-      selectedTool?.inputSchema.properties ?? [],
+      selectedTool.inputSchema.properties ?? {},
     ).map(([key, value]) => [
       key,
       generateDefaultValue(
@@ -102,14 +112,39 @@ const ToolsTab = ({
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   {selectedTool.description}
                 </p>
-                {Object.entries(selectedTool.inputSchema.properties ?? []).map(
-                  ([key, value]) => {
-                    const prop = value as JsonSchemaType;
-                    const inputSchema =
-                      selectedTool.inputSchema as JsonSchemaType;
-                    const required = isPropertyRequired(key, inputSchema);
-                    return (
-                      <div key={key}>
+                
+                {/* Parameter count debugging info */}
+                {selectedTool.inputSchema?.properties && (
+                  <div className="text-xs bg-blue-50 dark:bg-blue-900/20 p-2 rounded border border-blue-200 dark:border-blue-700">
+                    <span className="font-medium text-blue-800 dark:text-blue-200">
+                      Parameter Info:
+                    </span>
+                    <span className="ml-2 text-blue-700 dark:text-blue-300">
+                      {Object.keys(selectedTool.inputSchema.properties).length} total parameters found
+                    </span>
+                    {selectedTool.inputSchema.required && (
+                      <span className="ml-2 text-blue-700 dark:text-blue-300">
+                        ({selectedTool.inputSchema.required.length} required)
+                      </span>
+                    )}
+                  </div>
+                )}
+                {/* Render all parameters - fix for missing parameter display */}
+                <div className="max-h-96 overflow-y-auto pr-2 space-y-3">
+                  {Object.entries(selectedTool.inputSchema.properties ?? {}).map(
+                    ([key, value]) => {
+                      const prop = value as JsonSchemaType;
+                      const inputSchema =
+                        selectedTool.inputSchema as JsonSchemaType;
+                      const required = isPropertyRequired(key, inputSchema);
+                      
+                      if (!prop) {
+                        console.warn(`Missing property schema for parameter: ${key}`);
+                        return null;
+                      }
+                      
+                      return (
+                        <div key={key} className="border border-gray-200 dark:border-gray-700 rounded p-3 bg-gray-50/50 dark:bg-gray-800/50">
                         <Label
                           htmlFor={key}
                           className="block text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -211,9 +246,10 @@ const ToolsTab = ({
                           </div>
                         )}
                       </div>
-                    );
-                  },
-                )}
+                        );
+                      },
+                    )}
+                </div>
                 {selectedTool.outputSchema && (
                   <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
                     <div className="flex items-center justify-between mb-2">
