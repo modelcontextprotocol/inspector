@@ -78,7 +78,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   get clientMetadata(): OAuthClientMetadata {
     return {
       redirect_uris: [this.redirectUrl],
-      token_endpoint_auth_method: "none",
+      token_endpoint_auth_method: "client_secret_basic",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       client_name: "MCP Inspector",
