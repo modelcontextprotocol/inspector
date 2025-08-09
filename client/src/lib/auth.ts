@@ -8,6 +8,7 @@ import {
   OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
+import { sanitizeUrl } from 'strict-url-sanitise';
 
 export const getClientInformationFromSessionStorage = async ({
   serverUrl,
@@ -129,7 +130,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   redirectToAuthorization(authorizationUrl: URL) {
-    window.location.href = authorizationUrl.href;
+    window.location.href = sanitizeUrl(authorizationUrl.href);
   }
 
   saveCodeVerifier(codeVerifier: string) {
