@@ -56,6 +56,11 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         resourceMetadata ?? undefined,
       );
 
+      // Persist the resource URL so it survives the redirect.
+      if (resource) {
+        context.provider.saveResource(resource);
+      }
+
       const metadata = await discoverOAuthMetadata(authServerUrl);
       if (!metadata) {
         throw new Error("Failed to discover OAuth metadata");
@@ -173,13 +178,16 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       const metadata = context.provider.getServerMetadata()!;
       const clientInformation = (await context.provider.clientInformation())!;
 
+      // Retrieve the resource from persistent storage, not volatile state.
+      const resource = context.provider.getResource();
+
       const tokens = await exchangeAuthorization(context.serverUrl, {
         metadata,
         clientInformation,
         authorizationCode: context.state.authorizationCode,
         codeVerifier,
         redirectUri: context.provider.redirectUrl,
-        resource: context.state.resource ?? undefined,
+        resource: resource ?? undefined,
       });
 
       context.provider.saveTokens(tokens);
