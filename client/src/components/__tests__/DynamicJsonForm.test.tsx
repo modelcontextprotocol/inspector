@@ -35,6 +35,18 @@ describe("DynamicJsonForm String Fields", () => {
       const input = screen.getByRole("textbox");
       expect(input).toHaveProperty("type", "text");
     });
+
+    it("should handle a union type of string and null", () => {
+      const schema: JsonSchemaType = {
+        type: ["string", "null"],
+        description: "Test string or null field",
+      };
+      render(
+        <DynamicJsonForm schema={schema} value={null} onChange={jest.fn()} />,
+      );
+      const input = screen.getByRole("textbox");
+      expect(input).toHaveProperty("type", "text");
+    });
   });
 
   describe("Format Support", () => {
