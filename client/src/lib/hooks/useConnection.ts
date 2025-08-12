@@ -37,7 +37,7 @@ import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
 import { ConnectionStatus } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
-import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import { auth, discoverOAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   clearClientInformationFromSessionStorage,
   InspectorOAuthClientProvider,
@@ -317,9 +317,19 @@ export function useConnection({
     if (is401Error(error)) {
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
+      let scope = oauthScope;
+      try {
+        const resourceMetadata = await discoverOAuthProtectedResourceMetadata(sseUrl);
+        if (resourceMetadata?.scopes_supported) {
+          scope = resourceMetadata.scopes_supported.join(" ");
+        }
+      } catch {
+        // Continue without scope if discovery fails
+      }
+
       const result = await auth(serverAuthProvider, {
         serverUrl: sseUrl,
-        scope: oauthScope,
+        scope,
       });
       return result === "AUTHORIZED";
     }
