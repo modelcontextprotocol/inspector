@@ -134,6 +134,12 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   redirectToAuthorization(authorizationUrl: URL) {
+    if (
+      authorizationUrl.protocol !== "http:" &&
+      authorizationUrl.protocol !== "https:"
+    ) {
+      throw new Error("Authorization URL must be HTTP or HTTPS");
+    }
     window.location.href = authorizationUrl.href;
   }
 

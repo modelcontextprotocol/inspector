@@ -351,6 +351,7 @@ export function useConnection({
       return;
     }
 
+    let lastRequest = "";
     try {
       // Inject auth manually instead of using SSEClientTransport, because we're
       // proxying through the inspector server first.
@@ -564,7 +565,9 @@ export function useConnection({
       }
 
       if (capabilities?.logging && defaultLoggingLevel) {
+        lastRequest = "logging/setLevel";
         await client.setLoggingLevel(defaultLoggingLevel);
+        lastRequest = "";
       }
 
       if (onElicitationRequest) {
@@ -578,6 +581,17 @@ export function useConnection({
       setMcpClient(client);
       setConnectionStatus("connected");
     } catch (e) {
+      if (
+        lastRequest === "logging/setLevel" &&
+        e instanceof McpError &&
+        e.code === ErrorCode.MethodNotFound
+      ) {
+        toast({
+          title: "Error",
+          description: `Server declares logging capability but doesn't implement method: "${lastRequest}"`,
+          variant: "destructive",
+        });
+      }
       console.error(e);
       setConnectionStatus("error");
     }
