@@ -98,6 +98,25 @@ const sessionToken =
   process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
 const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
 
+// Extract base path from MCP_PROXY_FULL_ADDRESS for SSE message endpoint
+const getMessagePath = (): string => {
+  const proxyFullAddress = process.env.MCP_PROXY_FULL_ADDRESS;
+  if (!proxyFullAddress) {
+    return "/message";
+  }
+  try {
+    const url = new URL(proxyFullAddress);
+    // Remove trailing slash and add /message to the pathname
+    const basePath =
+      url.pathname === "/" ? "" : url.pathname.replace(/\/$/, "");
+    return `${basePath}/message`;
+  } catch {
+    return "/message";
+  }
+};
+
+const MESSAGE_PATH = getMessagePath();
+
 // Origin validation middleware to prevent DNS rebinding attacks
 const originValidationMiddleware = (
   req: express.Request,
@@ -391,7 +410,7 @@ app.get(
         throw error;
       }
 
-      const webAppTransport = new SSEServerTransport("/message", res);
+      const webAppTransport = new SSEServerTransport(MESSAGE_PATH, res);
       console.log("Created client transport");
 
       webAppTransports.set(webAppTransport.sessionId, webAppTransport);
@@ -469,7 +488,7 @@ app.get(
       }
 
       if (serverTransport) {
-        const webAppTransport = new SSEServerTransport("/message", res);
+        const webAppTransport = new SSEServerTransport(MESSAGE_PATH, res);
         webAppTransports.set(webAppTransport.sessionId, webAppTransport);
         console.log("Created client transport");
         serverTransports.set(webAppTransport.sessionId, serverTransport!);
