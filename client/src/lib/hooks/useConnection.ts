@@ -390,11 +390,20 @@ export function useConnection({
 
       let mcpProxyServerUrl;
       switch (transportType) {
-        case "stdio":
+        case "stdio": {
           mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/stdio`);
           mcpProxyServerUrl.searchParams.append("command", command);
           mcpProxyServerUrl.searchParams.append("args", args);
           mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
+
+          const proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS
+            .value as string;
+          if (proxyFullAddress) {
+            mcpProxyServerUrl.searchParams.append(
+              "proxyFullAddress",
+              proxyFullAddress,
+            );
+          }
           transportOptions = {
             authProvider: serverAuthProvider,
             eventSourceInit: {
@@ -412,10 +421,20 @@ export function useConnection({
             },
           };
           break;
+        }
 
-        case "sse":
+        case "sse": {
           mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
           mcpProxyServerUrl.searchParams.append("url", sseUrl);
+
+          const proxyFullAddressSSE = config.MCP_PROXY_FULL_ADDRESS
+            .value as string;
+          if (proxyFullAddressSSE) {
+            mcpProxyServerUrl.searchParams.append(
+              "proxyFullAddress",
+              proxyFullAddressSSE,
+            );
+          }
           transportOptions = {
             eventSourceInit: {
               fetch: (
@@ -432,6 +451,7 @@ export function useConnection({
             },
           };
           break;
+        }
 
         case "streamable-http":
           mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
