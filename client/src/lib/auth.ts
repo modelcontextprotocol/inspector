@@ -8,6 +8,7 @@ import {
   OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
+import { generateOAuthState } from "@/utils/oauthUtils";
 
 export const getClientInformationFromSessionStorage = async ({
   serverUrl,
@@ -84,6 +85,10 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
       client_name: "MCP Inspector",
       client_uri: "https://github.com/modelcontextprotocol/inspector",
     };
+  }
+
+  state(): string | Promise<string> {
+    return generateOAuthState();
   }
 
   async clientInformation() {
