@@ -14,6 +14,8 @@ type Args = {
   args: string[];
   envArgs: Record<string, string>;
   cli: boolean;
+  transport?: "stdio" | "sse" | "streamable-http";
+  serverUrl?: string;
 };
 
 type CliOptions = {
@@ -21,13 +23,22 @@ type CliOptions = {
   config?: string;
   server?: string;
   cli?: boolean;
+  transport?: string;
+  serverUrl?: string;
 };
 
-type ServerConfig = {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-};
+type ServerConfig =
+  | {
+      type: "stdio";
+      command: string;
+      args?: string[];
+      env?: Record<string, string>;
+    }
+  | {
+      type: "sse" | "streamable-http";
+      url: string;
+      note?: string;
+    };
 
 function handleError(error: unknown): never {
   let message: string;
@@ -74,6 +85,16 @@ async function runWebClient(args: Args): Promise<void> {
     startArgs.push("-e", `${key}=${value}`);
   }
 
+  // Pass transport type if specified
+  if (args.transport) {
+    startArgs.push("--transport", args.transport);
+  }
+
+  // Pass server URL if specified
+  if (args.serverUrl) {
+    startArgs.push("--server-url", args.serverUrl);
+  }
+
   // Pass command and args (using -- to separate them)
   if (args.command) {
     startArgs.push("--", args.command, ...args.args);
@@ -103,7 +124,21 @@ async function runCli(args: Args): Promise<void> {
   });
 
   try {
-    await spawnPromise("node", [cliPath, args.command, ...args.args], {
+    // Build CLI arguments
+    const cliArgs = [cliPath];
+
+    // Add transport flag if specified
+    if (args.transport && args.transport !== "stdio") {
+      // Convert streamable-http back to http for CLI mode
+      const cliTransport =
+        args.transport === "streamable-http" ? "http" : args.transport;
+      cliArgs.push("--transport", cliTransport);
+    }
+
+    // Add command and remaining args
+    cliArgs.push(args.command, ...args.args);
+
+    await spawnPromise("node", cliArgs, {
       env: { ...process.env, ...args.envArgs },
       signal: abort.signal,
       echoOutput: true,
@@ -190,7 +225,9 @@ function parseArgs(): Args {
     )
     .option("--config <path>", "config file path")
     .option("--server <n>", "server name from config file")
-    .option("--cli", "enable CLI mode");
+    .option("--cli", "enable CLI mode")
+    .option("--transport <type>", "transport type (stdio, sse, http)")
+    .option("--server-url <url>", "server URL for SSE/HTTP transport");
 
   // Parse only the arguments before --
   program.parse(preArgs);
@@ -201,14 +238,33 @@ function parseArgs(): Args {
   // Add back any arguments that came after --
   const finalArgs = [...remainingArgs, ...postArgs];
 
-  // Validate that config and server are provided together
-  if (
-    (options.config && !options.server) ||
-    (!options.config && options.server)
-  ) {
-    throw new Error(
-      "Both --config and --server must be provided together. If you specify one, you must specify the other.",
+  // Validate config and server options
+  if (!options.config && options.server) {
+    throw new Error("--server requires --config to be specified");
+  }
+
+  // If config is provided without server, try to auto-select
+  if (options.config && !options.server) {
+    const configContent = fs.readFileSync(
+      path.isAbsolute(options.config)
+        ? options.config
+        : path.resolve(process.cwd(), options.config),
+      "utf8",
     );
+    const parsedConfig = JSON.parse(configContent);
+    const servers = Object.keys(parsedConfig.mcpServers || {});
+
+    if (servers.length === 1) {
+      // Use the only server if there's just one
+      options.server = servers[0];
+    } else if (servers.length === 0) {
+      throw new Error("No servers found in config file");
+    } else {
+      // Multiple servers, require explicit selection
+      throw new Error(
+        `Multiple servers found in config file. Please specify one with --server.\nAvailable servers: ${servers.join(", ")}`,
+      );
+    }
   }
 
   // If config file is specified, load and use the options from the file. We must merge the args
@@ -217,23 +273,52 @@ function parseArgs(): Args {
   if (options.config && options.server) {
     const config = loadConfigFile(options.config, options.server);
 
-    return {
-      command: config.command,
-      args: [...(config.args || []), ...finalArgs],
-      envArgs: { ...(config.env || {}), ...(options.e || {}) },
-      cli: options.cli || false,
-    };
+    if (config.type === "stdio") {
+      return {
+        command: config.command,
+        args: [...(config.args || []), ...finalArgs],
+        envArgs: { ...(config.env || {}), ...(options.e || {}) },
+        cli: options.cli || false,
+        transport: "stdio",
+      };
+    } else if (config.type === "sse" || config.type === "streamable-http") {
+      return {
+        command: config.url,
+        args: finalArgs,
+        envArgs: options.e || {},
+        cli: options.cli || false,
+        transport: config.type,
+        serverUrl: config.url,
+      };
+    } else {
+      // Backwards compatibility: if no type field, assume stdio
+      return {
+        command: (config as any).command || "",
+        args: [...((config as any).args || []), ...finalArgs],
+        envArgs: { ...((config as any).env || {}), ...(options.e || {}) },
+        cli: options.cli || false,
+        transport: "stdio",
+      };
+    }
   }
 
   // Otherwise use command line arguments
   const command = finalArgs[0] || "";
   const args = finalArgs.slice(1);
 
+  // Map "http" shorthand to "streamable-http"
+  let transport = options.transport;
+  if (transport === "http") {
+    transport = "streamable-http";
+  }
+
   return {
     command,
     args,
     envArgs: options.e || {},
     cli: options.cli || false,
+    transport: transport as "stdio" | "sse" | "streamable-http" | undefined,
+    serverUrl: options.serverUrl,
   };
 }
 
