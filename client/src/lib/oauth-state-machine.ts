@@ -89,6 +89,16 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         clientMetadata.scope = scopesSupported.join(" ");
       }
 
+      // Select a preferred auth method
+      const authMethodsSupported =
+        metadata.token_endpoint_auth_methods_supported;
+      for (const authMethod of ["client_secret_basic", "client_secret_post"]) {
+        if (authMethodsSupported && authMethodsSupported.includes(authMethod)) {
+          clientMetadata.token_endpoint_auth_method = authMethod;
+          break;
+        }
+      }
+
       const fullInformation = await registerClient(context.serverUrl, {
         metadata,
         clientMetadata,
