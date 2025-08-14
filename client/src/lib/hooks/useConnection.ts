@@ -37,15 +37,11 @@ import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
 import { ConnectionStatus } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
-import {
-  auth,
-  discoverOAuthProtectedResourceMetadata,
-} from "@modelcontextprotocol/sdk/client/auth.js";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   clearClientInformationFromSessionStorage,
   InspectorOAuthClientProvider,
   saveClientInformationToSessionStorage,
-  discoverScopes,
 } from "../auth";
 import packageJson from "../../../package.json";
 import {
@@ -321,23 +317,9 @@ export function useConnection({
     if (is401Error(error)) {
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
-      let scope = oauthScope?.trim();
-      if (!scope) {
-        // Only discover resource metadata when we need to discover scopes
-        let resourceMetadata;
-        try {
-          resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-            new URL("/", sseUrl),
-          );
-        } catch {
-          // Resource metadata is optional, continue without it
-        }
-        scope = await discoverScopes(sseUrl, resourceMetadata);
-      }
-
       const result = await auth(serverAuthProvider, {
         serverUrl: sseUrl,
-        scope,
+        scope: oauthScope,
       });
       return result === "AUTHORIZED";
     }
