@@ -268,6 +268,7 @@ const Sidebar = ({
                   placeholder="Command"
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
+                  onBlur={(e) => setCommand(e.target.value.trim())}
                   className="font-mono"
                 />
               </div>

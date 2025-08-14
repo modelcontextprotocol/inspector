@@ -181,7 +181,7 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
   const transportType = query.transportType as string;
 
   if (transportType === "stdio") {
-    const command = query.command as string;
+    const command = (query.command as string).trim();
     const origArgs = shellParseArgs(query.args as string) as string[];
     const queryEnv = query.env ? JSON.parse(query.env as string) : {};
     const env = { ...process.env, ...defaultEnvironment, ...queryEnv };
