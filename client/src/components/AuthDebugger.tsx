@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { DebugInspectorOAuthClientProvider } from "../lib/auth";
+import { DebugInspectorOAuthClientProvider, InspectorOAuthClientProvider } from "../lib/auth";
 import { AlertCircle } from "lucide-react";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
@@ -149,11 +149,13 @@ const AuthDebugger = ({
         latestError: null,
       };
 
+      // Use regular provider for quick flow (automatic callback)
+      const provider = new InspectorOAuthClientProvider(serverUrl);
       const oauthMachine = new OAuthStateMachine(serverUrl, (updates) => {
         // Update our temporary state during the process
         currentState = { ...currentState, ...updates };
         // But don't call updateAuthState yet
-      });
+      }, provider);
 
       // Manually step through each stage of the OAuth flow
       while (currentState.oauthStep !== "complete") {

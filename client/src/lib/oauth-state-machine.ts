@@ -1,5 +1,5 @@
 import { OAuthStep, AuthDebuggerState } from "./auth-types";
-import { DebugInspectorOAuthClientProvider } from "./auth";
+import { DebugInspectorOAuthClientProvider, InspectorOAuthClientProvider } from "./auth";
 import {
   discoverAuthorizationServerMetadata,
   registerClient,
@@ -17,7 +17,7 @@ import { generateOAuthState } from "@/utils/oauthUtils";
 export interface StateMachineContext {
   state: AuthDebuggerState;
   serverUrl: string;
-  provider: DebugInspectorOAuthClientProvider;
+  provider: DebugInspectorOAuthClientProvider | InspectorOAuthClientProvider;
   updateState: (updates: Partial<AuthDebuggerState>) => void;
 }
 
@@ -62,7 +62,10 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         throw new Error("Failed to discover OAuth metadata");
       }
       const parsedMetadata = await OAuthMetadataSchema.parseAsync(metadata);
-      context.provider.saveServerMetadata(parsedMetadata);
+      // Only save server metadata if provider supports it (debug provider)
+      if ('saveServerMetadata' in context.provider) {
+        context.provider.saveServerMetadata(parsedMetadata);
+      }
       context.updateState({
         resourceMetadata,
         resource,
@@ -160,15 +163,20 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
 
   token_request: {
     canTransition: async (context) => {
+      const hasServerMetadata = 'getServerMetadata' in context.provider 
+        ? !!context.provider.getServerMetadata() 
+        : !!context.state.oauthMetadata;
       return (
         !!context.state.authorizationCode &&
-        !!context.provider.getServerMetadata() &&
+        hasServerMetadata &&
         !!(await context.provider.clientInformation())
       );
     },
     execute: async (context) => {
       const codeVerifier = context.provider.codeVerifier();
-      const metadata = context.provider.getServerMetadata()!;
+      const metadata = 'getServerMetadata' in context.provider 
+        ? context.provider.getServerMetadata()! 
+        : context.state.oauthMetadata!;
       const clientInformation = (await context.provider.clientInformation())!;
 
       const tokens = await exchangeAuthorization(context.serverUrl, {
@@ -200,10 +208,12 @@ export class OAuthStateMachine {
   constructor(
     private serverUrl: string,
     private updateState: (updates: Partial<AuthDebuggerState>) => void,
+    private provider?: DebugInspectorOAuthClientProvider | InspectorOAuthClientProvider,
   ) {}
 
   async executeStep(state: AuthDebuggerState): Promise<void> {
-    const provider = new DebugInspectorOAuthClientProvider(this.serverUrl);
+    // Use provided provider or default to debug provider for backward compatibility
+    const provider = this.provider || new DebugInspectorOAuthClientProvider(this.serverUrl);
     const context: StateMachineContext = {
       state,
       serverUrl: this.serverUrl,
