@@ -12,6 +12,7 @@ export type TransportOptions = {
   command?: string;
   args?: string[];
   url?: string;
+  headers?: Record<string, string>;
 };
 
 function createStdioTransport(options: TransportOptions): Transport {
@@ -64,11 +65,25 @@ export function createTransport(options: TransportOptions): Transport {
     const url = new URL(options.url);
 
     if (transportType === "sse") {
-      return new SSEClientTransport(url);
+      const transportOptions = options.headers
+        ? {
+            requestInit: {
+              headers: options.headers,
+            },
+          }
+        : undefined;
+      return new SSEClientTransport(url, transportOptions);
     }
 
     if (transportType === "http") {
-      return new StreamableHTTPClientTransport(url);
+      const transportOptions = options.headers
+        ? {
+            requestInit: {
+              headers: options.headers,
+            },
+          }
+        : undefined;
+      return new StreamableHTTPClientTransport(url, transportOptions);
     }
 
     throw new Error(`Unsupported transport type: ${transportType}`);

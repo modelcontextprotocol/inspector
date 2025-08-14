@@ -389,6 +389,9 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com
 # Connect to a remote MCP server (with Streamable HTTP transport)
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --transport http --method tools/list
 
+# Connect to a remote MCP server (with custom headers)
+npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --transport http --method tools/list --header "X-API-Key: your-api-key"
+
 # Call a tool on a remote server
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --method tools/call --tool-name remotetool --tool-arg param=value
 
