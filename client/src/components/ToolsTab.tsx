@@ -7,7 +7,11 @@ import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import DynamicJsonForm from "./DynamicJsonForm";
 import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
-import { generateDefaultValue, isPropertyRequired } from "@/utils/schemaUtils";
+import {
+  generateDefaultValue,
+  isPropertyRequired,
+  normalizeUnionType,
+} from "@/utils/schemaUtils";
 import {
   CompatibilityCallToolResult,
   ListToolsResult,
@@ -18,6 +22,10 @@ import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
+
+// Type guard to safely detect the optional _meta field without using `any`
+const hasMeta = (tool: Tool): tool is Tool & { _meta: unknown } =>
+  typeof (tool as { _meta?: unknown })._meta !== "undefined";
 
 const ToolsTab = ({
   tools,
@@ -46,6 +54,7 @@ const ToolsTab = ({
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
+  const [isMetaExpanded, setIsMetaExpanded] = useState(false);
 
   useEffect(() => {
     const params = Object.entries(
@@ -99,7 +108,7 @@ const ToolsTab = ({
                 </p>
                 {Object.entries(selectedTool.inputSchema.properties ?? []).map(
                   ([key, value]) => {
-                    const prop = value as JsonSchemaType;
+                    const prop = normalizeUnionType(value as JsonSchemaType);
                     const inputSchema =
                       selectedTool.inputSchema as JsonSchemaType;
                     const required = isPropertyRequired(key, inputSchema);
@@ -143,7 +152,10 @@ const ToolsTab = ({
                             onChange={(e) =>
                               setParams({
                                 ...params,
-                                [key]: e.target.value,
+                                [key]:
+                                  e.target.value === ""
+                                    ? undefined
+                                    : e.target.value,
                               })
                             }
                             className="mt-1"
@@ -245,6 +257,40 @@ const ToolsTab = ({
                     </div>
                   </div>
                 )}
+                {selectedTool &&
+                  hasMeta(selectedTool) &&
+                  selectedTool._meta && (
+                    <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-semibold">Meta:</h4>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setIsMetaExpanded(!isMetaExpanded)}
+                          className="h-6 px-2"
+                        >
+                          {isMetaExpanded ? (
+                            <>
+                              <ChevronUp className="h-3 w-3 mr-1" />
+                              Collapse
+                            </>
+                          ) : (
+                            <>
+                              <ChevronDown className="h-3 w-3 mr-1" />
+                              Expand
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                      <div
+                        className={`transition-all ${
+                          isMetaExpanded ? "" : "max-h-[8rem] overflow-y-auto"
+                        }`}
+                      >
+                        <JsonView data={selectedTool._meta} />
+                      </div>
+                    </div>
+                  )}
                 <Button
                   onClick={async () => {
                     try {

@@ -5,6 +5,7 @@ import ToolsTab from "../ToolsTab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Tabs } from "@/components/ui/tabs";
 import { cacheToolOutputSchemas } from "@/utils/schemaUtils";
+import { within } from "@testing-library/react";
 
 describe("ToolsTab", () => {
   beforeEach(() => {
@@ -554,6 +555,86 @@ describe("ToolsTab", () => {
       );
       expect(resource1Button).toHaveAttribute("aria-expanded", "false");
       expect(mockOnReadResource).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("Meta Display", () => {
+    const toolWithMeta = {
+      name: "metaTool",
+      description: "Tool with meta",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          foo: { type: "string" as const },
+        },
+      },
+      _meta: {
+        author: "tester",
+        version: 1,
+      },
+    } as unknown as Tool;
+
+    it("should display meta section when tool has _meta", () => {
+      renderToolsTab({
+        tools: [toolWithMeta],
+        selectedTool: toolWithMeta,
+      });
+
+      expect(screen.getByText("Meta:")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /expand/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("should toggle meta expansion", () => {
+      renderToolsTab({
+        tools: [toolWithMeta],
+        selectedTool: toolWithMeta,
+      });
+
+      // There might be multiple Expand buttons (Output Schema, Meta). We need the one within Meta section
+      const metaHeading = screen.getByText("Meta:");
+      const metaContainer = metaHeading.closest("div");
+      expect(metaContainer).toBeTruthy();
+      const toggleButton = within(metaContainer as HTMLElement).getByRole(
+        "button",
+        { name: /expand/i },
+      );
+
+      // Expand Meta
+      fireEvent.click(toggleButton);
+      expect(
+        within(metaContainer as HTMLElement).getByRole("button", {
+          name: /collapse/i,
+        }),
+      ).toBeInTheDocument();
+
+      // Collapse Meta
+      fireEvent.click(toggleButton);
+      expect(
+        within(metaContainer as HTMLElement).getByRole("button", {
+          name: /expand/i,
+        }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe("ToolResults Meta", () => {
+    it("should display meta information when present in toolResult", () => {
+      const resultWithMeta = {
+        content: [],
+        _meta: { info: "details", version: 2 },
+      };
+
+      renderToolsTab({
+        selectedTool: mockTools[0],
+        toolResult: resultWithMeta,
+      });
+
+      // Only ToolResults meta should be present since selectedTool has no _meta
+      expect(screen.getAllByText("Meta:")).toHaveLength(1);
+      expect(screen.getByText(/info/i)).toBeInTheDocument();
+      expect(screen.getByText(/version/i)).toBeInTheDocument();
     });
   });
 });
