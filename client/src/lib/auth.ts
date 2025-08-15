@@ -102,10 +102,15 @@ export const clearClientInformationFromSessionStorage = ({
 };
 
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
-  constructor(protected serverUrl: string) {
+  constructor(
+    protected serverUrl: string,
+    scope?: string,
+  ) {
+    this.scope = scope;
     // Save the server URL to session storage
     sessionStorage.setItem(SESSION_KEYS.SERVER_URL, serverUrl);
   }
+  scope: string | undefined;
 
   get redirectUrl() {
     return window.location.origin + "/oauth/callback";
@@ -119,6 +124,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
       response_types: ["code"],
       client_name: "MCP Inspector",
       client_uri: "https://github.com/modelcontextprotocol/inspector",
+      scope: this.scope ?? "",
     };
   }
 

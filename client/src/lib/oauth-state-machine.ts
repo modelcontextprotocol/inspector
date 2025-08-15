@@ -177,7 +177,11 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         authorizationCode: context.state.authorizationCode,
         codeVerifier,
         redirectUri: context.provider.redirectUrl,
-        resource: context.state.resource ?? undefined,
+        resource: context.state.resource
+          ? context.state.resource instanceof URL
+            ? context.state.resource
+            : new URL(context.state.resource)
+          : undefined,
       });
 
       context.provider.saveTokens(tokens);
