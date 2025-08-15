@@ -24,6 +24,11 @@ type CallbackParams =
       error_uri: string | null;
     };
 
+/**
+ * Parses OAuth 2.1 callback parameters from a URL search string
+ * @param location The URL search string (e.g., "?code=abc123" or "?error=access_denied")
+ * @returns Parsed callback parameters with success/error information
+ */
 export const parseOAuthCallbackParams = (location: string): CallbackParams => {
   const params = new URLSearchParams(location);
 
@@ -62,6 +67,11 @@ export const generateOAuthState = () => {
   );
 };
 
+/**
+ * Generates a human-readable error description from OAuth callback error parameters
+ * @param params OAuth error callback parameters containing error details
+ * @returns Formatted multiline error message with error code, description, and optional URI
+ */
 export const generateOAuthErrorDescription = (
   params: Extract<CallbackParams, { successful: false }>,
 ): string => {

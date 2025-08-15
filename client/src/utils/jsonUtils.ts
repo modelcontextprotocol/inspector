@@ -63,12 +63,22 @@ export type DataType =
   | "array"
   | "null";
 
+/**
+ * Determines the specific data type of a JSON value
+ * @param value The JSON value to analyze
+ * @returns The specific data type including "array" and "null" as distinct types
+ */
 export function getDataType(value: JsonValue): DataType {
   if (Array.isArray(value)) return "array";
   if (value === null) return "null";
   return typeof value;
 }
 
+/**
+ * Attempts to parse a string as JSON, only for objects and arrays
+ * @param str The string to parse
+ * @returns Object with success boolean and either parsed data or original string
+ */
 export function tryParseJson(str: string): {
   success: boolean;
   data: JsonValue;
