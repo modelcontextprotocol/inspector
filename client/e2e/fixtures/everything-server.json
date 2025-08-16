@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "everything": {
+      "command": "npm",
+      "args": [
+        "--silent",
+        "--prefix",
+        "/path/to/mcp/servers/src/everything",
+        "run",
+        "start"
+      ],
+      "env": {
+        "FOO": "bar",
+        "BAZ": "bat"
+      }
+    }
+  }
+}
