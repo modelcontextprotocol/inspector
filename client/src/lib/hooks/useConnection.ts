@@ -284,7 +284,10 @@ export function useConnection({
 
   const checkProxyHealth = async () => {
     try {
-      const proxyHealthUrl = new URL(`${getMCPProxyAddress(config)}/health`);
+      const proxyAddress = getMCPProxyAddress(config);
+      const proxyHealthUrl = proxyAddress.startsWith('http')
+        ? new URL(`${proxyAddress}/health`)
+        : new URL(`${proxyAddress}/health`, window.location.origin);
       const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
         getMCPProxyAuthToken(config);
       const headers: HeadersInit = {};
@@ -408,10 +411,13 @@ export function useConnection({
         | StreamableHTTPClientTransportOptions
         | SSEClientTransportOptions;
 
+      const proxyAddress = getMCPProxyAddress(config);
       let mcpProxyServerUrl;
       switch (transportType) {
         case "stdio":
-          mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/stdio`);
+          mcpProxyServerUrl = proxyAddress.startsWith('http')
+            ? new URL(`${proxyAddress}/stdio`)
+            : new URL(`${proxyAddress}/stdio`, window.location.origin);
           mcpProxyServerUrl.searchParams.append("command", command);
           mcpProxyServerUrl.searchParams.append("args", args);
           mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
@@ -434,7 +440,9 @@ export function useConnection({
           break;
 
         case "sse":
-          mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
+          mcpProxyServerUrl = proxyAddress.startsWith('http')
+            ? new URL(`${proxyAddress}/sse`)
+            : new URL(`${proxyAddress}/sse`, window.location.origin);
           mcpProxyServerUrl.searchParams.append("url", sseUrl);
           transportOptions = {
             eventSourceInit: {
@@ -454,7 +462,9 @@ export function useConnection({
           break;
 
         case "streamable-http":
-          mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
+          mcpProxyServerUrl = proxyAddress.startsWith('http')
+            ? new URL(`${proxyAddress}/mcp`)
+            : new URL(`${proxyAddress}/mcp`, window.location.origin);
           mcpProxyServerUrl.searchParams.append("url", sseUrl);
           transportOptions = {
             eventSourceInit: {

@@ -24,6 +24,14 @@ export const getMCPProxyAddress = (config: InspectorConfig): string => {
   const proxyPort =
     getSearchParam("MCP_PROXY_PORT") || DEFAULT_MCP_PROXY_LISTEN_PORT;
 
+  // If we're being served through a proxy path (like /proxy/6274/),
+  // construct relative URL to the proxy server port
+  const currentPath = window.location.pathname;
+  if (currentPath.includes('/proxy/')) {
+    const basePath = currentPath.replace(/\/proxy\/\d+\/.*$/, '');
+    return `${basePath}/proxy/${proxyPort}`;
+  }
+
   return `${window.location.protocol}//${window.location.hostname}:${proxyPort}`;
 };
 
