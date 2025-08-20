@@ -1,0 +1,2 @@
+npx lint-staged
+git update-index --again

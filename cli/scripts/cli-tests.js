@@ -120,6 +120,85 @@ try {
 const invalidConfigPath = path.join(TEMP_DIR, "invalid-config.json");
 fs.writeFileSync(invalidConfigPath, '{\n  "mcpServers": {\n    "invalid": {');
 
+// Create config files with different transport types for testing
+const sseConfigPath = path.join(TEMP_DIR, "sse-config.json");
+fs.writeFileSync(
+  sseConfigPath,
+  JSON.stringify(
+    {
+      mcpServers: {
+        "test-sse": {
+          type: "sse",
+          url: "http://localhost:3000/sse",
+          note: "Test SSE server",
+        },
+      },
+    },
+    null,
+    2,
+  ),
+);
+
+const httpConfigPath = path.join(TEMP_DIR, "http-config.json");
+fs.writeFileSync(
+  httpConfigPath,
+  JSON.stringify(
+    {
+      mcpServers: {
+        "test-http": {
+          type: "streamable-http",
+          url: "http://localhost:3000/mcp",
+          note: "Test HTTP server",
+        },
+      },
+    },
+    null,
+    2,
+  ),
+);
+
+const stdioConfigPath = path.join(TEMP_DIR, "stdio-config.json");
+fs.writeFileSync(
+  stdioConfigPath,
+  JSON.stringify(
+    {
+      mcpServers: {
+        "test-stdio": {
+          type: "stdio",
+          command: "npx",
+          args: ["@modelcontextprotocol/server-everything"],
+          env: {
+            TEST_ENV: "test-value",
+          },
+        },
+      },
+    },
+    null,
+    2,
+  ),
+);
+
+// Config without type field (backward compatibility)
+const legacyConfigPath = path.join(TEMP_DIR, "legacy-config.json");
+fs.writeFileSync(
+  legacyConfigPath,
+  JSON.stringify(
+    {
+      mcpServers: {
+        "test-legacy": {
+          command: "npx",
+          args: ["@modelcontextprotocol/server-everything"],
+          env: {
+            LEGACY_ENV: "legacy-value",
+          },
+        },
+      },
+    },
+    null,
+    2,
+  ),
+);
+
 // Function to run a basic test
 async function runBasicTest(testName, ...args) {
   const outputFile = path.join(
@@ -650,6 +729,160 @@ async function runTests() {
   );
 
   console.log(
+    `\n${colors.YELLOW}=== Running Config Transport Type Tests ===${colors.NC}`,
+  );
+
+  // Test 25: Config with stdio transport type
+  await runBasicTest(
+    "config_stdio_type",
+    "--config",
+    stdioConfigPath,
+    "--server",
+    "test-stdio",
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  // Test 26: Config with SSE transport type (CLI mode) - expects connection error
+  await runErrorTest(
+    "config_sse_type_cli",
+    "--config",
+    sseConfigPath,
+    "--server",
+    "test-sse",
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  // Test 27: Config with streamable-http transport type (CLI mode) - expects connection error
+  await runErrorTest(
+    "config_http_type_cli",
+    "--config",
+    httpConfigPath,
+    "--server",
+    "test-http",
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  // Test 28: Legacy config without type field (backward compatibility)
+  await runBasicTest(
+    "config_legacy_no_type",
+    "--config",
+    legacyConfigPath,
+    "--server",
+    "test-legacy",
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  console.log(
+    `\n${colors.YELLOW}=== Running Default Server Tests ===${colors.NC}`,
+  );
+
+  // Create config with single server for auto-selection
+  const singleServerConfigPath = path.join(
+    TEMP_DIR,
+    "single-server-config.json",
+  );
+  fs.writeFileSync(
+    singleServerConfigPath,
+    JSON.stringify(
+      {
+        mcpServers: {
+          "only-server": {
+            command: "npx",
+            args: ["@modelcontextprotocol/server-everything"],
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
+
+  // Create config with default-server
+  const defaultServerConfigPath = path.join(
+    TEMP_DIR,
+    "default-server-config.json",
+  );
+  fs.writeFileSync(
+    defaultServerConfigPath,
+    JSON.stringify(
+      {
+        mcpServers: {
+          "default-server": {
+            command: "npx",
+            args: ["@modelcontextprotocol/server-everything"],
+          },
+          "other-server": {
+            command: "node",
+            args: ["other.js"],
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
+
+  // Create config with multiple servers (no default)
+  const multiServerConfigPath = path.join(TEMP_DIR, "multi-server-config.json");
+  fs.writeFileSync(
+    multiServerConfigPath,
+    JSON.stringify(
+      {
+        mcpServers: {
+          server1: {
+            command: "npx",
+            args: ["@modelcontextprotocol/server-everything"],
+          },
+          server2: {
+            command: "node",
+            args: ["other.js"],
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
+
+  // Test 29: Config with single server auto-selection
+  await runBasicTest(
+    "single_server_auto_select",
+    "--config",
+    singleServerConfigPath,
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  // Test 30: Config with default-server should now require explicit selection (multiple servers)
+  await runErrorTest(
+    "default_server_requires_explicit_selection",
+    "--config",
+    defaultServerConfigPath,
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  // Test 31: Config with multiple servers and no default (should fail)
+  await runErrorTest(
+    "multi_server_no_default",
+    "--config",
+    multiServerConfigPath,
+    "--cli",
+    "--method",
+    "tools/list",
+  );
+
+  console.log(
     `\n${colors.YELLOW}=== Running HTTP Transport Tests ===${colors.NC}`,
   );
 
@@ -668,7 +901,7 @@ async function runTests() {
 
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
-  // Test 25: HTTP transport inferred from URL ending with /mcp
+  // Test 32: HTTP transport inferred from URL ending with /mcp
   await runBasicTest(
     "http_transport_inferred",
     "http://127.0.0.1:3001/mcp",
@@ -677,7 +910,7 @@ async function runTests() {
     "tools/list",
   );
 
-  // Test 26: HTTP transport with explicit --transport http flag
+  // Test 33: HTTP transport with explicit --transport http flag
   await runBasicTest(
     "http_transport_with_explicit_flag",
     "http://127.0.0.1:3001/mcp",
@@ -688,7 +921,7 @@ async function runTests() {
     "tools/list",
   );
 
-  // Test 27: HTTP transport with suffix and --transport http flag
+  // Test 34: HTTP transport with suffix and --transport http flag
   await runBasicTest(
     "http_transport_with_explicit_flag_and_suffix",
     "http://127.0.0.1:3001/mcp",
@@ -699,7 +932,7 @@ async function runTests() {
     "tools/list",
   );
 
-  // Test 28: SSE transport given to HTTP server (should fail)
+  // Test 35: SSE transport given to HTTP server (should fail)
   await runErrorTest(
     "sse_transport_given_to_http_server",
     "http://127.0.0.1:3001",
@@ -710,7 +943,7 @@ async function runTests() {
     "tools/list",
   );
 
-  // Test 29: HTTP transport without URL (should fail)
+  // Test 36: HTTP transport without URL (should fail)
   await runErrorTest(
     "http_transport_without_url",
     "--transport",
@@ -720,7 +953,7 @@ async function runTests() {
     "tools/list",
   );
 
-  // Test 30: SSE transport without URL (should fail)
+  // Test 37: SSE transport without URL (should fail)
   await runErrorTest(
     "sse_transport_without_url",
     "--transport",

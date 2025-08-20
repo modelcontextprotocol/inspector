@@ -37,11 +37,15 @@ import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
 import { ConnectionStatus } from "../constants";
 import { Notification, StdErrNotificationSchema } from "../notificationTypes";
-import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  auth,
+  discoverOAuthProtectedResourceMetadata,
+} from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   clearClientInformationFromSessionStorage,
   InspectorOAuthClientProvider,
   saveClientInformationToSessionStorage,
+  discoverScopes,
 } from "../auth";
 import packageJson from "../../../package.json";
 import {
@@ -315,11 +319,27 @@ export function useConnection({
 
   const handleAuthError = async (error: unknown) => {
     if (is401Error(error)) {
-      const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
+      let scope = oauthScope?.trim();
+      if (!scope) {
+        // Only discover resource metadata when we need to discover scopes
+        let resourceMetadata;
+        try {
+          resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+            new URL("/", sseUrl),
+          );
+        } catch {
+          // Resource metadata is optional, continue without it
+        }
+        scope = await discoverScopes(sseUrl, resourceMetadata);
+      }
+      const serverAuthProvider = new InspectorOAuthClientProvider(
+        sseUrl,
+        scope,
+      );
 
       const result = await auth(serverAuthProvider, {
         serverUrl: sseUrl,
-        scope: oauthScope,
+        scope,
       });
       return result === "AUTHORIZED";
     }
@@ -351,6 +371,7 @@ export function useConnection({
       return;
     }
 
+    let lastRequest = "";
     try {
       // Inject auth manually instead of using SSEClientTransport, because we're
       // proxying through the inspector server first.
@@ -564,7 +585,9 @@ export function useConnection({
       }
 
       if (capabilities?.logging && defaultLoggingLevel) {
+        lastRequest = "logging/setLevel";
         await client.setLoggingLevel(defaultLoggingLevel);
+        lastRequest = "";
       }
 
       if (onElicitationRequest) {
@@ -578,6 +601,17 @@ export function useConnection({
       setMcpClient(client);
       setConnectionStatus("connected");
     } catch (e) {
+      if (
+        lastRequest === "logging/setLevel" &&
+        e instanceof McpError &&
+        e.code === ErrorCode.MethodNotFound
+      ) {
+        toast({
+          title: "Error",
+          description: `Server declares logging capability but doesn't implement method: "${lastRequest}"`,
+          variant: "destructive",
+        });
+      }
       console.error(e);
       setConnectionStatus("error");
     }

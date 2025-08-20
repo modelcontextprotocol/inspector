@@ -166,6 +166,16 @@ If you need to disable authentication (NOT RECOMMENDED), you can set the `DANGER
 DANGEROUSLY_OMIT_AUTH=true npm start
 ```
 
+---
+
+**🚨 WARNING 🚨**
+
+Disabling authentication with `DANGEROUSLY_OMIT_AUTH` is incredibly dangerous! Disabling auth leaves your machine open to attack not just when exposed to the public internet, but also **via your web browser**. Meaning, visiting a malicious website OR viewing a malicious advertizement could allow an attacker to remotely compromise your computer. Do not disable this feature unless you truly understand the risks.
+
+Read more about the risks of this vulnerability on Oligo's blog: [Critical RCE Vulnerability in Anthropic MCP Inspector - CVE-2025-49596](https://www.oligo.security/blog/critical-rce-vulnerability-in-anthropic-mcp-inspector-cve-2025-49596)
+
+---
+
 You can also set the token via the `MCP_PROXY_AUTH_TOKEN` environment variable when starting the server:
 
 ```bash
@@ -229,6 +239,78 @@ Example server configuration file:
         "key": "value",
         "key2": "value2"
       }
+    }
+  }
+}
+```
+
+#### Transport Types in Config Files
+
+The inspector automatically detects the transport type from your config file. You can specify different transport types:
+
+**STDIO (default):**
+
+```json
+{
+  "mcpServers": {
+    "my-stdio-server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-everything"]
+    }
+  }
+}
+```
+
+**SSE (Server-Sent Events):**
+
+```json
+{
+  "mcpServers": {
+    "my-sse-server": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
+```
+
+**Streamable HTTP:**
+
+```json
+{
+  "mcpServers": {
+    "my-http-server": {
+      "type": "streamable-http",
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+#### Default Server Selection
+
+You can launch the inspector without specifying a server name if your config has:
+
+1. **A single server** - automatically selected:
+
+```bash
+# Automatically uses "my-server" if it's the only one
+npx @modelcontextprotocol/inspector --config mcp.json
+```
+
+2. **A server named "default-server"** - automatically selected:
+
+```json
+{
+  "mcpServers": {
+    "default-server": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-everything"]
+    },
+    "other-server": {
+      "command": "node",
+      "args": ["other.js"]
     }
   }
 }

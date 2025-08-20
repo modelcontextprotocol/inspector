@@ -40,6 +40,8 @@ const { values } = parseArgs({
     env: { type: "string", default: "" },
     args: { type: "string", default: "" },
     command: { type: "string", default: "" },
+    transport: { type: "string", default: "" },
+    "server-url": { type: "string", default: "" },
   },
 });
 
@@ -182,7 +184,7 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
     const command = query.command as string;
     const origArgs = shellParseArgs(query.args as string) as string[];
     const queryEnv = query.env ? JSON.parse(query.env as string) : {};
-    const env = { ...process.env, ...defaultEnvironment, ...queryEnv };
+    const env = { ...defaultEnvironment, ...process.env, ...queryEnv };
 
     const { cmd, args } = findActualExecutable(command, origArgs);
 
@@ -523,6 +525,8 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
       defaultEnvironment,
       defaultCommand: values.command,
       defaultArgs: values.args,
+      defaultTransport: values.transport,
+      defaultServerUrl: values["server-url"],
     });
   } catch (error) {
     console.error("Error in /config route:", error);
