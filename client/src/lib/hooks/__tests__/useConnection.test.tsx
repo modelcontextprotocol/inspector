@@ -3,11 +3,16 @@ import { useConnection } from "../useConnection";
 import { z } from "zod";
 import { ClientRequest } from "@modelcontextprotocol/sdk/types.js";
 import { DEFAULT_INSPECTOR_CONFIG } from "../../constants";
-import { SSEClientTransportOptions } from "@modelcontextprotocol/sdk/client/sse.js";
+import {
+  SSEClientTransportOptions,
+  SseError,
+} from "@modelcontextprotocol/sdk/client/sse.js";
 import {
   ElicitResult,
   ElicitRequest,
 } from "@modelcontextprotocol/sdk/types.js";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import { discoverScopes } from "../../auth";
 
 // Mock fetch
 global.fetch = jest.fn().mockResolvedValue({
@@ -53,14 +58,27 @@ jest.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
   Client: jest.fn().mockImplementation(() => mockClient),
 }));
 
-jest.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({
-  SSEClientTransport: jest.fn((url, options) => {
-    mockSSETransport.url = url;
-    mockSSETransport.options = options;
-    return mockSSETransport;
-  }),
-  SseError: jest.fn(),
-}));
+jest.mock("@modelcontextprotocol/sdk/client/sse.js", () => {
+  // Minimal mock class that supports instanceof checks
+  class SseError extends Error {
+    code: number;
+    event: ErrorEvent;
+    constructor(code: number, message: string, event: ErrorEvent) {
+      super(message);
+      this.code = code;
+      this.event = event;
+    }
+  }
+
+  return {
+    SSEClientTransport: jest.fn((url, options) => {
+      mockSSETransport.url = url;
+      mockSSETransport.options = options;
+      return mockSSETransport;
+    }),
+    SseError,
+  };
+});
 
 jest.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
   StreamableHTTPClientTransport: jest.fn((url, options) => {
@@ -85,10 +103,17 @@ jest.mock("@/lib/hooks/useToast", () => ({
 jest.mock("../../auth", () => ({
   InspectorOAuthClientProvider: jest.fn().mockImplementation(() => ({
     tokens: jest.fn().mockResolvedValue({ access_token: "mock-token" }),
+    redirectUrl: "http://localhost:3000/oauth/callback",
   })),
   clearClientInformationFromSessionStorage: jest.fn(),
   saveClientInformationToSessionStorage: jest.fn(),
+  discoverScopes: jest.fn(),
 }));
+
+const mockAuth = auth as jest.MockedFunction<typeof auth>;
+const mockDiscoverScopes = discoverScopes as jest.MockedFunction<
+  typeof discoverScopes
+>;
 
 describe("useConnection", () => {
   const defaultProps = {
@@ -712,6 +737,144 @@ describe("useConnection", () => {
       expect(
         mockStreamableHTTPTransport.options?.requestInit?.headers,
       ).toHaveProperty("X-MCP-Proxy-Auth", "Bearer test-proxy-token");
+    });
+  });
+
+  describe("OAuth Error Handling with Scope Discovery", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockAuth.mockResolvedValue("AUTHORIZED");
+      mockDiscoverScopes.mockResolvedValue(undefined);
+    });
+
+    const setup401Error = () => {
+      const mockErrorEvent = new ErrorEvent("error", {
+        message: "Mock error event",
+      });
+      mockClient.connect.mockRejectedValueOnce(
+        new SseError(401, "Unauthorized", mockErrorEvent),
+      );
+    };
+
+    const attemptConnection = async (props = defaultProps) => {
+      const { result } = renderHook(() => useConnection(props));
+      await act(async () => {
+        try {
+          await result.current.connect();
+        } catch {
+          // Expected error from auth handling
+        }
+      });
+    };
+
+    const testCases = [
+      [
+        "discovers and includes scopes in auth call",
+        {
+          discoveredScope: "read write admin",
+          oauthScope: undefined,
+          expectScopeCall: true,
+          expectedAuthScope: "read write admin",
+          authResult: "AUTHORIZED",
+        },
+      ],
+      [
+        "handles scope discovery failure gracefully",
+        {
+          discoveredScope: undefined,
+          oauthScope: undefined,
+          expectScopeCall: true,
+          expectedAuthScope: undefined,
+          authResult: "AUTHORIZED",
+        },
+      ],
+      [
+        "uses manual oauthScope override instead of discovered scopes",
+        {
+          discoveredScope: "discovered:scope",
+          oauthScope: "manual:scope",
+          expectScopeCall: false,
+          expectedAuthScope: "manual:scope",
+          authResult: "AUTHORIZED",
+        },
+      ],
+      [
+        "triggers scope discovery when oauthScope is whitespace",
+        {
+          discoveredScope: "discovered:scope",
+          oauthScope: "   ",
+          expectScopeCall: true,
+          expectedAuthScope: "discovered:scope",
+          authResult: "AUTHORIZED",
+        },
+      ],
+      [
+        "handles auth failure after scope discovery",
+        {
+          discoveredScope: "read write",
+          oauthScope: undefined,
+          expectScopeCall: true,
+          expectedAuthScope: "read write",
+          authResult: "UNAUTHORIZED",
+        },
+      ],
+    ] as const;
+
+    test.each(testCases)(
+      "should %s",
+      async (
+        _,
+        {
+          discoveredScope,
+          oauthScope,
+          expectScopeCall,
+          expectedAuthScope,
+          authResult = "AUTHORIZED",
+        },
+      ) => {
+        mockDiscoverScopes.mockResolvedValue(discoveredScope);
+        mockAuth.mockResolvedValue(authResult as never);
+        setup401Error();
+
+        const props =
+          oauthScope !== undefined
+            ? { ...defaultProps, oauthScope }
+            : defaultProps;
+        await attemptConnection(props);
+
+        if (expectScopeCall) {
+          expect(mockDiscoverScopes).toHaveBeenCalledWith(
+            defaultProps.sseUrl,
+            undefined,
+          );
+        } else {
+          expect(mockDiscoverScopes).not.toHaveBeenCalled();
+        }
+
+        expect(mockAuth).toHaveBeenCalledWith(expect.any(Object), {
+          serverUrl: defaultProps.sseUrl,
+          scope: expectedAuthScope,
+        });
+      },
+    );
+
+    it("should handle slow scope discovery gracefully", async () => {
+      mockDiscoverScopes.mockImplementation(
+        () =>
+          new Promise((resolve) => setTimeout(() => resolve(undefined), 100)),
+      );
+
+      setup401Error();
+      await attemptConnection();
+
+      expect(mockDiscoverScopes).toHaveBeenCalledWith(
+        defaultProps.sseUrl,
+        undefined,
+      );
+      expect(mockAuth).toHaveBeenCalledWith(expect.any(Object), {
+        serverUrl: defaultProps.sseUrl,
+        scope: undefined,
+      });
     });
   });
 });

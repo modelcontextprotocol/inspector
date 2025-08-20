@@ -25,6 +25,7 @@ const mockOAuthMetadata = {
   token_endpoint: "https://oauth.example.com/token",
   response_types_supported: ["code"],
   grant_types_supported: ["authorization_code"],
+  scopes_supported: ["read", "write"],
 };
 
 const mockOAuthClientInfo = {
@@ -56,6 +57,57 @@ import {
 import { OAuthMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { EMPTY_DEBUGGER_STATE } from "@/lib/auth-types";
 
+// Mock local auth module
+jest.mock("@/lib/auth", () => ({
+  DebugInspectorOAuthClientProvider: jest.fn().mockImplementation(() => ({
+    tokens: jest.fn().mockImplementation(() => Promise.resolve(undefined)),
+    clear: jest.fn().mockImplementation(() => {
+      // Mock the real clear() behavior which removes items from sessionStorage
+      sessionStorage.removeItem("[https://example.com/mcp] mcp_tokens");
+      sessionStorage.removeItem("[https://example.com/mcp] mcp_client_info");
+      sessionStorage.removeItem(
+        "[https://example.com/mcp] mcp_server_metadata",
+      );
+    }),
+    redirectUrl: "http://localhost:3000/oauth/callback/debug",
+    clientMetadata: {
+      redirect_uris: ["http://localhost:3000/oauth/callback/debug"],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      client_name: "MCP Inspector",
+    },
+    clientInformation: jest.fn().mockImplementation(async () => {
+      const serverUrl = "https://example.com/mcp";
+      const preregisteredKey = `[${serverUrl}] ${SESSION_KEYS.PREREGISTERED_CLIENT_INFORMATION}`;
+      const preregisteredData = sessionStorage.getItem(preregisteredKey);
+      if (preregisteredData) {
+        return JSON.parse(preregisteredData);
+      }
+      const dynamicKey = `[${serverUrl}] ${SESSION_KEYS.CLIENT_INFORMATION}`;
+      const dynamicData = sessionStorage.getItem(dynamicKey);
+      if (dynamicData) {
+        return JSON.parse(dynamicData);
+      }
+      return undefined;
+    }),
+    saveClientInformation: jest.fn().mockImplementation((clientInfo) => {
+      const serverUrl = "https://example.com/mcp";
+      const key = `[${serverUrl}] ${SESSION_KEYS.CLIENT_INFORMATION}`;
+      sessionStorage.setItem(key, JSON.stringify(clientInfo));
+    }),
+    saveTokens: jest.fn(),
+    redirectToAuthorization: jest.fn(),
+    saveCodeVerifier: jest.fn(),
+    codeVerifier: jest.fn(),
+    saveServerMetadata: jest.fn(),
+    getServerMetadata: jest.fn(),
+  })),
+  discoverScopes: jest.fn().mockResolvedValue("read write" as never),
+}));
+
+import { discoverScopes } from "@/lib/auth";
+
 // Type the mocked functions properly
 const mockDiscoverAuthorizationServerMetadata =
   discoverAuthorizationServerMetadata as jest.MockedFunction<
@@ -75,6 +127,9 @@ const mockDiscoverOAuthProtectedResourceMetadata =
   discoverOAuthProtectedResourceMetadata as jest.MockedFunction<
     typeof discoverOAuthProtectedResourceMetadata
   >;
+const mockDiscoverScopes = discoverScopes as jest.MockedFunction<
+  typeof discoverScopes
+>;
 
 const sessionStorageMock = {
   getItem: jest.fn(),
@@ -103,9 +158,15 @@ describe("AuthDebugger", () => {
     // Suppress console errors in tests to avoid JSDOM navigation noise
     jest.spyOn(console, "error").mockImplementation(() => {});
 
-    mockDiscoverAuthorizationServerMetadata.mockResolvedValue(
-      mockOAuthMetadata,
-    );
+    // Set default mock behaviors with complete OAuth metadata
+    mockDiscoverAuthorizationServerMetadata.mockResolvedValue({
+      issuer: "https://oauth.example.com",
+      authorization_endpoint: "https://oauth.example.com/authorize",
+      token_endpoint: "https://oauth.example.com/token",
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code"],
+      scopes_supported: ["read", "write"],
+    });
     mockRegisterClient.mockResolvedValue(mockOAuthClientInfo);
     mockDiscoverOAuthProtectedResourceMetadata.mockRejectedValue(
       new Error("No protected resource metadata found"),
@@ -427,7 +488,24 @@ describe("AuthDebugger", () => {
       });
     });
 
-    it("should not include scope in authorization URL when scopes_supported is not present", async () => {
+    it("should include scope in authorization URL when scopes_supported is not present", async () => {
+      const updateAuthState =
+        await setupAuthorizationUrlTest(mockOAuthMetadata);
+
+      // Wait for the updateAuthState to be called
+      await waitFor(() => {
+        expect(updateAuthState).toHaveBeenCalledWith(
+          expect.objectContaining({
+            authorizationUrl: expect.stringContaining("scope="),
+          }),
+        );
+      });
+    });
+
+    it("should omit scope from authorization URL when discoverScopes returns undefined", async () => {
+      // Mock discoverScopes to return undefined (no scopes available)
+      mockDiscoverScopes.mockResolvedValueOnce(undefined);
+
       const updateAuthState =
         await setupAuthorizationUrlTest(mockOAuthMetadata);
 

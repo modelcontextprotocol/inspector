@@ -1,5 +1,5 @@
 import { OAuthStep, AuthDebuggerState } from "./auth-types";
-import { DebugInspectorOAuthClientProvider } from "./auth";
+import { DebugInspectorOAuthClientProvider, discoverScopes } from "./auth";
 import {
   discoverAuthorizationServerMetadata,
   registerClient,
@@ -118,10 +118,10 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       const metadata = context.state.oauthMetadata!;
       const clientInformation = context.state.oauthClientInfo!;
 
-      let scope: string | undefined = undefined;
-      if (metadata.scopes_supported) {
-        scope = metadata.scopes_supported.join(" ");
-      }
+      const scope = await discoverScopes(
+        context.serverUrl,
+        context.state.resourceMetadata ?? undefined,
+      );
 
       const { authorizationUrl, codeVerifier } = await startAuthorization(
         context.serverUrl,
@@ -185,7 +185,11 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         authorizationCode: context.state.authorizationCode,
         codeVerifier,
         redirectUri: context.provider.redirectUrl,
-        resource: resource ?? undefined,
+        resource: context.state.resource
+          ? context.state.resource instanceof URL
+            ? context.state.resource
+            : new URL(context.state.resource)
+          : undefined,
       });
 
       context.provider.saveTokens(tokens);
