@@ -1,8 +1,14 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { McpResponse } from "./types.js";
+import {
+  ListResourcesResult,
+  ReadResourceResult,
+  ListResourceTemplatesResult,
+} from "@modelcontextprotocol/sdk/types.js";
 
 // List available resources
-export async function listResources(client: Client): Promise<McpResponse> {
+export async function listResources(
+  client: Client,
+): Promise<ListResourcesResult> {
   try {
     const response = await client.listResources();
     return response;
@@ -17,7 +23,7 @@ export async function listResources(client: Client): Promise<McpResponse> {
 export async function readResource(
   client: Client,
   uri: string,
-): Promise<McpResponse> {
+): Promise<ReadResourceResult> {
   try {
     const response = await client.readResource({ uri });
     return response;
@@ -31,7 +37,7 @@ export async function readResource(
 // List resource templates
 export async function listResourceTemplates(
   client: Client,
-): Promise<McpResponse> {
+): Promise<ListResourceTemplatesResult> {
   try {
     const response = await client.listResourceTemplates();
     return response;

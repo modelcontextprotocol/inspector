@@ -1,6 +1,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { McpResponse } from "./types.js";
+import {
+  Tool,
+  ListToolsResult,
+  CallToolResult,
+  CompatibilityCallToolResult,
+} from "@modelcontextprotocol/sdk/types.js";
 
 type JsonSchemaType = {
   type: "string" | "number" | "integer" | "boolean" | "array" | "object";
@@ -9,7 +13,7 @@ type JsonSchemaType = {
   items?: JsonSchemaType;
 };
 
-export async function listTools(client: Client): Promise<McpResponse> {
+export async function listTools(client: Client): Promise<ListToolsResult> {
   try {
     const response = await client.listTools();
     return response;
@@ -69,10 +73,10 @@ export async function callTool(
   client: Client,
   name: string,
   args: Record<string, string>,
-): Promise<McpResponse> {
+): Promise<CallToolResult | CompatibilityCallToolResult> {
   try {
     const toolsResponse = await listTools(client);
-    const tools = toolsResponse.tools as Tool[];
+    const tools = toolsResponse.tools;
     const tool = tools.find((t) => t.name === name);
 
     let convertedArgs: Record<string, unknown> = args;
