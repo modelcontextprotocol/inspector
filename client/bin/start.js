@@ -14,8 +14,16 @@ function delay(ms) {
 }
 
 function getClientUrl(port, authDisabled, sessionToken, serverPort) {
-  const host = process.env.HOST || "localhost";
-  const baseUrl = `http://${host}:${port}`;
+  // Check for custom base URL from environment
+  const customBaseUrl = process.env.MCP_INSPECTOR_BASE_URL;
+
+  let baseUrl;
+  if (customBaseUrl) {
+    baseUrl = `${customBaseUrl}/proxy/${port}`;
+  } else {
+    const host = process.env.HOST || "localhost";
+    baseUrl = `http://${host}:${port}`;
+  }
 
   const params = new URLSearchParams();
   if (serverPort && serverPort !== DEFAULT_MCP_PROXY_LISTEN_PORT) {
