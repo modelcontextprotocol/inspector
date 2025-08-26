@@ -14,6 +14,8 @@ import {
   RefreshCwOff,
   Copy,
   CheckCheck,
+  Network,
+  Server,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { StdErrNotification } from "@/lib/notificationTypes";
 import {
   LoggingLevel,
   LoggingLevelSchema,
@@ -61,11 +64,26 @@ interface SidebarProps {
   setOauthScope: (scope: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
+  stdErrNotifications: StdErrNotification[];
+  clearStdErrNotifications: () => void;
   logLevel: LoggingLevel;
   sendLogLevelRequest: (level: LoggingLevel) => void;
   loggingSupported: boolean;
   config: InspectorConfig;
   setConfig: (config: InspectorConfig) => void;
+  // Multi-server mode props
+  appMode?: "single-server" | "multi-server";
+  setAppMode?: (mode: "single-server" | "multi-server") => void;
+  // Multi-server specific server props
+  currentServerId?: string;
+  currentServerName?: string;
+  currentServerStatus?: "connected" | "connecting" | "disconnected" | "error";
+  multiServerLogLevel?: LoggingLevel;
+  multiServerLoggingSupported?: boolean;
+  onMultiServerLogLevelChange?: (serverId: string, level: LoggingLevel) => void;
+  // Multi-server stderr notification props - using same pattern as single-server
+  multiServerStdErrNotifications?: StdErrNotification[];
+  clearMultiServerStdErrNotifications?: () => void;
 }
 
 const Sidebar = ({
@@ -90,11 +108,24 @@ const Sidebar = ({
   setOauthScope,
   onConnect,
   onDisconnect,
+  stdErrNotifications,
+  clearStdErrNotifications,
   logLevel,
   sendLogLevelRequest,
   loggingSupported,
   config,
   setConfig,
+  appMode,
+  setAppMode,
+  // Multi-server props
+  currentServerId,
+  currentServerName,
+  currentServerStatus,
+  multiServerLogLevel,
+  multiServerLoggingSupported,
+  onMultiServerLogLevelChange,
+  multiServerStdErrNotifications,
+  clearMultiServerStdErrNotifications,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
@@ -228,70 +259,123 @@ const Sidebar = ({
 
       <div className="p-4 flex-1 overflow-auto">
         <div className="space-y-4">
-          <div className="space-y-2">
-            <label
-              className="text-sm font-medium"
-              htmlFor="transport-type-select"
-            >
-              Transport Type
-            </label>
-            <Select
-              value={transportType}
-              onValueChange={(value: "stdio" | "sse" | "streamable-http") =>
-                setTransportType(value)
-              }
-            >
-              <SelectTrigger id="transport-type-select">
-                <SelectValue placeholder="Select transport type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="stdio">STDIO</SelectItem>
-                <SelectItem value="sse">SSE</SelectItem>
-                <SelectItem value="streamable-http">Streamable HTTP</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Mode Toggle */}
+          {appMode && setAppMode && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Inspector Mode</label>
+              <Select
+                value={appMode}
+                onValueChange={(value: "single-server" | "multi-server") =>
+                  setAppMode(value)
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="single-server">
+                    <div className="flex items-center">
+                      <Server className="w-4 h-4 mr-2" />
+                      Single Server
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="multi-server">
+                    <div className="flex items-center">
+                      <Network className="w-4 h-4 mr-2" />
+                      Multi Server
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-          {transportType === "stdio" ? (
+          {/* Only show single-server configuration when in single-server mode */}
+          {appMode === "single-server" && (
             <>
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="command-input">
-                  Command
-                </label>
-                <Input
-                  id="command-input"
-                  placeholder="Command"
-                  value={command}
-                  onChange={(e) => setCommand(e.target.value)}
-                  onBlur={(e) => setCommand(e.target.value.trim())}
-                  className="font-mono"
-                />
-              </div>
               <div className="space-y-2">
                 <label
                   className="text-sm font-medium"
-                  htmlFor="arguments-input"
+                  htmlFor="transport-type-select"
                 >
-                  Arguments
+                  Transport Type
                 </label>
-                <Input
-                  id="arguments-input"
-                  placeholder="Arguments (space-separated)"
-                  value={args}
-                  onChange={(e) => setArgs(e.target.value)}
-                  className="font-mono"
-                />
+                <Select
+                  value={transportType}
+                  onValueChange={(value: "stdio" | "sse" | "streamable-http") =>
+                    setTransportType(value)
+                  }
+                >
+                  <SelectTrigger id="transport-type-select">
+                    <SelectValue placeholder="Select transport type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="stdio">STDIO</SelectItem>
+                    <SelectItem value="sse">SSE</SelectItem>
+                    <SelectItem value="streamable-http">
+                      Streamable HTTP
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-            </>
-          ) : (
-            <>
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="sse-url-input">
-                  URL
-                </label>
-                {sseUrl ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
+
+              {transportType === "stdio" ? (
+                <>
+                  <div className="space-y-2">
+                    <label
+                      className="text-sm font-medium"
+                      htmlFor="command-input"
+                    >
+                      Command
+                    </label>
+                    <Input
+                      id="command-input"
+                      placeholder="Command"
+                      value={command}
+                      onChange={(e) => setCommand(e.target.value)}
+                      onBlur={(e) => setCommand(e.target.value.trim())}
+                      className="font-mono"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label
+                      className="text-sm font-medium"
+                      htmlFor="arguments-input"
+                    >
+                      Arguments
+                    </label>
+                    <Input
+                      id="arguments-input"
+                      placeholder="Arguments (space-separated)"
+                      value={args}
+                      onChange={(e) => setArgs(e.target.value)}
+                      className="font-mono"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <label
+                      className="text-sm font-medium"
+                      htmlFor="sse-url-input"
+                    >
+                      URL
+                    </label>
+                    {sseUrl ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Input
+                            id="sse-url-input"
+                            placeholder="URL"
+                            value={sseUrl}
+                            onChange={(e) => setSseUrl(e.target.value)}
+                            className="font-mono"
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent>{sseUrl}</TooltipContent>
+                      </Tooltip>
+                    ) : (
                       <Input
                         id="sse-url-input"
                         placeholder="URL"
@@ -299,464 +383,570 @@ const Sidebar = ({
                         onChange={(e) => setSseUrl(e.target.value)}
                         className="font-mono"
                       />
-                    </TooltipTrigger>
-                    <TooltipContent>{sseUrl}</TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <Input
-                    id="sse-url-input"
-                    placeholder="URL"
-                    value={sseUrl}
-                    onChange={(e) => setSseUrl(e.target.value)}
-                    className="font-mono"
+                    )}
+                  </div>
+                </>
+              )}
+
+              {transportType === "stdio" && (
+                <div className="space-y-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowEnvVars(!showEnvVars)}
+                    className="flex items-center w-full"
+                    data-testid="env-vars-button"
+                    aria-expanded={showEnvVars}
+                  >
+                    {showEnvVars ? (
+                      <ChevronDown className="w-4 h-4 mr-2" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 mr-2" />
+                    )}
+                    Environment Variables
+                  </Button>
+                  {showEnvVars && (
+                    <div className="space-y-2">
+                      {Object.entries(env).map(([key, value], idx) => (
+                        <div key={idx} className="space-y-2 pb-4">
+                          <div className="flex gap-2">
+                            <Input
+                              aria-label={`Environment variable key ${idx + 1}`}
+                              placeholder="Key"
+                              value={key}
+                              onChange={(e) => {
+                                const newKey = e.target.value;
+                                const newEnv = Object.entries(env).reduce(
+                                  (acc, [k, v]) => {
+                                    if (k === key) {
+                                      acc[newKey] = value;
+                                    } else {
+                                      acc[k] = v;
+                                    }
+                                    return acc;
+                                  },
+                                  {} as Record<string, string>,
+                                );
+                                setEnv(newEnv);
+                                setShownEnvVars((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(key)) {
+                                    next.delete(key);
+                                    next.add(newKey);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className="font-mono"
+                            />
+                            <Button
+                              variant="destructive"
+                              size="icon"
+                              className="h-9 w-9 p-0 shrink-0"
+                              onClick={() => {
+                                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                                const { [key]: _removed, ...rest } = env;
+                                setEnv(rest);
+                              }}
+                            >
+                              ×
+                            </Button>
+                          </div>
+                          <div className="flex gap-2">
+                            <Input
+                              aria-label={`Environment variable value ${idx + 1}`}
+                              type={shownEnvVars.has(key) ? "text" : "password"}
+                              placeholder="Value"
+                              value={value}
+                              onChange={(e) => {
+                                const newEnv = { ...env };
+                                newEnv[key] = e.target.value;
+                                setEnv(newEnv);
+                              }}
+                              className="font-mono"
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-9 w-9 p-0 shrink-0"
+                              onClick={() => {
+                                setShownEnvVars((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(key)) {
+                                    next.delete(key);
+                                  } else {
+                                    next.add(key);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              aria-label={
+                                shownEnvVars.has(key)
+                                  ? "Hide value"
+                                  : "Show value"
+                              }
+                              aria-pressed={shownEnvVars.has(key)}
+                              title={
+                                shownEnvVars.has(key)
+                                  ? "Hide value"
+                                  : "Show value"
+                              }
+                            >
+                              {shownEnvVars.has(key) ? (
+                                <Eye className="h-4 w-4" aria-hidden="true" />
+                              ) : (
+                                <EyeOff
+                                  className="h-4 w-4"
+                                  aria-hidden="true"
+                                />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        className="w-full mt-2"
+                        onClick={() => {
+                          const key = "";
+                          const newEnv = { ...env };
+                          newEnv[key] = "";
+                          setEnv(newEnv);
+                        }}
+                      >
+                        Add Environment Variable
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Always show both copy buttons for all transport types */}
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCopyServerEntry}
+                      className="w-full"
+                    >
+                      {copiedServerEntry ? (
+                        <CheckCheck className="h-4 w-4 mr-2" />
+                      ) : (
+                        <Copy className="h-4 w-4 mr-2" />
+                      )}
+                      Server Entry
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Copy Server Entry</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCopyServerFile}
+                      className="w-full"
+                    >
+                      {copiedServerFile ? (
+                        <CheckCheck className="h-4 w-4 mr-2" />
+                      ) : (
+                        <Copy className="h-4 w-4 mr-2" />
+                      )}
+                      Servers File
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Copy Servers File</TooltipContent>
+                </Tooltip>
+              </div>
+
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAuthConfig(!showAuthConfig)}
+                  className="flex items-center w-full"
+                  data-testid="auth-button"
+                  aria-expanded={showAuthConfig}
+                >
+                  {showAuthConfig ? (
+                    <ChevronDown className="w-4 h-4 mr-2" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 mr-2" />
+                  )}
+                  Authentication
+                </Button>
+                {showAuthConfig && (
+                  <>
+                    {/* Bearer Token Section */}
+                    <div className="space-y-2 p-3 rounded border">
+                      <h4 className="text-sm font-semibold flex items-center">
+                        API Token Authentication
+                      </h4>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">
+                          Header Name
+                        </label>
+                        <Input
+                          placeholder="Authorization"
+                          onChange={(e) =>
+                            setHeaderName && setHeaderName(e.target.value)
+                          }
+                          data-testid="header-input"
+                          className="font-mono"
+                          value={headerName}
+                        />
+                        <label
+                          className="text-sm font-medium"
+                          htmlFor="bearer-token-input"
+                        >
+                          Bearer Token
+                        </label>
+                        <Input
+                          id="bearer-token-input"
+                          placeholder="Bearer Token"
+                          value={bearerToken}
+                          onChange={(e) => setBearerToken(e.target.value)}
+                          data-testid="bearer-token-input"
+                          className="font-mono"
+                          type="password"
+                        />
+                      </div>
+                    </div>
+                    {transportType !== "stdio" && (
+                      // OAuth Configuration
+                      <div className="space-y-2 p-3  rounded border">
+                        <h4 className="text-sm font-semibold flex items-center">
+                          OAuth 2.0 Flow
+                        </h4>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">
+                            Client ID
+                          </label>
+                          <Input
+                            placeholder="Client ID"
+                            onChange={(e) => setOauthClientId(e.target.value)}
+                            value={oauthClientId}
+                            data-testid="oauth-client-id-input"
+                            className="font-mono"
+                          />
+                          <label className="text-sm font-medium">
+                            Redirect URL
+                          </label>
+                          <Input
+                            readOnly
+                            placeholder="Redirect URL"
+                            value={window.location.origin + "/oauth/callback"}
+                            className="font-mono"
+                          />
+                          <label className="text-sm font-medium">Scope</label>
+                          <Input
+                            placeholder="Scope (space-separated)"
+                            onChange={(e) => setOauthScope(e.target.value)}
+                            value={oauthScope}
+                            data-testid="oauth-scope-input"
+                            className="font-mono"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              {/* Configuration */}
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowConfig(!showConfig)}
+                  className="flex items-center w-full"
+                  data-testid="config-button"
+                  aria-expanded={showConfig}
+                >
+                  {showConfig ? (
+                    <ChevronDown className="w-4 h-4 mr-2" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 mr-2" />
+                  )}
+                  <Settings className="w-4 h-4 mr-2" />
+                  Configuration
+                </Button>
+                {showConfig && (
+                  <div className="space-y-2">
+                    {Object.entries(config).map(([key, configItem]) => {
+                      const configKey = key as keyof InspectorConfig;
+                      return (
+                        <div key={key} className="space-y-2">
+                          <div className="flex items-center gap-1">
+                            <label
+                              className="text-sm font-medium text-green-600 break-all"
+                              htmlFor={`${configKey}-input`}
+                            >
+                              {configItem.label}
+                            </label>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {configItem.description}
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                          {typeof configItem.value === "number" ? (
+                            <Input
+                              id={`${configKey}-input`}
+                              type="number"
+                              data-testid={`${configKey}-input`}
+                              value={configItem.value}
+                              onChange={(e) => {
+                                const newConfig = { ...config };
+                                newConfig[configKey] = {
+                                  ...configItem,
+                                  value: Number(e.target.value),
+                                };
+                                setConfig(newConfig);
+                              }}
+                              className="font-mono"
+                            />
+                          ) : typeof configItem.value === "boolean" ? (
+                            <Select
+                              data-testid={`${configKey}-select`}
+                              value={configItem.value.toString()}
+                              onValueChange={(val) => {
+                                const newConfig = { ...config };
+                                newConfig[configKey] = {
+                                  ...configItem,
+                                  value: val === "true",
+                                };
+                                setConfig(newConfig);
+                              }}
+                            >
+                              <SelectTrigger id={`${configKey}-input`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="true">True</SelectItem>
+                                <SelectItem value="false">False</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              id={`${configKey}-input`}
+                              data-testid={`${configKey}-input`}
+                              value={configItem.value}
+                              onChange={(e) => {
+                                const newConfig = { ...config };
+                                newConfig[configKey] = {
+                                  ...configItem,
+                                  value: e.target.value,
+                                };
+                                setConfig(newConfig);
+                              }}
+                              className="font-mono"
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                {connectionStatus === "connected" && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <Button
+                      data-testid="connect-button"
+                      onClick={() => {
+                        onDisconnect();
+                        onConnect();
+                      }}
+                    >
+                      <RotateCcw className="w-4 h-4 mr-2" />
+                      {transportType === "stdio" ? "Restart" : "Reconnect"}
+                    </Button>
+                    <Button onClick={onDisconnect}>
+                      <RefreshCwOff className="w-4 h-4 mr-2" />
+                      Disconnect
+                    </Button>
+                  </div>
+                )}
+                {connectionStatus !== "connected" && (
+                  <Button className="w-full" onClick={onConnect}>
+                    <Play className="w-4 h-4 mr-2" />
+                    Connect
+                  </Button>
+                )}
+
+                <div className="flex items-center justify-center space-x-2 mb-4">
+                  <div
+                    className={`w-2 h-2 rounded-full ${(() => {
+                      switch (connectionStatus) {
+                        case "connected":
+                          return "bg-green-500";
+                        case "error":
+                          return "bg-red-500";
+                        case "error-connecting-to-proxy":
+                          return "bg-red-500";
+                        default:
+                          return "bg-gray-500";
+                      }
+                    })()}`}
                   />
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    {(() => {
+                      switch (connectionStatus) {
+                        case "connected":
+                          return "Connected";
+                        case "error": {
+                          const hasProxyToken =
+                            config.MCP_PROXY_AUTH_TOKEN?.value;
+                          if (!hasProxyToken) {
+                            return "Connection Error - Did you add the proxy session token in Configuration?";
+                          }
+                          return "Connection Error - Check if your MCP server is running and proxy token is correct";
+                        }
+                        case "error-connecting-to-proxy":
+                          return "Error Connecting to MCP Inspector Proxy - Check Console logs";
+                        default:
+                          return "Disconnected";
+                      }
+                    })()}
+                  </span>
+                </div>
+
+                {/* Logging Level Controls - Single Server Mode */}
+                {appMode === "single-server" &&
+                  loggingSupported &&
+                  connectionStatus === "connected" && (
+                    <div className="space-y-2">
+                      <label
+                        className="text-sm font-medium"
+                        htmlFor="logging-level-select"
+                      >
+                        Logging Level
+                      </label>
+                      <Select
+                        value={logLevel}
+                        onValueChange={(value: LoggingLevel) =>
+                          sendLogLevelRequest(value)
+                        }
+                      >
+                        <SelectTrigger id="logging-level-select">
+                          <SelectValue placeholder="Select logging level" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.values(LoggingLevelSchema.enum).map(
+                            (level) => (
+                              <SelectItem key={level} value={level}>
+                                {level}
+                              </SelectItem>
+                            ),
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                {/* Single Server Error Output */}
+                {stdErrNotifications.length > 0 && (
+                  <div className="mt-4 border-t border-gray-200 pt-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-medium">
+                        Error output from MCP server
+                      </h3>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearStdErrNotifications}
+                        className="h-8 px-2"
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                    <div className="mt-2 max-h-80 overflow-y-auto">
+                      {stdErrNotifications.map((notification, index) => (
+                        <div
+                          key={index}
+                          className="text-sm text-red-500 font-mono py-2 border-b border-gray-200 last:border-b-0"
+                        >
+                          {notification.params.content}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             </>
           )}
 
-          {transportType === "stdio" && (
-            <div className="space-y-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowEnvVars(!showEnvVars)}
-                className="flex items-center w-full"
-                data-testid="env-vars-button"
-                aria-expanded={showEnvVars}
-              >
-                {showEnvVars ? (
-                  <ChevronDown className="w-4 h-4 mr-2" />
-                ) : (
-                  <ChevronRight className="w-4 h-4 mr-2" />
-                )}
-                Environment Variables
-              </Button>
-              {showEnvVars && (
-                <div className="space-y-2">
-                  {Object.entries(env).map(([key, value], idx) => (
-                    <div key={idx} className="space-y-2 pb-4">
-                      <div className="flex gap-2">
-                        <Input
-                          aria-label={`Environment variable key ${idx + 1}`}
-                          placeholder="Key"
-                          value={key}
-                          onChange={(e) => {
-                            const newKey = e.target.value;
-                            const newEnv = Object.entries(env).reduce(
-                              (acc, [k, v]) => {
-                                if (k === key) {
-                                  acc[newKey] = value;
-                                } else {
-                                  acc[k] = v;
-                                }
-                                return acc;
-                              },
-                              {} as Record<string, string>,
-                            );
-                            setEnv(newEnv);
-                            setShownEnvVars((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(key)) {
-                                next.delete(key);
-                                next.add(newKey);
-                              }
-                              return next;
-                            });
-                          }}
-                          className="font-mono"
-                        />
-                        <Button
-                          variant="destructive"
-                          size="icon"
-                          className="h-9 w-9 p-0 shrink-0"
-                          onClick={() => {
-                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                            const { [key]: _removed, ...rest } = env;
-                            setEnv(rest);
-                          }}
-                        >
-                          ×
-                        </Button>
-                      </div>
-                      <div className="flex gap-2">
-                        <Input
-                          aria-label={`Environment variable value ${idx + 1}`}
-                          type={shownEnvVars.has(key) ? "text" : "password"}
-                          placeholder="Value"
-                          value={value}
-                          onChange={(e) => {
-                            const newEnv = { ...env };
-                            newEnv[key] = e.target.value;
-                            setEnv(newEnv);
-                          }}
-                          className="font-mono"
-                        />
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-9 w-9 p-0 shrink-0"
-                          onClick={() => {
-                            setShownEnvVars((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(key)) {
-                                next.delete(key);
-                              } else {
-                                next.add(key);
-                              }
-                              return next;
-                            });
-                          }}
-                          aria-label={
-                            shownEnvVars.has(key) ? "Hide value" : "Show value"
-                          }
-                          aria-pressed={shownEnvVars.has(key)}
-                          title={
-                            shownEnvVars.has(key) ? "Hide value" : "Show value"
-                          }
-                        >
-                          {shownEnvVars.has(key) ? (
-                            <Eye className="h-4 w-4" aria-hidden="true" />
-                          ) : (
-                            <EyeOff className="h-4 w-4" aria-hidden="true" />
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  <Button
-                    variant="outline"
-                    className="w-full mt-2"
-                    onClick={() => {
-                      const key = "";
-                      const newEnv = { ...env };
-                      newEnv[key] = "";
-                      setEnv(newEnv);
-                    }}
-                  >
-                    Add Environment Variable
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Always show both copy buttons for all transport types */}
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCopyServerEntry}
-                  className="w-full"
-                >
-                  {copiedServerEntry ? (
-                    <CheckCheck className="h-4 w-4 mr-2" />
-                  ) : (
-                    <Copy className="h-4 w-4 mr-2" />
-                  )}
-                  Server Entry
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Copy Server Entry</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCopyServerFile}
-                  className="w-full"
-                >
-                  {copiedServerFile ? (
-                    <CheckCheck className="h-4 w-4 mr-2" />
-                  ) : (
-                    <Copy className="h-4 w-4 mr-2" />
-                  )}
-                  Servers File
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Copy Servers File</TooltipContent>
-            </Tooltip>
-          </div>
-
-          <div className="space-y-2">
-            <Button
-              variant="outline"
-              onClick={() => setShowAuthConfig(!showAuthConfig)}
-              className="flex items-center w-full"
-              data-testid="auth-button"
-              aria-expanded={showAuthConfig}
-            >
-              {showAuthConfig ? (
-                <ChevronDown className="w-4 h-4 mr-2" />
-              ) : (
-                <ChevronRight className="w-4 h-4 mr-2" />
-              )}
-              Authentication
-            </Button>
-            {showAuthConfig && (
-              <>
-                {/* Bearer Token Section */}
-                <div className="space-y-2 p-3 rounded border">
-                  <h4 className="text-sm font-semibold flex items-center">
-                    API Token Authentication
-                  </h4>
+          {/* Multi-server mode controls - shown when in multi-server mode */}
+          {appMode === "multi-server" && (
+            <>
+              {/* Logging Level Controls - Multi Server Mode */}
+              {currentServerId &&
+                currentServerStatus === "connected" &&
+                multiServerLoggingSupported !== false && (
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Header Name</label>
-                    <Input
-                      placeholder="Authorization"
-                      onChange={(e) =>
-                        setHeaderName && setHeaderName(e.target.value)
-                      }
-                      data-testid="header-input"
-                      className="font-mono"
-                      value={headerName}
-                    />
                     <label
                       className="text-sm font-medium"
-                      htmlFor="bearer-token-input"
+                      htmlFor="multi-server-logging-level-select"
                     >
-                      Bearer Token
+                      Logging Level{" "}
+                      {currentServerName && `- ${currentServerName}`}
                     </label>
-                    <Input
-                      id="bearer-token-input"
-                      placeholder="Bearer Token"
-                      value={bearerToken}
-                      onChange={(e) => setBearerToken(e.target.value)}
-                      data-testid="bearer-token-input"
-                      className="font-mono"
-                      type="password"
-                    />
+                    <Select
+                      value={multiServerLogLevel || "info"}
+                      onValueChange={(value: LoggingLevel) => {
+                        onMultiServerLogLevelChange?.(currentServerId, value);
+                      }}
+                    >
+                      <SelectTrigger id="multi-server-logging-level-select">
+                        <SelectValue placeholder="Select logging level" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.values(LoggingLevelSchema.enum).map((level) => (
+                          <SelectItem key={level} value={level}>
+                            {level}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                </div>
-                {transportType !== "stdio" && (
-                  // OAuth Configuration
-                  <div className="space-y-2 p-3  rounded border">
-                    <h4 className="text-sm font-semibold flex items-center">
-                      OAuth 2.0 Flow
-                    </h4>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Client ID</label>
-                      <Input
-                        placeholder="Client ID"
-                        onChange={(e) => setOauthClientId(e.target.value)}
-                        value={oauthClientId}
-                        data-testid="oauth-client-id-input"
-                        className="font-mono"
-                      />
-                      <label className="text-sm font-medium">
-                        Redirect URL
-                      </label>
-                      <Input
-                        readOnly
-                        placeholder="Redirect URL"
-                        value={window.location.origin + "/oauth/callback"}
-                        className="font-mono"
-                      />
-                      <label className="text-sm font-medium">Scope</label>
-                      <Input
-                        placeholder="Scope (space-separated)"
-                        onChange={(e) => setOauthScope(e.target.value)}
-                        value={oauthScope}
-                        data-testid="oauth-scope-input"
-                        className="font-mono"
-                      />
+                )}
+
+              {/* Multi Server Error Output */}
+              {multiServerStdErrNotifications &&
+                multiServerStdErrNotifications.length > 0 && (
+                  <div className="mt-4 border-t border-gray-200 pt-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-medium">
+                        Error output from {currentServerName || "MCP server"}
+                      </h3>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearMultiServerStdErrNotifications}
+                        className="h-8 px-2"
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                    <div className="mt-2 max-h-80 overflow-y-auto">
+                      {multiServerStdErrNotifications.map(
+                        (notification, index) => (
+                          <div
+                            key={index}
+                            className="text-sm text-red-500 font-mono py-2 border-b border-gray-200 last:border-b-0"
+                          >
+                            {notification.params.content}
+                          </div>
+                        ),
+                      )}
                     </div>
                   </div>
                 )}
-              </>
-            )}
-          </div>
-          {/* Configuration */}
-          <div className="space-y-2">
-            <Button
-              variant="outline"
-              onClick={() => setShowConfig(!showConfig)}
-              className="flex items-center w-full"
-              data-testid="config-button"
-              aria-expanded={showConfig}
-            >
-              {showConfig ? (
-                <ChevronDown className="w-4 h-4 mr-2" />
-              ) : (
-                <ChevronRight className="w-4 h-4 mr-2" />
-              )}
-              <Settings className="w-4 h-4 mr-2" />
-              Configuration
-            </Button>
-            {showConfig && (
-              <div className="space-y-2">
-                {Object.entries(config).map(([key, configItem]) => {
-                  const configKey = key as keyof InspectorConfig;
-                  return (
-                    <div key={key} className="space-y-2">
-                      <div className="flex items-center gap-1">
-                        <label
-                          className="text-sm font-medium text-green-600 break-all"
-                          htmlFor={`${configKey}-input`}
-                        >
-                          {configItem.label}
-                        </label>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {configItem.description}
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                      {typeof configItem.value === "number" ? (
-                        <Input
-                          id={`${configKey}-input`}
-                          type="number"
-                          data-testid={`${configKey}-input`}
-                          value={configItem.value}
-                          onChange={(e) => {
-                            const newConfig = { ...config };
-                            newConfig[configKey] = {
-                              ...configItem,
-                              value: Number(e.target.value),
-                            };
-                            setConfig(newConfig);
-                          }}
-                          className="font-mono"
-                        />
-                      ) : typeof configItem.value === "boolean" ? (
-                        <Select
-                          data-testid={`${configKey}-select`}
-                          value={configItem.value.toString()}
-                          onValueChange={(val) => {
-                            const newConfig = { ...config };
-                            newConfig[configKey] = {
-                              ...configItem,
-                              value: val === "true",
-                            };
-                            setConfig(newConfig);
-                          }}
-                        >
-                          <SelectTrigger id={`${configKey}-input`}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="true">True</SelectItem>
-                            <SelectItem value="false">False</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Input
-                          id={`${configKey}-input`}
-                          data-testid={`${configKey}-input`}
-                          value={configItem.value}
-                          onChange={(e) => {
-                            const newConfig = { ...config };
-                            newConfig[configKey] = {
-                              ...configItem,
-                              value: e.target.value,
-                            };
-                            setConfig(newConfig);
-                          }}
-                          className="font-mono"
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            {connectionStatus === "connected" && (
-              <div className="grid grid-cols-2 gap-4">
-                <Button
-                  data-testid="connect-button"
-                  onClick={() => {
-                    onDisconnect();
-                    onConnect();
-                  }}
-                >
-                  <RotateCcw className="w-4 h-4 mr-2" />
-                  {transportType === "stdio" ? "Restart" : "Reconnect"}
-                </Button>
-                <Button onClick={onDisconnect}>
-                  <RefreshCwOff className="w-4 h-4 mr-2" />
-                  Disconnect
-                </Button>
-              </div>
-            )}
-            {connectionStatus !== "connected" && (
-              <Button className="w-full" onClick={onConnect}>
-                <Play className="w-4 h-4 mr-2" />
-                Connect
-              </Button>
-            )}
-
-            <div className="flex items-center justify-center space-x-2 mb-4">
-              <div
-                className={`w-2 h-2 rounded-full ${(() => {
-                  switch (connectionStatus) {
-                    case "connected":
-                      return "bg-green-500";
-                    case "error":
-                      return "bg-red-500";
-                    case "error-connecting-to-proxy":
-                      return "bg-red-500";
-                    default:
-                      return "bg-gray-500";
-                  }
-                })()}`}
-              />
-              <span className="text-sm text-gray-600 dark:text-gray-400">
-                {(() => {
-                  switch (connectionStatus) {
-                    case "connected":
-                      return "Connected";
-                    case "error": {
-                      const hasProxyToken = config.MCP_PROXY_AUTH_TOKEN?.value;
-                      if (!hasProxyToken) {
-                        return "Connection Error - Did you add the proxy session token in Configuration?";
-                      }
-                      return "Connection Error - Check if your MCP server is running and proxy token is correct";
-                    }
-                    case "error-connecting-to-proxy":
-                      return "Error Connecting to MCP Inspector Proxy - Check Console logs";
-                    default:
-                      return "Disconnected";
-                  }
-                })()}
-              </span>
-            </div>
-
-            {loggingSupported && connectionStatus === "connected" && (
-              <div className="space-y-2">
-                <label
-                  className="text-sm font-medium"
-                  htmlFor="logging-level-select"
-                >
-                  Logging Level
-                </label>
-                <Select
-                  value={logLevel}
-                  onValueChange={(value: LoggingLevel) =>
-                    sendLogLevelRequest(value)
-                  }
-                >
-                  <SelectTrigger id="logging-level-select">
-                    <SelectValue placeholder="Select logging level" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.values(LoggingLevelSchema.enum).map((level) => (
-                      <SelectItem key={level} value={level}>
-                        {level}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
       </div>
       <div className="p-4 border-t">

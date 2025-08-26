@@ -48,13 +48,6 @@ import {
   discoverScopes,
 } from "../auth";
 import packageJson from "../../../package.json";
-import {
-  getMCPProxyAddress,
-  getMCPServerRequestMaxTotalTimeout,
-  resetRequestTimeoutOnProgress,
-  getMCPProxyAuthToken,
-} from "@/utils/configUtils";
-import { getMCPServerRequestTimeout } from "@/utils/configUtils";
 import { InspectorConfig } from "../configurationTypes";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
@@ -68,7 +61,7 @@ interface UseConnectionOptions {
   headerName?: string;
   oauthClientId?: string;
   oauthScope?: string;
-  config: InspectorConfig;
+  config?: InspectorConfig;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -153,11 +146,25 @@ export function useConnection({
         signal: options?.signal ?? abortController.signal,
         resetTimeoutOnProgress:
           options?.resetTimeoutOnProgress ??
-          resetRequestTimeoutOnProgress(config),
-        timeout: options?.timeout ?? getMCPServerRequestTimeout(config),
+          (config
+            ? (
+                await import("@/utils/configUtils")
+              ).resetRequestTimeoutOnProgress(config)
+            : false),
+        timeout:
+          options?.timeout ??
+          (config
+            ? (await import("@/utils/configUtils")).getMCPServerRequestTimeout(
+                config,
+              )
+            : 30000),
         maxTotalTimeout:
           options?.maxTotalTimeout ??
-          getMCPServerRequestMaxTotalTimeout(config),
+          (config
+            ? (
+                await import("@/utils/configUtils")
+              ).getMCPServerRequestMaxTotalTimeout(config)
+            : 60000),
       };
 
       // If progress notifications are enabled, add an onprogress hook to the MCP Client request options
@@ -282,7 +289,13 @@ export function useConnection({
   };
 
   const checkProxyHealth = async () => {
+    if (!config) {
+      throw new Error("Configuration not loaded");
+    }
     try {
+      const { getMCPProxyAddress, getMCPProxyAuthToken } = await import(
+        "@/utils/configUtils"
+      );
       const proxyHealthUrl = new URL(`${getMCPProxyAddress(config)}/health`);
       const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
         getMCPProxyAuthToken(config);
@@ -395,11 +408,14 @@ export function useConnection({
       }
 
       // Add proxy authentication
-      const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
-        getMCPProxyAuthToken(config);
       const proxyHeaders: HeadersInit = {};
-      if (proxyAuthToken) {
-        proxyHeaders[proxyAuthTokenHeader] = `Bearer ${proxyAuthToken}`;
+      if (config) {
+        const { getMCPProxyAuthToken } = await import("@/utils/configUtils");
+        const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
+          getMCPProxyAuthToken(config);
+        if (proxyAuthToken) {
+          proxyHeaders[proxyAuthTokenHeader] = `Bearer ${proxyAuthToken}`;
+        }
       }
 
       // Create appropriate transport
@@ -408,9 +424,13 @@ export function useConnection({
         | SSEClientTransportOptions;
 
       let mcpProxyServerUrl;
+      const baseUrl = config
+        ? (await import("@/utils/configUtils")).getMCPProxyAddress(config)
+        : "http://localhost:3001";
+
       switch (transportType) {
         case "stdio":
-          mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/stdio`);
+          mcpProxyServerUrl = new URL(`${baseUrl}/stdio`);
           mcpProxyServerUrl.searchParams.append("command", command);
           mcpProxyServerUrl.searchParams.append("args", args);
           mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
@@ -433,7 +453,7 @@ export function useConnection({
           break;
 
         case "sse":
-          mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
+          mcpProxyServerUrl = new URL(`${baseUrl}/sse`);
           mcpProxyServerUrl.searchParams.append("url", sseUrl);
           transportOptions = {
             eventSourceInit: {
@@ -453,7 +473,7 @@ export function useConnection({
           break;
 
         case "streamable-http":
-          mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
+          mcpProxyServerUrl = new URL(`${baseUrl}/mcp`);
           mcpProxyServerUrl.searchParams.append("url", sseUrl);
           transportOptions = {
             eventSourceInit: {

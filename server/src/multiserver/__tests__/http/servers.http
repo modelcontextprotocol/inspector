@@ -1,0 +1,93 @@
+### Multi-Server API Testing
+### This file contains HTTP requests for testing the multi-server API endpoints
+### Use with REST Client extension in VS Code or similar HTTP client
+
+@baseUrl = http://localhost:3001
+@contentType = application/json
+
+### 1. Get all servers (should be empty initially)
+GET {{baseUrl}}/api/servers
+Accept: {{contentType}}
+
+### 2. Create a new STDIO server
+POST {{baseUrl}}/api/servers
+Content-Type: {{contentType}}
+
+{
+  "name": "Test STDIO Server",
+  "description": "A test server using STDIO transport",
+  "transportType": "stdio",
+  "config": {
+    "command": "node",
+    "args": ["--version"],
+    "env": {
+      "NODE_ENV": "development"
+    }
+  }
+}
+
+### 3. Create a new HTTP server
+POST {{baseUrl}}/api/servers
+Content-Type: {{contentType}}
+
+{
+  "name": "Test HTTP Server",
+  "description": "A test server using HTTP transport",
+  "transportType": "streamable-http",
+  "config": {
+    "url": "http://localhost:3000/mcp"
+  }
+}
+
+### 4. Get all servers (should show created servers)
+GET {{baseUrl}}/api/servers
+Accept: {{contentType}}
+
+### 5. Get a specific server by ID (replace {serverId} with actual ID from previous responses)
+GET {{baseUrl}}/api/servers/{serverId}
+Accept: {{contentType}}
+
+### 6. Update a server (replace {serverId} with actual ID)
+PUT {{baseUrl}}/api/servers/{serverId}
+Content-Type: {{contentType}}
+
+{
+  "name": "Updated Server Name",
+  "description": "Updated description",
+  "config": {
+    "command": "npm",
+    "args": ["start"],
+    "env": {
+      "NODE_ENV": "production"
+    }
+  }
+}
+
+### 7. Delete a server (replace {serverId} with actual ID)
+DELETE {{baseUrl}}/api/servers/{serverId}
+
+### 8. Test validation - Create server with invalid data
+POST {{baseUrl}}/api/servers
+Content-Type: {{contentType}}
+
+{
+  "name": "",
+  "description": "Invalid server with empty name",
+  "transportType": "invalid-type",
+  "config": {}
+}
+
+### 9. Test error handling - Get non-existent server
+GET {{baseUrl}}/api/servers/non-existent-id
+Accept: {{contentType}}
+
+### 10. Test error handling - Update non-existent server
+PUT {{baseUrl}}/api/servers/non-existent-id
+Content-Type: {{contentType}}
+
+{
+  "name": "Updated Name"
+}
+
+### 11. Test error handling - Delete non-existent server
+DELETE {{baseUrl}}/api/servers/non-existent-id

@@ -21,6 +21,16 @@ import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 
+// Import multiserver routes and middleware
+import { serversRouter } from "./multiserver/routes/servers.js";
+import { connectionsRouter } from "./multiserver/routes/connections.js";
+import { mcpProxyRouter } from "./multiserver/routes/mcp-proxy.js";
+import { eventsRouter } from "./multiserver/routes/events.js";
+import {
+  errorHandler,
+  notFoundHandler,
+} from "./multiserver/middleware/errorHandler.js";
+
 const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 const SSE_HEADERS_PASSTHROUGH = ["authorization"];
 const STREAMABLE_HTTP_HEADERS_PASSTHROUGH = [
@@ -85,6 +95,7 @@ const getHttpHeaders = (
 
 const app = express();
 app.use(cors());
+app.use(express.json()); // Add JSON parsing middleware for multiserver API
 app.use((req, res, next) => {
   res.header("Access-Control-Expose-Headers", "mcp-session-id");
   next();
@@ -147,12 +158,22 @@ const authMiddleware = (
     ? authHeader[0]
     : authHeader;
 
-  if (!authHeaderValue || !authHeaderValue.startsWith("Bearer ")) {
+  // Also check query parameter for EventSource requests (which can't send custom headers)
+  const queryToken = req.query.MCP_PROXY_AUTH_TOKEN as string;
+
+  let providedToken: string | null = null;
+
+  if (authHeaderValue && authHeaderValue.startsWith("Bearer ")) {
+    providedToken = authHeaderValue.substring(7); // Remove 'Bearer ' prefix
+  } else if (queryToken) {
+    providedToken = queryToken;
+  }
+
+  if (!providedToken) {
     sendUnauthorized();
     return;
   }
 
-  const providedToken = authHeaderValue.substring(7); // Remove 'Bearer ' prefix
   const expectedToken = sessionToken;
 
   // Convert to buffers for timing-safe comparison
@@ -173,6 +194,27 @@ const authMiddleware = (
 
   next();
 };
+
+// Add multiserver API routes with authentication
+app.use(
+  "/api/servers",
+  originValidationMiddleware,
+  authMiddleware,
+  serversRouter,
+);
+app.use(
+  "/api/connections",
+  originValidationMiddleware,
+  authMiddleware,
+  connectionsRouter,
+);
+app.use(
+  "/api/events",
+  originValidationMiddleware,
+  authMiddleware,
+  eventsRouter,
+);
+app.use("/api/mcp", originValidationMiddleware, authMiddleware, mcpProxyRouter);
 
 const createTransport = async (req: express.Request): Promise<Transport> => {
   const query = req.query;
@@ -547,7 +589,7 @@ app.post(
         res.status(404).end("Session not found");
         return;
       }
-      await transport.handlePostMessage(req, res);
+      await transport.handlePostMessage(req, res, req.body);
     } catch (error) {
       console.error("Error in /message route:", error);
       res.status(500).json(error);
@@ -576,6 +618,10 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
   }
 });
 
+// Add error handling middleware for multiserver API (must be last)
+app.use("/api", errorHandler);
+app.use("/api", notFoundHandler);
+
 const PORT = parseInt(
   process.env.SERVER_PORT || DEFAULT_MCP_PROXY_LISTEN_PORT,
   10,
@@ -585,6 +631,9 @@ const HOST = process.env.HOST || "localhost";
 const server = app.listen(PORT, HOST);
 server.on("listening", () => {
   console.log(`⚙️ Proxy server listening on ${HOST}:${PORT}`);
+  console.log(
+    `🔗 Multi-server API available at http://${HOST}:${PORT}/api/servers`,
+  );
   if (!authDisabled) {
     console.log(
       `🔑 Session token: ${sessionToken}\n   ` +

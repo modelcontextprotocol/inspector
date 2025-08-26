@@ -59,6 +59,9 @@ describe("Sidebar", () => {
     loggingSupported: true,
     config: DEFAULT_INSPECTOR_CONFIG,
     setConfig: jest.fn(),
+    // Default to single-server mode for most tests
+    appMode: "single-server" as const,
+    setAppMode: jest.fn(),
   };
 
   const renderSidebar = (props = {}) => {
@@ -913,6 +916,205 @@ describe("Sidebar", () => {
           },
         }),
       );
+    });
+  });
+
+  describe("Multi-Server Mode", () => {
+    const multiServerProps = {
+      appMode: "multi-server" as const,
+      setAppMode: jest.fn(),
+      currentServerId: "test-server-1",
+      currentServerName: "Test Server",
+      currentServerStatus: "connected" as const,
+      onMultiServerLogLevelChange: jest.fn(),
+      multiServerStdErrNotifications: [],
+      clearMultiServerStdErrNotifications: jest.fn(),
+    };
+
+    it("should show logging controls when server is connected and logging is supported", () => {
+      renderSidebar({
+        ...multiServerProps,
+        multiServerLogLevel: "info",
+        multiServerLoggingSupported: true,
+      });
+
+      expect(
+        screen.getByLabelText(/logging level.*test server/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("combobox", { name: /logging level.*test server/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("should show logging controls when multiServerLoggingSupported is undefined (fallback to true)", () => {
+      renderSidebar({
+        ...multiServerProps,
+        multiServerLogLevel: "debug",
+        multiServerLoggingSupported: undefined,
+      });
+
+      expect(
+        screen.getByLabelText(/logging level.*test server/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("combobox", { name: /logging level.*test server/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("should not show logging controls when multiServerLoggingSupported is explicitly false", () => {
+      renderSidebar({
+        ...multiServerProps,
+        multiServerLogLevel: "info",
+        multiServerLoggingSupported: false,
+      });
+
+      expect(
+        screen.queryByLabelText(/logging level.*test server/i),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should not show logging controls when server is not connected", () => {
+      renderSidebar({
+        ...multiServerProps,
+        currentServerStatus: "disconnected" as const,
+        multiServerLogLevel: "info",
+        multiServerLoggingSupported: true,
+      });
+
+      expect(
+        screen.queryByLabelText(/logging level.*test server/i),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should not show logging controls when no server is selected", () => {
+      renderSidebar({
+        ...multiServerProps,
+        currentServerId: undefined,
+        multiServerLogLevel: "info",
+        multiServerLoggingSupported: true,
+      });
+
+      expect(
+        screen.queryByLabelText(/logging level.*test server/i),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should use default log level when multiServerLogLevel is undefined", () => {
+      renderSidebar({
+        ...multiServerProps,
+        multiServerLogLevel: undefined,
+        multiServerLoggingSupported: true,
+      });
+
+      const select = screen.getByRole("combobox", {
+        name: /logging level.*test server/i,
+      });
+      // The select should show the default fallback value in its display text
+      expect(select).toHaveTextContent("info");
+    });
+
+    it("should call onMultiServerLogLevelChange when log level is changed", () => {
+      const onMultiServerLogLevelChange = jest.fn();
+      renderSidebar({
+        ...multiServerProps,
+        multiServerLogLevel: "info",
+        multiServerLoggingSupported: true,
+        onMultiServerLogLevelChange,
+      });
+
+      const select = screen.getByRole("combobox", {
+        name: /logging level.*test server/i,
+      });
+      fireEvent.click(select);
+
+      const debugOption = screen.getByRole("option", { name: "debug" });
+      fireEvent.click(debugOption);
+
+      expect(onMultiServerLogLevelChange).toHaveBeenCalledWith(
+        "test-server-1",
+        "debug",
+      );
+    });
+
+    it("should show server name in logging label when available", () => {
+      renderSidebar({
+        ...multiServerProps,
+        currentServerName: "My Custom Server",
+        multiServerLogLevel: "info",
+        multiServerLoggingSupported: true,
+      });
+
+      expect(
+        screen.getByLabelText(/logging level - my custom server/i),
+      ).toBeInTheDocument();
+    });
+
+    it("should show logging controls without server name when name is not available", () => {
+      renderSidebar({
+        ...multiServerProps,
+        currentServerName: undefined,
+        multiServerLogLevel: "info",
+        multiServerLoggingSupported: true,
+      });
+
+      expect(screen.getByLabelText(/^logging level$/i)).toBeInTheDocument();
+    });
+
+    it("should show multi-server stderr notifications when available", () => {
+      const notifications = [
+        { params: { content: "Error message 1" } },
+        { params: { content: "Error message 2" } },
+      ];
+
+      renderSidebar({
+        ...multiServerProps,
+        multiServerStdErrNotifications: notifications,
+      });
+
+      expect(
+        screen.getByText("Error output from Test Server"),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Error message 1")).toBeInTheDocument();
+      expect(screen.getByText("Error message 2")).toBeInTheDocument();
+    });
+
+    it("should call clearMultiServerStdErrNotifications when clear button is clicked", () => {
+      const clearMultiServerStdErrNotifications = jest.fn();
+      const notifications = [{ params: { content: "Error message" } }];
+
+      renderSidebar({
+        ...multiServerProps,
+        multiServerStdErrNotifications: notifications,
+        clearMultiServerStdErrNotifications,
+      });
+
+      const clearButton = screen.getByRole("button", { name: "Clear" });
+      fireEvent.click(clearButton);
+
+      expect(clearMultiServerStdErrNotifications).toHaveBeenCalled();
+    });
+
+    it("should not show single-server controls in multi-server mode", () => {
+      renderSidebar({
+        ...multiServerProps,
+        connectionStatus: "connected",
+        loggingSupported: true,
+        logLevel: "debug",
+      });
+
+      // Should not show single-server logging controls
+      expect(
+        screen.queryByLabelText(/^logging level$/),
+      ).not.toBeInTheDocument();
+
+      // Should not show transport type selector
+      expect(
+        screen.queryByLabelText(/transport type/i),
+      ).not.toBeInTheDocument();
+
+      // Should not show command/args inputs
+      expect(screen.queryByLabelText(/command/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/arguments/i)).not.toBeInTheDocument();
     });
   });
 });

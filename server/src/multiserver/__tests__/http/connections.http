@@ -1,0 +1,86 @@
+### Multi-Server Connections API Testing
+### This file contains HTTP requests for testing the connection management endpoints
+### Use with REST Client extension in VS Code or similar HTTP client
+
+@baseUrl = http://localhost:3001
+@contentType = application/json
+
+### Prerequisites: Create a server first using servers.http, then use its ID below
+@serverId = your-server-id-here
+
+### 1. Get all connection statuses (should be empty initially)
+GET {{baseUrl}}/api/connections
+Accept: {{contentType}}
+
+### 2. Get connection status for a specific server (replace with actual server ID)
+GET {{baseUrl}}/api/connections/{{serverId}}
+Accept: {{contentType}}
+
+### 3. Connect to a server (replace with actual server ID)
+POST {{baseUrl}}/api/connections/{{serverId}}/connect
+Content-Type: {{contentType}}
+
+### 4. Get connection status after connecting
+GET {{baseUrl}}/api/connections/{{serverId}}
+Accept: {{contentType}}
+
+### 5. Get all connection statuses (should show connected server)
+GET {{baseUrl}}/api/connections
+Accept: {{contentType}}
+
+### 6. Disconnect from a server (replace with actual server ID)
+POST {{baseUrl}}/api/connections/{{serverId}}/disconnect
+Content-Type: {{contentType}}
+
+### 7. Get connection status after disconnecting
+GET {{baseUrl}}/api/connections/{{serverId}}
+Accept: {{contentType}}
+
+### 8. Test error handling - Connect to non-existent server
+POST {{baseUrl}}/api/connections/non-existent-id/connect
+Content-Type: {{contentType}}
+
+### 9. Test error handling - Disconnect from non-existent server
+POST {{baseUrl}}/api/connections/non-existent-id/disconnect
+Content-Type: {{contentType}}
+
+### 10. Test error handling - Get status of non-existent server
+GET {{baseUrl}}/api/connections/non-existent-id
+Accept: {{contentType}}
+
+### 11. Disconnect all servers
+POST {{baseUrl}}/api/connections/disconnect-all
+Content-Type: {{contentType}}
+
+### 12. Verify all servers are disconnected
+GET {{baseUrl}}/api/connections
+Accept: {{contentType}}
+
+### Example workflow with real server creation and connection:
+### Step 1: Create a server
+POST {{baseUrl}}/api/servers
+Content-Type: {{contentType}}
+
+{
+  "name": "Connection Test Server",
+  "description": "Server for testing connections",
+  "transportType": "stdio",
+  "config": {
+    "command": "node",
+    "args": ["--version"],
+    "env": {}
+  }
+}
+
+### Step 2: Copy the server ID from the response above and use it below
+### Step 3: Connect to the server (replace {serverId} with actual ID)
+# POST {{baseUrl}}/api/connections/{serverId}/connect
+
+### Step 4: Check connection status
+# GET {{baseUrl}}/api/connections/{serverId}
+
+### Step 5: Disconnect from the server
+# POST {{baseUrl}}/api/connections/{serverId}/disconnect
+
+### Step 6: Clean up - delete the server
+# DELETE {{baseUrl}}/api/servers/{serverId}
