@@ -2,7 +2,7 @@ import { renderHook, act } from "@testing-library/react";
 import { useConnection } from "../useConnection";
 import { z } from "zod";
 import { ClientRequest } from "@modelcontextprotocol/sdk/types.js";
-import { DEFAULT_INSPECTOR_CONFIG } from "../../constants";
+import { DEFAULT_INSPECTOR_CONFIG, CLIENT_IDENTITY } from "../../constants";
 import {
   SSEClientTransportOptions,
   SseError,
@@ -247,8 +247,8 @@ describe("useConnection", () => {
 
       expect(Client).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: "mcp-inspector",
-          version: expect.any(String),
+          name: CLIENT_IDENTITY.name,
+          version: CLIENT_IDENTITY.version,
         }),
         expect.objectContaining({
           capabilities: expect.objectContaining({
