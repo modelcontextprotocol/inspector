@@ -13,6 +13,19 @@ The MCP Inspector consists of two main components that work together:
 
 Note that the proxy is not a network proxy for intercepting traffic. Instead, it functions as both an MCP client (connecting to your MCP server) and an HTTP server (serving the web UI), enabling browser-based interaction with MCP servers that use different transport protocols.
 
+### Multi-Server Support
+
+The MCP Inspector now includes comprehensive multi-server support, allowing you to:
+
+- **Manage Multiple Servers**: Create, configure, and manage multiple MCP server configurations simultaneously
+- **Independent Connections**: Connect to and disconnect from multiple servers independently with real-time status monitoring
+- **Unified Interface**: Switch between single-server and multi-server modes seamlessly
+- **Real-time Updates**: Receive live status updates, notifications, and error tracking across all servers
+- **Centralized Logging**: Synchronized logging level management across all connected servers
+- **Transport Flexibility**: Support for both STDIO and HTTP transport types in multi-server configurations
+
+The multi-server functionality is fully backward compatible - existing single-server workflows continue to work unchanged.
+
 ## Running the Inspector
 
 ### Requirements
@@ -323,6 +336,31 @@ http://localhost:6274/?MCP_SERVER_REQUEST_TIMEOUT=10000&MCP_REQUEST_TIMEOUT_RESE
 ```
 
 Note that if both the query param and the corresponding localStorage item are set, the query param will take precedence.
+
+### Multi-Server Mode
+
+The MCP Inspector includes a dedicated multi-server mode that allows you to manage multiple MCP server configurations simultaneously. To access multi-server functionality:
+
+1. **Launch the Inspector**: Start the inspector normally with `npx @modelcontextprotocol/inspector`
+2. **Switch to Multi-Server Mode**: In the UI, use the mode toggle in the sidebar to switch from "Single Server" to "Multi Server" mode
+3. **Manage Servers**: Use the multi-server dashboard to:
+   - Add new server configurations (STDIO or HTTP transport)
+   - Connect/disconnect from multiple servers independently
+   - Monitor server status and health in real-time
+   - View aggregated error logs and notifications
+   - Access server-specific resources, tools, and prompts
+
+#### Multi-Server Features
+
+- **Server Management**: Create, edit, and delete server configurations with validation
+- **Real-time Monitoring**: Live status updates, connection health, and error tracking
+- **Independent Operations**: Each server operates independently with its own connection lifecycle
+- **Unified Interface**: Single dashboard to manage all your MCP servers
+- **History Tracking**: Centralized notification and interaction history across all servers
+- **Error Aggregation**: Sophisticated error handling with console error interception
+- **State Persistence**: Server configurations and preferences saved locally
+
+The multi-server mode is perfect for developers working with multiple MCP servers or testing server interactions in complex scenarios.
 
 ### From this repository
 

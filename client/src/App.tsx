@@ -35,6 +35,8 @@ import {
   useDraggableSidebar,
 } from "./lib/hooks/useDraggablePane";
 import { StdErrNotification } from "./lib/notificationTypes";
+import { multiServerHistoryStore } from "./components/multiserver/stores/multiServerHistoryStore";
+import { MultiServerApi } from "./components/multiserver/services/multiServerApi";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -51,6 +53,7 @@ import {
 import { z } from "zod";
 import "./App.css";
 import AuthDebugger from "./components/AuthDebugger";
+import { useToast } from "./lib/hooks/useToast";
 import ConsoleTab from "./components/ConsoleTab";
 import HistoryAndNotifications from "./components/HistoryAndNotifications";
 import PingTab from "./components/PingTab";
@@ -60,17 +63,11 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import { MultiServerDashboard } from "./components/multiserver";
+import { useMultiServer } from "./components/multiserver/hooks/useMultiServer";
 import { InspectorConfig } from "./lib/configurationTypes";
-import {
-  getMCPProxyAddress,
-  getMCPProxyAuthToken,
-  getInitialSseUrl,
-  getInitialTransportType,
-  getInitialCommand,
-  getInitialArgs,
-  initializeInspectorConfig,
-  saveInspectorConfig,
-} from "./utils/configUtils";
+// Import configUtils dynamically to avoid Vite warning about mixed static/dynamic imports
+// This module is also dynamically imported in multiServerApi.ts
 import ElicitationTab, {
   PendingElicitationRequest,
   ElicitationResponse,
@@ -78,7 +75,35 @@ import ElicitationTab, {
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
+type AppMode = "single-server" | "multi-server";
+
 const App = () => {
+  const { toast } = useToast();
+
+  // App mode state
+  const [appMode, setAppMode] = useState<AppMode>(() => {
+    const savedMode = localStorage.getItem("mcp-inspector-mode");
+    // Handle legacy values
+    if (savedMode === "single") {
+      return "single-server";
+    }
+    if (savedMode === "multi") {
+      return "multi-server";
+    }
+    return (savedMode as AppMode) || "single-server";
+  });
+
+  // Multi-server current server state
+  const [currentMultiServerId, setCurrentMultiServerId] = useState<
+    string | null
+  >(null);
+  const [currentMultiServerName, setCurrentMultiServerName] = useState<
+    string | null
+  >(null);
+  const [currentMultiServerStatus, setCurrentMultiServerStatus] = useState<
+    string | null
+  >(null);
+
   const [resources, setResources] = useState<Resource[]>([]);
   const [resourceTemplates, setResourceTemplates] = useState<
     ResourceTemplate[]
@@ -97,13 +122,13 @@ const App = () => {
     prompts: null,
     tools: null,
   });
-  const [command, setCommand] = useState<string>(getInitialCommand);
-  const [args, setArgs] = useState<string>(getInitialArgs);
+  const [command, setCommand] = useState<string>("");
+  const [args, setArgs] = useState<string>("");
 
-  const [sseUrl, setSseUrl] = useState<string>(getInitialSseUrl);
+  const [sseUrl, setSseUrl] = useState<string>("");
   const [transportType, setTransportType] = useState<
     "stdio" | "sse" | "streamable-http"
-  >(getInitialTransportType);
+  >("stdio");
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [stdErrNotifications, setStdErrNotifications] = useState<
@@ -112,9 +137,49 @@ const App = () => {
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
 
-  const [config, setConfig] = useState<InspectorConfig>(() =>
-    initializeInspectorConfig(CONFIG_LOCAL_STORAGE_KEY),
-  );
+  const [config, setConfig] = useState<InspectorConfig | null>(null);
+
+  // Initialize config on component mount
+  useEffect(() => {
+    const initializeConfig = async () => {
+      try {
+        const { initializeInspectorConfig } = await import(
+          "./utils/configUtils"
+        );
+        const initialConfig = initializeInspectorConfig(
+          CONFIG_LOCAL_STORAGE_KEY,
+        );
+        setConfig(initialConfig);
+      } catch (error) {
+        console.error("Failed to initialize config:", error);
+      }
+    };
+
+    initializeConfig();
+  }, []);
+
+  // Initialize initial values from config utils
+  useEffect(() => {
+    const initializeInitialValues = async () => {
+      try {
+        const {
+          getInitialCommand,
+          getInitialArgs,
+          getInitialSseUrl,
+          getInitialTransportType,
+        } = await import("./utils/configUtils");
+
+        setCommand(getInitialCommand());
+        setArgs(getInitialArgs());
+        setSseUrl(getInitialSseUrl());
+        setTransportType(getInitialTransportType());
+      } catch (error) {
+        console.error("Failed to initialize values:", error);
+      }
+    };
+
+    initializeInitialValues();
+  }, []);
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
   });
@@ -220,7 +285,7 @@ const App = () => {
     headerName,
     oauthClientId,
     oauthScope,
-    config,
+    config: config || undefined, // Convert null to undefined for useConnection
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
     },
@@ -328,8 +393,23 @@ const App = () => {
   }, [oauthScope]);
 
   useEffect(() => {
-    saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
+    if (config) {
+      const saveConfig = async () => {
+        try {
+          const { saveInspectorConfig } = await import("./utils/configUtils");
+          saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
+        } catch (error) {
+          console.error("Failed to save config:", error);
+        }
+      };
+      saveConfig();
+    }
   }, [config]);
+
+  // Save app mode to localStorage
+  useEffect(() => {
+    localStorage.setItem("mcp-inspector-mode", appMode);
+  }, [appMode]);
 
   const onOAuthConnect = useCallback(
     (serverUrl: string) => {
@@ -437,17 +517,35 @@ const App = () => {
     loadOAuthTokens();
   }, [sseUrl]);
 
+  // Add ref to track if config fetch is in progress
+  const configFetchInProgress = useRef(false);
+
   useEffect(() => {
-    const headers: HeadersInit = {};
-    const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
-      getMCPProxyAuthToken(config);
-    if (proxyAuthToken) {
-      headers[proxyAuthTokenHeader] = `Bearer ${proxyAuthToken}`;
+    // Prevent duplicate requests or if config is not loaded yet
+    if (configFetchInProgress.current || !config) {
+      return;
     }
 
-    fetch(`${getMCPProxyAddress(config)}/config`, { headers })
-      .then((response) => response.json())
-      .then((data) => {
+    const fetchConfig = async () => {
+      try {
+        const { getMCPProxyAuthToken, getMCPProxyAddress } = await import(
+          "./utils/configUtils"
+        );
+
+        const headers: HeadersInit = {};
+        const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
+          getMCPProxyAuthToken(config);
+        if (proxyAuthToken) {
+          headers[proxyAuthTokenHeader] = `Bearer ${proxyAuthToken}`;
+        }
+
+        configFetchInProgress.current = true;
+
+        const response = await fetch(`${getMCPProxyAddress(config)}/config`, {
+          headers,
+        });
+        const data = await response.json();
+
         setEnv(data.defaultEnvironment);
         if (data.defaultCommand) {
           setCommand(data.defaultCommand);
@@ -463,11 +561,15 @@ const App = () => {
         if (data.defaultServerUrl) {
           setSseUrl(data.defaultServerUrl);
         }
-      })
-      .catch((error) =>
-        console.error("Error fetching default environment:", error),
-      );
-  }, [config]);
+      } catch (error) {
+        console.error("Error fetching default environment:", error);
+      } finally {
+        configFetchInProgress.current = false;
+      }
+    };
+
+    fetchConfig();
+  }, [config]); // Depend on config directly
 
   useEffect(() => {
     rootsRef.current = roots;
@@ -761,6 +863,216 @@ const App = () => {
     setStdErrNotifications([]);
   };
 
+  // Multi-server stderr notifications state - using same pattern as single-server
+  const [multiServerStdErrNotifications, setMultiServerStdErrNotifications] =
+    useState<StdErrNotification[]>([]);
+
+  const clearMultiServerStdErrNotifications = useCallback(() => {
+    if (currentMultiServerId) {
+      multiServerHistoryStore.clearServerStdErrNotifications(
+        currentMultiServerId,
+      );
+      setMultiServerStdErrNotifications([]);
+    }
+  }, [currentMultiServerId]);
+
+  // Update multi-server stderr notifications when current server changes
+  useEffect(() => {
+    if (appMode === "multi-server" && currentMultiServerId) {
+      // Get current stderr notifications for the selected server
+      const serverStdErrNotifications =
+        multiServerHistoryStore.getServerStdErrNotifications(
+          currentMultiServerId,
+        );
+      const notifications = serverStdErrNotifications.map(
+        (item: { notification: StdErrNotification; timestamp: Date }) =>
+          item.notification,
+      );
+      setMultiServerStdErrNotifications(notifications);
+
+      // Subscribe to changes in the history store
+      const updateNotifications = () => {
+        const updatedNotifications =
+          multiServerHistoryStore.getServerStdErrNotifications(
+            currentMultiServerId,
+          );
+        const notifications = updatedNotifications.map(
+          (item: { notification: StdErrNotification; timestamp: Date }) =>
+            item.notification,
+        );
+        setMultiServerStdErrNotifications(notifications);
+      };
+
+      const unsubscribe =
+        multiServerHistoryStore.subscribe(updateNotifications);
+
+      return unsubscribe;
+    } else {
+      // Clear notifications when no server is selected or not in multi-server mode
+      setMultiServerStdErrNotifications([]);
+    }
+  }, [appMode, currentMultiServerId]);
+
+  // Multi-server hook - get all necessary state and actions
+  const { connections, setServerLogLevel } = useMultiServer();
+
+  // Additional state for direct connection fetching
+  const [currentServerConnectionData, setCurrentServerConnectionData] =
+    useState<any>(null);
+
+  // Effect to fetch connection data directly when currentMultiServerId changes
+  useEffect(() => {
+    const fetchConnectionData = async () => {
+      if (
+        currentMultiServerId &&
+        appMode === "multi-server" &&
+        currentMultiServerStatus === "connected"
+      ) {
+        try {
+          const connectionResponse =
+            await MultiServerApi.getConnection(currentMultiServerId);
+          setCurrentServerConnectionData(connectionResponse);
+        } catch (error) {
+          // Only log errors that aren't expected (like "no active connection")
+          if (
+            error instanceof Error &&
+            !error.message.includes("No active connection")
+          ) {
+            console.error(
+              `[App.tsx] Failed to fetch connection data for server ${currentMultiServerId}:`,
+              error,
+            );
+          }
+          setCurrentServerConnectionData(null);
+        }
+      } else {
+        setCurrentServerConnectionData(null);
+      }
+    };
+
+    fetchConnectionData();
+  }, [currentMultiServerId, appMode, currentMultiServerStatus]);
+
+  // Custom setAppMode that syncs with multi-server hook
+  const handleAppModeChange = useCallback(
+    (newMode: AppMode) => {
+      // Update the App's mode state - this will trigger localStorage update via useEffect
+      setAppMode(newMode);
+
+      // The useMultiServer hook should detect the localStorage change and respond accordingly
+      // No need to call multiServerToggleMode() directly as it can cause loops
+    },
+    [appMode],
+  );
+
+  // Handle current server changes from MultiServerDashboard
+  const handleCurrentServerChange = useCallback(
+    (
+      serverId: string | null,
+      serverName: string | null,
+      serverStatus: string | null,
+    ) => {
+      setCurrentMultiServerId(serverId);
+      setCurrentMultiServerName(serverName);
+      setCurrentMultiServerStatus(serverStatus);
+    },
+    [],
+  );
+
+  // Helper function to normalize server status for Sidebar component
+  const normalizeServerStatus = (
+    status: string | null,
+  ): "connected" | "connecting" | "disconnected" | "error" | undefined => {
+    if (!status) return undefined;
+    switch (status) {
+      case "connected":
+        return "connected";
+      case "connecting":
+        return "connecting";
+      case "error":
+        return "error";
+      case "disconnected":
+      default:
+        return "disconnected";
+    }
+  };
+
+  // Handle multi-server logging level changes
+  const handleMultiServerLogLevelChange = useCallback(
+    async (serverId: string, level: LoggingLevel) => {
+      try {
+        // Immediate optimistic update for UI responsiveness
+        // This ensures the dropdown updates immediately while the backend processes the change
+        if (currentMultiServerId === serverId) {
+          // Force a re-render by updating the connection data state
+          setCurrentServerConnectionData((prev: any) => {
+            if (prev?.connection) {
+              return {
+                ...prev,
+                connection: {
+                  ...prev.connection,
+                  logLevel: level,
+                },
+              };
+            }
+            return prev;
+          });
+        }
+
+        // Use the useMultiServer hook's setServerLogLevel which handles optimistic updates
+        // The completion callback will ensure the final state is correct
+        await setServerLogLevel(serverId, level);
+      } catch (error) {
+        console.error(
+          `[App] Failed to set log level for server ${serverId}:`,
+          error,
+        );
+
+        // Revert optimistic update on error
+        if (currentMultiServerId === serverId) {
+          // Fetch the actual connection data to revert to correct state
+          try {
+            const connectionResponse =
+              await MultiServerApi.getConnection(serverId);
+            setCurrentServerConnectionData(connectionResponse);
+          } catch (fetchError) {
+            console.error(
+              `[App] Failed to fetch connection data for revert:`,
+              fetchError,
+            );
+          }
+        }
+
+        // Show user-friendly error message
+        toast({
+          title: "Error",
+          description: `Failed to set logging level: ${error instanceof Error ? error.message : String(error)}`,
+          variant: "destructive",
+        });
+      }
+    },
+    [setServerLogLevel, toast, currentMultiServerId],
+  );
+
+  // Get current multi-server logging info - rely on useMultiServer hook for immediate updates
+  const currentServerConnection = currentMultiServerId
+    ? connections.get(currentMultiServerId)
+    : undefined;
+
+  // Use directly fetched connection data if available
+  const connectionData = currentServerConnectionData?.connection;
+
+  // CRITICAL FIX: Always prioritize the useMultiServer hook's state for logging level
+  // This ensures the dropdown shows the correct level after completion callbacks
+  const multiServerLogLevel =
+    currentServerConnection?.logLevel || connectionData?.logLevel || "info"; // Fallback to info if no level is available
+
+  // Use directly fetched connection data to determine logging support
+  const multiServerLoggingSupported =
+    currentMultiServerStatus === "connected" &&
+    (currentServerConnection?.loggingSupported === true ||
+      connectionData?.loggingSupported === true);
+
   const AuthDebuggerWrapper = () => (
     <TabsContent value="auth">
       <AuthDebugger
@@ -805,36 +1117,52 @@ const App = () => {
         }}
         className="bg-card border-r border-border flex flex-col h-full relative"
       >
-        <Sidebar
-          connectionStatus={connectionStatus}
-          transportType={transportType}
-          setTransportType={setTransportType}
-          command={command}
-          setCommand={setCommand}
-          args={args}
-          setArgs={setArgs}
-          sseUrl={sseUrl}
-          setSseUrl={setSseUrl}
-          env={env}
-          setEnv={setEnv}
-          config={config}
-          setConfig={setConfig}
-          bearerToken={bearerToken}
-          setBearerToken={setBearerToken}
-          headerName={headerName}
-          setHeaderName={setHeaderName}
-          oauthClientId={oauthClientId}
-          setOauthClientId={setOauthClientId}
-          oauthScope={oauthScope}
-          setOauthScope={setOauthScope}
-          onConnect={connectMcpServer}
-          onDisconnect={disconnectMcpServer}
-          stdErrNotifications={stdErrNotifications}
-          logLevel={logLevel}
-          sendLogLevelRequest={sendLogLevelRequest}
-          loggingSupported={!!serverCapabilities?.logging || false}
-          clearStdErrNotifications={clearStdErrNotifications}
-        />
+        {config && (
+          <Sidebar
+            connectionStatus={connectionStatus}
+            transportType={transportType}
+            setTransportType={setTransportType}
+            command={command}
+            setCommand={setCommand}
+            args={args}
+            setArgs={setArgs}
+            sseUrl={sseUrl}
+            setSseUrl={setSseUrl}
+            env={env}
+            setEnv={setEnv}
+            config={config}
+            setConfig={setConfig}
+            bearerToken={bearerToken}
+            setBearerToken={setBearerToken}
+            headerName={headerName}
+            setHeaderName={setHeaderName}
+            oauthClientId={oauthClientId}
+            setOauthClientId={setOauthClientId}
+            oauthScope={oauthScope}
+            setOauthScope={setOauthScope}
+            onConnect={connectMcpServer}
+            onDisconnect={disconnectMcpServer}
+            stdErrNotifications={stdErrNotifications}
+            logLevel={logLevel}
+            sendLogLevelRequest={sendLogLevelRequest}
+            loggingSupported={!!serverCapabilities?.logging || false}
+            clearStdErrNotifications={clearStdErrNotifications}
+            appMode={appMode}
+            setAppMode={handleAppModeChange}
+            currentServerId={currentMultiServerId || undefined}
+            currentServerName={currentMultiServerName || undefined}
+            currentServerStatus={normalizeServerStatus(
+              currentMultiServerStatus,
+            )}
+            multiServerLogLevel={multiServerLogLevel}
+            multiServerLoggingSupported={multiServerLoggingSupported}
+            onMultiServerLogLevelChange={handleMultiServerLogLevelChange}
+            multiServerStdErrNotifications={multiServerStdErrNotifications}
+            clearMultiServerStdErrNotifications={
+              clearMultiServerStdErrNotifications
+            }
+          />
+        )}
         <div
           onMouseDown={handleSidebarDragStart}
           style={{
@@ -853,7 +1181,11 @@ const App = () => {
       </div>
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
-          {mcpClient ? (
+          {appMode === "multi-server" ? (
+            <MultiServerDashboard
+              onCurrentServerChange={handleCurrentServerChange}
+            />
+          ) : mcpClient ? (
             <Tabs
               value={activeTab}
               className="w-full p-4"
@@ -1102,25 +1434,28 @@ const App = () => {
             </div>
           )}
         </div>
-        <div
-          className="relative border-t border-border"
-          style={{
-            height: `${historyPaneHeight}px`,
-          }}
-        >
+        {/* History and Notifications Pane - Only for single-server mode */}
+        {appMode === "single-server" && (
           <div
-            className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50 dark:hover:bg-input/40"
-            onMouseDown={handleDragStart}
+            className="relative border-t border-border"
+            style={{
+              height: `${historyPaneHeight}px`,
+            }}
           >
-            <div className="w-8 h-1 rounded-full bg-border" />
+            <div
+              className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50 dark:hover:bg-input/40"
+              onMouseDown={handleDragStart}
+            >
+              <div className="w-8 h-1 rounded-full bg-border" />
+            </div>
+            <div className="h-full overflow-auto">
+              <HistoryAndNotifications
+                requestHistory={requestHistory}
+                serverNotifications={notifications}
+              />
+            </div>
           </div>
-          <div className="h-full overflow-auto">
-            <HistoryAndNotifications
-              requestHistory={requestHistory}
-              serverNotifications={notifications}
-            />
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

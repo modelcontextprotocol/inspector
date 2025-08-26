@@ -178,7 +178,7 @@ function useToast() {
         listeners.splice(index, 1);
       }
     };
-  }, [state]);
+  }, []); // Remove state from dependency array to prevent re-running on every state change
 
   return {
     ...state,
