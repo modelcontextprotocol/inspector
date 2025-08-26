@@ -11,6 +11,7 @@ import {
 import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
 import { generateOAuthState } from "@/utils/oauthUtils";
+import { validateRedirectUrl } from "@/utils/urlValidation";
 
 /**
  * Discovers OAuth scopes from server metadata, with preference for resource metadata scopes
@@ -102,10 +103,15 @@ export const clearClientInformationFromSessionStorage = ({
 };
 
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
-  constructor(protected serverUrl: string) {
+  constructor(
+    protected serverUrl: string,
+    scope?: string,
+  ) {
+    this.scope = scope;
     // Save the server URL to session storage
     sessionStorage.setItem(SESSION_KEYS.SERVER_URL, serverUrl);
   }
+  scope: string | undefined;
 
   get redirectUrl() {
     return window.location.origin + "/oauth/callback";
@@ -119,6 +125,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
       response_types: ["code"],
       client_name: "MCP Inspector",
       client_uri: "https://github.com/modelcontextprotocol/inspector",
+      scope: this.scope ?? "",
     };
   }
 
@@ -176,12 +183,8 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   redirectToAuthorization(authorizationUrl: URL) {
-    if (
-      authorizationUrl.protocol !== "http:" &&
-      authorizationUrl.protocol !== "https:"
-    ) {
-      throw new Error("Authorization URL must be HTTP or HTTPS");
-    }
+    // Validate the URL using the shared utility
+    validateRedirectUrl(authorizationUrl.href);
     window.location.href = authorizationUrl.href;
   }
 

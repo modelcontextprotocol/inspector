@@ -223,10 +223,10 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
   const transportType = query.transportType as string;
 
   if (transportType === "stdio") {
-    const command = query.command as string;
+    const command = (query.command as string).trim();
     const origArgs = shellParseArgs(query.args as string) as string[];
     const queryEnv = query.env ? JSON.parse(query.env as string) : {};
-    const env = { ...process.env, ...defaultEnvironment, ...queryEnv };
+    const env = { ...defaultEnvironment, ...process.env, ...queryEnv };
 
     const { cmd, args } = findActualExecutable(command, origArgs);
 
@@ -443,24 +443,66 @@ app.get(
 
       (serverTransport as StdioClientTransport).stderr!.on("data", (chunk) => {
         if (chunk.toString().includes("MODULE_NOT_FOUND")) {
+          // Server command not found, remove transports
+          const message = "Command not found, transports removed";
           webAppTransport.send({
             jsonrpc: "2.0",
-            method: "notifications/stderr",
+            method: "notifications/message",
             params: {
-              content: "Command not found, transports removed",
+              level: "emergency",
+              logger: "proxy",
+              data: {
+                message,
+              },
             },
           });
           webAppTransport.close();
           serverTransport.close();
           webAppTransports.delete(webAppTransport.sessionId);
           serverTransports.delete(webAppTransport.sessionId);
-          console.error("Command not found, transports removed");
+          console.error(message);
         } else {
+          // Inspect message and attempt to assign a RFC 5424 Syslog Protocol level
+          let level;
+          let message = chunk.toString().trim();
+          let ucMsg = chunk.toString().toUpperCase();
+          if (ucMsg.includes("DEBUG")) {
+            level = "debug";
+          } else if (ucMsg.includes("INFO")) {
+            level = "info";
+          } else if (ucMsg.includes("NOTICE")) {
+            level = "notice";
+          } else if (ucMsg.includes("WARN")) {
+            level = "warning";
+          } else if (ucMsg.includes("ERROR")) {
+            level = "error";
+          } else if (ucMsg.includes("CRITICAL")) {
+            level = "critical";
+          } else if (ucMsg.includes("ALERT")) {
+            level = "alert";
+          } else if (ucMsg.includes("EMERGENCY")) {
+            level = "emergency";
+          } else if (ucMsg.includes("SIGINT")) {
+            message = "SIGINT received. Server shutdown.";
+            level = "emergency";
+          } else if (ucMsg.includes("SIGHUP")) {
+            message = "SIGHUP received. Server shutdown.";
+            level = "emergency";
+          } else if (ucMsg.includes("SIGTERM")) {
+            message = "SIGTERM received. Server shutdown.";
+            level = "emergency";
+          } else {
+            level = "info";
+          }
           webAppTransport.send({
             jsonrpc: "2.0",
-            method: "notifications/stderr",
+            method: "notifications/message",
             params: {
-              content: chunk.toString(),
+              level,
+              logger: "stdio",
+              data: {
+                message,
+              },
             },
           });
         }

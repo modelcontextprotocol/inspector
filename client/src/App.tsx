@@ -37,7 +37,6 @@ import {
 import { StdErrNotification } from "./lib/notificationTypes";
 import { multiServerHistoryStore } from "./components/multiserver/stores/multiServerHistoryStore";
 import { MultiServerApi } from "./components/multiserver/services/multiServerApi";
-
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -131,9 +130,6 @@ const App = () => {
   >("stdio");
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
-  const [stdErrNotifications, setStdErrNotifications] = useState<
-    StdErrNotification[]
-  >([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
 
@@ -288,12 +284,6 @@ const App = () => {
     config: config || undefined, // Convert null to undefined for useConnection
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
-    },
-    onStdErrNotification: (notification) => {
-      setStdErrNotifications((prev) => [
-        ...prev,
-        notification as StdErrNotification,
-      ]);
     },
     onPendingRequest: (request, resolve, reject) => {
       setPendingSampleRequests((prev) => [
@@ -1163,6 +1153,36 @@ const App = () => {
             }
           />
         )}
+        
+        <Sidebar
+          connectionStatus={connectionStatus}
+          transportType={transportType}
+          setTransportType={setTransportType}
+          command={command}
+          setCommand={setCommand}
+          args={args}
+          setArgs={setArgs}
+          sseUrl={sseUrl}
+          setSseUrl={setSseUrl}
+          env={env}
+          setEnv={setEnv}
+          config={config}
+          setConfig={setConfig}
+          bearerToken={bearerToken}
+          setBearerToken={setBearerToken}
+          headerName={headerName}
+          setHeaderName={setHeaderName}
+          oauthClientId={oauthClientId}
+          setOauthClientId={setOauthClientId}
+          oauthScope={oauthScope}
+          setOauthScope={setOauthScope}
+          onConnect={connectMcpServer}
+          onDisconnect={disconnectMcpServer}
+          logLevel={logLevel}
+          sendLogLevelRequest={sendLogLevelRequest}
+          loggingSupported={!!serverCapabilities?.logging || false}
+        />
+        
         <div
           onMouseDown={handleSidebarDragStart}
           style={{

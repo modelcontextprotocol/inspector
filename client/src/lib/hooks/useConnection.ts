@@ -36,7 +36,7 @@ import { useEffect, useState } from "react";
 import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
 import { ConnectionStatus } from "../constants";
-import { Notification, StdErrNotificationSchema } from "../notificationTypes";
+import { Notification } from "../notificationTypes";
 import {
   auth,
   discoverOAuthProtectedResourceMetadata,
@@ -85,7 +85,6 @@ export function useConnection({
   oauthScope,
   config,
   onNotification,
-  onStdErrNotification,
   onPendingRequest,
   onElicitationRequest,
   getRoots,
@@ -332,8 +331,6 @@ export function useConnection({
 
   const handleAuthError = async (error: unknown) => {
     if (is401Error(error)) {
-      const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
-
       let scope = oauthScope?.trim();
       if (!scope) {
         // Only discover resource metadata when we need to discover scopes
@@ -347,6 +344,10 @@ export function useConnection({
         }
         scope = await discoverScopes(sseUrl, resourceMetadata);
       }
+      const serverAuthProvider = new InspectorOAuthClientProvider(
+        sseUrl,
+        scope,
+      );
 
       const result = await auth(serverAuthProvider, {
         serverUrl: sseUrl,
@@ -521,13 +522,6 @@ export function useConnection({
           onNotification(notification);
           return Promise.resolve();
         };
-      }
-
-      if (onStdErrNotification) {
-        client.setNotificationHandler(
-          StdErrNotificationSchema,
-          onStdErrNotification,
-        );
       }
 
       let capabilities;
