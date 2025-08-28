@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 // Adjust the URL if your dev server runs on a different port
-const APP_URL = "http://localhost:6274/";
+const APP_URL = "http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=abc123";
 
 test.describe("Transport Type Dropdown", () => {
   test("should have options for STDIO, SSE, and Streamable HTTP", async ({
