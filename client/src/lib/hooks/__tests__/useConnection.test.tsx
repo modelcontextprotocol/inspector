@@ -1007,4 +1007,129 @@ describe("useConnection", () => {
       });
     });
   });
+
+  describe("MCP_PROXY_FULL_ADDRESS Configuration", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      // Reset the mock transport objects
+      mockSSETransport.url = undefined;
+      mockSSETransport.options = undefined;
+      mockStreamableHTTPTransport.url = undefined;
+      mockStreamableHTTPTransport.options = undefined;
+    });
+
+    test("sends proxyFullAddress query parameter for stdio transport when configured", async () => {
+      const propsWithProxyFullAddress = {
+        ...defaultProps,
+        transportType: "stdio" as const,
+        command: "test-command",
+        args: "test-args",
+        env: {},
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_PROXY_FULL_ADDRESS: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_FULL_ADDRESS,
+            value: "https://example.com/inspector/mcp_proxy",
+          },
+        },
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithProxyFullAddress),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Check that the URL contains the proxyFullAddress parameter
+      expect(mockSSETransport.url?.searchParams.get("proxyFullAddress")).toBe(
+        "https://example.com/inspector/mcp_proxy",
+      );
+    });
+
+    test("sends proxyFullAddress query parameter for sse transport when configured", async () => {
+      const propsWithProxyFullAddress = {
+        ...defaultProps,
+        transportType: "sse" as const,
+        sseUrl: "http://localhost:8080",
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_PROXY_FULL_ADDRESS: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_FULL_ADDRESS,
+            value: "https://example.com/inspector/mcp_proxy",
+          },
+        },
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithProxyFullAddress),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Check that the URL contains the proxyFullAddress parameter
+      expect(mockSSETransport.url?.searchParams.get("proxyFullAddress")).toBe(
+        "https://example.com/inspector/mcp_proxy",
+      );
+    });
+
+    test("does not send proxyFullAddress parameter when MCP_PROXY_FULL_ADDRESS is empty", async () => {
+      const propsWithEmptyProxy = {
+        ...defaultProps,
+        transportType: "stdio" as const,
+        command: "test-command",
+        args: "test-args",
+        env: {},
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_PROXY_FULL_ADDRESS: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_FULL_ADDRESS,
+            value: "",
+          },
+        },
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithEmptyProxy));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Check that the URL does not contain the proxyFullAddress parameter
+      expect(
+        mockSSETransport.url?.searchParams.get("proxyFullAddress"),
+      ).toBeNull();
+    });
+
+    test("does not send proxyFullAddress parameter for streamable-http transport", async () => {
+      const propsWithStreamableHttp = {
+        ...defaultProps,
+        transportType: "streamable-http" as const,
+        sseUrl: "http://localhost:8080",
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_PROXY_FULL_ADDRESS: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_FULL_ADDRESS,
+            value: "https://example.com/inspector/mcp_proxy",
+          },
+        },
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithStreamableHttp),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Check that streamable-http transport doesn't get proxyFullAddress parameter
+      expect(
+        mockStreamableHTTPTransport.url?.searchParams.get("proxyFullAddress"),
+      ).toBeNull();
+    });
+  });
 });
