@@ -24,7 +24,7 @@
   },
   "devDependencies": {},
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.5",
+    "@modelcontextprotocol/sdk": "file:../../typescript-sdk",
     "commander": "^13.1.0",
     "spawn-rx": "^5.1.2"
   }

@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import { useCompletionState } from "@/lib/hooks/useCompletionState";
 import JsonView from "./JsonView";
+import IconDisplay from "./IconDisplay";
 
 export type Prompt = {
   name: string;
@@ -23,6 +24,7 @@ export type Prompt = {
     description?: string;
     required?: boolean;
   }[];
+  icons?: { src: string; mimeType?: string; sizes?: string }[];
 };
 
 const PromptsTab = ({
@@ -101,7 +103,10 @@ const PromptsTab = ({
           }}
           renderItem={(prompt) => (
             <div className="flex flex-col items-start">
-              <span className="flex-1">{prompt.name}</span>
+              <div className="flex items-center gap-2 w-full">
+                <IconDisplay icons={prompt.icons} size="sm" />
+                <span className="flex-1">{prompt.name}</span>
+              </div>
               <span className="text-sm text-gray-500 text-left">
                 {prompt.description}
               </span>
@@ -114,9 +119,14 @@ const PromptsTab = ({
 
         <div className="bg-card border border-border rounded-lg shadow">
           <div className="p-4 border-b border-gray-200 dark:border-border">
-            <h3 className="font-semibold">
-              {selectedPrompt ? selectedPrompt.name : "Select a prompt"}
-            </h3>
+            <div className="flex items-center gap-2">
+              {selectedPrompt && (
+                <IconDisplay icons={selectedPrompt.icons} size="md" />
+              )}
+              <h3 className="font-semibold">
+                {selectedPrompt ? selectedPrompt.name : "Select a prompt"}
+              </h3>
+            </div>
           </div>
           <div className="p-4">
             {error ? (

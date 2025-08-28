@@ -198,6 +198,7 @@ const App = () => {
   const {
     connectionStatus,
     serverCapabilities,
+    serverImplementation,
     mcpClient,
     requestHistory,
     makeRequest,
@@ -818,6 +819,7 @@ const App = () => {
           logLevel={logLevel}
           sendLogLevelRequest={sendLogLevelRequest}
           loggingSupported={!!serverCapabilities?.logging || false}
+          serverImplementation={serverImplementation}
         />
         <div
           onMouseDown={handleSidebarDragStart}

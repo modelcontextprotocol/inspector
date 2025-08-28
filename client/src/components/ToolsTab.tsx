@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
+import IconDisplay, { WithIcons } from "./IconDisplay";
 
 // Type guard to safely detect the optional _meta field without using `any`
 const hasMeta = (tool: Tool): tool is Tool & { _meta: unknown } =>
@@ -83,7 +84,10 @@ const ToolsTab = ({
           setSelectedItem={setSelectedTool}
           renderItem={(tool) => (
             <div className="flex flex-col items-start">
-              <span className="flex-1">{tool.name}</span>
+              <div className="flex items-center gap-2 w-full">
+                <IconDisplay icons={(tool as WithIcons).icons} size="sm" />
+                <span className="flex-1">{tool.name}</span>
+              </div>
               <span className="text-sm text-gray-500 text-left">
                 {tool.description}
               </span>
@@ -96,9 +100,17 @@ const ToolsTab = ({
 
         <div className="bg-card border border-border rounded-lg shadow">
           <div className="p-4 border-b border-gray-200 dark:border-border">
-            <h3 className="font-semibold">
-              {selectedTool ? selectedTool.name : "Select a tool"}
-            </h3>
+            <div className="flex items-center gap-2">
+              {selectedTool && (
+                <IconDisplay
+                  icons={(selectedTool as WithIcons).icons}
+                  size="md"
+                />
+              )}
+              <h3 className="font-semibold">
+                {selectedTool ? selectedTool.name : "Select a tool"}
+              </h3>
+            </div>
           </div>
           <div className="p-4">
             {selectedTool ? (
