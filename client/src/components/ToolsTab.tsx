@@ -188,12 +188,16 @@ const ToolsTab = ({
                             id={key}
                             name={key}
                             placeholder={prop.description}
-                            value={(params[key] as string) ?? ""}
+                            value={
+                              typeof params[key] === "number"
+                                ? (params[key] as number).toString()
+                                : ""
+                            }
                             onChange={(e) => {
                               const value = e.target.value;
                               setParams({
                                 ...params,
-                                [key]: value === "" ? "" : Number(value),
+                                [key]: value === "" ? undefined : Number(value),
                               });
                             }}
                             className="mt-1"
