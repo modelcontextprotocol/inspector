@@ -1,4 +1,5 @@
 import { useState, memo, useMemo, useCallback, useEffect } from "react";
+import type React from "react";
 import type { JsonValue } from "@/utils/jsonUtils";
 import clsx from "clsx";
 import { Copy, CheckCheck } from "lucide-react";
@@ -114,6 +115,7 @@ const JsonNode = memo(
     initialExpandDepth,
     isError = false,
   }: JsonNodeProps) => {
+    const { toast } = useToast();
     const [isExpanded, setIsExpanded] = useState(depth < initialExpandDepth);
     const [typeStyleMap] = useState<Record<string, string>>({
       number: "text-blue-600",
@@ -125,6 +127,52 @@ const JsonNode = memo(
       default: "text-gray-700",
     });
     const dataType = getDataType(data);
+
+    const [copied, setCopied] = useState(false);
+    useEffect(() => {
+      let timeoutId: NodeJS.Timeout;
+      if (copied) {
+        timeoutId = setTimeout(() => setCopied(false), 500);
+      }
+      return () => {
+        if (timeoutId) clearTimeout(timeoutId);
+      };
+    }, [copied]);
+
+    const handleCopyValue = useCallback(
+      (value: JsonValue) => {
+        try {
+          let text: string;
+          const valueType = getDataType(value);
+          switch (valueType) {
+            case "string":
+              text = value as unknown as string;
+              break;
+            case "number":
+            case "boolean":
+              text = String(value);
+              break;
+            case "null":
+              text = "null";
+              break;
+            case "undefined":
+              text = "undefined";
+              break;
+            default:
+              text = JSON.stringify(value);
+          }
+          navigator.clipboard.writeText(text);
+          setCopied(true);
+        } catch (error) {
+          toast({
+            title: "Error",
+            description: `There was an error coping result into the clipboard: ${error instanceof Error ? error.message : String(error)}`,
+            variant: "destructive",
+          });
+        }
+      },
+      [toast],
+    );
 
     const renderCollapsible = (isArray: boolean) => {
       const items = isArray
@@ -219,7 +267,7 @@ const JsonNode = memo(
 
       if (!isTooLong) {
         return (
-          <div className="flex mr-1 rounded hover:bg-gray-800/20">
+          <div className="flex mr-1 rounded hover:bg-gray-800/20 group items-start">
             {name && (
               <span className="mr-1 text-gray-600 dark:text-gray-400">
                 {name}:
@@ -233,12 +281,28 @@ const JsonNode = memo(
             >
               "{value}"
             </pre>
+            <Button
+              variant="ghost"
+              className="ml-1 h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+              onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                e.stopPropagation();
+                handleCopyValue(value as unknown as JsonValue);
+              }}
+              aria-label={name ? `Copy value of ${name}` : "Copy value"}
+              title={name ? `Copy value of ${name}` : "Copy value"}
+            >
+              {copied ? (
+                <CheckCheck className="size-4 dark:text-green-700 text-green-600" />
+              ) : (
+                <Copy className="size-4 text-foreground" />
+              )}
+            </Button>
           </div>
         );
       }
 
       return (
-        <div className="flex mr-1 rounded group hover:bg-gray-800/20">
+        <div className="flex mr-1 rounded group hover:bg-gray-800/20 items-start">
           {name && (
             <span className="mr-1 text-gray-600 dark:text-gray-400 dark:group-hover:text-gray-100 group-hover:text-gray-400">
               {name}:
@@ -254,6 +318,22 @@ const JsonNode = memo(
           >
             {isExpanded ? `"${value}"` : `"${value.slice(0, maxLength)}..."`}
           </pre>
+          <Button
+            variant="ghost"
+            className="ml-1 h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+            onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+              e.stopPropagation();
+              handleCopyValue(value as unknown as JsonValue);
+            }}
+            aria-label={name ? `Copy value of ${name}` : "Copy value"}
+            title={name ? `Copy value of ${name}` : "Copy value"}
+          >
+            {copied ? (
+              <CheckCheck className="size-4 dark:text-green-700 text-green-600" />
+            ) : (
+              <Copy className="size-4 text-foreground" />
+            )}
+          </Button>
         </div>
       );
     };
@@ -266,7 +346,7 @@ const JsonNode = memo(
         return renderString(data as string);
       default:
         return (
-          <div className="flex items-center mr-1 rounded hover:bg-gray-800/20">
+          <div className="flex items-center mr-1 rounded hover:bg-gray-800/20 group">
             {name && (
               <span className="mr-1 text-gray-600 dark:text-gray-400">
                 {name}:
@@ -275,6 +355,22 @@ const JsonNode = memo(
             <span className={typeStyleMap[dataType] || typeStyleMap.default}>
               {data === null ? "null" : String(data)}
             </span>
+            <Button
+              variant="ghost"
+              className="ml-1 h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+              onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                e.stopPropagation();
+                handleCopyValue(data as JsonValue);
+              }}
+              aria-label={name ? `Copy value of ${name}` : "Copy value"}
+              title={name ? `Copy value of ${name}` : "Copy value"}
+            >
+              {copied ? (
+                <CheckCheck className="size-4 dark:text-green-700 text-green-600" />
+              ) : (
+                <Copy className="size-4 text-foreground" />
+              )}
+            </Button>
           </div>
         );
     }
