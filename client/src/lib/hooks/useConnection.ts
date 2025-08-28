@@ -167,7 +167,7 @@ export function useConnection({
           // Add progress notification to `Server Notification` window in the UI
           if (onNotification) {
             onNotification({
-              method: "notification/progress",
+              method: "notifications/progress",
               params,
             });
           }
