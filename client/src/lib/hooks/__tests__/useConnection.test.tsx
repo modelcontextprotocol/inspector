@@ -13,6 +13,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { discoverScopes } from "../../auth";
+import { CustomHeaders } from "../../types/customHeaders";
 
 // Mock fetch
 global.fetch = jest.fn().mockResolvedValue({
@@ -737,6 +738,135 @@ describe("useConnection", () => {
       expect(
         mockStreamableHTTPTransport.options?.requestInit?.headers,
       ).toHaveProperty("X-MCP-Proxy-Auth", "Bearer test-proxy-token");
+    });
+  });
+
+  describe("Custom Headers", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      // Reset the mock transport objects
+      mockSSETransport.url = undefined;
+      mockSSETransport.options = undefined;
+      mockStreamableHTTPTransport.url = undefined;
+      mockStreamableHTTPTransport.options = undefined;
+    });
+
+    test("sends multiple custom headers correctly", async () => {
+      const customHeaders: CustomHeaders = [
+        { name: "Authorization", value: "Bearer token123", enabled: true },
+        { name: "X-Tenant-ID", value: "acme-inc", enabled: true },
+        { name: "X-Environment", value: "staging", enabled: true },
+      ];
+
+      const propsWithCustomHeaders = {
+        ...defaultProps,
+        customHeaders,
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithCustomHeaders),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Check that the transport was created with the correct headers
+      expect(mockSSETransport.options).toBeDefined();
+      expect(mockSSETransport.options?.requestInit?.headers).toBeDefined();
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      expect(headers).toHaveProperty("Authorization", "Bearer token123");
+      expect(headers).toHaveProperty("X-Tenant-ID", "acme-inc");
+      expect(headers).toHaveProperty("X-Environment", "staging");
+      expect(headers).toHaveProperty("x-custom-auth-headers", JSON.stringify(["X-Tenant-ID", "X-Environment"]));
+    });
+
+    test("ignores disabled custom headers", async () => {
+      const customHeaders: CustomHeaders = [
+        { name: "Authorization", value: "Bearer token123", enabled: true },
+        { name: "X-Disabled", value: "should-not-appear", enabled: false },
+        { name: "X-Enabled", value: "should-appear", enabled: true },
+      ];
+
+      const propsWithCustomHeaders = {
+        ...defaultProps,
+        customHeaders,
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithCustomHeaders),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      expect(headers).toHaveProperty("Authorization", "Bearer token123");
+      expect(headers).toHaveProperty("X-Enabled", "should-appear");
+      expect(headers).not.toHaveProperty("X-Disabled");
+    });
+
+    test("migrates from legacy bearerToken and headerName", async () => {
+      const propsWithLegacyAuth = {
+        ...defaultProps,
+        bearerToken: "legacy-token",
+        headerName: "X-Custom-Auth",
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithLegacyAuth),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      expect(headers).toHaveProperty("X-Custom-Auth", "legacy-token");
+      expect(headers).toHaveProperty("x-custom-auth-headers", JSON.stringify(["X-Custom-Auth"]));
+    });
+
+    test("uses OAuth token when no custom headers or legacy auth provided", async () => {
+      const propsWithoutAuth = {
+        ...defaultProps,
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithoutAuth),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      expect(headers).toHaveProperty("Authorization", "Bearer mock-token");
+    });
+
+    test("prioritizes custom headers over legacy auth", async () => {
+      const customHeaders: CustomHeaders = [
+        { name: "Authorization", value: "Bearer custom-token", enabled: true },
+      ];
+
+      const propsWithBothAuth = {
+        ...defaultProps,
+        customHeaders,
+        bearerToken: "legacy-token",
+        headerName: "Authorization",
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithBothAuth),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      expect(headers).toHaveProperty("Authorization", "Bearer custom-token");
     });
   });
 

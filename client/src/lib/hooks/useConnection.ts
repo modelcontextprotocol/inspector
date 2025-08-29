@@ -57,6 +57,7 @@ import {
 import { getMCPServerRequestTimeout } from "@/utils/configUtils";
 import { InspectorConfig } from "../configurationTypes";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { CustomHeaders, migrateFromLegacyAuth } from "../types/customHeaders";
 
 interface UseConnectionOptions {
   transportType: "stdio" | "sse" | "streamable-http";
@@ -64,8 +65,11 @@ interface UseConnectionOptions {
   args: string;
   sseUrl: string;
   env: Record<string, string>;
+  // Legacy auth support (for backward compatibility)
   bearerToken?: string;
   headerName?: string;
+  // New custom headers support
+  customHeaders?: CustomHeaders;
   oauthClientId?: string;
   oauthScope?: string;
   config: InspectorConfig;
@@ -88,6 +92,7 @@ export function useConnection({
   env,
   bearerToken,
   headerName,
+  customHeaders,
   oauthClientId,
   oauthScope,
   config,
@@ -379,19 +384,50 @@ export function useConnection({
       // Create an auth provider with the current server URL
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
-      // Use manually provided bearer token if available, otherwise use OAuth tokens
-      const token =
-        bearerToken || (await serverAuthProvider.tokens())?.access_token;
-      if (token) {
-        const authHeaderName = headerName || "Authorization";
+      // Handle custom headers (new approach) or legacy auth (backward compatibility)
+      let finalHeaders: CustomHeaders = [];
 
-        // Add custom header name as a special request header to let the server know which header to pass through
-        if (authHeaderName.toLowerCase() !== "authorization") {
-          headers[authHeaderName] = token;
-          headers["x-custom-auth-header"] = authHeaderName;
-        } else {
-          headers[authHeaderName] = `Bearer ${token}`;
+      if (customHeaders && customHeaders.length > 0) {
+        // Use new custom headers approach
+        finalHeaders = customHeaders;
+      } else if (bearerToken || headerName) {
+        // Migrate from legacy auth approach
+        finalHeaders = migrateFromLegacyAuth(bearerToken, headerName);
+      }
+
+      // Add OAuth token if available and no custom headers are set
+      if (finalHeaders.length === 0) {
+        const oauthToken = (await serverAuthProvider.tokens())?.access_token;
+        if (oauthToken) {
+          finalHeaders = [
+            {
+              name: "Authorization",
+              value: `Bearer ${oauthToken}`,
+              enabled: true,
+            },
+          ];
         }
+      }
+
+      // Process all enabled custom headers
+      const customHeaderNames: string[] = [];
+      finalHeaders.forEach((header) => {
+        if (header.enabled && header.name.trim() && header.value.trim()) {
+          const headerName = header.name.trim();
+          const headerValue = header.value.trim();
+
+          headers[headerName] = headerValue;
+
+          // Track custom header names for server processing
+          if (headerName.toLowerCase() !== "authorization") {
+            customHeaderNames.push(headerName);
+          }
+        }
+      });
+
+      // Add custom header names as a special request header for server processing
+      if (customHeaderNames.length > 0) {
+        headers["x-custom-auth-headers"] = JSON.stringify(customHeaderNames);
       }
 
       // Add proxy authentication
