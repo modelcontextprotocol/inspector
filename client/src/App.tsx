@@ -698,7 +698,11 @@ const App = () => {
     cacheToolOutputSchemas(response.tools);
   };
 
-  const callTool = async (name: string, params: Record<string, unknown>) => {
+  const callTool = async (
+    name: string,
+    params: Record<string, unknown>,
+    meta?: Record<string, unknown>,
+  ) => {
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
     try {
@@ -710,6 +714,7 @@ const App = () => {
             arguments: params,
             _meta: {
               progressToken: progressTokenRef.current++,
+              ...(meta ?? {}),
             },
           },
         },
@@ -1008,10 +1013,14 @@ const App = () => {
                         setNextToolCursor(undefined);
                         cacheToolOutputSchemas([]);
                       }}
-                      callTool={async (name, params) => {
+                      callTool={async (
+                        name: string,
+                        params: Record<string, unknown>,
+                        meta?: Record<string, unknown>,
+                      ) => {
                         clearError("tools");
                         setToolResult(null);
-                        await callTool(name, params);
+                        await callTool(name, params, meta);
                       }}
                       selectedTool={selectedTool}
                       setSelectedTool={(tool) => {

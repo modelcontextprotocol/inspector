@@ -109,9 +109,13 @@ describe("ToolsTab", () => {
       fireEvent.click(submitButton);
     });
 
-    expect(defaultProps.callTool).toHaveBeenCalledWith(mockTools[1].name, {
-      count: 42,
-    });
+    expect(defaultProps.callTool).toHaveBeenCalledWith(
+      mockTools[1].name,
+      {
+        count: 42,
+      },
+      undefined,
+    );
   });
 
   it("should allow typing negative numbers", async () => {
@@ -130,9 +134,13 @@ describe("ToolsTab", () => {
       fireEvent.click(submitButton);
     });
 
-    expect(defaultProps.callTool).toHaveBeenCalledWith(mockTools[0].name, {
-      num: -42,
-    });
+    expect(defaultProps.callTool).toHaveBeenCalledWith(
+      mockTools[0].name,
+      {
+        num: -42,
+      },
+      undefined,
+    );
   });
 
   it("should disable button and change text while tool is running", async () => {
@@ -580,20 +588,20 @@ describe("ToolsTab", () => {
         selectedTool: toolWithMeta,
       });
 
-      expect(screen.getByText("Meta:")).toBeInTheDocument();
+      expect(screen.getByText("Meta Schema:")).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: /expand/i }),
       ).toBeInTheDocument();
     });
 
-    it("should toggle meta expansion", () => {
+    it("should toggle meta schema expansion", () => {
       renderToolsTab({
         tools: [toolWithMeta],
         selectedTool: toolWithMeta,
       });
 
-      // There might be multiple Expand buttons (Output Schema, Meta). We need the one within Meta section
-      const metaHeading = screen.getByText("Meta:");
+      // There might be multiple Expand buttons (Output Schema, Meta Schema). We need the one within Meta Schema section
+      const metaHeading = screen.getByText("Meta Schema:");
       const metaContainer = metaHeading.closest("div");
       expect(metaContainer).toBeTruthy();
       const toggleButton = within(metaContainer as HTMLElement).getByRole(
@@ -619,7 +627,45 @@ describe("ToolsTab", () => {
     });
   });
 
-  describe("ToolResults Meta", () => {
+  describe("Meta submission", () => {
+    it("should send meta values when provided", async () => {
+      const callToolMock = jest.fn(async () => {});
+
+      renderToolsTab({ selectedTool: mockTools[0], callTool: callToolMock });
+
+      // Add a meta key/value pair
+      const addPairButton = screen.getByRole("button", { name: /add pair/i });
+      await act(async () => {
+        fireEvent.click(addPairButton);
+      });
+
+      // Fill key and value
+      const keyInputs = screen.getAllByLabelText(/key/i);
+      const valueInputs = screen.getAllByLabelText(/value/i);
+      expect(keyInputs.length).toBeGreaterThan(0);
+      expect(valueInputs.length).toBeGreaterThan(0);
+
+      await act(async () => {
+        fireEvent.change(keyInputs[0], { target: { value: "requestId" } });
+        fireEvent.change(valueInputs[0], { target: { value: "abc123" } });
+      });
+
+      // Run tool
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+
+      expect(callToolMock).toHaveBeenCalledTimes(1);
+      expect(callToolMock).toHaveBeenLastCalledWith(
+        mockTools[0].name,
+        expect.any(Object),
+        { requestId: "abc123" },
+      );
+    });
+  });
+
+  describe("ToolResults Meta Schema", () => {
     it("should display meta information when present in toolResult", () => {
       const resultWithMeta = {
         content: [],
@@ -632,7 +678,7 @@ describe("ToolsTab", () => {
       });
 
       // Only ToolResults meta should be present since selectedTool has no _meta
-      expect(screen.getAllByText("Meta:")).toHaveLength(1);
+      expect(screen.getAllByText("Meta Schema:")).toHaveLength(1);
       expect(screen.getByText(/info/i)).toBeInTheDocument();
       expect(screen.getByText(/version/i)).toBeInTheDocument();
     });

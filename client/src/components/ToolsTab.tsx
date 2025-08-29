@@ -42,7 +42,11 @@ const ToolsTab = ({
   tools: Tool[];
   listTools: () => void;
   clearTools: () => void;
-  callTool: (name: string, params: Record<string, unknown>) => Promise<void>;
+  callTool: (
+    name: string,
+    params: Record<string, unknown>,
+    meta?: Record<string, unknown>,
+  ) => Promise<void>;
   selectedTool: Tool | null;
   setSelectedTool: (tool: Tool | null) => void;
   toolResult: CompatibilityCallToolResult | null;
@@ -55,6 +59,9 @@ const ToolsTab = ({
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
   const [isMetaExpanded, setIsMetaExpanded] = useState(false);
+  const [metaEntries, setMetaEntries] = useState<
+    { id: string; key: string; value: string }[]
+  >([]);
 
   useEffect(() => {
     const params = Object.entries(
@@ -221,6 +228,102 @@ const ToolsTab = ({
                     );
                   },
                 )}
+                <div className="pb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold">Meta:</h4>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2"
+                      onClick={() =>
+                        setMetaEntries((prev) => [
+                          ...prev,
+                          {
+                            id:
+                              (
+                                globalThis as unknown as {
+                                  crypto?: { randomUUID?: () => string };
+                                }
+                              ).crypto?.randomUUID?.() ||
+                              Math.random().toString(36).slice(2),
+                            key: "",
+                            value: "",
+                          },
+                        ])
+                      }
+                    >
+                      Add Pair
+                    </Button>
+                  </div>
+                  {metaEntries.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No meta pairs.
+                    </p>
+                  ) : (
+                    <div className="space-y-20">
+                      {metaEntries.map((entry, index) => (
+                        <div
+                          key={entry.id}
+                          className="flex items-center gap-2 w-full"
+                        >
+                          <Label
+                            htmlFor={`meta-key-${entry.id}`}
+                            className="text-xs shrink-0"
+                          >
+                            Key
+                          </Label>
+                          <Input
+                            id={`meta-key-${entry.id}`}
+                            value={entry.key}
+                            placeholder="e.g. requestId"
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setMetaEntries((prev) =>
+                                prev.map((m, i) =>
+                                  i === index ? { ...m, key: value } : m,
+                                ),
+                              );
+                            }}
+                            className="h-8 flex-1"
+                          />
+                          <Label
+                            htmlFor={`meta-value-${entry.id}`}
+                            className="text-xs shrink-0"
+                          >
+                            Value
+                          </Label>
+                          <Input
+                            id={`meta-value-${entry.id}`}
+                            value={entry.value}
+                            placeholder="e.g. 12345"
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setMetaEntries((prev) =>
+                                prev.map((m, i) =>
+                                  i === index ? { ...m, value } : m,
+                                ),
+                              );
+                            }}
+                            className="h-8 flex-1"
+                          />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0 ml-auto shrink-0"
+                            onClick={() =>
+                              setMetaEntries((prev) =>
+                                prev.filter((_, i) => i !== index),
+                              )
+                            }
+                            aria-label={`Remove meta pair ${index + 1}`}
+                          >
+                            -
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 {selectedTool.outputSchema && (
                   <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
                     <div className="flex items-center justify-between mb-2">
@@ -262,7 +365,7 @@ const ToolsTab = ({
                   selectedTool._meta && (
                     <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
                       <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-semibold">Meta:</h4>
+                        <h4 className="text-sm font-semibold">Meta Schema:</h4>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -295,7 +398,18 @@ const ToolsTab = ({
                   onClick={async () => {
                     try {
                       setIsToolRunning(true);
-                      await callTool(selectedTool.name, params);
+                      const meta = metaEntries.reduce<Record<string, unknown>>(
+                        (acc, { key, value }) => {
+                          if (key.trim() !== "") acc[key] = value;
+                          return acc;
+                        },
+                        {},
+                      );
+                      await callTool(
+                        selectedTool.name,
+                        params,
+                        Object.keys(meta).length ? meta : undefined,
+                      );
                     } finally {
                       setIsToolRunning(false);
                     }
