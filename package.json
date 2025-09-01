@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector",
-  "version": "0.16.3",
+  "version": "0.16.5",
   "description": "Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -41,16 +41,16 @@
     "prettier-fix": "prettier --write .",
     "prettier-check": "prettier --check .",
     "lint": "prettier --check . && cd client && npm run lint",
-    "prepare": "npm run build",
+    "prepare": "husky && npm run build",
     "publish-all": "npm publish --workspaces --access public && npm publish --access public",
     "update-version": "node scripts/update-version.js",
     "check-version": "node scripts/check-version-consistency.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-cli": "^0.16.3",
-    "@modelcontextprotocol/inspector-client": "^0.16.3",
-    "@modelcontextprotocol/inspector-server": "^0.16.3",
-    "@modelcontextprotocol/sdk": "^1.17.0",
+    "@modelcontextprotocol/inspector-cli": "^0.16.5",
+    "@modelcontextprotocol/inspector-client": "^0.16.5",
+    "@modelcontextprotocol/inspector-server": "^0.16.5",
+    "@modelcontextprotocol/sdk": "^1.17.3",
     "concurrently": "^9.2.0",
     "open": "^10.2.0",
     "shell-quote": "^1.8.3",
@@ -63,12 +63,19 @@
     "@types/jest": "^29.5.14",
     "@types/node": "^22.17.0",
     "@types/shell-quote": "^1.7.5",
+    "husky": "^9.1.7",
     "jest-fixed-jsdom": "^0.0.9",
+    "lint-staged": "^16.1.5",
     "prettier": "^3.6.2",
     "rimraf": "^6.0.1",
     "typescript": "^5.4.2"
   },
   "engines": {
     "node": ">=22.7.5"
+  },
+  "lint-staged": {
+    "**/*.{js,ts,jsx,tsx,json,md}": [
+      "prettier --write"
+    ]
   }
 }

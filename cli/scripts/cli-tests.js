@@ -37,9 +37,6 @@ console.log(`${colors.BLUE}- Environment variables (-e)${colors.NC}`);
 console.log(`${colors.BLUE}- Config file (--config)${colors.NC}`);
 console.log(`${colors.BLUE}- Server selection (--server)${colors.NC}`);
 console.log(`${colors.BLUE}- Method selection (--method)${colors.NC}`);
-console.log(
-  `${colors.BLUE}- Tool-related options (--tool-name, --tool-arg)${colors.NC}`,
-);
 console.log(`${colors.BLUE}- Resource-related options (--uri)${colors.NC}`);
 console.log(
   `${colors.BLUE}- Prompt-related options (--prompt-name, --prompt-args)${colors.NC}`,
@@ -531,65 +528,6 @@ async function runTests() {
     "--cli",
     "--method",
     "tools/list",
-  );
-
-  console.log(
-    `\n${colors.YELLOW}=== Running Tool-Related Tests ===${colors.NC}`,
-  );
-
-  // Test 12: CLI mode with tool call
-  await runBasicTest(
-    "tool_call",
-    TEST_CMD,
-    ...TEST_ARGS,
-    "--cli",
-    "--method",
-    "tools/call",
-    "--tool-name",
-    "echo",
-    "--tool-arg",
-    "message=Hello",
-  );
-
-  // Test 13: CLI mode with tool call but missing tool name (should fail)
-  await runErrorTest(
-    "missing_tool_name",
-    TEST_CMD,
-    ...TEST_ARGS,
-    "--cli",
-    "--method",
-    "tools/call",
-    "--tool-arg",
-    "message=Hello",
-  );
-
-  // Test 14: CLI mode with tool call but invalid tool args format (should fail)
-  await runErrorTest(
-    "invalid_tool_args",
-    TEST_CMD,
-    ...TEST_ARGS,
-    "--cli",
-    "--method",
-    "tools/call",
-    "--tool-name",
-    "echo",
-    "--tool-arg",
-    "invalid_format",
-  );
-
-  // Test 15: CLI mode with multiple tool args
-  await runBasicTest(
-    "multiple_tool_args",
-    TEST_CMD,
-    ...TEST_ARGS,
-    "--cli",
-    "--method",
-    "tools/call",
-    "--tool-name",
-    "add",
-    "--tool-arg",
-    "a=1",
-    "b=2",
   );
 
   console.log(

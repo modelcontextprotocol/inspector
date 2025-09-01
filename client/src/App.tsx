@@ -34,7 +34,6 @@ import {
   useDraggablePane,
   useDraggableSidebar,
 } from "./lib/hooks/useDraggablePane";
-import { StdErrNotification } from "./lib/notificationTypes";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -106,9 +105,6 @@ const App = () => {
   >(getInitialTransportType);
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
-  const [stdErrNotifications, setStdErrNotifications] = useState<
-    StdErrNotification[]
-  >([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
 
@@ -223,12 +219,6 @@ const App = () => {
     config,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
-    },
-    onStdErrNotification: (notification) => {
-      setStdErrNotifications((prev) => [
-        ...prev,
-        notification as StdErrNotification,
-      ]);
     },
     onPendingRequest: (request, resolve, reject) => {
       setPendingSampleRequests((prev) => [
@@ -757,10 +747,6 @@ const App = () => {
     setLogLevel(level);
   };
 
-  const clearStdErrNotifications = () => {
-    setStdErrNotifications([]);
-  };
-
   const AuthDebuggerWrapper = () => (
     <TabsContent value="auth">
       <AuthDebugger
@@ -829,11 +815,9 @@ const App = () => {
           setOauthScope={setOauthScope}
           onConnect={connectMcpServer}
           onDisconnect={disconnectMcpServer}
-          stdErrNotifications={stdErrNotifications}
           logLevel={logLevel}
           sendLogLevelRequest={sendLogLevelRequest}
           loggingSupported={!!serverCapabilities?.logging || false}
-          clearStdErrNotifications={clearStdErrNotifications}
         />
         <div
           onMouseDown={handleSidebarDragStart}

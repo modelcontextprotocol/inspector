@@ -16,6 +16,7 @@ type Args = {
   cli: boolean;
   transport?: "stdio" | "sse" | "streamable-http";
   serverUrl?: string;
+  headers?: Record<string, string>;
 };
 
 type CliOptions = {
@@ -25,6 +26,7 @@ type CliOptions = {
   cli?: boolean;
   transport?: string;
   serverUrl?: string;
+  header?: Record<string, string>;
 };
 
 type ServerConfig =
@@ -127,6 +129,9 @@ async function runCli(args: Args): Promise<void> {
     // Build CLI arguments
     const cliArgs = [cliPath];
 
+    // Add target URL/command first
+    cliArgs.push(args.command, ...args.args);
+
     // Add transport flag if specified
     if (args.transport && args.transport !== "stdio") {
       // Convert streamable-http back to http for CLI mode
@@ -135,8 +140,12 @@ async function runCli(args: Args): Promise<void> {
       cliArgs.push("--transport", cliTransport);
     }
 
-    // Add command and remaining args
-    cliArgs.push(args.command, ...args.args);
+    // Add headers if specified
+    if (args.headers) {
+      for (const [key, value] of Object.entries(args.headers)) {
+        cliArgs.push("--header", `${key}: ${value}`);
+      }
+    }
 
     await spawnPromise("node", cliArgs, {
       env: { ...process.env, ...args.envArgs },
@@ -201,6 +210,30 @@ function parseKeyValuePair(
   return { ...previous, [key as string]: val };
 }
 
+function parseHeaderPair(
+  value: string,
+  previous: Record<string, string> = {},
+): Record<string, string> {
+  const colonIndex = value.indexOf(":");
+
+  if (colonIndex === -1) {
+    throw new Error(
+      `Invalid header format: ${value}. Use "HeaderName: Value" format.`,
+    );
+  }
+
+  const key = value.slice(0, colonIndex).trim();
+  const val = value.slice(colonIndex + 1).trim();
+
+  if (key === "" || val === "") {
+    throw new Error(
+      `Invalid header format: ${value}. Use "HeaderName: Value" format.`,
+    );
+  }
+
+  return { ...previous, [key]: val };
+}
+
 function parseArgs(): Args {
   const program = new Command();
 
@@ -227,7 +260,13 @@ function parseArgs(): Args {
     .option("--server <n>", "server name from config file")
     .option("--cli", "enable CLI mode")
     .option("--transport <type>", "transport type (stdio, sse, http)")
-    .option("--server-url <url>", "server URL for SSE/HTTP transport");
+    .option("--server-url <url>", "server URL for SSE/HTTP transport")
+    .option(
+      "--header <headers...>",
+      'HTTP headers as "HeaderName: Value" pairs (for HTTP/SSE transports)',
+      parseHeaderPair,
+      {},
+    );
 
   // Parse only the arguments before --
   program.parse(preArgs);
@@ -280,6 +319,7 @@ function parseArgs(): Args {
         envArgs: { ...(config.env || {}), ...(options.e || {}) },
         cli: options.cli || false,
         transport: "stdio",
+        headers: options.header,
       };
     } else if (config.type === "sse" || config.type === "streamable-http") {
       return {
@@ -289,6 +329,7 @@ function parseArgs(): Args {
         cli: options.cli || false,
         transport: config.type,
         serverUrl: config.url,
+        headers: options.header,
       };
     } else {
       // Backwards compatibility: if no type field, assume stdio
@@ -298,6 +339,7 @@ function parseArgs(): Args {
         envArgs: { ...((config as any).env || {}), ...(options.e || {}) },
         cli: options.cli || false,
         transport: "stdio",
+        headers: options.header,
       };
     }
   }
@@ -319,6 +361,7 @@ function parseArgs(): Args {
     cli: options.cli || false,
     transport: transport as "stdio" | "sse" | "streamable-http" | undefined,
     serverUrl: options.serverUrl,
+    headers: options.header,
   };
 }
 

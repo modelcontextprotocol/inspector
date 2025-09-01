@@ -9,9 +9,11 @@ client/tsconfig.app.tsbuildinfo
 client/tsconfig.node.tsbuildinfo
 cli/build
 test-output
+tool-test-output
 # symlinked by `npm run link:sdk`:
 sdk
 client/playwright-report/
 client/results.json
 client/test-results/
+client/e2e/test-results/
 mcp.json

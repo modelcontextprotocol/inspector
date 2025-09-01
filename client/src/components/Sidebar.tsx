@@ -24,7 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { StdErrNotification } from "@/lib/notificationTypes";
 import {
   LoggingLevel,
   LoggingLevelSchema,
@@ -62,8 +61,6 @@ interface SidebarProps {
   setOauthScope: (scope: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
-  stdErrNotifications: StdErrNotification[];
-  clearStdErrNotifications: () => void;
   logLevel: LoggingLevel;
   sendLogLevelRequest: (level: LoggingLevel) => void;
   loggingSupported: boolean;
@@ -93,8 +90,6 @@ const Sidebar = ({
   setOauthScope,
   onConnect,
   onDisconnect,
-  stdErrNotifications,
-  clearStdErrNotifications,
   logLevel,
   sendLogLevelRequest,
   loggingSupported,
@@ -290,6 +285,7 @@ const Sidebar = ({
                   placeholder="Command"
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
+                  onBlur={(e) => setCommand(e.target.value.trim())}
                   className="font-mono"
                 />
               </div>
@@ -783,36 +779,6 @@ const Sidebar = ({
                   </SelectContent>
                 </Select>
               </div>
-            )}
-
-            {stdErrNotifications.length > 0 && (
-              <>
-                <div className="mt-4 border-t border-gray-200 pt-4">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-sm font-medium">
-                      Error output from MCP server
-                    </h3>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={clearStdErrNotifications}
-                      className="h-8 px-2"
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                  <div className="mt-2 max-h-80 overflow-y-auto">
-                    {stdErrNotifications.map((notification, index) => (
-                      <div
-                        key={index}
-                        className="text-sm text-red-500 font-mono py-2 border-b border-gray-200 last:border-b-0"
-                      >
-                        {notification.params.content}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </>
             )}
           </div>
         </div>
