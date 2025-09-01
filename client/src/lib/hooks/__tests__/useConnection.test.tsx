@@ -779,7 +779,10 @@ describe("useConnection", () => {
       expect(headers).toHaveProperty("Authorization", "Bearer token123");
       expect(headers).toHaveProperty("X-Tenant-ID", "acme-inc");
       expect(headers).toHaveProperty("X-Environment", "staging");
-      expect(headers).toHaveProperty("x-custom-auth-headers", JSON.stringify(["X-Tenant-ID", "X-Environment"]));
+      expect(headers).toHaveProperty(
+        "x-custom-auth-headers",
+        JSON.stringify(["X-Tenant-ID", "X-Environment"]),
+      );
     });
 
     test("ignores disabled custom headers", async () => {
@@ -815,9 +818,7 @@ describe("useConnection", () => {
         headerName: "X-Custom-Auth",
       };
 
-      const { result } = renderHook(() =>
-        useConnection(propsWithLegacyAuth),
-      );
+      const { result } = renderHook(() => useConnection(propsWithLegacyAuth));
 
       await act(async () => {
         await result.current.connect();
@@ -825,7 +826,10 @@ describe("useConnection", () => {
 
       const headers = mockSSETransport.options?.requestInit?.headers;
       expect(headers).toHaveProperty("X-Custom-Auth", "legacy-token");
-      expect(headers).toHaveProperty("x-custom-auth-headers", JSON.stringify(["X-Custom-Auth"]));
+      expect(headers).toHaveProperty(
+        "x-custom-auth-headers",
+        JSON.stringify(["X-Custom-Auth"]),
+      );
     });
 
     test("uses OAuth token when no custom headers or legacy auth provided", async () => {
@@ -833,9 +837,7 @@ describe("useConnection", () => {
         ...defaultProps,
       };
 
-      const { result } = renderHook(() =>
-        useConnection(propsWithoutAuth),
-      );
+      const { result } = renderHook(() => useConnection(propsWithoutAuth));
 
       await act(async () => {
         await result.current.connect();
@@ -857,9 +859,7 @@ describe("useConnection", () => {
         headerName: "Authorization",
       };
 
-      const { result } = renderHook(() =>
-        useConnection(propsWithBothAuth),
-      );
+      const { result } = renderHook(() => useConnection(propsWithBothAuth));
 
       await act(async () => {
         await result.current.connect();

@@ -4,7 +4,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Plus, Trash2, Eye, EyeOff } from "lucide-react";
-import { CustomHeaders as CustomHeadersType, CustomHeader, createEmptyHeader } from "@/lib/types/customHeaders";
+import {
+  CustomHeaders as CustomHeadersType,
+  CustomHeader,
+  createEmptyHeader,
+} from "@/lib/types/customHeaders";
 
 interface CustomHeadersProps {
   headers: CustomHeadersType;
@@ -12,13 +16,21 @@ interface CustomHeadersProps {
   className?: string;
 }
 
-const CustomHeaders = ({ headers, onChange, className }: CustomHeadersProps) => {
+const CustomHeaders = ({
+  headers,
+  onChange,
+  className,
+}: CustomHeadersProps) => {
   const [isJsonMode, setIsJsonMode] = useState(false);
   const [jsonValue, setJsonValue] = useState("");
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [visibleValues, setVisibleValues] = useState<Set<number>>(new Set());
 
-  const updateHeader = (index: number, field: keyof CustomHeader, value: string | boolean) => {
+  const updateHeader = (
+    index: number,
+    field: keyof CustomHeader,
+    value: string | boolean,
+  ) => {
     const newHeaders = [...headers];
     newHeaders[index] = { ...newHeaders[index], [field]: value };
     onChange(newHeaders);
@@ -58,16 +70,22 @@ const CustomHeaders = ({ headers, onChange, className }: CustomHeadersProps) => 
   const switchToFormMode = () => {
     try {
       const parsed = JSON.parse(jsonValue);
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
         setJsonError("JSON must be an object with string key-value pairs");
         return;
       }
 
-      const newHeaders: CustomHeadersType = Object.entries(parsed).map(([name, value]) => ({
-        name,
-        value: String(value),
-        enabled: true,
-      }));
+      const newHeaders: CustomHeadersType = Object.entries(parsed).map(
+        ([name, value]) => ({
+          name,
+          value: String(value),
+          enabled: true,
+        }),
+      );
 
       onChange(newHeaders);
       setJsonError(null);
@@ -86,7 +104,9 @@ const CustomHeaders = ({ headers, onChange, className }: CustomHeadersProps) => 
     return (
       <div className={`space-y-3 ${className}`}>
         <div className="flex justify-between items-center gap-2">
-          <h4 className="text-sm font-semibold flex-shrink-0">Custom Headers (JSON)</h4>
+          <h4 className="text-sm font-semibold flex-shrink-0">
+            Custom Headers (JSON)
+          </h4>
           <Button
             type="button"
             variant="outline"
@@ -104,9 +124,7 @@ const CustomHeaders = ({ headers, onChange, className }: CustomHeadersProps) => 
             placeholder='{\n  "Authorization": "Bearer token123",\n  "X-Tenant-ID": "acme-inc",\n  "X-Environment": "staging"\n}'
             className="font-mono text-sm min-h-[100px] resize-none"
           />
-          {jsonError && (
-            <p className="text-sm text-red-600">{jsonError}</p>
-          )}
+          {jsonError && <p className="text-sm text-red-600">{jsonError}</p>}
           <p className="text-xs text-muted-foreground">
             Enter headers as a JSON object with string key-value pairs.
           </p>
@@ -156,7 +174,9 @@ const CustomHeaders = ({ headers, onChange, className }: CustomHeadersProps) => 
             >
               <Switch
                 checked={header.enabled}
-                onCheckedChange={(enabled) => updateHeader(index, "enabled", enabled)}
+                onCheckedChange={(enabled) =>
+                  updateHeader(index, "enabled", enabled)
+                }
                 className="shrink-0 mt-2"
               />
               <div className="flex-1 min-w-0 space-y-2">
@@ -170,7 +190,9 @@ const CustomHeaders = ({ headers, onChange, className }: CustomHeadersProps) => 
                   <Input
                     placeholder="Header Value"
                     value={header.value}
-                    onChange={(e) => updateHeader(index, "value", e.target.value)}
+                    onChange={(e) =>
+                      updateHeader(index, "value", e.target.value)
+                    }
                     type={visibleValues.has(index) ? "text" : "password"}
                     className="font-mono text-xs pr-8"
                   />
@@ -205,7 +227,8 @@ const CustomHeaders = ({ headers, onChange, className }: CustomHeadersProps) => 
 
       {headers.length > 0 && (
         <p className="text-xs text-muted-foreground">
-          Use the toggle to enable/disable headers. Only enabled headers with both name and value will be sent.
+          Use the toggle to enable/disable headers. Only enabled headers with
+          both name and value will be sent.
         </p>
       )}
     </div>

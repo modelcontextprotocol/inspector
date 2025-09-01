@@ -17,28 +17,35 @@ export const createHeaderFromBearerToken = (
   headerName?: string,
 ): CustomHeader => ({
   name: headerName || "Authorization",
-  value: headerName?.toLowerCase() === "authorization" || !headerName 
-    ? `Bearer ${bearerToken}` 
-    : bearerToken,
+  value:
+    headerName?.toLowerCase() === "authorization" || !headerName
+      ? `Bearer ${bearerToken}`
+      : bearerToken,
   enabled: true,
 });
 
 export const getEnabledHeaders = (headers: CustomHeaders): CustomHeaders => {
-  return headers.filter(header => header.enabled && header.name.trim() && header.value.trim());
+  return headers.filter(
+    (header) => header.enabled && header.name.trim() && header.value.trim(),
+  );
 };
 
-export const headersToRecord = (headers: CustomHeaders): Record<string, string> => {
+export const headersToRecord = (
+  headers: CustomHeaders,
+): Record<string, string> => {
   const enabledHeaders = getEnabledHeaders(headers);
   const record: Record<string, string> = {};
-  
-  enabledHeaders.forEach(header => {
+
+  enabledHeaders.forEach((header) => {
     record[header.name.trim()] = header.value.trim();
   });
-  
+
   return record;
 };
 
-export const recordToHeaders = (record: Record<string, string>): CustomHeaders => {
+export const recordToHeaders = (
+  record: Record<string, string>,
+): CustomHeaders => {
   return Object.entries(record).map(([name, value]) => ({
     name,
     value,
@@ -54,6 +61,6 @@ export const migrateFromLegacyAuth = (
   if (!bearerToken) {
     return [];
   }
-  
+
   return [createHeaderFromBearerToken(bearerToken, headerName)];
 };

@@ -74,7 +74,10 @@ import ElicitationTab, {
   PendingElicitationRequest,
   ElicitationResponse,
 } from "./components/ElicitationTab";
-import { CustomHeaders, migrateFromLegacyAuth } from "./lib/types/customHeaders";
+import {
+  CustomHeaders,
+  migrateFromLegacyAuth,
+} from "./lib/types/customHeaders";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
