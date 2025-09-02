@@ -18,7 +18,15 @@ import { Loader2, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
-import { remoteTextDefinition, remoteButtonDefinition, remoteStackDefinition, remoteImageDefinition, UIResourceRenderer, basicComponentLibrary } from "@mcp-ui/client";
+import {
+  remoteTextDefinition,
+  remoteButtonDefinition,
+  remoteStackDefinition,
+  remoteImageDefinition,
+  UIResourceRenderer,
+  basicComponentLibrary,
+  UIActionResult,
+} from "@mcp-ui/client";
 
 const ToolsTab = ({
   tools,
@@ -42,6 +50,30 @@ const ToolsTab = ({
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
+  const [lastAction, setLastAction] = useState<any>(null);
+  const handleCallTool = async (
+    toolName: string,
+    params: Record<string, unknown>,
+  ) => {
+    try {
+      setIsToolRunning(true);
+      await callTool(toolName, params);
+    } finally {
+      setIsToolRunning(false);
+    }
+  };
+
+  const handleGenericMcpAction = async (result: UIActionResult) => {
+    if (result.type === "tool") {
+      console.log(result.payload);
+      setLastAction({
+        tool: result.payload.toolName,
+        params: result.payload.params,
+      });
+      handleCallTool(result.payload.toolName, result.payload.params);
+    }
+    return { status: "Action handled" };
+  };
 
   useEffect(() => {
     const params = Object.entries(
@@ -101,6 +133,7 @@ const ToolsTab = ({
                     <UIResourceRenderer
                       key={item.resource.uri}
                       resource={item.resource}
+                      onUIAction={handleGenericMcpAction}
                       htmlProps={{
                         style: {
                           minHeight: "500px",
@@ -111,7 +144,7 @@ const ToolsTab = ({
                           remoteTextDefinition,
                           remoteButtonDefinition,
                           remoteStackDefinition,
-                          remoteImageDefinition
+                          remoteImageDefinition,
                         ],
                         library: basicComponentLibrary,
                       }}
@@ -285,12 +318,7 @@ const ToolsTab = ({
                 )}
                 <Button
                   onClick={async () => {
-                    try {
-                      setIsToolRunning(true);
-                      await callTool(selectedTool.name, params);
-                    } finally {
-                      setIsToolRunning(false);
-                    }
+                    handleCallTool(selectedTool.name, params);
                   }}
                   disabled={isToolRunning}
                 >
