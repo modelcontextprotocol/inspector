@@ -635,6 +635,15 @@ export function useConnection({
       if (capabilities?.logging && defaultLoggingLevel) {
         lastRequest = "logging/setLevel";
         await client.setLoggingLevel(defaultLoggingLevel);
+        pushHistory(
+          {
+            method: "logging/setLevel",
+            params: {
+              level: defaultLoggingLevel,
+            },
+          },
+          {},
+        );
         lastRequest = "";
       }
 

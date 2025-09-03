@@ -106,6 +106,10 @@ async function runWebClient(args: Args): Promise<void> {
     await spawnPromise("node", [inspectorClientPath, ...startArgs], {
       signal: abort.signal,
       echoOutput: true,
+      // pipe the stdout through here, prevents issues with buffering and
+      // dropping the end of console.out after 8192 chars due to node
+      // closing the stdout pipe before the output has finished flushing
+      stdio: "inherit",
     });
   } catch (e) {
     if (!cancelled || process.env.DEBUG) throw e;
@@ -151,6 +155,10 @@ async function runCli(args: Args): Promise<void> {
       env: { ...process.env, ...args.envArgs },
       signal: abort.signal,
       echoOutput: true,
+      // pipe the stdout through here, prevents issues with buffering and
+      // dropping the end of console.out after 8192 chars due to node
+      // closing the stdout pipe before the output has finished flushing
+      stdio: "inherit",
     });
   } catch (e) {
     if (!cancelled || process.env.DEBUG) {
