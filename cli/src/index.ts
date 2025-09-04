@@ -19,6 +19,7 @@ import {
 } from "./client/index.js";
 import { handleError } from "./error-handler.js";
 import { createTransport, TransportOptions } from "./transport.js";
+import { awaitableLog } from "./utils/awaitable-log.js";
 
 // JSON value type for CLI arguments
 type JsonValue =
@@ -40,11 +41,13 @@ type Args = {
   toolName?: string;
   toolArg?: Record<string, JsonValue>;
   transport?: "sse" | "stdio" | "http";
+  headers?: Record<string, string>;
 };
 
 function createTransportOptions(
   target: string[],
   transport?: "sse" | "stdio" | "http",
+  headers?: Record<string, string>,
 ): TransportOptions {
   if (target.length === 0) {
     throw new Error(
@@ -91,11 +94,16 @@ function createTransportOptions(
     command: isUrl ? undefined : command,
     args: isUrl ? undefined : commandArgs,
     url: isUrl ? command : undefined,
+    headers,
   };
 }
 
 async function callMethod(args: Args): Promise<void> {
-  const transportOptions = createTransportOptions(args.target, args.transport);
+  const transportOptions = createTransportOptions(
+    args.target,
+    args.transport,
+    args.headers,
+  );
   const transport = createTransport(transportOptions);
   const client = new Client({
     name: "inspector-cli",
@@ -160,7 +168,7 @@ async function callMethod(args: Args): Promise<void> {
       );
     }
 
-    console.log(JSON.stringify(result, null, 2));
+    await awaitableLog(JSON.stringify(result, null, 2));
   } finally {
     try {
       await disconnect(transport);
@@ -194,6 +202,30 @@ function parseKeyValuePair(
   }
 
   return { ...previous, [key as string]: parsedValue };
+}
+
+function parseHeaderPair(
+  value: string,
+  previous: Record<string, string> = {},
+): Record<string, string> {
+  const colonIndex = value.indexOf(":");
+
+  if (colonIndex === -1) {
+    throw new Error(
+      `Invalid header format: ${value}. Use "HeaderName: Value" format.`,
+    );
+  }
+
+  const key = value.slice(0, colonIndex).trim();
+  const val = value.slice(colonIndex + 1).trim();
+
+  if (key === "" || val === "") {
+    throw new Error(
+      `Invalid header format: ${value}. Use "HeaderName: Value" format.`,
+    );
+  }
+
+  return { ...previous, [key]: val };
 }
 
 function parseArgs(): Args {
@@ -275,12 +307,24 @@ function parseArgs(): Args {
         }
         return value as "sse" | "http" | "stdio";
       },
+    )
+    //
+    // HTTP headers
+    //
+    .option(
+      "--header <headers...>",
+      'HTTP headers as "HeaderName: Value" pairs (for HTTP/SSE transports)',
+      parseHeaderPair,
+      {},
     );
 
   // Parse only the arguments before --
   program.parse(preArgs);
 
-  const options = program.opts() as Omit<Args, "target">;
+  const options = program.opts() as Omit<Args, "target"> & {
+    header?: Record<string, string>;
+  };
+
   let remainingArgs = program.args;
 
   // Add back any arguments that came after --
@@ -295,6 +339,7 @@ function parseArgs(): Args {
   return {
     target: finalArgs,
     ...options,
+    headers: options.header, // commander.js uses 'header' field, map to 'headers'
   };
 }
 
@@ -306,6 +351,7 @@ async function main(): Promise<void> {
   try {
     const args = parseArgs();
     await callMethod(args);
+
     // Explicitly exit to ensure process terminates in CI
     process.exit(0);
   } catch (error) {
