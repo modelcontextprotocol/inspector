@@ -1,13 +1,18 @@
 import { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 import JsonView from "./JsonView";
+import { Button } from "@/components/ui/button";
 
 const HistoryAndNotifications = ({
   requestHistory,
   serverNotifications,
+  onClearHistory,
+  onClearNotifications,
 }: {
   requestHistory: Array<{ request: string; response?: string }>;
   serverNotifications: ServerNotification[];
+  onClearHistory?: () => void;
+  onClearNotifications?: () => void;
 }) => {
   const [expandedRequests, setExpandedRequests] = useState<{
     [key: number]: boolean;
@@ -27,7 +32,17 @@ const HistoryAndNotifications = ({
   return (
     <div className="bg-card overflow-hidden flex h-full">
       <div className="flex-1 overflow-y-auto p-4 border-r">
-        <h2 className="text-lg font-semibold mb-4">History</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">History</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onClearHistory}
+            disabled={requestHistory.length === 0}
+          >
+            Clear
+          </Button>
+        </div>
         {requestHistory.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400 italic">
             No history yet
@@ -93,7 +108,17 @@ const HistoryAndNotifications = ({
         )}
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        <h2 className="text-lg font-semibold mb-4">Server Notifications</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Server Notifications</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onClearNotifications}
+            disabled={serverNotifications.length === 0}
+          >
+            Clear
+          </Button>
+        </div>
         {serverNotifications.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400 italic">
             No notifications yet
