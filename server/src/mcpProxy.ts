@@ -18,9 +18,11 @@ function onServerError(error: Error) {
 export default function mcpProxy({
   transportToClient,
   transportToServer,
+  onCleanup,
 }: {
   transportToClient: Transport;
   transportToServer: Transport;
+  onCleanup?: () => void;
 }) {
   let transportToClientClosed = false;
   let transportToServerClosed = false;
@@ -65,6 +67,7 @@ export default function mcpProxy({
 
     transportToClientClosed = true;
     transportToServer.close().catch(onServerError);
+    onCleanup?.();
   };
 
   transportToServer.onclose = () => {
@@ -73,6 +76,7 @@ export default function mcpProxy({
     }
     transportToServerClosed = true;
     transportToClient.close().catch(onClientError);
+    onCleanup?.();
   };
 
   transportToClient.onerror = onClientError;

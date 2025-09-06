@@ -300,9 +300,18 @@ app.post(
 
         await webAppTransport.start();
 
+        const cleanup = () => {
+          if (webAppTransport.sessionId) {
+            webAppTransports.delete(webAppTransport.sessionId);
+            serverTransports.delete(webAppTransport.sessionId);
+            console.log(`Transports cleaned up for sessionId ${webAppTransport.sessionId}`);
+          }
+        };
+
         mcpProxy({
           transportToClient: webAppTransport,
           transportToServer: serverTransport,
+          onCleanup: cleanup,
         });
 
         await (webAppTransport as StreamableHTTPServerTransport).handleRequest(
@@ -470,9 +479,16 @@ app.get(
         }
       });
 
+      const cleanup = () => {
+        webAppTransports.delete(webAppTransport.sessionId);
+        serverTransports.delete(webAppTransport.sessionId);
+        console.log(`Transports cleaned up for sessionId ${webAppTransport.sessionId}`);
+      };
+
       mcpProxy({
         transportToClient: webAppTransport,
         transportToServer: serverTransport,
+        onCleanup: cleanup,
       });
     } catch (error) {
       console.error("Error in /stdio route:", error);
@@ -528,9 +544,16 @@ app.get(
 
         await webAppTransport.start();
 
+        const cleanup = () => {
+          webAppTransports.delete(webAppTransport.sessionId);
+          serverTransports.delete(webAppTransport.sessionId);
+          console.log(`Transports cleaned up for sessionId ${webAppTransport.sessionId}`);
+        };
+
         mcpProxy({
           transportToClient: webAppTransport,
           transportToServer: serverTransport,
+          onCleanup: cleanup,
         });
       }
     } catch (error) {
