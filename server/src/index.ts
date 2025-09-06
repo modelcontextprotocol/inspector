@@ -71,13 +71,35 @@ const getHttpHeaders = (
     headers[key] = Array.isArray(value) ? value[value.length - 1] : value;
   }
 
-  // If the header "x-custom-auth-header" is present, use its value as the custom header name.
+  // Handle legacy single custom header (for backward compatibility)
   if (req.headers["x-custom-auth-header"] !== undefined) {
     const customHeaderName = req.headers["x-custom-auth-header"] as string;
     const lowerCaseHeaderName = customHeaderName.toLowerCase();
     if (req.headers[lowerCaseHeaderName] !== undefined) {
       const value = req.headers[lowerCaseHeaderName];
       headers[customHeaderName] = value as string;
+    }
+  }
+
+  // Handle multiple custom headers (new approach)
+  if (req.headers["x-custom-auth-headers"] !== undefined) {
+    try {
+      const customHeaderNames = JSON.parse(
+        req.headers["x-custom-auth-headers"] as string,
+      ) as string[];
+      if (Array.isArray(customHeaderNames)) {
+        customHeaderNames.forEach((headerName) => {
+          const lowerCaseHeaderName = headerName.toLowerCase();
+          if (req.headers[lowerCaseHeaderName] !== undefined) {
+            const value = req.headers[lowerCaseHeaderName];
+            headers[headerName] = Array.isArray(value)
+              ? value[value.length - 1]
+              : value;
+          }
+        });
+      }
+    } catch (error) {
+      console.warn("Failed to parse x-custom-auth-headers:", error);
     }
   }
   return headers;

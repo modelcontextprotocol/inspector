@@ -37,6 +37,8 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import CustomHeaders from "./CustomHeaders";
+import { CustomHeaders as CustomHeadersType } from "@/lib/types/customHeaders";
 import { useToast } from "../lib/hooks/useToast";
 
 interface SidebarProps {
@@ -51,10 +53,14 @@ interface SidebarProps {
   setSseUrl: (url: string) => void;
   env: Record<string, string>;
   setEnv: (env: Record<string, string>) => void;
+  // Legacy auth props (for backward compatibility)
   bearerToken: string;
   setBearerToken: (token: string) => void;
   headerName?: string;
   setHeaderName?: (name: string) => void;
+  // New custom headers support
+  customHeaders: CustomHeadersType;
+  setCustomHeaders: (headers: CustomHeadersType) => void;
   oauthClientId: string;
   setOauthClientId: (id: string) => void;
   oauthScope: string;
@@ -80,10 +86,12 @@ const Sidebar = ({
   setSseUrl,
   env,
   setEnv,
-  bearerToken,
-  setBearerToken,
-  headerName,
-  setHeaderName,
+  bearerToken: _bearerToken,
+  setBearerToken: _setBearerToken,
+  headerName: _headerName,
+  setHeaderName: _setHeaderName,
+  customHeaders,
+  setCustomHeaders,
   oauthClientId,
   setOauthClientId,
   oauthScope,
@@ -497,38 +505,12 @@ const Sidebar = ({
             </Button>
             {showAuthConfig && (
               <>
-                {/* Bearer Token Section */}
-                <div className="space-y-2 p-3 rounded border">
-                  <h4 className="text-sm font-semibold flex items-center">
-                    API Token Authentication
-                  </h4>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Header Name</label>
-                    <Input
-                      placeholder="Authorization"
-                      onChange={(e) =>
-                        setHeaderName && setHeaderName(e.target.value)
-                      }
-                      data-testid="header-input"
-                      className="font-mono"
-                      value={headerName}
-                    />
-                    <label
-                      className="text-sm font-medium"
-                      htmlFor="bearer-token-input"
-                    >
-                      Bearer Token
-                    </label>
-                    <Input
-                      id="bearer-token-input"
-                      placeholder="Bearer Token"
-                      value={bearerToken}
-                      onChange={(e) => setBearerToken(e.target.value)}
-                      data-testid="bearer-token-input"
-                      className="font-mono"
-                      type="password"
-                    />
-                  </div>
+                {/* Custom Headers Section */}
+                <div className="p-3 rounded border overflow-hidden">
+                  <CustomHeaders
+                    headers={customHeaders}
+                    onChange={setCustomHeaders}
+                  />
                 </div>
                 {transportType !== "stdio" && (
                   // OAuth Configuration
