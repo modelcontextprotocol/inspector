@@ -21,7 +21,9 @@
     "preview": "vite preview --port 6274",
     "test": "jest --config jest.config.cjs",
     "test:watch": "jest --config jest.config.cjs --watch",
-    "test:e2e": "playwright test e2e && npm run cleanup:e2e",
+    "test:e2e": "playwright test --grep-invert @cli e2e && npm run test:e2e:cli-file && npm run test:e2e:cli-inline && npm run cleanup:e2e",
+    "test:e2e:cli-file": "CLI_TEST_SCENARIO=file playwright test --grep @cli e2e",
+    "test:e2e:cli-inline": "CLI_TEST_SCENARIO=inline playwright test --grep @cli e2e",
     "cleanup:e2e": "node e2e/global-teardown.js"
   },
   "dependencies": {
