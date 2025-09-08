@@ -31,6 +31,8 @@ type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+import packageJson from "../package.json" with { type: "json" };
+
 type Args = {
   target: string[];
   method?: string;
@@ -105,10 +107,12 @@ async function callMethod(args: Args): Promise<void> {
     args.headers,
   );
   const transport = createTransport(transportOptions);
-  const client = new Client({
-    name: "inspector-cli",
-    version: "0.5.1",
-  });
+
+  const [, name = packageJson.name] = packageJson.name.split("/");
+  const version = packageJson.version;
+  const clientIdentity = { name, version };
+
+  const client = new Client(clientIdentity);
 
   try {
     await connect(client, transport);
