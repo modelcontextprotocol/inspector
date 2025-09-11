@@ -40,6 +40,7 @@ jest.mock("../utils/configUtils", () => ({
 const disconnectedConnectionState = {
   connectionStatus: "disconnected" as const,
   serverCapabilities: null,
+  serverImplementation: null,
   mcpClient: null,
   requestHistory: [],
   clearRequestHistory: jest.fn(),

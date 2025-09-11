@@ -110,6 +110,12 @@ export function useConnection({
     { request: string; response?: string }[]
   >([]);
   const [completionsSupported, setCompletionsSupported] = useState(false);
+  const [serverImplementation, setServerImplementation] = useState<{
+    name?: string;
+    version?: string;
+    websiteUrl?: string;
+    icons?: { src: string; mimeType?: string; sizes?: string }[];
+  } | null>(null);
 
   useEffect(() => {
     if (!oauthClientId) {
@@ -542,6 +548,8 @@ export function useConnection({
         setClientTransport(transport);
 
         capabilities = client.getServerCapabilities();
+        const serverInfo = client.getServerVersion();
+        setServerImplementation(serverInfo || null);
         const initializeRequest = {
           method: "initialize",
         };
@@ -651,6 +659,7 @@ export function useConnection({
     setConnectionStatus("disconnected");
     setCompletionsSupported(false);
     setServerCapabilities(null);
+    setServerImplementation(null);
   };
 
   const clearRequestHistory = () => {
@@ -660,6 +669,7 @@ export function useConnection({
   return {
     connectionStatus,
     serverCapabilities,
+    serverImplementation,
     mcpClient,
     requestHistory,
     clearRequestHistory,
