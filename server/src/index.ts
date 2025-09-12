@@ -90,6 +90,27 @@ const getHttpHeaders = (req: express.Request): Record<string, string> => {
     }
   }
 
+  // Handle multiple custom headers (new approach)
+  if (req.headers["x-custom-auth-headers"] !== undefined) {
+    try {
+      const customHeaderNames = JSON.parse(
+        req.headers["x-custom-auth-headers"] as string,
+      ) as string[];
+      if (Array.isArray(customHeaderNames)) {
+        customHeaderNames.forEach((headerName) => {
+          const lowerCaseHeaderName = headerName.toLowerCase();
+          if (req.headers[lowerCaseHeaderName] !== undefined) {
+            const value = req.headers[lowerCaseHeaderName];
+            headers[headerName] = Array.isArray(value)
+              ? value[value.length - 1]
+              : value;
+          }
+        });
+      }
+    } catch (error) {
+      console.warn("Failed to parse x-custom-auth-headers:", error);
+    }
+  }
   return headers;
 };
 
