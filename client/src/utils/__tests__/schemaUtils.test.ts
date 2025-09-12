@@ -39,12 +39,12 @@ describe("generateDefaultValue", () => {
     ).toBe(false);
   });
 
-  test("generates default array", () => {
-    expect(generateDefaultValue({ type: "array" })).toEqual([]);
+  test("generates undefined for optional array", () => {
+    expect(generateDefaultValue({ type: "array" })).toBe(undefined);
   });
 
-  test("generates default empty object", () => {
-    expect(generateDefaultValue({ type: "object" })).toEqual({});
+  test("generates undefined for optional object", () => {
+    expect(generateDefaultValue({ type: "object" })).toBe(undefined);
   });
 
   test("generates default null for unknown types", () => {
@@ -52,12 +52,32 @@ describe("generateDefaultValue", () => {
     expect(generateDefaultValue({ type: "unknown" })).toBe(undefined);
   });
 
-  test("generates empty array for non-required array", () => {
-    expect(generateDefaultValue({ type: "array" })).toEqual([]);
+  test("generates empty array for required array", () => {
+    const parentSchema = { required: ["testArray"] };
+    expect(
+      generateDefaultValue({ type: "array" }, "testArray", parentSchema),
+    ).toEqual([]);
   });
 
-  test("generates empty object for non-required object", () => {
-    expect(generateDefaultValue({ type: "object" })).toEqual({});
+  test("generates undefined for non-required array", () => {
+    const parentSchema = { required: ["otherField"] };
+    expect(
+      generateDefaultValue({ type: "array" }, "testArray", parentSchema),
+    ).toBe(undefined);
+  });
+
+  test("generates empty object for required object", () => {
+    const parentSchema = { required: ["testObject"] };
+    expect(
+      generateDefaultValue({ type: "object" }, "testObject", parentSchema),
+    ).toEqual({});
+  });
+
+  test("generates undefined for non-required object", () => {
+    const parentSchema = { required: ["otherField"] };
+    expect(
+      generateDefaultValue({ type: "object" }, "testObject", parentSchema),
+    ).toBe(undefined);
   });
 
   test("generates undefined for non-required primitive types", () => {
