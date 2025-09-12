@@ -352,8 +352,8 @@ async function main(): Promise<void> {
     const args = parseArgs();
     await callMethod(args);
 
-    // Let Node.js naturally exit instead of force-exiting
-    // process.exit(0) was causing stdout truncation
+    // Explicitly exit to ensure process terminates in CI
+    process.exit(0);
   } catch (error) {
     handleError(error);
   }

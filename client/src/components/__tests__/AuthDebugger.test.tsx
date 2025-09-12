@@ -482,7 +482,9 @@ describe("AuthDebugger", () => {
       await waitFor(() => {
         expect(updateAuthState).toHaveBeenCalledWith(
           expect.objectContaining({
-            authorizationUrl: expect.stringContaining("scope="),
+            authorizationUrl: expect.objectContaining({
+              href: "https://oauth.example.com/authorize?scope=read+write",
+            }),
           }),
         );
       });
@@ -496,7 +498,9 @@ describe("AuthDebugger", () => {
       await waitFor(() => {
         expect(updateAuthState).toHaveBeenCalledWith(
           expect.objectContaining({
-            authorizationUrl: expect.stringContaining("scope="),
+            authorizationUrl: expect.objectContaining({
+              href: "https://oauth.example.com/authorize?scope=read+write",
+            }),
           }),
         );
       });

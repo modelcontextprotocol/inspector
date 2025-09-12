@@ -5,7 +5,7 @@
  * @param url - The URL string to validate
  * @throws Error if the URL has an unsafe protocol
  */
-export function validateRedirectUrl(url: string): void {
+export function validateRedirectUrl(url: string | URL): void {
   try {
     const parsedUrl = new URL(url);
     if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {

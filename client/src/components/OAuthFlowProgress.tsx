@@ -240,7 +240,7 @@ export const OAuthFlowProgress = ({
               <p className="font-medium mb-2 text-sm">Authorization URL:</p>
               <div className="flex items-center gap-2">
                 <p className="text-xs break-all">
-                  {authState.authorizationUrl}
+                  {String(authState.authorizationUrl)}
                 </p>
                 <button
                   onClick={() => {

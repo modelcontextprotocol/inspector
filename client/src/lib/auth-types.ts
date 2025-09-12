@@ -34,7 +34,7 @@ export interface AuthDebuggerState {
   authServerUrl: URL | null;
   oauthMetadata: OAuthMetadata | null;
   oauthClientInfo: OAuthClientInformationFull | OAuthClientInformation | null;
-  authorizationUrl: string | null;
+  authorizationUrl: URL | null;
   authorizationCode: string;
   latestError: Error | null;
   statusMessage: StatusMessage | null;

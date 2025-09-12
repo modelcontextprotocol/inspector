@@ -446,6 +446,11 @@ describe("Sidebar", () => {
         4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Config entry copied",
+        description:
+          "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name.",
+      });
     });
 
     it("should copy servers file configuration to clipboard for STDIO transport", async () => {
@@ -504,6 +509,11 @@ describe("Sidebar", () => {
         4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Config entry copied",
+        description:
+          "SSE URL has been copied. Use this URL directly in your MCP Client.",
+      });
     });
 
     it("should copy servers file configuration to clipboard for SSE transport", async () => {
@@ -554,6 +564,11 @@ describe("Sidebar", () => {
         4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Config entry copied",
+        description:
+          "Streamable HTTP URL has been copied. Use this URL directly in your MCP Client.",
+      });
     });
 
     it("should copy servers file configuration to clipboard for streamable-http transport", async () => {

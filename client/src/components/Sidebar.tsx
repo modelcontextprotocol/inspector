@@ -197,7 +197,9 @@ const Sidebar = ({
             description:
               transportType === "stdio"
                 ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
-                : "SSE URL has been copied. Use this URL directly in your MCP Client.",
+                : transportType === "streamable-http"
+                  ? "Streamable HTTP URL has been copied. Use this URL directly in your MCP Client."
+                  : "SSE URL has been copied. Use this URL directly in your MCP Client.",
           });
 
           setTimeout(() => {

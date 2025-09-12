@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-cli",
-  "version": "0.16.5",
+  "version": "0.16.7",
   "description": "CLI for the Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -17,13 +17,14 @@
   "scripts": {
     "build": "tsc",
     "postbuild": "node scripts/make-executable.js",
-    "test": "node scripts/cli-tests.js && node scripts/cli-tool-tests.js",
+    "test": "node scripts/cli-tests.js && node scripts/cli-tool-tests.js && node scripts/cli-header-tests.js",
     "test:cli": "node scripts/cli-tests.js",
-    "test:cli-tools": "node scripts/cli-tool-tests.js"
+    "test:cli-tools": "node scripts/cli-tool-tests.js",
+    "test:cli-headers": "node scripts/cli-header-tests.js"
   },
   "devDependencies": {},
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.3",
+    "@modelcontextprotocol/sdk": "^1.18.0",
     "commander": "^13.1.0",
     "spawn-rx": "^5.1.2"
   }
