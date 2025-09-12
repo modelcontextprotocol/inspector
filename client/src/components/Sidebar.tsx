@@ -103,7 +103,29 @@ const Sidebar = ({
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
   const [copiedServerEntry, setCopiedServerEntry] = useState(false);
   const [copiedServerFile, setCopiedServerFile] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const { toast } = useToast();
+
+  // Wrapper for onConnect that manages loading state
+  const handleConnect = useCallback(async () => {
+    try {
+      setIsConnecting(true);
+      await onConnect();
+    } finally {
+      setIsConnecting(false);
+    }
+  }, [onConnect]);
+
+  // Wrapper for restart that manages loading state
+  const handleRestart = useCallback(async () => {
+    try {
+      setIsConnecting(true);
+      onDisconnect();
+      await onConnect();
+    } finally {
+      setIsConnecting(false);
+    }
+  }, [onConnect, onDisconnect]);
 
   // Reusable error reporter for copy actions
   const reportError = useCallback(
@@ -674,10 +696,8 @@ const Sidebar = ({
               <div className="grid grid-cols-2 gap-4">
                 <Button
                   data-testid="connect-button"
-                  onClick={() => {
-                    onDisconnect();
-                    onConnect();
-                  }}
+                  onClick={handleRestart}
+                  loading={isConnecting}
                 >
                   <RotateCcw className="w-4 h-4 mr-2" />
                   {transportType === "stdio" ? "Restart" : "Reconnect"}
@@ -689,7 +709,11 @@ const Sidebar = ({
               </div>
             )}
             {connectionStatus !== "connected" && (
-              <Button className="w-full" onClick={onConnect}>
+              <Button
+                className="w-full"
+                onClick={handleConnect}
+                loading={isConnecting}
+              >
                 <Play className="w-4 h-4 mr-2" />
                 Connect
               </Button>
