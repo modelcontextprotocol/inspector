@@ -156,7 +156,7 @@ const ToolResults = ({
         )}
         {structuredResult._meta && (
           <div className="mb-4">
-            <h5 className="font-semibold mb-2 text-sm">Meta:</h5>
+            <h5 className="font-semibold mb-2 text-sm">Meta Schema:</h5>
             <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
               <JsonView data={structuredResult._meta} />
             </div>
