@@ -18,6 +18,9 @@ import { CustomHeaders } from "../../types/customHeaders";
 // Mock fetch
 global.fetch = jest.fn().mockResolvedValue({
   json: () => Promise.resolve({ status: "ok" }),
+  headers: {
+    get: jest.fn().mockReturnValue(null),
+  },
 });
 
 // Mock the SDK dependencies
@@ -574,9 +577,10 @@ describe("useConnection", () => {
       mockStreamableHTTPTransport.options = undefined;
     });
 
-    test("sends X-MCP-Proxy-Auth header when proxy auth token is configured", async () => {
+    test("sends X-MCP-Proxy-Auth header when proxy auth token is configured for proxy connectionType", async () => {
       const propsWithProxyAuth = {
         ...defaultProps,
+        connectionType: "proxy" as const,
         config: {
           ...DEFAULT_INSPECTOR_CONFIG,
           MCP_PROXY_AUTH_TOKEN: {
@@ -624,6 +628,56 @@ describe("useConnection", () => {
       expect(
         (global.fetch as jest.Mock).mock.calls[1][1].headers,
       ).toHaveProperty("X-MCP-Proxy-Auth", "Bearer test-proxy-token");
+    });
+
+    test("does NOT send X-MCP-Proxy-Auth header when proxy auth token is configured for direct connectionType", async () => {
+      const propsWithProxyAuth = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_PROXY_AUTH_TOKEN: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
+            value: "test-proxy-token",
+          },
+        },
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithProxyAuth));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Check that the transport was created with the correct headers
+      expect(mockSSETransport.options).toBeDefined();
+      expect(mockSSETransport.options?.requestInit).toBeDefined();
+
+      // Verify that X-MCP-Proxy-Auth header is NOT present for direct connections
+      expect(mockSSETransport.options?.requestInit?.headers).not.toHaveProperty(
+        "X-MCP-Proxy-Auth",
+      );
+      expect(mockSSETransport?.options?.fetch).toBeDefined();
+
+      // Verify the fetch function does NOT include the proxy auth header
+      const mockFetch = mockSSETransport.options?.fetch;
+      const testUrl = "http://test.com";
+      await mockFetch?.(testUrl, {
+        headers: {
+          Accept: "text/event-stream",
+        },
+        cache: "no-store",
+        mode: "cors",
+        signal: new AbortController().signal,
+        redirect: "follow",
+        credentials: "include",
+      });
+
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe(testUrl);
+      expect(
+        (global.fetch as jest.Mock).mock.calls[0][1].headers,
+      ).not.toHaveProperty("X-MCP-Proxy-Auth");
     });
 
     test("does NOT send Authorization header for proxy auth", async () => {
@@ -879,6 +933,57 @@ describe("useConnection", () => {
 
       const headers = mockSSETransport.options?.requestInit?.headers;
       expect(headers).toHaveProperty("Authorization", "Bearer custom-token");
+    });
+  });
+
+  describe("Connection URL Verification", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      // Reset the mock transport objects
+      mockSSETransport.url = undefined;
+      mockSSETransport.options = undefined;
+      mockStreamableHTTPTransport.url = undefined;
+      mockStreamableHTTPTransport.options = undefined;
+    });
+
+    test("uses server URL directly when connectionType is 'direct'", async () => {
+      const directProps = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(directProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Verify the transport was created with the direct server URL
+      expect(mockSSETransport.url).toBeDefined();
+      expect(mockSSETransport.url?.toString()).toBe("http://localhost:8080/");
+    });
+
+    test("uses proxy server URL when connectionType is 'proxy'", async () => {
+      const proxyProps = {
+        ...defaultProps,
+        connectionType: "proxy" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(proxyProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Verify the transport was created with a proxy server URL
+      expect(mockSSETransport.url).toBeDefined();
+      expect(mockSSETransport.url?.pathname).toBe("/sse");
+      expect(mockSSETransport.url?.searchParams.get("url")).toBe(
+        "http://localhost:8080",
+      );
+      expect(mockSSETransport.url?.searchParams.get("transportType")).toBe(
+        "sse",
+      );
     });
   });
 

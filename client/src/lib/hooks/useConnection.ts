@@ -70,6 +70,7 @@ interface UseConnectionOptions {
   oauthClientId?: string;
   oauthScope?: string;
   config: InspectorConfig;
+  connectionType?: "direct" | "proxy";
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -91,6 +92,7 @@ export function useConnection({
   oauthClientId,
   oauthScope,
   config,
+  connectionType = "proxy",
   onNotification,
   onPendingRequest,
   onElicitationRequest,
@@ -110,6 +112,10 @@ export function useConnection({
     { request: string; response?: string }[]
   >([]);
   const [completionsSupported, setCompletionsSupported] = useState(false);
+  const [mcpSessionId, setMcpSessionId] = useState<string | null>(null);
+  const [mcpProtocolVersion, setMcpProtocolVersion] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!oauthClientId) {
@@ -346,6 +352,17 @@ export function useConnection({
     return false;
   };
 
+  const captureResponseHeaders = (response: Response): void => {
+    const sessionId = response.headers.get("mcp-session-id");
+    const protocolVersion = response.headers.get("mcp-protocol-version");
+    if (sessionId && sessionId !== mcpSessionId) {
+      setMcpSessionId(sessionId);
+    }
+    if (protocolVersion && protocolVersion !== mcpProtocolVersion) {
+      setMcpProtocolVersion(protocolVersion);
+    }
+  };
+
   const connect = async (_e?: unknown, retryCount: number = 0) => {
     const client = new Client<Request, Notification, Result>(
       {
@@ -363,11 +380,14 @@ export function useConnection({
       },
     );
 
-    try {
-      await checkProxyHealth();
-    } catch {
-      setConnectionStatus("error-connecting-to-proxy");
-      return;
+    // Only check proxy health for proxy connections
+    if (connectionType === "proxy") {
+      try {
+        await checkProxyHealth();
+      } catch {
+        setConnectionStatus("error-connecting-to-proxy");
+        return;
+      }
     }
 
     let lastRequest = "";
@@ -417,115 +437,183 @@ export function useConnection({
         headers["x-custom-auth-headers"] = JSON.stringify(customHeaderNames);
       }
 
-      // Add proxy authentication
-      const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
-        getMCPProxyAuthToken(config);
-      const proxyHeaders: HeadersInit = {};
-      if (proxyAuthToken) {
-        proxyHeaders[proxyAuthTokenHeader] = `Bearer ${proxyAuthToken}`;
-      }
-
       // Create appropriate transport
       let transportOptions:
         | StreamableHTTPClientTransportOptions
         | SSEClientTransportOptions;
 
-      let mcpProxyServerUrl;
-      switch (transportType) {
-        case "stdio": {
-          mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/stdio`);
-          mcpProxyServerUrl.searchParams.append("command", command);
-          mcpProxyServerUrl.searchParams.append("args", args);
-          mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
+      let serverUrl: URL;
 
-          const proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS
-            .value as string;
-          if (proxyFullAddress) {
-            mcpProxyServerUrl.searchParams.append(
-              "proxyFullAddress",
-              proxyFullAddress,
-            );
-          }
-          transportOptions = {
-            authProvider: serverAuthProvider,
-            eventSourceInit: {
-              fetch: (
+      // Determine connection URL based on the connection type
+      if (connectionType === "direct" && transportType !== "stdio") {
+        // Direct connection - use the provided URL directly (not available for STDIO)
+        serverUrl = new URL(sseUrl);
+
+        const requestHeaders = { ...headers };
+        if (mcpSessionId) {
+          requestHeaders["mcp-session-id"] = mcpSessionId;
+        }
+        switch (transportType) {
+          case "sse":
+            requestHeaders["Accept"] = "text/event-stream";
+            requestHeaders["content-type"] = "application/json";
+            transportOptions = {
+              fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
-              ) =>
-                fetch(url, {
+              ) => {
+                const response = await fetch(url, {
                   ...init,
-                  headers: { ...headers, ...proxyHeaders },
-                }),
-            },
-            requestInit: {
-              headers: { ...headers, ...proxyHeaders },
-            },
-          };
-          break;
+                  headers: requestHeaders,
+                });
+
+                // Capture protocol-related headers from response
+                captureResponseHeaders(response);
+                return response;
+              },
+              requestInit: {
+                headers: requestHeaders,
+              },
+            };
+            break;
+
+          case "streamable-http":
+            transportOptions = {
+              fetch: async (
+                url: string | URL | globalThis.Request,
+                init?: RequestInit,
+              ) => {
+                requestHeaders["Accept"] =
+                  "text/event-stream, application/json";
+                requestHeaders["Content-Type"] = "application/json";
+                const response = await fetch(url, {
+                  headers: requestHeaders,
+                  ...init,
+                });
+
+                // Capture protocol-related headers from response
+                captureResponseHeaders(response);
+
+                return response;
+              },
+              requestInit: {
+                headers: requestHeaders,
+              },
+              // TODO these should be configurable...
+              reconnectionOptions: {
+                maxReconnectionDelay: 30000,
+                initialReconnectionDelay: 1000,
+                reconnectionDelayGrowFactor: 1.5,
+                maxRetries: 2,
+              },
+            };
+            break;
+        }
+      } else {
+        // Proxy connection (default behavior)
+        // Add proxy authentication headers for proxy connections only
+        const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
+          getMCPProxyAuthToken(config);
+        const proxyHeaders: HeadersInit = {};
+        if (proxyAuthToken) {
+          proxyHeaders[proxyAuthTokenHeader] = `Bearer ${proxyAuthToken}`;
         }
 
-        case "sse": {
-          mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
-          mcpProxyServerUrl.searchParams.append("url", sseUrl);
+        let mcpProxyServerUrl;
+        switch (transportType) {
+          case "stdio": {
+            mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/stdio`);
+            mcpProxyServerUrl.searchParams.append("command", command);
+            mcpProxyServerUrl.searchParams.append("args", args);
+            mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
 
-          const proxyFullAddressSSE = config.MCP_PROXY_FULL_ADDRESS
-            .value as string;
-          if (proxyFullAddressSSE) {
-            mcpProxyServerUrl.searchParams.append(
-              "proxyFullAddress",
-              proxyFullAddressSSE,
-            );
+            const proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS
+              .value as string;
+            if (proxyFullAddress) {
+              mcpProxyServerUrl.searchParams.append(
+                "proxyFullAddress",
+                proxyFullAddress,
+              );
+            }
+            transportOptions = {
+              authProvider: serverAuthProvider,
+              eventSourceInit: {
+                fetch: (
+                  url: string | URL | globalThis.Request,
+                  init?: RequestInit,
+                ) =>
+                  fetch(url, {
+                    ...init,
+                    headers: { ...headers, ...proxyHeaders },
+                  }),
+              },
+              requestInit: {
+                headers: { ...headers, ...proxyHeaders },
+              },
+            };
+            break;
           }
-          transportOptions = {
-            eventSourceInit: {
-              fetch: (
-                url: string | URL | globalThis.Request,
-                init?: RequestInit,
-              ) =>
-                fetch(url, {
-                  ...init,
-                  headers: { ...headers, ...proxyHeaders },
-                }),
-            },
-            requestInit: {
-              headers: { ...headers, ...proxyHeaders },
-            },
-          };
-          break;
-        }
 
-        case "streamable-http":
-          mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
-          mcpProxyServerUrl.searchParams.append("url", sseUrl);
-          transportOptions = {
-            eventSourceInit: {
-              fetch: (
-                url: string | URL | globalThis.Request,
-                init?: RequestInit,
-              ) =>
-                fetch(url, {
-                  ...init,
-                  headers: { ...headers, ...proxyHeaders },
-                }),
-            },
-            requestInit: {
-              headers: { ...headers, ...proxyHeaders },
-            },
-            // TODO these should be configurable...
-            reconnectionOptions: {
-              maxReconnectionDelay: 30000,
-              initialReconnectionDelay: 1000,
-              reconnectionDelayGrowFactor: 1.5,
-              maxRetries: 2,
-            },
-          };
-          break;
+          case "sse": {
+            mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
+            mcpProxyServerUrl.searchParams.append("url", sseUrl);
+
+            const proxyFullAddressSSE = config.MCP_PROXY_FULL_ADDRESS
+              .value as string;
+            if (proxyFullAddressSSE) {
+              mcpProxyServerUrl.searchParams.append(
+                "proxyFullAddress",
+                proxyFullAddressSSE,
+              );
+            }
+            transportOptions = {
+              eventSourceInit: {
+                fetch: (
+                  url: string | URL | globalThis.Request,
+                  init?: RequestInit,
+                ) =>
+                  fetch(url, {
+                    ...init,
+                    headers: { ...headers, ...proxyHeaders },
+                  }),
+              },
+              requestInit: {
+                headers: { ...headers, ...proxyHeaders },
+              },
+            };
+            break;
+          }
+
+          case "streamable-http":
+            mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
+            mcpProxyServerUrl.searchParams.append("url", sseUrl);
+            transportOptions = {
+              eventSourceInit: {
+                fetch: (
+                  url: string | URL | globalThis.Request,
+                  init?: RequestInit,
+                ) =>
+                  fetch(url, {
+                    ...init,
+                    headers: { ...headers, ...proxyHeaders },
+                  }),
+              },
+              requestInit: {
+                headers: { ...headers, ...proxyHeaders },
+              },
+              // TODO these should be configurable...
+              reconnectionOptions: {
+                maxReconnectionDelay: 30000,
+                initialReconnectionDelay: 1000,
+                reconnectionDelayGrowFactor: 1.5,
+                maxRetries: 2,
+              },
+            };
+            break;
+        }
+        serverUrl = mcpProxyServerUrl as URL;
+        serverUrl.searchParams.append("transportType", transportType);
       }
-      (mcpProxyServerUrl as URL).searchParams.append(
-        "transportType",
-        transportType,
-      );
 
       if (onNotification) {
         [
@@ -551,14 +639,11 @@ export function useConnection({
       try {
         const transport =
           transportType === "streamable-http"
-            ? new StreamableHTTPClientTransport(mcpProxyServerUrl as URL, {
+            ? new StreamableHTTPClientTransport(serverUrl, {
                 sessionId: undefined,
                 ...transportOptions,
               })
-            : new SSEClientTransport(
-                mcpProxyServerUrl as URL,
-                transportOptions,
-              );
+            : new SSEClientTransport(serverUrl, transportOptions);
 
         await client.connect(transport as Transport);
 
@@ -575,7 +660,9 @@ export function useConnection({
         });
       } catch (error) {
         console.error(
-          `Failed to connect to MCP Server via the MCP Inspector Proxy: ${mcpProxyServerUrl}:`,
+          connectionType === "direct"
+            ? `Failed to connect directly to MCP Server at: ${serverUrl}:`
+            : `Failed to connect to MCP Server via the MCP Inspector Proxy: ${serverUrl}:`,
           error,
         );
 
@@ -674,6 +761,8 @@ export function useConnection({
     setConnectionStatus("disconnected");
     setCompletionsSupported(false);
     setServerCapabilities(null);
+    setMcpSessionId(null);
+    setMcpProtocolVersion(null);
   };
 
   const clearRequestHistory = () => {
