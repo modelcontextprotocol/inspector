@@ -27,6 +27,72 @@ export interface StateTransition {
 
 // State machine transitions
 export const oauthTransitions: Record<OAuthStep, StateTransition> = {
+  attempt_unauth_request: {
+    canTransition: async () => true,
+    execute: async (context) => {
+      // Attempt initialize request without auth to get WWW-Authenticate header
+      let wwwAuthenticateHeader: string | null = null;
+
+      try {
+        const response = await fetch(context.serverUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2024-11-05",
+              capabilities: {},
+              clientInfo: {
+                name: "MCP Inspector",
+                version: "0.16.2",
+              },
+            },
+          }),
+        });
+
+        // Store the WWW-Authenticate header if present
+        wwwAuthenticateHeader = response.headers.get("WWW-Authenticate");
+        if (!wwwAuthenticateHeader) {
+          wwwAuthenticateHeader = response.headers.get("www-authenticate");
+        }
+        if (wwwAuthenticateHeader) {
+          context.updateState({
+            wwwAuthenticateHeader,
+            statusMessage: {
+              type: "info",
+              message: `WWW-Authenticate header found: ${wwwAuthenticateHeader}`,
+            },
+          });
+        } else {
+          context.updateState({
+            statusMessage: {
+              type: "info",
+              message: "No WWW-Authenticate header found in response",
+            },
+          });
+        }
+      } catch (error) {
+        // This is expected if auth is required
+        context.updateState({
+          statusMessage: {
+            type: "info",
+            message: "Initialize request completed - checking for auth requirements",
+          },
+        });
+      }
+
+      // Move to metadata discovery
+      context.updateState({
+        wwwAuthenticateHeader,
+        oauthStep: "metadata_discovery",
+      });
+    },
+  },
+
   metadata_discovery: {
     canTransition: async () => true,
     execute: async (context) => {

@@ -57,6 +57,7 @@ interface OAuthFlowProgressProps {
 }
 
 const steps: Array<OAuthStep> = [
+  "attempt_unauth_request",
   "metadata_discovery",
   "client_registration",
   "authorization_redirect",
@@ -124,6 +125,34 @@ export const OAuthFlowProgress = ({
       </p>
 
       <div className="space-y-3">
+        <OAuthStepDetails
+          label="Attempt Unauthenticated Request"
+          {...getStepProps("attempt_unauth_request")}
+        >
+          {authState.wwwAuthenticateHeader && (
+            <details className="text-xs mt-2">
+              <summary className="cursor-pointer text-muted-foreground font-medium">
+                WWW-Authenticate Header
+              </summary>
+              <div className="mt-2 p-2 bg-muted rounded-md">
+                <p className="font-medium">Header Value:</p>
+                <code className="block mt-1 text-xs overflow-x-auto">
+                  {authState.wwwAuthenticateHeader}
+                </code>
+                <p className="text-xs text-muted-foreground mt-2">
+                  This header was captured from the initial unauthenticated initialize request
+                  and can be used to discover OAuth resource metadata.
+                </p>
+              </div>
+            </details>
+          )}
+          {authState.oauthStep === "attempt_unauth_request" && !authState.wwwAuthenticateHeader && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Attempting an unauthenticated initialize request to check for WWW-Authenticate header...
+            </p>
+          )}
+        </OAuthStepDetails>
+
         <OAuthStepDetails
           label="Metadata Discovery"
           {...getStepProps("metadata_discovery")}

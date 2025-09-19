@@ -8,6 +8,7 @@ import {
 
 // OAuth flow steps
 export type OAuthStep =
+  | "attempt_unauth_request"
   | "metadata_discovery"
   | "client_registration"
   | "authorization_redirect"
@@ -39,12 +40,13 @@ export interface AuthDebuggerState {
   latestError: Error | null;
   statusMessage: StatusMessage | null;
   validationError: string | null;
+  wwwAuthenticateHeader: string | null;
 }
 
 export const EMPTY_DEBUGGER_STATE: AuthDebuggerState = {
   isInitiatingAuth: false,
   oauthTokens: null,
-  oauthStep: "metadata_discovery",
+  oauthStep: "attempt_unauth_request",
   oauthMetadata: null,
   resourceMetadata: null,
   resourceMetadataError: null,
@@ -56,4 +58,5 @@ export const EMPTY_DEBUGGER_STATE: AuthDebuggerState = {
   latestError: null,
   statusMessage: null,
   validationError: null,
+  wwwAuthenticateHeader: null,
 };
