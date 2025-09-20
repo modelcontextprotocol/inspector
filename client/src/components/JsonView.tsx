@@ -69,7 +69,7 @@ const JsonView = memo(
             )}
           </Button>
         )}
-        <div className="font-mono text-sm transition-all duration-300">
+        <div className="font-mono text-sm transition-all duration-300 pr-12">
           <JsonNode
             data={normalizedData as JsonValue}
             name={name}
