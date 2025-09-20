@@ -5,6 +5,7 @@ import {
   parseOAuthCallbackParams,
 } from "@/utils/oauthUtils.ts";
 import { AuthDebuggerState } from "@/lib/auth-types";
+import { decodeWithKey } from "@/lib/auth.ts";
 
 interface OAuthCallbackProps {
   onConnect: ({
@@ -16,9 +17,13 @@ interface OAuthCallbackProps {
     errorMsg?: string;
     restoredState?: AuthDebuggerState;
   }) => void;
+  clientEncryptionKey: string;
 }
 
-const OAuthDebugCallback = ({ onConnect }: OAuthCallbackProps) => {
+const OAuthDebugCallback = ({
+  onConnect,
+  clientEncryptionKey,
+}: OAuthCallbackProps) => {
   useEffect(() => {
     let isProcessed = false;
 
@@ -57,6 +62,14 @@ const OAuthDebugCallback = ({ onConnect }: OAuthCallbackProps) => {
               restoredState.authorizationUrl,
             );
           }
+          // Decrypt client secret if present
+          if (restoredState && restoredState.oauthClientInfo.client_secret) {
+            const client_secret = restoredState.oauthClientInfo?.client_secret;
+            restoredState.oauthClientInfo.client_secret =
+              clientEncryptionKey && client_secret
+                ? decodeWithKey(clientEncryptionKey, client_secret)
+                : undefined;
+          }
           // Clean up the stored state
           sessionStorage.removeItem(SESSION_KEYS.AUTH_DEBUGGER_STATE);
         } catch (e) {
@@ -94,7 +107,7 @@ const OAuthDebugCallback = ({ onConnect }: OAuthCallbackProps) => {
     return () => {
       isProcessed = true;
     };
-  }, [onConnect]);
+  }, [onConnect, clientEncryptionKey]);
 
   const callbackParams = parseOAuthCallbackParams(window.location.search);
 

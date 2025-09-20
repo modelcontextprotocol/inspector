@@ -10,9 +10,13 @@ import {
 
 interface OAuthCallbackProps {
   onConnect: (serverUrl: string) => void;
+  clientEncryptionKey: string;
 }
 
-const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
+const OAuthCallback = ({
+  onConnect,
+  clientEncryptionKey,
+}: OAuthCallbackProps) => {
   const { toast } = useToast();
   const hasProcessedRef = useRef(false);
 
@@ -44,7 +48,10 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
       let result;
       try {
         // Create an auth provider with the current server URL
-        const serverAuthProvider = new InspectorOAuthClientProvider(serverUrl);
+        const serverAuthProvider = new InspectorOAuthClientProvider(
+          serverUrl,
+          clientEncryptionKey,
+        );
 
         result = await auth(serverAuthProvider, {
           serverUrl,
@@ -73,7 +80,7 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
     handleCallback().finally(() => {
       window.history.replaceState({}, document.title, "/");
     });
-  }, [toast, onConnect]);
+  }, [toast, onConnect, clientEncryptionKey]);
 
   return (
     <div className="flex items-center justify-center h-screen">

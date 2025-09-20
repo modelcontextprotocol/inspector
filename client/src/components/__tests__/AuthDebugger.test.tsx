@@ -141,6 +141,8 @@ Object.defineProperty(window, "sessionStorage", {
   value: sessionStorageMock,
 });
 
+const clientEncryptionKey = "test-encryption-key";
+
 describe("AuthDebugger", () => {
   const defaultAuthState = EMPTY_DEBUGGER_STATE;
 
@@ -149,6 +151,7 @@ describe("AuthDebugger", () => {
     onBack: jest.fn(),
     authState: defaultAuthState,
     updateAuthState: jest.fn(),
+    clientEncryptionKey,
   };
 
   beforeEach(() => {

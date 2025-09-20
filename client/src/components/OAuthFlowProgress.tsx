@@ -56,6 +56,7 @@ interface OAuthFlowProgressProps {
   authState: AuthDebuggerState;
   updateAuthState: (updates: Partial<AuthDebuggerState>) => void;
   proceedToNextStep: () => Promise<void>;
+  clientEncryptionKey: string;
 }
 
 const steps: Array<OAuthStep> = [
@@ -72,11 +73,12 @@ export const OAuthFlowProgress = ({
   authState,
   updateAuthState,
   proceedToNextStep,
+  clientEncryptionKey,
 }: OAuthFlowProgressProps) => {
   const { toast } = useToast();
   const provider = useMemo(
-    () => new DebugInspectorOAuthClientProvider(serverUrl),
-    [serverUrl],
+    () => new DebugInspectorOAuthClientProvider(serverUrl, clientEncryptionKey),
+    [serverUrl, clientEncryptionKey],
   );
   const [clientInfo, setClientInfo] = useState<OAuthClientInformation | null>(
     null,

@@ -8,11 +8,14 @@ import { OAuthStateMachine } from "../lib/oauth-state-machine";
 import { SESSION_KEYS } from "../lib/constants";
 import { validateRedirectUrl } from "@/utils/urlValidation";
 
+import { encodeWithKey } from "../lib/auth";
+
 export interface AuthDebuggerProps {
   serverUrl: string;
   onBack: () => void;
   authState: AuthDebuggerState;
   updateAuthState: (updates: Partial<AuthDebuggerState>) => void;
+  clientEncryptionKey: string;
 }
 
 interface StatusMessageProps {
@@ -60,13 +63,17 @@ const AuthDebugger = ({
   onBack,
   authState,
   updateAuthState,
+  clientEncryptionKey,
 }: AuthDebuggerProps) => {
   // Check for existing tokens on mount
   useEffect(() => {
     if (serverUrl && !authState.oauthTokens) {
       const checkTokens = async () => {
         try {
-          const provider = new DebugInspectorOAuthClientProvider(serverUrl);
+          const provider = new DebugInspectorOAuthClientProvider(
+            serverUrl,
+            clientEncryptionKey,
+          );
           const existingTokens = await provider.tokens();
           if (existingTokens) {
             updateAuthState({
@@ -80,7 +87,7 @@ const AuthDebugger = ({
       };
       checkTokens();
     }
-  }, [serverUrl, updateAuthState, authState.oauthTokens]);
+  }, [serverUrl, updateAuthState, authState.oauthTokens, clientEncryptionKey]);
 
   const startOAuthFlow = useCallback(() => {
     if (!serverUrl) {
@@ -103,8 +110,9 @@ const AuthDebugger = ({
   }, [serverUrl, updateAuthState]);
 
   const stateMachine = useMemo(
-    () => new OAuthStateMachine(serverUrl, updateAuthState),
-    [serverUrl, updateAuthState],
+    () =>
+      new OAuthStateMachine(serverUrl, clientEncryptionKey, updateAuthState),
+    [serverUrl, updateAuthState, clientEncryptionKey],
   );
 
   const proceedToNextStep = useCallback(async () => {
@@ -150,11 +158,15 @@ const AuthDebugger = ({
         latestError: null,
       };
 
-      const oauthMachine = new OAuthStateMachine(serverUrl, (updates) => {
-        // Update our temporary state during the process
-        currentState = { ...currentState, ...updates };
-        // But don't call updateAuthState yet
-      });
+      const oauthMachine = new OAuthStateMachine(
+        serverUrl,
+        clientEncryptionKey,
+        (updates) => {
+          // Update our temporary state during the process
+          currentState = { ...currentState, ...updates };
+          // But don't call updateAuthState yet
+        },
+      );
 
       // Manually step through each stage of the OAuth flow
       while (currentState.oauthStep !== "complete") {
@@ -181,11 +193,30 @@ const AuthDebugger = ({
             return;
           }
 
+          // Encrypt the client secret before storing
+          const client_secret = currentState.oauthClientInfo?.client_secret;
+          const encrypted_secret =
+            clientEncryptionKey &&
+            client_secret &&
+            typeof encodeWithKey === "function"
+              ? encodeWithKey(clientEncryptionKey, client_secret)
+              : undefined;
+          const stateToStore = encrypted_secret
+            ? {
+                ...currentState,
+                oauthClientInfo: {
+                  ...currentState.oauthClientInfo,
+                  client_secret: encrypted_secret,
+                },
+              }
+            : currentState;
+
           // Store the current auth state before redirecting
           sessionStorage.setItem(
             SESSION_KEYS.AUTH_DEBUGGER_STATE,
-            JSON.stringify(currentState),
+            JSON.stringify(stateToStore),
           );
+
           // Open the authorization URL automatically
           window.location.href = currentState.authorizationUrl.toString();
           break;
@@ -214,12 +245,13 @@ const AuthDebugger = ({
     } finally {
       updateAuthState({ isInitiatingAuth: false });
     }
-  }, [serverUrl, updateAuthState, authState]);
+  }, [serverUrl, updateAuthState, authState, clientEncryptionKey]);
 
   const handleClearOAuth = useCallback(() => {
     if (serverUrl) {
       const serverAuthProvider = new DebugInspectorOAuthClientProvider(
         serverUrl,
+        clientEncryptionKey,
       );
       serverAuthProvider.clear();
       updateAuthState({
@@ -235,7 +267,7 @@ const AuthDebugger = ({
         updateAuthState({ statusMessage: null });
       }, 3000);
     }
-  }, [serverUrl, updateAuthState]);
+  }, [serverUrl, updateAuthState, clientEncryptionKey]);
 
   return (
     <div className="w-full p-4">
@@ -312,6 +344,7 @@ const AuthDebugger = ({
               authState={authState}
               updateAuthState={updateAuthState}
               proceedToNextStep={proceedToNextStep}
+              clientEncryptionKey={clientEncryptionKey}
             />
           </div>
         </div>

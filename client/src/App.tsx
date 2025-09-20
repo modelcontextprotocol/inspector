@@ -232,6 +232,8 @@ const App = () => {
     handleDragStart: handleSidebarDragStart,
   } = useDraggableSidebar(320);
 
+  const [clientEncryptionKey, setClientEncryptionKey] = useState<string>("");
+
   const {
     connectionStatus,
     serverCapabilities,
@@ -254,6 +256,7 @@ const App = () => {
     oauthClientId,
     oauthScope,
     config,
+    clientEncryptionKey,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
     },
@@ -422,9 +425,13 @@ const App = () => {
         };
 
         try {
-          const stateMachine = new OAuthStateMachine(sseUrl, (updates) => {
-            currentState = { ...currentState, ...updates };
-          });
+          const stateMachine = new OAuthStateMachine(
+            sseUrl,
+            clientEncryptionKey,
+            (updates) => {
+              currentState = { ...currentState, ...updates };
+            },
+          );
 
           while (
             currentState.oauthStep !== "complete" &&
@@ -462,7 +469,7 @@ const App = () => {
         });
       }
     },
-    [sseUrl],
+    [sseUrl, clientEncryptionKey],
   );
 
   useEffect(() => {
@@ -514,6 +521,9 @@ const App = () => {
         }
         if (data.defaultServerUrl) {
           setSseUrl(data.defaultServerUrl);
+        }
+        if (data.clientEncryptionKey) {
+          setClientEncryptionKey(data.clientEncryptionKey);
         }
       })
       .catch((error) =>
@@ -820,6 +830,7 @@ const App = () => {
         onBack={() => setIsAuthDebuggerVisible(false)}
         authState={authState}
         updateAuthState={updateAuthState}
+        clientEncryptionKey={clientEncryptionKey}
       />
     </TabsContent>
   );
@@ -830,7 +841,10 @@ const App = () => {
     );
     return (
       <Suspense fallback={<div>Loading...</div>}>
-        <OAuthCallback onConnect={onOAuthConnect} />
+        <OAuthCallback
+          onConnect={onOAuthConnect}
+          clientEncryptionKey={clientEncryptionKey}
+        />
       </Suspense>
     );
   }
@@ -841,7 +855,10 @@ const App = () => {
     );
     return (
       <Suspense fallback={<div>Loading...</div>}>
-        <OAuthDebugCallback onConnect={onOAuthDebugConnect} />
+        <OAuthDebugCallback
+          onConnect={onOAuthDebugConnect}
+          clientEncryptionKey={clientEncryptionKey}
+        />
       </Suspense>
     );
   }

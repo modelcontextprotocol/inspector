@@ -160,6 +160,9 @@ const sessionToken =
   process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
 const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
 
+const clientEncryptionKey =
+  process.env.MCP_CLIENT_ENCRYPTION_KEY || randomBytes(32).toString("hex");
+
 // Origin validation middleware to prevent DNS rebinding attacks
 const originValidationMiddleware = (
   req: express.Request,
@@ -747,6 +750,7 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
       defaultArgs: values.args,
       defaultTransport: values.transport,
       defaultServerUrl: values["server-url"],
+      clientEncryptionKey,
     });
   } catch (error) {
     console.error("Error in /config route:", error);

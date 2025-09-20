@@ -20,6 +20,7 @@ global.fetch = jest.fn().mockResolvedValue({
   json: () => Promise.resolve({ status: "ok" }),
 });
 
+const clientEncryptionKey = "test-encryption-key";
 // Mock the SDK dependencies
 const mockRequest = jest.fn().mockResolvedValue({ test: "response" });
 const mockClient = {
@@ -124,6 +125,7 @@ describe("useConnection", () => {
     sseUrl: "http://localhost:8080",
     env: {},
     config: DEFAULT_INSPECTOR_CONFIG,
+    clientEncryptionKey,
   };
 
   describe("Request Configuration", () => {

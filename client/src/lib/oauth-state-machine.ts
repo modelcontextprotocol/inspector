@@ -203,11 +203,15 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
 export class OAuthStateMachine {
   constructor(
     private serverUrl: string,
+    private clientEncryptionKey: string,
     private updateState: (updates: Partial<AuthDebuggerState>) => void,
   ) {}
 
   async executeStep(state: AuthDebuggerState): Promise<void> {
-    const provider = new DebugInspectorOAuthClientProvider(this.serverUrl);
+    const provider = new DebugInspectorOAuthClientProvider(
+      this.serverUrl,
+      this.clientEncryptionKey,
+    );
     const context: StateMachineContext = {
       state,
       serverUrl: this.serverUrl,

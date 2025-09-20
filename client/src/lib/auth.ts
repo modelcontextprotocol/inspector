@@ -46,12 +46,38 @@ export const discoverScopes = async (
   }
 };
 
+// Helper: simple reversible encoding of a string using the token (XOR + base64)
+export const encodeWithKey = (key: string, plaintext: string): string => {
+  const enc = new TextEncoder();
+  const textBytes = enc.encode(plaintext);
+  const keyBytes = enc.encode(key);
+  const out = new Uint8Array(textBytes.length);
+  for (let i = 0; i < textBytes.length; i++) {
+    out[i] = textBytes[i] ^ keyBytes[i % keyBytes.length];
+  }
+  return btoa(String.fromCharCode(...out));
+};
+
+export const decodeWithKey = (key: string, encodedB64: string): string => {
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+  const keyBytes = enc.encode(key);
+  const bytes = Uint8Array.from(atob(encodedB64), (c) => c.charCodeAt(0));
+  const out = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) {
+    out[i] = bytes[i] ^ keyBytes[i % keyBytes.length];
+  }
+  return dec.decode(out);
+};
+
 export const getClientInformationFromSessionStorage = async ({
   serverUrl,
   isPreregistered,
+  clientEncryptionKey,
 }: {
   serverUrl: string;
   isPreregistered?: boolean;
+  clientEncryptionKey: string;
 }) => {
   const key = getServerSpecificKey(
     isPreregistered
@@ -65,17 +91,37 @@ export const getClientInformationFromSessionStorage = async ({
     return undefined;
   }
 
-  return await OAuthClientInformationSchema.parseAsync(JSON.parse(value));
+  const parsed = await OAuthClientInformationSchema.parseAsync(
+    JSON.parse(value),
+  );
+
+  // Decrypt client_secret if marked as encrypted and token is available
+  try {
+    if (clientEncryptionKey && parsed.client_secret) {
+      const decrypted = decodeWithKey(
+        clientEncryptionKey,
+        parsed.client_secret as unknown as string,
+      );
+      return { ...parsed, client_secret: decrypted } as OAuthClientInformation;
+    }
+  } catch (e) {
+    console.warn("Failed to decrypt client_secret from session storage:", e);
+    // Fallback to parsed as-is
+  }
+
+  return parsed;
 };
 
 export const saveClientInformationToSessionStorage = ({
   serverUrl,
   clientInformation,
   isPreregistered,
+  clientEncryptionKey,
 }: {
   serverUrl: string;
   clientInformation: OAuthClientInformation;
   isPreregistered?: boolean;
+  clientEncryptionKey: string;
 }) => {
   const key = getServerSpecificKey(
     isPreregistered
@@ -83,7 +129,24 @@ export const saveClientInformationToSessionStorage = ({
       : SESSION_KEYS.CLIENT_INFORMATION,
     serverUrl,
   );
-  sessionStorage.setItem(key, JSON.stringify(clientInformation));
+  let toStore: Partial<OAuthClientInformation> & {
+    _encrypted_client_secret?: boolean;
+  } = { ...clientInformation };
+  if (clientEncryptionKey && clientInformation.client_secret) {
+    try {
+      const encrypted = encodeWithKey(
+        clientEncryptionKey,
+        clientInformation.client_secret as unknown as string,
+      );
+      toStore = {
+        ...toStore,
+        client_secret: encrypted,
+      };
+    } catch (e) {
+      console.warn("Failed to encrypt client_secret for session storage:", e);
+    }
+  }
+  sessionStorage.setItem(key, JSON.stringify(toStore));
 };
 
 export const clearClientInformationFromSessionStorage = ({
@@ -105,6 +168,7 @@ export const clearClientInformationFromSessionStorage = ({
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
   constructor(
     protected serverUrl: string,
+    protected clientEncryptionKey: string,
     scope?: string,
   ) {
     this.scope = scope;
@@ -144,6 +208,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
       await getClientInformationFromSessionStorage({
         serverUrl: this.serverUrl,
         isPreregistered: true,
+        clientEncryptionKey: this.clientEncryptionKey,
       });
 
     // If no preregistered client information is found, get the dynamically registered client information
@@ -152,23 +217,18 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
       (await getClientInformationFromSessionStorage({
         serverUrl: this.serverUrl,
         isPreregistered: false,
+        clientEncryptionKey: this.clientEncryptionKey,
       }))
     );
   }
 
   saveClientInformation(clientInformation: OAuthClientInformation) {
-    // Remove client_secret before storing (not needed after initial OAuth flow)
-    const safeInfo = Object.fromEntries(
-      Object.entries(clientInformation).filter(
-        ([key]) => key !== "client_secret",
-      ),
-    ) as OAuthClientInformation;
-
     // Save the dynamically registered client information to session storage
     saveClientInformationToSessionStorage({
       serverUrl: this.serverUrl,
-      clientInformation: safeInfo,
+      clientInformation: clientInformation,
       isPreregistered: false,
+      clientEncryptionKey: this.clientEncryptionKey,
     });
   }
 

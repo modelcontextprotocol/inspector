@@ -79,6 +79,7 @@ interface UseConnectionOptions {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getRoots?: () => any[];
   defaultLoggingLevel?: LoggingLevel;
+  clientEncryptionKey: string;
 }
 
 export function useConnection({
@@ -96,6 +97,7 @@ export function useConnection({
   onElicitationRequest,
   getRoots,
   defaultLoggingLevel,
+  clientEncryptionKey,
 }: UseConnectionOptions) {
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("disconnected");
@@ -124,8 +126,9 @@ export function useConnection({
       serverUrl: sseUrl,
       clientInformation: { client_id: oauthClientId },
       isPreregistered: true,
+      clientEncryptionKey,
     });
-  }, [oauthClientId, sseUrl]);
+  }, [oauthClientId, sseUrl, clientEncryptionKey]);
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
@@ -333,6 +336,7 @@ export function useConnection({
       }
       const serverAuthProvider = new InspectorOAuthClientProvider(
         sseUrl,
+        clientEncryptionKey,
         scope,
       );
 
@@ -377,7 +381,10 @@ export function useConnection({
       const headers: HeadersInit = {};
 
       // Create an auth provider with the current server URL
-      const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
+      const serverAuthProvider = new InspectorOAuthClientProvider(
+        sseUrl,
+        clientEncryptionKey,
+      );
 
       // Use custom headers (migration is handled in App.tsx)
       let finalHeaders: CustomHeaders = customHeaders || [];
@@ -667,7 +674,10 @@ export function useConnection({
         clientTransport as StreamableHTTPClientTransport
       ).terminateSession();
     await mcpClient?.close();
-    const authProvider = new InspectorOAuthClientProvider(sseUrl);
+    const authProvider = new InspectorOAuthClientProvider(
+      sseUrl,
+      clientEncryptionKey,
+    );
     authProvider.clear();
     setMcpClient(null);
     setClientTransport(null);
