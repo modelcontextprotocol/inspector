@@ -107,6 +107,14 @@ const App = () => {
   const [transportType, setTransportType] = useState<
     "stdio" | "sse" | "streamable-http"
   >(getInitialTransportType);
+  const [connectionType, setConnectionType] = useState<"direct" | "proxy">(
+    () => {
+      return (
+        (localStorage.getItem("lastConnectionType") as "direct" | "proxy") ||
+        "proxy"
+      );
+    },
+  );
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
@@ -257,6 +265,7 @@ const App = () => {
     oauthScope,
     config,
     clientEncryptionKey,
+    connectionType,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
     },
@@ -340,6 +349,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastTransportType", transportType);
   }, [transportType]);
+
+  useEffect(() => {
+    localStorage.setItem("lastConnectionType", connectionType);
+  }, [connectionType]);
 
   useEffect(() => {
     if (bearerToken) {
@@ -899,6 +912,8 @@ const App = () => {
           logLevel={logLevel}
           sendLogLevelRequest={sendLogLevelRequest}
           loggingSupported={!!serverCapabilities?.logging || false}
+          connectionType={connectionType}
+          setConnectionType={setConnectionType}
         />
         <div
           onMouseDown={handleSidebarDragStart}

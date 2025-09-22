@@ -67,6 +67,8 @@ interface SidebarProps {
   loggingSupported: boolean;
   config: InspectorConfig;
   setConfig: (config: InspectorConfig) => void;
+  connectionType: "direct" | "proxy";
+  setConnectionType: (type: "direct" | "proxy") => void;
 }
 
 const Sidebar = ({
@@ -94,6 +96,8 @@ const Sidebar = ({
   loggingSupported,
   config,
   setConfig,
+  connectionType,
+  setConnectionType,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
@@ -104,6 +108,8 @@ const Sidebar = ({
   const [copiedServerFile, setCopiedServerFile] = useState(false);
   const { toast } = useToast();
 
+  const connectionTypeTip =
+    "Connect to server directly (requires CORS config on server) or via MCP Inspector Proxy";
   // Reusable error reporter for copy actions
   const reportError = useCallback(
     (error: unknown) => {
@@ -313,6 +319,35 @@ const Sidebar = ({
                   />
                 )}
               </div>
+
+              {/* Connection Type switch - only visible for non-STDIO transport types */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="space-y-2">
+                    <label
+                      className="text-sm font-medium"
+                      htmlFor="connection-type-select"
+                    >
+                      Connection Type
+                    </label>
+                    <Select
+                      value={connectionType}
+                      onValueChange={(value: "direct" | "proxy") =>
+                        setConnectionType(value)
+                      }
+                    >
+                      <SelectTrigger id="connection-type-select">
+                        <SelectValue placeholder="Select connection type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="proxy">Via Proxy</SelectItem>
+                        <SelectItem value="direct">Direct</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>{connectionTypeTip}</TooltipContent>
+              </Tooltip>
             </>
           )}
 
