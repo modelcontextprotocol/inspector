@@ -97,9 +97,10 @@ jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
 }));
 
 // Mock the toast hook
+const mockToast = jest.fn();
 jest.mock("@/lib/hooks/useToast", () => ({
   useToast: () => ({
-    toast: jest.fn(),
+    toast: mockToast,
   }),
 }));
 
@@ -911,6 +912,42 @@ describe("useConnection", () => {
 
       const headers = mockSSETransport.options?.requestInit?.headers;
       expect(headers).toHaveProperty("Authorization", "Bearer mock-token");
+    });
+
+    test("replaces empty Bearer token placeholder with OAuth token", async () => {
+      // This test prevents regression of the bug where default "Bearer " header
+      // prevented OAuth token injection, causing infinite auth loops
+      const customHeaders: CustomHeaders = [
+        {
+          name: "Authorization",
+          value: "Bearer ", // Empty Bearer token placeholder
+          enabled: true,
+        },
+      ];
+
+      const propsWithEmptyBearer = {
+        ...defaultProps,
+        customHeaders,
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithEmptyBearer));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      // Should replace the empty "Bearer " with actual OAuth token
+      expect(headers).toHaveProperty("Authorization", "Bearer mock-token");
+      // Should not have the x-custom-auth-headers since Authorization is standard
+      expect(headers).not.toHaveProperty("x-custom-auth-headers");
+
+      // Should show toast notification for empty Authorization header
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Invalid Authorization Header",
+        description: expect.any(String),
+        variant: "destructive",
+      });
     });
 
     test("prioritizes custom headers over legacy auth", async () => {
