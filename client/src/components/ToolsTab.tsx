@@ -160,15 +160,22 @@ const ToolsTab = ({
                             name={key}
                             placeholder={prop.description}
                             value={(params[key] as string) ?? ""}
-                            onChange={(e) =>
-                              setParams({
-                                ...params,
-                                [key]:
-                                  e.target.value === ""
-                                    ? undefined
-                                    : e.target.value,
-                              })
-                            }
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (value === "" && !required) {
+                                // Optional field cleared - set to undefined to omit from request
+                                setParams({
+                                  ...params,
+                                  [key]: undefined,
+                                });
+                              } else {
+                                // Field has value or is required - keep as string
+                                setParams({
+                                  ...params,
+                                  [key]: value,
+                                });
+                              }
+                            }}
                             className="mt-1"
                           />
                         ) : prop.type === "object" || prop.type === "array" ? (
@@ -202,10 +209,22 @@ const ToolsTab = ({
                             value={(params[key] as string) ?? ""}
                             onChange={(e) => {
                               const value = e.target.value;
-                              setParams({
-                                ...params,
-                                [key]: value === "" ? "" : Number(value),
-                              });
+                              if (value === "" && !required) {
+                                // Optional field cleared - set to undefined to omit from request
+                                setParams({
+                                  ...params,
+                                  [key]: undefined,
+                                });
+                              } else {
+                                // Field has value or is required - convert to number
+                                const num = Number(value);
+                                if (!isNaN(num) || value === "") {
+                                  setParams({
+                                    ...params,
+                                    [key]: value === "" ? "" : num,
+                                  });
+                                }
+                              }
                             }}
                             className="mt-1"
                           />
