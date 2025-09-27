@@ -1,11 +1,11 @@
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import DynamicJsonForm from "./DynamicJsonForm";
+import DynamicJsonForm, { DynamicJsonFormRef } from "./DynamicJsonForm";
 import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
 import {
   generateDefaultValue,
@@ -22,10 +22,11 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
+  AlertCircle,
   Copy,
   CheckCheck,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
@@ -45,6 +46,7 @@ const ToolsTab = ({
   setSelectedTool,
   toolResult,
   nextCursor,
+  error,
   resourceContent,
   onReadResource,
 }: {
@@ -64,8 +66,19 @@ const ToolsTab = ({
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
   const [isMetaExpanded, setIsMetaExpanded] = useState(false);
+  const [hasValidationErrors, setHasValidationErrors] = useState(false);
+  const formRefs = useRef<Record<string, DynamicJsonFormRef | null>>({});
   const { toast } = useToast();
   const { copied, setCopied } = useCopy();
+
+  // Function to check if any form has validation errors
+  const checkValidationErrors = () => {
+    const errors = Object.values(formRefs.current).some(
+      (ref) => ref && !ref.validateJson().isValid,
+    );
+    setHasValidationErrors(errors);
+    return errors;
+  };
 
   useEffect(() => {
     const params = Object.entries(
@@ -79,6 +92,12 @@ const ToolsTab = ({
       ),
     ]);
     setParams(Object.fromEntries(params));
+
+    // Reset validation errors when switching tools
+    setHasValidationErrors(false);
+
+    // Clear form refs for the previous tool
+    formRefs.current = {};
   }, [selectedTool]);
 
   return (
@@ -112,7 +131,13 @@ const ToolsTab = ({
             </h3>
           </div>
           <div className="p-4">
-            {selectedTool ? (
+            {error ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : selectedTool ? (
               <div className="space-y-4">
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   {selectedTool.description}
@@ -174,6 +199,7 @@ const ToolsTab = ({
                         ) : prop.type === "object" || prop.type === "array" ? (
                           <div className="mt-1">
                             <DynamicJsonForm
+                              ref={(ref) => (formRefs.current[key] = ref)}
                               schema={{
                                 type: prop.type,
                                 properties: prop.properties,
@@ -189,6 +215,8 @@ const ToolsTab = ({
                                   ...params,
                                   [key]: newValue,
                                 });
+                                // Check validation after a short delay to allow form to update
+                                setTimeout(checkValidationErrors, 100);
                               }}
                             />
                           </div>
@@ -212,6 +240,7 @@ const ToolsTab = ({
                         ) : (
                           <div className="mt-1">
                             <DynamicJsonForm
+                              ref={(ref) => (formRefs.current[key] = ref)}
                               schema={{
                                 type: prop.type,
                                 properties: prop.properties,
@@ -224,6 +253,8 @@ const ToolsTab = ({
                                   ...params,
                                   [key]: newValue,
                                 });
+                                // Check validation after a short delay to allow form to update
+                                setTimeout(checkValidationErrors, 100);
                               }}
                             />
                           </div>
@@ -305,6 +336,9 @@ const ToolsTab = ({
                 <div className="flex gap-2">
                   <Button
                     onClick={async () => {
+                      // Validate JSON inputs before calling tool
+                      if (checkValidationErrors()) return;
+
                       try {
                         setIsToolRunning(true);
                         await callTool(selectedTool.name, params);
@@ -312,7 +346,7 @@ const ToolsTab = ({
                         setIsToolRunning(false);
                       }
                     }}
-                    disabled={isToolRunning}
+                    disabled={isToolRunning || hasValidationErrors}
                   >
                     {isToolRunning ? (
                       <>
