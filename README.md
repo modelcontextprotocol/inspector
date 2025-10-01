@@ -69,6 +69,14 @@ CLIENT_PORT=8080 SERVER_PORT=9000 npx @modelcontextprotocol/inspector node build
 
 For more details on ways to use the inspector, see the [Inspector section of the MCP docs site](https://modelcontextprotocol.io/docs/tools/inspector). For help with debugging, see the [Debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
 
+### Using with Docker containers
+
+To connect to a dockerized MCP server directly from the command line, use `docker` as the command and pass the container arguments:
+
+```bash
+npx @modelcontextprotocol/inspector docker run -i --rm -e GITHUB_PERSONAL_ACCESS_TOKEN ghcr.io/github/github-mcp-server
+```
+
 ### Servers File Export
 
 The MCP Inspector provides convenient buttons to export server launch configurations for use in clients such as Cursor, Claude Code, or the Inspector's CLI. The file is usually called `mcp.json`.
