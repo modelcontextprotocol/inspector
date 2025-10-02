@@ -31,7 +31,7 @@ type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-import packageJson from "../package.json" with { type: "json" };
+import packageJson from "./pkgInfo.json" with { type: "json" };
 
 type Args = {
   target: string[];
