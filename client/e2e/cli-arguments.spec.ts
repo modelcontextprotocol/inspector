@@ -1,14 +1,17 @@
 import { test, expect } from "@playwright/test";
 
+// Adjust the URL if your dev server runs on a different port
+const APP_URL = "http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=abc123";
+
 // These tests verify that CLI arguments correctly set URL parameters
 // The CLI should parse config files and pass transport/serverUrl as URL params
-test.describe("CLI Arguments @cli", () => {
+test.describe("CLI Arguments", () => {
   test("should pass transport parameter from command line", async ({
     page,
   }) => {
     // Simulate: npx . --transport sse --server-url http://localhost:3000/sse
     await page.goto(
-      "http://localhost:6274/?transport=sse&serverUrl=http://localhost:3000/sse",
+      `${APP_URL}&transport=sse&serverUrl=http://localhost:3000/sse`,
     );
 
     // Wait for the Transport Type dropdown to be visible
@@ -29,7 +32,7 @@ test.describe("CLI Arguments @cli", () => {
   }) => {
     // Simulate config with streamable-http transport
     await page.goto(
-      "http://localhost:6274/?transport=streamable-http&serverUrl=http://localhost:3000/mcp",
+      `${APP_URL}&transport=streamable-http&serverUrl=http://localhost:3000/mcp`,
     );
 
     // Wait for the Transport Type dropdown to be visible
@@ -49,7 +52,7 @@ test.describe("CLI Arguments @cli", () => {
     page,
   }) => {
     // Simulate stdio config (no transport param needed)
-    await page.goto("http://localhost:6274/");
+    await page.goto(APP_URL);
 
     // Wait for the Transport Type dropdown to be visible
     const selectTrigger = page.getByLabel("Transport Type");
@@ -61,5 +64,30 @@ test.describe("CLI Arguments @cli", () => {
     // Verify command/args fields are visible
     await expect(page.locator("#command-input")).toBeVisible();
     await expect(page.locator("#arguments-input")).toBeVisible();
+  });
+});
+
+test.describe("CLI npx (npm exec) start up", { tag: "@cli" }, () => {
+  test("CLI arguments should populate form fields", async ({ page }) => {
+    const cliTestScenario = process.env.CLI_TEST_SCENARIO;
+
+    // Skip this test if not running a CLI test scenario
+    if (
+      !cliTestScenario ||
+      (cliTestScenario !== "inline" && cliTestScenario !== "file")
+    ) {
+      test.skip();
+      return;
+    }
+
+    await page.goto(APP_URL);
+
+    const commandInput = page.getByRole("textbox", { name: "Command" });
+    const argsInput = page.getByRole("textbox", { name: "Arguments" });
+
+    await expect(commandInput).toHaveValue("npm");
+    await expect(argsInput).toHaveValue(
+      "--silent --prefix /path/to/mcp/servers/src/everything run start",
+    );
   });
 });
