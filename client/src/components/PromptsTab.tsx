@@ -63,9 +63,7 @@ const PromptsTab = ({
     clearCompletions();
   }, [clearCompletions, selectedPrompt]);
 
-  const handleInputChange = async (argName: string, value: string) => {
-    setPromptArgs((prev) => ({ ...prev, [argName]: value }));
-
+  const triggerCompletions = (argName: string, value: string) => {
     if (selectedPrompt) {
       requestCompletions(
         {
@@ -77,6 +75,16 @@ const PromptsTab = ({
         promptArgs,
       );
     }
+  };
+
+  const handleInputChange = async (argName: string, value: string) => {
+    setPromptArgs((prev) => ({ ...prev, [argName]: value }));
+    triggerCompletions(argName, value);
+  };
+
+  const handleFocus = async (argName: string) => {
+    const currentValue = promptArgs[argName] || "";
+    triggerCompletions(argName, currentValue);
   };
 
   const handleGetPrompt = () => {
@@ -143,6 +151,7 @@ const PromptsTab = ({
                       onInputChange={(value) =>
                         handleInputChange(arg.name, value)
                       }
+                      onFocus={() => handleFocus(arg.name)}
                       options={completions[arg.name] || []}
                     />
 
