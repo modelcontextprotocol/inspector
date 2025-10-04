@@ -47,6 +47,7 @@ import {
   Hash,
   Key,
   MessageSquare,
+  Settings,
 } from "lucide-react";
 
 import { z } from "zod";
@@ -80,6 +81,7 @@ import {
   CustomHeaders,
   migrateFromLegacyAuth,
 } from "./lib/types/customHeaders";
+import MetaDataTab from "./components/MetaDataTab";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
@@ -195,8 +197,26 @@ const App = () => {
   const [authState, setAuthState] =
     useState<AuthDebuggerState>(EMPTY_DEBUGGER_STATE);
 
+  // Meta data state - persisted in localStorage
+  const [metaData, setMetaData] = useState<Record<string, string>>(() => {
+    const savedMetaData = localStorage.getItem("lastMetaData");
+    if (savedMetaData) {
+      try {
+        return JSON.parse(savedMetaData);
+      } catch (error) {
+        console.warn("Failed to parse saved meta data:", error);
+      }
+    }
+    return {};
+  });
+
   const updateAuthState = (updates: Partial<AuthDebuggerState>) => {
     setAuthState((prev) => ({ ...prev, ...updates }));
+  };
+
+  const handleMetaDataChange = (newMetaData: Record<string, string>) => {
+    setMetaData(newMetaData);
+    localStorage.setItem("lastMetaData", JSON.stringify(newMetaData));
   };
   const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
@@ -299,6 +319,7 @@ const App = () => {
     },
     getRoots: () => rootsRef.current,
     defaultLoggingLevel: logLevel,
+    metaData,
   });
 
   useEffect(() => {
@@ -775,7 +796,11 @@ const App = () => {
     cacheToolOutputSchemas(response.tools);
   };
 
-  const callTool = async (name: string, params: Record<string, unknown>) => {
+  const callTool = async (
+    name: string,
+    params: Record<string, unknown>,
+    meta?: Record<string, unknown>,
+  ) => {
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
     try {
@@ -785,15 +810,21 @@ const App = () => {
         ? cleanParams(params, tool.inputSchema as JsonSchemaType)
         : params;
 
+      // Merge general metadata with tool-specific metadata
+      // Tool-specific metadata takes precedence over general metadata
+      const mergedMeta = {
+        ...metaData, // General metadata first
+        progressToken: progressTokenRef.current++,
+        ...(meta ?? {}), // Tool-specific metadata overrides
+      };
+
       const response = await sendMCPRequest(
         {
           method: "tools/call" as const,
           params: {
             name,
             arguments: cleanedParams,
-            _meta: {
-              progressToken: progressTokenRef.current++,
-            },
+            _meta: mergedMeta,
           },
         },
         CompatibilityCallToolResultSchema,
@@ -989,6 +1020,10 @@ const App = () => {
                   <Key className="w-4 h-4 mr-2" />
                   Auth
                 </TabsTrigger>
+                <TabsTrigger value="metadata">
+                  <Settings className="w-4 h-4 mr-2" />
+                  Meta Data
+                </TabsTrigger>
               </TabsList>
 
               <div className="w-full">
@@ -1099,10 +1134,14 @@ const App = () => {
                         setNextToolCursor(undefined);
                         cacheToolOutputSchemas([]);
                       }}
-                      callTool={async (name, params) => {
+                      callTool={async (
+                        name: string,
+                        params: Record<string, unknown>,
+                        meta?: Record<string, unknown>,
+                      ) => {
                         clearError("tools");
                         setToolResult(null);
-                        await callTool(name, params);
+                        await callTool(name, params, meta);
                       }}
                       selectedTool={selectedTool}
                       setSelectedTool={(tool) => {
@@ -1145,6 +1184,10 @@ const App = () => {
                       onRootsChange={handleRootsChange}
                     />
                     <AuthDebuggerWrapper />
+                    <MetaDataTab
+                      metaData={metaData}
+                      onMetaDataChange={handleMetaDataChange}
+                    />
                   </>
                 )}
               </div>
