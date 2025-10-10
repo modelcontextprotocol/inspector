@@ -22,6 +22,8 @@ import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
 import { OAuthStateMachine } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
+import { cleanParams } from "./utils/paramUtils";
+import type { JsonSchemaType } from "./utils/jsonUtils";
 import React, {
   Suspense,
   useCallback,
@@ -74,6 +76,10 @@ import ElicitationTab, {
   PendingElicitationRequest,
   ElicitationResponse,
 } from "./components/ElicitationTab";
+import {
+  CustomHeaders,
+  migrateFromLegacyAuth,
+} from "./lib/types/customHeaders";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
@@ -103,6 +109,14 @@ const App = () => {
   const [transportType, setTransportType] = useState<
     "stdio" | "sse" | "streamable-http"
   >(getInitialTransportType);
+  const [connectionType, setConnectionType] = useState<"direct" | "proxy">(
+    () => {
+      return (
+        (localStorage.getItem("lastConnectionType") as "direct" | "proxy") ||
+        "proxy"
+      );
+    },
+  );
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
@@ -125,6 +139,43 @@ const App = () => {
 
   const [oauthScope, setOauthScope] = useState<string>(() => {
     return localStorage.getItem("lastOauthScope") || "";
+  });
+
+  const [oauthClientSecret, setOauthClientSecret] = useState<string>(() => {
+    return localStorage.getItem("lastOauthClientSecret") || "";
+  });
+
+  // Custom headers state with migration from legacy auth
+  const [customHeaders, setCustomHeaders] = useState<CustomHeaders>(() => {
+    const savedHeaders = localStorage.getItem("lastCustomHeaders");
+    if (savedHeaders) {
+      try {
+        return JSON.parse(savedHeaders);
+      } catch (error) {
+        console.warn(
+          `Failed to parse custom headers: "${savedHeaders}", will try legacy migration`,
+          error,
+        );
+        // Fall back to migration if JSON parsing fails
+      }
+    }
+
+    // Migrate from legacy auth if available
+    const legacyToken = localStorage.getItem("lastBearerToken") || "";
+    const legacyHeaderName = localStorage.getItem("lastHeaderName") || "";
+
+    if (legacyToken) {
+      return migrateFromLegacyAuth(legacyToken, legacyHeaderName);
+    }
+
+    // Default to empty array
+    return [
+      {
+        name: "Authorization",
+        value: "Bearer ",
+        enabled: false,
+      },
+    ];
   });
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
@@ -213,11 +264,12 @@ const App = () => {
     args,
     sseUrl,
     env,
-    bearerToken,
-    headerName,
+    customHeaders,
     oauthClientId,
+    oauthClientSecret,
     oauthScope,
     config,
+    connectionType,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
     },
@@ -303,12 +355,41 @@ const App = () => {
   }, [transportType]);
 
   useEffect(() => {
-    localStorage.setItem("lastBearerToken", bearerToken);
+    localStorage.setItem("lastConnectionType", connectionType);
+  }, [connectionType]);
+
+  useEffect(() => {
+    if (bearerToken) {
+      localStorage.setItem("lastBearerToken", bearerToken);
+    } else {
+      localStorage.removeItem("lastBearerToken");
+    }
   }, [bearerToken]);
 
   useEffect(() => {
-    localStorage.setItem("lastHeaderName", headerName);
+    if (headerName) {
+      localStorage.setItem("lastHeaderName", headerName);
+    } else {
+      localStorage.removeItem("lastHeaderName");
+    }
   }, [headerName]);
+
+  useEffect(() => {
+    localStorage.setItem("lastCustomHeaders", JSON.stringify(customHeaders));
+  }, [customHeaders]);
+
+  // Auto-migrate from legacy auth when custom headers are empty but legacy auth exists
+  useEffect(() => {
+    if (customHeaders.length === 0 && (bearerToken || headerName)) {
+      const migratedHeaders = migrateFromLegacyAuth(bearerToken, headerName);
+      if (migratedHeaders.length > 0) {
+        setCustomHeaders(migratedHeaders);
+        // Clear legacy auth after migration
+        setBearerToken("");
+        setHeaderName("");
+      }
+    }
+  }, [bearerToken, headerName, customHeaders, setCustomHeaders]);
 
   useEffect(() => {
     localStorage.setItem("lastOauthClientId", oauthClientId);
@@ -317,6 +398,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastOauthScope", oauthScope);
   }, [oauthScope]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthClientSecret", oauthClientSecret);
+  }, [oauthClientSecret]);
 
   useEffect(() => {
     saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
@@ -703,12 +788,18 @@ const App = () => {
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
     try {
+      // Find the tool schema to clean parameters properly
+      const tool = tools.find((t) => t.name === name);
+      const cleanedParams = tool?.inputSchema
+        ? cleanParams(params, tool.inputSchema as JsonSchemaType)
+        : params;
+
       const response = await sendMCPRequest(
         {
           method: "tools/call" as const,
           params: {
             name,
-            arguments: params,
+            arguments: cleanedParams,
             _meta: {
               progressToken: progressTokenRef.current++,
             },
@@ -719,6 +810,8 @@ const App = () => {
       );
 
       setToolResult(response);
+      // Clear any validation errors since tool execution completed
+      setErrors((prev) => ({ ...prev, tools: null }));
     } catch (e) {
       const toolResult: CompatibilityCallToolResult = {
         content: [
@@ -730,6 +823,8 @@ const App = () => {
         isError: true,
       };
       setToolResult(toolResult);
+      // Clear validation errors - tool execution errors are shown in ToolResults
+      setErrors((prev) => ({ ...prev, tools: null }));
     }
   };
 
@@ -810,12 +905,12 @@ const App = () => {
           setEnv={setEnv}
           config={config}
           setConfig={setConfig}
-          bearerToken={bearerToken}
-          setBearerToken={setBearerToken}
-          headerName={headerName}
-          setHeaderName={setHeaderName}
+          customHeaders={customHeaders}
+          setCustomHeaders={setCustomHeaders}
           oauthClientId={oauthClientId}
           setOauthClientId={setOauthClientId}
+          oauthClientSecret={oauthClientSecret}
+          setOauthClientSecret={setOauthClientSecret}
           oauthScope={oauthScope}
           setOauthScope={setOauthScope}
           onConnect={connectMcpServer}
@@ -823,6 +918,8 @@ const App = () => {
           logLevel={logLevel}
           sendLogLevelRequest={sendLogLevelRequest}
           loggingSupported={!!serverCapabilities?.logging || false}
+          connectionType={connectionType}
+          setConnectionType={setConnectionType}
         />
         <div
           onMouseDown={handleSidebarDragStart}

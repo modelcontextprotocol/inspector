@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-server",
-  "version": "0.16.6",
+  "version": "0.17.0",
   "description": "Server-side application for the Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -22,14 +22,17 @@
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.23",
+    "@types/shell-quote": "^1.7.5",
     "@types/ws": "^8.5.12",
     "tsx": "^4.19.0",
     "typescript": "^5.6.2"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.5",
+    "@modelcontextprotocol/sdk": "^1.18.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "shell-quote": "^1.8.3",
+    "spawn-rx": "^5.1.2",
     "ws": "^8.18.0",
     "zod": "^3.25.76"
   }

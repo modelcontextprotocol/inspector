@@ -132,7 +132,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
 
       context.provider.saveCodeVerifier(codeVerifier);
       context.updateState({
-        authorizationUrl: authorizationUrl.toString(),
+        authorizationUrl: authorizationUrl,
         oauthStep: "authorization_code",
       });
     },

@@ -187,7 +187,7 @@ const AuthDebugger = ({
             JSON.stringify(currentState),
           );
           // Open the authorization URL automatically
-          window.location.href = currentState.authorizationUrl;
+          window.location.href = currentState.authorizationUrl.toString();
           break;
         }
       }

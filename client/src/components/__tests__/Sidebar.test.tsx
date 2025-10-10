@@ -44,12 +44,14 @@ describe("Sidebar", () => {
     setSseUrl: jest.fn(),
     oauthClientId: "",
     setOauthClientId: jest.fn(),
+    oauthClientSecret: "",
+    setOauthClientSecret: jest.fn(),
     oauthScope: "",
     setOauthScope: jest.fn(),
     env: {},
     setEnv: jest.fn(),
-    bearerToken: "",
-    setBearerToken: jest.fn(),
+    customHeaders: [],
+    setCustomHeaders: jest.fn(),
     onConnect: jest.fn(),
     onDisconnect: jest.fn(),
     stdErrNotifications: [],
@@ -59,6 +61,8 @@ describe("Sidebar", () => {
     loggingSupported: true,
     config: DEFAULT_INSPECTOR_CONFIG,
     setConfig: jest.fn(),
+    connectionType: "proxy" as const,
+    setConnectionType: jest.fn(),
   };
 
   const renderSidebar = (props = {}) => {
@@ -446,6 +450,11 @@ describe("Sidebar", () => {
         4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Config entry copied",
+        description:
+          "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name.",
+      });
     });
 
     it("should copy servers file configuration to clipboard for STDIO transport", async () => {
@@ -504,6 +513,11 @@ describe("Sidebar", () => {
         4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Config entry copied",
+        description:
+          "SSE URL has been copied. Use this URL directly in your MCP Client.",
+      });
     });
 
     it("should copy servers file configuration to clipboard for SSE transport", async () => {
@@ -554,6 +568,11 @@ describe("Sidebar", () => {
         4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Config entry copied",
+        description:
+          "Streamable HTTP URL has been copied. Use this URL directly in your MCP Client.",
+      });
     });
 
     it("should copy servers file configuration to clipboard for streamable-http transport", async () => {
@@ -619,117 +638,179 @@ describe("Sidebar", () => {
       fireEvent.click(button);
     };
 
-    it("should update bearer token", () => {
-      const setBearerToken = jest.fn();
+    it("should update bearer token via custom headers", async () => {
+      const setCustomHeaders = jest.fn();
       renderSidebar({
-        bearerToken: "",
-        setBearerToken,
+        customHeaders: [],
+        setCustomHeaders,
         transportType: "sse", // Set transport type to SSE
       });
 
       openAuthSection();
 
-      const tokenInput = screen.getByTestId("bearer-token-input");
-      fireEvent.change(tokenInput, { target: { value: "new_token" } });
+      // Add a new header
+      const addButton = screen.getByTestId("add-header-button");
+      fireEvent.click(addButton);
 
-      expect(setBearerToken).toHaveBeenCalledWith("new_token");
+      // Verify that setCustomHeaders was called to add an empty header
+      expect(setCustomHeaders).toHaveBeenCalledWith([
+        {
+          name: "",
+          value: "",
+          enabled: true,
+        },
+      ]);
     });
 
-    it("should update header name", () => {
-      const setHeaderName = jest.fn();
+    it("should update header name via custom headers", () => {
+      const setCustomHeaders = jest.fn();
       renderSidebar({
-        headerName: "Authorization",
-        setHeaderName,
+        customHeaders: [
+          {
+            name: "Authorization",
+            value: "Bearer token123",
+            enabled: true,
+          },
+        ],
+        setCustomHeaders,
         transportType: "sse",
       });
 
       openAuthSection();
 
-      const headerInput = screen.getByTestId("header-input");
-      fireEvent.change(headerInput, { target: { value: "X-Custom-Auth" } });
+      const headerNameInput = screen.getByTestId("header-name-input-0");
+      fireEvent.change(headerNameInput, { target: { value: "X-Custom-Auth" } });
 
-      expect(setHeaderName).toHaveBeenCalledWith("X-Custom-Auth");
+      expect(setCustomHeaders).toHaveBeenCalledWith([
+        {
+          name: "X-Custom-Auth",
+          value: "Bearer token123",
+          enabled: true,
+        },
+      ]);
     });
 
-    it("should clear bearer token", () => {
-      const setBearerToken = jest.fn();
+    it("should clear bearer token via custom headers", () => {
+      const setCustomHeaders = jest.fn();
       renderSidebar({
-        bearerToken: "existing_token",
-        setBearerToken,
+        customHeaders: [
+          {
+            name: "Authorization",
+            value: "Bearer existing_token",
+            enabled: true,
+          },
+        ],
+        setCustomHeaders,
         transportType: "sse", // Set transport type to SSE
       });
 
       openAuthSection();
 
-      const tokenInput = screen.getByTestId("bearer-token-input");
-      fireEvent.change(tokenInput, { target: { value: "" } });
+      const headerValueInput = screen.getByTestId("header-value-input-0");
+      fireEvent.change(headerValueInput, { target: { value: "" } });
 
-      expect(setBearerToken).toHaveBeenCalledWith("");
+      expect(setCustomHeaders).toHaveBeenCalledWith([
+        {
+          name: "Authorization",
+          value: "",
+          enabled: true,
+        },
+      ]);
     });
 
-    it("should properly render bearer token input", () => {
+    it("should properly render header value input as password field", () => {
       const { rerender } = renderSidebar({
-        bearerToken: "existing_token",
+        customHeaders: [
+          {
+            name: "Authorization",
+            value: "Bearer existing_token",
+            enabled: true,
+          },
+        ],
         transportType: "sse", // Set transport type to SSE
       });
 
       openAuthSection();
 
       // Token input should be a password field
-      const tokenInput = screen.getByTestId("bearer-token-input");
+      const tokenInput = screen.getByTestId("header-value-input-0");
       expect(tokenInput).toHaveProperty("type", "password");
 
       // Update the token
-      fireEvent.change(tokenInput, { target: { value: "new_token" } });
+      fireEvent.change(tokenInput, { target: { value: "Bearer new_token" } });
 
       // Rerender with updated token
       rerender(
         <TooltipProvider>
           <Sidebar
             {...defaultProps}
-            bearerToken="new_token"
+            customHeaders={[
+              {
+                name: "Authorization",
+                value: "Bearer new_token",
+                enabled: true,
+              },
+            ]}
             transportType="sse"
           />
         </TooltipProvider>,
       );
 
       // Token input should still exist after update
-      expect(screen.getByTestId("bearer-token-input")).toBeInTheDocument();
+      expect(screen.getByTestId("header-value-input-0")).toBeInTheDocument();
     });
 
     it("should maintain token visibility state after update", () => {
       const { rerender } = renderSidebar({
-        bearerToken: "existing_token",
+        customHeaders: [
+          {
+            name: "Authorization",
+            value: "Bearer existing_token",
+            enabled: true,
+          },
+        ],
         transportType: "sse", // Set transport type to SSE
       });
 
       openAuthSection();
 
       // Token input should be a password field
-      const tokenInput = screen.getByTestId("bearer-token-input");
+      const tokenInput = screen.getByTestId("header-value-input-0");
       expect(tokenInput).toHaveProperty("type", "password");
 
       // Update the token
-      fireEvent.change(tokenInput, { target: { value: "new_token" } });
+      fireEvent.change(tokenInput, { target: { value: "Bearer new_token" } });
 
       // Rerender with updated token
       rerender(
         <TooltipProvider>
           <Sidebar
             {...defaultProps}
-            bearerToken="new_token"
+            customHeaders={[
+              {
+                name: "Authorization",
+                value: "Bearer new_token",
+                enabled: true,
+              },
+            ]}
             transportType="sse"
           />
         </TooltipProvider>,
       );
 
       // Token input should still exist after update
-      expect(screen.getByTestId("bearer-token-input")).toBeInTheDocument();
+      expect(screen.getByTestId("header-value-input-0")).toBeInTheDocument();
     });
 
     it("should maintain header name when toggling auth section", () => {
       renderSidebar({
-        headerName: "X-API-Key",
+        customHeaders: [
+          {
+            name: "X-API-Key",
+            value: "api-key-123",
+            enabled: true,
+          },
+        ],
         transportType: "sse",
       });
 
@@ -737,7 +818,7 @@ describe("Sidebar", () => {
       openAuthSection();
 
       // Verify header name is displayed
-      const headerInput = screen.getByTestId("header-input");
+      const headerInput = screen.getByTestId("header-name-input-0");
       expect(headerInput).toHaveValue("X-API-Key");
 
       // Close auth section
@@ -748,19 +829,66 @@ describe("Sidebar", () => {
       fireEvent.click(authButton);
 
       // Verify header name is still preserved
-      expect(screen.getByTestId("header-input")).toHaveValue("X-API-Key");
+      expect(screen.getByTestId("header-name-input-0")).toHaveValue(
+        "X-API-Key",
+      );
     });
 
-    it("should display default header name when not specified", () => {
+    it("should display placeholder for header name when no headers exist", () => {
       renderSidebar({
-        headerName: undefined,
+        customHeaders: [],
         transportType: "sse",
       });
 
       openAuthSection();
 
-      const headerInput = screen.getByTestId("header-input");
-      expect(headerInput).toHaveAttribute("placeholder", "Authorization");
+      // Verify that the "No custom headers configured" message is shown
+      expect(
+        screen.getByText("No custom headers configured"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText('Click "Add" to get started'),
+      ).toBeInTheDocument();
+
+      // Verify the Add button is present
+      const addButton = screen.getByTestId("add-header-button");
+      expect(addButton).toBeInTheDocument();
+    });
+
+    it("should allow editing existing headers", () => {
+      const setCustomHeaders = jest.fn();
+      renderSidebar({
+        customHeaders: [
+          {
+            name: "Authorization",
+            value: "Bearer token123",
+            enabled: true,
+          },
+        ],
+        setCustomHeaders,
+        transportType: "sse",
+      });
+
+      openAuthSection();
+
+      // Verify header inputs are rendered
+      const headerNameInput = screen.getByTestId("header-name-input-0");
+      const headerValueInput = screen.getByTestId("header-value-input-0");
+
+      expect(headerNameInput).toHaveValue("Authorization");
+      expect(headerValueInput).toHaveValue("Bearer token123");
+      expect(headerNameInput).toHaveAttribute("placeholder", "Header Name");
+      expect(headerValueInput).toHaveAttribute("placeholder", "Header Value");
+
+      // Update header name
+      fireEvent.change(headerNameInput, { target: { value: "X-API-Key" } });
+      expect(setCustomHeaders).toHaveBeenCalledWith([
+        {
+          name: "X-API-Key",
+          value: "Bearer token123",
+          enabled: true,
+        },
+      ]);
     });
   });
 

@@ -2,7 +2,7 @@ import { renderHook, act } from "@testing-library/react";
 import { useConnection } from "../useConnection";
 import { z } from "zod";
 import { ClientRequest } from "@modelcontextprotocol/sdk/types.js";
-import { DEFAULT_INSPECTOR_CONFIG } from "../../constants";
+import { DEFAULT_INSPECTOR_CONFIG, CLIENT_IDENTITY } from "../../constants";
 import {
   SSEClientTransportOptions,
   SseError,
@@ -13,10 +13,14 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { discoverScopes } from "../../auth";
+import { CustomHeaders } from "../../types/customHeaders";
 
 // Mock fetch
 global.fetch = jest.fn().mockResolvedValue({
   json: () => Promise.resolve({ status: "ok" }),
+  headers: {
+    get: jest.fn().mockReturnValue(null),
+  },
 });
 
 // Mock the SDK dependencies
@@ -93,9 +97,10 @@ jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
 }));
 
 // Mock the toast hook
+const mockToast = jest.fn();
 jest.mock("@/lib/hooks/useToast", () => ({
   useToast: () => ({
-    toast: jest.fn(),
+    toast: mockToast,
   }),
 }));
 
@@ -247,8 +252,8 @@ describe("useConnection", () => {
 
       expect(Client).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: "mcp-inspector",
-          version: expect.any(String),
+          name: CLIENT_IDENTITY.name,
+          version: CLIENT_IDENTITY.version,
         }),
         expect.objectContaining({
           capabilities: expect.objectContaining({
@@ -573,9 +578,10 @@ describe("useConnection", () => {
       mockStreamableHTTPTransport.options = undefined;
     });
 
-    test("sends X-MCP-Proxy-Auth header when proxy auth token is configured", async () => {
+    test("sends X-MCP-Proxy-Auth header when proxy auth token is configured for proxy connectionType", async () => {
       const propsWithProxyAuth = {
         ...defaultProps,
+        connectionType: "proxy" as const,
         config: {
           ...DEFAULT_INSPECTOR_CONFIG,
           MCP_PROXY_AUTH_TOKEN: {
@@ -625,6 +631,56 @@ describe("useConnection", () => {
       ).toHaveProperty("X-MCP-Proxy-Auth", "Bearer test-proxy-token");
     });
 
+    test("does NOT send X-MCP-Proxy-Auth header when proxy auth token is configured for direct connectionType", async () => {
+      const propsWithProxyAuth = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_PROXY_AUTH_TOKEN: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
+            value: "test-proxy-token",
+          },
+        },
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithProxyAuth));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Check that the transport was created with the correct headers
+      expect(mockSSETransport.options).toBeDefined();
+      expect(mockSSETransport.options?.requestInit).toBeDefined();
+
+      // Verify that X-MCP-Proxy-Auth header is NOT present for direct connections
+      expect(mockSSETransport.options?.requestInit?.headers).not.toHaveProperty(
+        "X-MCP-Proxy-Auth",
+      );
+      expect(mockSSETransport?.options?.fetch).toBeDefined();
+
+      // Verify the fetch function does NOT include the proxy auth header
+      const mockFetch = mockSSETransport.options?.fetch;
+      const testUrl = "http://test.com";
+      await mockFetch?.(testUrl, {
+        headers: {
+          Accept: "text/event-stream",
+        },
+        cache: "no-store",
+        mode: "cors",
+        signal: new AbortController().signal,
+        redirect: "follow",
+        credentials: "include",
+      });
+
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe(testUrl);
+      expect(
+        (global.fetch as jest.Mock).mock.calls[0][1].headers,
+      ).not.toHaveProperty("X-MCP-Proxy-Auth");
+    });
+
     test("does NOT send Authorization header for proxy auth", async () => {
       const propsWithProxyAuth = {
         ...defaultProps,
@@ -648,9 +704,17 @@ describe("useConnection", () => {
     });
 
     test("preserves server Authorization header when proxy auth is configured", async () => {
+      const customHeaders: CustomHeaders = [
+        {
+          name: "Authorization",
+          value: "Bearer server-auth-token",
+          enabled: true,
+        },
+      ];
+
       const propsWithBothAuth = {
         ...defaultProps,
-        bearerToken: "server-auth-token",
+        customHeaders,
         config: {
           ...DEFAULT_INSPECTOR_CONFIG,
           MCP_PROXY_AUTH_TOKEN: {
@@ -737,6 +801,226 @@ describe("useConnection", () => {
       expect(
         mockStreamableHTTPTransport.options?.requestInit?.headers,
       ).toHaveProperty("X-MCP-Proxy-Auth", "Bearer test-proxy-token");
+    });
+  });
+
+  describe("Custom Headers", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      // Reset the mock transport objects
+      mockSSETransport.url = undefined;
+      mockSSETransport.options = undefined;
+      mockStreamableHTTPTransport.url = undefined;
+      mockStreamableHTTPTransport.options = undefined;
+    });
+
+    test("sends multiple custom headers correctly", async () => {
+      const customHeaders: CustomHeaders = [
+        { name: "Authorization", value: "Bearer token123", enabled: true },
+        { name: "X-Tenant-ID", value: "acme-inc", enabled: true },
+        { name: "X-Environment", value: "staging", enabled: true },
+      ];
+
+      const propsWithCustomHeaders = {
+        ...defaultProps,
+        customHeaders,
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithCustomHeaders),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Check that the transport was created with the correct headers
+      expect(mockSSETransport.options).toBeDefined();
+      expect(mockSSETransport.options?.requestInit?.headers).toBeDefined();
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      expect(headers).toHaveProperty("Authorization", "Bearer token123");
+      expect(headers).toHaveProperty("X-Tenant-ID", "acme-inc");
+      expect(headers).toHaveProperty("X-Environment", "staging");
+      expect(headers).toHaveProperty(
+        "x-custom-auth-headers",
+        JSON.stringify(["X-Tenant-ID", "X-Environment"]),
+      );
+    });
+
+    test("ignores disabled custom headers", async () => {
+      const customHeaders: CustomHeaders = [
+        { name: "Authorization", value: "Bearer token123", enabled: true },
+        { name: "X-Disabled", value: "should-not-appear", enabled: false },
+        { name: "X-Enabled", value: "should-appear", enabled: true },
+      ];
+
+      const propsWithCustomHeaders = {
+        ...defaultProps,
+        customHeaders,
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithCustomHeaders),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      expect(headers).toHaveProperty("Authorization", "Bearer token123");
+      expect(headers).toHaveProperty("X-Enabled", "should-appear");
+      expect(headers).not.toHaveProperty("X-Disabled");
+    });
+
+    test("handles migrated legacy auth via custom headers", async () => {
+      // Simulate what App.tsx would do - migrate legacy auth to custom headers
+      const customHeaders: CustomHeaders = [
+        { name: "X-Custom-Auth", value: "legacy-token", enabled: true },
+      ];
+
+      const propsWithMigratedAuth = {
+        ...defaultProps,
+        customHeaders,
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithMigratedAuth));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      expect(headers).toHaveProperty("X-Custom-Auth", "legacy-token");
+      expect(headers).toHaveProperty(
+        "x-custom-auth-headers",
+        JSON.stringify(["X-Custom-Auth"]),
+      );
+    });
+
+    test("uses OAuth token when no custom headers or legacy auth provided", async () => {
+      const propsWithoutAuth = {
+        ...defaultProps,
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithoutAuth));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      expect(headers).toHaveProperty("Authorization", "Bearer mock-token");
+    });
+
+    test("warns of enabled empty Bearer token", async () => {
+      // This test prevents regression of the bug where default "Bearer " header
+      // prevented OAuth token injection, causing infinite auth loops
+      const customHeaders: CustomHeaders = [
+        {
+          name: "Authorization",
+          value: "Bearer ", // Empty Bearer token placeholder
+          enabled: true, // enabled
+        },
+      ];
+
+      const propsWithEmptyBearer = {
+        ...defaultProps,
+        customHeaders,
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithEmptyBearer));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+
+      expect(headers).toHaveProperty("Authorization", "Bearer");
+      // Should not have the x-custom-auth-headers since Authorization is standard
+      expect(headers).not.toHaveProperty("x-custom-auth-headers");
+
+      // Should show toast notification for empty Authorization header
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Invalid Authorization Header",
+        description: expect.any(String),
+        variant: "destructive",
+      });
+    });
+
+    test("prioritizes custom headers over legacy auth", async () => {
+      const customHeaders: CustomHeaders = [
+        { name: "Authorization", value: "Bearer custom-token", enabled: true },
+      ];
+
+      const propsWithBothAuth = {
+        ...defaultProps,
+        customHeaders,
+        bearerToken: "legacy-token",
+        headerName: "Authorization",
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithBothAuth));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      expect(headers).toHaveProperty("Authorization", "Bearer custom-token");
+    });
+  });
+
+  describe("Connection URL Verification", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      // Reset the mock transport objects
+      mockSSETransport.url = undefined;
+      mockSSETransport.options = undefined;
+      mockStreamableHTTPTransport.url = undefined;
+      mockStreamableHTTPTransport.options = undefined;
+    });
+
+    test("uses server URL directly when connectionType is 'direct'", async () => {
+      const directProps = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(directProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Verify the transport was created with the direct server URL
+      expect(mockSSETransport.url).toBeDefined();
+      expect(mockSSETransport.url?.toString()).toBe("http://localhost:8080/");
+    });
+
+    test("uses proxy server URL when connectionType is 'proxy'", async () => {
+      const proxyProps = {
+        ...defaultProps,
+        connectionType: "proxy" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(proxyProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Verify the transport was created with a proxy server URL
+      expect(mockSSETransport.url).toBeDefined();
+      expect(mockSSETransport.url?.pathname).toBe("/sse");
+      expect(mockSSETransport.url?.searchParams.get("url")).toBe(
+        "http://localhost:8080",
+      );
+      expect(mockSSETransport.url?.searchParams.get("transportType")).toBe(
+        "sse",
+      );
     });
   });
 

@@ -1,7 +1,8 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, it, expect, jest } from "@jest/globals";
-import DynamicJsonForm from "../DynamicJsonForm";
+import { useRef } from "react";
+import DynamicJsonForm, { DynamicJsonFormRef } from "../DynamicJsonForm";
 import type { JsonSchemaType } from "@/utils/jsonUtils";
 
 describe("DynamicJsonForm String Fields", () => {
@@ -660,6 +661,224 @@ describe("DynamicJsonForm Copy JSON Functionality", () => {
           JSON.stringify(testValue, null, 2),
         );
       });
+    });
+  });
+});
+
+describe("DynamicJsonForm Validation Functionality", () => {
+  const renderFormWithRef = (props = {}) => {
+    const TestComponent = () => {
+      const formRef = useRef<DynamicJsonFormRef>(null);
+      const defaultProps = {
+        schema: {
+          type: "object",
+          properties: {
+            nested: { oneOf: [{ type: "string" }, { type: "integer" }] },
+          },
+        } as unknown as JsonSchemaType,
+        value: { nested: "test value" },
+        onChange: jest.fn(),
+        ref: formRef,
+      };
+
+      return (
+        <div>
+          <DynamicJsonForm {...defaultProps} {...props} />
+          <button
+            onClick={() => {
+              const result = formRef.current?.validateJson();
+              // Add data attributes to make validation result testable
+              const button = document.querySelector(
+                '[data-testid="validate-button"]',
+              ) as HTMLElement;
+              if (button && result) {
+                button.setAttribute(
+                  "data-validation-valid",
+                  result.isValid.toString(),
+                );
+                button.setAttribute(
+                  "data-validation-error",
+                  result.error || "",
+                );
+              }
+            }}
+            data-testid="validate-button"
+          >
+            Validate
+          </button>
+        </div>
+      );
+    };
+
+    return render(<TestComponent />);
+  };
+
+  describe("validateJson method", () => {
+    it("should return valid for form mode", () => {
+      const simpleSchema = {
+        type: "string" as const,
+        description: "Test string field",
+      };
+
+      const TestComponent = () => {
+        const formRef = useRef<DynamicJsonFormRef>(null);
+
+        return (
+          <div>
+            <DynamicJsonForm
+              ref={formRef}
+              schema={simpleSchema}
+              value="test"
+              onChange={jest.fn()}
+            />
+            <button
+              onClick={() => {
+                const result = formRef.current?.validateJson();
+                const button = document.querySelector(
+                  '[data-testid="validate-button"]',
+                ) as HTMLElement;
+                if (button && result) {
+                  button.setAttribute(
+                    "data-validation-valid",
+                    result.isValid.toString(),
+                  );
+                  button.setAttribute(
+                    "data-validation-error",
+                    result.error || "",
+                  );
+                }
+              }}
+              data-testid="validate-button"
+            >
+              Validate
+            </button>
+          </div>
+        );
+      };
+
+      render(<TestComponent />);
+
+      const validateButton = screen.getByTestId("validate-button");
+      fireEvent.click(validateButton);
+
+      expect(validateButton.getAttribute("data-validation-valid")).toBe("true");
+      expect(validateButton.getAttribute("data-validation-error")).toBe("");
+    });
+
+    it("should return valid for valid JSON in JSON mode", () => {
+      renderFormWithRef();
+
+      const validateButton = screen.getByTestId("validate-button");
+      fireEvent.click(validateButton);
+
+      expect(validateButton.getAttribute("data-validation-valid")).toBe("true");
+      expect(validateButton.getAttribute("data-validation-error")).toBe("");
+    });
+
+    it("should return invalid for malformed JSON in JSON mode", async () => {
+      renderFormWithRef();
+
+      // Enter invalid JSON
+      const textarea = screen.getByRole("textbox");
+      fireEvent.change(textarea, { target: { value: '{ "invalid": json }' } });
+
+      // Wait a bit for any debounced updates
+      await waitFor(() => {
+        const validateButton = screen.getByTestId("validate-button");
+        fireEvent.click(validateButton);
+
+        expect(validateButton.getAttribute("data-validation-valid")).toBe(
+          "false",
+        );
+        expect(validateButton.getAttribute("data-validation-error")).toContain(
+          "JSON",
+        );
+      });
+    });
+
+    it("should return valid for empty JSON in JSON mode", () => {
+      renderFormWithRef();
+
+      // Clear the textarea
+      const textarea = screen.getByRole("textbox");
+      fireEvent.change(textarea, { target: { value: "" } });
+
+      const validateButton = screen.getByTestId("validate-button");
+      fireEvent.click(validateButton);
+
+      expect(validateButton.getAttribute("data-validation-valid")).toBe("true");
+      expect(validateButton.getAttribute("data-validation-error")).toBe("");
+    });
+
+    it("should set error state when validation fails", async () => {
+      renderFormWithRef();
+
+      // Enter invalid JSON
+      const textarea = screen.getByRole("textbox");
+      fireEvent.change(textarea, {
+        target: { value: '{ "trailing": "comma", }' },
+      });
+
+      // Trigger validation
+      const validateButton = screen.getByTestId("validate-button");
+      fireEvent.click(validateButton);
+
+      // Check that validation result shows error
+      expect(validateButton.getAttribute("data-validation-valid")).toBe(
+        "false",
+      );
+      expect(validateButton.getAttribute("data-validation-error")).toContain(
+        "JSON",
+      );
+    });
+  });
+
+  describe("forwardRef functionality", () => {
+    it("should expose validateJson method through ref", () => {
+      const TestComponent = () => {
+        const formRef = useRef<DynamicJsonFormRef>(null);
+
+        return (
+          <div>
+            <DynamicJsonForm
+              ref={formRef}
+              schema={{
+                type: "object",
+                properties: {
+                  test: { type: "string" },
+                },
+              }}
+              value={{ test: "value" }}
+              onChange={jest.fn()}
+            />
+            <button
+              onClick={() => {
+                const hasValidateMethod =
+                  typeof formRef.current?.validateJson === "function";
+                const button = document.querySelector(
+                  '[data-testid="ref-test-button"]',
+                ) as HTMLElement;
+                if (button) {
+                  button.setAttribute(
+                    "data-has-validate-method",
+                    hasValidateMethod.toString(),
+                  );
+                }
+              }}
+              data-testid="ref-test-button"
+            >
+              Test Ref
+            </button>
+          </div>
+        );
+      };
+
+      render(<TestComponent />);
+
+      const testButton = screen.getByTestId("ref-test-button");
+      fireEvent.click(testButton);
+
+      expect(testButton.getAttribute("data-has-validate-method")).toBe("true");
     });
   });
 });

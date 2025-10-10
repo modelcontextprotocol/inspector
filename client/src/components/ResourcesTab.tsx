@@ -225,7 +225,9 @@ const ResourcesTab = ({
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Error</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
+                <AlertDescription className="break-all">
+                  {error}
+                </AlertDescription>
               </Alert>
             ) : selectedResource ? (
               <JsonView

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import * as fs from "fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Command } from "commander";
 import {
@@ -99,16 +100,27 @@ function createTransportOptions(
 }
 
 async function callMethod(args: Args): Promise<void> {
+  // Read package.json to get name and version for client identity
+  const pathA = "../package.json"; // We're in package @modelcontextprotocol/inspector-cli
+  const pathB = "../../package.json"; // We're in package @modelcontextprotocol/inspector
+  let packageJson: { name: string; version: string };
+  let packageJsonData = await import(fs.existsSync(pathA) ? pathA : pathB, {
+    with: { type: "json" },
+  });
+  packageJson = packageJsonData.default;
+
   const transportOptions = createTransportOptions(
     args.target,
     args.transport,
     args.headers,
   );
   const transport = createTransport(transportOptions);
-  const client = new Client({
-    name: "inspector-cli",
-    version: "0.5.1",
-  });
+
+  const [, name = packageJson.name] = packageJson.name.split("/");
+  const version = packageJson.version;
+  const clientIdentity = { name, version };
+
+  const client = new Client(clientIdentity);
 
   try {
     await connect(client, transport);

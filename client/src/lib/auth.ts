@@ -117,9 +117,14 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
     return window.location.origin + "/oauth/callback";
   }
 
+  get debugRedirectUrl() {
+    return window.location.origin + "/oauth/callback/debug";
+  }
+
   get clientMetadata(): OAuthClientMetadata {
+    // Register both redirect URIs to support both normal and debug flows
     return {
-      redirect_uris: [this.redirectUrl],
+      redirect_uris: [this.redirectUrl, this.debugRedirectUrl],
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
@@ -152,17 +157,10 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   saveClientInformation(clientInformation: OAuthClientInformation) {
-    // Remove client_secret before storing (not needed after initial OAuth flow)
-    const safeInfo = Object.fromEntries(
-      Object.entries(clientInformation).filter(
-        ([key]) => key !== "client_secret",
-      ),
-    ) as OAuthClientInformation;
-
     // Save the dynamically registered client information to session storage
     saveClientInformationToSessionStorage({
       serverUrl: this.serverUrl,
-      clientInformation: safeInfo,
+      clientInformation,
       isPreregistered: false,
     });
   }
@@ -223,11 +221,13 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 }
 
-// Overrides debug URL and allows saving server OAuth metadata to
+// Overrides redirect URL to use the debug endpoint and allows saving server OAuth metadata to
 // display in debug UI.
 export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvider {
   get redirectUrl(): string {
-    return `${window.location.origin}/oauth/callback/debug`;
+    // We can use the debug redirect URL here because it was already registered
+    // in the parent class's clientMetadata along with the normal redirect URL
+    return this.debugRedirectUrl;
   }
 
   saveServerMetadata(metadata: OAuthMetadata) {

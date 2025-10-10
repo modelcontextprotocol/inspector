@@ -37,6 +37,8 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import CustomHeaders from "./CustomHeaders";
+import { CustomHeaders as CustomHeadersType } from "@/lib/types/customHeaders";
 import { useToast } from "../lib/hooks/useToast";
 
 interface SidebarProps {
@@ -51,12 +53,13 @@ interface SidebarProps {
   setSseUrl: (url: string) => void;
   env: Record<string, string>;
   setEnv: (env: Record<string, string>) => void;
-  bearerToken: string;
-  setBearerToken: (token: string) => void;
-  headerName?: string;
-  setHeaderName?: (name: string) => void;
+  // Custom headers support
+  customHeaders: CustomHeadersType;
+  setCustomHeaders: (headers: CustomHeadersType) => void;
   oauthClientId: string;
   setOauthClientId: (id: string) => void;
+  oauthClientSecret: string;
+  setOauthClientSecret: (secret: string) => void;
   oauthScope: string;
   setOauthScope: (scope: string) => void;
   onConnect: () => void;
@@ -66,6 +69,8 @@ interface SidebarProps {
   loggingSupported: boolean;
   config: InspectorConfig;
   setConfig: (config: InspectorConfig) => void;
+  connectionType: "direct" | "proxy";
+  setConnectionType: (type: "direct" | "proxy") => void;
 }
 
 const Sidebar = ({
@@ -80,12 +85,12 @@ const Sidebar = ({
   setSseUrl,
   env,
   setEnv,
-  bearerToken,
-  setBearerToken,
-  headerName,
-  setHeaderName,
+  customHeaders,
+  setCustomHeaders,
   oauthClientId,
   setOauthClientId,
+  oauthClientSecret,
+  setOauthClientSecret,
   oauthScope,
   setOauthScope,
   onConnect,
@@ -95,16 +100,21 @@ const Sidebar = ({
   loggingSupported,
   config,
   setConfig,
+  connectionType,
+  setConnectionType,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
   const [showAuthConfig, setShowAuthConfig] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
+  const [showClientSecret, setShowClientSecret] = useState(false);
   const [copiedServerEntry, setCopiedServerEntry] = useState(false);
   const [copiedServerFile, setCopiedServerFile] = useState(false);
   const { toast } = useToast();
 
+  const connectionTypeTip =
+    "Connect to server directly (requires CORS config on server) or via MCP Inspector Proxy";
   // Reusable error reporter for copy actions
   const reportError = useCallback(
     (error: unknown) => {
@@ -175,7 +185,9 @@ const Sidebar = ({
             description:
               transportType === "stdio"
                 ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
-                : "SSE URL has been copied. Use this URL directly in your MCP Client.",
+                : transportType === "streamable-http"
+                  ? "Streamable HTTP URL has been copied. Use this URL directly in your MCP Client."
+                  : "SSE URL has been copied. Use this URL directly in your MCP Client.",
           });
 
           setTimeout(() => {
@@ -312,6 +324,35 @@ const Sidebar = ({
                   />
                 )}
               </div>
+
+              {/* Connection Type switch - only visible for non-STDIO transport types */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="space-y-2">
+                    <label
+                      className="text-sm font-medium"
+                      htmlFor="connection-type-select"
+                    >
+                      Connection Type
+                    </label>
+                    <Select
+                      value={connectionType}
+                      onValueChange={(value: "direct" | "proxy") =>
+                        setConnectionType(value)
+                      }
+                    >
+                      <SelectTrigger id="connection-type-select">
+                        <SelectValue placeholder="Select connection type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="proxy">Via Proxy</SelectItem>
+                        <SelectItem value="direct">Direct</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>{connectionTypeTip}</TooltipContent>
+              </Tooltip>
             </>
           )}
 
@@ -497,38 +538,12 @@ const Sidebar = ({
             </Button>
             {showAuthConfig && (
               <>
-                {/* Bearer Token Section */}
-                <div className="space-y-2 p-3 rounded border">
-                  <h4 className="text-sm font-semibold flex items-center">
-                    API Token Authentication
-                  </h4>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Header Name</label>
-                    <Input
-                      placeholder="Authorization"
-                      onChange={(e) =>
-                        setHeaderName && setHeaderName(e.target.value)
-                      }
-                      data-testid="header-input"
-                      className="font-mono"
-                      value={headerName}
-                    />
-                    <label
-                      className="text-sm font-medium"
-                      htmlFor="bearer-token-input"
-                    >
-                      Bearer Token
-                    </label>
-                    <Input
-                      id="bearer-token-input"
-                      placeholder="Bearer Token"
-                      value={bearerToken}
-                      onChange={(e) => setBearerToken(e.target.value)}
-                      data-testid="bearer-token-input"
-                      className="font-mono"
-                      type="password"
-                    />
-                  </div>
+                {/* Custom Headers Section */}
+                <div className="p-3 rounded border overflow-hidden">
+                  <CustomHeaders
+                    headers={customHeaders}
+                    onChange={setCustomHeaders}
+                  />
                 </div>
                 {transportType !== "stdio" && (
                   // OAuth Configuration
@@ -545,6 +560,38 @@ const Sidebar = ({
                         data-testid="oauth-client-id-input"
                         className="font-mono"
                       />
+                      <label className="text-sm font-medium">
+                        Client Secret
+                      </label>
+                      <div className="flex gap-2">
+                        <Input
+                          type={showClientSecret ? "text" : "password"}
+                          placeholder="Client Secret (optional)"
+                          onChange={(e) => setOauthClientSecret(e.target.value)}
+                          value={oauthClientSecret}
+                          data-testid="oauth-client-secret-input"
+                          className="font-mono"
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-9 w-9 p-0 shrink-0"
+                          onClick={() => setShowClientSecret(!showClientSecret)}
+                          aria-label={
+                            showClientSecret ? "Hide secret" : "Show secret"
+                          }
+                          aria-pressed={showClientSecret}
+                          title={
+                            showClientSecret ? "Hide secret" : "Show secret"
+                          }
+                        >
+                          {showClientSecret ? (
+                            <Eye className="h-4 w-4" aria-hidden="true" />
+                          ) : (
+                            <EyeOff className="h-4 w-4" aria-hidden="true" />
+                          )}
+                        </Button>
+                      </div>
                       <label className="text-sm font-medium">
                         Redirect URL
                       </label>
