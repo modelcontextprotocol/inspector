@@ -777,6 +777,11 @@ export function useConnection({
           variant: "destructive",
         });
       }
+      toast({
+        title: "Connection error",
+        description: `Connection failed: "${e}"`,
+        variant: "destructive",
+      });
       console.error(e);
       setConnectionStatus("error");
     }
