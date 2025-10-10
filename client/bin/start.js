@@ -28,8 +28,15 @@ function getClientUrl(port, authDisabled, sessionToken, serverPort) {
 }
 
 async function startDevServer(serverOptions) {
-  const { SERVER_PORT, CLIENT_PORT, sessionToken, envVars, abort } =
-    serverOptions;
+  const {
+    SERVER_PORT,
+    CLIENT_PORT,
+    sessionToken,
+    envVars,
+    abort,
+    transport,
+    serverUrl,
+  } = serverOptions;
   const serverCommand = "npx";
   const serverArgs = ["tsx", "watch", "--clear-screen=false", "src/index.ts"];
   const isWindows = process.platform === "win32";
@@ -42,6 +49,8 @@ async function startDevServer(serverOptions) {
       CLIENT_PORT,
       MCP_PROXY_AUTH_TOKEN: sessionToken,
       MCP_ENV_VARS: JSON.stringify(envVars),
+      ...(transport ? { MCP_TRANSPORT: transport } : {}),
+      ...(serverUrl ? { MCP_SERVER_URL: serverUrl } : {}),
     },
     signal: abort.signal,
     echoOutput: true,
@@ -78,6 +87,8 @@ async function startProdServer(serverOptions) {
     abort,
     command,
     mcpServerArgs,
+    transport,
+    serverUrl,
   } = serverOptions;
   const inspectorServerPath = resolve(
     __dirname,
@@ -91,10 +102,12 @@ async function startProdServer(serverOptions) {
     "node",
     [
       inspectorServerPath,
-      command ? `--command=${command}` : "",
-      mcpServerArgs && mcpServerArgs.length > 0
-        ? `--args=${mcpServerArgs.join(" ")}`
-        : "",
+      ...(command ? [`--command=${command}`] : []),
+      ...(mcpServerArgs && mcpServerArgs.length > 0
+        ? [`--args=${mcpServerArgs.join(" ")}`]
+        : []),
+      ...(transport ? [`--transport=${transport}`] : []),
+      ...(serverUrl ? [`--server-url=${serverUrl}`] : []),
     ],
     {
       env: {
@@ -208,6 +221,8 @@ async function main() {
   let command = null;
   let parsingFlags = true;
   let isDev = false;
+  let transport = null;
+  let serverUrl = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -219,6 +234,16 @@ async function main() {
 
     if (parsingFlags && arg === "--dev") {
       isDev = true;
+      continue;
+    }
+
+    if (parsingFlags && arg === "--transport" && i + 1 < args.length) {
+      transport = args[++i];
+      continue;
+    }
+
+    if (parsingFlags && arg === "--server-url" && i + 1 < args.length) {
+      serverUrl = args[++i];
       continue;
     }
 
@@ -273,6 +298,8 @@ async function main() {
       abort,
       command,
       mcpServerArgs,
+      transport,
+      serverUrl,
     };
 
     const result = isDev

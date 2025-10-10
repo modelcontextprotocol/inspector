@@ -29,6 +29,14 @@ npx @modelcontextprotocol/inspector
 
 The server will start up and the UI will be accessible at `http://localhost:6274`.
 
+### Docker Container
+
+You can also start it in a Docker container with the following command:
+
+```bash
+docker run --rm --network host -p 6274:6274 -p 6277:6277 ghcr.io/modelcontextprotocol/inspector:latest
+```
+
 ### From an MCP server repository
 
 To inspect an MCP server implementation, there's no need to clone this repo. Instead, use `npx`. For example, if your server is built at `build/index.js`:
@@ -90,6 +98,16 @@ The MCP Inspector provides convenient buttons to export server launch configurat
   }
   ```
 
+  **Streamable HTTP transport example:**
+
+  ```json
+  {
+    "type": "streamable-http",
+    "url": "http://localhost:3000/mcp",
+    "note": "For Streamable HTTP connections, add this URL directly in your MCP Client"
+  }
+  ```
+
 - **Servers File** - Copies a complete MCP configuration file structure to your clipboard, with your current server configuration added as `default-server`. This can be saved directly as `mcp.json`.
 
   **STDIO transport example:**
@@ -123,9 +141,23 @@ The MCP Inspector provides convenient buttons to export server launch configurat
   }
   ```
 
+  **Streamable HTTP transport example:**
+
+  ```json
+  {
+    "mcpServers": {
+      "default-server": {
+        "type": "streamable-http",
+        "url": "http://localhost:3000/mcp",
+        "note": "For Streamable HTTP connections, add this URL directly in your MCP Client"
+      }
+    }
+  }
+  ```
+
 These buttons appear in the Inspector UI after you've configured your server settings, making it easy to save and reuse your configurations.
 
-For SSE transport connections, the Inspector provides similar functionality for both buttons. The "Server Entry" button copies the SSE URL configuration that can be added to your existing configuration file, while the "Servers File" button creates a complete configuration file containing the SSE URL for direct use in clients.
+For SSE and Streamable HTTP transport connections, the Inspector provides similar functionality for both buttons. The "Server Entry" button copies the configuration that can be added to your existing configuration file, while the "Servers File" button creates a complete configuration file containing the URL for direct use in clients.
 
 You can paste the Server Entry into your existing `mcp.json` file under your chosen server name, or use the complete Servers File payload to create a new configuration file.
 
@@ -165,6 +197,16 @@ If you need to disable authentication (NOT RECOMMENDED), you can set the `DANGER
 ```bash
 DANGEROUSLY_OMIT_AUTH=true npm start
 ```
+
+---
+
+**🚨 WARNING 🚨**
+
+Disabling authentication with `DANGEROUSLY_OMIT_AUTH` is incredibly dangerous! Disabling auth leaves your machine open to attack not just when exposed to the public internet, but also **via your web browser**. Meaning, visiting a malicious website OR viewing a malicious advertizement could allow an attacker to remotely compromise your computer. Do not disable this feature unless you truly understand the risks.
+
+Read more about the risks of this vulnerability on Oligo's blog: [Critical RCE Vulnerability in Anthropic MCP Inspector - CVE-2025-49596](https://www.oligo.security/blog/critical-rce-vulnerability-in-anthropic-mcp-inspector-cve-2025-49596)
+
+---
 
 You can also set the token via the `MCP_PROXY_AUTH_TOKEN` environment variable when starting the server:
 
@@ -229,6 +271,78 @@ Example server configuration file:
         "key": "value",
         "key2": "value2"
       }
+    }
+  }
+}
+```
+
+#### Transport Types in Config Files
+
+The inspector automatically detects the transport type from your config file. You can specify different transport types:
+
+**STDIO (default):**
+
+```json
+{
+  "mcpServers": {
+    "my-stdio-server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-everything"]
+    }
+  }
+}
+```
+
+**SSE (Server-Sent Events):**
+
+```json
+{
+  "mcpServers": {
+    "my-sse-server": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
+```
+
+**Streamable HTTP:**
+
+```json
+{
+  "mcpServers": {
+    "my-http-server": {
+      "type": "streamable-http",
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+#### Default Server Selection
+
+You can launch the inspector without specifying a server name if your config has:
+
+1. **A single server** - automatically selected:
+
+```bash
+# Automatically uses "my-server" if it's the only one
+npx @modelcontextprotocol/inspector --config mcp.json
+```
+
+2. **A server named "default-server"** - automatically selected:
+
+```json
+{
+  "mcpServers": {
+    "default-server": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-everything"]
+    },
+    "other-server": {
+      "command": "node",
+      "args": ["other.js"]
     }
   }
 }
@@ -305,6 +419,9 @@ npx @modelcontextprotocol/inspector --cli node build/index.js --method tools/lis
 # Call a specific tool
 npx @modelcontextprotocol/inspector --cli node build/index.js --method tools/call --tool-name mytool --tool-arg key=value --tool-arg another=value2
 
+# Call a tool with JSON arguments
+npx @modelcontextprotocol/inspector --cli node build/index.js --method tools/call --tool-name mytool --tool-arg 'options={"format": "json", "max_tokens": 100}'
+
 # List available resources
 npx @modelcontextprotocol/inspector --cli node build/index.js --method resources/list
 
@@ -316,6 +433,9 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com
 
 # Connect to a remote MCP server (with Streamable HTTP transport)
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --transport http --method tools/list
+
+# Connect to a remote MCP server (with custom headers)
+npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --transport http --method tools/list --header "X-API-Key: your-api-key"
 
 # Call a tool on a remote server
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --method tools/call --tool-name remotetool --tool-arg param=value

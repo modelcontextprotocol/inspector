@@ -4,6 +4,8 @@ import { Button } from "./ui/button";
 import { DebugInspectorOAuthClientProvider } from "@/lib/auth";
 import { useEffect, useMemo, useState } from "react";
 import { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { validateRedirectUrl } from "@/utils/urlValidation";
+import { useToast } from "@/lib/hooks/useToast";
 
 interface OAuthStepProps {
   label: string;
@@ -71,6 +73,7 @@ export const OAuthFlowProgress = ({
   updateAuthState,
   proceedToNextStep,
 }: OAuthFlowProgressProps) => {
+  const { toast } = useToast();
   const provider = useMemo(
     () => new DebugInspectorOAuthClientProvider(serverUrl),
     [serverUrl],
@@ -178,8 +181,8 @@ export const OAuthFlowProgress = ({
                   </p>
                   <p className="text-xs text-blue-600 mt-1">
                     Resource metadata was added in the{" "}
-                    <a href="https://modelcontextprotocol.io/specification/draft/basic/authorization#2-3-1-authorization-server-location">
-                      2025-DRAFT-v2 specification update
+                    <a href="https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization#authorization-server-location">
+                      2025-06-18 specification update
                     </a>
                     <br />
                     {authState.resourceMetadataError.message}
@@ -237,18 +240,34 @@ export const OAuthFlowProgress = ({
               <p className="font-medium mb-2 text-sm">Authorization URL:</p>
               <div className="flex items-center gap-2">
                 <p className="text-xs break-all">
-                  {authState.authorizationUrl}
+                  {String(authState.authorizationUrl)}
                 </p>
-                <a
-                  href={authState.authorizationUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  onClick={() => {
+                    try {
+                      validateRedirectUrl(authState.authorizationUrl!);
+                      window.open(
+                        authState.authorizationUrl!,
+                        "_blank",
+                        "noopener noreferrer",
+                      );
+                    } catch (error) {
+                      toast({
+                        title: "Invalid URL",
+                        description:
+                          error instanceof Error
+                            ? error.message
+                            : "The authorization URL is not valid",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
                   className="flex items-center text-blue-500 hover:text-blue-700"
                   aria-label="Open authorization URL in new tab"
                   title="Open authorization URL"
                 >
                   <ExternalLink className="h-4 w-4" />
-                </a>
+                </button>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
                 Click the link to authorize in your browser. After
@@ -354,7 +373,21 @@ export const OAuthFlowProgress = ({
           authState.authorizationUrl && (
             <Button
               variant="outline"
-              onClick={() => window.open(authState.authorizationUrl!, "_blank")}
+              onClick={() => {
+                try {
+                  validateRedirectUrl(authState.authorizationUrl!);
+                  window.open(authState.authorizationUrl!, "_blank");
+                } catch (error) {
+                  toast({
+                    title: "Invalid URL",
+                    description:
+                      error instanceof Error
+                        ? error.message
+                        : "The authorization URL is not valid",
+                    variant: "destructive",
+                  });
+                }
+              }}
             >
               Open in New Tab
             </Button>

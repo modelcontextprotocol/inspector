@@ -49,6 +49,7 @@ jest.mock("../lib/hooks/useConnection", () => ({
     serverCapabilities: null,
     mcpClient: null,
     requestHistory: [],
+    clearRequestHistory: jest.fn(),
     makeRequest: jest.fn(),
     sendNotification: jest.fn(),
     handleCompletion: jest.fn(),
