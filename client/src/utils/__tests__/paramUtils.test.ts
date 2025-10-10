@@ -205,4 +205,76 @@ describe("cleanParams", () => {
       // optionalField omitted entirely
     });
   });
+
+  it("should preserve null values when field has default: null", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      required: [],
+      properties: {
+        optionalFieldWithNullDefault: { type: "string", default: null },
+        optionalFieldWithoutDefault: { type: "string" },
+      },
+    };
+
+    const params = {
+      optionalFieldWithNullDefault: null,
+      optionalFieldWithoutDefault: null,
+    };
+
+    const cleaned = cleanParams(params, schema);
+
+    expect(cleaned).toEqual({
+      optionalFieldWithNullDefault: null, // preserved because default: null
+      // optionalFieldWithoutDefault omitted
+    });
+  });
+
+  it("should preserve default values that match current value", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      required: [],
+      properties: {
+        fieldWithDefaultString: { type: "string", default: "defaultValue" },
+        fieldWithDefaultNumber: { type: "number", default: 42 },
+        fieldWithDefaultNull: { type: "string", default: null },
+        fieldWithDefaultBoolean: { type: "boolean", default: false },
+      },
+    };
+
+    const params = {
+      fieldWithDefaultString: "defaultValue",
+      fieldWithDefaultNumber: 42,
+      fieldWithDefaultNull: null,
+      fieldWithDefaultBoolean: false,
+    };
+
+    const cleaned = cleanParams(params, schema);
+
+    expect(cleaned).toEqual({
+      fieldWithDefaultString: "defaultValue",
+      fieldWithDefaultNumber: 42,
+      fieldWithDefaultNull: null,
+      fieldWithDefaultBoolean: false,
+    });
+  });
+
+  it("should omit values that do not match their default", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      required: [],
+      properties: {
+        fieldWithDefault: { type: "string", default: "defaultValue" },
+      },
+    };
+
+    const params = {
+      fieldWithDefault: null, // doesn't match default
+    };
+
+    const cleaned = cleanParams(params, schema);
+
+    expect(cleaned).toEqual({
+      // fieldWithDefault omitted because value (null) doesn't match default ("defaultValue")
+    });
+  });
 });
