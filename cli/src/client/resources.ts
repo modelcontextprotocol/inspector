@@ -2,9 +2,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { McpResponse } from "./types.js";
 
 // List available resources
-export async function listResources(client: Client): Promise<McpResponse> {
+export async function listResources(
+  client: Client,
+  metaData?: Record<string, string>,
+): Promise<McpResponse> {
   try {
-    const response = await client.listResources();
+    const params =
+      metaData && Object.keys(metaData).length > 0 ? { _meta: metaData } : {};
+    const response = await client.listResources(params);
     return response;
   } catch (error) {
     throw new Error(
@@ -17,9 +22,14 @@ export async function listResources(client: Client): Promise<McpResponse> {
 export async function readResource(
   client: Client,
   uri: string,
+  metaData?: Record<string, string>,
 ): Promise<McpResponse> {
   try {
-    const response = await client.readResource({ uri });
+    const params: any = { uri };
+    if (metaData && Object.keys(metaData).length > 0) {
+      params._meta = metaData;
+    }
+    const response = await client.readResource(params);
     return response;
   } catch (error) {
     throw new Error(
@@ -31,9 +41,12 @@ export async function readResource(
 // List resource templates
 export async function listResourceTemplates(
   client: Client,
+  metaData?: Record<string, string>,
 ): Promise<McpResponse> {
   try {
-    const response = await client.listResourceTemplates();
+    const params =
+      metaData && Object.keys(metaData).length > 0 ? { _meta: metaData } : {};
+    const response = await client.listResourceTemplates(params);
     return response;
   } catch (error) {
     throw new Error(
