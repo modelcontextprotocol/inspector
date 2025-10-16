@@ -3,15 +3,8 @@
   "version": "1.0.0",
   "description": "MCP Authorization Compliance Checker",
   "type": "module",
-  "main": "dist/cli/index.js",
-  "bin": {
-    "mcp-auth-compat": "dist/cli/index.js"
-  },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/cli/index.ts",
-    "test-validation-server": "tsx src/test-validation-server.ts",
-    "cli": "tsx src/cli/index.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
@@ -24,7 +17,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "commander": "^11.0.0",
     "express": "^4.18.0",
     "zod": "^3.22.0"
   },
