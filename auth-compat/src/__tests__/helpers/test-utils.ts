@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from 'child_process';
 import { ValidationServer } from '../../server/validation/index.js';
-import { ValidationServerConfig, ComplianceReport, TestResult, HttpTrace } from '../../types.js';
+import { ValidationServerConfig, HttpTrace, ConformanceCheck } from '../../types.js';
 import { formatTraces } from '../../middleware/http-trace.js';
 
 export interface ClientExecutionResult {
@@ -115,7 +115,7 @@ export async function runComplianceTest(
     verbose?: boolean;
   } = {}
 ): Promise<{
-  report: ComplianceReport;
+  checks: ConformanceCheck[];
   clientOutput: ClientExecutionResult;
   behavior: any;
   authServerTrace: HttpTrace[];
@@ -128,27 +128,15 @@ export async function runComplianceTest(
     // Execute the client
     const clientOutput = await executeClient(clientCommand, context.serverUrl, timeout);
 
-    // Get validation results
-    const results = context.server.getValidationResults();
+    // Get conformance checks
+    const checks = context.server.getConformanceChecks();
     const behavior = context.server.getClientBehavior();
     const authServerTrace = serverConfig.authRequired && context.server.authServer
       ? context.server.authServer.getHttpTrace()
       : [];
 
-    // Generate compliance report
-    const report: ComplianceReport = {
-      overall_result: results.every(r => r.result === 'PASS') &&
-                     clientOutput.exitCode === 0 ? 'PASS' : 'FAIL',
-      test_suite: 'jest-test',
-      timestamp: new Date().toISOString(),
-      client_command: clientCommand,
-      tests_passed: results.filter(r => r.result === 'PASS').length,
-      tests_failed: results.filter(r => r.result === 'FAIL').length,
-      tests: results
-    };
-
     return {
-      report,
+      checks,
       clientOutput,
       behavior,
       authServerTrace,
@@ -194,26 +182,27 @@ export function validateClientBehavior(
  * Helper to print verbose test output
  */
 export function printVerboseOutput(
-  report: ComplianceReport,
+  checks: ConformanceCheck[],
   behavior: any,
   authServerTrace: HttpTrace[],
   clientOutput: ClientExecutionResult
 ): void {
   const output: string[] = [];
 
-  output.push('\n=== Test Results ===');
-  output.push(`Overall Result: ${report.overall_result}`);
-  output.push(`Tests Passed: ${report.tests_passed}`);
-  output.push(`Tests Failed: ${report.tests_failed}`);
+  output.push('\n=== Conformance Checks ===');
+  const passed = checks.filter(c => c.status === 'SUCCESS').length;
+  const failed = checks.filter(c => c.status === 'FAILURE').length;
+  output.push(`Passed: ${passed}/${checks.length}`);
+  output.push(`Failed: ${failed}/${checks.length}`);
 
-  if (report.tests_failed > 0) {
-    output.push('\nFailed Tests:');
-    report.tests.forEach(test => {
-      if (test.result === 'FAIL') {
-        output.push(`  - ${test.name}`);
-        test.errors?.forEach(error => {
-          output.push(`    ${error}`);
-        });
+  if (failed > 0) {
+    output.push('\nFailed Checks:');
+    checks.forEach(check => {
+      if (check.status === 'FAILURE') {
+        output.push(`  - ${check.name}: ${check.description}`);
+        if (check.errorMessage) {
+          output.push(`    Error: ${check.errorMessage}`);
+        }
       }
     });
   }
@@ -231,6 +220,5 @@ export function printVerboseOutput(
     }
   }
 
-  // Print everything at once to avoid Jest's per-line issues
   console.log(output.join('\n'));
 }

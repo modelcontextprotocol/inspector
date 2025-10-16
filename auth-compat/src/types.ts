@@ -1,18 +1,21 @@
-export interface TestResult {
-  name: string;
-  result: 'PASS' | 'FAIL';
-  details: Record<string, any>;
-  errors?: string[];
+export type CheckStatus = 'SUCCESS' | 'FAILURE' | 'WARNING' | 'SKIPPED' | 'INFO';
+
+export interface SpecReference {
+  id: string;
+  url?: string;
 }
 
-export interface ComplianceReport {
-  overall_result: 'PASS' | 'FAIL';
-  test_suite: string;
+export interface ConformanceCheck {
+  id: string;
+  name: string;
+  description: string;
+  status: CheckStatus;
   timestamp: string;
-  client_command: string;
-  tests_passed: number;
-  tests_failed: number;
-  tests: TestResult[];
+  specReferences?: SpecReference[];
+  details?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  errorMessage?: string;
+  logs?: string[];
 }
 
 export interface HttpTrace {

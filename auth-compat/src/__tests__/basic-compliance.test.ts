@@ -8,7 +8,7 @@ const VERBOSE = process.env.VERBOSE === 'true';
 describe('Basic Compliance', () => {
   describe('Tests basic MCP protocol compliance without authentication', () => {
     test('Basic MCP Connection - Client can connect and list tools without auth', async () => {
-      const { report, clientOutput, behavior, authServerTrace } = await runComplianceTest(
+      const { checks, clientOutput, behavior, authServerTrace } = await runComplianceTest(
         CLIENT_COMMAND,
         {
           authRequired: false
@@ -21,7 +21,7 @@ describe('Basic Compliance', () => {
 
       // Print verbose output if requested
       if (VERBOSE) {
-        printVerboseOutput(report, behavior, authServerTrace, clientOutput);
+        printVerboseOutput(checks, behavior, authServerTrace, clientOutput);
       }
 
       // Assertions
@@ -29,12 +29,16 @@ describe('Basic Compliance', () => {
       expect(clientOutput.timedOut).toBe(false);
       expect(behavior.connected).toBe(true);
       expect(behavior.initialized).toBe(true);
+
+      // All checks should succeed
+      const initCheck = checks.find(c => c.id === 'mcp-initialization');
+      expect(initCheck?.status).toBe('SUCCESS');
     });
   });
 
   describe('Tests OAuth2/OIDC authorization flow', () => {
     test('Standard OAuth Flow - Client completes OAuth flow with default settings', async () => {
-      const { report, clientOutput, behavior, authServerTrace, serverPort } = await runComplianceTest(
+      const { checks, clientOutput, behavior, authServerTrace, serverPort } = await runComplianceTest(
         CLIENT_COMMAND,
         {
           authRequired: true
@@ -47,7 +51,7 @@ describe('Basic Compliance', () => {
 
       // Print verbose output if requested
       if (VERBOSE) {
-        printVerboseOutput(report, behavior, authServerTrace, clientOutput);
+        printVerboseOutput(checks, behavior, authServerTrace, clientOutput);
       }
 
       // Assertions
@@ -65,6 +69,12 @@ describe('Basic Compliance', () => {
       const expectedResource = `http://localhost:${serverPort}/`;
       expect(behavior.authResourceParameter).toBe(expectedResource);
       expect(behavior.tokenResourceParameter).toBe(expectedResource);
+
+      // Verify conformance checks
+      const initCheck = checks.find(c => c.id === 'mcp-initialization');
+      const metadataCheck = checks.find(c => c.id === 'auth-metadata-discovery');
+      expect(initCheck?.status).toBe('SUCCESS');
+      expect(metadataCheck?.status).toBe('SUCCESS');
     });
   });
 });

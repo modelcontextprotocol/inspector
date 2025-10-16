@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 
-import { ClientBehavior, TestResult, ValidationServerConfig } from '../../types.js';
+import { ClientBehavior, ConformanceCheck, ValidationServerConfig } from '../../types.js';
 import { MockAuthServer, MockTokenVerifier } from '../auth/index.js';
 import { createHttpTraceMiddleware } from '../../middleware/http-trace.js';
 import { z } from 'zod';
@@ -226,7 +226,7 @@ export class ValidationServer {
 
     // Endpoint to retrieve client behavior for reporting
     this.app.get('/validation/report', (req, res) => {
-      res.json(this.getValidationResults());
+      res.json(this.getConformanceChecks());
     });
   }
 
@@ -275,47 +275,61 @@ export class ValidationServer {
     throw new Error('Unable to get server port');
   }
 
-  getValidationResults(): TestResult[] {
-    const results: TestResult[] = [];
+  getConformanceChecks(): ConformanceCheck[] {
+    const checks: ConformanceCheck[] = [];
+    const timestamp = new Date().toISOString();
 
-    // Test: MCP Initialization
-    results.push({
-      name: 'mcp_initialization',
-      result: this.clientBehavior.initialized ? 'PASS' : 'FAIL',
+    // Check: MCP Initialization
+    checks.push({
+      id: 'mcp-initialization',
+      name: 'MCPInitialization',
+      description: 'Verify client can connect and initialize MCP protocol',
+      status: this.clientBehavior.initialized ? 'SUCCESS' : 'FAILURE',
+      timestamp,
       details: {
         connected: this.clientBehavior.connected,
         initialized: this.clientBehavior.initialized,
         protocol_version: this.clientBehavior.protocolVersion,
         client_info: this.clientBehavior.clientInfo
       },
-      errors: this.clientBehavior.initialized ? undefined : ['Client did not complete initialization']
+      errorMessage: this.clientBehavior.initialized ? undefined : 'Client did not complete initialization'
     });
 
-    // Test: Auth metadata discovery (if auth required)
+    // Check: Auth metadata discovery (if auth required)
     if (this.config.authRequired) {
-      results.push({
-        name: 'auth_metadata_discovery',
-        result: this.clientBehavior.authMetadataRequested ? 'PASS' : 'FAIL',
+      checks.push({
+        id: 'auth-metadata-discovery',
+        name: 'AuthMetadataDiscovery',
+        description: 'Verify client discovers OAuth protected resource metadata',
+        status: this.clientBehavior.authMetadataRequested ? 'SUCCESS' : 'FAILURE',
+        timestamp,
+        specReferences: [
+          { id: 'RFC-9728-3', url: 'https://tools.ietf.org/html/rfc9728#section-3' }
+        ],
         details: {
           metadata_requested: this.clientBehavior.authMetadataRequested,
           metadata_location: this.config.metadataLocation
         },
-        errors: this.clientBehavior.authMetadataRequested ? undefined : ['Client did not request auth metadata']
+        errorMessage: this.clientBehavior.authMetadataRequested ? undefined : 'Client did not request auth metadata'
       });
     }
 
-    // Test: Basic functionality
-    const madeRequests = this.clientBehavior.requestsMade.length > 1; // More than just initialize
-    results.push({
-      name: 'basic_functionality',
-      result: madeRequests ? 'PASS' : 'FAIL',
+    // Check: Basic functionality
+    const madeRequests = this.clientBehavior.requestsMade.length > 1;
+    checks.push({
+      id: 'basic-functionality',
+      name: 'BasicFunctionality',
+      description: 'Verify client makes requests beyond initialization',
+      status: madeRequests ? 'SUCCESS' : 'FAILURE',
+      timestamp,
       details: {
-        requests_made: this.clientBehavior.requestsMade
+        requests_made: this.clientBehavior.requestsMade,
+        request_count: this.clientBehavior.requestsMade.length
       },
-      errors: madeRequests ? undefined : ['Client did not make any requests beyond initialization']
+      errorMessage: madeRequests ? undefined : 'Client did not make any requests beyond initialization'
     });
 
-    return results;
+    return checks;
   }
 
   getClientBehavior(): ClientBehavior {

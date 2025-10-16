@@ -17,7 +17,7 @@ describe('Metadata Location Tests', () => {
     test.each(testCases)(
       '%s',
       async (name, metadataLocation, includeWwwAuth) => {
-        const { report, clientOutput, behavior, authServerTrace } = await runComplianceTest(
+        const { checks, clientOutput, behavior, authServerTrace } = await runComplianceTest(
           CLIENT_COMMAND,
           {
             authRequired: true,
@@ -29,11 +29,15 @@ describe('Metadata Location Tests', () => {
 
         if (VERBOSE) {
           console.log(`\nTest: ${name}`);
-          printVerboseOutput(report, behavior, authServerTrace, clientOutput);
+          printVerboseOutput(checks, behavior, authServerTrace, clientOutput);
         }
 
         expect(clientOutput.exitCode).toBe(0);
         expect(behavior.authMetadataRequested).toBe(true);
+
+        // Verify metadata discovery check succeeded
+        const metadataCheck = checks.find(c => c.id === 'auth-metadata-discovery');
+        expect(metadataCheck?.status).toBe('SUCCESS');
       }
     );
   });
@@ -51,7 +55,7 @@ describe('Metadata Location Tests', () => {
     test.each(testCases)(
       '%s',
       async (name, authServerMetadataLocation) => {
-        const { report, clientOutput, behavior, authServerTrace } = await runComplianceTest(
+        const { checks, clientOutput, behavior, authServerTrace } = await runComplianceTest(
           CLIENT_COMMAND,
           {
             authRequired: true,
@@ -64,7 +68,7 @@ describe('Metadata Location Tests', () => {
 
         if (VERBOSE) {
           console.log(`\nTest: ${name}`);
-          printVerboseOutput(report, behavior, authServerTrace, clientOutput);
+          printVerboseOutput(checks, behavior, authServerTrace, clientOutput);
         }
 
         expect(clientOutput.exitCode).toBe(0);
@@ -75,6 +79,10 @@ describe('Metadata Location Tests', () => {
           trace.url === authServerMetadataLocation && trace.method === 'GET'
         );
         expect(authMetadataRequest).toBeDefined();
+
+        // Verify conformance checks
+        const metadataCheck = checks.find(c => c.id === 'auth-metadata-discovery');
+        expect(metadataCheck?.status).toBe('SUCCESS');
       }
     );
   });
