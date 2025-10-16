@@ -4,7 +4,8 @@ import crypto from 'crypto';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { OAuthTokenVerifier } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import { createHttpTraceMiddleware, HttpTraceCollector } from '../../middleware/http-trace.js';
-import { HttpTrace } from '../../types.js';
+import { HttpTrace, ConformanceCheck } from '../../types.js';
+import { createAuthorizationRequestCheck, createTokenRequestCheck, createClientIdValidationCheck, createTokenValidationCheck } from '../../utils/conformance-check-builder.js';
 
 interface AuthorizationRequest {
   clientId: string;
@@ -29,6 +30,7 @@ export class MockAuthServer implements HttpTraceCollector {
   private server: Server | null = null;
   private port: number;
   public httpTrace: HttpTrace[] = [];
+  public conformanceChecks: ConformanceCheck[] = [];
   private verbose: boolean;
   public issuerPath: string;
   public authResourceParameter: string | null = null;
@@ -131,18 +133,41 @@ export class MockAuthServer implements HttpTraceCollector {
         this.authResourceParameter = resource;
       }
 
+      const errors: string[] = [];
+      let checkStatus: 'SUCCESS' | 'FAILURE' = 'SUCCESS';
+
       // Basic validation
       if (response_type !== 'code') {
-        return res.status(400).json({
-          error: 'unsupported_response_type',
-          error_description: 'Only code response type is supported'
-        });
+        errors.push('Only code response type is supported');
+        checkStatus = 'FAILURE';
       }
 
       if (!code_challenge || code_challenge_method !== 'S256') {
+        errors.push('PKCE is required with S256 method');
+        checkStatus = 'FAILURE';
+      }
+
+      // Create conformance check with all parameters
+      const check = createAuthorizationRequestCheck(
+        {
+          response_type,
+          client_id,
+          redirect_uri,
+          state,
+          code_challenge,
+          code_challenge_method,
+          resource
+        },
+        checkStatus,
+        errors
+      );
+      this.conformanceChecks.push(check);
+
+      // Return error response if validation failed
+      if (checkStatus === 'FAILURE') {
         return res.status(400).json({
-          error: 'invalid_request',
-          error_description: 'PKCE is required with S256 method'
+          error: errors.length > 0 ? 'invalid_request' : 'unsupported_response_type',
+          error_description: errors[0]
         });
       }
 
@@ -183,42 +208,68 @@ export class MockAuthServer implements HttpTraceCollector {
         this.tokenResourceParameter = resource;
       }
 
+      const errors: string[] = [];
+      let checkStatus: 'SUCCESS' | 'FAILURE' = 'SUCCESS';
+
       if (grant_type === 'authorization_code') {
         // Validate authorization code
         if (code !== AUTH_CONSTANTS.FIXED_AUTH_CODE) {
-          return res.status(400).json({
-            error: 'invalid_grant',
-            error_description: 'Invalid authorization code'
-          });
+          errors.push('Invalid authorization code');
+          checkStatus = 'FAILURE';
         }
 
         // Get the stored authorization request
         const authRequest = this.authorizationRequests.get(code);
-        if (!authRequest) {
-          return res.status(400).json({
-            error: 'invalid_grant',
-            error_description: 'Authorization code not found or expired'
-          });
+        if (!authRequest && checkStatus === 'SUCCESS') {
+          errors.push('Authorization code not found or expired');
+          checkStatus = 'FAILURE';
         }
 
         // Validate redirect URI matches
-        if (redirect_uri !== authRequest.redirectUri) {
-          return res.status(400).json({
-            error: 'invalid_grant',
-            error_description: 'Redirect URI mismatch'
-          });
+        if (authRequest && redirect_uri !== authRequest.redirectUri) {
+          errors.push('Redirect URI mismatch');
+          checkStatus = 'FAILURE';
         }
 
         // Validate PKCE code verifier
-        if (!this.validatePKCE(code_verifier, authRequest.codeChallenge)) {
+        if (authRequest && !this.validatePKCE(code_verifier, authRequest.codeChallenge)) {
+          errors.push('Invalid PKCE code verifier');
+          checkStatus = 'FAILURE';
+        }
+
+        // Create conformance check
+        const check = createTokenRequestCheck(
+          { grant_type, code, redirect_uri, client_id, code_verifier, resource },
+          checkStatus,
+          errors
+        );
+        this.conformanceChecks.push(check);
+
+        // Return error if validation failed
+        if (checkStatus === 'FAILURE') {
           return res.status(400).json({
             error: 'invalid_grant',
-            error_description: 'Invalid PKCE code verifier'
+            error_description: errors[0]
           });
         }
 
         // Clean up used authorization code
         this.authorizationRequests.delete(code);
+
+        // Add validation checks for returned tokens
+        const tokenCheck = createTokenValidationCheck(
+          AUTH_CONSTANTS.FIXED_ACCESS_TOKEN,
+          AUTH_CONSTANTS.FIXED_ACCESS_TOKEN,
+          'access_token'
+        );
+        this.conformanceChecks.push(tokenCheck);
+
+        const refreshCheck = createTokenValidationCheck(
+          AUTH_CONSTANTS.FIXED_REFRESH_TOKEN,
+          AUTH_CONSTANTS.FIXED_REFRESH_TOKEN,
+          'refresh_token'
+        );
+        this.conformanceChecks.push(refreshCheck);
 
         // Return tokens
         res.json({
@@ -230,11 +281,25 @@ export class MockAuthServer implements HttpTraceCollector {
         });
 
       } else if (grant_type === 'refresh_token') {
-        // Simple refresh token validation
+        // Validate refresh token
         if (refresh_token !== AUTH_CONSTANTS.FIXED_REFRESH_TOKEN) {
+          errors.push('Invalid refresh token');
+          checkStatus = 'FAILURE';
+        }
+
+        // Create conformance check
+        const check = createTokenRequestCheck(
+          { grant_type, refresh_token, resource },
+          checkStatus,
+          errors
+        );
+        this.conformanceChecks.push(check);
+
+        // Return error if validation failed
+        if (checkStatus === 'FAILURE') {
           return res.status(400).json({
             error: 'invalid_grant',
-            error_description: 'Invalid refresh token'
+            error_description: errors[0]
           });
         }
 
@@ -248,6 +313,16 @@ export class MockAuthServer implements HttpTraceCollector {
         });
 
       } else {
+        errors.push('Grant type not supported');
+        checkStatus = 'FAILURE';
+
+        const check = createTokenRequestCheck(
+          { grant_type },
+          checkStatus,
+          errors
+        );
+        this.conformanceChecks.push(check);
+
         res.status(400).json({
           error: 'unsupported_grant_type',
           error_description: 'Grant type not supported'
@@ -329,6 +404,10 @@ export class MockAuthServer implements HttpTraceCollector {
 
   getHttpTrace(): HttpTrace[] {
     return this.httpTrace;
+  }
+
+  getConformanceChecks(): ConformanceCheck[] {
+    return this.conformanceChecks;
   }
 }
 

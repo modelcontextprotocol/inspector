@@ -42,7 +42,8 @@ export class ValidationServer {
       requestsMade: [],
       authMetadataRequested: false,
       errors: [],
-      httpTrace: []
+      httpTrace: [],
+      conformanceChecks: []
     };
 
     this.setupRoutes();

@@ -43,6 +43,7 @@ export interface ClientBehavior {
   tokenResourceParameter?: string;
   errors: string[];
   httpTrace: HttpTrace[];
+  conformanceChecks: ConformanceCheck[];
 }
 
 export interface ValidationServerConfig {
