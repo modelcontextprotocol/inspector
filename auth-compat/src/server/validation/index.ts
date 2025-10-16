@@ -122,7 +122,7 @@ export class ValidationServer {
     // Create bearer auth middleware if auth is required
     let bearerMiddleware = async (req: Request, res: Response, next: any) => next();
     if (this.config.authRequired) {
-      const tokenVerifier = new MockTokenVerifier();
+      const tokenVerifier = new MockTokenVerifier(this.clientBehavior.conformanceChecks);
       // We'll set the full URL dynamically in the middleware
       bearerMiddleware = async (req: Request, res: Response, next: any) => {
         const serverPort = this.getPort();

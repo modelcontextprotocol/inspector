@@ -256,21 +256,6 @@ export class MockAuthServer implements HttpTraceCollector {
         // Clean up used authorization code
         this.authorizationRequests.delete(code);
 
-        // Add validation checks for returned tokens
-        const tokenCheck = createTokenValidationCheck(
-          AUTH_CONSTANTS.FIXED_ACCESS_TOKEN,
-          AUTH_CONSTANTS.FIXED_ACCESS_TOKEN,
-          'access_token'
-        );
-        this.conformanceChecks.push(tokenCheck);
-
-        const refreshCheck = createTokenValidationCheck(
-          AUTH_CONSTANTS.FIXED_REFRESH_TOKEN,
-          AUTH_CONSTANTS.FIXED_REFRESH_TOKEN,
-          'refresh_token'
-        );
-        this.conformanceChecks.push(refreshCheck);
-
         // Return tokens
         res.json({
           access_token: AUTH_CONSTANTS.FIXED_ACCESS_TOKEN,
@@ -416,8 +401,22 @@ export class MockAuthServer implements HttpTraceCollector {
  * Validates the fixed access token and returns AuthInfo.
  */
 export class MockTokenVerifier implements OAuthTokenVerifier {
+  constructor(private conformanceChecks?: ConformanceCheck[]) {}
+
   async verifyAccessToken(token: string): Promise<AuthInfo> {
-    if (token !== AUTH_CONSTANTS.FIXED_ACCESS_TOKEN) {
+    const isValid = token === AUTH_CONSTANTS.FIXED_ACCESS_TOKEN;
+
+    // Emit conformance check for token verification
+    if (this.conformanceChecks) {
+      const check = createTokenValidationCheck(
+        token,
+        AUTH_CONSTANTS.FIXED_ACCESS_TOKEN,
+        'access_token'
+      );
+      this.conformanceChecks.push(check);
+    }
+
+    if (!isValid) {
       throw new Error('Invalid access token');
     }
 
