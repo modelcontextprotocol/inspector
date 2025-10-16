@@ -5,7 +5,7 @@ import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { OAuthTokenVerifier } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import { createHttpTraceMiddleware, HttpTraceCollector } from '../../middleware/http-trace.js';
 import { HttpTrace, ConformanceCheck } from '../../types.js';
-import { createAuthorizationRequestCheck, createTokenRequestCheck, createClientIdValidationCheck, createTokenValidationCheck } from '../../utils/conformance-check-builder.js';
+import { createAuthorizationRequestCheck, createTokenRequestCheck, createClientIdValidationCheck, createTokenValidationCheck, createTokenCreatedCheck } from '../../utils/conformance-check-builder.js';
 
 interface AuthorizationRequest {
   clientId: string;
@@ -256,6 +256,14 @@ export class MockAuthServer implements HttpTraceCollector {
         // Clean up used authorization code
         this.authorizationRequests.delete(code);
 
+        // Create check for token creation
+        const tokenCreatedCheck = createTokenCreatedCheck({
+          accessToken: AUTH_CONSTANTS.FIXED_ACCESS_TOKEN,
+          refreshToken: AUTH_CONSTANTS.FIXED_REFRESH_TOKEN,
+          expiresIn: AUTH_CONSTANTS.TOKEN_EXPIRY
+        });
+        this.conformanceChecks.push(tokenCreatedCheck);
+
         // Return tokens
         res.json({
           access_token: AUTH_CONSTANTS.FIXED_ACCESS_TOKEN,
@@ -287,6 +295,14 @@ export class MockAuthServer implements HttpTraceCollector {
             error_description: errors[0]
           });
         }
+
+        // Create check for token creation
+        const tokenCreatedCheck = createTokenCreatedCheck({
+          accessToken: AUTH_CONSTANTS.FIXED_ACCESS_TOKEN,
+          refreshToken: AUTH_CONSTANTS.FIXED_REFRESH_TOKEN,
+          expiresIn: AUTH_CONSTANTS.TOKEN_EXPIRY
+        });
+        this.conformanceChecks.push(tokenCreatedCheck);
 
         // Return new access token (same static value for simplicity)
         res.json({

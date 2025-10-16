@@ -161,3 +161,34 @@ export function createTokenValidationCheck(
     errorMessage: !matches ? `${tokenType} validation failed` : undefined
   });
 }
+
+export function createTokenCreatedCheck(
+  tokens: {
+    accessToken?: string;
+    refreshToken?: string;
+    expiresIn?: number;
+  }
+): ConformanceCheck {
+  const tokenTypes = [];
+  if (tokens.accessToken) tokenTypes.push('access_token');
+  if (tokens.refreshToken) tokenTypes.push('refresh_token');
+
+  return createConformanceCheck({
+    id: 'token-created',
+    name: 'TokenCreated',
+    description: `Created ${tokenTypes.length > 1 ? 'tokens' : 'token'}: ${tokenTypes.join(', ')}`,
+    status: 'SUCCESS',
+    specReferences: [
+      { id: 'RFC-6749-5.1', url: 'https://tools.ietf.org/html/rfc6749#section-5.1' }
+    ],
+    details: {
+      has_access_token: !!tokens.accessToken,
+      has_refresh_token: !!tokens.refreshToken,
+      expires_in: tokens.expiresIn
+    },
+    metadata: {
+      token_types_created: tokenTypes,
+      token_count: tokenTypes.length
+    }
+  });
+}
