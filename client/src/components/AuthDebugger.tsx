@@ -268,7 +268,7 @@ const AuthDebugger = ({
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Access Token:</p>
                     <div className="bg-muted p-2 rounded-md text-xs overflow-x-auto">
-                      {authState.oauthTokens.access_token.substring(0, 25)}...
+                      {authState.oauthTokens.access_token}
                     </div>
                   </div>
                 )}
