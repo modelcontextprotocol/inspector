@@ -1,13 +1,11 @@
 import { describe, test, expect } from '@jest/globals';
-import { runComplianceTest, printVerboseOutput } from './helpers/test-utils.js';
+import { runComplianceTest, collectAllConformanceChecks, printVerboseOutput } from './helpers/test-utils.js';
 
-// Get client command from environment or use a default
 const CLIENT_COMMAND = process.env.CLIENT_COMMAND || 'tsx examples/typescript-client/test-client.ts';
 const VERBOSE = process.env.VERBOSE === 'true';
 
 describe('Metadata Location Tests', () => {
-  describe('Tests different OAuth protected resource metadata locations', () => {
-
+  describe('Different OAuth protected resource metadata locations', () => {
     const testCases: Array<[string, string, boolean]> = [
       ['Non-standard location with WWW-Authenticate', '/custom/oauth/metadata', true],
       ['Standard location without WWW-Authenticate', '/.well-known/oauth-protected-resource', false],
@@ -35,15 +33,16 @@ describe('Metadata Location Tests', () => {
         expect(clientOutput.exitCode).toBe(0);
         expect(behavior.authMetadataRequested).toBe(true);
 
-        // Verify metadata discovery check succeeded
-        const metadataCheck = checks.find(c => c.id === 'auth-metadata-discovery');
-        expect(metadataCheck?.status).toBe('SUCCESS');
+        // Test each conformance check
+        const allChecks = collectAllConformanceChecks(checks, behavior);
+        allChecks.forEach(check => {
+          expect(`${check.id}: ${check.status}`).toBe(`${check.id}: SUCCESS`);
+        });
       }
     );
   });
 
-  describe('OAuth Authorization Server metadata discovery at different locations', () => {
-
+  describe('OAuth Authorization Server metadata at different locations', () => {
     const testCases: Array<[string, string]> = [
       ['OAuth 2.0 standard location', '/.well-known/oauth-authorization-server'],
       ['OAuth 2.0 with path component', '/.well-known/oauth-authorization-server/tenant1'],
@@ -80,9 +79,11 @@ describe('Metadata Location Tests', () => {
         );
         expect(authMetadataRequest).toBeDefined();
 
-        // Verify conformance checks
-        const metadataCheck = checks.find(c => c.id === 'auth-metadata-discovery');
-        expect(metadataCheck?.status).toBe('SUCCESS');
+        // Test each conformance check
+        const allChecks = collectAllConformanceChecks(checks, behavior);
+        allChecks.forEach(check => {
+          expect(`${check.id}: ${check.status}`).toBe(`${check.id}: SUCCESS`);
+        });
       }
     );
   });

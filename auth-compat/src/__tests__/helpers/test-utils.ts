@@ -222,3 +222,17 @@ export function printVerboseOutput(
 
   console.log(output.join('\n'));
 }
+
+/**
+ * Collect all ConformanceChecks from validation server and auth server
+ */
+export function collectAllConformanceChecks(
+  validationChecks: ConformanceCheck[],
+  behavior: any
+): ConformanceCheck[] {
+  const allChecks = [...validationChecks];
+  if (behavior.conformanceChecks) {
+    allChecks.push(...behavior.conformanceChecks);
+  }
+  return allChecks;
+}
