@@ -56,7 +56,7 @@ const SamplingRequest = ({
         },
         role: {
           type: "string",
-          default: "endTurn",
+          default: "assistant",
           description: "Role of the model",
         },
         content: {

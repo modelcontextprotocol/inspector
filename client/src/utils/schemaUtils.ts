@@ -109,9 +109,9 @@ export function generateDefaultValue(
     case "boolean":
       return isRequired ? false : undefined;
     case "array":
-      return [];
+      return isRequired ? [] : undefined;
     case "object": {
-      if (!schema.properties) return {};
+      if (!schema.properties) return isRequired ? {} : undefined;
 
       const obj: JsonObject = {};
       // Only include properties that are required according to the schema's required array
@@ -123,7 +123,7 @@ export function generateDefaultValue(
           }
         }
       });
-      return obj;
+      return isRequired ? obj : Object.keys(obj).length > 0 ? obj : undefined;
     }
     case "null":
       return null;
@@ -143,6 +143,95 @@ export function isPropertyRequired(
   schema: JsonSchemaType,
 ): boolean {
   return schema.required?.includes(propertyName) ?? false;
+}
+
+/**
+ * Normalizes union types (like string|null from FastMCP) to simple types for form rendering
+ * @param schema The JSON schema to normalize
+ * @returns A normalized schema or the original schema
+ */
+export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
+  // Handle anyOf with exactly string and null (FastMCP pattern)
+  if (
+    schema.anyOf &&
+    schema.anyOf.length === 2 &&
+    schema.anyOf.some((t) => (t as JsonSchemaType).type === "string") &&
+    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
+  ) {
+    return { ...schema, type: "string", anyOf: undefined, nullable: true };
+  }
+
+  // Handle anyOf with exactly boolean and null (FastMCP pattern)
+  if (
+    schema.anyOf &&
+    schema.anyOf.length === 2 &&
+    schema.anyOf.some((t) => (t as JsonSchemaType).type === "boolean") &&
+    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
+  ) {
+    return { ...schema, type: "boolean", anyOf: undefined, nullable: true };
+  }
+
+  // Handle anyOf with exactly number and null (FastMCP pattern)
+  if (
+    schema.anyOf &&
+    schema.anyOf.length === 2 &&
+    schema.anyOf.some((t) => (t as JsonSchemaType).type === "number") &&
+    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
+  ) {
+    return { ...schema, type: "number", anyOf: undefined, nullable: true };
+  }
+
+  // Handle anyOf with exactly integer and null (FastMCP pattern)
+  if (
+    schema.anyOf &&
+    schema.anyOf.length === 2 &&
+    schema.anyOf.some((t) => (t as JsonSchemaType).type === "integer") &&
+    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
+  ) {
+    return { ...schema, type: "integer", anyOf: undefined, nullable: true };
+  }
+
+  // Handle array type with exactly string and null
+  if (
+    Array.isArray(schema.type) &&
+    schema.type.length === 2 &&
+    schema.type.includes("string") &&
+    schema.type.includes("null")
+  ) {
+    return { ...schema, type: "string", nullable: true };
+  }
+
+  // Handle array type with exactly boolean and null
+  if (
+    Array.isArray(schema.type) &&
+    schema.type.length === 2 &&
+    schema.type.includes("boolean") &&
+    schema.type.includes("null")
+  ) {
+    return { ...schema, type: "boolean", nullable: true };
+  }
+
+  // Handle array type with exactly number and null
+  if (
+    Array.isArray(schema.type) &&
+    schema.type.length === 2 &&
+    schema.type.includes("number") &&
+    schema.type.includes("null")
+  ) {
+    return { ...schema, type: "number", nullable: true };
+  }
+
+  // Handle array type with exactly integer and null
+  if (
+    Array.isArray(schema.type) &&
+    schema.type.length === 2 &&
+    schema.type.includes("integer") &&
+    schema.type.includes("null")
+  ) {
+    return { ...schema, type: "integer", nullable: true };
+  }
+
+  return schema;
 }
 
 /**

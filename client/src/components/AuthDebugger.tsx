@@ -6,6 +6,7 @@ import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
 import { OAuthStateMachine } from "../lib/oauth-state-machine";
 import { SESSION_KEYS } from "../lib/constants";
+import { validateRedirectUrl } from "@/utils/urlValidation";
 
 export interface AuthDebuggerProps {
   serverUrl: string;
@@ -163,13 +164,30 @@ const AuthDebugger = ({
           currentState.oauthStep === "authorization_code" &&
           currentState.authorizationUrl
         ) {
+          // Validate the URL before redirecting
+          try {
+            validateRedirectUrl(currentState.authorizationUrl);
+          } catch (error) {
+            updateAuthState({
+              ...currentState,
+              isInitiatingAuth: false,
+              latestError:
+                error instanceof Error ? error : new Error(String(error)),
+              statusMessage: {
+                type: "error",
+                message: `Invalid authorization URL: ${error instanceof Error ? error.message : String(error)}`,
+              },
+            });
+            return;
+          }
+
           // Store the current auth state before redirecting
           sessionStorage.setItem(
             SESSION_KEYS.AUTH_DEBUGGER_STATE,
             JSON.stringify(currentState),
           );
           // Open the authorization URL automatically
-          window.location.href = currentState.authorizationUrl;
+          window.location.href = currentState.authorizationUrl.toString();
           break;
         }
       }

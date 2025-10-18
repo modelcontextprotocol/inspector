@@ -1,6 +1,7 @@
 import {
   generateOAuthErrorDescription,
   parseOAuthCallbackParams,
+  generateOAuthState,
 } from "@/utils/oauthUtils.ts";
 
 describe("parseOAuthCallbackParams", () => {
@@ -74,5 +75,12 @@ describe("generateOAuthErrorDescription", () => {
     ).toEqual(
       "Error: invalid_request.\nDetails: The request could not be completed as dialed.\nMore info: https://example.com/error-docs.",
     );
+  });
+
+  describe("generateOAuthState", () => {
+    it("Returns a string", () => {
+      expect(generateOAuthState()).toBeDefined();
+      expect(generateOAuthState()).toHaveLength(64);
+    });
   });
 });

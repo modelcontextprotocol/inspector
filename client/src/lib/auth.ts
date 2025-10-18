@@ -6,8 +6,45 @@ import {
   OAuthTokensSchema,
   OAuthClientMetadata,
   OAuthMetadata,
+  OAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
+import { generateOAuthState } from "@/utils/oauthUtils";
+import { validateRedirectUrl } from "@/utils/urlValidation";
+
+/**
+ * Discovers OAuth scopes from server metadata, with preference for resource metadata scopes
+ * @param serverUrl - The MCP server URL
+ * @param resourceMetadata - Optional resource metadata containing preferred scopes
+ * @returns Promise resolving to space-separated scope string or undefined
+ */
+export const discoverScopes = async (
+  serverUrl: string,
+  resourceMetadata?: OAuthProtectedResourceMetadata,
+): Promise<string | undefined> => {
+  try {
+    const metadata = await discoverAuthorizationServerMetadata(
+      new URL("/", serverUrl),
+    );
+
+    // Prefer resource metadata scopes, but fall back to OAuth metadata if empty
+    const resourceScopes = resourceMetadata?.scopes_supported;
+    const oauthScopes = metadata?.scopes_supported;
+
+    const scopesSupported =
+      resourceScopes && resourceScopes.length > 0
+        ? resourceScopes
+        : oauthScopes;
+
+    return scopesSupported && scopesSupported.length > 0
+      ? scopesSupported.join(" ")
+      : undefined;
+  } catch (error) {
+    console.debug("OAuth scope discovery failed:", error);
+    return undefined;
+  }
+};
 
 export const getClientInformationFromSessionStorage = async ({
   serverUrl,
@@ -66,24 +103,45 @@ export const clearClientInformationFromSessionStorage = ({
 };
 
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
-  constructor(protected serverUrl: string) {
+  constructor(
+    protected serverUrl: string,
+    scope?: string,
+  ) {
+    this.scope = scope;
     // Save the server URL to session storage
     sessionStorage.setItem(SESSION_KEYS.SERVER_URL, serverUrl);
   }
+  scope: string | undefined;
 
   get redirectUrl() {
     return window.location.origin + "/oauth/callback";
   }
 
+  get debugRedirectUrl() {
+    return window.location.origin + "/oauth/callback/debug";
+  }
+
+  get redirect_uris() {
+    // Normally register both redirect URIs to support both normal and debug flows
+    // In debug subclass, redirectUrl may be the same as debugRedirectUrl, so remove duplicates
+    // See: https://github.com/modelcontextprotocol/inspector/issues/825
+    return [...new Set([this.redirectUrl, this.debugRedirectUrl])];
+  }
+
   get clientMetadata(): OAuthClientMetadata {
     return {
-      redirect_uris: [this.redirectUrl],
+      redirect_uris: this.redirect_uris,
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       client_name: "MCP Inspector",
       client_uri: "https://github.com/modelcontextprotocol/inspector",
+      scope: this.scope ?? "",
     };
+  }
+
+  state(): string | Promise<string> {
+    return generateOAuthState();
   }
 
   async clientInformation() {
@@ -129,6 +187,8 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   redirectToAuthorization(authorizationUrl: URL) {
+    // Validate the URL using the shared utility
+    validateRedirectUrl(authorizationUrl.href);
     window.location.href = authorizationUrl.href;
   }
 
@@ -167,11 +227,13 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 }
 
-// Overrides debug URL and allows saving server OAuth metadata to
+// Overrides redirect URL to use the debug endpoint and allows saving server OAuth metadata to
 // display in debug UI.
 export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvider {
   get redirectUrl(): string {
-    return `${window.location.origin}/oauth/callback/debug`;
+    // We can use the debug redirect URL here because it was already registered
+    // in the parent class's clientMetadata along with the normal redirect URL
+    return this.debugRedirectUrl;
   }
 
   saveServerMetadata(metadata: OAuthMetadata) {

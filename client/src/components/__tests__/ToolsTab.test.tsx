@@ -44,6 +44,16 @@ describe("ToolsTab", () => {
         },
       },
     },
+    {
+      name: "tool4",
+      description: "Tool with nullable field",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          num: { type: ["number", "null"] as const },
+        },
+      },
+    },
   ];
 
   const defaultProps = {
@@ -132,6 +142,38 @@ describe("ToolsTab", () => {
 
     expect(defaultProps.callTool).toHaveBeenCalledWith(mockTools[0].name, {
       num: -42,
+    });
+  });
+
+  it("should allow specifying null value", async () => {
+    const mockCallTool = jest.fn();
+    const toolWithNullableField = mockTools[3];
+
+    renderToolsTab({
+      tools: [toolWithNullableField],
+      selectedTool: toolWithNullableField,
+      callTool: mockCallTool,
+    });
+
+    const nullToggleButton = screen.getByRole("checkbox", { name: /null/i });
+    expect(nullToggleButton).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(nullToggleButton);
+    });
+
+    expect(screen.getByRole("toolinputwrapper").classList).toContain(
+      "pointer-events-none",
+    );
+
+    const runButton = screen.getByRole("button", { name: /run tool/i });
+    await act(async () => {
+      fireEvent.click(runButton);
+    });
+
+    // Tool should have been called with null value
+    expect(mockCallTool).toHaveBeenCalledWith(toolWithNullableField.name, {
+      num: null,
     });
   });
 
@@ -635,6 +677,249 @@ describe("ToolsTab", () => {
       expect(screen.getAllByText("Meta:")).toHaveLength(1);
       expect(screen.getByText(/info/i)).toBeInTheDocument();
       expect(screen.getByText(/version/i)).toBeInTheDocument();
+    });
+  });
+
+  describe("Enum Parameters", () => {
+    const toolWithEnumParam: Tool = {
+      name: "enumTool",
+      description: "Tool with enum parameter",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          format: {
+            type: "string" as const,
+            enum: ["json", "xml", "csv", "yaml"],
+            description: "Output format",
+          },
+        },
+      },
+    };
+
+    beforeEach(() => {
+      // Mock scrollIntoView for Radix UI Select
+      Element.prototype.scrollIntoView = jest.fn();
+    });
+
+    it("should render enum parameter as dropdown", () => {
+      renderToolsTab({
+        tools: [toolWithEnumParam],
+        selectedTool: toolWithEnumParam,
+      });
+
+      // Should render a select button instead of textarea
+      const selectTrigger = screen.getByRole("combobox", { name: /format/i });
+      expect(selectTrigger).toBeInTheDocument();
+    });
+
+    it("should render non-enum string parameter as textarea", () => {
+      const toolWithStringParam: Tool = {
+        name: "stringTool",
+        description: "Tool with regular string parameter",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            text: {
+              type: "string" as const,
+              description: "Some text input",
+            },
+          },
+        },
+      };
+
+      renderToolsTab({
+        tools: [toolWithStringParam],
+        selectedTool: toolWithStringParam,
+      });
+
+      // Should render textarea, not select
+      expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+      expect(screen.getByRole("textbox")).toBeInTheDocument();
+    });
+  });
+
+  describe("JSON Validation Integration", () => {
+    const toolWithJsonParams: Tool = {
+      name: "jsonTool",
+      description: "Tool with JSON parameters",
+      inputSchema: {
+        type: "object" as const,
+        required: ["config", "data"], // Make them required so they render as form fields
+        properties: {
+          config: {
+            type: "object" as const,
+            // No properties defined - this will force JSON mode
+          },
+          data: {
+            type: "array" as const,
+            // No items defined - this will force JSON mode
+          },
+        },
+      },
+    };
+
+    it("should prevent tool execution when JSON validation fails", async () => {
+      const mockCallTool = jest.fn();
+      renderToolsTab({
+        tools: [toolWithJsonParams],
+        selectedTool: toolWithJsonParams,
+        callTool: mockCallTool,
+      });
+
+      // Find JSON editor textareas (there should be at least 1 for JSON parameters)
+      const textareas = screen.getAllByRole("textbox");
+      expect(textareas.length).toBeGreaterThanOrEqual(1);
+
+      // Enter invalid JSON in the first textarea
+      const configTextarea = textareas[0];
+      fireEvent.change(configTextarea, {
+        target: { value: '{ "invalid": json }' },
+      });
+
+      // Try to run the tool
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+
+      // Tool should not have been called due to validation failure
+      expect(mockCallTool).not.toHaveBeenCalled();
+    });
+
+    it("should allow tool execution when JSON validation passes", async () => {
+      const mockCallTool = jest.fn();
+      renderToolsTab({
+        tools: [toolWithJsonParams],
+        selectedTool: toolWithJsonParams,
+        callTool: mockCallTool,
+      });
+
+      // Find JSON editor textareas (should have one for each required field: config and data)
+      const textareas = screen.getAllByRole("textbox");
+      expect(textareas.length).toBe(2);
+
+      // Enter valid JSON in each textarea
+      fireEvent.change(textareas[0], {
+        target: { value: '{ "setting": "value" }' },
+      });
+      fireEvent.change(textareas[1], {
+        target: { value: '["item1", "item2"]' },
+      });
+
+      // Wait for debounced updates
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      });
+
+      // Try to run the tool
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+
+      // Tool should have been called successfully
+      expect(mockCallTool).toHaveBeenCalled();
+    });
+
+    it("should handle mixed valid and invalid JSON parameters", async () => {
+      const mockCallTool = jest.fn();
+      renderToolsTab({
+        tools: [toolWithJsonParams],
+        selectedTool: toolWithJsonParams,
+        callTool: mockCallTool,
+      });
+
+      const textareas = screen.getAllByRole("textbox");
+
+      // Enter invalid JSON that contains both valid and invalid parts
+      fireEvent.change(textareas[0], {
+        target: {
+          value:
+            '{ "config": { "setting": "value" }, "data": ["unclosed array" }',
+        },
+      });
+
+      // Try to run the tool
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+
+      // Tool should not have been called due to validation failure
+      expect(mockCallTool).not.toHaveBeenCalled();
+    });
+
+    it("should work with tools that have no JSON parameters", async () => {
+      const mockCallTool = jest.fn();
+      const simpleToolWithStringParam: Tool = {
+        name: "simpleTool",
+        description: "Tool with simple parameters",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            message: { type: "string" as const },
+            count: { type: "number" as const },
+          },
+        },
+      };
+
+      renderToolsTab({
+        tools: [simpleToolWithStringParam],
+        selectedTool: simpleToolWithStringParam,
+        callTool: mockCallTool,
+      });
+
+      // Fill in the simple parameters
+      const messageInput = screen.getByRole("textbox");
+      const countInput = screen.getByRole("spinbutton");
+
+      fireEvent.change(messageInput, { target: { value: "test message" } });
+      fireEvent.change(countInput, { target: { value: "5" } });
+
+      // Run the tool
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+
+      // Tool should have been called successfully (no JSON validation needed)
+      expect(mockCallTool).toHaveBeenCalledWith(
+        simpleToolWithStringParam.name,
+        {
+          message: "test message",
+          count: 5,
+        },
+      );
+    });
+
+    it("should handle empty JSON parameters correctly", async () => {
+      const mockCallTool = jest.fn();
+      renderToolsTab({
+        tools: [toolWithJsonParams],
+        selectedTool: toolWithJsonParams,
+        callTool: mockCallTool,
+      });
+
+      const textareas = screen.getAllByRole("textbox");
+      expect(textareas.length).toBe(2);
+
+      // Clear both textareas (empty JSON should be valid)
+      fireEvent.change(textareas[0], { target: { value: "{}" } });
+      fireEvent.change(textareas[1], { target: { value: "[]" } });
+
+      // Wait for debounced updates
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      });
+
+      // Try to run the tool
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+
+      // Tool should have been called (empty JSON is considered valid)
+      expect(mockCallTool).toHaveBeenCalled();
     });
   });
 });

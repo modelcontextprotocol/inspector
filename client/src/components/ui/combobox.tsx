@@ -19,6 +19,7 @@ interface ComboboxProps {
   value: string;
   onChange: (value: string) => void;
   onInputChange: (value: string) => void;
+  onFocus?: () => void;
   options: string[];
   placeholder?: string;
   emptyMessage?: string;
@@ -29,12 +30,23 @@ export function Combobox({
   value,
   onChange,
   onInputChange,
+  onFocus,
   options = [],
   placeholder = "Select...",
   emptyMessage = "No results found.",
   id,
 }: ComboboxProps) {
   const [open, setOpen] = React.useState(false);
+
+  const handleOpenChange = React.useCallback(
+    (newOpen: boolean) => {
+      setOpen(newOpen);
+      if (newOpen && onFocus) {
+        onFocus();
+      }
+    },
+    [onFocus],
+  );
 
   const handleSelect = React.useCallback(
     (option: string) => {
@@ -52,7 +64,7 @@ export function Combobox({
   );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"

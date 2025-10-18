@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
+import { useState } from "react";
 import { describe, it, expect, jest } from "@jest/globals";
 import HistoryAndNotifications from "../HistoryAndNotifications";
 import { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
@@ -221,6 +222,68 @@ describe("HistoryAndNotifications", () => {
     );
 
     expect(screen.getByText("No history yet")).toBeTruthy();
+    expect(screen.getByText("No notifications yet")).toBeTruthy();
+  });
+
+  it("clears request history when Clear is clicked", () => {
+    const Wrapper = () => {
+      const [history, setHistory] = useState(mockRequestHistory);
+      return (
+        <HistoryAndNotifications
+          requestHistory={history}
+          serverNotifications={[]}
+          onClearHistory={() => setHistory([])}
+        />
+      );
+    };
+
+    render(<Wrapper />);
+
+    // Verify items are present initially
+    expect(screen.getByText("2. test/method2")).toBeTruthy();
+    expect(screen.getByText("1. test/method1")).toBeTruthy();
+
+    // Click Clear in History header (scoped by the History heading's container)
+    const historyHeader = screen.getByText("History");
+    const historyHeaderContainer = historyHeader.parentElement as HTMLElement;
+    const historyClearButton = within(historyHeaderContainer).getByRole(
+      "button",
+      { name: "Clear" },
+    );
+    fireEvent.click(historyClearButton);
+
+    // History should now be empty
+    expect(screen.getByText("No history yet")).toBeTruthy();
+  });
+
+  it("clears server notifications when Clear is clicked", () => {
+    const Wrapper = () => {
+      const [notifications, setNotifications] =
+        useState<ServerNotification[]>(mockNotifications);
+      return (
+        <HistoryAndNotifications
+          requestHistory={[]}
+          serverNotifications={notifications}
+          onClearNotifications={() => setNotifications([])}
+        />
+      );
+    };
+
+    render(<Wrapper />);
+
+    // Verify items are present initially
+    expect(screen.getByText("2. notifications/progress")).toBeTruthy();
+    expect(screen.getByText("1. notifications/message")).toBeTruthy();
+
+    // Click Clear in Server Notifications header (scoped by its heading's container)
+    const notifHeader = screen.getByText("Server Notifications");
+    const notifHeaderContainer = notifHeader.parentElement as HTMLElement;
+    const notifClearButton = within(notifHeaderContainer).getByRole("button", {
+      name: "Clear",
+    });
+    fireEvent.click(notifClearButton);
+
+    // Notifications should now be empty
     expect(screen.getByText("No notifications yet")).toBeTruthy();
   });
 });
