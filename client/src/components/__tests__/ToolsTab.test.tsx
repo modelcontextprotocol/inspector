@@ -68,6 +68,7 @@ describe("ToolsTab", () => {
     error: null,
     resourceContent: {},
     onReadResource: jest.fn(),
+    serverUrl: "http://localhost:3000",
   };
 
   const renderToolsTab = (props = {}) => {

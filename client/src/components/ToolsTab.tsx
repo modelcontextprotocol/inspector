@@ -37,6 +37,7 @@ import { useEffect, useState, useRef } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
+import { loadToolParamsFromCache } from "@/utils/toolCache";
 import { useToast } from "@/lib/hooks/useToast";
 import useCopy from "@/lib/hooks/useCopy";
 
@@ -56,6 +57,7 @@ const ToolsTab = ({
   error,
   resourceContent,
   onReadResource,
+  serverUrl,
 }: {
   tools: Tool[];
   listTools: () => void;
@@ -68,6 +70,7 @@ const ToolsTab = ({
   error: string | null;
   resourceContent: Record<string, string>;
   onReadResource?: (uri: string) => void;
+  serverUrl: string;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
@@ -88,24 +91,42 @@ const ToolsTab = ({
   };
 
   useEffect(() => {
-    const params = Object.entries(
-      selectedTool?.inputSchema.properties ?? [],
+    if (!selectedTool) {
+      setParams({});
+      return;
+    }
+
+    // Generate default parameters from schema
+    const defaultParams = Object.entries(
+      selectedTool.inputSchema.properties ?? [],
     ).map(([key, value]) => [
       key,
       generateDefaultValue(
         value as JsonSchemaType,
         key,
-        selectedTool?.inputSchema as JsonSchemaType,
+        selectedTool.inputSchema as JsonSchemaType,
       ),
     ]);
-    setParams(Object.fromEntries(params));
+    const defaultParamsObj = Object.fromEntries(defaultParams);
+
+    // Fetch cached params from localStorage if they exist
+    const cachedParams = loadToolParamsFromCache(
+      serverUrl,
+      selectedTool.name,
+      selectedTool,
+    );
+
+    // Merge cached params with defaults, giving preference to cached values
+    const mergedParams = { ...defaultParamsObj, ...cachedParams };
+
+    setParams(mergedParams);
 
     // Reset validation errors when switching tools
     setHasValidationErrors(false);
 
     // Clear form refs for the previous tool
     formRefs.current = {};
-  }, [selectedTool]);
+  }, [selectedTool, serverUrl]);
 
   return (
     <TabsContent value="tools">

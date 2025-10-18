@@ -22,6 +22,7 @@ import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
 import { OAuthStateMachine } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
+import { saveToolParamsForCache } from "./utils/toolCache";
 import { cleanParams } from "./utils/paramUtils";
 import type { JsonSchemaType } from "./utils/jsonUtils";
 import React, {
@@ -787,6 +788,12 @@ const App = () => {
   const callTool = async (name: string, params: Record<string, unknown>) => {
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
+    // Save tool parameters to cache before making the call
+    const tool = tools.find((t) => t.name === name);
+    if (tool && sseUrl) {
+      saveToolParamsForCache(sseUrl, name, tool, params);
+    }
+
     try {
       // Find the tool schema to clean parameters properly
       const tool = tools.find((t) => t.name === name);
@@ -1129,6 +1136,7 @@ const App = () => {
                         clearError("resources");
                         readResource(uri);
                       }}
+                      serverUrl={sseUrl}
                     />
                     <ConsoleTab />
                     <PingTab
