@@ -467,6 +467,17 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --me
 | **Automation**           | N/A                                                                       | Ideal for CI/CD pipelines, batch processing, and integration with coding assistants                                                                  |
 | **Learning MCP**         | Rich visual interface helps new users understand server capabilities      | Simplified commands for focused learning of specific endpoints                                                                                       |
 
+## Tool Input Validation Guidelines
+
+When implementing or modifying tool input parameter handling in the Inspector:
+
+- **Omit optional fields with empty values** - When processing form inputs, omit empty strings or null values for optional parameters, UNLESS the field has an explicit default value in the schema that matches the current value
+- **Preserve explicit default values** - If a field schema contains an explicit default (e.g., `default: null`), and the current value matches that default, include it in the request. This is a meaningful value the tool expects
+- **Always include required fields** - Preserve required field values even when empty, allowing the MCP server to validate and return appropriate error messages
+- **Defer deep validation to the server** - Implement basic field presence checking in the Inspector client, but rely on the MCP server for parameter validation according to its schema
+
+These guidelines maintain clean parameter passing and proper separation of concerns between the Inspector client and MCP servers.
+
 ## License
 
 This project is licensed under the MIT License—see the [LICENSE](LICENSE) file for details.
