@@ -913,7 +913,8 @@ describe("Sidebar", () => {
         expect.objectContaining({
           MCP_SERVER_REQUEST_TIMEOUT: {
             label: "Request Timeout",
-            description: "Timeout for requests to the MCP server (ms)",
+            description:
+              "Client-side timeout (ms) - Inspector will cancel requests after this time",
             value: 5000,
             is_session_item: false,
           },
@@ -988,7 +989,8 @@ describe("Sidebar", () => {
         expect.objectContaining({
           MCP_SERVER_REQUEST_TIMEOUT: {
             label: "Request Timeout",
-            description: "Timeout for requests to the MCP server (ms)",
+            description:
+              "Client-side timeout (ms) - Inspector will cancel requests after this time",
             value: 0,
             is_session_item: false,
           },
@@ -1035,7 +1037,8 @@ describe("Sidebar", () => {
         expect.objectContaining({
           MCP_SERVER_REQUEST_TIMEOUT: {
             label: "Request Timeout",
-            description: "Timeout for requests to the MCP server (ms)",
+            description:
+              "Client-side timeout (ms) - Inspector will cancel requests after this time",
             value: 3000,
             is_session_item: false,
           },

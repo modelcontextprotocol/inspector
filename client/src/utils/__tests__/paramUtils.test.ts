@@ -205,4 +205,112 @@ describe("cleanParams", () => {
       // optionalField omitted entirely
     });
   });
+
+  it("should preserve null values when field has default: null", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      required: [],
+      properties: {
+        optionalFieldWithNullDefault: { type: "string", default: null },
+        optionalFieldWithoutDefault: { type: "string" },
+      },
+    };
+
+    const params = {
+      optionalFieldWithNullDefault: null,
+      optionalFieldWithoutDefault: null,
+    };
+
+    const cleaned = cleanParams(params, schema);
+
+    expect(cleaned).toEqual({
+      optionalFieldWithNullDefault: null, // preserved because default: null
+      // optionalFieldWithoutDefault omitted
+    });
+  });
+
+  it("should preserve default values that match current value", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      required: [],
+      properties: {
+        fieldWithDefaultString: { type: "string", default: "defaultValue" },
+        fieldWithDefaultNumber: { type: "number", default: 42 },
+        fieldWithDefaultNull: { type: "string", default: null },
+        fieldWithDefaultBoolean: { type: "boolean", default: false },
+      },
+    };
+
+    const params = {
+      fieldWithDefaultString: "defaultValue",
+      fieldWithDefaultNumber: 42,
+      fieldWithDefaultNull: null,
+      fieldWithDefaultBoolean: false,
+    };
+
+    const cleaned = cleanParams(params, schema);
+
+    expect(cleaned).toEqual({
+      fieldWithDefaultString: "defaultValue",
+      fieldWithDefaultNumber: 42,
+      fieldWithDefaultNull: null,
+      fieldWithDefaultBoolean: false,
+    });
+  });
+
+  it("should omit values that do not match their default", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      required: [],
+      properties: {
+        fieldWithDefault: { type: "string", default: "defaultValue" },
+      },
+    };
+
+    const params = {
+      fieldWithDefault: null, // doesn't match default
+    };
+
+    const cleaned = cleanParams(params, schema);
+
+    expect(cleaned).toEqual({
+      // fieldWithDefault omitted because value (null) doesn't match default ("defaultValue")
+    });
+  });
+
+  it("should fix regression from issue #846 - tools with multiple null defaults", () => {
+    // Reproduces the exact scenario from https://github.com/modelcontextprotocol/inspector/issues/846
+    // In v0.17.0, the cleanParams function would remove all null values,
+    // breaking tools that have parameters with explicit default: null
+    const schema: JsonSchemaType = {
+      type: "object",
+      required: ["requiredString"],
+      properties: {
+        optionalString: { type: ["string", "null"], default: null },
+        optionalNumber: { type: ["number", "null"], default: null },
+        optionalBoolean: { type: ["boolean", "null"], default: null },
+        requiredString: { type: "string" },
+      },
+    };
+
+    // When a user opens the tool in Inspector, fields initialize with their defaults
+    const params = {
+      optionalString: null, // initialized to default
+      optionalNumber: null, // initialized to default
+      optionalBoolean: null, // initialized to default
+      requiredString: "test",
+    };
+
+    const cleaned = cleanParams(params, schema);
+
+    // In v0.16, null defaults were preserved (working behavior)
+    // In v0.17.0, they were removed (regression)
+    // This fix restores the v0.16 behavior
+    expect(cleaned).toEqual({
+      optionalString: null,
+      optionalNumber: null,
+      optionalBoolean: null,
+      requiredString: "test",
+    });
+  });
 });

@@ -14,7 +14,8 @@ export type ConfigItem = {
  */
 export type InspectorConfig = {
   /**
-   * Maximum time in milliseconds to wait for a response from the MCP server before timing out.
+   * Client-side timeout in milliseconds. The Inspector will cancel the request if no response
+   * is received within this time. Note: This is independent of any server-side timeouts.
    */
   MCP_SERVER_REQUEST_TIMEOUT: ConfigItem;
 

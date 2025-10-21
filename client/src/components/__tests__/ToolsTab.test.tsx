@@ -177,6 +177,103 @@ describe("ToolsTab", () => {
     });
   });
 
+  it("should support tri-state nullable boolean (null -> false -> true -> null)", async () => {
+    const mockCallTool = jest.fn();
+    const toolWithNullableBoolean: Tool = {
+      name: "testTool",
+      description: "Tool with nullable boolean",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          optionalBoolean: {
+            type: ["boolean", "null"] as const,
+            default: null,
+          },
+        },
+      },
+    };
+
+    renderToolsTab({
+      tools: [toolWithNullableBoolean],
+      selectedTool: toolWithNullableBoolean,
+      callTool: mockCallTool,
+    });
+
+    const nullCheckbox = screen.getByRole("checkbox", { name: /null/i });
+    const runButton = screen.getByRole("button", { name: /run tool/i });
+
+    // State 1: Initial state should be null (input disabled)
+    const wrapper = screen.getByRole("toolinputwrapper");
+    expect(wrapper.classList).toContain("pointer-events-none");
+    expect(wrapper.classList).toContain("opacity-50");
+
+    // Verify tool is called with null initially
+    await act(async () => {
+      fireEvent.click(runButton);
+    });
+    expect(mockCallTool).toHaveBeenCalledWith(toolWithNullableBoolean.name, {
+      optionalBoolean: null,
+    });
+
+    // State 2: Uncheck null checkbox -> should set value to false and enable input
+    await act(async () => {
+      fireEvent.click(nullCheckbox);
+    });
+    expect(wrapper.classList).not.toContain("pointer-events-none");
+
+    // Clear previous calls to make assertions clearer
+    mockCallTool.mockClear();
+
+    // Verify tool can be called with false
+    await act(async () => {
+      fireEvent.click(runButton);
+    });
+    expect(mockCallTool).toHaveBeenLastCalledWith(
+      toolWithNullableBoolean.name,
+      {
+        optionalBoolean: false,
+      },
+    );
+
+    // State 3: Check boolean checkbox -> should set value to true
+    // Find the boolean checkbox within the input wrapper (to avoid ID conflict with null checkbox)
+    const booleanCheckbox = within(wrapper).getByRole("checkbox");
+
+    mockCallTool.mockClear();
+
+    await act(async () => {
+      fireEvent.click(booleanCheckbox);
+    });
+
+    // Verify tool can be called with true
+    await act(async () => {
+      fireEvent.click(runButton);
+    });
+    expect(mockCallTool).toHaveBeenLastCalledWith(
+      toolWithNullableBoolean.name,
+      {
+        optionalBoolean: true,
+      },
+    );
+
+    // State 4: Check null checkbox again -> should set value back to null and disable input
+    await act(async () => {
+      fireEvent.click(nullCheckbox);
+    });
+    expect(wrapper.classList).toContain("pointer-events-none");
+
+    // Verify tool can be called with null again
+    await act(async () => {
+      fireEvent.click(runButton);
+    });
+    expect(mockCallTool).toHaveBeenLastCalledWith(
+      toolWithNullableBoolean.name,
+      {
+        optionalBoolean: null,
+      },
+    );
+  });
+
   it("should disable button and change text while tool is running", async () => {
     // Create a promise that we can resolve later
     let resolvePromise: ((value: unknown) => void) | undefined;
