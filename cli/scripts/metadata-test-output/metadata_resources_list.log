@@ -1,0 +1,65 @@
+{
+  "nextCursor": "MTA=",
+  "resources": [
+    {
+      "name": "Resource 1",
+      "uri": "test://static/resource/1",
+      "mimeType": "text/plain",
+      "text": "Resource 1: This is a plaintext resource"
+    },
+    {
+      "name": "Resource 2",
+      "uri": "test://static/resource/2",
+      "mimeType": "application/octet-stream",
+      "blob": "UmVzb3VyY2UgMjogVGhpcyBpcyBhIGJhc2U2NCBibG9i"
+    },
+    {
+      "name": "Resource 3",
+      "uri": "test://static/resource/3",
+      "mimeType": "text/plain",
+      "text": "Resource 3: This is a plaintext resource"
+    },
+    {
+      "name": "Resource 4",
+      "uri": "test://static/resource/4",
+      "mimeType": "application/octet-stream",
+      "blob": "UmVzb3VyY2UgNDogVGhpcyBpcyBhIGJhc2U2NCBibG9i"
+    },
+    {
+      "name": "Resource 5",
+      "uri": "test://static/resource/5",
+      "mimeType": "text/plain",
+      "text": "Resource 5: This is a plaintext resource"
+    },
+    {
+      "name": "Resource 6",
+      "uri": "test://static/resource/6",
+      "mimeType": "application/octet-stream",
+      "blob": "UmVzb3VyY2UgNjogVGhpcyBpcyBhIGJhc2U2NCBibG9i"
+    },
+    {
+      "name": "Resource 7",
+      "uri": "test://static/resource/7",
+      "mimeType": "text/plain",
+      "text": "Resource 7: This is a plaintext resource"
+    },
+    {
+      "name": "Resource 8",
+      "uri": "test://static/resource/8",
+      "mimeType": "application/octet-stream",
+      "blob": "UmVzb3VyY2UgODogVGhpcyBpcyBhIGJhc2U2NCBibG9i"
+    },
+    {
+      "name": "Resource 9",
+      "uri": "test://static/resource/9",
+      "mimeType": "text/plain",
+      "text": "Resource 9: This is a plaintext resource"
+    },
+    {
+      "name": "Resource 10",
+      "uri": "test://static/resource/10",
+      "mimeType": "application/octet-stream",
+      "blob": "UmVzb3VyY2UgMTA6IFRoaXMgaXMgYSBiYXNlNjQgYmxvYg=="
+    }
+  ]
+}

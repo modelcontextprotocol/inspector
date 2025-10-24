@@ -1,0 +1,11 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "type": "text",
+        "text": "This is a simple prompt without arguments."
+      }
+    }
+  ]
+}

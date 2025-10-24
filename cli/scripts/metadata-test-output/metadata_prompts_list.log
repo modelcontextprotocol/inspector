@@ -1,0 +1,35 @@
+{
+  "prompts": [
+    {
+      "name": "simple_prompt",
+      "description": "A prompt without arguments"
+    },
+    {
+      "name": "complex_prompt",
+      "description": "A prompt with arguments",
+      "arguments": [
+        {
+          "name": "temperature",
+          "description": "Temperature setting",
+          "required": true
+        },
+        {
+          "name": "style",
+          "description": "Output style",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "resource_prompt",
+      "description": "A prompt that includes an embedded resource reference",
+      "arguments": [
+        {
+          "name": "resourceId",
+          "description": "Resource ID to include (1-100)",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

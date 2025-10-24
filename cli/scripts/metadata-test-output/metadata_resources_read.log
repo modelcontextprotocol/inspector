@@ -1,0 +1,10 @@
+{
+  "contents": [
+    {
+      "uri": "test://static/resource/1",
+      "mimeType": "text/plain",
+      "text": "Resource 1: This is a plaintext resource",
+      "name": "Resource 1"
+    }
+  ]
+}
