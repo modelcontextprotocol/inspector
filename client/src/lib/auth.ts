@@ -102,16 +102,40 @@ export const clearClientInformationFromSessionStorage = ({
   sessionStorage.removeItem(key);
 };
 
+export const getScopeFromSessionStorage = (
+  serverUrl: string,
+): string | undefined => {
+  const key = getServerSpecificKey(SESSION_KEYS.SCOPE, serverUrl);
+  const value = sessionStorage.getItem(key);
+  return value || undefined;
+};
+
+export const saveScopeToSessionStorage = (
+  serverUrl: string,
+  scope: string | undefined,
+) => {
+  const key = getServerSpecificKey(SESSION_KEYS.SCOPE, serverUrl);
+  if (scope) {
+    sessionStorage.setItem(key, scope);
+  } else {
+    sessionStorage.removeItem(key);
+  }
+};
+
+export const clearScopeFromSessionStorage = (serverUrl: string) => {
+  const key = getServerSpecificKey(SESSION_KEYS.SCOPE, serverUrl);
+  sessionStorage.removeItem(key);
+};
+
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
-  constructor(
-    protected serverUrl: string,
-    scope?: string,
-  ) {
-    this.scope = scope;
+  constructor(protected serverUrl: string) {
     // Save the server URL to session storage
     sessionStorage.setItem(SESSION_KEYS.SERVER_URL, serverUrl);
   }
-  scope: string | undefined;
+
+  get scope(): string | undefined {
+    return getScopeFromSessionStorage(this.serverUrl);
+  }
 
   get redirectUrl() {
     return window.location.origin + "/oauth/callback";
