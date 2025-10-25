@@ -48,6 +48,7 @@ export type JsonSchemaType = {
   const?: JsonValue;
   oneOf?: (JsonSchemaType | JsonSchemaConst)[];
   anyOf?: (JsonSchemaType | JsonSchemaConst)[];
+  $ref?: string;
 };
 
 export type JsonObject = { [key: string]: JsonValue };

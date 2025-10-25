@@ -18,6 +18,7 @@ import {
   generateDefaultValue,
   isPropertyRequired,
   normalizeUnionType,
+  resolveRef,
 } from "@/utils/schemaUtils";
 import {
   CompatibilityCallToolResult,
@@ -90,14 +91,21 @@ const ToolsTab = ({
   useEffect(() => {
     const params = Object.entries(
       selectedTool?.inputSchema.properties ?? [],
-    ).map(([key, value]) => [
-      key,
-      generateDefaultValue(
+    ).map(([key, value]) => {
+      // First resolve any $ref references
+      const resolvedValue = resolveRef(
         value as JsonSchemaType,
-        key,
         selectedTool?.inputSchema as JsonSchemaType,
-      ),
-    ]);
+      );
+      return [
+        key,
+        generateDefaultValue(
+          resolvedValue,
+          key,
+          selectedTool?.inputSchema as JsonSchemaType,
+        ),
+      ];
+    });
     setParams(Object.fromEntries(params));
 
     // Reset validation errors when switching tools
@@ -154,7 +162,12 @@ const ToolsTab = ({
                 </p>
                 {Object.entries(selectedTool.inputSchema.properties ?? []).map(
                   ([key, value]) => {
-                    const prop = normalizeUnionType(value as JsonSchemaType);
+                    // First resolve any $ref references
+                    const resolvedValue = resolveRef(
+                      value as JsonSchemaType,
+                      selectedTool.inputSchema as JsonSchemaType,
+                    );
+                    const prop = normalizeUnionType(resolvedValue);
                     const inputSchema =
                       selectedTool.inputSchema as JsonSchemaType;
                     const required = isPropertyRequired(key, inputSchema);
