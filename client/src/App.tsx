@@ -52,7 +52,7 @@ import {
 import { z } from "zod";
 import "./App.css";
 import AuthDebugger from "./components/AuthDebugger";
-import ConsoleTab from "./components/ConsoleTab";
+// import ConsoleTab from "./components/ConsoleTab";
 import HistoryAndNotifications from "./components/HistoryAndNotifications";
 import PingTab from "./components/PingTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
@@ -61,6 +61,7 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import OverviewTab from "./components/OverviewTab";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
   getMCPProxyAddress,
@@ -228,7 +229,7 @@ const App = () => {
 
   const [activeTab, setActiveTab] = useState<string>(() => {
     const hash = window.location.hash.slice(1);
-    const initialTab = hash || "resources";
+    const initialTab = hash || "overview";
     return initialTab;
   });
 
@@ -311,6 +312,7 @@ const App = () => {
       const hash = window.location.hash.slice(1);
 
       const validTabs = [
+        "overview",
         ...(serverCapabilities?.resources ? ["resources"] : []),
         ...(serverCapabilities?.prompts ? ["prompts"] : []),
         ...(serverCapabilities?.tools ? ["tools"] : []),
@@ -324,14 +326,7 @@ const App = () => {
       const isValidTab = validTabs.includes(hash);
 
       if (!isValidTab) {
-        const defaultTab = serverCapabilities?.resources
-          ? "resources"
-          : serverCapabilities?.prompts
-            ? "prompts"
-            : serverCapabilities?.tools
-              ? "tools"
-              : "ping";
-
+        const defaultTab = "overview";
         setActiveTab(defaultTab);
         window.location.hash = defaultTab;
       }
@@ -551,13 +546,7 @@ const App = () => {
 
   useEffect(() => {
     if (mcpClient && !window.location.hash) {
-      const defaultTab = serverCapabilities?.resources
-        ? "resources"
-        : serverCapabilities?.prompts
-          ? "prompts"
-          : serverCapabilities?.tools
-            ? "tools"
-            : "ping";
+      const defaultTab = "overview";
       window.location.hash = defaultTab;
     } else if (!mcpClient && window.location.hash) {
       // Clear hash when disconnected - completely remove the fragment
@@ -949,6 +938,7 @@ const App = () => {
               }}
             >
               <TabsList className="mb-4 py-0">
+                <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger
                   value="resources"
                   disabled={!serverCapabilities?.resources}
@@ -1002,30 +992,37 @@ const App = () => {
                 </TabsTrigger>
               </TabsList>
 
-              <div className="w-full">
-                {!serverCapabilities?.resources &&
-                !serverCapabilities?.prompts &&
-                !serverCapabilities?.tools ? (
-                  <>
-                    <div className="flex items-center justify-center p-4">
-                      <p className="text-lg text-gray-500 dark:text-gray-400">
-                        The connected server does not support any MCP
-                        capabilities
-                      </p>
-                    </div>
-                    <PingTab
-                      onPingClick={() => {
-                        void sendMCPRequest(
-                          {
-                            method: "ping" as const,
-                          },
-                          EmptyResultSchema,
-                        );
-                      }}
-                    />
-                  </>
-                ) : (
-                  <>
+              <OverviewTab
+                serverCapabilities={serverCapabilities}
+                transportType={transportType}
+                command={command}
+                args={args}
+                sseUrl={sseUrl}
+              />
+
+              {!serverCapabilities?.resources &&
+              !serverCapabilities?.prompts &&
+              !serverCapabilities?.tools ? (
+                <TabsContent value="ping">
+                  <div className="flex items-center justify-center p-4">
+                    <p className="text-lg text-gray-500 dark:text-gray-400">
+                      The connected server does not support any MCP capabilities
+                    </p>
+                  </div>
+                  <PingTab
+                    onPingClick={() => {
+                      void sendMCPRequest(
+                        {
+                          method: "ping" as const,
+                        },
+                        EmptyResultSchema,
+                      );
+                    }}
+                  />
+                </TabsContent>
+              ) : (
+                <>
+                  <TabsContent value="resources">
                     <ResourcesTab
                       resources={resources}
                       resourceTemplates={resourceTemplates}
@@ -1073,6 +1070,8 @@ const App = () => {
                       nextTemplateCursor={nextResourceTemplateCursor}
                       error={errors.resources}
                     />
+                  </TabsContent>
+                  <TabsContent value="prompts">
                     <PromptsTab
                       prompts={prompts}
                       listPrompts={() => {
@@ -1099,6 +1098,8 @@ const App = () => {
                       nextCursor={nextPromptCursor}
                       error={errors.prompts}
                     />
+                  </TabsContent>
+                  <TabsContent value="tools">
                     <ToolsTab
                       tools={tools}
                       listTools={() => {
@@ -1130,7 +1131,8 @@ const App = () => {
                         readResource(uri);
                       }}
                     />
-                    <ConsoleTab />
+                  </TabsContent>
+                  <TabsContent value="ping">
                     <PingTab
                       onPingClick={() => {
                         void sendMCPRequest(
@@ -1141,24 +1143,30 @@ const App = () => {
                         );
                       }}
                     />
+                  </TabsContent>
+                  <TabsContent value="sampling">
                     <SamplingTab
                       pendingRequests={pendingSampleRequests}
                       onApprove={handleApproveSampling}
                       onReject={handleRejectSampling}
                     />
+                  </TabsContent>
+                  <TabsContent value="elicitations">
                     <ElicitationTab
                       pendingRequests={pendingElicitationRequests}
                       onResolve={handleResolveElicitation}
                     />
+                  </TabsContent>
+                  <TabsContent value="roots">
                     <RootsTab
                       roots={roots}
                       setRoots={setRoots}
                       onRootsChange={handleRootsChange}
                     />
-                    <AuthDebuggerWrapper />
-                  </>
-                )}
-              </div>
+                  </TabsContent>
+                  <AuthDebuggerWrapper />
+                </>
+              )}
             </Tabs>
           ) : isAuthDebuggerVisible ? (
             <Tabs
