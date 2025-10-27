@@ -256,10 +256,35 @@ export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvi
     return JSON.parse(metadata);
   }
 
+  /**
+   * Saves the resource URL to session storage to persist it across the redirect.
+   */
+  saveResource(resource: URL): void {
+    const key = getServerSpecificKey(SESSION_KEYS.RESOURCE_URL, this.serverUrl);
+    sessionStorage.setItem(key, resource.toString());
+  }
+
+  /**
+   * Retrieves the persisted resource URL from session storage.
+   */
+  getResource(): URL | undefined {
+    const key = getServerSpecificKey(SESSION_KEYS.RESOURCE_URL, this.serverUrl);
+    const urlString = sessionStorage.getItem(key);
+    if (!urlString) {
+      return undefined;
+    }
+    return new URL(urlString);
+  }
+
   clear() {
     super.clear();
     sessionStorage.removeItem(
       getServerSpecificKey(SESSION_KEYS.SERVER_METADATA, this.serverUrl),
+    );
+
+    // Also clear the resource URL
+    sessionStorage.removeItem(
+      getServerSpecificKey(SESSION_KEYS.RESOURCE_URL, this.serverUrl),
     );
   }
 }
