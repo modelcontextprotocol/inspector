@@ -1,19 +1,19 @@
-import { useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
-  Play,
+  Bug,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   CircleHelp,
-  Bug,
-  Github,
+  Copy,
   Eye,
   EyeOff,
+  Github,
+  HelpCircle,
+  Play,
+  RefreshCwOff,
   RotateCcw,
   Settings,
-  HelpCircle,
-  RefreshCwOff,
-  Copy,
-  CheckCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,12 +34,13 @@ import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
 import {
   Tooltip,
-  TooltipTrigger,
   TooltipContent,
+  TooltipTrigger,
 } from "@/components/ui/tooltip";
 import CustomHeaders from "./CustomHeaders";
 import { CustomHeaders as CustomHeadersType } from "@/lib/types/customHeaders";
 import { useToast } from "../lib/hooks/useToast";
+import { useWorkingDirValidation } from "@/lib/hooks/useWorkingDirValidation";
 
 interface SidebarProps {
   connectionStatus: ConnectionStatus;
@@ -69,6 +70,8 @@ interface SidebarProps {
   loggingSupported: boolean;
   config: InspectorConfig;
   setConfig: (config: InspectorConfig) => void;
+  workingDir: string;
+  setWorkingDir: (workingDir: string) => void;
   connectionType: "direct" | "proxy";
   setConnectionType: (type: "direct" | "proxy") => void;
 }
@@ -100,6 +103,8 @@ const Sidebar = ({
   loggingSupported,
   config,
   setConfig,
+  workingDir,
+  setWorkingDir,
   connectionType,
   setConnectionType,
 }: SidebarProps) => {
@@ -112,6 +117,15 @@ const Sidebar = ({
   const [copiedServerEntry, setCopiedServerEntry] = useState(false);
   const [copiedServerFile, setCopiedServerFile] = useState(false);
   const { toast } = useToast();
+
+  // Server-side validation on blur
+  const {
+    workingDirError,
+    setWorkingDirError,
+    validateOnBlur,
+    validateNow,
+    isValidating,
+  } = useWorkingDirValidation(workingDir, config);
 
   const connectionTypeTip =
     "Connect to server directly (requires CORS config on server) or via MCP Inspector Proxy";
@@ -130,11 +144,15 @@ const Sidebar = ({
   // Shared utility function to generate server config
   const generateServerConfig = useCallback(() => {
     if (transportType === "stdio") {
-      return {
+      const config = {
         command,
         args: args.trim() ? args.split(/\s+/) : [],
         env: { ...env },
       };
+      if (workingDir) {
+        return { ...config, workingDir: workingDir };
+      }
+      return config;
     }
     if (transportType === "sse") {
       return {
@@ -151,7 +169,7 @@ const Sidebar = ({
       };
     }
     return {};
-  }, [transportType, command, args, env, sseUrl]);
+  }, [transportType, command, args, env, sseUrl, workingDir]);
 
   // Memoized config entry generator
   const generateMCPServerEntry = useCallback(() => {
@@ -293,6 +311,31 @@ const Sidebar = ({
                   onChange={(e) => setArgs(e.target.value)}
                   className="font-mono"
                 />
+              </div>
+              <div className="space-y-2">
+                <label
+                  className="text-sm font-medium"
+                  htmlFor="working-dir-input"
+                >
+                  Working Directory (optional)
+                </label>
+                <Input
+                  id="working-dir-input"
+                  placeholder="Working Directory (optional)"
+                  value={workingDir}
+                  onChange={(e) => {
+                    setWorkingDir(e.target.value);
+                    // Clear prior validation error while editing; will re-validate on blur
+                    if (workingDirError) setWorkingDirError(null);
+                  }}
+                  onBlur={validateOnBlur}
+                  className="font-mono"
+                />
+                {workingDirError && (
+                  <div className="text-sm text-red-600 dark:text-red-400">
+                    {workingDirError}
+                  </div>
+                )}
               </div>
             </>
           ) : (
@@ -734,7 +777,25 @@ const Sidebar = ({
               </div>
             )}
             {connectionStatus !== "connected" && (
-              <Button className="w-full" onClick={onConnect}>
+              <Button
+                className="w-full"
+                onClick={async () => {
+                  if (transportType === "stdio") {
+                    const ok = await validateNow();
+                    if (!ok) return;
+                  }
+                  onConnect();
+                }}
+                disabled={
+                  transportType === "stdio" &&
+                  (isValidating || !!workingDirError)
+                }
+                title={
+                  transportType === "stdio" && workingDirError
+                    ? workingDirError
+                    : undefined
+                }
+              >
                 <Play className="w-4 h-4 mr-2" />
                 Connect
               </Button>

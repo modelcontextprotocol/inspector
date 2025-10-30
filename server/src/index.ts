@@ -25,6 +25,9 @@ import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { validateWorkingDirectoryAbsolute } from "./validationUtils.js";
 
 const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 
@@ -337,17 +340,26 @@ const createTransport = async (
     const origArgs = shellParseArgs(query.args as string) as string[];
     const queryEnv = query.env ? JSON.parse(query.env as string) : {};
     const env = { ...defaultEnvironment, ...process.env, ...queryEnv };
+    const workingDir = query.workingDir as string;
 
     const { cmd, args } = findActualExecutable(command, origArgs);
 
-    console.log(`STDIO transport: command=${cmd}, args=${args}`);
+    console.log(
+      `STDIO transport: command=${cmd}, args=${args}, workingDir=${workingDir}`,
+    );
 
-    const transport = new StdioClientTransport({
+    const transportOptions: any = {
       command: cmd,
       args,
       env,
       stderr: "pipe",
-    });
+    };
+
+    if (workingDir) {
+      transportOptions.cwd = workingDir;
+    }
+
+    const transport = new StdioClientTransport(transportOptions);
 
     await transport.start();
     return { transport };
@@ -699,6 +711,24 @@ app.get(
       }
       console.error("Error in /sse route:", error);
       res.status(500).json(error);
+    }
+  },
+);
+
+// Working directory validation endpoint
+app.get(
+  "/validate/working-dir",
+  originValidationMiddleware,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const p = String(req.query.path || "");
+      const result = await validateWorkingDirectoryAbsolute(p);
+      const status = p ? 200 : 400;
+      res.status(status).json(result);
+    } catch (error) {
+      console.error("Error in /validate/working-dir route:", error);
+      res.status(500).json({ valid: false, error: "Internal server error" });
     }
   },
 );
