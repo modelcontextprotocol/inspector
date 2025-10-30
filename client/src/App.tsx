@@ -47,6 +47,7 @@ import {
   Hash,
   Key,
   MessageSquare,
+  Settings,
 } from "lucide-react";
 
 import { z } from "zod";
@@ -80,6 +81,7 @@ import {
   CustomHeaders,
   migrateFromLegacyAuth,
 } from "./lib/types/customHeaders";
+import MetadataTab from "./components/MetadataTab";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
@@ -199,8 +201,26 @@ const App = () => {
   const [authState, setAuthState] =
     useState<AuthDebuggerState>(EMPTY_DEBUGGER_STATE);
 
+  // Metadata state - persisted in localStorage
+  const [metadata, setMetadata] = useState<Record<string, string>>(() => {
+    const savedMetadata = localStorage.getItem("lastMetadata");
+    if (savedMetadata) {
+      try {
+        return JSON.parse(savedMetadata);
+      } catch (error) {
+        console.warn("Failed to parse saved metadata:", error);
+      }
+    }
+    return {};
+  });
+
   const updateAuthState = (updates: Partial<AuthDebuggerState>) => {
     setAuthState((prev) => ({ ...prev, ...updates }));
+  };
+
+  const handleMetadataChange = (newMetadata: Record<string, string>) => {
+    setMetadata(newMetadata);
+    localStorage.setItem("lastMetadata", JSON.stringify(newMetadata));
   };
   const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
@@ -304,6 +324,7 @@ const App = () => {
     },
     getRoots: () => rootsRef.current,
     defaultLoggingLevel: logLevel,
+    metadata,
   });
 
   useEffect(() => {
@@ -784,7 +805,11 @@ const App = () => {
     cacheToolOutputSchemas(response.tools);
   };
 
-  const callTool = async (name: string, params: Record<string, unknown>) => {
+  const callTool = async (
+    name: string,
+    params: Record<string, unknown>,
+    toolMetadata?: Record<string, unknown>,
+  ) => {
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
     try {
@@ -794,15 +819,21 @@ const App = () => {
         ? cleanParams(params, tool.inputSchema as JsonSchemaType)
         : params;
 
+      // Merge general metadata with tool-specific metadata
+      // Tool-specific metadata takes precedence over general metadata
+      const mergedMetadata = {
+        ...metadata, // General metadata
+        progressToken: progressTokenRef.current++,
+        ...(toolMetadata ?? {}), // Tool-specific metadata
+      };
+
       const response = await sendMCPRequest(
         {
           method: "tools/call" as const,
           params: {
             name,
             arguments: cleanedParams,
-            _meta: {
-              progressToken: progressTokenRef.current++,
-            },
+            _meta: mergedMetadata,
           },
         },
         CompatibilityCallToolResultSchema,
@@ -1000,6 +1031,10 @@ const App = () => {
                   <Key className="w-4 h-4 mr-2" />
                   Auth
                 </TabsTrigger>
+                <TabsTrigger value="metadata">
+                  <Settings className="w-4 h-4 mr-2" />
+                  Metadata
+                </TabsTrigger>
               </TabsList>
 
               <div className="w-full">
@@ -1110,10 +1145,14 @@ const App = () => {
                         setNextToolCursor(undefined);
                         cacheToolOutputSchemas([]);
                       }}
-                      callTool={async (name, params) => {
+                      callTool={async (
+                        name: string,
+                        params: Record<string, unknown>,
+                        metadata?: Record<string, unknown>,
+                      ) => {
                         clearError("tools");
                         setToolResult(null);
-                        await callTool(name, params);
+                        await callTool(name, params, metadata);
                       }}
                       selectedTool={selectedTool}
                       setSelectedTool={(tool) => {
@@ -1156,6 +1195,10 @@ const App = () => {
                       onRootsChange={handleRootsChange}
                     />
                     <AuthDebuggerWrapper />
+                    <MetadataTab
+                      metadata={metadata}
+                      onMetadataChange={handleMetadataChange}
+                    />
                   </>
                 )}
               </div>

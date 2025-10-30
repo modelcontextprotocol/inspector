@@ -19,9 +19,14 @@ type JsonSchemaType = {
   items?: JsonSchemaType;
 };
 
-export async function listTools(client: Client): Promise<McpResponse> {
+export async function listTools(
+  client: Client,
+  metadata?: Record<string, string>,
+): Promise<McpResponse> {
   try {
-    const response = await client.listTools();
+    const params =
+      metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
+    const response = await client.listTools(params);
     return response;
   } catch (error) {
     throw new Error(
@@ -82,9 +87,11 @@ export async function callTool(
   client: Client,
   name: string,
   args: Record<string, JsonValue>,
+  generalMetadata?: Record<string, string>,
+  toolSpecificMetadata?: Record<string, string>,
 ): Promise<McpResponse> {
   try {
-    const toolsResponse = await listTools(client);
+    const toolsResponse = await listTools(client, generalMetadata);
     const tools = toolsResponse.tools as Tool[];
     const tool = tools.find((t) => t.name === name);
 
@@ -106,9 +113,23 @@ export async function callTool(
       }
     }
 
+    // Merge general metadata with tool-specific metadata
+    // Tool-specific metadata takes precedence over general metadata
+    let mergedMetadata: Record<string, string> | undefined;
+    if (generalMetadata || toolSpecificMetadata) {
+      mergedMetadata = {
+        ...(generalMetadata || {}),
+        ...(toolSpecificMetadata || {}),
+      };
+    }
+
     const response = await client.callTool({
       name: name,
       arguments: convertedArgs,
+      _meta:
+        mergedMetadata && Object.keys(mergedMetadata).length > 0
+          ? mergedMetadata
+          : undefined,
     });
     return response;
   } catch (error) {

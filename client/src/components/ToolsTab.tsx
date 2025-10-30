@@ -61,7 +61,11 @@ const ToolsTab = ({
   tools: Tool[];
   listTools: () => void;
   clearTools: () => void;
-  callTool: (name: string, params: Record<string, unknown>) => Promise<void>;
+  callTool: (
+    name: string,
+    params: Record<string, unknown>,
+    metadata?: Record<string, unknown>,
+  ) => Promise<void>;
   selectedTool: Tool | null;
   setSelectedTool: (tool: Tool | null) => void;
   toolResult: CompatibilityCallToolResult | null;
@@ -73,7 +77,10 @@ const ToolsTab = ({
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
-  const [isMetaExpanded, setIsMetaExpanded] = useState(false);
+  const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
+  const [metadataEntries, setMetadataEntries] = useState<
+    { id: string; key: string; value: string }[]
+  >([]);
   const [hasValidationErrors, setHasValidationErrors] = useState(false);
   const formRefs = useRef<Record<string, DynamicJsonFormRef | null>>({});
   const { toast } = useToast();
@@ -396,6 +403,104 @@ const ToolsTab = ({
                     );
                   },
                 )}
+                <div className="pb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold">
+                      Tool-specific Metadata:
+                    </h4>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2"
+                      onClick={() =>
+                        setMetadataEntries((prev) => [
+                          ...prev,
+                          {
+                            id:
+                              (
+                                globalThis as unknown as {
+                                  crypto?: { randomUUID?: () => string };
+                                }
+                              ).crypto?.randomUUID?.() ||
+                              Math.random().toString(36).slice(2),
+                            key: "",
+                            value: "",
+                          },
+                        ])
+                      }
+                    >
+                      Add Pair
+                    </Button>
+                  </div>
+                  {metadataEntries.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No metadata pairs.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {metadataEntries.map((entry, index) => (
+                        <div
+                          key={entry.id}
+                          className="flex items-center gap-2 w-full"
+                        >
+                          <Label
+                            htmlFor={`metadata-key-${entry.id}`}
+                            className="text-xs shrink-0"
+                          >
+                            Key
+                          </Label>
+                          <Input
+                            id={`metadata-key-${entry.id}`}
+                            value={entry.key}
+                            placeholder="e.g. requestId"
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setMetadataEntries((prev) =>
+                                prev.map((m, i) =>
+                                  i === index ? { ...m, key: value } : m,
+                                ),
+                              );
+                            }}
+                            className="h-8 flex-1"
+                          />
+                          <Label
+                            htmlFor={`metadata-value-${entry.id}`}
+                            className="text-xs shrink-0"
+                          >
+                            Value
+                          </Label>
+                          <Input
+                            id={`metadata-value-${entry.id}`}
+                            value={entry.value}
+                            placeholder="e.g. 12345"
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setMetadataEntries((prev) =>
+                                prev.map((m, i) =>
+                                  i === index ? { ...m, value } : m,
+                                ),
+                              );
+                            }}
+                            className="h-8 flex-1"
+                          />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0 ml-auto shrink-0"
+                            onClick={() =>
+                              setMetadataEntries((prev) =>
+                                prev.filter((_, i) => i !== index),
+                              )
+                            }
+                            aria-label={`Remove meta pair ${index + 1}`}
+                          >
+                            -
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 {selectedTool.outputSchema && (
                   <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
                     <div className="flex items-center justify-between mb-2">
@@ -441,10 +546,12 @@ const ToolsTab = ({
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => setIsMetaExpanded(!isMetaExpanded)}
+                          onClick={() =>
+                            setIsMetadataExpanded(!isMetadataExpanded)
+                          }
                           className="h-6 px-2"
                         >
-                          {isMetaExpanded ? (
+                          {isMetadataExpanded ? (
                             <>
                               <ChevronUp className="h-3 w-3 mr-1" />
                               Collapse
@@ -459,40 +566,52 @@ const ToolsTab = ({
                       </div>
                       <div
                         className={`transition-all ${
-                          isMetaExpanded ? "" : "max-h-[8rem] overflow-y-auto"
+                          isMetadataExpanded
+                            ? ""
+                            : "max-h-[8rem] overflow-y-auto"
                         }`}
                       >
                         <JsonView data={selectedTool._meta} />
                       </div>
                     </div>
                   )}
-                <div className="flex gap-2">
-                  <Button
-                    onClick={async () => {
-                      // Validate JSON inputs before calling tool
-                      if (checkValidationErrors()) return;
+                <Button
+                  onClick={async () => {
+                    // Validate JSON inputs before calling tool
+                    if (checkValidationErrors()) return;
 
-                      try {
-                        setIsToolRunning(true);
-                        await callTool(selectedTool.name, params);
-                      } finally {
-                        setIsToolRunning(false);
-                      }
-                    }}
-                    disabled={isToolRunning || hasValidationErrors}
-                  >
-                    {isToolRunning ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Running...
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-4 h-4 mr-2" />
-                        Run Tool
-                      </>
-                    )}
-                  </Button>
+                    try {
+                      setIsToolRunning(true);
+                      const metadata = metadataEntries.reduce<
+                        Record<string, unknown>
+                      >((acc, { key, value }) => {
+                        if (key.trim() !== "") acc[key] = value;
+                        return acc;
+                      }, {});
+                      await callTool(
+                        selectedTool.name,
+                        params,
+                        Object.keys(metadata).length ? metadata : undefined,
+                      );
+                    } finally {
+                      setIsToolRunning(false);
+                    }
+                  }}
+                  disabled={isToolRunning || hasValidationErrors}
+                >
+                  {isToolRunning ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Running...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4 mr-2" />
+                      Run Tool
+                    </>
+                  )}
+                </Button>
+                <div className="flex gap-2">
                   <Button
                     onClick={async () => {
                       try {
