@@ -30,6 +30,7 @@ import {
   Progress,
   LoggingLevel,
   ElicitRequestSchema,
+  Implementation,
 } from "@modelcontextprotocol/sdk/types.js";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useEffect, useState } from "react";
@@ -80,6 +81,7 @@ interface UseConnectionOptions {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getRoots?: () => any[];
   defaultLoggingLevel?: LoggingLevel;
+  serverImplementation?: Implementation;
 }
 
 export function useConnection({
@@ -117,6 +119,8 @@ export function useConnection({
   const [mcpProtocolVersion, setMcpProtocolVersion] = useState<string | null>(
     null,
   );
+  const [serverImplementation, setServerImplementation] =
+    useState<Implementation | null>(null);
 
   useEffect(() => {
     if (!oauthClientId) {
@@ -684,6 +688,8 @@ export function useConnection({
         setClientTransport(transport);
 
         capabilities = client.getServerCapabilities();
+        const serverInfo = client.getServerVersion();
+        setServerImplementation(serverInfo || null);
         const initializeRequest = {
           method: "initialize",
         };
@@ -801,11 +807,13 @@ export function useConnection({
 
   const clearRequestHistory = () => {
     setRequestHistory([]);
+    setServerImplementation(null);
   };
 
   return {
     connectionStatus,
     serverCapabilities,
+    serverImplementation,
     mcpClient,
     requestHistory,
     clearRequestHistory,
