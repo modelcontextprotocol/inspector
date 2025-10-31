@@ -80,13 +80,16 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       const metadata = context.state.oauthMetadata!;
       const clientMetadata = context.provider.clientMetadata;
 
-      // Prefer scopes from resource metadata if available
-      const scopesSupported =
-        context.state.resourceMetadata?.scopes_supported ||
-        metadata.scopes_supported;
-      // Add all supported scopes to client registration
-      if (scopesSupported) {
-        clientMetadata.scope = scopesSupported.join(" ");
+      // Priority: user-provided scope > discovered scopes
+      if (!context.provider.scope || context.provider.scope.trim() === "") {
+        // Prefer scopes from resource metadata if available
+        const scopesSupported =
+          context.state.resourceMetadata?.scopes_supported ||
+          metadata.scopes_supported;
+        // Add all supported scopes to client registration
+        if (scopesSupported) {
+          clientMetadata.scope = scopesSupported.join(" ");
+        }
       }
 
       // Try Static client first, with DCR as fallback
@@ -113,10 +116,14 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       const metadata = context.state.oauthMetadata!;
       const clientInformation = context.state.oauthClientInfo!;
 
-      const scope = await discoverScopes(
-        context.serverUrl,
-        context.state.resourceMetadata ?? undefined,
-      );
+      // Priority: user-provided scope > discovered scopes
+      let scope = context.provider.scope;
+      if (!scope || scope.trim() === "") {
+        scope = await discoverScopes(
+          context.serverUrl,
+          context.state.resourceMetadata ?? undefined,
+        );
+      }
 
       const { authorizationUrl, codeVerifier } = await startAuthorization(
         context.serverUrl,
