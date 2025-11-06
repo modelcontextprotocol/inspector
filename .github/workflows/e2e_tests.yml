@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    # Installing Playright dependencies can take quite awhile, and also depends on GitHub CI load.
+    # Installing Playwright dependencies can take quite awhile, and also depends on GitHub CI load.
     timeout-minutes: 15
     runs-on: ubuntu-latest
 
