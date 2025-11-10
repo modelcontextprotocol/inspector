@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import { useCompletionState } from "@/lib/hooks/useCompletionState";
 import JsonView from "./JsonView";
+import IconDisplay from "./IconDisplay";
 
 export type Prompt = {
   name: string;
@@ -23,6 +24,7 @@ export type Prompt = {
     description?: string;
     required?: boolean;
   }[];
+  icons?: { src: string; mimeType?: string; sizes?: string[] }[];
 };
 
 const PromptsTab = ({
@@ -109,6 +111,7 @@ const PromptsTab = ({
           }}
           renderItem={(prompt) => (
             <div className="flex flex-col items-start">
+              <IconDisplay icons={prompt.icons} size="sm" />
               <span className="flex-1">{prompt.name}</span>
               <span className="text-sm text-gray-500 text-left">
                 {prompt.description}
