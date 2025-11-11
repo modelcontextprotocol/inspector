@@ -48,6 +48,7 @@ export type JsonSchemaType = {
   const?: JsonValue;
   oneOf?: (JsonSchemaType | JsonSchemaConst)[];
   anyOf?: (JsonSchemaType | JsonSchemaConst)[];
+  $ref?: string;
 };
 
 export type JsonObject = { [key: string]: JsonValue };
@@ -84,8 +85,9 @@ export function tryParseJson(str: string): {
   success: boolean;
   data: JsonValue;
 } {
-  const trimmed = str.trim();
+  const trimmed = str?.trim();
   if (
+    trimmed &&
     !(trimmed.startsWith("{") && trimmed.endsWith("}")) &&
     !(trimmed.startsWith("[") && trimmed.endsWith("]"))
   ) {

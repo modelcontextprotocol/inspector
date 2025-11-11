@@ -113,8 +113,8 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
             setJsonError(errorMessage);
 
             // Reset to default for clearly invalid JSON (not just incomplete typing)
-            const trimmed = jsonString.trim();
-            if (trimmed.length > 5 && !trimmed.match(/^[\s[{]/)) {
+            const trimmed = jsonString?.trim();
+            if (trimmed && trimmed.length > 5 && !trimmed.match(/^[\s[{]/)) {
               onChange(generateDefaultValue(schema));
             }
           }
@@ -155,7 +155,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
 
     const formatJson = () => {
       try {
-        const jsonStr = rawJsonValue.trim();
+        const jsonStr = rawJsonValue?.trim();
         if (!jsonStr) {
           return;
         }
@@ -171,7 +171,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
     const validateJson = () => {
       if (!isJsonMode) return { isValid: true, error: null };
       try {
-        const jsonStr = rawJsonValue.trim();
+        const jsonStr = rawJsonValue?.trim();
         if (!jsonStr) return { isValid: true, error: null };
         const parsed = JSON.parse(jsonStr);
         // Clear any pending debounced update and immediately update parent
