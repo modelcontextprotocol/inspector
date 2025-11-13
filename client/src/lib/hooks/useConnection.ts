@@ -59,6 +59,7 @@ import { getMCPServerRequestTimeout } from "@/utils/configUtils";
 import { InspectorConfig } from "../configurationTypes";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CustomHeaders } from "../types/customHeaders";
+import { resolveRefsInMessage } from "@/utils/schemaUtils";
 
 interface UseConnectionOptions {
   transportType: "stdio" | "sse" | "streamable-http";
@@ -690,6 +691,14 @@ export function useConnection({
             : new SSEClientTransport(serverUrl, transportOptions);
 
         await client.connect(transport as Transport);
+
+        const protocolOnMessage = transport.onmessage;
+        if (protocolOnMessage) {
+          transport.onmessage = (message) => {
+            const resolvedMessage = resolveRefsInMessage(message);
+            protocolOnMessage(resolvedMessage);
+          };
+        }
 
         setClientTransport(transport);
 

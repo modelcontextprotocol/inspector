@@ -1,7 +1,10 @@
 import { renderHook, act } from "@testing-library/react";
 import { useConnection } from "../useConnection";
 import { z } from "zod";
-import { ClientRequest } from "@modelcontextprotocol/sdk/types.js";
+import {
+  ClientRequest,
+  JSONRPCMessage,
+} from "@modelcontextprotocol/sdk/types.js";
 import { DEFAULT_INSPECTOR_CONFIG, CLIENT_IDENTITY } from "../../constants";
 import {
   SSEClientTransportOptions,
@@ -42,10 +45,12 @@ const mockSSETransport: {
   start: jest.Mock;
   url: URL | undefined;
   options: SSEClientTransportOptions | undefined;
+  onmessage?: (message: JSONRPCMessage) => void;
 } = {
   start: jest.fn(),
   url: undefined,
   options: undefined,
+  onmessage: undefined,
 };
 
 const mockStreamableHTTPTransport: {
@@ -479,6 +484,129 @@ describe("useConnection", () => {
       });
 
       expect(handlerResult).toEqual(mockResponse);
+    });
+  });
+
+  describe("Ref Resolution", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    test("resolves $ref references in requestedSchema properties before validation", async () => {
+      const mockProtocolOnMessage = jest.fn();
+
+      mockSSETransport.onmessage = mockProtocolOnMessage;
+
+      const { result } = renderHook(() => useConnection(defaultProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const mockRequestWithRef: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "elicitation/create",
+        params: {
+          message: "Please provide your information",
+          requestedSchema: {
+            type: "object",
+            properties: {
+              source: {
+                type: "string",
+                minLength: 1,
+                title: "A Connectable Node",
+              },
+              target: {
+                $ref: "#/properties/source",
+              },
+            },
+          },
+        },
+      };
+
+      await act(async () => {
+        mockSSETransport.onmessage!(mockRequestWithRef);
+      });
+
+      expect(mockProtocolOnMessage).toHaveBeenCalledTimes(1);
+
+      const message = mockProtocolOnMessage.mock.calls[0][0];
+      expect(message.params.requestedSchema.properties.target).toEqual({
+        type: "string",
+        minLength: 1,
+        title: "A Connectable Node",
+      });
+    });
+
+    test("resolves $ref references to $defs in requestedSchema", async () => {
+      const mockProtocolOnMessage = jest.fn();
+
+      mockSSETransport.onmessage = mockProtocolOnMessage;
+
+      const { result } = renderHook(() => useConnection(defaultProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const mockRequestWithDefs: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "elicitation/create",
+        params: {
+          message: "Please provide your information",
+          requestedSchema: {
+            type: "object",
+            properties: {
+              user: {
+                $ref: "#/$defs/UserInput",
+              },
+            },
+            $defs: {
+              UserInput: {
+                type: "object",
+                properties: {
+                  name: {
+                    type: "string",
+                    title: "Name",
+                  },
+                  age: {
+                    type: "integer",
+                    title: "Age",
+                    minimum: 0,
+                  },
+                },
+                required: ["name"],
+              },
+            },
+          },
+        },
+      };
+
+      await act(async () => {
+        mockSSETransport.onmessage!(mockRequestWithDefs);
+      });
+
+      expect(mockProtocolOnMessage).toHaveBeenCalledTimes(1);
+
+      const message = mockProtocolOnMessage.mock.calls[0][0];
+      // The $ref should be resolved to the actual UserInput definition
+      expect(message.params.requestedSchema.properties.user).toEqual({
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            title: "Name",
+          },
+          age: {
+            type: "integer",
+            title: "Age",
+            minimum: 0,
+          },
+        },
+        required: ["name"],
+      });
     });
   });
 
