@@ -754,6 +754,85 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
   }
 });
 
+// Proxy endpoint for OAuth well-known discovery and other cross-origin requests
+// This allows the client to make requests to SSO servers that don't have CORS configured
+app.get(
+  "/proxy",
+  originValidationMiddleware,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const targetUrl = req.query.url as string;
+
+      if (!targetUrl) {
+        res.status(400).json({
+          error: "Bad Request",
+          message: "Missing 'url' query parameter",
+        });
+        return;
+      }
+
+      // Validate that the URL is well-formed
+      let url: URL;
+      try {
+        url = new URL(targetUrl);
+      } catch (e) {
+        res.status(400).json({
+          error: "Bad Request",
+          message: "Invalid URL format",
+        });
+        return;
+      }
+
+      // Only allow http and https protocols
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        res.status(400).json({
+          error: "Bad Request",
+          message: "Only HTTP and HTTPS protocols are allowed",
+        });
+        return;
+      }
+
+      console.log(`Proxying request to: ${targetUrl}`);
+
+      // Forward the request to the target URL
+      const response = await fetch(targetUrl, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "MCP-Inspector-Proxy",
+        },
+      });
+
+      // Copy the response status
+      res.status(response.status);
+
+      // Copy relevant headers from the response
+      const contentType = response.headers.get("content-type");
+      if (contentType) {
+        res.setHeader("Content-Type", contentType);
+      }
+
+      // Read and send the response body
+      const body = await response.text();
+      res.send(body);
+    } catch (error) {
+      console.error("Error in /proxy route:", error);
+      if (error instanceof Error) {
+        res.status(500).json({
+          error: "Proxy Error",
+          message: error.message,
+        });
+      } else {
+        res.status(500).json({
+          error: "Proxy Error",
+          message: "An unknown error occurred",
+        });
+      }
+    }
+  },
+);
+
 const PORT = parseInt(
   process.env.SERVER_PORT || DEFAULT_MCP_PROXY_LISTEN_PORT,
   10,

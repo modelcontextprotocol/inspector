@@ -37,10 +37,7 @@ import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
 import { ConnectionStatus, CLIENT_IDENTITY } from "../constants";
 import { Notification } from "../notificationTypes";
-import {
-  auth,
-  discoverOAuthProtectedResourceMetadata,
-} from "@modelcontextprotocol/sdk/client/auth.js";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   clearClientInformationFromSessionStorage,
   InspectorOAuthClientProvider,
@@ -49,6 +46,7 @@ import {
   clearScopeFromSessionStorage,
   discoverScopes,
 } from "../auth";
+import { discoverOAuthProtectedResourceMetadataThroughProxy } from "../proxyFetch";
 import {
   getMCPProxyAddress,
   getMCPServerRequestMaxTotalTimeout,
@@ -349,13 +347,19 @@ export function useConnection({
         // Only discover resource metadata when we need to discover scopes
         let resourceMetadata;
         try {
-          resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-            new URL("/", sseUrl),
-          );
+          resourceMetadata =
+            await discoverOAuthProtectedResourceMetadataThroughProxy(
+              new URL("/", sseUrl),
+              config,
+            );
         } catch {
           // Resource metadata is optional, continue without it
         }
-        scope = await discoverScopes(sseUrl, resourceMetadata);
+        scope = await discoverScopes(
+          sseUrl,
+          resourceMetadata ?? undefined,
+          config,
+        );
       }
 
       saveScopeToSessionStorage(sseUrl, scope);

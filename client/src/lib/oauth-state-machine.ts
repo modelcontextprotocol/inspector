@@ -1,11 +1,9 @@
 import { OAuthStep, AuthDebuggerState } from "./auth-types";
 import { DebugInspectorOAuthClientProvider, discoverScopes } from "./auth";
 import {
-  discoverAuthorizationServerMetadata,
   registerClient,
   startAuthorization,
   exchangeAuthorization,
-  discoverOAuthProtectedResourceMetadata,
   selectResourceURL,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
@@ -13,12 +11,18 @@ import {
   OAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { generateOAuthState } from "@/utils/oauthUtils";
+import {
+  discoverAuthorizationServerMetadataThroughProxy,
+  discoverOAuthProtectedResourceMetadataThroughProxy,
+} from "./proxyFetch";
+import { InspectorConfig } from "./configurationTypes";
 
 export interface StateMachineContext {
   state: AuthDebuggerState;
   serverUrl: string;
   provider: DebugInspectorOAuthClientProvider;
   updateState: (updates: Partial<AuthDebuggerState>) => void;
+  config: InspectorConfig;
 }
 
 export interface StateTransition {
@@ -36,9 +40,11 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       let resourceMetadata: OAuthProtectedResourceMetadata | null = null;
       let resourceMetadataError: Error | null = null;
       try {
-        resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-          context.serverUrl,
-        );
+        resourceMetadata =
+          await discoverOAuthProtectedResourceMetadataThroughProxy(
+            context.serverUrl,
+            context.config,
+          );
         if (resourceMetadata?.authorization_servers?.length) {
           authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
         }
@@ -57,7 +63,10 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         resourceMetadata ?? undefined,
       );
 
-      const metadata = await discoverAuthorizationServerMetadata(authServerUrl);
+      const metadata = await discoverAuthorizationServerMetadataThroughProxy(
+        authServerUrl,
+        context.config,
+      );
       if (!metadata) {
         throw new Error("Failed to discover OAuth metadata");
       }
@@ -122,6 +131,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         scope = await discoverScopes(
           context.serverUrl,
           context.state.resourceMetadata ?? undefined,
+          context.config,
         );
       }
 
@@ -211,6 +221,7 @@ export class OAuthStateMachine {
   constructor(
     private serverUrl: string,
     private updateState: (updates: Partial<AuthDebuggerState>) => void,
+    private config: InspectorConfig,
   ) {}
 
   async executeStep(state: AuthDebuggerState): Promise<void> {
@@ -220,6 +231,7 @@ export class OAuthStateMachine {
       serverUrl: this.serverUrl,
       provider,
       updateState: this.updateState,
+      config: this.config,
     };
 
     const transition = oauthTransitions[state.oauthStep];

@@ -9,7 +9,7 @@ import "@testing-library/jest-dom";
 import { describe, it, beforeEach, jest } from "@jest/globals";
 import AuthDebugger, { AuthDebuggerProps } from "../AuthDebugger";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SESSION_KEYS } from "@/lib/constants";
+import { SESSION_KEYS, DEFAULT_INSPECTOR_CONFIG } from "@/lib/constants";
 
 const mockOAuthTokens = {
   access_token: "test_access_token",
@@ -149,6 +149,7 @@ describe("AuthDebugger", () => {
     onBack: jest.fn(),
     authState: defaultAuthState,
     updateAuthState: jest.fn(),
+    config: DEFAULT_INSPECTOR_CONFIG,
   };
 
   beforeEach(() => {

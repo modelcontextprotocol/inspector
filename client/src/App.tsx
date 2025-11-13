@@ -446,9 +446,13 @@ const App = () => {
         };
 
         try {
-          const stateMachine = new OAuthStateMachine(sseUrl, (updates) => {
-            currentState = { ...currentState, ...updates };
-          });
+          const stateMachine = new OAuthStateMachine(
+            sseUrl,
+            (updates) => {
+              currentState = { ...currentState, ...updates };
+            },
+            config,
+          );
 
           while (
             currentState.oauthStep !== "complete" &&
@@ -854,6 +858,7 @@ const App = () => {
         onBack={() => setIsAuthDebuggerVisible(false)}
         authState={authState}
         updateAuthState={updateAuthState}
+        config={config}
       />
     </TabsContent>
   );

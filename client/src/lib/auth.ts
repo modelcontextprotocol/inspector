@@ -8,25 +8,36 @@ import {
   OAuthMetadata,
   OAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
 import { generateOAuthState } from "@/utils/oauthUtils";
 import { validateRedirectUrl } from "@/utils/urlValidation";
+import { discoverAuthorizationServerMetadataThroughProxy } from "./proxyFetch";
+import { InspectorConfig } from "./configurationTypes";
 
 /**
  * Discovers OAuth scopes from server metadata, with preference for resource metadata scopes
  * @param serverUrl - The MCP server URL
  * @param resourceMetadata - Optional resource metadata containing preferred scopes
+ * @param config - Optional Inspector configuration for proxy support
  * @returns Promise resolving to space-separated scope string or undefined
  */
 export const discoverScopes = async (
   serverUrl: string,
   resourceMetadata?: OAuthProtectedResourceMetadata,
+  config?: InspectorConfig,
 ): Promise<string | undefined> => {
   try {
-    const metadata = await discoverAuthorizationServerMetadata(
-      new URL("/", serverUrl),
-    );
+    // Use proxy if config is provided, otherwise fallback to direct fetch
+    const metadata = config
+      ? await discoverAuthorizationServerMetadataThroughProxy(
+          new URL("/", serverUrl),
+          config,
+        )
+      : // Fallback to direct fetch for backward compatibility
+        // This import will be used when config is not provided
+        await (
+          await import("@modelcontextprotocol/sdk/client/auth.js")
+        ).discoverAuthorizationServerMetadata(new URL("/", serverUrl));
 
     // Prefer resource metadata scopes, but fall back to OAuth metadata if empty
     const resourceScopes = resourceMetadata?.scopes_supported;
