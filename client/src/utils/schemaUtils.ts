@@ -149,20 +149,46 @@ export function isPropertyRequired(
  * Resolves $ref references in JSON schema
  * @param schema The schema that may contain $ref
  * @param rootSchema The root schema to resolve references against
+ * @param visitedRefs Optional set of visited $ref paths to detect circular references
  * @returns The resolved schema without $ref
  */
 export function resolveRef(
   schema: JsonSchemaType,
   rootSchema: JsonSchemaType,
+  visitedRefs: Set<string> = new Set(),
 ): JsonSchemaType {
+  if (!schema) return schema;
+
   if (!("$ref" in schema) || !schema.$ref) {
+    // Recursively resolve $ref in anyOf (and other nested structures)
+    if (schema.anyOf && Array.isArray(schema.anyOf)) {
+      const resolvedAnyOf = schema.anyOf.map((item) => {
+        if (typeof item === "object" && item !== null) {
+          return resolveRef(item, rootSchema, visitedRefs);
+        }
+        return item;
+      });
+      return {
+        ...schema,
+        anyOf: resolvedAnyOf,
+      };
+    }
     return schema;
   }
 
   const ref = schema.$ref;
 
-  // Handle simple #/properties/name references
+  // Handle all #/ formats (#/properties/, #/$defs/, etc.)
   if (ref.startsWith("#/")) {
+    // Check for circular reference
+    if (visitedRefs.has(ref)) {
+      console.warn(`Circular reference detected: ${ref}`);
+      return schema;
+    }
+
+    // Add current ref to visited set
+    visitedRefs.add(ref);
+
     const path = ref.substring(2).split("/");
     let current: unknown = rootSchema;
 
@@ -176,12 +202,16 @@ export function resolveRef(
         current = (current as Record<string, unknown>)[segment];
       } else {
         // If reference cannot be resolved, return the original schema
+        visitedRefs.delete(ref); // Clean up on failure
         console.warn(`Could not resolve $ref: ${ref}`);
         return schema;
       }
     }
 
-    return current as JsonSchemaType;
+    const resolved = current as JsonSchemaType;
+
+    // Recursively resolve nested structures (anyOf, oneOf, items, properties)
+    return resolveRef(resolved, rootSchema, visitedRefs);
   }
 
   // For other types of references, return the original schema
@@ -195,54 +225,28 @@ export function resolveRef(
  * @returns A normalized schema or the original schema
  */
 export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
-  // Handle anyOf with exactly string and null (FastMCP pattern)
+  // Handle anyOf with exactly 2 items (type and null) - unified handling
+  // Preserves enum and other properties automatically
   if (
     schema.anyOf &&
     schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "string") &&
     schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
   ) {
-    return { ...schema, type: "string", anyOf: undefined, nullable: true };
-  }
+    const nonNullItem = schema.anyOf.find((t) => {
+      const item = t as JsonSchemaType;
+      return item?.type !== "null";
+    }) as JsonSchemaType;
 
-  // Handle anyOf with exactly boolean and null (FastMCP pattern)
-  if (
-    schema.anyOf &&
-    schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "boolean") &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
-  ) {
-    return { ...schema, type: "boolean", anyOf: undefined, nullable: true };
-  }
-
-  // Handle anyOf with exactly number and null (FastMCP pattern)
-  if (
-    schema.anyOf &&
-    schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "number") &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
-  ) {
-    return { ...schema, type: "number", anyOf: undefined, nullable: true };
-  }
-
-  // Handle anyOf with exactly integer and null (FastMCP pattern)
-  if (
-    schema.anyOf &&
-    schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "integer") &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
-  ) {
-    return { ...schema, type: "integer", anyOf: undefined, nullable: true };
-  }
-
-  // Handle anyOf with exactly array and null (FastMCP pattern)
-  if (
-    schema.anyOf &&
-    schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "array") &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
-  ) {
-    return { ...schema, type: "array", anyOf: undefined, nullable: true };
+    // Only process if non-null item has type or enum
+    if (nonNullItem?.type || nonNullItem?.enum) {
+      return {
+        ...schema,
+        ...nonNullItem,
+        type: nonNullItem?.type || (nonNullItem?.enum ? "string" : undefined),
+        nullable: true,
+        anyOf: undefined,
+      };
+    }
   }
 
   // Handle array type with exactly string and null
