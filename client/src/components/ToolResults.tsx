@@ -205,7 +205,8 @@ const ToolResults = ({
                   />
                 )}
                 {item.type === "resource" &&
-                  (item.resource?.mimeType?.startsWith("audio/") ? (
+                  (item.resource?.mimeType?.startsWith("audio/") &&
+                  "blob" in item.resource ? (
                     <audio
                       controls
                       src={`data:${item.resource.mimeType};base64,${item.resource.blob}`}

@@ -28,7 +28,7 @@ describe("HistoryAndNotifications", () => {
       method: "notifications/message",
       params: {
         level: "info" as const,
-        message: "First notification",
+        data: "First notification",
       },
     },
     {
@@ -36,7 +36,7 @@ describe("HistoryAndNotifications", () => {
       params: {
         progressToken: "test-token",
         progress: 50,
-        message: "Second notification",
+        total: 100,
       },
     },
   ];

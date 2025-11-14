@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-cli",
-  "version": "0.17.3",
+  "version": "0.17.4",
   "description": "CLI for the Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
