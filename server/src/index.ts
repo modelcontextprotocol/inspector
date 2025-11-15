@@ -145,6 +145,8 @@ const updateHeadersInPlace = (
 };
 
 const app = express();
+
+// CORS must be applied first
 app.use(cors());
 app.use((req, res, next) => {
   res.header("Access-Control-Expose-Headers", "mcp-session-id");
@@ -377,14 +379,36 @@ const createTransport = async (
     headers["Accept"] = "text/event-stream, application/json";
     const headerHolder = { headers };
 
-    const transport = new StreamableHTTPClientTransport(
-      new URL(query.url as string),
-      {
-        // Pass a custom fetch to inject the latest headers on each request
-        fetch: createCustomFetch(headerHolder),
-      },
+    const targetUrl = new URL(query.url as string);
+    console.log("=== Creating Streamable-HTTP Transport ===");
+    console.log("Target MCP server URL:", targetUrl.toString());
+    console.log(
+      "Headers to include in requests:",
+      JSON.stringify(headers, null, 2),
     );
-    await transport.start();
+
+    const transport = new StreamableHTTPClientTransport(targetUrl, {
+      // Pass a custom fetch to inject the latest headers on each request
+      fetch: createCustomFetch(headerHolder),
+    });
+
+    console.log(
+      "Starting transport (will send first request to MCP server)...",
+    );
+    try {
+      await transport.start();
+      console.log("Transport started successfully");
+    } catch (error) {
+      console.error("=== Failed to Start Transport ===");
+      console.error("Error:", error);
+      console.error(
+        "This means the MCP server at",
+        targetUrl.toString(),
+        "rejected the connection",
+      );
+      throw error;
+    }
+
     return { transport, headerHolder };
   } else {
     console.error(`Invalid transport type: ${transportType}`);
@@ -459,10 +483,19 @@ app.post(
         res.status(500).json(error);
       }
     } else {
-      console.log("New StreamableHttp connection request");
+      console.log("=== New StreamableHttp Connection Request ===");
+      console.log("Query params:", req.query);
+      console.log("Request headers:", JSON.stringify(req.headers, null, 2));
+      console.log("Request body:", JSON.stringify(req.body, null, 2));
+
       try {
         const { transport: serverTransport, headerHolder } =
           await createTransport(req);
+
+        console.log(
+          "Headers to forward to MCP server:",
+          JSON.stringify(headerHolder?.headers, null, 2),
+        );
 
         const webAppTransport = new StreamableHTTPServerTransport({
           sessionIdGenerator: randomUUID,
@@ -494,17 +527,49 @@ app.post(
           res,
           req.body,
         );
-      } catch (error) {
+      } catch (error: unknown) {
+        console.error("=== Error Creating MCP Connection ===");
+        console.error("Error type:", (error as any)?.constructor?.name);
+        console.error("Error message:", (error as any)?.message);
+        console.error("Error details:", error);
+
         if (error instanceof SseError && error.code === 401) {
           console.error(
             "Received 401 Unauthorized from MCP server:",
             error.message,
           );
-          res.status(401).json(error);
+          res.status(401).json({
+            error: "Unauthorized",
+            message: error.message,
+            code: error.code,
+          });
           return;
         }
-        console.error("Error in /mcp POST route:", error);
-        res.status(500).json(error);
+
+        // Check if it's an HTTP error with status code
+        if ((error as any)?.response?.status) {
+          const httpError = error as any;
+          console.error("HTTP Error Status:", httpError.response.status);
+          try {
+            const errorText = await httpError.response.text();
+            console.error("HTTP Error Body:", errorText);
+          } catch {
+            console.error("HTTP Error Body: Unable to read response");
+          }
+          res.status(httpError.response.status).json({
+            error: "MCP Server Error",
+            message: httpError.message || "Unknown error",
+            status: httpError.response.status,
+          });
+          return;
+        }
+
+        console.error("Error stack:", (error as any)?.stack);
+        res.status(500).json({
+          error: "Internal Server Error",
+          message: (error as any)?.message || "Unknown error",
+          type: (error as any)?.constructor?.name,
+        });
       }
     }
   },
@@ -754,83 +819,139 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
   }
 });
 
+// Body parsing middleware for /proxy endpoint only
+// This is needed for OAuth token exchange and other proxied requests
+const proxyBodyParser = [
+  express.json(),
+  express.urlencoded({ extended: true }),
+];
+
 // Proxy endpoint for OAuth well-known discovery and other cross-origin requests
 // This allows the client to make requests to SSO servers that don't have CORS configured
-app.get(
-  "/proxy",
-  originValidationMiddleware,
-  authMiddleware,
-  async (req, res) => {
-    try {
-      const targetUrl = req.query.url as string;
+// Supports both GET and POST methods for OAuth flows
+const proxyHandler = async (req: express.Request, res: express.Response) => {
+  try {
+    const targetUrl = req.query.url as string;
 
-      if (!targetUrl) {
-        res.status(400).json({
-          error: "Bad Request",
-          message: "Missing 'url' query parameter",
-        });
-        return;
-      }
-
-      // Validate that the URL is well-formed
-      let url: URL;
-      try {
-        url = new URL(targetUrl);
-      } catch (e) {
-        res.status(400).json({
-          error: "Bad Request",
-          message: "Invalid URL format",
-        });
-        return;
-      }
-
-      // Only allow http and https protocols
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        res.status(400).json({
-          error: "Bad Request",
-          message: "Only HTTP and HTTPS protocols are allowed",
-        });
-        return;
-      }
-
-      console.log(`Proxying request to: ${targetUrl}`);
-
-      // Forward the request to the target URL
-      const response = await fetch(targetUrl, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          "User-Agent": "MCP-Inspector-Proxy",
-        },
+    if (!targetUrl) {
+      res.status(400).json({
+        error: "Bad Request",
+        message: "Missing 'url' query parameter",
       });
+      return;
+    }
 
-      // Copy the response status
-      res.status(response.status);
+    // Validate that the URL is well-formed
+    let url: URL;
+    try {
+      url = new URL(targetUrl);
+    } catch (e) {
+      res.status(400).json({
+        error: "Bad Request",
+        message: "Invalid URL format",
+      });
+      return;
+    }
 
-      // Copy relevant headers from the response
-      const contentType = response.headers.get("content-type");
-      if (contentType) {
-        res.setHeader("Content-Type", contentType);
-      }
+    // Only allow http and https protocols
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      res.status(400).json({
+        error: "Bad Request",
+        message: "Only HTTP and HTTPS protocols are allowed",
+      });
+      return;
+    }
 
-      // Read and send the response body
-      const body = await response.text();
-      res.send(body);
-    } catch (error) {
-      console.error("Error in /proxy route:", error);
-      if (error instanceof Error) {
-        res.status(500).json({
-          error: "Proxy Error",
-          message: error.message,
-        });
+    console.log(`Proxying ${req.method} request to: ${targetUrl}`);
+
+    // Prepare fetch options
+    const fetchOptions: RequestInit = {
+      method: req.method,
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "MCP-Inspector-Proxy",
+      },
+    };
+
+    // Forward Authorization header if present (for OAuth client authentication)
+    if (req.headers["authorization"]) {
+      console.log(
+        `[Proxy] Forwarding Authorization header: ${req.headers["authorization"].substring(0, 20)}...`,
+      );
+      (fetchOptions.headers as Record<string, string>)["Authorization"] =
+        req.headers["authorization"];
+    }
+
+    // For POST/PUT/PATCH requests, include the body and content-type
+    if (
+      req.method === "POST" ||
+      req.method === "PUT" ||
+      req.method === "PATCH"
+    ) {
+      const contentType = req.headers["content-type"] || "application/json";
+      console.log(`[Proxy] Incoming Content-Type: ${contentType}`);
+      console.log(`[Proxy] Incoming body:`, req.body);
+
+      if (contentType.includes("application/x-www-form-urlencoded")) {
+        // For form-encoded bodies, convert the parsed body back to URLSearchParams
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries(req.body)) {
+          params.append(key, String(value));
+        }
+        fetchOptions.body = params.toString();
+        (fetchOptions.headers as Record<string, string>)["Content-Type"] =
+          "application/x-www-form-urlencoded";
+        console.log(
+          `[Proxy] Forwarding as form-urlencoded:`,
+          fetchOptions.body,
+        );
       } else {
-        res.status(500).json({
-          error: "Proxy Error",
-          message: "An unknown error occurred",
-        });
+        // For JSON bodies, stringify as before
+        fetchOptions.body = JSON.stringify(req.body);
+        (fetchOptions.headers as Record<string, string>)["Content-Type"] =
+          "application/json";
+        console.log(`[Proxy] Forwarding as JSON:`, fetchOptions.body);
       }
     }
-  },
+
+    // Forward the request to the target URL
+    const response = await fetch(targetUrl, fetchOptions as any);
+
+    // Copy the response status
+    res.status(response.status);
+
+    // Copy relevant headers from the response
+    const contentType = response.headers.get("content-type");
+    if (contentType) {
+      res.setHeader("Content-Type", contentType);
+    }
+
+    // Read and send the response body
+    const body = await response.text();
+    res.send(body);
+  } catch (error) {
+    console.error("Error in /proxy route:", error);
+    if (error instanceof Error) {
+      res.status(500).json({
+        error: "Proxy Error",
+        message: error.message,
+      });
+    } else {
+      res.status(500).json({
+        error: "Proxy Error",
+        message: "An unknown error occurred",
+      });
+    }
+  }
+};
+
+app.get("/proxy", originValidationMiddleware, authMiddleware, proxyHandler);
+app.post(
+  "/proxy",
+  proxyBodyParser,
+  originValidationMiddleware,
+  authMiddleware,
+  proxyHandler,
 );
 
 const PORT = parseInt(

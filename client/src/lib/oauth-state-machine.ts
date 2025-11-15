@@ -1,9 +1,7 @@
 import { OAuthStep, AuthDebuggerState } from "./auth-types";
 import { DebugInspectorOAuthClientProvider, discoverScopes } from "./auth";
 import {
-  registerClient,
   startAuthorization,
-  exchangeAuthorization,
   selectResourceURL,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
@@ -14,6 +12,8 @@ import { generateOAuthState } from "@/utils/oauthUtils";
 import {
   discoverAuthorizationServerMetadataThroughProxy,
   discoverOAuthProtectedResourceMetadataThroughProxy,
+  registerClientThroughProxy,
+  exchangeAuthorizationThroughProxy,
 } from "./proxyFetch";
 import { InspectorConfig } from "./configurationTypes";
 
@@ -104,10 +104,14 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       // Try Static client first, with DCR as fallback
       let fullInformation = await context.provider.clientInformation();
       if (!fullInformation) {
-        fullInformation = await registerClient(context.serverUrl, {
-          metadata,
-          clientMetadata,
-        });
+        fullInformation = await registerClientThroughProxy(
+          context.serverUrl,
+          {
+            metadata,
+            clientMetadata,
+          },
+          context.config,
+        );
         context.provider.saveClientInformation(fullInformation);
       }
 
@@ -188,18 +192,22 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       const metadata = context.provider.getServerMetadata()!;
       const clientInformation = (await context.provider.clientInformation())!;
 
-      const tokens = await exchangeAuthorization(context.serverUrl, {
-        metadata,
-        clientInformation,
-        authorizationCode: context.state.authorizationCode,
-        codeVerifier,
-        redirectUri: context.provider.redirectUrl,
-        resource: context.state.resource
-          ? context.state.resource instanceof URL
-            ? context.state.resource
-            : new URL(context.state.resource)
-          : undefined,
-      });
+      const tokens = await exchangeAuthorizationThroughProxy(
+        context.serverUrl,
+        {
+          metadata,
+          clientInformation,
+          authorizationCode: context.state.authorizationCode,
+          codeVerifier,
+          redirectUri: context.provider.redirectUrl,
+          resource: context.state.resource
+            ? context.state.resource instanceof URL
+              ? context.state.resource
+              : new URL(context.state.resource)
+            : undefined,
+        },
+        context.config,
+      );
 
       context.provider.saveTokens(tokens);
       context.updateState({
