@@ -7,12 +7,20 @@ import { OAuthFlowProgress } from "./OAuthFlowProgress";
 import { OAuthStateMachine } from "../lib/oauth-state-machine";
 import { SESSION_KEYS } from "../lib/constants";
 import { validateRedirectUrl } from "@/utils/urlValidation";
+import {
+  createOAuthProviderForServer,
+  setOAuthMode,
+} from "../lib/oauth/provider-factory";
+import { InspectorConfig } from "../lib/configurationTypes";
+import { getMCPProxyAddress, getMCPProxyAuthToken } from "@/utils/configUtils";
 
 export interface AuthDebuggerProps {
   serverUrl: string;
   onBack: () => void;
   authState: AuthDebuggerState;
   updateAuthState: (updates: Partial<AuthDebuggerState>) => void;
+  config: InspectorConfig;
+  oauthMode: "direct" | "proxy";
 }
 
 interface StatusMessageProps {
@@ -60,7 +68,23 @@ const AuthDebugger = ({
   onBack,
   authState,
   updateAuthState,
+  config,
+  oauthMode,
 }: AuthDebuggerProps) => {
+  // Create OAuth provider based on mode with proxy credentials
+  const oauthProvider = useMemo(() => {
+    // Set the OAuth mode in sessionStorage before creating the provider
+    setOAuthMode(oauthMode, serverUrl);
+
+    const proxyAddress = getMCPProxyAddress(config);
+    const proxyAuthObj = getMCPProxyAuthToken(config);
+    return createOAuthProviderForServer(
+      serverUrl,
+      proxyAddress,
+      proxyAuthObj.token,
+    );
+  }, [serverUrl, config, oauthMode]);
+
   // Check for existing tokens on mount
   useEffect(() => {
     if (serverUrl && !authState.oauthTokens) {
@@ -103,8 +127,8 @@ const AuthDebugger = ({
   }, [serverUrl, updateAuthState]);
 
   const stateMachine = useMemo(
-    () => new OAuthStateMachine(serverUrl, updateAuthState),
-    [serverUrl, updateAuthState],
+    () => new OAuthStateMachine(serverUrl, updateAuthState, oauthProvider),
+    [serverUrl, updateAuthState, oauthProvider],
   );
 
   const proceedToNextStep = useCallback(async () => {
@@ -150,11 +174,15 @@ const AuthDebugger = ({
         latestError: null,
       };
 
-      const oauthMachine = new OAuthStateMachine(serverUrl, (updates) => {
-        // Update our temporary state during the process
-        currentState = { ...currentState, ...updates };
-        // But don't call updateAuthState yet
-      });
+      const oauthMachine = new OAuthStateMachine(
+        serverUrl,
+        (updates) => {
+          // Update our temporary state during the process
+          currentState = { ...currentState, ...updates };
+          // But don't call updateAuthState yet
+        },
+        oauthProvider,
+      );
 
       // Manually step through each stage of the OAuth flow
       while (currentState.oauthStep !== "complete") {

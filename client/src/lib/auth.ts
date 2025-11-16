@@ -254,10 +254,17 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
 // Overrides redirect URL to use the debug endpoint and allows saving server OAuth metadata to
 // display in debug UI.
 export class DebugInspectorOAuthClientProvider extends InspectorOAuthClientProvider {
+  constructor(
+    serverUrl: string,
+    private useDebugRedirect: boolean = true,
+  ) {
+    super(serverUrl);
+  }
+
   get redirectUrl(): string {
-    // We can use the debug redirect URL here because it was already registered
-    // in the parent class's clientMetadata along with the normal redirect URL
-    return this.debugRedirectUrl;
+    // Use debug redirect URL by default, or regular redirect URL when configured
+    // (e.g., when Connect button is clicked in proxy mode)
+    return this.useDebugRedirect ? this.debugRedirectUrl : super.redirectUrl;
   }
 
   saveServerMetadata(metadata: OAuthMetadata) {

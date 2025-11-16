@@ -21,6 +21,10 @@ import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
 import { OAuthStateMachine } from "./lib/oauth-state-machine";
+import {
+  createOAuthProviderForServer,
+  setOAuthMode,
+} from "./lib/oauth/provider-factory";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
 import { cleanParams } from "./utils/paramUtils";
 import type { JsonSchemaType } from "./utils/jsonUtils";
@@ -143,6 +147,12 @@ const App = () => {
 
   const [oauthClientSecret, setOauthClientSecret] = useState<string>(() => {
     return localStorage.getItem("lastOauthClientSecret") || "";
+  });
+
+  const [oauthMode, setOauthMode] = useState<"direct" | "proxy">(() => {
+    return (
+      (localStorage.getItem("lastOauthMode") as "direct" | "proxy") || "direct"
+    );
   });
 
   // Custom headers state with migration from legacy auth
@@ -400,6 +410,18 @@ const App = () => {
   }, [oauthScope]);
 
   useEffect(() => {
+    localStorage.setItem("lastOauthMode", oauthMode);
+  }, [oauthMode]);
+
+  // Sync OAuth mode to sessionStorage when server URL changes
+  useEffect(() => {
+    if (sseUrl) {
+      const key = getServerSpecificKey(SESSION_KEYS.OAUTH_MODE, sseUrl);
+      sessionStorage.setItem(key, oauthMode);
+    }
+  }, [sseUrl, oauthMode]);
+
+  useEffect(() => {
     localStorage.setItem("lastOauthClientSecret", oauthClientSecret);
   }, [oauthClientSecret]);
 
@@ -446,9 +468,24 @@ const App = () => {
         };
 
         try {
-          const stateMachine = new OAuthStateMachine(sseUrl, (updates) => {
-            currentState = { ...currentState, ...updates };
-          });
+          // Set the OAuth mode in sessionStorage before creating the provider
+          setOAuthMode(oauthMode, sseUrl);
+
+          const proxyAddress = getMCPProxyAddress(config);
+          const proxyAuthObj = getMCPProxyAuthToken(config);
+          const oauthProvider = createOAuthProviderForServer(
+            sseUrl,
+            proxyAddress,
+            proxyAuthObj.token,
+          );
+
+          const stateMachine = new OAuthStateMachine(
+            sseUrl,
+            (updates) => {
+              currentState = { ...currentState, ...updates };
+            },
+            oauthProvider,
+          );
 
           while (
             currentState.oauthStep !== "complete" &&
@@ -486,7 +523,7 @@ const App = () => {
         });
       }
     },
-    [sseUrl],
+    [sseUrl, oauthMode, config, connectMcpServer],
   );
 
   useEffect(() => {
@@ -854,6 +891,8 @@ const App = () => {
         onBack={() => setIsAuthDebuggerVisible(false)}
         authState={authState}
         updateAuthState={updateAuthState}
+        config={config}
+        oauthMode={oauthMode}
       />
     </TabsContent>
   );
@@ -913,6 +952,8 @@ const App = () => {
           setOauthClientSecret={setOauthClientSecret}
           oauthScope={oauthScope}
           setOauthScope={setOauthScope}
+          oauthMode={oauthMode}
+          setOauthMode={setOauthMode}
           onConnect={connectMcpServer}
           onDisconnect={disconnectMcpServer}
           logLevel={logLevel}

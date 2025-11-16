@@ -35,7 +35,7 @@ import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useEffect, useState } from "react";
 import { useToast } from "@/lib/hooks/useToast";
 import { z } from "zod";
-import { ConnectionStatus, CLIENT_IDENTITY } from "../constants";
+import { ConnectionStatus, CLIENT_IDENTITY, SESSION_KEYS } from "../constants";
 import { Notification } from "../notificationTypes";
 import {
   auth,
@@ -47,16 +47,22 @@ import {
   saveClientInformationToSessionStorage,
   saveScopeToSessionStorage,
   clearScopeFromSessionStorage,
-  discoverScopes,
 } from "../auth";
 import {
   getMCPProxyAddress,
   getMCPServerRequestMaxTotalTimeout,
   resetRequestTimeoutOnProgress,
   getMCPProxyAuthToken,
+  getMCPServerRequestTimeout,
 } from "@/utils/configUtils";
-import { getMCPServerRequestTimeout } from "@/utils/configUtils";
 import { InspectorConfig } from "../configurationTypes";
+import {
+  createOAuthProviderForServer,
+  setOAuthMode,
+} from "../oauth/provider-factory";
+import { OAuthStateMachine } from "../oauth-state-machine";
+import { AuthDebuggerState } from "../auth-types";
+import { validateRedirectUrl } from "@/utils/urlValidation";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CustomHeaders } from "../types/customHeaders";
 
@@ -152,6 +158,13 @@ export function useConnection({
 
     saveScopeToSessionStorage(sseUrl, oauthScope);
   }, [oauthScope, sseUrl]);
+
+  // Sync OAuth mode with connection type
+  useEffect(() => {
+    // When connection type is set to proxy, ensure OAuth mode is also proxy
+    // When connection type is direct, OAuth mode should be direct
+    setOAuthMode(connectionType, sseUrl);
+  }, [connectionType, sseUrl]);
 
   const pushHistory = (request: object, response?: object) => {
     setRequestHistory((prev) => [
@@ -344,28 +357,131 @@ export function useConnection({
 
   const handleAuthError = async (error: unknown) => {
     if (is401Error(error)) {
-      let scope = oauthScope?.trim();
-      if (!scope) {
-        // Only discover resource metadata when we need to discover scopes
-        let resourceMetadata;
-        try {
-          resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-            new URL("/", sseUrl),
-          );
-        } catch {
-          // Resource metadata is optional, continue without it
-        }
-        scope = await discoverScopes(sseUrl, resourceMetadata);
+      const scope = oauthScope?.trim();
+
+      // Use connectionType directly instead of reading from session storage
+      const oauthMode = connectionType;
+
+      if (scope) {
+        saveScopeToSessionStorage(sseUrl, scope);
       }
 
-      saveScopeToSessionStorage(sseUrl, scope);
-      const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
+      if (oauthMode === "proxy") {
+        // Use proxy mode with state machine approach (to avoid CORS)
+        // Ensure OAuth mode is set in session storage for callback to use
+        setOAuthMode("proxy", sseUrl);
 
-      const result = await auth(serverAuthProvider, {
-        serverUrl: sseUrl,
-        scope,
-      });
-      return result === "AUTHORIZED";
+        const proxyAddress = getMCPProxyAddress(config);
+        const proxyAuthObj = getMCPProxyAuthToken(config);
+        const oauthProvider = createOAuthProviderForServer(
+          sseUrl,
+          proxyAddress,
+          proxyAuthObj.token,
+        );
+
+        // Use state machine to step through OAuth flow
+        let currentState: AuthDebuggerState = {
+          oauthStep: "metadata_discovery",
+          authorizationUrl: null,
+          authorizationCode: "",
+          oauthMetadata: null,
+          oauthClientInfo: null,
+          oauthTokens: null,
+          resourceMetadata: null,
+          resourceMetadataError: null,
+          authServerUrl: null,
+          resource: null,
+          validationError: null,
+          latestError: null,
+          statusMessage: null,
+          isInitiatingAuth: false,
+        };
+
+        // Use regular redirect URL (not debug) for Connect button
+        // This will redirect to /oauth/callback which auto-connects
+        const oauthMachine = new OAuthStateMachine(
+          sseUrl,
+          (updates) => {
+            currentState = { ...currentState, ...updates };
+          },
+          oauthProvider,
+          false, // useDebugRedirect = false
+        );
+
+        // Step through OAuth flow until we need to redirect
+        while (currentState.oauthStep !== "complete") {
+          await oauthMachine.executeStep(currentState);
+
+          // When we reach authorization step, validate and redirect
+          if (
+            currentState.oauthStep === "authorization_code" &&
+            currentState.authorizationUrl
+          ) {
+            try {
+              validateRedirectUrl(currentState.authorizationUrl);
+            } catch (redirectError) {
+              console.error("Invalid authorization URL:", redirectError);
+              return false;
+            }
+
+            // Store the current auth state before redirecting
+            // This allows /oauth/callback to complete the token exchange via proxy
+            sessionStorage.setItem(
+              SESSION_KEYS.AUTH_STATE_FOR_CONNECT,
+              JSON.stringify(currentState),
+            );
+
+            // Redirect to authorization URL
+            // Will redirect to /oauth/callback which calls onOAuthConnect
+            // and auto-connects after OAuth completion
+            window.location.href = currentState.authorizationUrl.toString();
+            return false; // We're redirecting, so connection will be retried after OAuth
+          }
+        }
+
+        // If we completed the full flow (shouldn't happen on first connect)
+        return currentState.oauthStep === "complete";
+      } else {
+        // Direct mode: Use SDK's auth() function
+        let discoveredScope = scope;
+
+        // Discover scopes if not provided
+        if (!discoveredScope) {
+          const proxyAddress = getMCPProxyAddress(config);
+          const proxyAuthObj = getMCPProxyAuthToken(config);
+          const oauthProvider = createOAuthProviderForServer(
+            sseUrl,
+            proxyAddress,
+            proxyAuthObj.token,
+          );
+
+          // For direct mode, try to get resource metadata
+          let resourceMetadata;
+          try {
+            resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+              new URL("/", sseUrl),
+            );
+          } catch {
+            // Resource metadata is optional, continue without it
+          }
+
+          discoveredScope = await oauthProvider.discoverScopes(
+            sseUrl,
+            resourceMetadata,
+          );
+          if (discoveredScope) {
+            saveScopeToSessionStorage(sseUrl, discoveredScope);
+          }
+        }
+
+        const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
+
+        const result = await auth(serverAuthProvider, {
+          serverUrl: sseUrl,
+          scope: discoveredScope,
+        });
+        return result === "AUTHORIZED";
+      }
     }
 
     return false;

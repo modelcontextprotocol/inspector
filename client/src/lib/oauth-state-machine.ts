@@ -1,24 +1,35 @@
 import { OAuthStep, AuthDebuggerState } from "./auth-types";
-import { DebugInspectorOAuthClientProvider, discoverScopes } from "./auth";
-import {
-  discoverAuthorizationServerMetadata,
-  registerClient,
-  startAuthorization,
-  exchangeAuthorization,
-  discoverOAuthProtectedResourceMetadata,
-  selectResourceURL,
-} from "@modelcontextprotocol/sdk/client/auth.js";
-import {
-  OAuthMetadataSchema,
-  OAuthProtectedResourceMetadata,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+import { DebugInspectorOAuthClientProvider } from "./auth";
+import { selectResourceURL } from "@modelcontextprotocol/sdk/client/auth.js";
 import { generateOAuthState } from "@/utils/oauthUtils";
+import { OAuthProvider } from "./oauth/provider-interface";
+import { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 export interface StateMachineContext {
   state: AuthDebuggerState;
   serverUrl: string;
   provider: DebugInspectorOAuthClientProvider;
+  oauthProvider: OAuthProvider;
   updateState: (updates: Partial<AuthDebuggerState>) => void;
+}
+
+/**
+ * Helper function to resolve scope - either use user-provided scope or discover it
+ */
+async function resolveScope(
+  userScope: string | undefined,
+  oauthProvider: OAuthProvider,
+  serverUrl: string,
+  resourceMetadata?: OAuthProtectedResourceMetadata | null,
+): Promise<string | undefined> {
+  if (userScope && userScope.trim() !== "") {
+    return userScope;
+  }
+
+  return await oauthProvider.discoverScopes(
+    serverUrl,
+    resourceMetadata ?? undefined,
+  );
 }
 
 export interface StateTransition {
@@ -31,37 +42,31 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
   metadata_discovery: {
     canTransition: async () => true,
     execute: async (context) => {
-      // Default to discovering from the server's URL
-      let authServerUrl = new URL("/", context.serverUrl);
-      let resourceMetadata: OAuthProtectedResourceMetadata | null = null;
       let resourceMetadataError: Error | null = null;
-      try {
-        resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-          context.serverUrl,
-        );
-        if (resourceMetadata?.authorization_servers?.length) {
-          authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
-        }
-      } catch (e) {
-        if (e instanceof Error) {
-          resourceMetadataError = e;
-        } else {
-          resourceMetadataError = new Error(String(e));
-        }
+
+      // Use the OAuth provider to discover metadata
+      const discoveryResult = await context.oauthProvider
+        .discover(context.serverUrl)
+        .catch((e) => {
+          resourceMetadataError = e instanceof Error ? e : new Error(String(e));
+          throw e;
+        });
+
+      const resourceMetadata = discoveryResult.resourceMetadata;
+      const parsedMetadata = discoveryResult.authServerMetadata;
+
+      // Determine auth server URL from metadata
+      let authServerUrl = new URL(parsedMetadata.issuer);
+      if (resourceMetadata?.authorization_servers?.length) {
+        authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
       }
 
       const resource: URL | undefined = await selectResourceURL(
         context.serverUrl,
         context.provider,
-        // we default to null, so swap it for undefined if not set
         resourceMetadata ?? undefined,
       );
 
-      const metadata = await discoverAuthorizationServerMetadata(authServerUrl);
-      if (!metadata) {
-        throw new Error("Failed to discover OAuth metadata");
-      }
-      const parsedMetadata = await OAuthMetadataSchema.parseAsync(metadata);
       context.provider.saveServerMetadata(parsedMetadata);
       context.updateState({
         resourceMetadata,
@@ -81,22 +86,24 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       const clientMetadata = context.provider.clientMetadata;
 
       // Priority: user-provided scope > discovered scopes
-      if (!context.provider.scope || context.provider.scope.trim() === "") {
-        // Prefer scopes from resource metadata if available
-        const scopesSupported =
-          context.state.resourceMetadata?.scopes_supported ||
-          metadata.scopes_supported;
-        // Add all supported scopes to client registration
-        if (scopesSupported) {
-          clientMetadata.scope = scopesSupported.join(" ");
-        }
+      const discoveredScope = await resolveScope(
+        context.provider.scope,
+        context.oauthProvider,
+        context.serverUrl,
+        context.state.resourceMetadata,
+      );
+
+      // Add all supported scopes to client registration
+      if (discoveredScope) {
+        clientMetadata.scope = discoveredScope;
       }
 
       // Try Static client first, with DCR as fallback
       let fullInformation = await context.provider.clientInformation();
       if (!fullInformation) {
-        fullInformation = await registerClient(context.serverUrl, {
+        fullInformation = await context.oauthProvider.registerClient({
           metadata,
+          authServerUrl: context.serverUrl,
           clientMetadata,
         });
         context.provider.saveClientInformation(fullInformation);
@@ -117,25 +124,22 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       const clientInformation = context.state.oauthClientInfo!;
 
       // Priority: user-provided scope > discovered scopes
-      let scope = context.provider.scope;
-      if (!scope || scope.trim() === "") {
-        scope = await discoverScopes(
-          context.serverUrl,
-          context.state.resourceMetadata ?? undefined,
-        );
-      }
-
-      const { authorizationUrl, codeVerifier } = await startAuthorization(
+      const scope = await resolveScope(
+        context.provider.scope,
+        context.oauthProvider,
         context.serverUrl,
-        {
+        context.state.resourceMetadata,
+      );
+
+      const { authorizationUrl, codeVerifier } =
+        await context.oauthProvider.startAuthorization({
           metadata,
           clientInformation,
           redirectUrl: context.provider.redirectUrl,
-          scope,
+          scope: scope || "",
           state: generateOAuthState(),
           resource: context.state.resource ?? undefined,
-        },
-      );
+        });
 
       context.provider.saveCodeVerifier(codeVerifier);
       context.updateState({
@@ -178,7 +182,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       const metadata = context.provider.getServerMetadata()!;
       const clientInformation = (await context.provider.clientInformation())!;
 
-      const tokens = await exchangeAuthorization(context.serverUrl, {
+      const tokens = await context.oauthProvider.exchangeToken({
         metadata,
         clientInformation,
         authorizationCode: context.state.authorizationCode,
@@ -211,14 +215,23 @@ export class OAuthStateMachine {
   constructor(
     private serverUrl: string,
     private updateState: (updates: Partial<AuthDebuggerState>) => void,
+    private oauthProvider: OAuthProvider,
+    private useDebugRedirect: boolean = true,
   ) {}
 
   async executeStep(state: AuthDebuggerState): Promise<void> {
-    const provider = new DebugInspectorOAuthClientProvider(this.serverUrl);
+    // Always use DebugInspectorOAuthClientProvider, but it will use
+    // regular or debug redirect URL based on useDebugRedirect flag
+    const provider = new DebugInspectorOAuthClientProvider(
+      this.serverUrl,
+      this.useDebugRedirect,
+    );
+
     const context: StateMachineContext = {
       state,
       serverUrl: this.serverUrl,
       provider,
+      oauthProvider: this.oauthProvider,
       updateState: this.updateState,
     };
 
