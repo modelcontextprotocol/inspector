@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { McpResponse } from "./types.js";
+import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 
 export const validLogLevels = [
   "trace",
@@ -15,9 +16,10 @@ export type LogLevel = (typeof validLogLevels)[number];
 export async function connect(
   client: Client,
   transport: Transport,
+  options: RequestOptions,
 ): Promise<void> {
   try {
-    await client.connect(transport);
+    await client.connect(transport, options);
 
     if (client.getServerCapabilities()?.logging) {
       // default logging level is undefined in the spec, but the user of the

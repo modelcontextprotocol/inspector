@@ -20,6 +20,7 @@ import {
 } from "./client/index.js";
 import { handleError } from "./error-handler.js";
 import { createTransport, TransportOptions } from "./transport.js";
+import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { awaitableLog } from "./utils/awaitable-log.js";
 
 // JSON value type for CLI arguments
@@ -41,6 +42,9 @@ type Args = {
   logLevel?: LogLevel;
   toolName?: string;
   toolArg?: Record<string, JsonValue>;
+  requestTimeout?: number;
+  resetTimeoutOnProgress?: boolean;
+  maxTotalTimeout?: number;
   transport?: "sse" | "stdio" | "http";
   headers?: Record<string, string>;
 };
@@ -123,7 +127,13 @@ async function callMethod(args: Args): Promise<void> {
   const client = new Client(clientIdentity);
 
   try {
-    await connect(client, transport);
+    const mcpRequestOptions: RequestOptions = {
+      timeout: args?.requestTimeout,
+      resetTimeoutOnProgress: args?.resetTimeoutOnProgress,
+      maxTotalTimeout: args?.maxTotalTimeout,
+    };
+
+    await connect(client, transport, mcpRequestOptions);
 
     let result: McpResponse;
 
@@ -240,6 +250,24 @@ function parseHeaderPair(
   return { ...previous, [key]: val };
 }
 
+function parseStringToNumber(value: string): number {
+  const parsedValue = parseInt(value, 10);
+  if (isNaN(parsedValue)) {
+    throw new Error(`Invalid parameter format: ${value}. Use a number format.`);
+  }
+  return parsedValue;
+}
+
+function parseStringToBoolean(value: string): boolean {
+  if (value === "true") {
+    return true;
+  } else if (value === "false") {
+    return false;
+  } else {
+    throw new Error(`Invalid parameter format: ${value}. Use true or false.`);
+  }
+}
+
 function parseArgs(): Args {
   const program = new Command();
 
@@ -304,9 +332,24 @@ function parseArgs(): Args {
         return value as LogLevel;
       },
     )
-    //
-    // Transport options
-    //
+    .option(
+      "--request-timeout <number>",
+      "Timeout for requests to the MCP server (ms)",
+      parseStringToNumber,
+      10000,
+    )
+    .option(
+      "--reset-timeout-on-progress <boolean>",
+      "Reset timeout on progress notifications",
+      parseStringToBoolean,
+      true,
+    )
+    .option(
+      "--max-total-timeout <number>",
+      "Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)",
+      parseStringToNumber,
+      60000,
+    )
     .option(
       "--transport <type>",
       "Transport type (sse, http, or stdio). Auto-detected from URL: /mcp → http, /sse → sse, commands → stdio",
