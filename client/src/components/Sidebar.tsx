@@ -62,6 +62,8 @@ interface SidebarProps {
   setOauthClientSecret: (secret: string) => void;
   oauthScope: string;
   setOauthScope: (scope: string) => void;
+  oauthMode: "direct" | "proxy";
+  setOauthMode: (mode: "direct" | "proxy") => void;
   onConnect: () => void;
   onDisconnect: () => void;
   logLevel: LoggingLevel;
@@ -93,6 +95,8 @@ const Sidebar = ({
   setOauthClientSecret,
   oauthScope,
   setOauthScope,
+  oauthMode,
+  setOauthMode,
   onConnect,
   onDisconnect,
   logLevel,
@@ -552,6 +556,43 @@ const Sidebar = ({
                       OAuth 2.0 Flow
                     </h4>
                     <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium">
+                          OAuth Mode
+                        </label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <p className="text-xs">
+                              <strong>Direct:</strong> Browser-based OAuth (may
+                              encounter CORS issues)
+                              <br />
+                              <strong>Via Proxy:</strong> Backend-proxied OAuth
+                              to avoid CORS
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <Select
+                        value={oauthMode}
+                        onValueChange={(value: "direct" | "proxy") =>
+                          setOauthMode(value)
+                        }
+                      >
+                        <SelectTrigger data-testid="oauth-mode-select">
+                          <SelectValue placeholder="Select OAuth mode" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="direct">
+                            Direct (browser-based)
+                          </SelectItem>
+                          <SelectItem value="proxy">
+                            Via Proxy (avoids CORS)
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
                       <label className="text-sm font-medium">Client ID</label>
                       <Input
                         placeholder="Client ID"

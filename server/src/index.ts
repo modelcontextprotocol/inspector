@@ -25,6 +25,7 @@ import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
+import oauthRouter from "./oauth/routes.js";
 
 const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 
@@ -753,6 +754,9 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
     res.status(500).json(error);
   }
 });
+
+// Mount OAuth routes under /api/oauth/*
+app.use("/api/oauth", originValidationMiddleware, authMiddleware, oauthRouter);
 
 const PORT = parseInt(
   process.env.SERVER_PORT || DEFAULT_MCP_PROXY_LISTEN_PORT,

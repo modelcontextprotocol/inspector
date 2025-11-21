@@ -48,6 +48,8 @@ describe("Sidebar", () => {
     setOauthClientSecret: jest.fn(),
     oauthScope: "",
     setOauthScope: jest.fn(),
+    oauthMode: "direct" as const,
+    setOauthMode: jest.fn(),
     env: {},
     setEnv: jest.fn(),
     customHeaders: [],
