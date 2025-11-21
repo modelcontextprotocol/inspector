@@ -40,6 +40,7 @@ import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
 import { useToast } from "@/lib/hooks/useToast";
 import useCopy from "@/lib/hooks/useCopy";
+import IconDisplay, { WithIcons } from "./IconDisplay";
 import { cn } from "@/lib/utils";
 import {
   META_NAME_RULES_MESSAGE,
@@ -159,6 +160,7 @@ const ToolsTab = ({
           setSelectedItem={setSelectedTool}
           renderItem={(tool) => (
             <div className="flex flex-col items-start">
+              <IconDisplay icons={(tool as WithIcons).icons} size="sm" />
               <span className="flex-1">{tool.name}</span>
               <span className="text-sm text-gray-500 text-left line-clamp-3">
                 {tool.description}
@@ -175,6 +177,17 @@ const ToolsTab = ({
             <h3 className="font-semibold">
               {selectedTool ? selectedTool.name : "Select a tool"}
             </h3>
+            <div className="flex items-center gap-2">
+              {selectedTool && (
+                <IconDisplay
+                  icons={(selectedTool as WithIcons).icons}
+                  size="md"
+                />
+              )}
+              <h3 className="font-semibold">
+                {selectedTool ? selectedTool.name : "Select a tool"}
+              </h3>
+            </div>
           </div>
           <div className="p-4">
             {selectedTool ? (
