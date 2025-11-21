@@ -61,6 +61,8 @@ describe("Sidebar", () => {
     loggingSupported: true,
     config: DEFAULT_INSPECTOR_CONFIG,
     setConfig: jest.fn(),
+    workingDir: "",
+    setWorkingDir: jest.fn(),
     connectionType: "proxy" as const,
     setConnectionType: jest.fn(),
   };
@@ -76,6 +78,9 @@ describe("Sidebar", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.clearAllTimers();
+    // Reset fetch mock per test
+    // @ts-expect-error - assignable in test env
+    global.fetch = undefined;
   });
 
   describe("Command and arguments", () => {
@@ -107,6 +112,97 @@ describe("Sidebar", () => {
 
       fireEvent.blur(commandInput);
       expect(setCommand).toHaveBeenLastCalledWith("node");
+    });
+  });
+
+  describe("Working Directory", () => {
+    it("should display working directory input field for stdio transport", () => {
+      renderSidebar({ transportType: "stdio" });
+
+      const workingDirInput = screen.getByLabelText(
+        "Working Directory (optional)",
+      );
+      expect(workingDirInput).toBeInTheDocument();
+      expect(workingDirInput).toHaveAttribute(
+        "placeholder",
+        "Working Directory (optional)",
+      );
+    });
+
+    it("should not display working directory input field for non-stdio transports", () => {
+      renderSidebar({ transportType: "sse" });
+
+      const workingDirInput = screen.queryByLabelText(
+        "Working Directory (optional)",
+      );
+      expect(workingDirInput).not.toBeInTheDocument();
+    });
+
+    it("should update working directory value when input changes", () => {
+      const setWorkingDir = jest.fn();
+      renderSidebar({
+        transportType: "stdio",
+        workingDir: "/path/to/project",
+        setWorkingDir,
+      });
+
+      const workingDirInput = screen.getByLabelText(
+        "Working Directory (optional)",
+      );
+      fireEvent.change(workingDirInput, { target: { value: "/new/path" } });
+
+      expect(setWorkingDir).toHaveBeenCalledWith("/new/path");
+    });
+
+    it("should show validation error for invalid working directory path on blur", async () => {
+      // Mock fetch to return invalid
+      // @ts-expect-error - jasmine env
+      global.fetch = jest.fn(() =>
+        Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              valid: false,
+              error: "Directory does not exist or is not accessible",
+            }),
+        }),
+      );
+
+      renderSidebar({
+        transportType: "stdio",
+        workingDir: "/nonexistent/path",
+      });
+      const workingDirInput = screen.getByLabelText(
+        "Working Directory (optional)",
+      );
+      await act(async () => {
+        fireEvent.blur(workingDirInput);
+      });
+
+      expect(
+        await screen.findByText(
+          "Directory does not exist or is not accessible",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("should not show validation error for valid working directory path on blur", async () => {
+      // Mock fetch to return valid
+      // @ts-expect-error - jasmine env
+      global.fetch = jest.fn(() =>
+        Promise.resolve({ json: () => Promise.resolve({ valid: true }) }),
+      );
+
+      renderSidebar({ transportType: "stdio", workingDir: "/tmp" });
+      const workingDirInput = screen.getByLabelText(
+        "Working Directory (optional)",
+      );
+      await act(async () => {
+        fireEvent.blur(workingDirInput);
+      });
+
+      expect(
+        screen.queryByText("Directory does not exist or is not accessible"),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -457,6 +553,40 @@ describe("Sidebar", () => {
       });
     });
 
+    it("should copy server entry configuration with working directory for STDIO transport", async () => {
+      const command = "node";
+      const args = "--inspect server.js";
+      const env = { API_KEY: "test-key", DEBUG: "true" };
+      const workingDir = "/path/to/project";
+
+      renderSidebar({
+        transportType: "stdio",
+        command,
+        args,
+        env,
+        workingDir,
+      });
+
+      await act(async () => {
+        const { serverEntry } = getCopyButtons();
+        fireEvent.click(serverEntry);
+        jest.runAllTimers();
+      });
+
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      const expectedConfig = JSON.stringify(
+        {
+          command,
+          args: ["--inspect", "server.js"],
+          env,
+          workingDir,
+        },
+        null,
+        4,
+      );
+      expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+    });
+
     it("should copy servers file configuration to clipboard for STDIO transport", async () => {
       const command = "node";
       const args = "--inspect server.js";
@@ -483,6 +613,44 @@ describe("Sidebar", () => {
               command,
               args: ["--inspect", "server.js"],
               env,
+            },
+          },
+        },
+        null,
+        4,
+      );
+      expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+    });
+
+    it("should copy servers file configuration with working directory for STDIO transport", async () => {
+      const command = "node";
+      const args = "--inspect server.js";
+      const env = { API_KEY: "test-key", DEBUG: "true" };
+      const workingDir = "/path/to/project";
+
+      renderSidebar({
+        transportType: "stdio",
+        command,
+        args,
+        env,
+        workingDir,
+      });
+
+      await act(async () => {
+        const { serversFile } = getCopyButtons();
+        fireEvent.click(serversFile);
+        jest.runAllTimers();
+      });
+
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      const expectedConfig = JSON.stringify(
+        {
+          mcpServers: {
+            "default-server": {
+              command,
+              args: ["--inspect", "server.js"],
+              env,
+              workingDir,
             },
           },
         },
