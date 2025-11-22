@@ -406,7 +406,7 @@ export function useConnection({
   const connect = async (_e?: unknown, retryCount: number = 0) => {
     const clientCapabilities = {
       capabilities: {
-        sampling: {},
+        sampling: { tools: {} },
         elicitation: {},
         roots: {
           listChanged: true,
