@@ -24,7 +24,8 @@ const mockRequest: PendingRequest = {
   },
 };
 
-const mockRequestWithTools: PendingRequest = {
+// Use type assertion for mock with tools since SDK types may not include tools yet
+const mockRequestWithTools = {
   id: 2,
   request: {
     method: "sampling/createMessage",
@@ -65,7 +66,7 @@ const mockRequestWithTools: PendingRequest = {
       toolChoice: { mode: "auto" },
     },
   },
-};
+} as PendingRequest;
 
 describe("Form to handle sampling response", () => {
   const mockOnApprove = jest.fn();
