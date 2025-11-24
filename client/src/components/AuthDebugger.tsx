@@ -1,6 +1,9 @@
 import { useCallback, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { DebugInspectorOAuthClientProvider } from "../lib/auth";
+import { ProxyOAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/providers/proxyProvider.js";
+import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
+import { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { AlertCircle } from "lucide-react";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
@@ -216,6 +219,94 @@ const AuthDebugger = ({
     }
   }, [serverUrl, updateAuthState, authState]);
 
+  const handleQuickRefreshToken = useCallback(async () => {
+    if (!serverUrl) {
+      updateAuthState({
+        statusMessage: {
+          type: "error",
+          message:
+            "Please enter a server URL in the sidebar before authenticating",
+        },
+      });
+      return;
+    }
+    if (!authState.oauthTokens || !authState.oauthTokens.refresh_token) {
+      updateAuthState({
+        statusMessage: {
+          type: "error",
+          message: "Refresh Token is not available",
+        },
+      });
+      return;
+    }
+
+    updateAuthState({ isInitiatingAuth: true, statusMessage: null });
+
+    try {
+      const debugProvider = new DebugInspectorOAuthClientProvider(serverUrl);
+      const clientInfo = await debugProvider.clientInformation();
+      const validClient: OAuthClientInformationFull = {
+        client_id: clientInfo!.client_id,
+        redirect_uris: debugProvider.redirect_uris,
+      };
+
+      const authServerMeta =
+        await discoverAuthorizationServerMetadata(serverUrl);
+      if (!authServerMeta) {
+        updateAuthState({
+          statusMessage: {
+            type: "error",
+            message: "Could not reach the OAuth server",
+          },
+        });
+        return;
+      }
+
+      const tokenUrl = authServerMeta.token_endpoint;
+      const authorizationUrl = authServerMeta.authorization_endpoint;
+      const scopes = authState.oauthTokens.scope?.split(" ") || [];
+      const expiresAt = authState.oauthTokens.expires_in || 0;
+
+      const provider = new ProxyOAuthServerProvider({
+        endpoints: { authorizationUrl, tokenUrl },
+        verifyAccessToken: async (token) => {
+          return {
+            token,
+            clientId: validClient.client_id,
+            scopes,
+            expiresAt: Date.now() / 1000 + expiresAt,
+          };
+        },
+        getClient: async () => validClient,
+      });
+      const newOauthTokens = await provider.exchangeRefreshToken(
+        validClient,
+        authState.oauthTokens.refresh_token,
+        scopes,
+      );
+
+      updateAuthState({
+        ...authState,
+        oauthTokens: newOauthTokens,
+        statusMessage: {
+          type: "info",
+          message: "Authentication completed successfully",
+        },
+      });
+      debugProvider.saveTokens(newOauthTokens);
+    } catch (error) {
+      console.error("OAuth refresh error:", error);
+      updateAuthState({
+        statusMessage: {
+          type: "error",
+          message: `Failed to refresh OAuth tokens: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      });
+    } finally {
+      updateAuthState({ isInitiatingAuth: false });
+    }
+  }, [serverUrl, updateAuthState, authState]);
+
   const handleClearOAuth = useCallback(() => {
     if (serverUrl) {
       const serverAuthProvider = new DebugInspectorOAuthClientProvider(
@@ -283,6 +374,16 @@ const AuthDebugger = ({
                       ? "Guided Token Refresh"
                       : "Guided OAuth Flow"}
                   </Button>
+
+                  {authState.oauthTokens &&
+                    authState.oauthTokens.refresh_token && (
+                      <Button
+                        onClick={handleQuickRefreshToken}
+                        disabled={authState.isInitiatingAuth}
+                      >
+                        Quick Refresh without ReAuth
+                      </Button>
+                    )}
 
                   <Button
                     onClick={handleQuickOAuth}
