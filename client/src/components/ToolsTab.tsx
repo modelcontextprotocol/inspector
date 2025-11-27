@@ -304,7 +304,18 @@ const ToolsTab = ({
                               </SelectTrigger>
                               <SelectContent>
                                 {prop.enum.map((option) => (
-                                  <SelectItem key={option} value={option}>
+                                  <SelectItem
+                                    key={option}
+                                    value={option}
+                                    onPointerUp={() => {
+                                      if (!required && params[key] === option) {
+                                        setParams({
+                                          ...params,
+                                          [key]: undefined,
+                                        });
+                                      }
+                                    }}
+                                  >
                                     {option}
                                   </SelectItem>
                                 ))}
