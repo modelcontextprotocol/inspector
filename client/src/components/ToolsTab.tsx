@@ -30,6 +30,7 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   AlertCircle,
   Copy,
   CheckCheck,
@@ -40,6 +41,7 @@ import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
 import { useToast } from "@/lib/hooks/useToast";
 import useCopy from "@/lib/hooks/useCopy";
+import IconDisplay, { WithIcons } from "./IconDisplay";
 import { cn } from "@/lib/utils";
 import {
   META_NAME_RULES_MESSAGE,
@@ -158,11 +160,17 @@ const ToolsTab = ({
           }}
           setSelectedItem={setSelectedTool}
           renderItem={(tool) => (
-            <div className="flex flex-col items-start">
-              <span className="flex-1">{tool.name}</span>
-              <span className="text-sm text-gray-500 text-left line-clamp-3">
-                {tool.description}
-              </span>
+            <div className="flex items-start w-full gap-2">
+              <div className="flex-shrink-0 mt-1">
+                <IconDisplay icons={(tool as WithIcons).icons} size="sm" />
+              </div>
+              <div className="flex flex-col flex-1 min-w-0">
+                <span className="truncate">{tool.name}</span>
+                <span className="text-sm text-gray-500 text-left line-clamp-2">
+                  {tool.description}
+                </span>
+              </div>
+              <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 mt-1" />
             </div>
           )}
           title="Tools"
@@ -172,9 +180,17 @@ const ToolsTab = ({
 
         <div className="bg-card border border-border rounded-lg shadow">
           <div className="p-4 border-b border-gray-200 dark:border-border">
-            <h3 className="font-semibold">
-              {selectedTool ? selectedTool.name : "Select a tool"}
-            </h3>
+            <div className="flex items-center gap-2">
+              {selectedTool && (
+                <IconDisplay
+                  icons={(selectedTool as WithIcons).icons}
+                  size="md"
+                />
+              )}
+              <h3 className="font-semibold">
+                {selectedTool ? selectedTool.name : "Select a tool"}
+              </h3>
+            </div>
           </div>
           <div className="p-4">
             {selectedTool ? (

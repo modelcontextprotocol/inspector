@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { useCompletionState } from "@/lib/hooks/useCompletionState";
 import JsonView from "./JsonView";
 import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
+import IconDisplay, { WithIcons } from "./IconDisplay";
 
 const ResourcesTab = ({
   resources,
@@ -129,7 +130,10 @@ const ResourcesTab = ({
           }}
           renderItem={(resource) => (
             <div className="flex items-center w-full">
-              <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
+              <IconDisplay icons={(resource as WithIcons).icons} size="sm" />
+              {!(resource as WithIcons).icons && (
+                <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
+              )}
               <span className="flex-1 truncate" title={resource.uri.toString()}>
                 {resource.name}
               </span>
@@ -159,7 +163,10 @@ const ResourcesTab = ({
           }}
           renderItem={(template) => (
             <div className="flex items-center w-full">
-              <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
+              <IconDisplay icons={(template as WithIcons).icons} size="sm" />
+              {!(template as WithIcons).icons && (
+                <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
+              )}
               <span className="flex-1 truncate" title={template.uriTemplate}>
                 {template.name}
               </span>
@@ -175,16 +182,26 @@ const ResourcesTab = ({
 
         <div className="bg-card border border-border rounded-lg shadow">
           <div className="p-4 border-b border-gray-200 dark:border-border flex justify-between items-center">
-            <h3
-              className="font-semibold truncate"
-              title={selectedResource?.name || selectedTemplate?.name}
-            >
-              {selectedResource
-                ? selectedResource.name
-                : selectedTemplate
-                  ? selectedTemplate.name
-                  : "Select a resource or template"}
-            </h3>
+            <div className="flex items-center gap-2 truncate">
+              {(selectedResource || selectedTemplate) && (
+                <IconDisplay
+                  icons={
+                    ((selectedResource || selectedTemplate) as WithIcons).icons
+                  }
+                  size="md"
+                />
+              )}
+              <h3
+                className="font-semibold truncate"
+                title={selectedResource?.name || selectedTemplate?.name}
+              >
+                {selectedResource
+                  ? selectedResource.name
+                  : selectedTemplate
+                    ? selectedTemplate.name
+                    : "Select a resource or template"}
+              </h3>
+            </div>
             {selectedResource && (
               <div className="flex row-auto gap-1 justify-end w-2/5">
                 {resourceSubscriptionsSupported &&
