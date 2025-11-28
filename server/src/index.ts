@@ -539,6 +539,7 @@ app.delete(
           res.status(404).end("Transport not found for sessionId " + sessionId);
         } else {
           await serverTransport.terminateSession();
+          await serverTransport.close();
           webAppTransports.delete(sessionId);
           serverTransports.delete(sessionId);
           sessionHeaderHolders.delete(sessionId);
