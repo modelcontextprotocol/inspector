@@ -1,6 +1,118 @@
 # Inspector V2 Progress Log
 
-## Current Session: 2025-11-30 (Modal Port to Mantine)
+## Current Session: 2025-11-30 (Playwright MCP Visual Testing)
+
+### Completed
+- Playwright MCP visual testing of both prototype branches
+- Code audit for V2 UX spec and MCP 2025-11-25 protocol alignment
+- Captured 19 screenshots for comparison
+
+### Screenshots Captured
+**Mantine branch:**
+- mantine-serverlist.png, mantine-tools.png, mantine-resources.png
+- mantine-logs.png, mantine-tasks.png, mantine-history.png
+
+**Shadcn branch:**
+- shadcn-serverlist.png, shadcn-tools.png, shadcn-resources.png
+- shadcn-prompts.png, shadcn-logs.png, shadcn-tasks.png, shadcn-history.png
+
+**Modals (from earlier testing):**
+- add-server-modal.png, server-info-modal.png
+- import-modal-empty.png, import-modal-validated.png
+
+### Spec Alignment Audit Results
+
+**V2 UX Spec Coverage (Both prototypes):**
+| Feature | Implemented | Notes |
+|---------|-------------|-------|
+| ServerList - Grid cards | Yes | 2-col responsive grid |
+| ServerList - Add Server menu | Yes | Dropdown with 3 options |
+| ServerCard - Status indicators | Yes | connected/disconnected/failed with colors |
+| ServerCard - Toggle switch | Yes | Enable/disable |
+| ServerCard - Copy command | Yes | Copy button |
+| ServerCard - Info/Edit/Remove | Yes | Action buttons |
+| ServerInfoModal - Capabilities | Yes | Shows tools/resources/prompts counts |
+| AddServerModal - Transport selection | Yes | STDIO/SSE/Streamable HTTP |
+| AddServerModal - Env vars | Yes | Key-value editor |
+| ImportServerJsonModal - JSON validation | Yes | Live validation |
+| AppLayout - Header nav | Yes | Server name, status, nav links |
+| AppLayout - Disconnect button | Yes | Red outlined button |
+| Tools - 3-column layout | Yes | List/params/results panels |
+| Tools - Annotations display | Yes | readOnly, destructive, longRunning badges |
+| Tools - Progress bar | Yes | With cancel button |
+| Tools - Search filter | Yes | Filter tools list |
+| Tools - ListChangedIndicator | Yes | Pulsing dot with Refresh |
+| Resources - List with annotations | Yes | audience, priority badges |
+| Resources - Templates section | Yes | Input + Go button for each |
+| Resources - Subscriptions | Yes | Green dot, Unsub button |
+| Prompts - Dropdown selector | Yes | Select prompt |
+| Prompts - Arguments form | Yes | Required indicator |
+| Prompts - Messages display | Yes | Role-based styling |
+| Logs - Log level selector | Yes | Dropdown + Set Level |
+| Logs - Level filters | Yes | Checkboxes per level |
+| Logs - Color-coded entries | Yes | Different colors per level |
+| Logs - Export button | Yes | Export functionality |
+| Logs - Auto-scroll | Yes | Checkbox toggle |
+| Tasks - Active/Completed sections | Yes | Separate card groups |
+| Tasks - Progress bars | Yes | With percentage |
+| Tasks - Cancel button | Yes | For active tasks |
+| Tasks - View Result/Dismiss | Yes | For completed tasks |
+| History - Expandable entries | Yes | Collapse/Expand button |
+| History - Pin/Unpin | Yes | Star icon, pinned section |
+| History - Replay button | Yes | Re-execute request |
+| History - Filter by method | Yes | Dropdown filter |
+| History - Search | Yes | Text search |
+
+**Missing (Expected - not in prototype scope):**
+- Sampling Panel (sampling/createMessage)
+- Elicitation Handler (form + URL modes)
+- Roots Configuration UI
+- Experimental Features Panel (Raw JSON-RPC)
+- Autocomplete in forms
+
+### Bugs Found and Fixed
+
+**Shadcn History Page - CRASH (FIXED):**
+- Location: `History.tsx:235`
+- Error: `A <Select.Item /> must have a value prop that is not an empty string`
+- Cause: `<SelectItem value="">All methods</SelectItem>`
+- Fix applied:
+  - Line 235: Changed `value=""` to `value="all"`
+  - Line 208: Added `methodFilter === 'all'` to filter condition
+- Verified working with Playwright screenshot: `shadcn-history-fixed.png`
+
+**Mantine History Page:**
+- Works correctly with empty value in Select (no fix needed)
+
+### Visual Comparison
+
+| Aspect | Mantine | Shadcn |
+|--------|---------|--------|
+| Theme | Dark (default) | Dark (custom) |
+| Badge colors | Consistent | Varies (some warning badges harder to read) |
+| Card styling | Soft borders | Sharper borders |
+| Progress bars | Blue tint | Green/gray |
+| Annotation badges | All uniform | Color-coded (destructive=red, long-run=yellow) |
+| History page | Works | Works (after fix) |
+
+### Build Size (from earlier)
+| Metric | Mantine | Shadcn |
+|--------|---------|--------|
+| CSS | 202 kB | 20 kB |
+| JS gzip | 121 kB | 94 kB |
+
+### Recommendation
+Both prototypes align well with V2 UX spec. Key differences:
+1. **Shadcn** has smaller bundle but History page bug needs fix
+2. **Mantine** works out of box, larger bundle
+3. Shadcn requires more manual styling, Mantine more opinionated
+4. Both use dark theme effectively
+
+The Shadcn bug is a simple fix (change empty value to "all").
+
+---
+
+## Previous Session: 2025-11-30 (Modal Port to Mantine)
 
 ### Completed
 - Ported all 3 modals from shadcn to Mantine:
