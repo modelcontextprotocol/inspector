@@ -6,7 +6,6 @@
 
 ## Pending
 
-- [ ] Port modals to Mantine (ServerInfoModal, AddServerModal, ImportServerJsonModal)
 - [ ] Decide Mantine vs Shadcn after UI review (see build sizes in claude-progress.md)
 - [ ] Shadcn Badge needs `success`/`error` variant styling (currently unstyled)
 - [ ] Test dark mode on both prototypes
@@ -33,6 +32,7 @@
 - [x] Scout V2-labeled issues for work items
 - [x] Mantine vs Shadcn demo prototypes (v2/prototype/mantine, v2/prototype/shadcn)
 - [x] Port spec alignment pages to Mantine (Logs, Tasks, History, Tools, Resources)
+- [x] Port modals to Mantine (ServerInfoModal, AddServerModal, ImportServerJsonModal)
 
 ---
 
