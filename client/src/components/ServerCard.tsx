@@ -4,10 +4,26 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { StatusIndicator, ServerStatus } from './StatusIndicator';
 import { ServerInfoModal } from './ServerInfoModal';
 import { AddServerModal, ServerConfig } from './AddServerModal';
-import { Copy } from 'lucide-react';
+import { SamplingModal } from './SamplingModal';
+import { ElicitationModal } from './ElicitationModal';
+import { RootsConfigurationModal } from './RootsConfigurationModal';
+import {
+  Copy,
+  ChevronDown,
+  MessageSquare,
+  FormInput,
+  Link,
+  FolderTree,
+} from 'lucide-react';
 
 interface ServerCardProps {
   server: {
@@ -33,6 +49,11 @@ export function ServerCard({ server }: ServerCardProps) {
   const [showError, setShowError] = useState(false);
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  // Client feature modal states
+  const [samplingModalOpen, setSamplingModalOpen] = useState(false);
+  const [elicitationModalOpen, setElicitationModalOpen] = useState(false);
+  const [elicitationMode, setElicitationMode] = useState<'form' | 'url'>('form');
+  const [rootsModalOpen, setRootsModalOpen] = useState(false);
 
   const connectionString = server.command || server.url || '';
 
@@ -164,13 +185,56 @@ export function ServerCard({ server }: ServerCardProps) {
 
           {/* Actions row */}
           <div className="flex items-center justify-between pt-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setInfoModalOpen(true)}
-            >
-              Server Info
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setInfoModalOpen(true)}
+              >
+                Server Info
+              </Button>
+              {/* Test Client Features dropdown - only for connected servers */}
+              {server.status === 'connected' && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      Test Client Features
+                      <ChevronDown className="h-4 w-4 ml-1" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem
+                      onClick={() => setSamplingModalOpen(true)}
+                    >
+                      <MessageSquare className="h-4 w-4 mr-2" />
+                      Simulate Sampling Request
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setElicitationMode('form');
+                        setElicitationModalOpen(true);
+                      }}
+                    >
+                      <FormInput className="h-4 w-4 mr-2" />
+                      Simulate Elicitation (Form)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setElicitationMode('url');
+                        setElicitationModalOpen(true);
+                      }}
+                    >
+                      <Link className="h-4 w-4 mr-2" />
+                      Simulate Elicitation (URL)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setRootsModalOpen(true)}>
+                      <FolderTree className="h-4 w-4 mr-2" />
+                      Configure Roots
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
             <div className="flex gap-2">
               <Button
                 variant="ghost"
@@ -203,6 +267,21 @@ export function ServerCard({ server }: ServerCardProps) {
         onOpenChange={setEditModalOpen}
         server={serverConfig}
         onSave={handleEdit}
+      />
+
+      {/* Client Feature Modals */}
+      <SamplingModal
+        open={samplingModalOpen}
+        onOpenChange={setSamplingModalOpen}
+      />
+      <ElicitationModal
+        open={elicitationModalOpen}
+        onOpenChange={setElicitationModalOpen}
+        mode={elicitationMode}
+      />
+      <RootsConfigurationModal
+        open={rootsModalOpen}
+        onOpenChange={setRootsModalOpen}
       />
     </>
   );
