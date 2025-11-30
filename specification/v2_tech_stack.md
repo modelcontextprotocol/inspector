@@ -29,13 +29,13 @@ Let's choose a feature-rich component set with easy theming control
 
 ### Transport Operation
 Let's consider how to operate the server transports.
-* -[ ] [Express](https://expressjs.com/)
+* -[x] [Express](https://expressjs.com/)
 * -[ ] Node:[http](https://nodejs.org/docs/v22.18.0/api/http.html)
 
 ### Logging
 Let's step up our logging capability with an advanced logger:
 * -[ ] [Winston](https://github.com/winstonjs/winston?tab=readme-ov-file#winston)
-* -[ ] [Pino](https://github.com/pinojs/pino?tab=readme-ov-file#pino)
+* -[x] [Pino](https://github.com/pinojs/pino?tab=readme-ov-file#pino)
 * -[ ] [Morgan](https://github.com/expressjs/morgan?tab=readme-ov-file#morgan)
 * -[ ] [Log4js](https://github.com/stritti/log4js?tab=readme-ov-file#log4js)
 * -[ ] [Bunyan](https://github.com/trentm/node-bunyan)
