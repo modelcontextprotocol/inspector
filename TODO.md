@@ -4,8 +4,13 @@
 
 - [ ] **Conformance testing** - Needs coordination with Paul/Tobin before starting
 
+## Bugs
+
+- [ ] **[Shadcn] Dropdown menu transparent background** - "Test Client Features" dropdown shows content behind it. Added --popover CSS variables but issue persists. May be z-index or Radix portal issue.
+
 ## Pending
 
+- [ ] Mantine: Port client feature modals (Sampling, Elicitation, Roots) for feature parity with Shadcn
 - [ ] Decide Mantine vs Shadcn after UI review (see build sizes in claude-progress.md)
 - [ ] Shadcn Badge needs `success`/`error` variant styling (currently unstyled)
 - [ ] Test dark mode on both prototypes
@@ -35,6 +40,7 @@
 - [x] Port modals to Mantine (ServerInfoModal, AddServerModal, ImportServerJsonModal)
 - [x] Playwright MCP visual testing of both prototypes (screenshots in `.playwright-mcp/`)
 - [x] Fix Shadcn History page crash (SelectItem empty value bug)
+- [x] Shadcn: Implement client feature modals (Sampling, Elicitation, Roots) with mock data
 
 ---
 
