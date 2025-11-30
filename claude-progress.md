@@ -23,8 +23,33 @@
 ### To Resume
 ```bash
 cd inspector
+
+# 1. Get latest tracking from parent branch
+git checkout v2/feature/prototype
+git pull origin v2/feature/prototype
+
+# 2. Switch to work branch and merge tracking updates
 git checkout v2/prototype/shadcn
+git merge v2/feature/prototype
+
+# 3. Start dev server
 cd client && npm install && npm run dev
+```
+
+### End of Session Workflow
+```bash
+# 1. Commit all work on prototype branch (shadcn or mantine)
+git add . && git commit -m "..."
+
+# 2. Update parent with tracking files only
+git checkout v2/feature/prototype
+git checkout v2/prototype/shadcn -- claude-progress.md TODO.md
+git commit -m "Update tracking after session"
+git push origin v2/feature/prototype
+
+# 3. Push work branch
+git checkout v2/prototype/shadcn
+git push origin v2/prototype/shadcn
 ```
 
 ---
