@@ -7,7 +7,6 @@ import {
   Button,
   ScrollArea,
   Box,
-  Title,
   Code,
   Group,
 } from '@mantine/core';

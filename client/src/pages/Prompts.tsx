@@ -8,7 +8,6 @@ import {
   ScrollArea,
   Box,
   Title,
-  Code,
   Select,
 } from '@mantine/core';
 
