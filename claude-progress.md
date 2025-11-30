@@ -1,33 +1,32 @@
 # Inspector V2 Progress Log
 
-## Current Session: 2025-11-30
+## Current Session: [NEW SESSION NEEDED]
 
-### Completed This Session
-- Set up session management infrastructure on branch `v2/feature/session-management`
-- Created tiered tracking system:
-  - GitHub issues (v2 label) for major features
-  - `TODO.md` for small implementation tasks
-  - `claude-progress.md` for session context
-- Created sync-issues scripts to pull issues from upstream
-- Created init scripts (init.sh, init.ps1) with issue sync
-- Updated CLAUDE.md with session discipline rules
-- Added Playwright MCP server to .mcp.json
-- Set up Playwright testing infrastructure:
-  - package.json with @playwright/test
-  - playwright.config.ts
-  - tests/smoke/ for session-start validation
-  - tests/e2e/ with server-list.spec.ts template
+### Context
+- Branch: `v2/feature/prototype` (branched from `v2/feature/session-management`)
+- Task: Generate prototype based on specs
+- Related issue: upstream#946
 
-### In Progress (Handoff Notes)
-- Branch `v2/feature/session-management` ready to merge or push
-- Playwright MCP available for browser automation during prototype generation
-- Next: Generate prototypes (related: upstream#946)
-- Tech stack decisions still pending (Mantine vs Shadcn, Express vs raw http)
+### Key Resources
+- Specs: `inspector/specification/` (v2_scope.md, v2_tech_stack.md)
+- Reference UI: `mcpjam/` directory (MCPJam Inspector)
+- Open V2 issues: `gh issue list -R modelcontextprotocol/inspector -l v2`
 
-### Known Issues
-- Cannot query project board directly (needs `read:project` scope on gh token)
+### Pending Tech Decisions
+- Components: Mantine vs Shadcn (undecided)
+- Server framework: Express vs raw Node http (undecided)
 
 ---
 
-## Previous Sessions
-(none)
+## Previous Session: 2025-11-30
+
+### Completed
+- Set up session management infrastructure on `v2/feature/session-management`
+- Tiered tracking (GitHub issues + TODO.md + claude-progress.md)
+- Playwright testing infrastructure
+- Pushed to origin
+
+### Branch Structure
+- `v2/main` - clean slate base
+- `v2/feature/session-management` - infrastructure (pushed)
+- `v2/feature/prototype` - prototype work (current)
