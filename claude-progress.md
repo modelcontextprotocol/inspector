@@ -25,18 +25,19 @@
 - `components/ServerCard.tsx` - Wired Server Info and Edit buttons to modals
 
 ### Branch State
-- `v2/prototype/shadcn` @ 939b8d1 - Session 3 complete, committed, ready to push
+- `v2/prototype/shadcn` @ 4f03654 - Session 3 complete, committed and pushed
 
 ### Next Steps (Session 4)
-- Remove confirmation dialog integration
-- Backend CRUD endpoints on proxy for server management
-- Connect modals to actual API calls
+- Port all spec alignment changes to `v2/prototype/mantine`
+- Items to port: Logs, Tasks, Tools, Resources, History screens + all 3 modals
+- After port: compare both prototypes for final Mantine vs Shadcn decision
 
 ### To Resume
 ```bash
 cd inspector
-git checkout v2/prototype/shadcn
+git checkout v2/prototype/mantine
 cd client && npm install && npm run dev
+# Reference: v2/prototype/shadcn has all the target implementations
 ```
 
 ---

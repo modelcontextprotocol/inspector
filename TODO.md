@@ -28,13 +28,14 @@
 
 ## In Progress (Spec Alignment)
 
-### Session 3 - Modals
-- [ ] ServerInfoModal
-- [ ] AddServerModal (wire to ServerList dropdown)
-- [ ] ImportServerJsonModal
-
 ### Session 4 - Mantine Port
 - [ ] Port all spec alignment changes to v2/prototype/mantine
+  - Logs 2-panel layout
+  - Tasks card-based layout
+  - Tools screen (annotations, progress, list changed)
+  - Resources screen (annotations, templates, subscriptions)
+  - History screen (cards, pin/unpin, expandable details)
+  - Modals (ServerInfoModal, AddServerModal, ImportServerJsonModal)
 
 ## Completed
 
@@ -47,6 +48,7 @@
 - [x] Spec alignment Session 2 - Tools screen (annotations, progress, list changed)
 - [x] Spec alignment Session 2 - Resources screen (annotations, templates, subscriptions)
 - [x] Spec alignment Session 2 - History screen (cards, pin/unpin, expandable details)
+- [x] Spec alignment Session 3 - Modals (ServerInfoModal, AddServerModal, ImportServerJsonModal)
 
 ---
 
