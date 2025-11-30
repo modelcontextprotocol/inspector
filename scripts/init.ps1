@@ -26,6 +26,12 @@ if ((Test-Path "proxy-server") -and (Test-Path "proxy-server\package.json")) {
     Pop-Location
 }
 
+# Install root dependencies (includes Playwright)
+if (-not (Test-Path "node_modules")) {
+    Write-Host "Installing root dependencies..."
+    npm install
+}
+
 # Run smoke test if available
 if (Test-Path "scripts\smoke-test.ps1") {
     Write-Host "Running smoke tests..."

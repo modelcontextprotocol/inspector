@@ -7,3 +7,8 @@ dist
 
 # Generated cache file (synced from GitHub issues)
 v2-features.json
+
+# Playwright test artifacts
+test-results/
+playwright-report/
+playwright/.cache/

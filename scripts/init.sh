@@ -22,6 +22,12 @@ if [ -d "proxy-server" ] && [ -f "proxy-server/package.json" ]; then
     cd proxy-server && npm install && cd ..
 fi
 
+# Install root dependencies (includes Playwright)
+if [ ! -d "node_modules" ]; then
+    echo "Installing root dependencies..."
+    npm install
+fi
+
 # Run smoke test if available
 if [ -f "scripts/smoke-test.sh" ]; then
     echo "Running smoke tests..."
