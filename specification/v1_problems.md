@@ -1,6 +1,6 @@
 # Inspector V1 Problems
 
-### [Brief](README.md) | V1 Problems | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_tech_stack.md)
+### [Brief](README.md) | V1 Problems | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_tech_stack.md) | [V2 UX](v2_ux.md)
 
 ## Table of Contents
   * [Monolithic components](#monolithic-components)

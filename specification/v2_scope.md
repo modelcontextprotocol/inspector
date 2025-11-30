@@ -1,6 +1,6 @@
 # Inspector V2 Scope
 
-### [Brief](README.md) | [V1 Problems](v1_problems.md) | V2 Scope | [V2 Tech Stack](v2_tech_stack.md)
+### [Brief](README.md) | [V1 Problems](v1_problems.md) | V2 Scope | [V2 Tech Stack](v2_tech_stack.md) | [V2 UX](v2_ux.md)
 
 ## Table of Contents
   * [Protocol Features](#protocol-features)
