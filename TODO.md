@@ -28,11 +28,6 @@
 
 ## In Progress (Spec Alignment)
 
-### Session 2 - Feature Enhancements
-- [ ] Tools screen - annotations, progress bar, list changed indicator
-- [ ] Resources screen - annotations, template inputs, subscriptions
-- [ ] History screen - pin/unpin, expandable details
-
 ### Session 3 - Modals
 - [ ] ServerInfoModal
 - [ ] AddServerModal (wire to ServerList dropdown)
@@ -49,6 +44,9 @@
 - [x] Spec alignment Session 1 - Foundation (Dialog, Checkbox, Progress, ListChangedIndicator)
 - [x] Spec alignment Session 1 - Logs 2-panel layout
 - [x] Spec alignment Session 1 - Tasks card-based layout
+- [x] Spec alignment Session 2 - Tools screen (annotations, progress, list changed)
+- [x] Spec alignment Session 2 - Resources screen (annotations, templates, subscriptions)
+- [x] Spec alignment Session 2 - History screen (cards, pin/unpin, expandable details)
 
 ---
 
