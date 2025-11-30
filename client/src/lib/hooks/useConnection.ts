@@ -31,10 +31,13 @@ import {
   LoggingLevel,
   ElicitRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  AnySchema,
+  SchemaOutput,
+} from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useEffect, useState } from "react";
 import { useToast } from "@/lib/hooks/useToast";
-import { z } from "zod";
 import { ConnectionStatus, CLIENT_IDENTITY } from "../constants";
 import { Notification } from "../notificationTypes";
 import {
@@ -166,11 +169,11 @@ export function useConnection({
     ]);
   };
 
-  const makeRequest = async <T extends z.ZodType>(
+  const makeRequest = async <T extends AnySchema>(
     request: ClientRequest,
     schema: T,
     options?: RequestOptions & { suppressToast?: boolean },
-  ): Promise<z.output<T>> => {
+  ): Promise<SchemaOutput<T>> => {
     if (!mcpClient) {
       throw new Error("MCP client not connected");
     }

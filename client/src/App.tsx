@@ -18,6 +18,10 @@ import {
   LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type {
+  AnySchema,
+  SchemaOutput,
+} from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
 import {
   hasValidMetaName,
@@ -687,11 +691,11 @@ const App = () => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
   };
 
-  const sendMCPRequest = async <T extends z.ZodType>(
+  const sendMCPRequest = async <T extends AnySchema>(
     request: ClientRequest,
     schema: T,
     tabKey?: keyof typeof errors,
-  ) => {
+  ): Promise<SchemaOutput<T>> => {
     try {
       const response = await makeRequest(request, schema);
       if (tabKey !== undefined) {

@@ -50,7 +50,7 @@
     "@modelcontextprotocol/inspector-cli": "^0.17.4",
     "@modelcontextprotocol/inspector-client": "^0.17.4",
     "@modelcontextprotocol/inspector-server": "^0.17.4",
-    "@modelcontextprotocol/sdk": "^1.20.1",
+    "@modelcontextprotocol/sdk": "^1.23.0",
     "concurrently": "^9.2.0",
     "node-fetch": "^3.3.2",
     "open": "^10.2.0",
@@ -68,7 +68,7 @@
     "jest-fixed-jsdom": "^0.0.9",
     "lint-staged": "^16.1.5",
     "playwright": "^1.56.1",
-    "prettier": "^3.6.2",
+    "prettier": "^3.7.1",
     "rimraf": "^6.0.1",
     "typescript": "^5.4.2"
   },
