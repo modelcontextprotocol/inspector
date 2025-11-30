@@ -4,6 +4,7 @@
 node_modules
 dist
 .env
+.vite
 
 # Generated cache file (synced from GitHub issues)
 v2-features.json
