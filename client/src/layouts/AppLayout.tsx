@@ -1,0 +1,84 @@
+import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { ChevronDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+// Mock connected server data
+const mockServer = {
+  name: 'everything-server',
+  status: 'connected' as const,
+  latency: 23,
+};
+
+export function AppLayout() {
+  const navigate = useNavigate();
+
+  const navItems = [
+    { label: 'Tools', path: '/tools' },
+    { label: 'Resources', path: '/resources' },
+    { label: 'Prompts', path: '/prompts' },
+    { label: 'Logs', path: '/logs' },
+    { label: 'Tasks', path: '/tasks' },
+    { label: 'History', path: '/history' },
+  ];
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="h-14 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex h-full items-center justify-between px-4">
+          {/* Left side: Server dropdown and status */}
+          <div className="flex items-center gap-4">
+            <button className="flex items-center gap-1 hover:bg-accent rounded px-2 py-1">
+              <span className="font-semibold">{mockServer.name}</span>
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </button>
+
+            <div className="flex items-center gap-2">
+              <Badge variant="success">Connected</Badge>
+              <span className="text-sm text-muted-foreground">
+                ({mockServer.latency}ms)
+              </span>
+            </div>
+          </div>
+
+          {/* Center: Navigation */}
+          <nav className="flex items-center gap-1">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                className={({ isActive }) =>
+                  cn(
+                    'px-3 py-2 text-sm font-medium rounded-md transition-colors',
+                    isActive
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                  )
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+
+          {/* Right side: Disconnect */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-red-400 border-red-400/50 hover:bg-red-400/10"
+            onClick={() => navigate('/')}
+          >
+            Disconnect
+          </Button>
+        </div>
+      </header>
+
+      {/* Main content */}
+      <main className="p-4">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
