@@ -4,3 +4,6 @@
 node_modules
 dist
 .env
+
+# Generated cache file (synced from GitHub issues)
+v2-features.json

@@ -7,6 +7,10 @@ echo "=== Inspector V2 Dev Environment Setup ==="
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
+# Sync issues from GitHub (generates v2-features.json)
+echo "Syncing V2 issues from GitHub..."
+./scripts/sync-issues.sh
+
 # Install dependencies (when packages exist)
 if [ -d "client" ] && [ -f "client/package.json" ]; then
     echo "Installing client dependencies..."
@@ -27,8 +31,8 @@ fi
 echo ""
 echo "=== Session Checklist ==="
 echo "1. Review claude-progress.md for context"
-echo "2. Check v2-features.json for current status"
-echo "3. Pick ONE feature to work on"
-echo "4. Update feature status to in_progress"
+echo "2. Check open issues: gh issue list -R modelcontextprotocol/inspector -l v2"
+echo "3. Pick ONE issue to work on"
+echo "4. Project board: https://github.com/orgs/modelcontextprotocol/projects/28/views/1"
 echo ""
 echo "=== Ready for development ==="
