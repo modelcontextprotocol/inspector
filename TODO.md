@@ -10,7 +10,6 @@
 
 ## Pending
 
-- [ ] Mantine: Port client feature modals (Sampling, Elicitation, Roots) for feature parity with Shadcn
 - [ ] Decide Mantine vs Shadcn after UI review (see build sizes in claude-progress.md)
 - [ ] Shadcn Badge needs `success`/`error` variant styling (currently unstyled)
 - [ ] Test dark mode on both prototypes
@@ -41,6 +40,7 @@
 - [x] Playwright MCP visual testing of both prototypes (screenshots in `.playwright-mcp/`)
 - [x] Fix Shadcn History page crash (SelectItem empty value bug)
 - [x] Shadcn: Implement client feature modals (Sampling, Elicitation, Roots) with mock data
+- [x] Mantine: Port client feature modals (Sampling, Elicitation, Roots) for feature parity with Shadcn
 
 ---
 
