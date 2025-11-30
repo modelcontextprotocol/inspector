@@ -1,6 +1,6 @@
 # Inspector V2 Brief 
 
-### Brief | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_tech_stack.md)
+### Brief | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_tech_stack.md) | [V2 UX](v2_ux.md)
 
 ## Table of Contents
   * [Motivation and Context](#motivation-and-context)
