@@ -1,6 +1,48 @@
 # Inspector V2 Progress Log
 
-## Current Session: 2025-11-30 (Spec Alignment - Session 2)
+## Current Session: 2025-11-30 (Spec Alignment - Session 3)
+
+### Completed
+- Installed Radix dependencies (@radix-ui/react-dropdown-menu, radio-group, label)
+- Created UI components: DropdownMenu, Textarea, RadioGroup, Label
+- Implemented ServerInfoModal with two-column capabilities layout
+- Implemented AddServerModal with form for manual config + edit mode
+- Implemented ImportServerJsonModal with JSON validation, package/remote selection, env vars
+- Wired modals to ServerList (dropdown menu) and ServerCard (action buttons)
+- Build verified successful
+
+### New Files
+- `components/ui/dropdown-menu.tsx`
+- `components/ui/textarea.tsx`
+- `components/ui/radio-group.tsx`
+- `components/ui/label.tsx`
+- `components/ServerInfoModal.tsx`
+- `components/AddServerModal.tsx`
+- `components/ImportServerJsonModal.tsx`
+
+### Modified Files
+- `pages/ServerList.tsx` - Added dropdown menu with 3 options
+- `components/ServerCard.tsx` - Wired Server Info and Edit buttons to modals
+
+### Branch State
+- `v2/prototype/shadcn` @ 4f03654 - Session 3 complete, committed and pushed
+
+### Next Steps (Session 4)
+- Port all spec alignment changes to `v2/prototype/mantine`
+- Items to port: Logs, Tasks, Tools, Resources, History screens + all 3 modals
+- After port: compare both prototypes for final Mantine vs Shadcn decision
+
+### To Resume
+```bash
+cd inspector
+git checkout v2/prototype/mantine
+cd client && npm install && npm run dev
+# Reference: v2/prototype/shadcn has all the target implementations
+```
+
+---
+
+## Previous Session: 2025-11-30 (Spec Alignment - Session 2)
 
 ### Completed
 - Enhanced Tools screen with annotations, progress bar, and cancel button
@@ -8,22 +50,6 @@
 - Enhanced History screen with card layout, pin/unpin, and expandable details
 - All three screens verified buildable
 - Three commits: b51f9a0, b287637, ac05730
-
-### Branch State
-- `v2/prototype/shadcn` - Session 2 complete, builds, ready to push
-- `v2/prototype/mantine` @ def9016 - still at original state (port pending)
-
-### Next Steps (Session 3)
-- Modals: ServerInfoModal, AddServerModal, ImportServerJsonModal
-- Wire modals to ServerList dropdown menu
-
-### To Resume
-```bash
-cd inspector
-git checkout v2/prototype/shadcn
-git push origin v2/prototype/shadcn
-cd client && npm install && npm run dev
-```
 
 ---
 
