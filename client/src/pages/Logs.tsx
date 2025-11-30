@@ -1,5 +1,9 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -10,54 +14,162 @@ import {
 
 // Mock log entries
 const mockLogs = [
-  { timestamp: '2025-11-30T14:23:01Z', level: 'info', message: 'Server connected' },
-  { timestamp: '2025-11-30T14:23:05Z', level: 'debug', message: 'Sending tools/list request' },
-  { timestamp: '2025-11-30T14:23:05Z', level: 'debug', message: 'Received tools/list response: 4 tools' },
-  { timestamp: '2025-11-30T14:24:12Z', level: 'info', message: 'Tool echo executed successfully' },
-  { timestamp: '2025-11-30T14:25:30Z', level: 'warning', message: 'Request timeout approaching' },
+  { timestamp: '2025-11-30T14:23:01Z', level: 'info', message: 'Server connected', logger: 'connection' },
+  { timestamp: '2025-11-30T14:23:05Z', level: 'debug', message: 'Sending tools/list request', logger: 'protocol' },
+  { timestamp: '2025-11-30T14:23:05Z', level: 'debug', message: 'Received tools/list response: 4 tools', logger: 'protocol' },
+  { timestamp: '2025-11-30T14:24:12Z', level: 'info', message: 'Tool echo executed successfully', logger: 'tools' },
+  { timestamp: '2025-11-30T14:25:30Z', level: 'warning', message: 'Request timeout approaching', logger: 'connection' },
+  { timestamp: '2025-11-30T14:26:00Z', level: 'error', message: 'Failed to fetch resource: 404', logger: 'resources' },
 ];
+
+const logLevels = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'];
+
+const levelColors: Record<string, string> = {
+  debug: 'text-gray-400',
+  info: 'text-blue-400',
+  notice: 'text-blue-300',
+  warning: 'text-yellow-400',
+  error: 'text-red-400',
+  critical: 'text-red-500',
+  alert: 'text-red-600',
+  emergency: 'text-red-700',
+};
 
 const levelVariants: Record<string, 'default' | 'secondary' | 'warning' | 'error'> = {
   debug: 'secondary',
   info: 'default',
+  notice: 'default',
   warning: 'warning',
   error: 'error',
+  critical: 'error',
+  alert: 'error',
+  emergency: 'error',
 };
 
 export function Logs() {
+  const [logLevel, setLogLevel] = useState('debug');
+  const [filter, setFilter] = useState('');
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [visibleLevels, setVisibleLevels] = useState({
+    debug: true,
+    info: true,
+    warning: true,
+    error: true,
+  });
+
+  const toggleLevel = (level: string) => {
+    setVisibleLevels((prev) => ({ ...prev, [level]: !prev[level as keyof typeof prev] }));
+  };
+
+  const filteredLogs = mockLogs.filter((log) => {
+    const matchesFilter = filter === '' || log.message.toLowerCase().includes(filter.toLowerCase());
+    const matchesLevel = visibleLevels[log.level as keyof typeof visibleLevels] ?? true;
+    return matchesFilter && matchesLevel;
+  });
+
   return (
-    <Card className="h-[calc(100vh-120px)]">
-      <CardHeader className="pb-4">
-        <div className="flex items-center justify-between">
-          <CardTitle>Server Logs</CardTitle>
-          <Select defaultValue="debug">
-            <SelectTrigger className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="debug">Debug</SelectItem>
-              <SelectItem value="info">Info</SelectItem>
-              <SelectItem value="warning">Warning</SelectItem>
-              <SelectItem value="error">Error</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          {mockLogs.map((log, index) => (
-            <div key={index} className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground font-mono">
-                {new Date(log.timestamp).toLocaleTimeString()}
-              </span>
-              <Badge variant={levelVariants[log.level]} className="uppercase text-xs">
-                {log.level}
-              </Badge>
-              <span className="text-sm">{log.message}</span>
+    <div className="grid grid-cols-12 gap-4 h-[calc(100vh-120px)]">
+      {/* Left Panel - Controls (25%) */}
+      <Card className="col-span-3">
+        <CardContent className="p-4 space-y-6">
+          {/* Log Level */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Log Level</label>
+            <div className="flex gap-2">
+              <Select value={logLevel} onValueChange={setLogLevel}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {logLevels.map((level) => (
+                    <SelectItem key={level} value={level}>
+                      {level.charAt(0).toUpperCase() + level.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button size="sm">Set Level</Button>
             </div>
-          ))}
+          </div>
+
+          {/* Text Filter */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Filter</label>
+            <Input
+              placeholder="Search logs..."
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          </div>
+
+          {/* Level Checkboxes */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Show Levels</label>
+            <div className="space-y-2">
+              {Object.entries(visibleLevels).map(([level, checked]) => (
+                <label key={level} className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={() => toggleLevel(level)}
+                  />
+                  <span className={`text-sm uppercase ${levelColors[level]}`}>
+                    {level}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" className="flex-1">
+              Clear
+            </Button>
+            <Button variant="outline" size="sm" className="flex-1">
+              Export
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Right Panel - Log Stream (75%) */}
+      <Card className="col-span-9 flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b">
+          <h3 className="font-semibold">Log Stream</h3>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                checked={autoScroll}
+                onCheckedChange={(checked) => setAutoScroll(checked as boolean)}
+              />
+              <span className="text-sm">Auto-scroll</span>
+            </label>
+            <Button variant="ghost" size="sm">
+              Copy All
+            </Button>
+          </div>
         </div>
-      </CardContent>
-    </Card>
+        <CardContent className="flex-1 overflow-auto p-4">
+          <div className="space-y-1 font-mono text-sm">
+            {filteredLogs.map((log, index) => (
+              <div key={index} className="flex items-start gap-3 py-1">
+                <span className="text-muted-foreground shrink-0">
+                  {new Date(log.timestamp).toLocaleTimeString()}
+                </span>
+                <Badge
+                  variant={levelVariants[log.level]}
+                  className="uppercase text-xs shrink-0"
+                >
+                  {log.level}
+                </Badge>
+                <span className={levelColors[log.level]}>
+                  {log.message}
+                </span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
