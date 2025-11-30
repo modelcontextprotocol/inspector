@@ -33,6 +33,8 @@
 - [x] Mantine vs Shadcn demo prototypes (v2/prototype/mantine, v2/prototype/shadcn)
 - [x] Port spec alignment pages to Mantine (Logs, Tasks, History, Tools, Resources)
 - [x] Port modals to Mantine (ServerInfoModal, AddServerModal, ImportServerJsonModal)
+- [x] Playwright MCP visual testing of both prototypes (screenshots in `.playwright-mcp/`)
+- [x] Fix Shadcn History page crash (SelectItem empty value bug)
 
 ---
 
