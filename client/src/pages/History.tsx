@@ -205,7 +205,7 @@ export function History() {
       entry.method.toLowerCase().includes(searchFilter.toLowerCase()) ||
       entry.target?.toLowerCase().includes(searchFilter.toLowerCase()) ||
       JSON.stringify(entry.params).toLowerCase().includes(searchFilter.toLowerCase());
-    const matchesMethod = methodFilter === '' || entry.method === methodFilter;
+    const matchesMethod = methodFilter === '' || methodFilter === 'all' || entry.method === methodFilter;
     return matchesSearch && matchesMethod;
   });
 
@@ -232,7 +232,7 @@ export function History() {
                   <SelectValue placeholder="Filter by method" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All methods</SelectItem>
+                  <SelectItem value="all">All methods</SelectItem>
                   <SelectItem value="tools/call">tools/call</SelectItem>
                   <SelectItem value="tools/list">tools/list</SelectItem>
                   <SelectItem value="resources/read">resources/read</SelectItem>
