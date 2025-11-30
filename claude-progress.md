@@ -1,6 +1,39 @@
 # Inspector V2 Progress Log
 
-## Current Session: 2025-11-30 (Client Feature Modals)
+## Current Session: 2025-11-30 (Mantine Client Feature Modal Port)
+
+### Completed
+- Ported 3 client feature modals from shadcn to Mantine for feature parity:
+  - `SamplingModal.tsx` - sampling/createMessage request handling
+  - `ElicitationModal.tsx` - form and URL modes for elicitation/create
+  - `RootsConfigurationModal.tsx` - filesystem roots management
+- Updated ServerCard.tsx with Menu dropdown and modal integration
+- Build verified passing
+- Both prototype branches now have full feature parity
+
+### Commits
+- `43d8fb7` - feat(modals): port client feature modals to Mantine
+
+### Branch State
+- `v2/prototype/mantine` - Now has all client feature modals (feature parity with shadcn)
+- `v2/prototype/shadcn` - Reference implementation
+
+### Files Created (Mantine)
+- `client/src/components/SamplingModal.tsx`
+- `client/src/components/ElicitationModal.tsx`
+- `client/src/components/RootsConfigurationModal.tsx`
+
+### Files Modified (Mantine)
+- `client/src/components/ServerCard.tsx` - Added Menu dropdown and modal integration
+
+### Next Steps
+- Final Mantine vs Shadcn decision (both now feature-complete)
+- Test dark mode on both prototypes
+- Prototype reference auth servers
+
+---
+
+## Previous Session: 2025-11-30 (Shadcn Client Feature Modals)
 
 ### Completed
 - Implemented 3 MCP client feature handler modals per v2_ux.md spec:
@@ -16,9 +49,6 @@
 
 ### Known Bugs
 - **[BUG] Dropdown menu transparent background** - The "Test Client Features" dropdown menu still shows content behind it bleeding through. Added --popover CSS variable and tailwind config but issue persists. Needs further investigation - may be z-index issue or portal rendering problem with Radix UI.
-
-### Next Steps
-- Port client feature modals (Sampling, Elicitation, Roots) to Mantine branch for feature parity
 
 ### Files Created
 - `client/src/components/SamplingModal.tsx`
