@@ -1,6 +1,50 @@
 # Inspector V2 Progress Log
 
-## Current Session: 2025-11-30 (Mantine Spec Alignment Port)
+## Current Session: 2025-11-30 (Modal Port to Mantine)
+
+### Completed
+- Ported all 3 modals from shadcn to Mantine:
+  - `ServerInfoModal.tsx` - Server info display, capabilities, OAuth details
+  - `AddServerModal.tsx` - Create/edit server form with transport selection
+  - `ImportServerJsonModal.tsx` - JSON import with validation and env var binding
+- Build verified passing
+
+### Files Created
+- `client/src/components/ServerInfoModal.tsx` - NEW
+- `client/src/components/AddServerModal.tsx` - NEW
+- `client/src/components/ImportServerJsonModal.tsx` - NEW
+
+### Component Mapping Used
+| shadcn | Mantine |
+|--------|---------|
+| Dialog | Modal |
+| Input | TextInput |
+| Select | Select |
+| Textarea | Textarea |
+| RadioGroup | Radio.Group |
+| Button | Button |
+| Badge | Badge |
+| lucide-react | @tabler/icons-react |
+
+### Branch State
+- `v2/prototype/mantine` - Modal port complete, both branches now feature-complete
+- `v2/prototype/shadcn` - Reference implementation
+
+### Next Steps
+- Commit changes
+- Push mantine branch
+- Ready for final Mantine vs Shadcn comparison/decision
+
+### To Resume
+```bash
+cd inspector
+git checkout v2/prototype/mantine
+cd client && npm install && npm run dev
+```
+
+---
+
+## Previous Session: 2025-11-30 (Mantine Spec Alignment Port)
 
 ### Completed
 - Ported all 5 enhanced pages from v2/prototype/shadcn to v2/prototype/mantine
@@ -17,22 +61,6 @@
 - `client/src/pages/History.tsx` - Expand/collapse, pin/unpin, search
 - `client/src/pages/Tools.tsx` - 3-column, annotations, progress
 - `client/src/pages/Resources.tsx` - Templates, subscriptions, priority
-
-### Branch State
-- `v2/prototype/mantine` @ 19ad633 - Spec alignment complete, ready to push
-- `v2/prototype/shadcn` @ 4f03654 - Reference implementation (has modals too)
-
-### Next Steps (Session 5)
-- Push mantine branch
-- Port 3 modals to Mantine: ServerInfoModal, AddServerModal, ImportServerJsonModal
-- After modal port: Both branches feature-complete for final comparison
-
-### To Resume
-```bash
-cd inspector
-git checkout v2/prototype/mantine
-cd client && npm install && npm run dev
-```
 
 ---
 
