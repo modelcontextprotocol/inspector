@@ -43,8 +43,8 @@ describe("generateDefaultValue", () => {
     expect(generateDefaultValue({ type: "array" })).toBe(undefined);
   });
 
-  test("generates undefined for optional object", () => {
-    expect(generateDefaultValue({ type: "object" })).toBe(undefined);
+  test("generates empty object for optional root object", () => {
+    expect(generateDefaultValue({ type: "object" })).toEqual({});
   });
 
   test("generates default null for unknown types", () => {
