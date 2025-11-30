@@ -1,15 +1,37 @@
-# Inspector V2 - Active TODOs
+# Inspector V2 - TODOs
 
-Small tasks discovered during development. Check off when done, delete when no longer relevant.
+## Waiting On
+
+- [ ] **Conformance testing** - Needs coordination with Paul/Tobin before starting
 
 ## Pending
 
-- [ ] (example) Handle edge case in schema validation for nullable arrays
+- [ ] Decide Mantine vs Shadcn after UI review (see build sizes in claude-progress.md)
+- [ ] Shadcn Badge needs `success`/`error` variant styling (currently unstyled)
+- [ ] Test dark mode on both prototypes
+- [ ] Prototype reference auth servers (covers OAuth, API key, etc.)
+
+## Ready to Implement (Specs in v2_ux.md)
+
+- [ ] Server list UI - see "Server List (Home)"
+- [ ] Server config CRUD - see "Server Connection Card", "Import server.json Modal"
+- [ ] Connection flow with mcp.json - see "Server Connection Card"
+- [ ] Server info screen - see "Server Info (Connected)"
+- [ ] Centralized error handling - see "Error Handling UX"
+- [ ] Feature screens (Tools, Resources, Prompts, etc.) - see "Feature Screens"
+
+## Deferred (Not V2 Scope)
+
+- Built-in code execution mode
+- Multiple concurrent server connections
+- Sidebar navigation
 
 ## Completed
 
-(move items here when done, periodically clean up)
+- [x] Review specification docs in `inspector/specification/`
+- [x] Scout V2-labeled issues for work items
+- [x] Mantine vs Shadcn demo prototypes (v2/prototype/mantine, v2/prototype/shadcn)
 
 ---
 
-**Note:** This file is for small implementation details. For major features, see GitHub issues with the `v2` label. For session context, see `claude-progress.md`.
+**Note:** For major features, see GitHub issues with `v2` label. For session context, see `claude-progress.md`.
