@@ -1,6 +1,38 @@
 # Inspector V2 Progress Log
 
-## Current Session: 2025-11-30 (Playwright MCP Visual Testing)
+## Current Session: 2025-11-30 (Client Feature Modals)
+
+### Completed
+- Implemented 3 MCP client feature handler modals per v2_ux.md spec:
+  - `SamplingModal.tsx` - sampling/createMessage request handling
+  - `ElicitationModal.tsx` - form and URL modes for elicitation/create
+  - `RootsConfigurationModal.tsx` - filesystem roots management
+- Integrated modals into ServerCard via "Test Client Features" dropdown
+- All modals use mock data for UI prototyping
+
+### Commits
+- `ff4b9ef` - feat(modals): add Sampling, Elicitation, and Roots client feature modals
+- `d4e684a` - fix(theme): add missing popover color to fix transparent dropdown menus
+
+### Known Bugs
+- **[BUG] Dropdown menu transparent background** - The "Test Client Features" dropdown menu still shows content behind it bleeding through. Added --popover CSS variable and tailwind config but issue persists. Needs further investigation - may be z-index issue or portal rendering problem with Radix UI.
+
+### Next Steps
+- Port client feature modals (Sampling, Elicitation, Roots) to Mantine branch for feature parity
+
+### Files Created
+- `client/src/components/SamplingModal.tsx`
+- `client/src/components/ElicitationModal.tsx`
+- `client/src/components/RootsConfigurationModal.tsx`
+
+### Files Modified
+- `client/src/components/ServerCard.tsx` - Added dropdown and modal integration
+- `client/src/index.css` - Added --popover CSS variables
+- `client/tailwind.config.js` - Added popover color mapping
+
+---
+
+## Previous Session: 2025-11-30 (Playwright MCP Visual Testing)
 
 ### Completed
 - Playwright MCP visual testing of both prototype branches
@@ -70,20 +102,6 @@
 - Experimental Features Panel (Raw JSON-RPC)
 - Autocomplete in forms
 
-### Bugs Found and Fixed
-
-**Shadcn History Page - CRASH (FIXED):**
-- Location: `History.tsx:235`
-- Error: `A <Select.Item /> must have a value prop that is not an empty string`
-- Cause: `<SelectItem value="">All methods</SelectItem>`
-- Fix applied:
-  - Line 235: Changed `value=""` to `value="all"`
-  - Line 208: Added `methodFilter === 'all'` to filter condition
-- Verified working with Playwright screenshot: `shadcn-history-fixed.png`
-
-**Mantine History Page:**
-- Works correctly with empty value in Select (no fix needed)
-
 ### Visual Comparison
 
 | Aspect | Mantine | Shadcn |
@@ -103,12 +121,10 @@
 
 ### Recommendation
 Both prototypes align well with V2 UX spec. Key differences:
-1. **Shadcn** has smaller bundle but History page bug needs fix
+1. **Shadcn** has smaller bundle
 2. **Mantine** works out of box, larger bundle
 3. Shadcn requires more manual styling, Mantine more opinionated
 4. Both use dark theme effectively
-
-The Shadcn bug is a simple fix (change empty value to "all").
 
 ---
 
@@ -139,12 +155,11 @@ The Shadcn bug is a simple fix (change empty value to "all").
 | lucide-react | @tabler/icons-react |
 
 ### Branch State
-- `v2/prototype/mantine` - Modal port complete, both branches now feature-complete
 - `v2/prototype/shadcn` - Reference implementation
+- `v2/prototype/mantine` - Modal port complete, both branches now feature-complete
 
 ### Next Steps
-- Commit changes
-- Push mantine branch
+- Add support for missing spec features
 - Ready for final Mantine vs Shadcn comparison/decision
 
 ### To Resume
