@@ -1,13 +1,38 @@
 # Inspector V2 Progress Log
 
-## Current Session: [NEW SESSION NEEDED]
+## Current Session: 2025-11-30 (Mantine Spec Alignment Port)
 
-### Last Good State
-Both UI prototypes are complete and buildable:
-- `v2/prototype/mantine` @ def9016 - builds, pushed
-- `v2/prototype/shadcn` @ bd18778 - builds, pushed
+### Completed
+- Ported all 5 enhanced pages from v2/prototype/shadcn to v2/prototype/mantine
+- Created ListChangedIndicator component with pulsing animation
+- Added @tabler/icons-react dependency for Mantine icon support
+- Created global.css for pulse keyframe animation
 
-To resume: checkout either branch, `cd client && npm install && npm run dev`
+### Files Modified/Created
+- `client/src/components/ListChangedIndicator.tsx` - NEW
+- `client/src/global.css` - NEW
+- `client/src/main.tsx` - Import global.css
+- `client/src/pages/Logs.tsx` - 2-panel layout, filters, checkboxes
+- `client/src/pages/Tasks.tsx` - Card-based, progress bars, active/completed
+- `client/src/pages/History.tsx` - Expand/collapse, pin/unpin, search
+- `client/src/pages/Tools.tsx` - 3-column, annotations, progress
+- `client/src/pages/Resources.tsx` - Templates, subscriptions, priority
+
+### Branch State
+- `v2/prototype/mantine` @ 19ad633 - Spec alignment complete, ready to push
+- `v2/prototype/shadcn` @ 4f03654 - Reference implementation (has modals too)
+
+### Next Steps (Session 5)
+- Push mantine branch
+- Port 3 modals to Mantine: ServerInfoModal, AddServerModal, ImportServerJsonModal
+- After modal port: Both branches feature-complete for final comparison
+
+### To Resume
+```bash
+cd inspector
+git checkout v2/prototype/mantine
+cd client && npm install && npm run dev
+```
 
 ---
 
