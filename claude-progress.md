@@ -1,78 +1,66 @@
 # Inspector V2 Progress Log
 
-## Current Session: 2025-11-30 (Spec Alignment - Session 3)
+## Current Session: 2025-11-30 (Modal Port to Mantine)
 
 ### Completed
-- Installed Radix dependencies (@radix-ui/react-dropdown-menu, radio-group, label)
-- Created UI components: DropdownMenu, Textarea, RadioGroup, Label
-- Implemented ServerInfoModal with two-column capabilities layout
-- Implemented AddServerModal with form for manual config + edit mode
-- Implemented ImportServerJsonModal with JSON validation, package/remote selection, env vars
-- Wired modals to ServerList (dropdown menu) and ServerCard (action buttons)
-- Build verified successful
+- Ported all 3 modals from shadcn to Mantine:
+  - `ServerInfoModal.tsx` - Server info display, capabilities, OAuth details
+  - `AddServerModal.tsx` - Create/edit server form with transport selection
+  - `ImportServerJsonModal.tsx` - JSON import with validation and env var binding
+- Build verified passing
 
-### New Files
-- `components/ui/dropdown-menu.tsx`
-- `components/ui/textarea.tsx`
-- `components/ui/radio-group.tsx`
-- `components/ui/label.tsx`
-- `components/ServerInfoModal.tsx`
-- `components/AddServerModal.tsx`
-- `components/ImportServerJsonModal.tsx`
+### Files Created
+- `client/src/components/ServerInfoModal.tsx` - NEW
+- `client/src/components/AddServerModal.tsx` - NEW
+- `client/src/components/ImportServerJsonModal.tsx` - NEW
 
-### Modified Files
-- `pages/ServerList.tsx` - Added dropdown menu with 3 options
-- `components/ServerCard.tsx` - Wired Server Info and Edit buttons to modals
+### Component Mapping Used
+| shadcn | Mantine |
+|--------|---------|
+| Dialog | Modal |
+| Input | TextInput |
+| Select | Select |
+| Textarea | Textarea |
+| RadioGroup | Radio.Group |
+| Button | Button |
+| Badge | Badge |
+| lucide-react | @tabler/icons-react |
 
 ### Branch State
-- `v2/prototype/shadcn` @ 4f03654 - Session 3 complete, committed and pushed
+- `v2/prototype/mantine` - Modal port complete, both branches now feature-complete
+- `v2/prototype/shadcn` - Reference implementation
 
-### Next Steps (Session 4)
-- Port all spec alignment changes to `v2/prototype/mantine`
-- Items to port: Logs, Tasks, Tools, Resources, History screens + all 3 modals
-- After port: compare both prototypes for final Mantine vs Shadcn decision
+### Next Steps
+- Commit changes
+- Push mantine branch
+- Ready for final Mantine vs Shadcn comparison/decision
 
 ### To Resume
 ```bash
 cd inspector
 git checkout v2/prototype/mantine
 cd client && npm install && npm run dev
-# Reference: v2/prototype/shadcn has all the target implementations
 ```
 
 ---
 
-## Previous Session: 2025-11-30 (Spec Alignment - Session 2)
+## Previous Session: 2025-11-30 (Mantine Spec Alignment Port)
 
 ### Completed
-- Enhanced Tools screen with annotations, progress bar, and cancel button
-- Enhanced Resources screen with annotations, template inputs, and subscriptions
-- Enhanced History screen with card layout, pin/unpin, and expandable details
-- All three screens verified buildable
-- Three commits: b51f9a0, b287637, ac05730
+- Ported all 5 enhanced pages from v2/prototype/shadcn to v2/prototype/mantine
+- Created ListChangedIndicator component with pulsing animation
+- Added @tabler/icons-react dependency for Mantine icon support
+- Created global.css for pulse keyframe animation
 
----
-
-## Previous Session: 2025-11-30 (Spec Alignment - Session 1)
-
-### Completed
-- Installed Radix dependencies (@radix-ui/react-dialog, checkbox, progress)
-- Created Dialog, Checkbox, Progress Shadcn components
-- Created ListChangedIndicator reusable component
-- Refactored Logs screen to 2-panel layout per v2_ux.md spec
-- Refactored Tasks screen to card-based layout per v2_ux.md spec
-- Both commits verified buildable
-
----
-
-## Previous Session: 2025-11-30 (Prototype Comparison)
-
-### Last Good State
-Both UI prototypes are complete and buildable:
-- `v2/prototype/mantine` @ def9016 - builds, pushed
-- `v2/prototype/shadcn` @ bd18778 - builds, pushed
-
-To resume: checkout either branch, `cd client && npm install && npm run dev`
+### Files Modified/Created
+- `client/src/components/ListChangedIndicator.tsx` - NEW
+- `client/src/global.css` - NEW
+- `client/src/main.tsx` - Import global.css
+- `client/src/pages/Logs.tsx` - 2-panel layout, filters, checkboxes
+- `client/src/pages/Tasks.tsx` - Card-based, progress bars, active/completed
+- `client/src/pages/History.tsx` - Expand/collapse, pin/unpin, search
+- `client/src/pages/Tools.tsx` - 3-column, annotations, progress
+- `client/src/pages/Resources.tsx` - Templates, subscriptions, priority
 
 ---
 

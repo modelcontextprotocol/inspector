@@ -26,29 +26,13 @@
 - Multiple concurrent server connections
 - Sidebar navigation
 
-## In Progress (Spec Alignment)
-
-### Session 4 - Mantine Port
-- [ ] Port all spec alignment changes to v2/prototype/mantine
-  - Logs 2-panel layout
-  - Tasks card-based layout
-  - Tools screen (annotations, progress, list changed)
-  - Resources screen (annotations, templates, subscriptions)
-  - History screen (cards, pin/unpin, expandable details)
-  - Modals (ServerInfoModal, AddServerModal, ImportServerJsonModal)
-
 ## Completed
 
 - [x] Review specification docs in `inspector/specification/`
 - [x] Scout V2-labeled issues for work items
 - [x] Mantine vs Shadcn demo prototypes (v2/prototype/mantine, v2/prototype/shadcn)
-- [x] Spec alignment Session 1 - Foundation (Dialog, Checkbox, Progress, ListChangedIndicator)
-- [x] Spec alignment Session 1 - Logs 2-panel layout
-- [x] Spec alignment Session 1 - Tasks card-based layout
-- [x] Spec alignment Session 2 - Tools screen (annotations, progress, list changed)
-- [x] Spec alignment Session 2 - Resources screen (annotations, templates, subscriptions)
-- [x] Spec alignment Session 2 - History screen (cards, pin/unpin, expandable details)
-- [x] Spec alignment Session 3 - Modals (ServerInfoModal, AddServerModal, ImportServerJsonModal)
+- [x] Port spec alignment pages to Mantine (Logs, Tasks, History, Tools, Resources)
+- [x] Port modals to Mantine (ServerInfoModal, AddServerModal, ImportServerJsonModal)
 
 ---
 
