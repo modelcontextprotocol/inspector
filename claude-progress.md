@@ -1,6 +1,35 @@
 # Inspector V2 Progress Log
 
-## Current Session: [NEW SESSION NEEDED]
+## Current Session: 2025-11-30 (Spec Alignment - Session 1)
+
+### Completed
+- Installed Radix dependencies (@radix-ui/react-dialog, checkbox, progress)
+- Created Dialog, Checkbox, Progress Shadcn components
+- Created ListChangedIndicator reusable component
+- Refactored Logs screen to 2-panel layout per v2_ux.md spec
+- Refactored Tasks screen to card-based layout per v2_ux.md spec
+- Both commits verified buildable
+
+### Branch State
+- `v2/prototype/shadcn` - Session 1 complete, builds, pushed
+- `v2/prototype/mantine` @ def9016 - still at original state (port pending)
+
+### Next Steps (Session 2)
+- Feature Enhancements: Tools, Resources, History screens
+- Add annotations to Tools and Resources
+- Add ListChangedIndicator to feature screens
+- Add Progress bar and Cancel to Tools
+
+### To Resume
+```bash
+cd inspector
+git checkout v2/prototype/shadcn
+cd client && npm install && npm run dev
+```
+
+---
+
+## Previous Session: 2025-11-30 (Prototype Comparison)
 
 ### Last Good State
 Both UI prototypes are complete and buildable:
