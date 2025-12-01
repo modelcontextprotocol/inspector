@@ -132,7 +132,18 @@ export function ServerCard({ server }: ServerCardProps) {
           {/* Header row */}
           <Group justify="space-between">
             <Group gap="sm">
-              <Text fw={600} size="lg">
+              <Text
+                fw={600}
+                size="lg"
+                style={{
+                  cursor: server.status === 'connected' ? 'pointer' : 'default',
+                }}
+                onClick={() => {
+                  if (server.status === 'connected') {
+                    navigate('/tools');
+                  }
+                }}
+              >
                 {server.name}
               </Text>
               <Badge variant="light" size="sm">
