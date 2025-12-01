@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Container,
   Title,
@@ -6,7 +7,10 @@ import {
   Button,
   SimpleGrid,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { ServerCard } from '../components/ServerCard';
+import { AddServerModal, ServerConfig } from '../components/AddServerModal';
+import { ImportServerJsonModal } from '../components/ImportServerJsonModal';
 
 // Mock server data
 const mockServers = [
@@ -42,6 +46,33 @@ const mockServers = [
 ];
 
 export function ServerList() {
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [importJsonModalOpen, setImportJsonModalOpen] = useState(false);
+
+  const handleSaveServer = (config: ServerConfig) => {
+    console.log('New server config:', config);
+    // TODO: Actually save the server config
+  };
+
+  const handleImportServerJson = (config: {
+    name: string;
+    transport: string;
+    command?: string;
+    url?: string;
+    env: Record<string, string>;
+  }) => {
+    console.log('Imported server config:', config);
+    // TODO: Actually save the imported server config
+  };
+
+  const handleImportConfig = () => {
+    notifications.show({
+      title: 'Import Config',
+      message: 'Claude Desktop config import coming soon',
+      color: 'blue',
+    });
+  };
+
   return (
     <Container size="lg" py="xl">
       <Group justify="space-between" mb="xl">
@@ -51,9 +82,9 @@ export function ServerList() {
             <Button>+ Add Server</Button>
           </Menu.Target>
           <Menu.Dropdown>
-            <Menu.Item>Add manually</Menu.Item>
-            <Menu.Item>Import config</Menu.Item>
-            <Menu.Item>Import server.json</Menu.Item>
+            <Menu.Item onClick={() => setAddModalOpen(true)}>Add manually</Menu.Item>
+            <Menu.Item onClick={handleImportConfig}>Import config</Menu.Item>
+            <Menu.Item onClick={() => setImportJsonModalOpen(true)}>Import server.json</Menu.Item>
           </Menu.Dropdown>
         </Menu>
       </Group>
@@ -63,6 +94,18 @@ export function ServerList() {
           <ServerCard key={server.id} server={server} />
         ))}
       </SimpleGrid>
+
+      <AddServerModal
+        open={addModalOpen}
+        onOpenChange={setAddModalOpen}
+        onSave={handleSaveServer}
+      />
+
+      <ImportServerJsonModal
+        open={importJsonModalOpen}
+        onOpenChange={setImportJsonModalOpen}
+        onImport={handleImportServerJson}
+      />
     </Container>
   );
 }
