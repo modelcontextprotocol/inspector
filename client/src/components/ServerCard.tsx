@@ -127,7 +127,16 @@ export function ServerCard({ server }: ServerCardProps) {
           {/* Header row */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-lg font-semibold">{server.name}</span>
+              <span
+                className={`text-lg font-semibold ${server.status === 'connected' ? 'cursor-pointer hover:underline' : ''}`}
+                onClick={() => {
+                  if (server.status === 'connected') {
+                    navigate('/tools');
+                  }
+                }}
+              >
+                {server.name}
+              </span>
               <Badge variant="secondary">v{server.version}</Badge>
             </div>
             <div className="flex items-center gap-3">
