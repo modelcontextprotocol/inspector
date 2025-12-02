@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { ListChangedIndicator } from '@/components/ListChangedIndicator';
 
 // Tool interface with annotations per MCP spec
@@ -52,7 +51,6 @@ export function Tools() {
   const [hasToolsChanged, setHasToolsChanged] = useState(true);
   const [selectedTool, setSelectedTool] = useState<Tool>(mockTools[0]);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [progress, setProgress] = useState<{ percent: number; message?: string } | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
 
   const handleRefresh = () => {
@@ -61,28 +59,14 @@ export function Tools() {
 
   const handleExecute = () => {
     setIsExecuting(true);
-    setProgress({ percent: 0, message: 'Starting...' });
-
-    // Simulate progress for demo
-    let percent = 0;
-    const interval = setInterval(() => {
-      percent += 20;
-      if (percent >= 100) {
-        clearInterval(interval);
-        setIsExecuting(false);
-        setProgress(null);
-      } else {
-        setProgress({
-          percent,
-          message: `Processing step ${percent / 20} of 5...`,
-        });
-      }
-    }, 800);
+    // Simulate execution completing
+    setTimeout(() => {
+      setIsExecuting(false);
+    }, 500);
   };
 
   const handleCancel = () => {
     setIsExecuting(false);
-    setProgress(null);
   };
 
   const filteredTools = mockTools.filter((tool) =>
@@ -192,21 +176,6 @@ export function Tools() {
             </label>
             <Input placeholder="Enter message..." disabled={isExecuting} />
           </div>
-
-          {/* Progress bar */}
-          {progress && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Progress value={progress.percent} className="flex-1" />
-                <span className="text-sm text-muted-foreground w-12 text-right">
-                  {progress.percent}%
-                </span>
-              </div>
-              {progress.message && (
-                <p className="text-sm text-muted-foreground">{progress.message}</p>
-              )}
-            </div>
-          )}
 
           {/* Execute / Cancel buttons */}
           <div className="flex gap-2">

@@ -1,18 +1,20 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// Mock connected server data
-const mockServer = {
-  name: 'everything-server',
+// Fallback server data for direct navigation
+const fallbackServer = {
+  name: 'Unknown Server',
   status: 'connected' as const,
-  latency: 23,
+  latency: 0,
 };
 
 export function AppLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const server = location.state?.server || fallbackServer;
 
   const navItems = [
     { label: 'Tools', path: '/tools' },
@@ -31,14 +33,14 @@ export function AppLayout() {
           {/* Left side: Server dropdown and status */}
           <div className="flex items-center gap-4">
             <button className="flex items-center gap-1 hover:bg-accent rounded px-2 py-1">
-              <span className="font-semibold">{mockServer.name}</span>
+              <span className="font-semibold">{server.name}</span>
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             </button>
 
             <div className="flex items-center gap-2">
               <Badge variant="success">Connected</Badge>
               <span className="text-sm text-muted-foreground">
-                ({mockServer.latency}ms)
+                ({server.latency || 0}ms)
               </span>
             </div>
           </div>

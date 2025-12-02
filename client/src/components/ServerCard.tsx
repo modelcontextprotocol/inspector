@@ -62,7 +62,7 @@ export function ServerCard({ server }: ServerCardProps) {
       // Would disconnect
     } else {
       // Would connect, then navigate
-      navigate('/tools');
+      navigate('/tools', { state: { server } });
     }
   };
 
@@ -131,7 +131,7 @@ export function ServerCard({ server }: ServerCardProps) {
                 className={`text-lg font-semibold ${server.status === 'connected' ? 'cursor-pointer hover:underline' : ''}`}
                 onClick={() => {
                   if (server.status === 'connected') {
-                    navigate('/tools');
+                    navigate('/tools', { state: { server } });
                   }
                 }}
               >
