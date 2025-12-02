@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   AppShell,
   Group,
@@ -9,15 +9,17 @@ import {
   UnstyledButton,
 } from '@mantine/core';
 
-// Mock connected server data
-const mockServer = {
-  name: 'everything-server',
+// Fallback server data for direct navigation
+const fallbackServer = {
+  name: 'Unknown Server',
   status: 'connected' as const,
-  latency: 23,
+  latency: 0,
 };
 
 export function AppLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const server = location.state?.server || fallbackServer;
 
   const navItems = [
     { label: 'Tools', path: '/tools' },
@@ -38,7 +40,7 @@ export function AppLayout() {
               <Menu.Target>
                 <UnstyledButton>
                   <Group gap="xs">
-                    <Text fw={600}>{mockServer.name}</Text>
+                    <Text fw={600}>{server.name}</Text>
                     <Text size="xs" c="dimmed">▼</Text>
                   </Group>
                 </UnstyledButton>
@@ -54,13 +56,13 @@ export function AppLayout() {
             <Group gap="xs">
               <Badge
                 size="sm"
-                color={mockServer.status === 'connected' ? 'green' : 'gray'}
+                color={server.status === 'connected' ? 'green' : 'gray'}
                 variant="dot"
               >
                 Connected
               </Badge>
               <Text size="xs" c="dimmed">
-                ({mockServer.latency}ms)
+                ({server.latency || 0}ms)
               </Text>
             </Group>
           </Group>

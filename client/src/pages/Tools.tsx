@@ -11,7 +11,6 @@ import {
   Code,
   Badge,
   Group,
-  Progress,
 } from '@mantine/core';
 import { ListChangedIndicator } from '../components/ListChangedIndicator';
 
@@ -61,7 +60,6 @@ export function Tools() {
   const [hasToolsChanged, setHasToolsChanged] = useState(true);
   const [selectedTool, setSelectedTool] = useState<Tool>(mockTools[0]);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [progress, setProgress] = useState<{ percent: number; message?: string } | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
 
   const handleRefresh = () => {
@@ -70,28 +68,14 @@ export function Tools() {
 
   const handleExecute = () => {
     setIsExecuting(true);
-    setProgress({ percent: 0, message: 'Starting...' });
-
-    // Simulate progress for demo
-    let percent = 0;
-    const interval = setInterval(() => {
-      percent += 20;
-      if (percent >= 100) {
-        clearInterval(interval);
-        setIsExecuting(false);
-        setProgress(null);
-      } else {
-        setProgress({
-          percent,
-          message: `Processing step ${percent / 20} of 5...`,
-        });
-      }
-    }, 800);
+    // Simulate execution completing
+    setTimeout(() => {
+      setIsExecuting(false);
+    }, 500);
   };
 
   const handleCancel = () => {
     setIsExecuting(false);
-    setProgress(null);
   };
 
   const filteredTools = mockTools.filter((tool) =>
@@ -211,21 +195,6 @@ export function Tools() {
               placeholder="Enter message..."
               disabled={isExecuting}
             />
-
-            {/* Progress bar */}
-            {progress && (
-              <Stack gap="xs">
-                <Group gap="sm">
-                  <Progress value={progress.percent} flex={1} />
-                  <Text size="sm" c="dimmed" w={40} ta="right">
-                    {progress.percent}%
-                  </Text>
-                </Group>
-                {progress.message && (
-                  <Text size="sm" c="dimmed">{progress.message}</Text>
-                )}
-              </Stack>
-            )}
 
             {/* Execute / Cancel buttons */}
             <Group gap="sm">
