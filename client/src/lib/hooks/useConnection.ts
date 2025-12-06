@@ -824,6 +824,12 @@ export function useConnection({
           description: `Server declares logging capability but doesn't implement method: "${lastRequest}"`,
           variant: "destructive",
         });
+      } else {
+        toast({
+          title: "Connection error",
+          description: `Connection failed: "${e}"`,
+          variant: "destructive",
+        });
       }
       console.error(e);
       setConnectionStatus("error");
