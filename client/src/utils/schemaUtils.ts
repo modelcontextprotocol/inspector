@@ -115,9 +115,11 @@ export function generateDefaultValue(
       if (!schema.properties) return isRequired ? {} : undefined;
 
       const obj: JsonObject = {};
-      // Only include properties that are required according to the schema's required array
+      // Include required properties OR optional properties that declare a default
       Object.entries(schema.properties).forEach(([key, prop]) => {
-        if (isPropertyRequired(key, schema)) {
+        const hasExplicitDefault =
+          "default" in prop && (prop as JsonSchemaType).default !== undefined;
+        if (isPropertyRequired(key, schema) || hasExplicitDefault) {
           const value = generateDefaultValue(prop, key, schema);
           if (value !== undefined) {
             obj[key] = value;
