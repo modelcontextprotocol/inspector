@@ -45,10 +45,18 @@ export function Prompts() {
                   name <span className="text-red-400">*</span>
                 </label>
                 <Input placeholder="Enter name..." />
+                {/* Autocomplete placeholder - for future completion/complete integration */}
+                <p className="text-xs text-muted-foreground italic">
+                  Suggestions: Type to see completions
+                </p>
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium">interests</label>
                 <Input placeholder="Enter interests..." />
+                {/* Autocomplete placeholder - for future completion/complete integration */}
+                <p className="text-xs text-muted-foreground italic">
+                  Suggestions: Type to see completions
+                </p>
               </div>
             </div>
           </div>
