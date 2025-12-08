@@ -1,6 +1,68 @@
 # Inspector V2 Progress Log
 
-## Current Session: 2025-12-07 (PR #945 Feedback Revisions)
+## Current Session: 2025-12-08 (UI/UX Work Breakdown Planning)
+
+### Context
+Planning session to break down remaining V2 UI/UX work into individual issues.
+Assuming Shadcn prototype as the base (per user direction).
+
+### Decisions Made
+- **Priority:** Home Screen + Server Card first
+- **Granularity:** One GitHub issue per feature (smaller, focused)
+- **Backend:** Tracked separately from UI work
+
+### Artifacts Created
+- **ISSUES.md** - 19 UI issues organized into 7 phases
+- **TODO.md** - Updated to reference ISSUES.md
+
+### Issue Breakdown Summary
+
+| Phase | Focus | Issues |
+|-------|-------|--------|
+| 1 | Home Screen Experience | UI-1 to UI-5 (5 issues) |
+| 2 | OAuth Experience | UI-6 to UI-7 (2 issues) |
+| 3 | History Screen Polish | UI-8 to UI-11 (4 issues) |
+| 4 | Feature Screen Polish | UI-12 to UI-14 (3 issues) |
+| 5 | Logging and Tasks | UI-15 to UI-16 (2 issues) |
+| 6 | Error Handling UX | UI-17 to UI-18 (2 issues) |
+| 7 | Experimental Features | UI-19 (1 issue) |
+
+### Priority Items (Phase 1)
+1. UI-1: Fix ServerCard dropdown transparency bug
+2. UI-2: Add Clone functionality to ServerCard
+3. UI-3: Add error state display to ServerCard
+4. UI-4: Create ServerSettingsModal component
+5. UI-5: Integrate Settings button into ServerCard
+
+### New Components to Build
+- `ServerSettingsModal.tsx` (UI-4)
+- `OAuthDebuggerModal.tsx` (UI-6)
+- `ExperimentalFeaturesPanel.tsx` (UI-19)
+- `Toaster.tsx` or Shadcn sonner (UI-17)
+
+### GitHub Issues to Link
+- #934 (SSE id in history) -> UI-8
+- #928 (expand/collapse) -> UI-9
+- #392 (progress tokens) -> UI-10
+
+### Merge Completed
+- Merged `v2/feature/tech-stack-votes` into `v2/feature/prototype`
+- Brought in PR #945 feedback revisions (Server Settings Modal, OAuth Debugger specs)
+- Deleted unused `v2/demos/prototype` branch and worktree
+
+### Next Steps
+1. Start with UI-1 (dropdown transparency bug fix)
+2. Work through Phase 1 issues in order
+3. Create GitHub issues as work proceeds
+
+### Branch State
+- `v2/feature/prototype` - Main development branch (current)
+- `v2/prototype/shadcn` - Shadcn UI prototype
+- `v2/prototype/mantine` - Mantine UI prototype
+
+---
+
+## Previous Session: 2025-12-07 (PR #945 Feedback Revisions)
 
 ### Context
 PR #945 (v2_ux.md) received feedback from reviewers (cliffhall, pcarleton, KKonstantinov, mattzcarey).

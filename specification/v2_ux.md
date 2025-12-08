@@ -93,29 +93,41 @@ Initial screen shown when no server is connected. Displays server cards in a res
 Each server in the list is displayed as a card with connection controls and status.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│ [Icon] Server Name              v1.0.0                  │
-│        STDIO                    [●] Connected  [Toggle] │
-├─────────────────────────────────────────────────────────┤
-│ npx -y @modelcontextprotocol/server-everything    [Copy]│
-├─────────────────────────────────────────────────────────┤
-│ [Server Info]                          [Edit] [Remove]  │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ [Icon] Server Name                        v1.0.0                │
+│        STDIO                              [●] Connected [Toggle]│
+├─────────────────────────────────────────────────────────────────┤
+│ npx -y @modelcontextprotocol/server-everything            [Copy]│
+├─────────────────────────────────────────────────────────────────┤
+│ [Server Info] [Settings] [Clone]                 [Edit] [Remove]│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**With OAuth (shows OAuth Debug button):**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ [Icon] Server Name                        v1.0.0                │
+│        HTTP (OAuth)                       [●] Connected [Toggle]│
+├─────────────────────────────────────────────────────────────────┤
+│ https://api.example.com/mcp                               [Copy]│
+├─────────────────────────────────────────────────────────────────┤
+│ [Server Info] [Settings] [OAuth Debug] [Clone]   [Edit] [Remove]│
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 **With Error State:**
 ```
-┌─────────────────────────────────────────────────────────┐
-│ [Icon] Server Name              v1.0.0                  │
-│        HTTP                     [●] Failed (3) [Toggle] │
-├─────────────────────────────────────────────────────────┤
-│ https://api.example.com/mcp                       [Copy]│
-├─────────────────────────────────────────────────────────┤
-│ [Server Info]                          [Edit] [Remove]  │
-├─────────────────────────────────────────────────────────┤
-│ [!] Connection timeout after 20s                       │
-│ [Show more]              [View Troubleshooting Guide →] │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ [Icon] Server Name                        v1.0.0                │
+│        HTTP                               [●] Failed (3)[Toggle]│
+├─────────────────────────────────────────────────────────────────┤
+│ https://api.example.com/mcp                               [Copy]│
+├─────────────────────────────────────────────────────────────────┤
+│ [Server Info] [Settings] [Clone]                 [Edit] [Remove]│
+├─────────────────────────────────────────────────────────────────┤
+│ [!] Connection timeout after 20s                                │
+│ [Show more]                        [View Troubleshooting Guide] │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 **Status Indicators:**
@@ -131,6 +143,7 @@ Each server in the list is displayed as a card with connection controls and stat
 - **Copy** - Copy command/URL to clipboard
 - **Server Info** - Opens server info modal
 - **Settings** - Opens server settings modal (see below)
+- **OAuth Debug** - Opens OAuth debugger modal (visible when server uses OAuth)
 - **Clone** - Duplicates server config for creating variants
 - **Edit** - Opens edit server modal
 - **Remove** - Deletes server (with confirmation)
@@ -546,6 +559,10 @@ Each feature screen uses a **resizable panel layout** for flexibility.
   - Dropdown suggestions as user types
   - Supports enum and dynamic completion
 - Form generated from tool input schema
+- **Per-Tool Metadata** - [Edit Metadata] button to set tool-specific `_meta` fields:
+  - Stored per-server, per-tool (not in global localStorage)
+  - Merged with server-level metadata on each call
+  - Use case: Different progressToken behavior, tool-specific tracking IDs
 - **Progress Indicator** from `notifications/progress`:
   - Progress bar with percentage
   - Step description if provided
