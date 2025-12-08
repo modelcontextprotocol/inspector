@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ChevronDown, ChevronUp, Pin, PinOff } from 'lucide-react';
+import { ChevronDown, ChevronUp, Pin, PinOff, Download } from 'lucide-react';
 
 // History entry interface
 interface HistoryEntry {
@@ -196,11 +196,14 @@ function HistoryCard({ entry, expanded, onToggleExpand, onTogglePin }: HistoryCa
   );
 }
 
+const PAGE_SIZE = 10;
+
 export function History() {
   const [history, setHistory] = useState<HistoryEntry[]>(initialHistory);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [searchFilter, setSearchFilter] = useState('');
   const [methodFilter, setMethodFilter] = useState<string>('');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
@@ -226,6 +229,35 @@ export function History() {
     setHistory([]);
   };
 
+  const handleExport = () => {
+    const exportData = filteredHistory.map((entry) => ({
+      timestamp: entry.timestamp,
+      method: entry.method,
+      target: entry.target,
+      params: entry.params,
+      response: entry.response,
+      duration: entry.duration,
+      success: entry.success,
+      sseId: entry.sseId,
+      progressToken: entry.progressToken,
+    }));
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mcp-history-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleLoadMore = () => {
+    setVisibleCount((prev) => prev + PAGE_SIZE);
+  };
+
   // Filter history
   const filteredHistory = history.filter((entry) => {
     const matchesSearch =
@@ -240,6 +272,10 @@ export function History() {
   // Separate pinned and unpinned
   const pinnedEntries = filteredHistory.filter((entry) => entry.pinned);
   const unpinnedEntries = filteredHistory.filter((entry) => !entry.pinned);
+
+  // Paginate unpinned entries
+  const visibleUnpinnedEntries = unpinnedEntries.slice(0, visibleCount);
+  const hasMoreEntries = unpinnedEntries.length > visibleCount;
 
   return (
     <div className="space-y-6 h-[calc(100vh-120px)] overflow-auto">
@@ -267,6 +303,10 @@ export function History() {
                   <SelectItem value="prompts/get">prompts/get</SelectItem>
                 </SelectContent>
               </Select>
+              <Button variant="outline" size="sm" onClick={handleExport}>
+                <Download className="h-4 w-4 mr-1" />
+                Export JSON
+              </Button>
               <Button variant="outline" size="sm" onClick={handleClearAll}>
                 Clear All
               </Button>
@@ -284,7 +324,7 @@ export function History() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {unpinnedEntries.map((entry) => (
+          {visibleUnpinnedEntries.map((entry) => (
             <HistoryCard
               key={entry.id}
               entry={entry}
@@ -293,6 +333,14 @@ export function History() {
               onTogglePin={() => togglePin(entry.id)}
             />
           ))}
+          {/* Load More button */}
+          {hasMoreEntries && (
+            <div className="text-center pt-2">
+              <Button variant="outline" onClick={handleLoadMore}>
+                Load More ({unpinnedEntries.length - visibleCount} remaining)
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -348,7 +396,8 @@ export function History() {
 
       {/* Footer stats */}
       <div className="text-sm text-muted-foreground text-right">
-        Showing {filteredHistory.length} of {history.length} entries
+        Showing {visibleUnpinnedEntries.length + pinnedEntries.length} of {filteredHistory.length} entries
+        {filteredHistory.length !== history.length && ` (${history.length} total)`}
       </div>
     </div>
   );
