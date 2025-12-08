@@ -1,6 +1,106 @@
 # Inspector V2 Progress Log
 
-## Current Session: 2025-11-30 (Mantine Client Feature Modal Port)
+## Current Session: 2025-12-08 (UI/UX Work Breakdown Planning)
+
+### Context
+Planning session to break down remaining V2 UI/UX work into individual issues.
+Assuming Shadcn prototype as the base (per user direction).
+
+### Decisions Made
+- **Priority:** Home Screen + Server Card first
+- **Granularity:** One GitHub issue per feature (smaller, focused)
+- **Backend:** Tracked separately from UI work
+
+### Artifacts Created
+- **ISSUES.md** - 19 UI issues organized into 7 phases
+- **TODO.md** - Updated to reference ISSUES.md
+
+### Issue Breakdown Summary
+
+| Phase | Focus | Issues |
+|-------|-------|--------|
+| 1 | Home Screen Experience | UI-1 to UI-5 (5 issues) |
+| 2 | OAuth Experience | UI-6 to UI-7 (2 issues) |
+| 3 | History Screen Polish | UI-8 to UI-11 (4 issues) |
+| 4 | Feature Screen Polish | UI-12 to UI-14 (3 issues) |
+| 5 | Logging and Tasks | UI-15 to UI-16 (2 issues) |
+| 6 | Error Handling UX | UI-17 to UI-18 (2 issues) |
+| 7 | Experimental Features | UI-19 (1 issue) |
+
+### Priority Items (Phase 1)
+1. UI-1: Fix ServerCard dropdown transparency bug
+2. UI-2: Add Clone functionality to ServerCard
+3. UI-3: Add error state display to ServerCard
+4. UI-4: Create ServerSettingsModal component
+5. UI-5: Integrate Settings button into ServerCard
+
+### New Components to Build
+- `ServerSettingsModal.tsx` (UI-4)
+- `OAuthDebuggerModal.tsx` (UI-6)
+- `ExperimentalFeaturesPanel.tsx` (UI-19)
+- `Toaster.tsx` or Shadcn sonner (UI-17)
+
+### GitHub Issues to Link
+- #934 (SSE id in history) -> UI-8
+- #928 (expand/collapse) -> UI-9
+- #392 (progress tokens) -> UI-10
+
+### Next Steps
+1. Start with UI-1 (dropdown transparency bug fix)
+2. Work through Phase 1 issues in order
+3. Create GitHub issues as work proceeds
+
+### Branch State
+- `v2/prototype/shadcn` - Working branch for UI implementation
+
+---
+
+## Previous Session: 2025-12-07 (PR #945 Feedback Revisions)
+
+### Context
+PR #945 (v2_ux.md) received feedback from reviewers (cliffhall, pcarleton, KKonstantinov, mattzcarey).
+This session addresses all feedback and updates both spec documents and prototype code.
+
+### Spec Changes (v2_ux.md)
+1. **Server Settings Modal** - Added new section for per-server config:
+   - Connection Mode (Direct vs Via Proxy)
+   - Custom Headers key-value editor
+   - Request Metadata per-server
+   - Timeouts (Connection/Request)
+   - OAuth Settings (Client ID, Secret, Scopes)
+2. **Clone button** - Added to Server Card Actions
+3. **OAuth Debugger** - New section for debugging OAuth flows with step-by-step visualization
+4. **Resources Screen** - Changed from resizable panes to accordion pattern
+5. **Logging Screen** - Updated to all 8 RFC 5424 levels with distinct colors
+6. **Browse button** - Clarified as local file picker (not registry browser)
+7. **Advanced JSON-RPC Tester** - Expanded from experimental-only to all methods, added custom headers
+8. **Form Generation** - Added multi-select support for anyOf/oneOf enums
+
+### Spec Changes (v2_tech_stack.md)
+- Changed framework selection from Express to Hono (consensus from PR discussion)
+- Added Hono Rationale section with comparison table
+
+### Prototype Changes (v2/prototype/shadcn)
+- **Resources.tsx** - Implemented accordion pattern with collapsible sections
+- **Logs.tsx** - Added all 8 log levels to visible level checkboxes, distinct colors
+
+### Files Modified
+- `specification/v2_ux.md` - 8 major additions/revisions
+- `specification/v2_tech_stack.md` - Hono selection and rationale
+- `client/src/pages/Resources.tsx` - Accordion pattern implementation
+- `client/src/pages/Logs.tsx` - 8 log levels with RFC 5424 colors
+
+### Build Status
+- Client build verified passing
+
+### Next Steps
+- Apply same prototype changes to v2/prototype/mantine branch
+- Create ServerSettingsModal.tsx component
+- Add OAuth debugger modal
+
+---
+
+## Previous Session: 2025-11-30 (Mantine Client Feature Modal Port)
 
 ### Completed
 - Ported 3 client feature modals from shadcn to Mantine for feature parity:
