@@ -1,15 +1,29 @@
 # Inspector V2 - TODOs
 
-## UI Work Items
+## Current Focus
 
-See **[ISSUES.md](ISSUES.md)** for the full breakdown of 19 UI issues organized by phase:
-- Phase 1: Home Screen Experience (5 issues) - PRIORITY
-- Phase 2: OAuth Experience (2 issues)
-- Phase 3: History Screen Polish (4 issues)
-- Phase 4: Feature Screen Polish (3 issues)
-- Phase 5: Logging and Tasks Polish (2 issues)
-- Phase 6: Error Handling UX (2 issues)
-- Phase 7: Experimental Features (1 issue)
+Testing Shadcn prototype first - all 18 UI issues (UI-2 to UI-19) implemented on `v2/prototype/shadcn`.
+Mantine port deferred until after Shadcn testing/validation.
+
+## UI Work Items Status
+
+See **[ISSUES.md](ISSUES.md)** for detailed breakdown.
+
+| Phase | Description | Shadcn | Mantine |
+|-------|-------------|--------|---------|
+| 1 | Home Screen Experience (UI-1 to UI-5) | DONE (UI-1 wontfix) | Not started |
+| 2 | OAuth Experience (UI-6 to UI-7) | DONE | Not started |
+| 3 | History Screen Polish (UI-8 to UI-11) | DONE | Not started |
+| 4 | Feature Screen Polish (UI-12 to UI-14) | DONE | Not started |
+| 5 | Logging and Tasks Polish (UI-15 to UI-16) | DONE | Not started |
+| 6 | Error Handling UX (UI-17 to UI-18) | DONE | Not started |
+| 7 | Experimental Features (UI-19) | DONE | Not started |
+
+## Next Steps
+
+- [ ] **Visual testing** - Run dev server and test all new features in browser
+- [ ] **Playwright MCP testing** - Capture screenshots of new components/pages
+- [ ] **Decide on Mantine port** - Based on Shadcn testing results, decide if Mantine needs the same features
 
 ## Waiting On
 
@@ -17,7 +31,7 @@ See **[ISSUES.md](ISSUES.md)** for the full breakdown of 19 UI issues organized 
 
 ## Bugs
 
-- [ ] **[Shadcn] Dropdown menu transparent background** - See ISSUES.md UI-1
+- [x] **[Shadcn] Dropdown menu transparent background** - Marked wontfix (UI-1)
 
 ## Pending Decisions
 
@@ -43,6 +57,12 @@ See **[ISSUES.md](ISSUES.md)** for the full breakdown of 19 UI issues organized 
 - [x] Fix Shadcn History page crash (SelectItem empty value bug)
 - [x] Shadcn: Implement client feature modals (Sampling, Elicitation, Roots) with mock data
 - [x] Mantine: Port client feature modals (Sampling, Elicitation, Roots) for feature parity with Shadcn
+- [x] **Shadcn: UI-2 to UI-19 implementation** (2025-12-08)
+  - ServerSettingsModal, OAuthDebuggerModal, ExperimentalFeaturesPanel
+  - Toast system with sonner + doc links
+  - History enhancements (SSE id, progress tokens, export, pagination)
+  - Clone, error display, Settings/OAuth Debug buttons on ServerCard
+  - Export/clear for Logs and Tasks
 
 ---
 

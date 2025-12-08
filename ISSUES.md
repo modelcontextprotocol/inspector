@@ -2,6 +2,11 @@
 
 Issues to create in upstream repo (modelcontextprotocol/inspector) with `v2` label.
 
+## Implementation Status
+
+**Shadcn branch (`v2/prototype/shadcn`):** UI-2 through UI-19 COMPLETE (UI-1 wontfix)
+**Mantine branch (`v2/prototype/mantine`):** Not started - testing Shadcn first
+
 ## Phase 1: Home Screen Experience
 
 ### UI-1: Fix ServerCard dropdown transparency bug
