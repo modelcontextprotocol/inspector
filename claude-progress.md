@@ -82,8 +82,18 @@ a4d137b feat(ServerCard): add Clone functionality (UI-2)
 - `v2/prototype/shadcn` - All UI issues implemented (current)
 - `v2/feature/prototype` - Main development branch
 
+### Visual Testing Completed (Playwright MCP)
+Screenshots captured in `.playwright-mcp/`:
+- `shadcn-serverlist-overview.png` - Server list with Clone, Settings, error state
+- `shadcn-settings-modal.png` - ServerSettingsModal with all sections
+- `shadcn-tools-autocomplete.png` - Tools page with autocomplete placeholder
+- `shadcn-history-export.png` - History with SSE ID, Export JSON, pinned requests
+- `shadcn-logs-export.png` - Logs with 8 RFC 5424 levels, Export dropdown
+- `shadcn-tasks-overview.png` - Tasks page with Clear History button
+- `shadcn-tasks-clear-dialog.png` - Confirmation dialog for clearing tasks
+
 ### Next Steps
-- Test all new features visually with dev server
+- Add OAuth-enabled mock server to test OAuthDebuggerModal
 - Consider porting key features to Mantine branch
 - Wire up toast notifications to actual error handlers
 - Connect ExperimentalFeaturesPanel to a route/page
