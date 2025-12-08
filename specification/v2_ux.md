@@ -8,8 +8,10 @@
   * [Screen Flows](#screen-flows)
     * [Server List (Home)](#server-list-home)
     * [Server Connection Card](#server-connection-card)
+    * [Server Settings Modal](#server-settings-modal)
     * [Import server.json Modal](#import-serverjson-modal)
     * [Server Info (Connected)](#server-info-connected)
+    * [OAuth Debugger](#oauth-debugger)
     * [Feature Screens](#feature-screens)
       * [Tools Screen](#tools-screen)
       * [Resources Screen](#resources-screen)
@@ -128,8 +130,105 @@ Each server in the list is displayed as a card with connection controls and stat
 - **Toggle switch** - Connect/disconnect the server
 - **Copy** - Copy command/URL to clipboard
 - **Server Info** - Opens server info modal
+- **Settings** - Opens server settings modal (see below)
+- **Clone** - Duplicates server config for creating variants
 - **Edit** - Opens edit server modal
 - **Remove** - Deletes server (with confirmation)
+
+### Server Settings Modal
+
+Per-server configuration for connection behavior, headers, metadata, timeouts, and OAuth credentials.
+
+```
++---------------------------------------------------------------------------+
+| Server Settings: my-server                                            [x] |
++---------------------------------------------------------------------------+
+|                                                                           |
+| Connection Mode                                                           |
+| +-----------------------------------------------------------------------+ |
+| | Via Proxy                                                           v | |
+| +-----------------------------------------------------------------------+ |
+|   Direct - Connect directly to server (requires CORS support)             |
+|   Via Proxy - Route through inspector proxy (required for STDIO)          |
+|                                                                           |
+| ---------------------------------------------------------------------------
+|                                                                           |
+| Custom Headers                                                            |
+| +-----------------------------------------------------------------------+ |
+| | Authorization      | Bearer sk-...                           [Remove]| |
+| | X-Custom-Header    | custom-value                            [Remove]| |
+| +-----------------------------------------------------------------------+ |
+| [+ Add Header]                                                            |
+|                                                                           |
+| ---------------------------------------------------------------------------
+|                                                                           |
+| Request Metadata                                                          |
+| Metadata sent with every MCP request to this server.                      |
+| +-----------------------------------------------------------------------+ |
+| | session_id         | abc123                                  [Remove]| |
+| +-----------------------------------------------------------------------+ |
+| [+ Add Metadata]                                                          |
+|                                                                           |
+| ---------------------------------------------------------------------------
+|                                                                           |
+| Timeouts                                                                  |
+| +-----------------------------------+-----------------------------------+ |
+| | Connection Timeout                | Request Timeout                   | |
+| | +-----------------------------+   | +-----------------------------+   | |
+| | | 30000                     ms|   | | 60000                     ms|   | |
+| | +-----------------------------+   | +-----------------------------+   | |
+| +-----------------------------------+-----------------------------------+ |
+|                                                                           |
+| ---------------------------------------------------------------------------
+|                                                                           |
+| OAuth Settings (for servers requiring authentication)                     |
+| +-----------------------------------------------------------------------+ |
+| | Client ID                                                             | |
+| | +-------------------------------------------------------------------+ | |
+| | | my-client-id                                                      | | |
+| | +-------------------------------------------------------------------+ | |
+| |                                                                       | |
+| | Client Secret                                                         | |
+| | +-------------------------------------------------------------------+ | |
+| | | ********                                              [Show/Hide] | | |
+| | +-------------------------------------------------------------------+ | |
+| |                                                                       | |
+| | Scopes                                                                | |
+| | +-------------------------------------------------------------------+ | |
+| | | read write profile                                                | | |
+| | +-------------------------------------------------------------------+ | |
+| +-----------------------------------------------------------------------+ |
+|                                                                           |
+|                                                 [Cancel]  [Save Settings] |
++---------------------------------------------------------------------------+
+```
+
+**Connection Mode:**
+- **Direct** - Browser connects directly to server (requires server to have CORS headers)
+- **Via Proxy** - Route through inspector proxy (required for STDIO transport, useful for CORS-restricted servers)
+
+**Custom Headers:**
+- Key-value pairs sent with every HTTP request to this server
+- Useful for API keys, authorization tokens, custom routing
+
+**Request Metadata:**
+- Data included in `_meta` field of every MCP request
+- Per-server isolation (previously stored globally in localStorage)
+
+**Timeouts:**
+- **Connection Timeout** - Max time to establish connection (ms)
+- **Request Timeout** - Max time for individual requests (ms)
+
+**OAuth Settings:**
+- Pre-configure OAuth credentials for servers requiring authentication
+- Client ID and Client Secret for OAuth 2.0 flows
+- Scopes to request during authorization
+
+**Clone Functionality:**
+The [Clone] button on the server card creates a duplicate configuration, enabling:
+- Testing same server with different headers/metadata
+- Comparing behavior with different timeout settings
+- Maintaining separate OAuth credentials for different environments
 
 ### Import server.json Modal
 
@@ -200,6 +299,11 @@ Support for importing MCP Registry `server.json` format for testing servers befo
 │                                    [Validate Again]  [Cancel]  [Add Server] │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Browse Button:**
+- Opens native file picker to select a local `server.json` file
+- Supports `.json` file filter
+- Note: Registry browser may be added as future enhancement or plugin
 
 **Schema Validation:**
 - Validate against official MCP Registry schema
@@ -289,6 +393,108 @@ Shown as a modal or dedicated screen after successful connection.
 - Display server instructions if provided
 - Show OAuth tokens with copy and JWT decode options
 
+### OAuth Debugger
+
+Accessed via [OAuth Debug] button on the server card (visible when server uses OAuth).
+
+```
++---------------------------------------------------------------------------+
+| OAuth Debugger: my-server                                             [x] |
++---------------------------------------------------------------------------+
+|                                                                           |
+| OAuth Flow Status                                                         |
+| +-----------------------------------------------------------------------+ |
+| | Step 1: Authorization Request                             [Completed] | |
+| | +-------------------------------------------------------------------+ | |
+| | | GET https://auth.example.com/authorize                            | | |
+| | |   ?client_id=my-client-id                                         | | |
+| | |   &redirect_uri=http://localhost:5173/callback                    | | |
+| | |   &response_type=code                                             | | |
+| | |   &scope=read%20write                                             | | |
+| | |   &state=abc123                                                   | | |
+| | +-------------------------------------------------------------------+ | |
+| |                                                             [Copy URL] | |
+| +-----------------------------------------------------------------------+ |
+|                                                                           |
+| +-----------------------------------------------------------------------+ |
+| | Step 2: Authorization Code                                [Completed] | |
+| | +-------------------------------------------------------------------+ | |
+| | | code: xyz789...                                                   | | |
+| | | state: abc123 (verified)                                          | | |
+| | +-------------------------------------------------------------------+ | |
+| +-----------------------------------------------------------------------+ |
+|                                                                           |
+| +-----------------------------------------------------------------------+ |
+| | Step 3: Token Exchange                                    [Completed] | |
+| | +-------------------------------------------------------------------+ | |
+| | | POST https://auth.example.com/token                               | | |
+| | | grant_type=authorization_code&code=xyz789...                      | | |
+| | +-------------------------------------------------------------------+ | |
+| +-----------------------------------------------------------------------+ |
+|                                                                           |
+| +-----------------------------------------------------------------------+ |
+| | Step 4: Access Token                                      [Active]    | |
+| | +-------------------------------------------------------------------+ | |
+| | | access_token: eyJhbG...                           [Copy] [Decode] | | |
+| | | token_type: Bearer                                                | | |
+| | | expires_in: 3600 (expires at 15:32:00)                            | | |
+| | | scope: read write                                                 | | |
+| | +-------------------------------------------------------------------+ | |
+| +-----------------------------------------------------------------------+ |
+|                                                                           |
+| +-----------------------------------------------------------------------+ |
+| | Refresh Token                                                         | |
+| | +-------------------------------------------------------------------+ | |
+| | | refresh_token: def456...                                  [Copy]  | | |
+| | +-------------------------------------------------------------------+ | |
+| |                                                    [Test Refresh Now] | |
+| +-----------------------------------------------------------------------+ |
+|                                                                           |
+| ---------------------------------------------------------------------------
+|                                                                           |
+| Decoded Access Token (JWT)                                                |
+| +-----------------------------------------------------------------------+ |
+| | Header:                                                               | |
+| |   { "alg": "RS256", "typ": "JWT" }                                   | |
+| |                                                                       | |
+| | Payload:                                                              | |
+| |   {                                                                   | |
+| |     "sub": "user123",                                                 | |
+| |     "aud": "my-client-id",                                            | |
+| |     "scope": "read write",                                            | |
+| |     "exp": 1732990800,                                                | |
+| |     "iat": 1732987200                                                 | |
+| |   }                                                                   | |
+| +-----------------------------------------------------------------------+ |
+|                                                                           |
+|                                          [Revoke Token]  [Start New Flow] |
++---------------------------------------------------------------------------+
+```
+
+**Features:**
+- **Flow Visualization** - Step-by-step view of OAuth 2.0 flow
+  - Authorization request URL with all parameters
+  - Authorization code received
+  - Token exchange request/response
+  - Access token details
+- **Token Display:**
+  - Access token with copy and decode options
+  - Token type and expiration time
+  - Refresh token (if available)
+  - Decoded JWT payload and header
+- **Actions:**
+  - [Test Refresh Now] - Manually trigger token refresh
+  - [Revoke Token] - Revoke current access token
+  - [Start New Flow] - Begin fresh OAuth flow
+  - [Copy] - Copy tokens/URLs to clipboard
+  - [Decode] - Show JWT contents
+
+**Use Cases:**
+1. Debugging OAuth configuration issues
+2. Verifying token claims and scopes
+3. Testing token refresh behavior
+4. Understanding the full OAuth handshake
+
 ### Feature Screens
 
 Each feature screen uses a **resizable panel layout** for flexibility.
@@ -354,43 +560,76 @@ Each feature screen uses a **resizable panel layout** for flexibility.
 
 #### Resources Screen
 
+Uses an **accordion layout** for the left panel to organize Resources, Templates, and Subscriptions into collapsible sections.
+
 ```
-┌─────────────────────────┬─────────────────────────────────────────────────┐
-│ Resources (12)          │ Content Preview (65%)                           │
-│ ● List updated          │                                                 │
-│ [Refresh Now]           │                                                 │
-├─────────────────────────┼─────────────────────────────────────────────────┤
-│                         │                                                 │
-│ [Search...]             │ URI: file:///config.json                        │
-│                         │ MIME: application/json                          │
-│ ● config.json           │ ─────────────────────────────                   │
-│   [application]        │                                                  │
-│   [priority: 0.9]      │ Annotations:                                    │
-│                         │   Audience: application                         │
-│ ○ readme.md             │   Priority: 0.9 (high)                          │
-│   [user]               │                                                  │
-│                         │ {                                               │
-│ ○ data.csv              │   "name": "my-app",                             │
-│                         │   "version": "1.0.0"                            │
-│ Templates:              │ }                                               │
-│ ○ user/{id}             │                                                 │
-│   [id: ________ ] [Go]  │ [Copy] [Subscribe] [Unsubscribe]                │
-│                         │                                                 │
-│ Subscriptions:          │ Last updated: 14:32:05                          │
-│ ● config.json (active)  │                                                 │
-│                         │                                                 │
-└─────────────────────────┴─────────────────────────────────────────────────┘
+┌────────────────────────────────┬────────────────────────────────────────────┐
+│ Resources                      │ Content Preview (65%)                      │
+│ ● List updated [Refresh Now]   │                                            │
+├────────────────────────────────┼────────────────────────────────────────────┤
+│                                │                                            │
+│ [Search...]                    │ URI: file:///config.json                   │
+│                                │ MIME: application/json                     │
+│ [v] Resources (12)             │ ─────────────────────────────              │
+│ ├─────────────────────────────┐│                                            │
+│ │ ● config.json               ││ Annotations:                               │
+│ │   [application]             ││   Audience: application                    │
+│ │   [priority: 0.9]           ││   Priority: 0.9 (high)                     │
+│ │                             ││                                            │
+│ │ ○ readme.md                 ││ {                                          │
+│ │   [user]                    ││   "name": "my-app",                        │
+│ │                             ││   "version": "1.0.0"                       │
+│ │ ○ data.csv                  ││ }                                          │
+│ │ ○ schema.json               ││                                            │
+│ │   ... (8 more)              ││ [Copy] [Subscribe] [Unsubscribe]           │
+│ └─────────────────────────────┘│                                            │
+│                                │ Last updated: 14:32:05                     │
+│ [>] Templates (2)              │                                            │
+│                                │                                            │
+│ [>] Subscriptions (1)          │                                            │
+│                                │                                            │
+└────────────────────────────────┴────────────────────────────────────────────┘
 ```
+
+**Expanded Templates Section:**
+```
+│ [v] Templates (2)              │
+│ ├─────────────────────────────┐│
+│ │ ○ user/{id}                 ││
+│ │   [id: ________ ] [Go]      ││
+│ │                             ││
+│ │ ○ file/{path}               ││
+│ │   [path: _______ ] [Go]     ││
+│ └─────────────────────────────┘│
+```
+
+**Expanded Subscriptions Section:**
+```
+│ [v] Subscriptions (1)          │
+│ ├─────────────────────────────┐│
+│ │ ● config.json               ││
+│ │   Last update: 14:32:05     ││
+│ │                  [Unsub]    ││
+│ └─────────────────────────────┘│
+```
+
+**Accordion Behavior:**
+- Sections expand/collapse independently by clicking header
+- [v] indicates expanded section, [>] indicates collapsed
+- Empty sections show "(0)" count and collapse by default
+- If only Resources exist, that section expands by default
+- Search filters across all sections simultaneously
 
 **Features:**
 - **List Changed Indicator** - Shows when `notifications/resources/list_changed` received
-- List resources with pagination
+- **Accordion Layout** - Collapsible sections for Resources, Templates, Subscriptions
+- List resources with pagination within each section
 - **Resource Annotations** displayed:
   - Audience badge ([user], [application/assistant])
   - Priority indicator ([high], [medium], [low])
-- Resource templates with inline variable input
+- Resource templates with inline variable input and [Go] button
 - Subscribe/unsubscribe to resource updates
-- **Subscriptions Panel** shows active subscriptions with last update time
+- **Subscriptions Section** shows active subscriptions with last update time
 - Content viewer (JSON, text, binary preview)
 - Image preview for image resources
 - Audio player for audio resources
@@ -447,31 +686,35 @@ Each feature screen uses a **resizable panel layout** for flexibility.
 #### Logging Screen
 
 ```
-┌──────────────────────┬──────────────────────────────────────────────────┐
-│ Log Controls (25%)   │ Log Stream (75%)                                 │
-│ ↔ resize             │                                                  │
-├──────────────────────┼──────────────────────────────────────────────────┤
-│                      │                                                  │
-│ Log Level:           │ 14:32:01 [INFO]  Server initialized              │
-│ ┌────────────────┐   │ 14:32:02 [DEBUG] Loading tool: echo              │
-│ │ debug        ▼ │   │ 14:32:02 [DEBUG] Loading tool: add               │
-│ └────────────────┘   │ 14:32:05 [WARN]  Rate limit approaching          │
-│                      │ 14:32:10 [ERROR] Failed to fetch resource: 404   │
-│ [Set Level]          │                                                  │
-│                      │ ─────────────────────────────────────────────    │
-│ Filter:              │                                                  │
-│ ┌────────────────┐   │                                                  │
-│ │                │   │                                                  │
-│ └────────────────┘   │                                                  │
-│                      │                                                  │
-│ Show Levels:         │                                                  │
-│ ☑ DEBUG              │                                                  │
-│ ☑ INFO               │                                                  │
-│ ☑ WARNING            │                                                  │
-│ ☑ ERROR              │                                                  │
-│                      │                                                  │
-│ [Clear] [Export]     │ [Auto-scroll ✓] [Copy All]                       │
-└──────────────────────┴──────────────────────────────────────────────────┘
+┌───────────────────────┬─────────────────────────────────────────────────────┐
+│ Log Controls (25%)    │ Log Stream (75%)                                    │
+│ ↔ resize              │                                                     │
+├───────────────────────┼─────────────────────────────────────────────────────┤
+│                       │                                                     │
+│ Log Level:            │ 14:32:01 [INFO]     Server initialized              │
+│ ┌─────────────────┐   │ 14:32:02 [DEBUG]    Loading tool: echo              │
+│ │ debug         ▼ │   │ 14:32:02 [DEBUG]    Loading tool: add               │
+│ └─────────────────┘   │ 14:32:03 [NOTICE]   Configuration loaded            │
+│                       │ 14:32:05 [WARNING]  Rate limit approaching          │
+│ [Set Level]           │ 14:32:10 [ERROR]    Failed to fetch resource: 404   │
+│                       │ 14:32:15 [CRITICAL] Database connection lost        │
+│ Filter:               │ 14:32:16 [ALERT]    Service degraded                │
+│ ┌─────────────────┐   │ 14:32:20 [EMERGENCY] System failure                 │
+│ │                 │   │                                                     │
+│ └─────────────────┘   │ ─────────────────────────────────────────────────   │
+│                       │                                                     │
+│ Show Levels:          │                                                     │
+│ ☑ DEBUG               │                                                     │
+│ ☑ INFO                │                                                     │
+│ ☑ NOTICE              │                                                     │
+│ ☑ WARNING             │                                                     │
+│ ☑ ERROR               │                                                     │
+│ ☑ CRITICAL            │                                                     │
+│ ☑ ALERT               │                                                     │
+│ ☑ EMERGENCY           │                                                     │
+│                       │                                                     │
+│ [Clear] [Export]      │ [Auto-scroll ✓] [Copy All]                          │
+└───────────────────────┴─────────────────────────────────────────────────────┘
 ```
 
 **Features:**
@@ -479,12 +722,20 @@ Each feature screen uses a **resizable panel layout** for flexibility.
   - Options: debug, info, notice, warning, error, critical, alert, emergency
 - **Real-time Log Stream** from `notifications/message`
 - Filter by text search
-- Filter by log level checkboxes
-- Color-coded by severity:
-  - DEBUG: gray
-  - INFO: blue
-  - WARNING: yellow
-  - ERROR: red
+- Filter by log level checkboxes (all 8 RFC 5424 levels)
+- **Color-coded by severity** (8 distinct visual treatments):
+
+| Level | Color | Style |
+|-------|-------|-------|
+| DEBUG | Gray | Normal |
+| INFO | Blue | Normal |
+| NOTICE | Cyan | Normal |
+| WARNING | Yellow | Normal |
+| ERROR | Red | Normal |
+| CRITICAL | Red | Bold |
+| ALERT | Magenta | Bold |
+| EMERGENCY | White on Red | Background highlight |
+
 - Timestamp display
 - Logger name display (if provided)
 - Auto-scroll toggle
@@ -846,7 +1097,7 @@ Accessed via Settings or dedicated nav item:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ Experimental Features                                                   │
+│ Experimental Features & Advanced Testing                                │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │ WARNING: These features are non-standard and may change or be removed. │
@@ -873,18 +1124,30 @@ Accessed via Settings or dedicated nav item:
 │                                                                         │
 │ ─────────────────────────────────────────────────────────────────────   │
 │                                                                         │
-│ Raw JSON-RPC Tester:                                                    │
+│ Advanced JSON-RPC Tester                                                │
+│ Send raw JSON-RPC requests to test ANY method (standard or experimental)│
+│                                                                         │
+│ Custom Headers (optional):                                              │
+│ ┌─────────────────────────────────────────────────────────────────────┐ │
+│ │ X-Debug-Mode         | true                              [Remove]   │ │
+│ │ X-Request-ID         | test-123                          [Remove]   │ │
+│ └─────────────────────────────────────────────────────────────────────┘ │
+│ [+ Add Header]                                                          │
+│                                                                         │
+│ Request:                                                                │
 │ ┌─────────────────────────────────────────────────────────────────────┐ │
 │ │ {                                                                   │ │
 │ │   "jsonrpc": "2.0",                                                 │ │
 │ │   "id": 1,                                                          │ │
-│ │   "method": "experimental/myMethod",                                │ │
+│ │   "method": "tools/call",                                           │ │
 │ │   "params": {                                                       │ │
-│ │     "key": "value"                                                  │ │
+│ │     "name": "echo",                                                 │ │
+│ │     "arguments": { "message": "test" },                             │ │
+│ │     "_meta": { "progressToken": "abc123" }                          │ │
 │ │   }                                                                 │ │
 │ │ }                                                                   │ │
 │ └─────────────────────────────────────────────────────────────────────┘ │
-│                                        [Send Request]                   │
+│                       [Load from History ▼]  [Send Request]             │
 │                                                                         │
 │ Response:                                                               │
 │ ┌─────────────────────────────────────────────────────────────────────┐ │
@@ -892,15 +1155,16 @@ Accessed via Settings or dedicated nav item:
 │ │   "jsonrpc": "2.0",                                                 │ │
 │ │   "id": 1,                                                          │ │
 │ │   "result": {                                                       │ │
-│ │     "status": "success"                                             │ │
+│ │     "content": [{ "type": "text", "text": "test" }]                 │ │
 │ │   }                                                                 │ │
 │ │ }                                                                   │ │
 │ └─────────────────────────────────────────────────────────────────────┘ │
+│                                                              [Copy]     │
 │                                                                         │
 │ Request History:                                                        │
-│   14:32:05 - experimental/myMethod (success)                            │
-│   14:31:22 - analytics/track (success)                                  │
-│   14:30:01 - stream/start (error)                                       │
+│   14:32:05 - tools/call (success) 45ms                                  │
+│   14:31:22 - resources/list (success) 12ms                              │
+│   14:30:01 - experimental/myMethod (error) 200ms                        │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -909,14 +1173,20 @@ Accessed via Settings or dedicated nav item:
 - Display server's experimental capabilities from initialization
 - Toggle client experimental capabilities to advertise
 - Add custom client experimental capabilities
-- **Raw JSON-RPC Tester:**
-  - JSON editor for arbitrary requests
-  - Send button
-  - Response display
-  - Syntax highlighting
-  - Request history with timestamps and status
-- Test experimental methods directly
-- View raw request/response for debugging
+- **Advanced JSON-RPC Tester:**
+  - Test ANY JSON-RPC method (not just experimental)
+  - **Custom headers** for per-request header injection
+  - JSON editor with syntax highlighting
+  - Full control over `_meta` and `progressToken` fields
+  - [Load from History] to replay previous requests
+  - Response display with copy button
+  - Request history with method, status, and duration
+- **Use Cases:**
+  - Testing server behavior with invalid parameters
+  - Debugging SDK message formatting (see full request/response)
+  - Verifying `_meta`/`progressToken` handling
+  - Testing experimental methods before SDK support
+  - Comparing behavior across different servers
 
 ## Form Generation
 
@@ -927,23 +1197,64 @@ Forms are dynamically generated from JSON Schema for tool inputs, prompt argumen
 |------------------|--------------|
 | `string` | Text input |
 | `string` (enum) | Select dropdown |
+| `string` (enum with `oneOf`) | Select dropdown with titles |
+| `array` (enum items with `anyOf`) | Multi-select dropdown or checkboxes |
 | `string` (format: uri) | URL input with validation |
 | `number` / `integer` | Number input |
 | `boolean` | Checkbox or toggle |
 | `array` | Dynamic list with add/remove |
 | `object` | Nested fieldset |
 
+**Enum Handling (Single and Multi-select):**
+
+The MCP 2025-11-25 spec supports titled enums using `oneOf`/`anyOf`:
+
+```json
+// Single-select enum (oneOf) - renders as dropdown
+{
+  "type": "string",
+  "oneOf": [
+    { "const": "small", "title": "Small (1-10 items)" },
+    { "const": "medium", "title": "Medium (11-100 items)" },
+    { "const": "large", "title": "Large (100+ items)" }
+  ]
+}
+
+// Multi-select enum (anyOf with array) - renders as multi-select or checkboxes
+{
+  "type": "array",
+  "items": {
+    "type": "string",
+    "anyOf": [
+      { "const": "read", "title": "Read access" },
+      { "const": "write", "title": "Write access" },
+      { "const": "delete", "title": "Delete access" }
+    ]
+  }
+}
+```
+
+| Pattern | Form Control |
+|---------|--------------|
+| `oneOf` with `const` values | Single-select dropdown with titles |
+| `anyOf` with `const` values in array items | Multi-select dropdown or checkboxes |
+| Legacy `enum` array | Single-select dropdown (no titles) |
+
+Note: For Shadcn, multi-select requires a third-party component (e.g., [shadcn-multi-select](https://shadcn-multi-select-component.vercel.app/)). Mantine has built-in `MultiSelect`.
+
 **Schema Features:**
 - `required` - Mark fields as required (*)
 - `default` - Pre-fill with default value
 - `description` - Show as helper text
+- `title` - Display label (used in `oneOf`/`anyOf` for enum titles)
 - `enum` - Render as select dropdown
 - `minimum` / `maximum` - Validation for numbers
 - `minLength` / `maxLength` - Validation for strings
 
-**Fallback:**
-- For complex schemas (`anyOf`, `oneOf`, `$ref`), show JSON editor as fallback
-- Toggle between form view and JSON editor
+**Complex Schema Handling:**
+- `$ref` - Resolve references and render inline (when possible)
+- `anyOf` / `oneOf` (non-enum) - Show JSON editor as fallback
+- Toggle between form view and JSON editor for complex cases
 
 ## Error Handling UX
 

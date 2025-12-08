@@ -24,15 +24,16 @@ const mockLogs = [
 
 const logLevels = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'];
 
+// RFC 5424 log levels with distinct colors per v2_ux.md spec
 const levelColors: Record<string, string> = {
-  debug: 'text-gray-400',
-  info: 'text-blue-400',
-  notice: 'text-blue-300',
-  warning: 'text-yellow-400',
-  error: 'text-red-400',
-  critical: 'text-red-500',
-  alert: 'text-red-600',
-  emergency: 'text-red-700',
+  debug: 'text-gray-400',           // Gray - Normal
+  info: 'text-blue-400',            // Blue - Normal
+  notice: 'text-cyan-400',          // Cyan - Normal
+  warning: 'text-yellow-400',       // Yellow - Normal
+  error: 'text-red-400',            // Red - Normal
+  critical: 'text-red-500 font-bold', // Red - Bold
+  alert: 'text-fuchsia-500 font-bold', // Magenta - Bold
+  emergency: 'bg-red-600 text-white px-1 rounded', // White on Red - Background
 };
 
 const levelVariants: Record<string, 'default' | 'secondary' | 'warning' | 'error'> = {
@@ -50,11 +51,16 @@ export function Logs() {
   const [logLevel, setLogLevel] = useState('debug');
   const [filter, setFilter] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
+  // All 8 RFC 5424 log levels
   const [visibleLevels, setVisibleLevels] = useState({
     debug: true,
     info: true,
+    notice: true,
     warning: true,
     error: true,
+    critical: true,
+    alert: true,
+    emergency: true,
   });
 
   const toggleLevel = (level: string) => {

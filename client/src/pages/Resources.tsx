@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ListChangedIndicator } from '@/components/ListChangedIndicator';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 // Resource interface with annotations per MCP spec
 interface Resource {
@@ -59,12 +60,56 @@ function getPriorityLabel(priority: number): { label: string; variant: 'default'
   return { label: 'low', variant: 'default' };
 }
 
+// Collapsible section component for accordion pattern
+function AccordionSection({
+  title,
+  count,
+  isOpen,
+  onToggle,
+  children,
+}: {
+  title: string;
+  count: number;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="border rounded-md">
+      <button
+        className="w-full flex items-center gap-2 p-2 text-sm font-medium hover:bg-muted/50 transition-colors"
+        onClick={onToggle}
+      >
+        {isOpen ? (
+          <ChevronDown className="h-4 w-4" />
+        ) : (
+          <ChevronRight className="h-4 w-4" />
+        )}
+        <span>{title}</span>
+        <span className="text-muted-foreground">({count})</span>
+      </button>
+      {isOpen && <div className="p-2 pt-0 border-t">{children}</div>}
+    </div>
+  );
+}
+
 export function Resources() {
   const [hasResourcesChanged, setHasResourcesChanged] = useState(true);
   const [selectedResource, setSelectedResource] = useState<Resource>(mockResources[0]);
   const [searchFilter, setSearchFilter] = useState('');
   const [templateInputs, setTemplateInputs] = useState<Record<string, string>>({});
   const [subscriptions, setSubscriptions] = useState<Subscription[]>(mockSubscriptions);
+
+  // Accordion state - Resources expanded by default, others collapsed
+  const [expandedSections, setExpandedSections] = useState({
+    resources: true,
+    templates: false,
+    subscriptions: false,
+  });
+
+  const toggleSection = (section: keyof typeof expandedSections) => {
+    setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
 
   const handleRefresh = () => {
     setHasResourcesChanged(false);
@@ -125,86 +170,99 @@ export function Resources() {
             onChange={(e) => setSearchFilter(e.target.value)}
           />
 
-          <div className="space-y-3">
+          {/* Accordion Sections */}
+          <div className="space-y-2">
             {/* Resources Section */}
-            <p className="text-xs font-semibold text-muted-foreground uppercase">
-              Resources
-            </p>
-            <div className="space-y-1">
-              {filteredResources.map((resource) => (
-                <div key={resource.uri} className="space-y-1">
-                  <Button
-                    variant={selectedResource.uri === resource.uri ? 'default' : 'ghost'}
-                    className="w-full justify-start text-sm"
-                    size="sm"
-                    onClick={() => setSelectedResource(resource)}
-                  >
-                    {resource.uri.split('/').pop()}
-                  </Button>
-                  {/* Annotation badges */}
-                  {resource.annotations && Object.keys(resource.annotations).length > 0 && (
-                    <div className="flex flex-wrap gap-1 pl-3 pb-1">
-                      {resource.annotations.audience && (
-                        <Badge variant="secondary" className="text-xs">
-                          {resource.annotations.audience}
-                        </Badge>
-                      )}
-                      {resource.annotations.priority !== undefined && (
-                        <Badge
-                          variant={getPriorityLabel(resource.annotations.priority).variant}
-                          className="text-xs"
-                        >
-                          priority: {getPriorityLabel(resource.annotations.priority).label}
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+            <AccordionSection
+              title="Resources"
+              count={filteredResources.length}
+              isOpen={expandedSections.resources}
+              onToggle={() => toggleSection('resources')}
+            >
+              <div className="space-y-1 pt-2">
+                {filteredResources.map((resource) => (
+                  <div key={resource.uri} className="space-y-1">
+                    <Button
+                      variant={selectedResource.uri === resource.uri ? 'default' : 'ghost'}
+                      className="w-full justify-start text-sm"
+                      size="sm"
+                      onClick={() => setSelectedResource(resource)}
+                    >
+                      {resource.uri.split('/').pop()}
+                    </Button>
+                    {/* Annotation badges */}
+                    {resource.annotations && Object.keys(resource.annotations).length > 0 && (
+                      <div className="flex flex-wrap gap-1 pl-3 pb-1">
+                        {resource.annotations.audience && (
+                          <Badge variant="secondary" className="text-xs">
+                            {resource.annotations.audience}
+                          </Badge>
+                        )}
+                        {resource.annotations.priority !== undefined && (
+                          <Badge
+                            variant={getPriorityLabel(resource.annotations.priority).variant}
+                            className="text-xs"
+                          >
+                            priority: {getPriorityLabel(resource.annotations.priority).label}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </AccordionSection>
 
             {/* Templates Section */}
-            <p className="text-xs font-semibold text-muted-foreground uppercase pt-2">
-              Templates
-            </p>
-            <div className="space-y-2">
-              {mockTemplates.map((template) => {
-                const varMatch = template.uriTemplate.match(/\{(\w+)\}/);
-                const varName = varMatch ? varMatch[1] : '';
-                return (
-                  <div key={template.uriTemplate} className="space-y-1">
-                    <p className="text-sm text-muted-foreground">{template.uriTemplate}</p>
-                    <div className="flex gap-1">
-                      <Input
-                        placeholder={varName}
-                        className="h-7 text-xs"
-                        value={templateInputs[template.uriTemplate] || ''}
-                        onChange={(e) =>
-                          handleTemplateInputChange(template.uriTemplate, e.target.value)
-                        }
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2"
-                        onClick={() => handleTemplateGo(template)}
-                      >
-                        Go
-                      </Button>
+            <AccordionSection
+              title="Templates"
+              count={mockTemplates.length}
+              isOpen={expandedSections.templates}
+              onToggle={() => toggleSection('templates')}
+            >
+              <div className="space-y-2 pt-2">
+                {mockTemplates.map((template) => {
+                  const varMatch = template.uriTemplate.match(/\{(\w+)\}/);
+                  const varName = varMatch ? varMatch[1] : '';
+                  return (
+                    <div key={template.uriTemplate} className="space-y-1">
+                      <p className="text-sm text-muted-foreground">{template.uriTemplate}</p>
+                      <div className="flex gap-1">
+                        <Input
+                          placeholder={varName}
+                          className="h-7 text-xs"
+                          value={templateInputs[template.uriTemplate] || ''}
+                          onChange={(e) =>
+                            handleTemplateInputChange(template.uriTemplate, e.target.value)
+                          }
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2"
+                          onClick={() => handleTemplateGo(template)}
+                        >
+                          Go
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            </AccordionSection>
 
             {/* Subscriptions Section */}
-            {subscriptions.length > 0 && (
-              <>
-                <p className="text-xs font-semibold text-muted-foreground uppercase pt-2">
-                  Subscriptions
-                </p>
-                <div className="space-y-1">
-                  {subscriptions.map((sub) => (
+            <AccordionSection
+              title="Subscriptions"
+              count={subscriptions.length}
+              isOpen={expandedSections.subscriptions}
+              onToggle={() => toggleSection('subscriptions')}
+            >
+              <div className="space-y-1 pt-2">
+                {subscriptions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No active subscriptions</p>
+                ) : (
+                  subscriptions.map((sub) => (
                     <div
                       key={sub.uri}
                       className="flex items-center justify-between text-sm py-1"
@@ -222,10 +280,10 @@ export function Resources() {
                         Unsub
                       </Button>
                     </div>
-                  ))}
-                </div>
-              </>
-            )}
+                  ))
+                )}
+              </div>
+            </AccordionSection>
           </div>
         </CardContent>
       </Card>
