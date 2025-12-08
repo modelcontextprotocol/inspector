@@ -11,6 +11,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Download, ChevronDown } from 'lucide-react';
 
 // Mock log entries
 const mockLogs = [
@@ -48,6 +55,7 @@ const levelVariants: Record<string, 'default' | 'secondary' | 'warning' | 'error
 };
 
 export function Logs() {
+  const [logs, setLogs] = useState(mockLogs);
   const [logLevel, setLogLevel] = useState('debug');
   const [filter, setFilter] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
@@ -67,11 +75,59 @@ export function Logs() {
     setVisibleLevels((prev) => ({ ...prev, [level]: !prev[level as keyof typeof prev] }));
   };
 
-  const filteredLogs = mockLogs.filter((log) => {
+  const filteredLogs = logs.filter((log) => {
     const matchesFilter = filter === '' || log.message.toLowerCase().includes(filter.toLowerCase());
     const matchesLevel = visibleLevels[log.level as keyof typeof visibleLevels] ?? true;
     return matchesFilter && matchesLevel;
   });
+
+  const handleClear = () => {
+    setLogs([]);
+  };
+
+  const handleExportJson = () => {
+    const exportData = filteredLogs.map((log) => ({
+      timestamp: log.timestamp,
+      level: log.level,
+      message: log.message,
+      logger: log.logger,
+    }));
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mcp-logs-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportText = () => {
+    const lines = filteredLogs.map(
+      (log) => `[${log.timestamp}] [${log.level.toUpperCase()}] [${log.logger}] ${log.message}`
+    );
+    const blob = new Blob([lines.join('\n')], {
+      type: 'text/plain',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mcp-logs-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopyAll = () => {
+    const lines = filteredLogs.map(
+      (log) => `[${log.timestamp}] [${log.level.toUpperCase()}] [${log.logger}] ${log.message}`
+    );
+    navigator.clipboard.writeText(lines.join('\n'));
+  };
 
   return (
     <div className="grid grid-cols-12 gap-4 h-[calc(100vh-120px)]">
@@ -128,12 +184,26 @@ export function Logs() {
 
           {/* Actions */}
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" className="flex-1">
+            <Button variant="outline" size="sm" className="flex-1" onClick={handleClear}>
               Clear
             </Button>
-            <Button variant="outline" size="sm" className="flex-1">
-              Export
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="flex-1">
+                  <Download className="h-4 w-4 mr-1" />
+                  Export
+                  <ChevronDown className="h-4 w-4 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExportJson}>
+                  Export as JSON
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportText}>
+                  Export as Text
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </CardContent>
       </Card>
@@ -150,7 +220,7 @@ export function Logs() {
               />
               <span className="text-sm">Auto-scroll</span>
             </label>
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" onClick={handleCopyAll}>
               Copy All
             </Button>
           </div>
