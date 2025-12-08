@@ -24,6 +24,8 @@ interface HistoryEntry {
   success: boolean;
   pinned: boolean;
   label?: string;
+  sseId?: string; // SSE event id for debugging reconnection behavior
+  progressToken?: string; // Progress token for tracking long-running operations
 }
 
 // Mock history data with params and response
@@ -39,6 +41,7 @@ const initialHistory: HistoryEntry[] = [
     success: true,
     pinned: true,
     label: 'Test echo',
+    sseId: 'evt-12345',
   },
   {
     id: 'req-2',
@@ -50,6 +53,7 @@ const initialHistory: HistoryEntry[] = [
     duration: 12,
     success: true,
     pinned: false,
+    sseId: 'evt-12344',
   },
   {
     id: 'req-3',
@@ -62,6 +66,8 @@ const initialHistory: HistoryEntry[] = [
     success: true,
     pinned: true,
     label: 'Get config',
+    sseId: 'evt-12343',
+    progressToken: 'prog-abc123',
   },
   {
     id: 'req-4',
@@ -114,6 +120,22 @@ function HistoryCard({ entry, expanded, onToggleExpand, onTogglePin }: HistoryCa
             <code className="text-xs bg-muted px-1 py-0.5 rounded">
               {JSON.stringify(entry.params)}
             </code>
+          </div>
+        )}
+
+        {/* Metadata row: SSE ID, Progress Token */}
+        {(entry.sseId || entry.progressToken) && (
+          <div className="flex gap-4 text-xs text-muted-foreground">
+            {entry.sseId && (
+              <span>
+                SSE ID: <code className="bg-muted px-1 py-0.5 rounded">{entry.sseId}</code>
+              </span>
+            )}
+            {entry.progressToken && (
+              <span>
+                Progress Token: <code className="bg-muted px-1 py-0.5 rounded">{entry.progressToken}</code>
+              </span>
+            )}
           </div>
         )}
 
