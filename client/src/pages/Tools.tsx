@@ -175,6 +175,10 @@ export function Tools() {
               message <span className="text-red-400">*</span>
             </label>
             <Input placeholder="Enter message..." disabled={isExecuting} />
+            {/* Autocomplete placeholder - for future completion/complete integration */}
+            <p className="text-xs text-muted-foreground italic">
+              Suggestions: Type to see completions (completion/complete integration pending)
+            </p>
           </div>
 
           {/* Execute / Cancel buttons */}
