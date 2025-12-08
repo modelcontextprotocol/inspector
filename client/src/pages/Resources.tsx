@@ -143,8 +143,17 @@ export function Resources() {
     setSubscriptions((prev) => prev.filter((s) => s.uri !== uri));
   };
 
+  // Filter all sections based on search
   const filteredResources = mockResources.filter((resource) =>
     resource.uri.toLowerCase().includes(searchFilter.toLowerCase())
+  );
+  const filteredTemplates = mockTemplates.filter(
+    (t) =>
+      t.uriTemplate.toLowerCase().includes(searchFilter.toLowerCase()) ||
+      t.description.toLowerCase().includes(searchFilter.toLowerCase())
+  );
+  const filteredSubscriptions = subscriptions.filter((s) =>
+    s.uri.toLowerCase().includes(searchFilter.toLowerCase())
   );
 
   const isSubscribed = subscriptions.some((s) => s.uri === selectedResource.uri);
@@ -216,12 +225,12 @@ export function Resources() {
             {/* Templates Section */}
             <AccordionSection
               title="Templates"
-              count={mockTemplates.length}
-              isOpen={expandedSections.templates}
+              count={filteredTemplates.length}
+              isOpen={expandedSections.templates && filteredTemplates.length > 0}
               onToggle={() => toggleSection('templates')}
             >
               <div className="space-y-2 pt-2">
-                {mockTemplates.map((template) => {
+                {filteredTemplates.map((template) => {
                   const varMatch = template.uriTemplate.match(/\{(\w+)\}/);
                   const varName = varMatch ? varMatch[1] : '';
                   return (
@@ -254,15 +263,15 @@ export function Resources() {
             {/* Subscriptions Section */}
             <AccordionSection
               title="Subscriptions"
-              count={subscriptions.length}
-              isOpen={expandedSections.subscriptions}
+              count={filteredSubscriptions.length}
+              isOpen={expandedSections.subscriptions && filteredSubscriptions.length > 0}
               onToggle={() => toggleSection('subscriptions')}
             >
               <div className="space-y-1 pt-2">
-                {subscriptions.length === 0 ? (
+                {filteredSubscriptions.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No active subscriptions</p>
                 ) : (
-                  subscriptions.map((sub) => (
+                  filteredSubscriptions.map((sub) => (
                     <div
                       key={sub.uri}
                       className="flex items-center justify-between text-sm py-1"
