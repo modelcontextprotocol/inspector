@@ -17,6 +17,7 @@ import { SamplingModal } from './SamplingModal';
 import { ElicitationModal } from './ElicitationModal';
 import { RootsConfigurationModal } from './RootsConfigurationModal';
 import { ServerSettingsModal, ServerSettings } from './ServerSettingsModal';
+import { OAuthDebuggerModal } from './OAuthDebuggerModal';
 import {
   Copy,
   ChevronDown,
@@ -28,6 +29,7 @@ import {
   ExternalLink,
   AlertTriangle,
   Settings,
+  KeyRound,
 } from 'lucide-react';
 
 interface ServerCardProps {
@@ -46,6 +48,7 @@ interface ServerCardProps {
       resources: number;
       prompts: number;
     } | null;
+    oauth?: boolean; // Whether server uses OAuth authentication
   };
 }
 
@@ -62,6 +65,7 @@ export function ServerCard({ server }: ServerCardProps) {
   const [cloneModalOpen, setCloneModalOpen] = useState(false);
   const [clonedConfig, setClonedConfig] = useState<ServerConfig | null>(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [oauthDebugModalOpen, setOauthDebugModalOpen] = useState(false);
 
   const connectionString = server.command || server.url || '';
 
@@ -258,6 +262,17 @@ export function ServerCard({ server }: ServerCardProps) {
                 <Settings className="h-4 w-4 mr-1" />
                 Settings
               </Button>
+              {/* OAuth Debug button - only for OAuth-enabled servers */}
+              {server.oauth && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setOauthDebugModalOpen(true)}
+                >
+                  <KeyRound className="h-4 w-4 mr-1" />
+                  OAuth Debug
+                </Button>
+              )}
               {/* Test Client Features dropdown - only for connected servers */}
               {server.status === 'connected' && (
                 <DropdownMenu>
@@ -353,6 +368,11 @@ export function ServerCard({ server }: ServerCardProps) {
         onOpenChange={setSettingsModalOpen}
         serverName={server.name}
         onSave={handleSettingsSave}
+      />
+      <OAuthDebuggerModal
+        open={oauthDebugModalOpen}
+        onOpenChange={setOauthDebugModalOpen}
+        serverName={server.name}
       />
 
       {/* Client Feature Modals */}
