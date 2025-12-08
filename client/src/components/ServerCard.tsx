@@ -23,6 +23,7 @@ import {
   FormInput,
   Link,
   FolderTree,
+  Files,
 } from 'lucide-react';
 
 interface ServerCardProps {
@@ -54,6 +55,8 @@ export function ServerCard({ server }: ServerCardProps) {
   const [elicitationModalOpen, setElicitationModalOpen] = useState(false);
   const [elicitationMode, setElicitationMode] = useState<'form' | 'url'>('form');
   const [rootsModalOpen, setRootsModalOpen] = useState(false);
+  const [cloneModalOpen, setCloneModalOpen] = useState(false);
+  const [clonedConfig, setClonedConfig] = useState<ServerConfig | null>(null);
 
   const connectionString = server.command || server.url || '';
 
@@ -76,6 +79,26 @@ export function ServerCard({ server }: ServerCardProps) {
       console.log('Removing server:', server.id);
       // TODO: Actually remove the server via proxy API
     }
+  };
+
+  const handleClone = () => {
+    const cloned: ServerConfig = {
+      id: `${server.id}-copy-${Date.now()}`,
+      name: `${server.name} (Copy)`,
+      transport: server.transport,
+      command: server.command,
+      url: server.url,
+      env: {},
+    };
+    setClonedConfig(cloned);
+    setCloneModalOpen(true);
+  };
+
+  const handleCloneSave = (config: ServerConfig) => {
+    console.log('Creating cloned server:', config);
+    // TODO: Actually create the server via proxy API
+    setCloneModalOpen(false);
+    setClonedConfig(null);
   };
 
   // Build server info for the modal
@@ -245,6 +268,10 @@ export function ServerCard({ server }: ServerCardProps) {
               )}
             </div>
             <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={handleClone}>
+                <Files className="h-4 w-4 mr-1" />
+                Clone
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
@@ -277,6 +304,17 @@ export function ServerCard({ server }: ServerCardProps) {
         server={serverConfig}
         onSave={handleEdit}
       />
+      {clonedConfig && (
+        <AddServerModal
+          open={cloneModalOpen}
+          onOpenChange={(open) => {
+            setCloneModalOpen(open);
+            if (!open) setClonedConfig(null);
+          }}
+          server={clonedConfig}
+          onSave={handleCloneSave}
+        />
+      )}
 
       {/* Client Feature Modals */}
       <SamplingModal
