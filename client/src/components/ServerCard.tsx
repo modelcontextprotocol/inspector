@@ -16,6 +16,7 @@ import { AddServerModal, ServerConfig } from './AddServerModal';
 import { SamplingModal } from './SamplingModal';
 import { ElicitationModal } from './ElicitationModal';
 import { RootsConfigurationModal } from './RootsConfigurationModal';
+import { ServerSettingsModal, ServerSettings } from './ServerSettingsModal';
 import {
   Copy,
   ChevronDown,
@@ -26,6 +27,7 @@ import {
   Files,
   ExternalLink,
   AlertTriangle,
+  Settings,
 } from 'lucide-react';
 
 interface ServerCardProps {
@@ -59,6 +61,7 @@ export function ServerCard({ server }: ServerCardProps) {
   const [rootsModalOpen, setRootsModalOpen] = useState(false);
   const [cloneModalOpen, setCloneModalOpen] = useState(false);
   const [clonedConfig, setClonedConfig] = useState<ServerConfig | null>(null);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 
   const connectionString = server.command || server.url || '';
 
@@ -101,6 +104,11 @@ export function ServerCard({ server }: ServerCardProps) {
     // TODO: Actually create the server via proxy API
     setCloneModalOpen(false);
     setClonedConfig(null);
+  };
+
+  const handleSettingsSave = (settings: ServerSettings) => {
+    console.log('Saving server settings:', settings);
+    // TODO: Actually save settings via proxy API
   };
 
   // Build server info for the modal
@@ -242,6 +250,14 @@ export function ServerCard({ server }: ServerCardProps) {
               >
                 Server Info
               </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSettingsModalOpen(true)}
+              >
+                <Settings className="h-4 w-4 mr-1" />
+                Settings
+              </Button>
               {/* Test Client Features dropdown - only for connected servers */}
               {server.status === 'connected' && (
                 <DropdownMenu>
@@ -332,6 +348,12 @@ export function ServerCard({ server }: ServerCardProps) {
           onSave={handleCloneSave}
         />
       )}
+      <ServerSettingsModal
+        open={settingsModalOpen}
+        onOpenChange={setSettingsModalOpen}
+        serverName={server.name}
+        onSave={handleSettingsSave}
+      />
 
       {/* Client Feature Modals */}
       <SamplingModal
