@@ -45,13 +45,20 @@ Assuming Shadcn prototype as the base (per user direction).
 - #928 (expand/collapse) -> UI-9
 - #392 (progress tokens) -> UI-10
 
+### Merge Completed
+- Merged `v2/feature/tech-stack-votes` into `v2/feature/prototype`
+- Brought in PR #945 feedback revisions (Server Settings Modal, OAuth Debugger specs)
+- Deleted unused `v2/demos/prototype` branch and worktree
+
 ### Next Steps
 1. Start with UI-1 (dropdown transparency bug fix)
 2. Work through Phase 1 issues in order
 3. Create GitHub issues as work proceeds
 
 ### Branch State
-- `v2/prototype/shadcn` - Working branch for UI implementation
+- `v2/feature/prototype` - Main development branch (current)
+- `v2/prototype/shadcn` - Shadcn UI prototype
+- `v2/prototype/mantine` - Mantine UI prototype
 
 ---
 
