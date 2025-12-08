@@ -139,13 +139,19 @@ function HistoryCard({ entry, expanded, onToggleExpand, onTogglePin }: HistoryCa
           </div>
         )}
 
-        {/* Expandable response section */}
-        {expanded && entry.response && (
-          <div className="border-t pt-3 mt-3">
-            <p className="text-sm text-muted-foreground mb-2">Response:</p>
-            <pre className="p-3 bg-muted rounded-md text-xs font-mono overflow-auto max-h-48">
-              {JSON.stringify(entry.response, null, 2)}
-            </pre>
+        {/* Expandable response section - with smooth transition */}
+        {entry.response && (
+          <div
+            className={`overflow-hidden transition-all duration-200 ease-in-out ${
+              expanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+            }`}
+          >
+            <div className="border-t pt-3 mt-3">
+              <p className="text-sm text-muted-foreground mb-2">Response:</p>
+              <pre className="p-3 bg-muted rounded-md text-xs font-mono overflow-auto max-h-48">
+                {JSON.stringify(entry.response, null, 2)}
+              </pre>
+            </div>
           </div>
         )}
 
