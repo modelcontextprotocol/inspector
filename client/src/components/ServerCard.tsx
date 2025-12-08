@@ -24,6 +24,8 @@ import {
   Link,
   FolderTree,
   Files,
+  ExternalLink,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface ServerCardProps {
@@ -193,22 +195,37 @@ export function ServerCard({ server }: ServerCardProps) {
 
           {/* Error display (if failed) */}
           {server.status === 'failed' && server.error && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-red-400">
-                  [!] {server.error.slice(0, 50)}
-                  {server.error.length > 50 && '...'}
-                </span>
+            <div className="bg-red-500/10 border border-red-500/30 rounded-md p-3 space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm text-red-400">
+                    {server.error.slice(0, 100)}
+                    {server.error.length > 100 && '...'}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="h-auto py-1 px-2 text-xs"
                   onClick={() => setShowError(!showError)}
                 >
-                  {showError ? 'Hide' : 'Show more'}
+                  {showError ? 'Hide details' : 'Show more'}
                 </Button>
+                <a
+                  href="https://modelcontextprotocol.io/docs/troubleshooting"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  View Troubleshooting Guide
+                  <ExternalLink className="h-3 w-3" />
+                </a>
               </div>
               {showError && (
-                <code className="block p-2 bg-muted rounded text-sm">
+                <code className="block p-2 bg-muted rounded text-xs font-mono overflow-auto max-h-32">
                   {server.error}
                 </code>
               )}
