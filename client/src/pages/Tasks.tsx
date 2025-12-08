@@ -1,8 +1,18 @@
+import { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { RefreshCw } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { RefreshCw, Trash2 } from 'lucide-react';
 
 // Mock tasks data
 const mockActiveTasks = [
@@ -172,6 +182,14 @@ function TaskCard({ task, showActions = true }: TaskCardProps) {
 }
 
 export function Tasks() {
+  const [completedTasks, setCompletedTasks] = useState(mockCompletedTasks);
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+
+  const handleClearHistory = () => {
+    setCompletedTasks([]);
+    setClearDialogOpen(false);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -207,13 +225,37 @@ export function Tasks() {
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">
-            Completed Tasks ({mockCompletedTasks.length})
+            Completed Tasks ({completedTasks.length})
           </h3>
-          <Button variant="ghost" size="sm">
-            Clear History
-          </Button>
+          {completedTasks.length > 0 && (
+            <Dialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Clear History
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Clear completed tasks?</DialogTitle>
+                  <DialogDescription>
+                    This will remove all {completedTasks.length} completed task(s) from the history.
+                    This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setClearDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="destructive" onClick={handleClearHistory}>
+                    Clear History
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
-        {mockCompletedTasks.length === 0 ? (
+        {completedTasks.length === 0 ? (
           <Card>
             <CardContent className="p-8 text-center text-muted-foreground">
               No completed tasks
@@ -221,7 +263,7 @@ export function Tasks() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {mockCompletedTasks.map((task) => (
+            {completedTasks.map((task) => (
               <TaskCard key={task.id} task={task} />
             ))}
           </div>
