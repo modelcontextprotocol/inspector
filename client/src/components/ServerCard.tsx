@@ -10,6 +10,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { StatusIndicator, ServerStatus } from './StatusIndicator';
 import { ServerInfoModal } from './ServerInfoModal';
 import { AddServerModal, ServerConfig } from './AddServerModal';
@@ -32,6 +39,8 @@ import {
   KeyRound,
 } from 'lucide-react';
 
+export type ConnectionMode = 'direct' | 'proxy';
+
 interface ServerCardProps {
   server: {
     id: string;
@@ -43,6 +52,7 @@ interface ServerCardProps {
     status: ServerStatus;
     retryCount?: number;
     error?: string;
+    connectionMode?: ConnectionMode;
     capabilities: {
       tools: number;
       resources: number;
@@ -50,11 +60,15 @@ interface ServerCardProps {
     } | null;
     oauth?: boolean; // Whether server uses OAuth authentication
   };
+  onConnectionModeChange?: (serverId: string, mode: ConnectionMode) => void;
 }
 
-export function ServerCard({ server }: ServerCardProps) {
+export function ServerCard({ server, onConnectionModeChange }: ServerCardProps) {
   const navigate = useNavigate();
   const [showError, setShowError] = useState(false);
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>(
+    server.connectionMode || (server.transport === 'stdio' ? 'proxy' : 'direct')
+  );
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   // Client feature modal states
@@ -113,6 +127,11 @@ export function ServerCard({ server }: ServerCardProps) {
   const handleSettingsSave = (settings: ServerSettings) => {
     console.log('Saving server settings:', settings);
     // TODO: Actually save settings via proxy API
+  };
+
+  const handleConnectionModeChange = (mode: ConnectionMode) => {
+    setConnectionMode(mode);
+    onConnectionModeChange?.(server.id, mode);
   };
 
   // Build server info for the modal
@@ -188,8 +207,27 @@ export function ServerCard({ server }: ServerCardProps) {
             </div>
           </div>
 
-          {/* Transport badge */}
-          <Badge variant="outline">{server.transport.toUpperCase()}</Badge>
+          {/* Transport badge and Connection Mode */}
+          <div className="flex items-center gap-3">
+            <Badge variant="outline">{server.transport.toUpperCase()}</Badge>
+            <Select
+              value={connectionMode}
+              onValueChange={(v) => handleConnectionModeChange(v as ConnectionMode)}
+            >
+              <SelectTrigger className="w-[140px] h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="direct">Direct</SelectItem>
+                <SelectItem value="proxy">Via Proxy</SelectItem>
+              </SelectContent>
+            </Select>
+            {connectionMode === 'direct' && server.transport === 'stdio' && (
+              <span className="text-xs text-amber-400">
+                (STDIO requires proxy)
+              </span>
+            )}
+          </div>
 
           {/* Connection string */}
           <div className="flex items-center gap-2">
