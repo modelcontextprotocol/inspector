@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { validateRedirectUrl } from "@/utils/urlValidation";
 import { useToast } from "@/lib/hooks/useToast";
+import { decodeJWT } from "@/utils/jwtUtils";
 
 interface OAuthStepProps {
   label: string;
@@ -47,6 +48,39 @@ const OAuthStepDetails = ({
           <p className="text-xs text-red-600 mt-1">{error.message}</p>
         </div>
       )}
+    </div>
+  );
+};
+
+interface DecodedJWTDisplayProps {
+  token: string;
+  label: string;
+}
+
+const DecodedJWTDisplay = ({ token, label }: DecodedJWTDisplayProps) => {
+  const decoded = useMemo(() => decodeJWT(token), [token]);
+
+  if (!decoded) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 p-3 border rounded-md bg-muted/50">
+      <p className="font-medium text-sm mb-2">Decoded {label} (JWT)</p>
+      <div className="space-y-2">
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">Header:</p>
+          <pre className="mt-1 p-2 bg-muted rounded-md overflow-auto max-h-[150px] text-xs">
+            {JSON.stringify(decoded.header, null, 2)}
+          </pre>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">Payload:</p>
+          <pre className="mt-1 p-2 bg-muted rounded-md overflow-auto max-h-[200px] text-xs">
+            {JSON.stringify(decoded.payload, null, 2)}
+          </pre>
+        </div>
+      </div>
     </div>
   );
 };
@@ -352,6 +386,10 @@ export const OAuthFlowProgress = ({
               <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
                 {JSON.stringify(authState.oauthTokens, null, 2)}
               </pre>
+              <DecodedJWTDisplay
+                token={authState.oauthTokens.access_token}
+                label="Access Token"
+              />
             </details>
           )}
         </OAuthStepDetails>
