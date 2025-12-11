@@ -170,6 +170,10 @@ const App = () => {
     return localStorage.getItem("lastOauthScope") || "";
   });
 
+  const [workingDir, setWorkingDir] = useState<string>(() => {
+    return localStorage.getItem("lastWorkingDir") || "";
+  });
+
   const [oauthClientSecret, setOauthClientSecret] = useState<string>(() => {
     return localStorage.getItem("lastOauthClientSecret") || "";
   });
@@ -316,6 +320,7 @@ const App = () => {
     args,
     sseUrl,
     env,
+    workingDir,
     customHeaders,
     oauthClientId,
     oauthClientSecret,
@@ -451,6 +456,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastOauthScope", oauthScope);
   }, [oauthScope]);
+
+  useEffect(() => {
+    localStorage.setItem("lastWorkingDir", workingDir);
+  }, [workingDir]);
 
   useEffect(() => {
     localStorage.setItem("lastOauthClientSecret", oauthClientSecret);
@@ -981,6 +990,8 @@ const App = () => {
           logLevel={logLevel}
           sendLogLevelRequest={sendLogLevelRequest}
           loggingSupported={!!serverCapabilities?.logging || false}
+          workingDir={workingDir}
+          setWorkingDir={setWorkingDir}
           connectionType={connectionType}
           setConnectionType={setConnectionType}
           serverImplementation={serverImplementation}
