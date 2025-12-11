@@ -11,7 +11,11 @@ import { Input } from "@/components/ui/input";
 import JsonEditor from "./JsonEditor";
 import { updateValueAtPath } from "@/utils/jsonUtils";
 import { generateDefaultValue } from "@/utils/schemaUtils";
-import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
+import type {
+  JsonValue,
+  JsonSchemaType,
+  JsonSchemaConst,
+} from "@/utils/jsonUtils";
 import { useToast } from "@/lib/hooks/useToast";
 import { CheckCheck, Copy } from "lucide-react";
 
@@ -76,7 +80,40 @@ const getArrayItemDefault = (schema: JsonSchemaType): JsonValue => {
 
 const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
   ({ schema, value, onChange, maxDepth = 3 }, ref) => {
-    const isOnlyJSON = !isSimpleObject(schema);
+    // Determine if we can render a form at the top level.
+    // This is more permissive than isSimpleObject():
+    // - Objects with any properties are form-capable (individual complex fields may still fallback to JSON)
+    // - Arrays with defined items are form-capable
+    // - Primitive types are form-capable
+    const canRenderTopLevelForm = (s: JsonSchemaType): boolean => {
+      const primitiveTypes = ["string", "number", "integer", "boolean", "null"];
+
+      const hasType = Array.isArray(s.type) ? s.type.length > 0 : !!s.type;
+      if (!hasType) return false;
+
+      const includesType = (t: string) =>
+        Array.isArray(s.type)
+          ? (s.type as ReadonlyArray<string>).includes(t)
+          : s.type === t;
+
+      // Primitive at top-level
+      if (primitiveTypes.some(includesType)) return true;
+
+      // Object with properties
+      if (includesType("object")) {
+        const keys = Object.keys(s.properties ?? {});
+        return keys.length > 0;
+      }
+
+      // Array with items
+      if (includesType("array")) {
+        return !!s.items;
+      }
+
+      return false;
+    };
+
+    const isOnlyJSON = !canRenderTopLevelForm(schema);
     const [isJsonMode, setIsJsonMode] = useState(isOnlyJSON);
     const [jsonError, setJsonError] = useState<string>();
     const [copiedJson, setCopiedJson] = useState<boolean>(false);
@@ -267,63 +304,81 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
 
       switch (fieldType) {
         case "string": {
-          if (
-            propSchema.oneOf &&
-            propSchema.oneOf.every(
-              (option) =>
-                typeof option.const === "string" &&
-                typeof option.title === "string",
-            )
-          ) {
+          // Titled single-select using oneOf/anyOf with const/title pairs
+          const titledOptions = (
+            (propSchema.oneOf ?? propSchema.anyOf) as
+              | (JsonSchemaType | JsonSchemaConst)[]
+              | undefined
+          )?.filter((opt): opt is JsonSchemaConst => "const" in opt);
+
+          if (titledOptions && titledOptions.length > 0) {
             return (
-              <select
-                value={(currentValue as string) ?? ""}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (!val && !isRequired) {
-                    handleFieldChange(path, undefined);
-                  } else {
-                    handleFieldChange(path, val);
-                  }
-                }}
-                required={isRequired}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
-              >
-                <option value="">Select an option...</option>
-                {propSchema.oneOf.map((option) => (
-                  <option
-                    key={option.const as string}
-                    value={option.const as string}
-                  >
-                    {option.title as string}
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-2">
+                {propSchema.description && (
+                  <p className="text-sm text-gray-600">
+                    {propSchema.description}
+                  </p>
+                )}
+                <select
+                  value={(currentValue as string) ?? ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val && !isRequired) {
+                      handleFieldChange(path, undefined);
+                    } else {
+                      handleFieldChange(path, val);
+                    }
+                  }}
+                  required={isRequired}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+                >
+                  <option value="">Select an option...</option>
+                  {titledOptions.map((option) => (
+                    <option
+                      key={String(option.const)}
+                      value={String(option.const)}
+                    >
+                      {option.title ?? String(option.const)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             );
           }
 
+          // Untitled single-select using enum (with optional legacy enumNames for labels)
           if (propSchema.enum) {
+            const names = Array.isArray(propSchema.enumNames)
+              ? propSchema.enumNames
+              : undefined;
             return (
-              <select
-                value={(currentValue as string) ?? ""}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (!val && !isRequired) {
-                    handleFieldChange(path, undefined);
-                  } else {
-                    handleFieldChange(path, val);
-                  }
-                }}
-                required={isRequired}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
-              >
-                <option value="">Select an option...</option>
-                {propSchema.enum.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-2">
+                {propSchema.description && (
+                  <p className="text-sm text-gray-600">
+                    {propSchema.description}
+                  </p>
+                )}
+                <select
+                  value={(currentValue as string) ?? ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val && !isRequired) {
+                      handleFieldChange(path, undefined);
+                    } else {
+                      handleFieldChange(path, val);
+                    }
+                  }}
+                  required={isRequired}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+                >
+                  <option value="">Select an option...</option>
+                  {propSchema.enum.map((option, idx) => (
+                    <option key={option} value={option}>
+                      {names?.[idx] ?? option}
+                    </option>
+                  ))}
+                </select>
+              </div>
             );
           }
 
@@ -413,13 +468,20 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
 
         case "boolean":
           return (
-            <Input
-              type="checkbox"
-              checked={(currentValue as boolean) ?? false}
-              onChange={(e) => handleFieldChange(path, e.target.checked)}
-              className="w-4 h-4"
-              required={isRequired}
-            />
+            <div className="space-y-2">
+              {propSchema.description && (
+                <p className="text-sm text-gray-600">
+                  {propSchema.description}
+                </p>
+              )}
+              <Input
+                type="checkbox"
+                checked={(currentValue as boolean) ?? false}
+                onChange={(e) => handleFieldChange(path, e.target.checked)}
+                className="w-4 h-4"
+                required={isRequired}
+              />
+            </div>
           );
         case "null":
           return null;
@@ -449,7 +511,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
               {Object.entries(propSchema.properties).map(([key, subSchema]) => (
                 <div key={key}>
                   <label className="block text-sm font-medium mb-1">
-                    {key}
+                    {(subSchema as JsonSchemaType).title ?? key}
                     {propSchema.required?.includes(key) && (
                       <span className="text-red-500 ml-1">*</span>
                     )}
@@ -469,6 +531,72 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
         case "array": {
           const arrayValue = Array.isArray(currentValue) ? currentValue : [];
           if (!propSchema.items) return null;
+
+          // Special handling: array of enums -> render multi-select control
+          const itemSchema = propSchema.items as JsonSchemaType;
+          let multiOptions: { value: string; label: string }[] | null = null;
+
+          const titledMulti = (
+            (itemSchema.anyOf ?? itemSchema.oneOf) as
+              | (JsonSchemaType | JsonSchemaConst)[]
+              | undefined
+          )?.filter((opt): opt is JsonSchemaConst => "const" in opt);
+
+          if (titledMulti && titledMulti.length > 0) {
+            multiOptions = titledMulti.map((o) => ({
+              value: String(o.const),
+              label: o.title ?? String(o.const),
+            }));
+          } else if (itemSchema.enum) {
+            const names = Array.isArray(itemSchema.enumNames)
+              ? itemSchema.enumNames
+              : undefined;
+            multiOptions = itemSchema.enum.map((v, i) => ({
+              value: v,
+              label: names?.[i] ?? v,
+            }));
+          }
+
+          if (multiOptions) {
+            const selectSize = Math.min(Math.max(multiOptions.length, 3), 8);
+            return (
+              <div className="space-y-2">
+                {propSchema.description && (
+                  <p className="text-sm text-gray-600">
+                    {propSchema.description}
+                  </p>
+                )}
+                <select
+                  multiple
+                  size={selectSize}
+                  value={arrayValue as string[]}
+                  onChange={(e) => {
+                    const selected = Array.from(
+                      (e.target as HTMLSelectElement).selectedOptions,
+                    ).map((o) => o.value);
+                    handleFieldChange(path, selected);
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+                >
+                  {multiOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                {(propSchema.minItems || propSchema.maxItems) && (
+                  <p className="text-xs text-gray-500">
+                    {propSchema.minItems
+                      ? `Select at least ${propSchema.minItems}. `
+                      : ""}
+                    {propSchema.maxItems
+                      ? `Select at most ${propSchema.maxItems}.`
+                      : ""}
+                  </p>
+                )}
+              </div>
+            );
+          }
 
           // If the array items are simple, render as form fields, otherwise use JSON editor
           if (isSimpleObject(propSchema.items)) {

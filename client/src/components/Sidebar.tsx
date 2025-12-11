@@ -14,6 +14,9 @@ import {
   RefreshCwOff,
   RotateCcw,
   Settings,
+  Copy,
+  CheckCheck,
+  Server,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +44,7 @@ import CustomHeaders from "./CustomHeaders";
 import { CustomHeaders as CustomHeadersType } from "@/lib/types/customHeaders";
 import { useToast } from "../lib/hooks/useToast";
 import { useWorkingDirValidation } from "@/lib/hooks/useWorkingDirValidation";
+import IconDisplay, { WithIcons } from "./IconDisplay";
 
 interface SidebarProps {
   connectionStatus: ConnectionStatus;
@@ -74,6 +78,9 @@ interface SidebarProps {
   setWorkingDir: (workingDir: string) => void;
   connectionType: "direct" | "proxy";
   setConnectionType: (type: "direct" | "proxy") => void;
+  serverImplementation?:
+    | (WithIcons & { name?: string; version?: string; websiteUrl?: string })
+    | null;
 }
 
 const Sidebar = ({
@@ -107,6 +114,7 @@ const Sidebar = ({
   setWorkingDir,
   connectionType,
   setConnectionType,
+  serverImplementation,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
@@ -836,6 +844,45 @@ const Sidebar = ({
                 })()}
               </span>
             </div>
+
+            {connectionStatus === "connected" && serverImplementation && (
+              <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg mb-4">
+                <div className="flex items-center gap-2 mb-1">
+                  {(serverImplementation as WithIcons).icons &&
+                  (serverImplementation as WithIcons).icons!.length > 0 ? (
+                    <IconDisplay
+                      icons={(serverImplementation as WithIcons).icons}
+                      size="sm"
+                    />
+                  ) : (
+                    <Server className="w-4 h-4 text-gray-500" />
+                  )}
+                  {(serverImplementation as { websiteUrl?: string })
+                    .websiteUrl ? (
+                    <a
+                      href={
+                        (serverImplementation as { websiteUrl?: string })
+                          .websiteUrl
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
+                    >
+                      {serverImplementation.name || "MCP Server"}
+                    </a>
+                  ) : (
+                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                      {serverImplementation.name || "MCP Server"}
+                    </span>
+                  )}
+                </div>
+                {serverImplementation.version && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    Version: {serverImplementation.version}
+                  </div>
+                )}
+              </div>
+            )}
 
             {loggingSupported && connectionStatus === "connected" && (
               <div className="space-y-2">

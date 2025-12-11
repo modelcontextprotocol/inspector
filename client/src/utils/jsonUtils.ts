@@ -37,6 +37,9 @@ export type JsonSchemaType = {
   default?: JsonValue;
   properties?: Record<string, JsonSchemaType>;
   items?: JsonSchemaType;
+  // Array validation constraints
+  minItems?: number;
+  maxItems?: number;
   minimum?: number;
   maximum?: number;
   minLength?: number;
@@ -45,6 +48,8 @@ export type JsonSchemaType = {
   pattern?: string;
   format?: string;
   enum?: string[];
+  // Non-standard legacy support: titles for enum values
+  enumNames?: string[];
   const?: JsonValue;
   oneOf?: (JsonSchemaType | JsonSchemaConst)[];
   anyOf?: (JsonSchemaType | JsonSchemaConst)[];

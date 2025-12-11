@@ -34,3 +34,7 @@ If applicable, add screenshots to help explain your problem.
 
 **Additional context**
 Add any other context about the problem here.
+
+**Version Consideration**
+
+Inspector V2 is under development to address architectural and UX improvements. During this time, V1 contributions should focus on **bug fixes and MCP spec compliance**. See [CONTRIBUTING.md](../../CONTRIBUTING.md) for more details.

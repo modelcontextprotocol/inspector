@@ -18,7 +18,16 @@ import {
   LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type {
+  AnySchema,
+  SchemaOutput,
+} from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
+import {
+  hasValidMetaName,
+  hasValidMetaPrefix,
+  isReservedMetaKey,
+} from "@/utils/metaUtils";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
 import { OAuthStateMachine } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
@@ -47,6 +56,7 @@ import {
   Hash,
   Key,
   MessageSquare,
+  Settings,
 } from "lucide-react";
 
 import { z } from "zod";
@@ -80,8 +90,27 @@ import {
   CustomHeaders,
   migrateFromLegacyAuth,
 } from "./lib/types/customHeaders";
+import MetadataTab from "./components/MetadataTab";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
+
+const filterReservedMetadata = (
+  metadata: Record<string, string>,
+): Record<string, string> => {
+  return Object.entries(metadata).reduce<Record<string, string>>(
+    (acc, [key, value]) => {
+      if (
+        !isReservedMetaKey(key) &&
+        hasValidMetaPrefix(key) &&
+        hasValidMetaName(key)
+      ) {
+        acc[key] = value;
+      }
+      return acc;
+    },
+    {},
+  );
+};
 
 const App = () => {
   const [resources, setResources] = useState<Resource[]>([]);
@@ -203,8 +232,30 @@ const App = () => {
   const [authState, setAuthState] =
     useState<AuthDebuggerState>(EMPTY_DEBUGGER_STATE);
 
+  // Metadata state - persisted in localStorage
+  const [metadata, setMetadata] = useState<Record<string, string>>(() => {
+    const savedMetadata = localStorage.getItem("lastMetadata");
+    if (savedMetadata) {
+      try {
+        const parsed = JSON.parse(savedMetadata);
+        if (parsed && typeof parsed === "object") {
+          return filterReservedMetadata(parsed);
+        }
+      } catch (error) {
+        console.warn("Failed to parse saved metadata:", error);
+      }
+    }
+    return {};
+  });
+
   const updateAuthState = (updates: Partial<AuthDebuggerState>) => {
     setAuthState((prev) => ({ ...prev, ...updates }));
+  };
+
+  const handleMetadataChange = (newMetadata: Record<string, string>) => {
+    const sanitizedMetadata = filterReservedMetadata(newMetadata);
+    setMetadata(sanitizedMetadata);
+    localStorage.setItem("lastMetadata", JSON.stringify(sanitizedMetadata));
   };
   const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
@@ -253,6 +304,7 @@ const App = () => {
   const {
     connectionStatus,
     serverCapabilities,
+    serverImplementation,
     mcpClient,
     requestHistory,
     clearRequestHistory,
@@ -309,6 +361,7 @@ const App = () => {
     },
     getRoots: () => rootsRef.current,
     defaultLoggingLevel: logLevel,
+    metadata,
   });
 
   useEffect(() => {
@@ -648,11 +701,11 @@ const App = () => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
   };
 
-  const sendMCPRequest = async <T extends z.ZodType>(
+  const sendMCPRequest = async <T extends AnySchema>(
     request: ClientRequest,
     schema: T,
     tabKey?: keyof typeof errors,
-  ) => {
+  ): Promise<SchemaOutput<T>> => {
     try {
       const response = await makeRequest(request, schema);
       if (tabKey !== undefined) {
@@ -793,7 +846,11 @@ const App = () => {
     cacheToolOutputSchemas(response.tools);
   };
 
-  const callTool = async (name: string, params: Record<string, unknown>) => {
+  const callTool = async (
+    name: string,
+    params: Record<string, unknown>,
+    toolMetadata?: Record<string, unknown>,
+  ) => {
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
     try {
@@ -803,15 +860,21 @@ const App = () => {
         ? cleanParams(params, tool.inputSchema as JsonSchemaType)
         : params;
 
+      // Merge general metadata with tool-specific metadata
+      // Tool-specific metadata takes precedence over general metadata
+      const mergedMetadata = {
+        ...metadata, // General metadata
+        progressToken: progressTokenRef.current++,
+        ...toolMetadata, // Tool-specific metadata
+      };
+
       const response = await sendMCPRequest(
         {
           method: "tools/call" as const,
           params: {
             name,
             arguments: cleanedParams,
-            _meta: {
-              progressToken: progressTokenRef.current++,
-            },
+            _meta: mergedMetadata,
           },
         },
         CompatibilityCallToolResultSchema,
@@ -931,6 +994,7 @@ const App = () => {
           setWorkingDir={setWorkingDir}
           connectionType={connectionType}
           setConnectionType={setConnectionType}
+          serverImplementation={serverImplementation}
         />
         <div
           onMouseDown={handleSidebarDragStart}
@@ -1010,6 +1074,10 @@ const App = () => {
                 <TabsTrigger value="auth">
                   <Key className="w-4 h-4 mr-2" />
                   Auth
+                </TabsTrigger>
+                <TabsTrigger value="metadata">
+                  <Settings className="w-4 h-4 mr-2" />
+                  Metadata
                 </TabsTrigger>
               </TabsList>
 
@@ -1121,10 +1189,14 @@ const App = () => {
                         setNextToolCursor(undefined);
                         cacheToolOutputSchemas([]);
                       }}
-                      callTool={async (name, params) => {
+                      callTool={async (
+                        name: string,
+                        params: Record<string, unknown>,
+                        metadata?: Record<string, unknown>,
+                      ) => {
                         clearError("tools");
                         setToolResult(null);
-                        await callTool(name, params);
+                        await callTool(name, params, metadata);
                       }}
                       selectedTool={selectedTool}
                       setSelectedTool={(tool) => {
@@ -1167,6 +1239,10 @@ const App = () => {
                       onRootsChange={handleRootsChange}
                     />
                     <AuthDebuggerWrapper />
+                    <MetadataTab
+                      metadata={metadata}
+                      onMetadataChange={handleMetadataChange}
+                    />
                   </>
                 )}
               </div>

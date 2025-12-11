@@ -30,6 +30,7 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   AlertCircle,
   Copy,
   CheckCheck,
@@ -40,6 +41,16 @@ import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
 import { useToast } from "@/lib/hooks/useToast";
 import useCopy from "@/lib/hooks/useCopy";
+import IconDisplay, { WithIcons } from "./IconDisplay";
+import { cn } from "@/lib/utils";
+import {
+  META_NAME_RULES_MESSAGE,
+  META_PREFIX_RULES_MESSAGE,
+  RESERVED_NAMESPACE_MESSAGE,
+  hasValidMetaName,
+  hasValidMetaPrefix,
+  isReservedMetaKey,
+} from "@/utils/metaUtils";
 
 // Type guard to safely detect the optional _meta field without using `any`
 const hasMeta = (tool: Tool): tool is Tool & { _meta: unknown } =>
@@ -61,7 +72,11 @@ const ToolsTab = ({
   tools: Tool[];
   listTools: () => void;
   clearTools: () => void;
-  callTool: (name: string, params: Record<string, unknown>) => Promise<void>;
+  callTool: (
+    name: string,
+    params: Record<string, unknown>,
+    metadata?: Record<string, unknown>,
+  ) => Promise<void>;
   selectedTool: Tool | null;
   setSelectedTool: (tool: Tool | null) => void;
   toolResult: CompatibilityCallToolResult | null;
@@ -73,7 +88,10 @@ const ToolsTab = ({
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
-  const [isMetaExpanded, setIsMetaExpanded] = useState(false);
+  const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
+  const [metadataEntries, setMetadataEntries] = useState<
+    { id: string; key: string; value: string }[]
+  >([]);
   const [hasValidationErrors, setHasValidationErrors] = useState(false);
   const formRefs = useRef<Record<string, DynamicJsonFormRef | null>>({});
   const { toast } = useToast();
@@ -115,6 +133,21 @@ const ToolsTab = ({
     formRefs.current = {};
   }, [selectedTool]);
 
+  const hasReservedMetadataEntry = metadataEntries.some(({ key }) => {
+    const trimmedKey = key.trim();
+    return trimmedKey !== "" && isReservedMetaKey(trimmedKey);
+  });
+
+  const hasInvalidMetaPrefixEntry = metadataEntries.some(({ key }) => {
+    const trimmedKey = key.trim();
+    return trimmedKey !== "" && !hasValidMetaPrefix(trimmedKey);
+  });
+
+  const hasInvalidMetaNameEntry = metadataEntries.some(({ key }) => {
+    const trimmedKey = key.trim();
+    return trimmedKey !== "" && !hasValidMetaName(trimmedKey);
+  });
+
   return (
     <TabsContent value="tools">
       <div className="grid grid-cols-2 gap-4">
@@ -127,11 +160,17 @@ const ToolsTab = ({
           }}
           setSelectedItem={setSelectedTool}
           renderItem={(tool) => (
-            <div className="flex flex-col items-start">
-              <span className="flex-1">{tool.name}</span>
-              <span className="text-sm text-gray-500 text-left line-clamp-3">
-                {tool.description}
-              </span>
+            <div className="flex items-start w-full gap-2">
+              <div className="flex-shrink-0 mt-1">
+                <IconDisplay icons={(tool as WithIcons).icons} size="sm" />
+              </div>
+              <div className="flex flex-col flex-1 min-w-0">
+                <span className="truncate">{tool.name}</span>
+                <span className="text-sm text-gray-500 text-left line-clamp-2">
+                  {tool.description}
+                </span>
+              </div>
+              <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 mt-1" />
             </div>
           )}
           title="Tools"
@@ -141,9 +180,17 @@ const ToolsTab = ({
 
         <div className="bg-card border border-border rounded-lg shadow">
           <div className="p-4 border-b border-gray-200 dark:border-border">
-            <h3 className="font-semibold">
-              {selectedTool ? selectedTool.name : "Select a tool"}
-            </h3>
+            <div className="flex items-center gap-2">
+              {selectedTool && (
+                <IconDisplay
+                  icons={(selectedTool as WithIcons).icons}
+                  size="md"
+                />
+              )}
+              <h3 className="font-semibold">
+                {selectedTool ? selectedTool.name : "Select a tool"}
+              </h3>
+            </div>
           </div>
           <div className="p-4">
             {selectedTool ? (
@@ -398,6 +445,138 @@ const ToolsTab = ({
                     );
                   },
                 )}
+                <div className="pb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold">
+                      Tool-specific Metadata:
+                    </h4>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2"
+                      onClick={() =>
+                        setMetadataEntries((prev) => [
+                          ...prev,
+                          {
+                            id:
+                              (
+                                globalThis as unknown as {
+                                  crypto?: { randomUUID?: () => string };
+                                }
+                              ).crypto?.randomUUID?.() ||
+                              Math.random().toString(36).slice(2),
+                            key: "",
+                            value: "",
+                          },
+                        ])
+                      }
+                    >
+                      Add Pair
+                    </Button>
+                  </div>
+                  {metadataEntries.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No metadata pairs.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {metadataEntries.map((entry, index) => {
+                        const trimmedKey = entry.key.trim();
+                        const hasInvalidPrefix =
+                          trimmedKey !== "" && !hasValidMetaPrefix(trimmedKey);
+                        const isReservedKey =
+                          trimmedKey !== "" && isReservedMetaKey(trimmedKey);
+                        const hasInvalidName =
+                          trimmedKey !== "" && !hasValidMetaName(trimmedKey);
+                        const validationMessage = hasInvalidPrefix
+                          ? META_PREFIX_RULES_MESSAGE
+                          : isReservedKey
+                            ? RESERVED_NAMESPACE_MESSAGE
+                            : hasInvalidName
+                              ? META_NAME_RULES_MESSAGE
+                              : null;
+                        return (
+                          <div key={entry.id} className="space-y-1">
+                            <div className="flex items-center gap-2 w-full">
+                              <Label
+                                htmlFor={`metadata-key-${entry.id}`}
+                                className="text-xs shrink-0"
+                              >
+                                Key
+                              </Label>
+                              <Input
+                                id={`metadata-key-${entry.id}`}
+                                value={entry.key}
+                                placeholder="e.g. requestId"
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setMetadataEntries((prev) =>
+                                    prev.map((m, i) =>
+                                      i === index ? { ...m, key: value } : m,
+                                    ),
+                                  );
+                                }}
+                                className={cn(
+                                  "h-8 flex-1",
+                                  validationMessage &&
+                                    "border-red-500 focus-visible:ring-red-500 focus-visible:ring-1",
+                                )}
+                                aria-invalid={Boolean(validationMessage)}
+                              />
+                              <Label
+                                htmlFor={`metadata-value-${entry.id}`}
+                                className="text-xs shrink-0"
+                              >
+                                Value
+                              </Label>
+                              <Input
+                                id={`metadata-value-${entry.id}`}
+                                value={entry.value}
+                                placeholder="e.g. 12345"
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setMetadataEntries((prev) =>
+                                    prev.map((m, i) =>
+                                      i === index ? { ...m, value } : m,
+                                    ),
+                                  );
+                                }}
+                                className="h-8 flex-1"
+                                disabled={Boolean(validationMessage)}
+                              />
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 ml-auto shrink-0"
+                                onClick={() =>
+                                  setMetadataEntries((prev) =>
+                                    prev.filter((_, i) => i !== index),
+                                  )
+                                }
+                                aria-label={`Remove meta pair ${index + 1}`}
+                              >
+                                -
+                              </Button>
+                            </div>
+                            {validationMessage && (
+                              <p className="text-xs text-red-600 dark:text-red-400">
+                                {validationMessage}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {(hasReservedMetadataEntry ||
+                    hasInvalidMetaPrefixEntry ||
+                    hasInvalidMetaNameEntry) && (
+                    <p className="text-xs text-red-600 dark:text-red-400">
+                      Remove reserved or invalid metadata keys (prefix/name)
+                      before running the tool.
+                    </p>
+                  )}
+                </div>
                 {selectedTool.outputSchema && (
                   <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
                     <div className="flex items-center justify-between mb-2">
@@ -443,10 +622,12 @@ const ToolsTab = ({
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => setIsMetaExpanded(!isMetaExpanded)}
+                          onClick={() =>
+                            setIsMetadataExpanded(!isMetadataExpanded)
+                          }
                           className="h-6 px-2"
                         >
-                          {isMetaExpanded ? (
+                          {isMetadataExpanded ? (
                             <>
                               <ChevronUp className="h-3 w-3 mr-1" />
                               Collapse
@@ -461,40 +642,66 @@ const ToolsTab = ({
                       </div>
                       <div
                         className={`transition-all ${
-                          isMetaExpanded ? "" : "max-h-[8rem] overflow-y-auto"
+                          isMetadataExpanded
+                            ? ""
+                            : "max-h-[8rem] overflow-y-auto"
                         }`}
                       >
                         <JsonView data={selectedTool._meta} />
                       </div>
                     </div>
                   )}
-                <div className="flex gap-2">
-                  <Button
-                    onClick={async () => {
-                      // Validate JSON inputs before calling tool
-                      if (checkValidationErrors()) return;
+                <Button
+                  onClick={async () => {
+                    // Validate JSON inputs before calling tool
+                    if (checkValidationErrors()) return;
 
-                      try {
-                        setIsToolRunning(true);
-                        await callTool(selectedTool.name, params);
-                      } finally {
-                        setIsToolRunning(false);
-                      }
-                    }}
-                    disabled={isToolRunning || hasValidationErrors}
-                  >
-                    {isToolRunning ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Running...
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-4 h-4 mr-2" />
-                        Run Tool
-                      </>
-                    )}
-                  </Button>
+                    try {
+                      setIsToolRunning(true);
+                      const metadata = metadataEntries.reduce<
+                        Record<string, unknown>
+                      >((acc, { key, value }) => {
+                        const trimmedKey = key.trim();
+                        if (
+                          trimmedKey !== "" &&
+                          hasValidMetaPrefix(trimmedKey) &&
+                          !isReservedMetaKey(trimmedKey) &&
+                          hasValidMetaName(trimmedKey)
+                        ) {
+                          acc[trimmedKey] = value;
+                        }
+                        return acc;
+                      }, {});
+                      await callTool(
+                        selectedTool.name,
+                        params,
+                        Object.keys(metadata).length ? metadata : undefined,
+                      );
+                    } finally {
+                      setIsToolRunning(false);
+                    }
+                  }}
+                  disabled={
+                    isToolRunning ||
+                    hasValidationErrors ||
+                    hasReservedMetadataEntry ||
+                    hasInvalidMetaPrefixEntry ||
+                    hasInvalidMetaNameEntry
+                  }
+                >
+                  {isToolRunning ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Running...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4 mr-2" />
+                      Run Tool
+                    </>
+                  )}
+                </Button>
+                <div className="flex gap-2">
                   <Button
                     onClick={async () => {
                       try {

@@ -9,11 +9,12 @@ import {
   PromptReference,
   ResourceReference,
 } from "@modelcontextprotocol/sdk/types.js";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import { useCompletionState } from "@/lib/hooks/useCompletionState";
 import JsonView from "./JsonView";
+import IconDisplay, { WithIcons } from "./IconDisplay";
 
 export type Prompt = {
   name: string;
@@ -23,6 +24,7 @@ export type Prompt = {
     description?: string;
     required?: boolean;
   }[];
+  icons?: { src: string; mimeType?: string; sizes?: string[] }[];
 };
 
 const PromptsTab = ({
@@ -108,11 +110,17 @@ const PromptsTab = ({
             setPromptArgs({});
           }}
           renderItem={(prompt) => (
-            <div className="flex flex-col items-start">
-              <span className="flex-1">{prompt.name}</span>
-              <span className="text-sm text-gray-500 text-left">
-                {prompt.description}
-              </span>
+            <div className="flex items-start w-full gap-2">
+              <div className="flex-shrink-0 mt-1">
+                <IconDisplay icons={prompt.icons} size="sm" />
+              </div>
+              <div className="flex flex-col flex-1 min-w-0">
+                <span className="truncate">{prompt.name}</span>
+                <span className="text-sm text-gray-500 text-left line-clamp-2">
+                  {prompt.description}
+                </span>
+              </div>
+              <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 mt-1" />
             </div>
           )}
           title="Prompts"
@@ -122,9 +130,17 @@ const PromptsTab = ({
 
         <div className="bg-card border border-border rounded-lg shadow">
           <div className="p-4 border-b border-gray-200 dark:border-border">
-            <h3 className="font-semibold">
-              {selectedPrompt ? selectedPrompt.name : "Select a prompt"}
-            </h3>
+            <div className="flex items-center gap-2">
+              {selectedPrompt && (
+                <IconDisplay
+                  icons={(selectedPrompt as WithIcons).icons}
+                  size="md"
+                />
+              )}
+              <h3 className="font-semibold">
+                {selectedPrompt ? selectedPrompt.name : "Select a prompt"}
+              </h3>
+            </div>
           </div>
           <div className="p-4">
             {error ? (
