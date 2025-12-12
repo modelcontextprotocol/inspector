@@ -1,47 +1,16 @@
-on:
-  push:
-    branches:
-      - main
+name: Release
 
-  pull_request:
+on:
   release:
+    # `published` triggers for both `released` and `prereleased`, even from a saved draft
     types: [published]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check formatting
-        run: npx prettier --check .
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: package.json
-          cache: npm
-
-      # Working around https://github.com/npm/cli/issues/4828
-      # - run: npm ci
-      - run: npm install --no-package-lock
-
-      - name: Check version consistency
-        run: npm run check-version
-
-      - name: Check linting
-        working-directory: ./client
-        run: npm run lint
-
-      - name: Run client tests
-        working-directory: ./client
-        run: npm test
-
-      - run: npm run build
+    uses: ./.github/workflows/build.yml
 
   publish:
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
     environment: release
     needs: build
 
@@ -50,16 +19,15 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
         with:
           node-version-file: package.json
           cache: npm
           registry-url: "https://registry.npmjs.org"
 
-      # Working around https://github.com/npm/cli/issues/4828
-      # - run: npm ci
-      - run: npm install --no-package-lock
+      - run: npm clean-install
 
       # TODO: Add --provenance once the repo is public
       - run: npm run publish-all
@@ -68,16 +36,17 @@ jobs:
 
   publish-github-container-registry:
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
     environment: release
     needs: build
+
     permissions:
       contents: read
       packages: write
       attestations: write
       id-token: write
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Log in to the Container registry
         uses: docker/login-action@v3

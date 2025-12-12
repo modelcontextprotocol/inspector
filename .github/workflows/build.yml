@@ -1,0 +1,155 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+
+  # Allow `uses: ...` in other workflows, used by `release.yml`
+  workflow_call:
+
+  # Allow users with repo write to run the workflow from the GitHub Actions UI
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20, 22, 24]
+
+    steps:
+      # Prevent LF→CRLF conversion on Windows checkout (causes prettier to warn).
+      # Linux and macOS are false by default.  TODO: gitattributes
+      - name: Set git to use LF
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: node scripts/validate-platform-dependencies.js
+
+      - run: npm clean-install
+
+      - name: Check version consistency
+        run: npm run check-version
+
+      - name: Check formatting and linting
+        run: npm run lint
+
+      - name: Run client tests
+        working-directory: ./client
+        run: npm test
+
+      - run: npm run build
+
+  #  When users `npm install` the Inspector, npm will try to flatten/deduplicate dependencies across
+  #  their entire project, and could choose newer versions than our lock file (within our semver
+  #  constraints). This test helps catch when those newer versions break the build.
+  dependency-range-test:
+    runs-on: ubuntu-latest
+
+    # Don't block if this fails - it's informational
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+          # Omit cache to test with freshly-resolved dependencies
+
+      - name: Install dependencies with fresh resolution
+        run: npm install --no-package-lock
+
+      - name: Check version consistency
+        run: npm run check-version
+
+      - name: Check formatting and linting
+        run: npm run lint
+
+      - name: Run client tests
+        working-directory: ./client
+        run: npm test
+
+      - run: npm run build
+
+  e2e-tests:
+    # Installing Playwright dependencies can take quite awhile, and also depends on GitHub CI load.
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwoff1
+
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        id: setup_node
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      # Cache Playwright browsers
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright # The default Playwright cache path
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }} # Cache key based on OS and package-lock.json
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright dependencies
+        run: npx playwright install-deps
+
+      - name: Install Playwright and browsers unless cached
+        run: npx playwright install --with-deps
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+
+      - name: Run Playwright tests
+        id: playwright-tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright Report and Screenshots
+        uses: actions/upload-artifact@v4
+        if: steps.playwright-tests.conclusion != 'skipped'
+        with:
+          name: playwright-report
+          path: |
+            client/playwright-report/
+            client/test-results/
+            client/results.json
+          retention-days: 2
+
+      - name: Publish Playwright Test Summary
+        uses: daun/playwright-report-summary@v3
+        if: steps.playwright-tests.conclusion != 'skipped'
+        with:
+          create-comment: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          report-file: client/results.json
+          comment-title: "Playwright test results"
+          custom-info: |
+
+            **Environment:** Ubuntu Latest, Node.js ${{ steps.setup_node.outputs.node-version }}
+            **Browsers:** Chromium, Firefox
+
+            📊 [View Detailed HTML Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) (download artifacts)
+          test-command: "npm run test:e2e"
