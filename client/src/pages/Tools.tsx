@@ -196,6 +196,11 @@ export function Tools() {
               disabled={isExecuting}
             />
 
+            {/* Autocomplete placeholder - for future completion/complete integration (UI-12) */}
+            <Text size="xs" c="dimmed" fs="italic">
+              Suggestions: Type to see completions (completion/complete integration pending)
+            </Text>
+
             {/* Execute / Cancel buttons */}
             <Group gap="sm">
               <Button flex={1} onClick={handleExecute} disabled={isExecuting}>
