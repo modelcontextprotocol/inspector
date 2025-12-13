@@ -11,7 +11,11 @@ import {
   Group,
   Title,
   Badge,
+  Collapse,
+  UnstyledButton,
+  Paper,
 } from '@mantine/core';
+import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { ListChangedIndicator } from '../components/ListChangedIndicator';
 
 // Resource interface with annotations per MCP spec
@@ -68,12 +72,58 @@ function getPriorityLabel(priority: number): { label: string; color: string } {
   return { label: 'low', color: 'blue' };
 }
 
+// Collapsible section component for accordion pattern (UI-13)
+interface AccordionSectionProps {
+  title: string;
+  count: number;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}
+
+function AccordionSection({ title, count, isOpen, onToggle, children }: AccordionSectionProps) {
+  return (
+    <Paper withBorder radius="md">
+      <UnstyledButton
+        onClick={onToggle}
+        w="100%"
+        p="xs"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        {isOpen ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
+        <Text size="sm" fw={500}>{title}</Text>
+        <Text size="sm" c="dimmed">({count})</Text>
+      </UnstyledButton>
+      <Collapse in={isOpen}>
+        <div style={{ padding: '0 var(--mantine-spacing-xs) var(--mantine-spacing-xs)', borderTop: '1px solid var(--mantine-color-dark-4)' }}>
+          {children}
+        </div>
+      </Collapse>
+    </Paper>
+  );
+}
+
 export function Resources() {
   const [hasResourcesChanged, setHasResourcesChanged] = useState(true);
   const [selectedResource, setSelectedResource] = useState<Resource>(mockResources[0]);
   const [searchFilter, setSearchFilter] = useState('');
   const [templateInputs, setTemplateInputs] = useState<Record<string, string>>({});
   const [subscriptions, setSubscriptions] = useState<Subscription[]>(mockSubscriptions);
+
+  // Accordion state - Resources expanded by default, others collapsed (UI-13)
+  const [expandedSections, setExpandedSections] = useState({
+    resources: true,
+    templates: false,
+    subscriptions: false,
+  });
+
+  const toggleSection = (section: keyof typeof expandedSections) => {
+    setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
 
   const handleRefresh = () => {
     setHasResourcesChanged(false);
@@ -107,8 +157,17 @@ export function Resources() {
     setSubscriptions((prev) => prev.filter((s) => s.uri !== uri));
   };
 
+  // Filter all sections based on search (UI-13)
   const filteredResources = mockResources.filter((resource) =>
     resource.uri.toLowerCase().includes(searchFilter.toLowerCase())
+  );
+  const filteredTemplates = mockTemplates.filter(
+    (t) =>
+      t.uriTemplate.toLowerCase().includes(searchFilter.toLowerCase()) ||
+      t.description.toLowerCase().includes(searchFilter.toLowerCase())
+  );
+  const filteredSubscriptions = subscriptions.filter((s) =>
+    s.uri.toLowerCase().includes(searchFilter.toLowerCase())
   );
 
   const isSubscribed = subscriptions.some((s) => s.uri === selectedResource.uri);
@@ -137,87 +196,100 @@ export function Resources() {
             />
 
             <ScrollArea flex={1}>
+              {/* Accordion Sections (UI-13) */}
               <Stack gap="sm">
                 {/* Resources Section */}
-                <Text size="xs" fw={600} c="dimmed" tt="uppercase">
-                  Resources
-                </Text>
-                <Stack gap="xs">
-                  {filteredResources.map((resource) => (
-                    <Stack key={resource.uri} gap={4}>
-                      <Button
-                        variant={selectedResource.uri === resource.uri ? 'filled' : 'subtle'}
-                        justify="flex-start"
-                        fullWidth
-                        size="sm"
-                        onClick={() => setSelectedResource(resource)}
-                      >
-                        {resource.uri.split('/').pop()}
-                      </Button>
-                      {/* Annotation badges */}
-                      {resource.annotations && Object.keys(resource.annotations).length > 0 && (
-                        <Group gap={4} pl="sm" pb={4}>
-                          {resource.annotations.audience && (
-                            <Badge size="xs" variant="light">
-                              {resource.annotations.audience}
-                            </Badge>
-                          )}
-                          {resource.annotations.priority !== undefined && (
-                            <Badge
-                              size="xs"
-                              color={getPriorityLabel(resource.annotations.priority).color}
-                            >
-                              priority: {getPriorityLabel(resource.annotations.priority).label}
-                            </Badge>
-                          )}
-                        </Group>
-                      )}
-                    </Stack>
-                  ))}
-                </Stack>
+                <AccordionSection
+                  title="Resources"
+                  count={filteredResources.length}
+                  isOpen={expandedSections.resources}
+                  onToggle={() => toggleSection('resources')}
+                >
+                  <Stack gap="xs" pt="xs">
+                    {filteredResources.map((resource) => (
+                      <Stack key={resource.uri} gap={4}>
+                        <Button
+                          variant={selectedResource.uri === resource.uri ? 'filled' : 'subtle'}
+                          justify="flex-start"
+                          fullWidth
+                          size="sm"
+                          onClick={() => setSelectedResource(resource)}
+                        >
+                          {resource.uri.split('/').pop()}
+                        </Button>
+                        {/* Annotation badges */}
+                        {resource.annotations && Object.keys(resource.annotations).length > 0 && (
+                          <Group gap={4} pl="sm" pb={4}>
+                            {resource.annotations.audience && (
+                              <Badge size="xs" variant="light">
+                                {resource.annotations.audience}
+                              </Badge>
+                            )}
+                            {resource.annotations.priority !== undefined && (
+                              <Badge
+                                size="xs"
+                                color={getPriorityLabel(resource.annotations.priority).color}
+                              >
+                                priority: {getPriorityLabel(resource.annotations.priority).label}
+                              </Badge>
+                            )}
+                          </Group>
+                        )}
+                      </Stack>
+                    ))}
+                  </Stack>
+                </AccordionSection>
 
                 {/* Templates Section */}
-                <Text size="xs" fw={600} c="dimmed" tt="uppercase" mt="md">
-                  Templates
-                </Text>
-                <Stack gap="xs">
-                  {mockTemplates.map((template) => {
-                    const varMatch = template.uriTemplate.match(/\{(\w+)\}/);
-                    const varName = varMatch ? varMatch[1] : '';
-                    return (
-                      <Stack key={template.uriTemplate} gap={4}>
-                        <Text size="sm" c="dimmed">{template.uriTemplate}</Text>
-                        <Group gap={4}>
-                          <TextInput
-                            placeholder={varName}
-                            size="xs"
-                            flex={1}
-                            value={templateInputs[template.uriTemplate] || ''}
-                            onChange={(e) =>
-                              handleTemplateInputChange(template.uriTemplate, e.target.value)
-                            }
-                          />
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            onClick={() => handleTemplateGo(template)}
-                          >
-                            Go
-                          </Button>
-                        </Group>
-                      </Stack>
-                    );
-                  })}
-                </Stack>
+                <AccordionSection
+                  title="Templates"
+                  count={filteredTemplates.length}
+                  isOpen={expandedSections.templates && filteredTemplates.length > 0}
+                  onToggle={() => toggleSection('templates')}
+                >
+                  <Stack gap="sm" pt="xs">
+                    {filteredTemplates.map((template) => {
+                      const varMatch = template.uriTemplate.match(/\{(\w+)\}/);
+                      const varName = varMatch ? varMatch[1] : '';
+                      return (
+                        <Stack key={template.uriTemplate} gap={4}>
+                          <Text size="sm" c="dimmed">{template.uriTemplate}</Text>
+                          <Group gap={4}>
+                            <TextInput
+                              placeholder={varName}
+                              size="xs"
+                              flex={1}
+                              value={templateInputs[template.uriTemplate] || ''}
+                              onChange={(e) =>
+                                handleTemplateInputChange(template.uriTemplate, e.target.value)
+                              }
+                            />
+                            <Button
+                              size="xs"
+                              variant="outline"
+                              onClick={() => handleTemplateGo(template)}
+                            >
+                              Go
+                            </Button>
+                          </Group>
+                        </Stack>
+                      );
+                    })}
+                  </Stack>
+                </AccordionSection>
 
                 {/* Subscriptions Section */}
-                {subscriptions.length > 0 && (
-                  <>
-                    <Text size="xs" fw={600} c="dimmed" tt="uppercase" mt="md">
-                      Subscriptions
-                    </Text>
-                    <Stack gap="xs">
-                      {subscriptions.map((sub) => (
+                <AccordionSection
+                  title="Subscriptions"
+                  count={filteredSubscriptions.length}
+                  isOpen={expandedSections.subscriptions && filteredSubscriptions.length > 0}
+                  onToggle={() => toggleSection('subscriptions')}
+                >
+                  <Stack gap="xs" pt="xs">
+                    {filteredSubscriptions.length === 0 ? (
+                      <Text size="sm" c="dimmed">No active subscriptions</Text>
+                    ) : (
+                      filteredSubscriptions.map((sub) => (
                         <Group key={sub.uri} justify="space-between" py={4}>
                           <Group gap="xs">
                             <span
@@ -240,10 +312,10 @@ export function Resources() {
                             Unsub
                           </Button>
                         </Group>
-                      ))}
-                    </Stack>
-                  </>
-                )}
+                      ))
+                    )}
+                  </Stack>
+                </AccordionSection>
               </Stack>
             </ScrollArea>
           </Stack>
