@@ -36,8 +36,20 @@ export function Prompts() {
             </Box>
 
             <Stack gap="sm">
-              <TextInput label="name" placeholder="Enter name..." required />
-              <TextInput label="interests" placeholder="Enter interests..." />
+              <Box>
+                <TextInput label="name" placeholder="Enter name..." required />
+                {/* Autocomplete placeholder - for future completion/complete integration (UI-14) */}
+                <Text size="xs" c="dimmed" fs="italic" mt={4}>
+                  Suggestions: Type to see completions
+                </Text>
+              </Box>
+              <Box>
+                <TextInput label="interests" placeholder="Enter interests..." />
+                {/* Autocomplete placeholder - for future completion/complete integration (UI-14) */}
+                <Text size="xs" c="dimmed" fs="italic" mt={4}>
+                  Suggestions: Type to see completions
+                </Text>
+              </Box>
             </Stack>
 
             <Button>Get Prompt</Button>
