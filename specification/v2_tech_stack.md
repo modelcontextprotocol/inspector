@@ -29,8 +29,33 @@ Let's choose a feature-rich component set with easy theming control
 
 ### Transport Operation
 Let's consider how to operate the server transports.
-* -[x] [Express](https://expressjs.com/)
+* -[x] [Hono](https://hono.dev/)
+* -[ ] [Express](https://expressjs.com/)
 * -[ ] Node:[http](https://nodejs.org/docs/v22.18.0/api/http.html)
+
+#### Hono Rationale
+
+Hono is selected based on community consensus (PR #945 discussion) for alignment with modern web standards and the TypeScript SDK v2 direction.
+
+**Why Hono over Express:**
+
+| Requirement | Hono | Express |
+|-------------|------|---------|
+| Bundle size | 12kb | ~1mb |
+| Web Standards (Request/Response) | Yes - Native | No - Shimmed |
+| TypeScript native | Yes | No - @types package |
+| Tree-shakable | Yes - Fully | No |
+| HTTP/2 support | Yes | No (SPDY dropped) |
+| Built-in middleware | Yes - Body parsing, auth, etc. | No - Requires plugins |
+| Edge/serverless deployment | Yes - Native | Partial - Requires adapters |
+
+**Benefits:**
+
+1. **Web Standards Alignment** - Uses native `Request`/`Response` objects, enabling deployment across Node, Deno, Bun, serverless, and edge environments
+2. **TypeScript Native** - Full type safety without external type packages, no monkey-patching of request objects
+3. **Future-proofing** - HTTP/2 support enables potential gRPC transport; aligns with TypeScript SDK v2 plans
+4. **Developer Experience** - Simpler API, type-safe context, smaller learning curve
+5. **Bundle Efficiency** - Dramatically smaller footprint benefits both development and deployment
 
 ### Logging
 Let's step up our logging capability with an advanced logger:
