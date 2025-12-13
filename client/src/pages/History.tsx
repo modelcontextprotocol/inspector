@@ -11,12 +11,14 @@ import {
   Select,
   Code,
   ScrollArea,
+  Collapse,
 } from '@mantine/core';
 import {
   IconChevronDown,
   IconChevronUp,
   IconPin,
   IconPinnedOff,
+  IconDownload,
 } from '@tabler/icons-react';
 
 // History entry interface
@@ -31,7 +33,12 @@ interface HistoryEntry {
   success: boolean;
   pinned: boolean;
   label?: string;
+  sseId?: string; // SSE event id for debugging reconnection behavior (UI-8)
+  progressToken?: string; // Progress token for tracking long-running operations (UI-10)
 }
+
+// Pagination page size
+const PAGE_SIZE = 10;
 
 // Mock history data with params and response
 const initialHistory: HistoryEntry[] = [
@@ -46,6 +53,7 @@ const initialHistory: HistoryEntry[] = [
     success: true,
     pinned: true,
     label: 'Test echo',
+    sseId: 'evt-12345',
   },
   {
     id: 'req-2',
@@ -57,6 +65,7 @@ const initialHistory: HistoryEntry[] = [
     duration: 12,
     success: true,
     pinned: false,
+    sseId: 'evt-12344',
   },
   {
     id: 'req-3',
@@ -69,6 +78,8 @@ const initialHistory: HistoryEntry[] = [
     success: true,
     pinned: true,
     label: 'Get config',
+    sseId: 'evt-12343',
+    progressToken: 'prog-abc123',
   },
   {
     id: 'req-4',
@@ -125,15 +136,33 @@ function HistoryCard({ entry, expanded, onToggleExpand, onTogglePin }: HistoryCa
           </Text>
         )}
 
-        {/* Expandable response section */}
-        {expanded && entry.response && (
-          <Stack gap="xs" pt="sm" style={{ borderTop: '1px solid var(--mantine-color-dark-4)' }}>
-            <Text size="sm" c="dimmed">Response:</Text>
-            <Code block style={{ maxHeight: 192, overflow: 'auto' }}>
-              {JSON.stringify(entry.response, null, 2)}
-            </Code>
-          </Stack>
+        {/* Metadata row: SSE ID, Progress Token (UI-8, UI-10) */}
+        {(entry.sseId || entry.progressToken) && (
+          <Group gap="lg">
+            {entry.sseId && (
+              <Text size="xs" c="dimmed">
+                SSE ID: <Code>{entry.sseId}</Code>
+              </Text>
+            )}
+            {entry.progressToken && (
+              <Text size="xs" c="dimmed">
+                Progress Token: <Code>{entry.progressToken}</Code>
+              </Text>
+            )}
+          </Group>
         )}
+
+        {/* Expandable response section with Collapse (UI-9) */}
+        <Collapse in={expanded}>
+          {entry.response && (
+            <Stack gap="xs" pt="sm" style={{ borderTop: '1px solid var(--mantine-color-dark-4)' }}>
+              <Text size="sm" c="dimmed">Response:</Text>
+              <Code block style={{ maxHeight: 192, overflow: 'auto' }}>
+                {JSON.stringify(entry.response, null, 2)}
+              </Code>
+            </Stack>
+          )}
+        </Collapse>
 
         {/* Actions row */}
         <Group justify="space-between" pt="xs">
@@ -171,6 +200,7 @@ export function History() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [searchFilter, setSearchFilter] = useState('');
   const [methodFilter, setMethodFilter] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
@@ -196,6 +226,23 @@ export function History() {
     setHistory([]);
   };
 
+  // Export history as JSON (UI-11)
+  const handleExport = () => {
+    const dataStr = JSON.stringify(filteredHistory, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+    const link = document.createElement('a');
+    link.setAttribute('href', dataUri);
+    link.setAttribute('download', `mcp-history-${new Date().toISOString().slice(0, 10)}.json`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Load more entries (UI-11)
+  const handleLoadMore = () => {
+    setVisibleCount((prev) => prev + PAGE_SIZE);
+  };
+
   // Filter history
   const filteredHistory = history.filter((entry) => {
     const matchesSearch =
@@ -203,13 +250,17 @@ export function History() {
       entry.method.toLowerCase().includes(searchFilter.toLowerCase()) ||
       entry.target?.toLowerCase().includes(searchFilter.toLowerCase()) ||
       JSON.stringify(entry.params).toLowerCase().includes(searchFilter.toLowerCase());
-    const matchesMethod = !methodFilter || entry.method === methodFilter;
+    const matchesMethod = !methodFilter || methodFilter === 'all' || entry.method === methodFilter;
     return matchesSearch && matchesMethod;
   });
 
   // Separate pinned and unpinned
   const pinnedEntries = filteredHistory.filter((entry) => entry.pinned);
   const unpinnedEntries = filteredHistory.filter((entry) => !entry.pinned);
+
+  // Paginate unpinned entries (UI-11)
+  const visibleUnpinnedEntries = unpinnedEntries.slice(0, visibleCount);
+  const hasMoreEntries = unpinnedEntries.length > visibleCount;
 
   return (
     <ScrollArea h="calc(100vh - 120px)">
@@ -234,12 +285,21 @@ export function History() {
                 value={methodFilter}
                 onChange={setMethodFilter}
                 data={[
+                  { value: 'all', label: 'All methods' },
                   { value: 'tools/call', label: 'tools/call' },
                   { value: 'tools/list', label: 'tools/list' },
                   { value: 'resources/read', label: 'resources/read' },
                   { value: 'prompts/get', label: 'prompts/get' },
                 ]}
               />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExport}
+                leftSection={<IconDownload size={14} />}
+              >
+                Export JSON
+              </Button>
               <Button variant="outline" size="sm" onClick={handleClearAll}>
                 Clear All
               </Button>
@@ -256,7 +316,7 @@ export function History() {
           </Card>
         ) : (
           <Stack gap="sm">
-            {unpinnedEntries.map((entry) => (
+            {visibleUnpinnedEntries.map((entry) => (
               <HistoryCard
                 key={entry.id}
                 entry={entry}
@@ -265,6 +325,14 @@ export function History() {
                 onTogglePin={() => togglePin(entry.id)}
               />
             ))}
+            {/* Load More button (UI-11) */}
+            {hasMoreEntries && (
+              <Group justify="center" pt="sm">
+                <Button variant="outline" onClick={handleLoadMore}>
+                  Load More ({unpinnedEntries.length - visibleCount} remaining)
+                </Button>
+              </Group>
+            )}
           </Stack>
         )}
 
@@ -318,7 +386,8 @@ export function History() {
 
         {/* Footer stats */}
         <Text size="sm" c="dimmed" ta="right">
-          Showing {filteredHistory.length} of {history.length} entries
+          Showing {visibleUnpinnedEntries.length + pinnedEntries.length} of {filteredHistory.length} entries
+          {filteredHistory.length !== history.length && ` (${history.length} total)`}
         </Text>
       </Stack>
     </ScrollArea>
