@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Card,
   Stack,
@@ -7,8 +8,9 @@ import {
   Progress,
   Group,
   Button,
+  Modal,
 } from '@mantine/core';
-import { IconRefresh } from '@tabler/icons-react';
+import { IconRefresh, IconTrash } from '@tabler/icons-react';
 
 // Mock tasks data
 const mockActiveTasks = [
@@ -175,56 +177,97 @@ function TaskCard({ task, showActions = true }: TaskCardProps) {
 }
 
 export function Tasks() {
+  // State for completed tasks and clear confirmation modal (UI-16)
+  const [completedTasks, setCompletedTasks] = useState(mockCompletedTasks);
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+
+  const handleClearHistory = () => {
+    setCompletedTasks([]);
+    setClearDialogOpen(false);
+  };
+
   return (
-    <Stack gap="lg">
-      {/* Header */}
-      <Group justify="space-between">
-        <Title order={2}>Tasks</Title>
-        <Button variant="outline" size="sm" leftSection={<IconRefresh size={16} />}>
-          Refresh
-        </Button>
-      </Group>
-
-      {/* Active Tasks */}
-      <Stack gap="sm">
-        <Title order={4}>Active Tasks ({mockActiveTasks.length})</Title>
-        {mockActiveTasks.length === 0 ? (
-          <Card withBorder>
-            <Text c="dimmed" ta="center" py="xl">
-              No active tasks
-            </Text>
-          </Card>
-        ) : (
-          <Stack gap="sm">
-            {mockActiveTasks.map((task) => (
-              <TaskCard key={task.id} task={task} />
-            ))}
-          </Stack>
-        )}
-      </Stack>
-
-      {/* Completed Tasks */}
-      <Stack gap="sm">
+    <>
+      <Stack gap="lg">
+        {/* Header */}
         <Group justify="space-between">
-          <Title order={4}>Completed Tasks ({mockCompletedTasks.length})</Title>
-          <Button variant="subtle" size="xs">
-            Clear History
+          <Title order={2}>Tasks</Title>
+          <Button variant="outline" size="sm" leftSection={<IconRefresh size={16} />}>
+            Refresh
           </Button>
         </Group>
-        {mockCompletedTasks.length === 0 ? (
-          <Card withBorder>
-            <Text c="dimmed" ta="center" py="xl">
-              No completed tasks
-            </Text>
-          </Card>
-        ) : (
-          <Stack gap="sm">
-            {mockCompletedTasks.map((task) => (
-              <TaskCard key={task.id} task={task} />
-            ))}
-          </Stack>
-        )}
+
+        {/* Active Tasks */}
+        <Stack gap="sm">
+          <Title order={4}>Active Tasks ({mockActiveTasks.length})</Title>
+          {mockActiveTasks.length === 0 ? (
+            <Card withBorder>
+              <Text c="dimmed" ta="center" py="xl">
+                No active tasks
+              </Text>
+            </Card>
+          ) : (
+            <Stack gap="sm">
+              {mockActiveTasks.map((task) => (
+                <TaskCard key={task.id} task={task} />
+              ))}
+            </Stack>
+          )}
+        </Stack>
+
+        {/* Completed Tasks */}
+        <Stack gap="sm">
+          <Group justify="space-between">
+            <Title order={4}>Completed Tasks ({completedTasks.length})</Title>
+            {completedTasks.length > 0 && (
+              <Button
+                variant="subtle"
+                size="xs"
+                leftSection={<IconTrash size={14} />}
+                onClick={() => setClearDialogOpen(true)}
+              >
+                Clear History
+              </Button>
+            )}
+          </Group>
+          {completedTasks.length === 0 ? (
+            <Card withBorder>
+              <Text c="dimmed" ta="center" py="xl">
+                No completed tasks
+              </Text>
+            </Card>
+          ) : (
+            <Stack gap="sm">
+              {completedTasks.map((task) => (
+                <TaskCard key={task.id} task={task} />
+              ))}
+            </Stack>
+          )}
+        </Stack>
       </Stack>
-    </Stack>
+
+      {/* Clear History Confirmation Modal (UI-16) */}
+      <Modal
+        opened={clearDialogOpen}
+        onClose={() => setClearDialogOpen(false)}
+        title="Clear completed tasks?"
+        size="sm"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            This will remove all {completedTasks.length} completed task(s) from the history.
+            This action cannot be undone.
+          </Text>
+          <Group justify="flex-end" gap="sm">
+            <Button variant="default" onClick={() => setClearDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button color="red" onClick={handleClearHistory}>
+              Clear History
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+    </>
   );
 }
