@@ -7,10 +7,10 @@ import {
   Button,
   SimpleGrid,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
-import { ServerCard } from '../components/ServerCard';
+import { ServerCard, ConnectionMode } from '../components/ServerCard';
 import { AddServerModal, ServerConfig } from '../components/AddServerModal';
 import { ImportServerJsonModal } from '../components/ImportServerJsonModal';
+import { showInfoToast, showSuccessToast } from '../lib/toast';
 
 // Mock server data
 const mockServers = [
@@ -66,11 +66,13 @@ export function ServerList() {
   };
 
   const handleImportConfig = () => {
-    notifications.show({
-      title: 'Import Config',
-      message: 'Claude Desktop config import coming soon',
-      color: 'blue',
-    });
+    showInfoToast('Import Config', 'Claude Desktop config import coming soon');
+  };
+
+  // Handler for connection mode changes (demonstrates toast usage)
+  const handleConnectionModeChange = (serverId: string, mode: ConnectionMode) => {
+    console.log('Connection mode changed:', serverId, mode);
+    showSuccessToast('Connection Mode Updated', `Server now using ${mode} connection`);
   };
 
   return (
@@ -91,7 +93,11 @@ export function ServerList() {
 
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
         {mockServers.map((server) => (
-          <ServerCard key={server.id} server={server} />
+          <ServerCard
+            key={server.id}
+            server={server}
+            onConnectionModeChange={handleConnectionModeChange}
+          />
         ))}
       </SimpleGrid>
 
