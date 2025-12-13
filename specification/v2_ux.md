@@ -95,7 +95,7 @@ Each server in the list is displayed as a card with connection controls and stat
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ [Icon] Server Name                        v1.0.0                │
-│        STDIO                              [●] Connected [Toggle]│
+│        STDIO  [Via Proxy ▼]               [●] Connected [Toggle]│
 ├─────────────────────────────────────────────────────────────────┤
 │ npx -y @modelcontextprotocol/server-everything            [Copy]│
 ├─────────────────────────────────────────────────────────────────┤
@@ -103,11 +103,17 @@ Each server in the list is displayed as a card with connection controls and stat
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+**Connection Mode Dropdown:**
+- Quick access to switch between Direct and Via Proxy modes without opening Settings
+- STDIO servers default to "Via Proxy" (required - cannot connect directly from browser)
+- HTTP/SSE servers default to "Direct" (assumes CORS enabled)
+- Shows warning text if STDIO + Direct selected: "(STDIO requires proxy)"
+
 **With OAuth (shows OAuth Debug button):**
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ [Icon] Server Name                        v1.0.0                │
-│        HTTP (OAuth)                       [●] Connected [Toggle]│
+│        HTTP  [Direct ▼]                   [●] Connected [Toggle]│
 ├─────────────────────────────────────────────────────────────────┤
 │ https://api.example.com/mcp                               [Copy]│
 ├─────────────────────────────────────────────────────────────────┤
@@ -119,7 +125,7 @@ Each server in the list is displayed as a card with connection controls and stat
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ [Icon] Server Name                        v1.0.0                │
-│        HTTP                               [●] Failed (3)[Toggle]│
+│        HTTP  [Direct ▼]                   [●] Failed (3)[Toggle]│
 ├─────────────────────────────────────────────────────────────────┤
 │ https://api.example.com/mcp                               [Copy]│
 ├─────────────────────────────────────────────────────────────────┤
