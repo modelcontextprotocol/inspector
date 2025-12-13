@@ -11,8 +11,9 @@ import {
   Button,
   TextInput,
   Checkbox,
+  Menu,
 } from '@mantine/core';
-import { IconCopy } from '@tabler/icons-react';
+import { IconCopy, IconChevronDown, IconDownload } from '@tabler/icons-react';
 
 // Mock log entries
 const mockLogs = [
@@ -57,6 +58,53 @@ export function Logs() {
     const matchesLevel = visibleLevels[log.level as keyof typeof visibleLevels] ?? true;
     return matchesFilter && matchesLevel;
   });
+
+  // Export as JSON (UI-15)
+  const handleExportJson = () => {
+    const exportData = filteredLogs.map((log) => ({
+      timestamp: log.timestamp,
+      level: log.level,
+      message: log.message,
+      logger: log.logger,
+    }));
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mcp-logs-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Export as Text (UI-15)
+  const handleExportText = () => {
+    const lines = filteredLogs.map(
+      (log) => `[${log.timestamp}] [${log.level.toUpperCase()}] [${log.logger}] ${log.message}`
+    );
+    const blob = new Blob([lines.join('\n')], {
+      type: 'text/plain',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mcp-logs-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Copy all logs to clipboard (UI-15)
+  const handleCopyAll = () => {
+    const lines = filteredLogs.map(
+      (log) => `[${log.timestamp}] [${log.level.toUpperCase()}] [${log.logger}] ${log.message}`
+    );
+    navigator.clipboard.writeText(lines.join('\n'));
+  };
 
   return (
     <Grid gutter="md" h="calc(100vh - 120px)">
@@ -116,9 +164,33 @@ export function Logs() {
               <Button variant="outline" size="sm" flex={1}>
                 Clear
               </Button>
-              <Button variant="outline" size="sm" flex={1}>
-                Export
-              </Button>
+              {/* Export dropdown menu (UI-15) */}
+              <Menu shadow="md" width={160}>
+                <Menu.Target>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    flex={1}
+                    rightSection={<IconChevronDown size={14} />}
+                  >
+                    Export
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item
+                    leftSection={<IconDownload size={14} />}
+                    onClick={handleExportJson}
+                  >
+                    Export as JSON
+                  </Menu.Item>
+                  <Menu.Item
+                    leftSection={<IconDownload size={14} />}
+                    onClick={handleExportText}
+                  >
+                    Export as Text
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
             </Group>
           </Stack>
         </Card>
@@ -135,7 +207,12 @@ export function Logs() {
                 onChange={(e) => setAutoScroll(e.currentTarget.checked)}
                 label={<Text size="sm">Auto-scroll</Text>}
               />
-              <Button variant="subtle" size="sm" leftSection={<IconCopy size={14} />}>
+              <Button
+                variant="subtle"
+                size="sm"
+                leftSection={<IconCopy size={14} />}
+                onClick={handleCopyAll}
+              >
                 Copy All
               </Button>
             </Group>
