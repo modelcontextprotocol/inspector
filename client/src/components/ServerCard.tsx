@@ -283,8 +283,8 @@ export function ServerCard({ server, onConnectionModeChange }: ServerCardProps) 
           )}
 
           {/* Actions row */}
-          <div className="flex items-center justify-between pt-2">
-            <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="ghost"
                 size="sm"
@@ -353,7 +353,7 @@ export function ServerCard({ server, onConnectionModeChange }: ServerCardProps) 
                 </DropdownMenu>
               )}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="ghost" size="sm" onClick={handleClone}>
                 <Files className="h-4 w-4 mr-1" />
                 Clone
