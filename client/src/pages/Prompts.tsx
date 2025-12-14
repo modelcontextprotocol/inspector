@@ -8,12 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-
-// Mock prompts data
-const mockPrompts = [
-  { name: 'greeting_prompt', description: 'Generate a greeting' },
-  { name: 'summarize', description: 'Summarize text' },
-];
+import { mockPrompts } from '@/mocks';
 
 export function Prompts() {
   return (

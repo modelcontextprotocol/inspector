@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { mockOAuthState, type OAuthState } from '@/mocks';
 
 type StepStatus = 'pending' | 'completed' | 'active' | 'error';
 
@@ -19,23 +20,7 @@ interface OAuthStep {
   details?: Record<string, string>;
 }
 
-export interface OAuthState {
-  authorizationUrl?: string;
-  authorizationCode?: string;
-  state?: string;
-  stateVerified?: boolean;
-  tokenEndpoint?: string;
-  accessToken?: string;
-  tokenType?: string;
-  expiresIn?: number;
-  expiresAt?: Date;
-  refreshToken?: string;
-  scopes?: string[];
-  decodedToken?: {
-    header: Record<string, unknown>;
-    payload: Record<string, unknown>;
-  };
-}
+export type { OAuthState };
 
 interface OAuthDebuggerModalProps {
   open: boolean;
@@ -47,29 +32,18 @@ interface OAuthDebuggerModalProps {
   onStartNewFlow?: () => void;
 }
 
-// Mock OAuth state for UI prototyping
-const mockOAuthState: OAuthState = {
-  authorizationUrl: 'https://auth.example.com/authorize?client_id=my-client-id&redirect_uri=http://localhost:5173/callback&response_type=code&scope=read%20write&state=abc123xyz',
-  authorizationCode: 'xyz789def456abc123',
-  state: 'abc123xyz',
-  stateVerified: true,
-  tokenEndpoint: 'https://auth.example.com/token',
-  accessToken: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyMTIzIiwiYXVkIjoibXktY2xpZW50LWlkIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiZXhwIjoxNzM1MzAwMDAwLCJpYXQiOjE3MzUyOTY0MDB9.signature',
-  tokenType: 'Bearer',
-  expiresIn: 3600,
-  expiresAt: new Date(Date.now() + 3600 * 1000),
-  refreshToken: 'def456ghi789jkl012mno345',
-  scopes: ['read', 'write'],
-  decodedToken: {
-    header: { alg: 'RS256', typ: 'JWT' },
-    payload: {
-      sub: 'user123',
-      aud: 'my-client-id',
-      scope: 'read write',
-      exp: 1735300000,
-      iat: 1735296400,
-    },
-  },
+const statusVariants: Record<StepStatus, 'secondary' | 'success' | 'active' | 'error'> = {
+  pending: 'secondary',
+  completed: 'success',
+  active: 'active',
+  error: 'error',
+};
+
+const statusLabels: Record<StepStatus, string> = {
+  pending: 'Pending',
+  completed: 'Completed',
+  active: 'Active',
+  error: 'Error',
 };
 
 function StepCard({
@@ -85,20 +59,6 @@ function StepCard({
   onToggle: () => void;
   children: React.ReactNode;
 }) {
-  const statusColors: Record<StepStatus, string> = {
-    pending: 'bg-muted text-muted-foreground',
-    completed: 'bg-green-500/20 text-green-400',
-    active: 'bg-blue-500/20 text-blue-400',
-    error: 'bg-red-500/20 text-red-400',
-  };
-
-  const statusLabels: Record<StepStatus, string> = {
-    pending: 'Pending',
-    completed: 'Completed',
-    active: 'Active',
-    error: 'Error',
-  };
-
   return (
     <div className="border border-border rounded-lg overflow-hidden">
       <button
@@ -113,7 +73,7 @@ function StepCard({
           )}
           <span className="font-medium">Step {index + 1}: {step.title}</span>
         </div>
-        <Badge className={statusColors[step.status]}>{statusLabels[step.status]}</Badge>
+        <Badge variant={statusVariants[step.status]}>{statusLabels[step.status]}</Badge>
       </button>
       {expanded && (
         <div className="p-3 pt-0 border-t border-border bg-muted/30">

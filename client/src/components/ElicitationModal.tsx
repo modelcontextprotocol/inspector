@@ -23,33 +23,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-
-interface ElicitationFormField {
-  name: string;
-  type: 'string' | 'number' | 'boolean';
-  description?: string;
-  required?: boolean;
-  enum?: string[];
-  default?: string | number | boolean;
-}
-
-interface ElicitationFormRequest {
-  mode: 'form';
-  message: string;
-  schema: {
-    properties: Record<string, ElicitationFormField>;
-    required?: string[];
-  };
-  serverName: string;
-}
-
-interface ElicitationUrlRequest {
-  mode: 'url';
-  message: string;
-  url: string;
-  elicitationId: string;
-  serverName: string;
-}
+import {
+  mockFormRequest,
+  mockUrlRequest,
+  type ElicitationFormRequest,
+  type ElicitationUrlRequest,
+} from '@/mocks';
 
 type ElicitationRequest = ElicitationFormRequest | ElicitationUrlRequest;
 
@@ -58,53 +37,6 @@ interface ElicitationModalProps {
   onOpenChange: (open: boolean) => void;
   mode: 'form' | 'url';
 }
-
-// Mock form mode request
-const mockFormRequest: ElicitationFormRequest = {
-  mode: 'form',
-  message: 'Please provide your database connection details to proceed.',
-  schema: {
-    properties: {
-      host: {
-        name: 'host',
-        type: 'string',
-        description: 'Database hostname',
-        required: true,
-        default: 'localhost',
-      },
-      port: {
-        name: 'port',
-        type: 'number',
-        description: 'Database port number',
-        required: true,
-        default: 5432,
-      },
-      database: {
-        name: 'database',
-        type: 'string',
-        description: 'Database name',
-      },
-      sslMode: {
-        name: 'sslMode',
-        type: 'string',
-        description: 'SSL connection mode',
-        enum: ['disable', 'require', 'verify-ca', 'verify-full'],
-        default: 'require',
-      },
-    },
-    required: ['host', 'port'],
-  },
-  serverName: 'database-connector',
-};
-
-// Mock URL mode request
-const mockUrlRequest: ElicitationUrlRequest = {
-  mode: 'url',
-  message: 'Please complete the OAuth authorization in your browser.',
-  url: 'https://auth.example.com/oauth/authorize?client_id=abc123&redirect_uri=http://localhost:3000/callback&state=xyz789&scope=read+write',
-  elicitationId: 'elicit-abc123-def456',
-  serverName: 'oauth-server',
-};
 
 export function ElicitationModal({
   open,

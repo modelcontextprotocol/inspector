@@ -10,23 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-
-interface Root {
-  name: string;
-  uri: string;
-}
+import { initialRoots, type Root } from '@/mocks';
 
 interface RootsConfigurationModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
-
-// Mock initial roots data
-const initialRoots: Root[] = [
-  { name: 'Project', uri: 'file:///home/user/myproject' },
-  { name: 'Documents', uri: 'file:///home/user/Documents' },
-  { name: 'Config', uri: 'file:///etc/myapp' },
-];
 
 export function RootsConfigurationModal({
   open,

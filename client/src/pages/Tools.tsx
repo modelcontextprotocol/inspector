@@ -2,50 +2,9 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { ListChangedIndicator } from '@/components/ListChangedIndicator';
-
-// Tool interface with annotations per MCP spec
-interface Tool {
-  name: string;
-  description: string;
-  annotations?: {
-    audience?: 'user' | 'assistant';
-    readOnly?: boolean;
-    destructive?: boolean;
-    longRunning?: boolean;
-    hints?: string;
-  };
-}
-
-// Mock tools data with annotations
-const mockTools: Tool[] = [
-  {
-    name: 'query_db',
-    description: 'Queries the database and returns results',
-    annotations: { audience: 'user', readOnly: true },
-  },
-  {
-    name: 'echo',
-    description: 'Echoes the input message',
-    annotations: {},
-  },
-  {
-    name: 'add',
-    description: 'Adds two numbers together',
-    annotations: {},
-  },
-  {
-    name: 'longOp',
-    description: 'A long-running operation for testing',
-    annotations: { longRunning: true, hints: 'May take several minutes to complete' },
-  },
-  {
-    name: 'dangerOp',
-    description: 'Performs a destructive operation',
-    annotations: { destructive: true },
-  },
-];
+import { AnnotationBadges } from '@/components/AnnotationBadges';
+import { mockTools, type Tool } from '@/mocks';
 
 export function Tools() {
   const [hasToolsChanged, setHasToolsChanged] = useState(true);
@@ -104,30 +63,10 @@ export function Tools() {
                   {tool.name}
                 </Button>
                 {/* Annotation badges below tool name */}
-                {tool.annotations && Object.keys(tool.annotations).length > 0 && (
-                  <div className="flex flex-wrap gap-1 pl-3 pb-1">
-                    {tool.annotations.audience && (
-                      <Badge variant="secondary" className="text-xs">
-                        {tool.annotations.audience}
-                      </Badge>
-                    )}
-                    {tool.annotations.readOnly && (
-                      <Badge variant="default" className="text-xs">
-                        read-only
-                      </Badge>
-                    )}
-                    {tool.annotations.destructive && (
-                      <Badge variant="error" className="text-xs">
-                        destructive
-                      </Badge>
-                    )}
-                    {tool.annotations.longRunning && (
-                      <Badge variant="warning" className="text-xs">
-                        long-run
-                      </Badge>
-                    )}
-                  </div>
-                )}
+                <AnnotationBadges
+                  annotations={tool.annotations}
+                  className="flex flex-wrap gap-1 pl-3 pb-1"
+                />
               </div>
             ))}
           </div>

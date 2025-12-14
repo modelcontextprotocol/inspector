@@ -2,63 +2,17 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { ListChangedIndicator } from '@/components/ListChangedIndicator';
+import { AnnotationBadges, getPriorityLabel } from '@/components/AnnotationBadges';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-
-// Resource interface with annotations per MCP spec
-interface Resource {
-  uri: string;
-  mimeType: string;
-  annotations?: {
-    audience?: 'user' | 'application';
-    priority?: number; // 0-1
-  };
-}
-
-interface ResourceTemplate {
-  uriTemplate: string;
-  description: string;
-}
-
-interface Subscription {
-  uri: string;
-  lastUpdated: string;
-}
-
-// Mock resources data with annotations
-const mockResources: Resource[] = [
-  {
-    uri: 'file:///config.json',
-    mimeType: 'application/json',
-    annotations: { audience: 'application', priority: 0.9 },
-  },
-  {
-    uri: 'file:///readme.md',
-    mimeType: 'text/markdown',
-    annotations: { audience: 'user' },
-  },
-  {
-    uri: 'file:///data.csv',
-    mimeType: 'text/csv',
-    annotations: { priority: 0.5 },
-  },
-];
-
-const mockTemplates: ResourceTemplate[] = [
-  { uriTemplate: 'user/{id}', description: 'Get user by ID' },
-  { uriTemplate: 'file/{path}', description: 'Read file by path' },
-];
-
-const mockSubscriptions: Subscription[] = [
-  { uri: 'file:///config.json', lastUpdated: '2025-11-30T14:32:05Z' },
-];
-
-function getPriorityLabel(priority: number): { label: string; variant: 'default' | 'secondary' | 'warning' } {
-  if (priority > 0.7) return { label: 'high', variant: 'warning' };
-  if (priority > 0.3) return { label: 'medium', variant: 'secondary' };
-  return { label: 'low', variant: 'default' };
-}
+import {
+  mockResources,
+  mockTemplates,
+  mockSubscriptions,
+  type Resource,
+  type ResourceTemplate,
+  type Subscription,
+} from '@/mocks';
 
 // Collapsible section component for accordion pattern
 function AccordionSection({
@@ -200,23 +154,10 @@ export function Resources() {
                       {resource.uri.split('/').pop()}
                     </Button>
                     {/* Annotation badges */}
-                    {resource.annotations && Object.keys(resource.annotations).length > 0 && (
-                      <div className="flex flex-wrap gap-1 pl-3 pb-1">
-                        {resource.annotations.audience && (
-                          <Badge variant="secondary" className="text-xs">
-                            {resource.annotations.audience}
-                          </Badge>
-                        )}
-                        {resource.annotations.priority !== undefined && (
-                          <Badge
-                            variant={getPriorityLabel(resource.annotations.priority).variant}
-                            className="text-xs"
-                          >
-                            priority: {getPriorityLabel(resource.annotations.priority).label}
-                          </Badge>
-                        )}
-                      </div>
-                    )}
+                    <AnnotationBadges
+                      annotations={resource.annotations}
+                      className="flex flex-wrap gap-1 pl-3 pb-1"
+                    />
                   </div>
                 ))}
               </div>

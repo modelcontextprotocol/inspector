@@ -13,58 +13,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { RefreshCw, Trash2 } from 'lucide-react';
-
-// Mock tasks data
-const mockActiveTasks = [
-  {
-    id: 'abc-123',
-    method: 'tools/call',
-    name: 'longRunningOperation',
-    status: 'running',
-    progress: 80,
-    progressMessage: 'Processing batch 4 of 5...',
-    startedAt: '2025-11-30T14:32:05Z',
-  },
-  {
-    id: 'def-456',
-    method: 'resources/read',
-    name: 'large-dataset',
-    status: 'waiting',
-    progress: 0,
-    progressMessage: null,
-    startedAt: '2025-11-30T14:33:00Z',
-  },
-];
-
-const mockCompletedTasks = [
-  {
-    id: 'ghi-789',
-    method: 'tools/call',
-    name: 'processData',
-    status: 'completed',
-    progress: 100,
-    startedAt: '2025-11-30T14:30:00Z',
-    completedAt: '2025-11-30T14:31:30Z',
-  },
-  {
-    id: 'jkl-012',
-    method: 'resources/read',
-    name: 'config-file',
-    status: 'failed',
-    progress: 45,
-    error: 'Resource not found',
-    startedAt: '2025-11-30T14:28:00Z',
-    completedAt: '2025-11-30T14:28:15Z',
-  },
-];
-
-const statusVariants: Record<string, 'default' | 'secondary' | 'success' | 'error' | 'warning'> = {
-  waiting: 'secondary',
-  running: 'default',
-  completed: 'success',
-  failed: 'error',
-  cancelled: 'warning',
-};
+import { mockActiveTasks, mockCompletedTasks, taskStatusVariants } from '@/mocks';
 
 function formatElapsed(startedAt: string, endedAt?: string): string {
   const start = new Date(startedAt).getTime();
@@ -109,7 +58,7 @@ function TaskCard({ task, showActions = true }: TaskCardProps) {
             <span className="font-mono text-sm text-muted-foreground">
               Task: {task.id}
             </span>
-            <Badge variant={statusVariants[task.status]}>
+            <Badge variant={taskStatusVariants[task.status]}>
               {task.status}
             </Badge>
           </div>
