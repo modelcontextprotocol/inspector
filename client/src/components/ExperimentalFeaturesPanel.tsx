@@ -23,46 +23,10 @@ import {
   IconCopy,
   IconCheck,
 } from '@tabler/icons-react';
-
-interface ExperimentalCapability {
-  id: string;
-  name: string;
-  description: string;
-  enabled: boolean;
-  warning?: string;
-}
-
-// Mock experimental capabilities
-const initialCapabilities: ExperimentalCapability[] = [
-  {
-    id: 'batch_requests',
-    name: 'Batch Requests',
-    description: 'Send multiple requests in a single batch for improved performance',
-    enabled: false,
-    warning: 'May not be supported by all servers',
-  },
-  {
-    id: 'binary_content',
-    name: 'Binary Content Support',
-    description: 'Enable handling of binary content in resources and tool outputs',
-    enabled: false,
-  },
-  {
-    id: 'streaming_responses',
-    name: 'Streaming Responses',
-    description: 'Support for streaming responses from long-running operations',
-    enabled: true,
-  },
-  {
-    id: 'custom_metadata',
-    name: 'Custom Metadata',
-    description: 'Allow custom metadata in request/response headers',
-    enabled: false,
-  },
-];
+import { initialCapabilities, type ExperimentalCapability } from '@/mocks';
 
 export function ExperimentalFeaturesPanel() {
-  const [capabilities, setCapabilities] = useState(initialCapabilities);
+  const [capabilities, setCapabilities] = useState<ExperimentalCapability[]>(initialCapabilities);
   const [accordionValue, setAccordionValue] = useState<string[]>(['capabilities']);
 
   // JSON-RPC tester state

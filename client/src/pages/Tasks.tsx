@@ -11,58 +11,7 @@ import {
   Modal,
 } from '@mantine/core';
 import { IconRefresh, IconTrash } from '@tabler/icons-react';
-
-// Mock tasks data
-const mockActiveTasks = [
-  {
-    id: 'abc-123',
-    method: 'tools/call',
-    name: 'longRunningOperation',
-    status: 'running',
-    progress: 80,
-    progressMessage: 'Processing batch 4 of 5...',
-    startedAt: '2025-11-30T14:32:05Z',
-  },
-  {
-    id: 'def-456',
-    method: 'resources/read',
-    name: 'large-dataset',
-    status: 'waiting',
-    progress: 0,
-    progressMessage: null,
-    startedAt: '2025-11-30T14:33:00Z',
-  },
-];
-
-const mockCompletedTasks = [
-  {
-    id: 'ghi-789',
-    method: 'tools/call',
-    name: 'processData',
-    status: 'completed',
-    progress: 100,
-    startedAt: '2025-11-30T14:30:00Z',
-    completedAt: '2025-11-30T14:31:30Z',
-  },
-  {
-    id: 'jkl-012',
-    method: 'resources/read',
-    name: 'config-file',
-    status: 'failed',
-    progress: 45,
-    error: 'Resource not found',
-    startedAt: '2025-11-30T14:28:00Z',
-    completedAt: '2025-11-30T14:28:15Z',
-  },
-];
-
-const statusColors: Record<string, string> = {
-  waiting: 'gray',
-  running: 'blue',
-  completed: 'green',
-  failed: 'red',
-  cancelled: 'orange',
-};
+import { mockActiveTasks, mockCompletedTasks, taskStatusColors } from '@/mocks';
 
 function formatElapsed(startedAt: string, endedAt?: string): string {
   const start = new Date(startedAt).getTime();
@@ -107,7 +56,7 @@ function TaskCard({ task, showActions = true }: TaskCardProps) {
             <Text size="sm" c="dimmed" ff="monospace">
               Task: {task.id}
             </Text>
-            <Badge color={statusColors[task.status]} size="sm">
+            <Badge color={taskStatusColors[task.status]} size="sm">
               {task.status}
             </Badge>
           </Group>
@@ -177,7 +126,7 @@ function TaskCard({ task, showActions = true }: TaskCardProps) {
 }
 
 export function Tasks() {
-  // State for completed tasks and clear confirmation modal (UI-16)
+  // State for completed tasks and clear confirmation modal
   const [completedTasks, setCompletedTasks] = useState(mockCompletedTasks);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
 
@@ -246,7 +195,7 @@ export function Tasks() {
         </Stack>
       </Stack>
 
-      {/* Clear History Confirmation Modal (UI-16) */}
+      {/* Clear History Confirmation Modal */}
       <Modal
         opened={clearDialogOpen}
         onClose={() => setClearDialogOpen(false)}

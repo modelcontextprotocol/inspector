@@ -20,79 +20,10 @@ import {
   IconPinnedOff,
   IconDownload,
 } from '@tabler/icons-react';
-
-// History entry interface
-interface HistoryEntry {
-  id: string;
-  timestamp: string;
-  method: string;
-  target: string | null;
-  params?: Record<string, unknown>;
-  response?: Record<string, unknown>;
-  duration: number;
-  success: boolean;
-  pinned: boolean;
-  label?: string;
-  sseId?: string; // SSE event id for debugging reconnection behavior (UI-8)
-  progressToken?: string; // Progress token for tracking long-running operations (UI-10)
-}
+import { initialHistory, type HistoryEntry } from '@/mocks';
 
 // Pagination page size
 const PAGE_SIZE = 10;
-
-// Mock history data with params and response
-const initialHistory: HistoryEntry[] = [
-  {
-    id: 'req-1',
-    timestamp: '2025-11-30T14:24:12Z',
-    method: 'tools/call',
-    target: 'echo',
-    params: { message: 'Hello world' },
-    response: { content: [{ type: 'text', text: 'Hello world' }] },
-    duration: 45,
-    success: true,
-    pinned: true,
-    label: 'Test echo',
-    sseId: 'evt-12345',
-  },
-  {
-    id: 'req-2',
-    timestamp: '2025-11-30T14:23:05Z',
-    method: 'tools/list',
-    target: null,
-    params: {},
-    response: { tools: ['echo', 'add', 'longOp'] },
-    duration: 12,
-    success: true,
-    pinned: false,
-    sseId: 'evt-12344',
-  },
-  {
-    id: 'req-3',
-    timestamp: '2025-11-30T14:22:00Z',
-    method: 'resources/read',
-    target: 'file:///config.json',
-    params: { uri: 'file:///config.json' },
-    response: { name: 'my-app', version: '1.0.0' },
-    duration: 8,
-    success: true,
-    pinned: true,
-    label: 'Get config',
-    sseId: 'evt-12343',
-    progressToken: 'prog-abc123',
-  },
-  {
-    id: 'req-4',
-    timestamp: '2025-11-30T14:21:30Z',
-    method: 'prompts/get',
-    target: 'greeting_prompt',
-    params: { name: 'greeting_prompt', arguments: { name: 'John' } },
-    response: { error: 'Prompt not found' },
-    duration: 0,
-    success: false,
-    pinned: false,
-  },
-];
 
 interface HistoryCardProps {
   entry: HistoryEntry;
@@ -136,7 +67,7 @@ function HistoryCard({ entry, expanded, onToggleExpand, onTogglePin }: HistoryCa
           </Text>
         )}
 
-        {/* Metadata row: SSE ID, Progress Token (UI-8, UI-10) */}
+        {/* Metadata row: SSE ID, Progress Token */}
         {(entry.sseId || entry.progressToken) && (
           <Group gap="lg">
             {entry.sseId && (
@@ -152,7 +83,7 @@ function HistoryCard({ entry, expanded, onToggleExpand, onTogglePin }: HistoryCa
           </Group>
         )}
 
-        {/* Expandable response section with Collapse (UI-9) */}
+        {/* Expandable response section with Collapse */}
         <Collapse in={expanded}>
           {entry.response && (
             <Stack gap="xs" pt="sm" style={{ borderTop: '1px solid var(--mantine-color-dark-4)' }}>
@@ -226,7 +157,7 @@ export function History() {
     setHistory([]);
   };
 
-  // Export history as JSON (UI-11)
+  // Export history as JSON
   const handleExport = () => {
     const dataStr = JSON.stringify(filteredHistory, null, 2);
     const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
@@ -238,7 +169,7 @@ export function History() {
     document.body.removeChild(link);
   };
 
-  // Load more entries (UI-11)
+  // Load more entries
   const handleLoadMore = () => {
     setVisibleCount((prev) => prev + PAGE_SIZE);
   };
@@ -258,7 +189,7 @@ export function History() {
   const pinnedEntries = filteredHistory.filter((entry) => entry.pinned);
   const unpinnedEntries = filteredHistory.filter((entry) => !entry.pinned);
 
-  // Paginate unpinned entries (UI-11)
+  // Paginate unpinned entries
   const visibleUnpinnedEntries = unpinnedEntries.slice(0, visibleCount);
   const hasMoreEntries = unpinnedEntries.length > visibleCount;
 
@@ -325,7 +256,7 @@ export function History() {
                 onTogglePin={() => togglePin(entry.id)}
               />
             ))}
-            {/* Load More button (UI-11) */}
+            {/* Load More button */}
             {hasMoreEntries && (
               <Group justify="center" pt="sm">
                 <Button variant="outline" onClick={handleLoadMore}>

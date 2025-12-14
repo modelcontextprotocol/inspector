@@ -25,6 +25,7 @@ import {
   SimpleGrid,
   CopyButton as MantineCopyButton,
 } from '@mantine/core';
+import { mockOAuthState, type OAuthState } from '@/mocks';
 
 type StepStatus = 'pending' | 'completed' | 'active' | 'error';
 
@@ -33,24 +34,6 @@ interface OAuthStep {
   status: StepStatus;
   content?: string;
   details?: Record<string, string>;
-}
-
-export interface OAuthState {
-  authorizationUrl?: string;
-  authorizationCode?: string;
-  state?: string;
-  stateVerified?: boolean;
-  tokenEndpoint?: string;
-  accessToken?: string;
-  tokenType?: string;
-  expiresIn?: number;
-  expiresAt?: Date;
-  refreshToken?: string;
-  scopes?: string[];
-  decodedToken?: {
-    header: Record<string, unknown>;
-    payload: Record<string, unknown>;
-  };
 }
 
 interface OAuthDebuggerModalProps {
@@ -62,31 +45,6 @@ interface OAuthDebuggerModalProps {
   onRevokeToken?: () => void;
   onStartNewFlow?: () => void;
 }
-
-// Mock OAuth state for UI prototyping
-const mockOAuthState: OAuthState = {
-  authorizationUrl: 'https://auth.example.com/authorize?client_id=my-client-id&redirect_uri=http://localhost:5173/callback&response_type=code&scope=read%20write&state=abc123xyz',
-  authorizationCode: 'xyz789def456abc123',
-  state: 'abc123xyz',
-  stateVerified: true,
-  tokenEndpoint: 'https://auth.example.com/token',
-  accessToken: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyMTIzIiwiYXVkIjoibXktY2xpZW50LWlkIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiZXhwIjoxNzM1MzAwMDAwLCJpYXQiOjE3MzUyOTY0MDB9.signature',
-  tokenType: 'Bearer',
-  expiresIn: 3600,
-  expiresAt: new Date(Date.now() + 3600 * 1000),
-  refreshToken: 'def456ghi789jkl012mno345',
-  scopes: ['read', 'write'],
-  decodedToken: {
-    header: { alg: 'RS256', typ: 'JWT' },
-    payload: {
-      sub: 'user123',
-      aud: 'my-client-id',
-      scope: 'read write',
-      exp: 1735300000,
-      iat: 1735296400,
-    },
-  },
-};
 
 const statusColors: Record<StepStatus, string> = {
   pending: 'gray',

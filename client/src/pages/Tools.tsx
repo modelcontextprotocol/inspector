@@ -9,52 +9,11 @@ import {
   ScrollArea,
   Title,
   Code,
-  Badge,
   Group,
 } from '@mantine/core';
 import { ListChangedIndicator } from '../components/ListChangedIndicator';
-
-// Tool interface with annotations per MCP spec
-interface Tool {
-  name: string;
-  description: string;
-  annotations?: {
-    audience?: 'user' | 'assistant';
-    readOnly?: boolean;
-    destructive?: boolean;
-    longRunning?: boolean;
-    hints?: string;
-  };
-}
-
-// Mock tools data with annotations
-const mockTools: Tool[] = [
-  {
-    name: 'query_db',
-    description: 'Queries the database and returns results',
-    annotations: { audience: 'user', readOnly: true },
-  },
-  {
-    name: 'echo',
-    description: 'Echoes the input message',
-    annotations: {},
-  },
-  {
-    name: 'add',
-    description: 'Adds two numbers together',
-    annotations: {},
-  },
-  {
-    name: 'longOp',
-    description: 'A long-running operation for testing',
-    annotations: { longRunning: true, hints: 'May take several minutes to complete' },
-  },
-  {
-    name: 'dangerOp',
-    description: 'Performs a destructive operation',
-    annotations: { destructive: true },
-  },
-];
+import { AnnotationBadges } from '../components/AnnotationBadges';
+import { mockTools, type Tool } from '@/mocks';
 
 export function Tools() {
   const [hasToolsChanged, setHasToolsChanged] = useState(true);
@@ -117,30 +76,10 @@ export function Tools() {
                       {tool.name}
                     </Button>
                     {/* Annotation badges below tool name */}
-                    {tool.annotations && Object.keys(tool.annotations).length > 0 && (
-                      <Group gap={4} pl="sm" pb={4}>
-                        {tool.annotations.audience && (
-                          <Badge size="xs" variant="light">
-                            {tool.annotations.audience}
-                          </Badge>
-                        )}
-                        {tool.annotations.readOnly && (
-                          <Badge size="xs" color="blue">
-                            read-only
-                          </Badge>
-                        )}
-                        {tool.annotations.destructive && (
-                          <Badge size="xs" color="red">
-                            destructive
-                          </Badge>
-                        )}
-                        {tool.annotations.longRunning && (
-                          <Badge size="xs" color="yellow">
-                            long-run
-                          </Badge>
-                        )}
-                      </Group>
-                    )}
+                    <AnnotationBadges
+                      annotations={tool.annotations}
+                      className="pl-sm pb-xs"
+                    />
                   </Stack>
                 ))}
               </Stack>
@@ -196,7 +135,7 @@ export function Tools() {
               disabled={isExecuting}
             />
 
-            {/* Autocomplete placeholder - for future completion/complete integration (UI-12) */}
+            {/* Autocomplete placeholder - for future completion/complete integration */}
             <Text size="xs" c="dimmed" fs="italic">
               Suggestions: Type to see completions (completion/complete integration pending)
             </Text>

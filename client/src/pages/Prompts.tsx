@@ -10,12 +10,7 @@ import {
   Title,
   Select,
 } from '@mantine/core';
-
-// Mock prompts data
-const mockPrompts = [
-  { name: 'greeting_prompt', description: 'Generate a greeting' },
-  { name: 'summarize', description: 'Summarize text' },
-];
+import { mockPrompts } from '@/mocks';
 
 export function Prompts() {
   return (
@@ -38,14 +33,14 @@ export function Prompts() {
             <Stack gap="sm">
               <Box>
                 <TextInput label="name" placeholder="Enter name..." required />
-                {/* Autocomplete placeholder - for future completion/complete integration (UI-14) */}
+                {/* Autocomplete placeholder - for future completion/complete integration */}
                 <Text size="xs" c="dimmed" fs="italic" mt={4}>
                   Suggestions: Type to see completions
                 </Text>
               </Box>
               <Box>
                 <TextInput label="interests" placeholder="Enter interests..." />
-                {/* Autocomplete placeholder - for future completion/complete integration (UI-14) */}
+                {/* Autocomplete placeholder - for future completion/complete integration */}
                 <Text size="xs" c="dimmed" fs="italic" mt={4}>
                   Suggestions: Type to see completions
                 </Text>

@@ -14,29 +14,7 @@ import {
   Menu,
 } from '@mantine/core';
 import { IconCopy, IconChevronDown, IconDownload } from '@tabler/icons-react';
-
-// Mock log entries
-const mockLogs = [
-  { timestamp: '2025-11-30T14:23:01Z', level: 'info', message: 'Server connected', logger: 'connection' },
-  { timestamp: '2025-11-30T14:23:05Z', level: 'debug', message: 'Sending tools/list request', logger: 'protocol' },
-  { timestamp: '2025-11-30T14:23:05Z', level: 'debug', message: 'Received tools/list response: 4 tools', logger: 'protocol' },
-  { timestamp: '2025-11-30T14:24:12Z', level: 'info', message: 'Tool echo executed successfully', logger: 'tools' },
-  { timestamp: '2025-11-30T14:25:30Z', level: 'warning', message: 'Request timeout approaching', logger: 'connection' },
-  { timestamp: '2025-11-30T14:26:00Z', level: 'error', message: 'Failed to fetch resource: 404', logger: 'resources' },
-];
-
-const logLevels = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'];
-
-const levelColors: Record<string, string> = {
-  debug: 'gray',
-  info: 'blue',
-  notice: 'cyan',
-  warning: 'yellow',
-  error: 'red',
-  critical: 'red',
-  alert: 'red',
-  emergency: 'red',
-};
+import { mockLogs, logLevels, levelColors } from '@/mocks';
 
 export function Logs() {
   const [logLevel, setLogLevel] = useState<string | null>('debug');
@@ -59,7 +37,7 @@ export function Logs() {
     return matchesFilter && matchesLevel;
   });
 
-  // Export as JSON (UI-15)
+  // Export as JSON
   const handleExportJson = () => {
     const exportData = filteredLogs.map((log) => ({
       timestamp: log.timestamp,
@@ -80,7 +58,7 @@ export function Logs() {
     URL.revokeObjectURL(url);
   };
 
-  // Export as Text (UI-15)
+  // Export as Text
   const handleExportText = () => {
     const lines = filteredLogs.map(
       (log) => `[${log.timestamp}] [${log.level.toUpperCase()}] [${log.logger}] ${log.message}`
@@ -98,7 +76,7 @@ export function Logs() {
     URL.revokeObjectURL(url);
   };
 
-  // Copy all logs to clipboard (UI-15)
+  // Copy all logs to clipboard
   const handleCopyAll = () => {
     const lines = filteredLogs.map(
       (log) => `[${log.timestamp}] [${log.level.toUpperCase()}] [${log.logger}] ${log.message}`
@@ -164,7 +142,7 @@ export function Logs() {
               <Button variant="outline" size="sm" flex={1}>
                 Clear
               </Button>
-              {/* Export dropdown menu (UI-15) */}
+              {/* Export dropdown menu */}
               <Menu shadow="md" width={160}>
                 <Menu.Target>
                   <Button

@@ -10,69 +10,23 @@ import {
   Code,
   Group,
   Title,
-  Badge,
   Collapse,
   UnstyledButton,
   Paper,
 } from '@mantine/core';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { ListChangedIndicator } from '../components/ListChangedIndicator';
+import { AnnotationBadges, getPriorityLabel } from '../components/AnnotationBadges';
+import {
+  mockResources,
+  mockTemplates,
+  mockSubscriptions,
+  type Resource,
+  type ResourceTemplate,
+  type Subscription,
+} from '@/mocks';
 
-// Resource interface with annotations per MCP spec
-interface Resource {
-  uri: string;
-  mimeType: string;
-  annotations?: {
-    audience?: 'user' | 'application';
-    priority?: number; // 0-1
-  };
-}
-
-interface ResourceTemplate {
-  uriTemplate: string;
-  description: string;
-}
-
-interface Subscription {
-  uri: string;
-  lastUpdated: string;
-}
-
-// Mock resources data with annotations
-const mockResources: Resource[] = [
-  {
-    uri: 'file:///config.json',
-    mimeType: 'application/json',
-    annotations: { audience: 'application', priority: 0.9 },
-  },
-  {
-    uri: 'file:///readme.md',
-    mimeType: 'text/markdown',
-    annotations: { audience: 'user' },
-  },
-  {
-    uri: 'file:///data.csv',
-    mimeType: 'text/csv',
-    annotations: { priority: 0.5 },
-  },
-];
-
-const mockTemplates: ResourceTemplate[] = [
-  { uriTemplate: 'user/{id}', description: 'Get user by ID' },
-  { uriTemplate: 'file/{path}', description: 'Read file by path' },
-];
-
-const mockSubscriptions: Subscription[] = [
-  { uri: 'file:///config.json', lastUpdated: '2025-11-30T14:32:05Z' },
-];
-
-function getPriorityLabel(priority: number): { label: string; color: string } {
-  if (priority > 0.7) return { label: 'high', color: 'yellow' };
-  if (priority > 0.3) return { label: 'medium', color: 'gray' };
-  return { label: 'low', color: 'blue' };
-}
-
-// Collapsible section component for accordion pattern (UI-13)
+// Collapsible section component for accordion pattern
 interface AccordionSectionProps {
   title: string;
   count: number;
@@ -114,7 +68,7 @@ export function Resources() {
   const [templateInputs, setTemplateInputs] = useState<Record<string, string>>({});
   const [subscriptions, setSubscriptions] = useState<Subscription[]>(mockSubscriptions);
 
-  // Accordion state - Resources expanded by default, others collapsed (UI-13)
+  // Accordion state - Resources expanded by default, others collapsed
   const [expandedSections, setExpandedSections] = useState({
     resources: true,
     templates: false,
@@ -157,7 +111,7 @@ export function Resources() {
     setSubscriptions((prev) => prev.filter((s) => s.uri !== uri));
   };
 
-  // Filter all sections based on search (UI-13)
+  // Filter all sections based on search
   const filteredResources = mockResources.filter((resource) =>
     resource.uri.toLowerCase().includes(searchFilter.toLowerCase())
   );
@@ -196,7 +150,7 @@ export function Resources() {
             />
 
             <ScrollArea flex={1}>
-              {/* Accordion Sections (UI-13) */}
+              {/* Accordion Sections */}
               <Stack gap="sm">
                 {/* Resources Section */}
                 <AccordionSection
@@ -218,23 +172,10 @@ export function Resources() {
                           {resource.uri.split('/').pop()}
                         </Button>
                         {/* Annotation badges */}
-                        {resource.annotations && Object.keys(resource.annotations).length > 0 && (
-                          <Group gap={4} pl="sm" pb={4}>
-                            {resource.annotations.audience && (
-                              <Badge size="xs" variant="light">
-                                {resource.annotations.audience}
-                              </Badge>
-                            )}
-                            {resource.annotations.priority !== undefined && (
-                              <Badge
-                                size="xs"
-                                color={getPriorityLabel(resource.annotations.priority).color}
-                              >
-                                priority: {getPriorityLabel(resource.annotations.priority).label}
-                              </Badge>
-                            )}
-                          </Group>
-                        )}
+                        <AnnotationBadges
+                          annotations={resource.annotations}
+                          className="pl-sm pb-xs"
+                        />
                       </Stack>
                     ))}
                   </Stack>

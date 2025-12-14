@@ -22,65 +22,12 @@ import {
   Divider,
   ScrollArea,
 } from '@mantine/core';
-
-interface SamplingMessage {
-  role: 'user' | 'assistant';
-  content:
-    | { type: 'text'; text: string }
-    | { type: 'image'; data: string; mimeType: string };
-}
-
-interface ModelPreferences {
-  hints?: string[];
-  costPriority?: number;
-  speedPriority?: number;
-  intelligencePriority?: number;
-}
-
-interface SamplingRequest {
-  messages: SamplingMessage[];
-  modelPreferences?: ModelPreferences;
-  maxTokens: number;
-  stopSequences?: string[];
-  temperature?: number;
-  includeContext?: 'none' | 'thisServer' | 'allServers';
-}
+import { mockSamplingRequest, type SamplingMessage, type SamplingRequest } from '@/mocks';
 
 interface SamplingModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
-
-// Mock sampling request data
-const mockSamplingRequest: SamplingRequest = {
-  messages: [
-    {
-      role: 'user',
-      content: {
-        type: 'text',
-        text: 'Analyze this data and provide insights about the trends. Focus on quarter-over-quarter growth and user engagement patterns.',
-      },
-    },
-    {
-      role: 'user',
-      content: {
-        type: 'image',
-        data: 'base64-encoded-image-data',
-        mimeType: 'image/png',
-      },
-    },
-  ],
-  modelPreferences: {
-    hints: ['claude-3-sonnet', 'gpt-4'],
-    costPriority: 0.2,
-    speedPriority: 0.5,
-    intelligencePriority: 0.8,
-  },
-  maxTokens: 1000,
-  stopSequences: ['\\n\\n', 'END'],
-  temperature: undefined,
-  includeContext: 'thisServer',
-};
 
 function PriorityBar({ value, label }: { value: number; label: string }) {
   const percentage = Math.round(value * 100);
@@ -129,7 +76,7 @@ export function SamplingModal({ open, onOpenChange }: SamplingModalProps) {
   const [stopReason, setStopReason] = useState('endTurn');
   const [copied, setCopied] = useState(false);
 
-  const request = mockSamplingRequest;
+  const request: SamplingRequest = mockSamplingRequest;
 
   const handleCopyResponse = async () => {
     await navigator.clipboard.writeText(response);
