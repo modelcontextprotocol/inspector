@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 // Fallback server data for direct navigation
 const fallbackServer = {
@@ -65,15 +66,18 @@ export function AppLayout() {
             ))}
           </nav>
 
-          {/* Right side: Disconnect */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-red-400 border-red-400/50 hover:bg-red-400/10"
-            onClick={() => navigate('/')}
-          >
-            Disconnect
-          </Button>
+          {/* Right side: Theme toggle and Disconnect */}
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-red-400 border-red-400/50 hover:bg-red-400/10"
+              onClick={() => navigate('/')}
+            >
+              Disconnect
+            </Button>
+          </div>
         </div>
       </header>
 
