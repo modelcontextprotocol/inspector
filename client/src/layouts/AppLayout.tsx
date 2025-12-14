@@ -6,10 +6,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { ChevronDown, Menu } from 'lucide-react';
+import { ChevronDown, Menu, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { mockServers } from '@/mocks';
 
 // Fallback server data for direct navigation
 const fallbackServer = {
@@ -39,10 +41,36 @@ export function AppLayout() {
         <div className="flex h-full items-center justify-between px-4">
           {/* Left side: Server dropdown and status */}
           <div className="flex items-center gap-4">
-            <button className="flex items-center gap-1 hover:bg-accent rounded px-2 py-1">
-              <span className="font-semibold">{server.name}</span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-1 hover:bg-accent rounded px-2 py-1">
+                  <span className="font-semibold">{server.name}</span>
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {mockServers
+                  .filter((s) => s.status === 'connected')
+                  .map((s) => (
+                    <DropdownMenuItem
+                      key={s.id}
+                      onClick={() => navigate(location.pathname, { state: { server: s } })}
+                    >
+                      <Check
+                        className={cn(
+                          'mr-2 h-4 w-4',
+                          server.id === s.id ? 'opacity-100' : 'opacity-0'
+                        )}
+                      />
+                      {s.name}
+                    </DropdownMenuItem>
+                  ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => navigate('/')}>
+                  Manage Servers...
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <div className="flex items-center gap-2">
               <Badge variant="success">Connected</Badge>

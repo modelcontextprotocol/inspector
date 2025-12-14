@@ -10,6 +10,7 @@ import {
 import { AddServerModal, ServerConfig } from '@/components/AddServerModal';
 import { ImportServerJsonModal } from '@/components/ImportServerJsonModal';
 import { ChevronDown, Plus, FileJson, Upload } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { mockServers } from '@/mocks';
 
 export function ServerList() {
@@ -37,7 +38,9 @@ export function ServerList() {
       <div className="container max-w-4xl mx-auto py-8 px-4">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold">MCP Inspector</h1>
-          <DropdownMenu>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button className="flex items-center gap-1">
                 + Add Server
@@ -58,7 +61,8 @@ export function ServerList() {
                 Import server.json
               </DropdownMenuItem>
             </DropdownMenuContent>
-          </DropdownMenu>
+            </DropdownMenu>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
