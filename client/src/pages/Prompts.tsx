@@ -8,11 +8,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { CONTENT_HEIGHT } from '@/lib/constants';
 import { mockPrompts } from '@/mocks';
 
 export function Prompts() {
   return (
-    <div className="grid grid-cols-12 gap-4 h-[calc(100vh-120px)]">
+    <div className="grid grid-cols-12 gap-4" style={{ height: CONTENT_HEIGHT }}>
       {/* Prompt Selection Panel (4/12) */}
       <Card className="col-span-4">
         <CardContent className="p-4 space-y-4">
@@ -37,7 +38,7 @@ export function Prompts() {
             <div className="space-y-3">
               <div className="space-y-1">
                 <label className="text-sm font-medium">
-                  name <span className="text-red-400">*</span>
+                  name <span className="text-destructive">*</span>
                 </label>
                 <Input placeholder="Enter name..." />
                 {/* Autocomplete placeholder - for future completion/complete integration */}

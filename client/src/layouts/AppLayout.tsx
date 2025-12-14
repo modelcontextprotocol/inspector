@@ -1,7 +1,13 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ChevronDown } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { ChevronDown, Menu } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
@@ -46,8 +52,8 @@ export function AppLayout() {
             </div>
           </div>
 
-          {/* Center: Navigation */}
-          <nav className="flex items-center gap-1">
+          {/* Center: Navigation - hidden on mobile, visible on md+ */}
+          <nav className="hidden md:flex items-center gap-1">
             {navItems.map((item) => (
               <NavLink
                 key={item.path}
@@ -65,6 +71,31 @@ export function AppLayout() {
               </NavLink>
             ))}
           </nav>
+
+          {/* Mobile Navigation Dropdown - visible on mobile only */}
+          <div className="md:hidden">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="center">
+                {navItems.map((item) => (
+                  <DropdownMenuItem key={item.path} asChild>
+                    <NavLink
+                      to={item.path}
+                      className={({ isActive }) =>
+                        cn(isActive && 'bg-accent')
+                      }
+                    >
+                      {item.label}
+                    </NavLink>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
 
           {/* Right side: Theme toggle and Disconnect */}
           <div className="flex items-center gap-2">

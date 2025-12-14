@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Download, ChevronDown } from 'lucide-react';
+import { CONTENT_HEIGHT } from '@/lib/constants';
 import { mockLogs, logLevels, levelColors, levelVariants } from '@/mocks';
 
 export function Logs() {
@@ -96,7 +97,7 @@ export function Logs() {
   };
 
   return (
-    <div className="grid grid-cols-12 gap-4 h-[calc(100vh-120px)]">
+    <div className="grid grid-cols-12 gap-4" style={{ height: CONTENT_HEIGHT }}>
       {/* Left Panel - Controls (25%) */}
       <Card className="col-span-3">
         <CardContent className="p-4 space-y-6">

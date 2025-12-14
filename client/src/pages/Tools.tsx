@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ListChangedIndicator } from '@/components/ListChangedIndicator';
 import { AnnotationBadges } from '@/components/AnnotationBadges';
+import { CONTENT_HEIGHT } from '@/lib/constants';
 import { mockTools, type Tool } from '@/mocks';
 
 export function Tools() {
@@ -33,7 +34,7 @@ export function Tools() {
   );
 
   return (
-    <div className="grid grid-cols-12 gap-4 h-[calc(100vh-120px)]">
+    <div className="grid grid-cols-12 gap-4" style={{ height: CONTENT_HEIGHT }}>
       {/* Tool List Panel (3/12) */}
       <Card className="col-span-3 overflow-hidden flex flex-col">
         <CardHeader className="pb-2">
@@ -74,8 +75,8 @@ export function Tools() {
       </Card>
 
       {/* Parameters Panel (5/12) */}
-      <Card className="col-span-5">
-        <CardContent className="p-4 space-y-4">
+      <Card className="col-span-5 overflow-hidden flex flex-col">
+        <CardContent className="p-4 space-y-4 overflow-auto">
           <div>
             <h3 className="text-lg font-semibold">Tool: {selectedTool.name}</h3>
             <p className="text-sm text-muted-foreground">{selectedTool.description}</p>
@@ -111,7 +112,7 @@ export function Tools() {
 
           <div className="space-y-2">
             <label className="text-sm font-medium">
-              message <span className="text-red-400">*</span>
+              message <span className="text-destructive">*</span>
             </label>
             <Input placeholder="Enter message..." disabled={isExecuting} />
             {/* Autocomplete placeholder - for future completion/complete integration */}
@@ -148,7 +149,7 @@ export function Tools() {
           <CardTitle className="text-lg">Results</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <pre className="p-4 bg-muted rounded-md text-sm font-mono overflow-auto max-h-[60vh]">
+          <pre className="p-4 bg-muted rounded-md text-sm font-mono overflow-auto max-h-96">
             {JSON.stringify(
               {
                 content: [

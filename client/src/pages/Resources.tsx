@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ListChangedIndicator } from '@/components/ListChangedIndicator';
 import { AnnotationBadges, getPriorityLabel } from '@/components/AnnotationBadges';
+import { CONTENT_HEIGHT } from '@/lib/constants';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import {
   mockResources,
@@ -29,7 +30,7 @@ function AccordionSection({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border rounded-md">
+    <div className="border border-border rounded-md">
       <button
         className="w-full flex items-center gap-2 p-2 text-sm font-medium hover:bg-muted/50 transition-colors"
         onClick={onToggle}
@@ -42,7 +43,7 @@ function AccordionSection({
         <span>{title}</span>
         <span className="text-muted-foreground">({count})</span>
       </button>
-      {isOpen && <div className="p-2 pt-0 border-t">{children}</div>}
+      {isOpen && <div className="p-4 pt-0 border-t">{children}</div>}
     </div>
   );
 }
@@ -113,7 +114,7 @@ export function Resources() {
   const isSubscribed = subscriptions.some((s) => s.uri === selectedResource.uri);
 
   return (
-    <div className="grid grid-cols-12 gap-4 h-[calc(100vh-120px)]">
+    <div className="grid grid-cols-12 gap-4" style={{ height: CONTENT_HEIGHT }}>
       {/* Resource List Panel (4/12) */}
       <Card className="col-span-4 overflow-hidden flex flex-col">
         <CardHeader className="pb-2">
@@ -180,7 +181,7 @@ export function Resources() {
                       <div className="flex gap-1">
                         <Input
                           placeholder={varName}
-                          className="h-7 text-xs"
+                          className="h-8 text-sm"
                           value={templateInputs[template.uriTemplate] || ''}
                           onChange={(e) =>
                             handleTemplateInputChange(template.uriTemplate, e.target.value)
@@ -189,7 +190,7 @@ export function Resources() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-7 px-2"
+                          className="h-8 px-3"
                           onClick={() => handleTemplateGo(template)}
                         >
                           Go
@@ -274,7 +275,7 @@ export function Resources() {
               </div>
             )}
 
-          <pre className="p-4 bg-muted rounded-md text-sm font-mono overflow-auto max-h-[50vh]">
+          <pre className="p-4 bg-muted rounded-md text-sm font-mono overflow-auto max-h-96">
             {JSON.stringify(
               {
                 name: 'my-app',

@@ -223,7 +223,7 @@ export function ServerCard({ server, onConnectionModeChange }: ServerCardProps) 
               </SelectContent>
             </Select>
             {connectionMode === 'direct' && server.transport === 'stdio' && (
-              <span className="text-xs text-amber-400">
+              <span className="text-xs text-yellow-500">
                 (STDIO requires proxy)
               </span>
             )}
@@ -231,7 +231,7 @@ export function ServerCard({ server, onConnectionModeChange }: ServerCardProps) 
 
           {/* Connection string */}
           <div className="flex items-center gap-2">
-            <code className="flex-1 px-2 py-1 bg-muted rounded text-sm font-mono truncate">
+            <code className="flex-1 px-2 py-1 bg-muted rounded-md text-sm font-mono truncate">
               {connectionString}
             </code>
             <Button
@@ -275,7 +275,7 @@ export function ServerCard({ server, onConnectionModeChange }: ServerCardProps) 
                 </a>
               </div>
               {showError && (
-                <code className="block p-2 bg-muted rounded text-xs font-mono overflow-auto max-h-32">
+                <code className="block p-2 bg-muted rounded-md text-xs font-mono overflow-auto max-h-32">
                   {server.error}
                 </code>
               )}

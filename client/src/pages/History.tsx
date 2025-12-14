@@ -11,6 +11,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ChevronDown, ChevronUp, Pin, PinOff, Download } from 'lucide-react';
+import { CONTENT_HEIGHT } from '@/lib/constants';
+import { EmptyState } from '@/components/EmptyState';
 import { initialHistory, type HistoryEntry } from '@/mocks';
 
 interface HistoryCardProps {
@@ -209,7 +211,7 @@ export function History() {
   const hasMoreEntries = unpinnedEntries.length > visibleCount;
 
   return (
-    <div className="space-y-6 h-[calc(100vh-120px)] overflow-auto">
+    <div className="space-y-6 overflow-auto" style={{ height: CONTENT_HEIGHT }}>
       {/* Header */}
       <Card>
         <CardHeader>
@@ -218,7 +220,7 @@ export function History() {
             <div className="flex gap-2">
               <Input
                 placeholder="Search..."
-                className="w-48"
+                className="flex-1 max-w-xs"
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
               />
@@ -249,8 +251,8 @@ export function History() {
       {/* History entries */}
       {unpinnedEntries.length === 0 && pinnedEntries.length === 0 ? (
         <Card>
-          <CardContent className="p-8 text-center text-muted-foreground">
-            No history entries
+          <CardContent className="p-0">
+            <EmptyState message="No history entries" />
           </CardContent>
         </Card>
       ) : (

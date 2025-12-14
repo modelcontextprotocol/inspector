@@ -12,6 +12,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { EmptyState } from '@/components/EmptyState';
 import { RefreshCw, Trash2 } from 'lucide-react';
 import { mockActiveTasks, mockCompletedTasks, taskStatusVariants } from '@/mocks';
 
@@ -157,8 +158,8 @@ export function Tasks() {
         </h3>
         {mockActiveTasks.length === 0 ? (
           <Card>
-            <CardContent className="p-8 text-center text-muted-foreground">
-              No active tasks
+            <CardContent className="p-0">
+              <EmptyState message="No active tasks" />
             </CardContent>
           </Card>
         ) : (
@@ -206,8 +207,8 @@ export function Tasks() {
         </div>
         {completedTasks.length === 0 ? (
           <Card>
-            <CardContent className="p-8 text-center text-muted-foreground">
-              No completed tasks
+            <CardContent className="p-0">
+              <EmptyState message="No completed tasks" />
             </CardContent>
           </Card>
         ) : (
