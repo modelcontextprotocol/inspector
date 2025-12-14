@@ -8,6 +8,7 @@ import {
   Text,
   UnstyledButton,
 } from '@mantine/core';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 // Fallback server data for direct navigation
 const fallbackServer = {
@@ -77,7 +78,7 @@ export function AppLayout() {
                 variant="subtle"
                 size="sm"
                 style={({ isActive }: { isActive: boolean }) => ({
-                  backgroundColor: isActive ? 'var(--mantine-color-dark-6)' : undefined,
+                  backgroundColor: isActive ? 'var(--mantine-color-default-hover)' : undefined,
                 })}
               >
                 {item.label}
@@ -85,15 +86,18 @@ export function AppLayout() {
             ))}
           </Group>
 
-          {/* Right side: Disconnect */}
-          <Button
-            variant="outline"
-            color="red"
-            size="sm"
-            onClick={() => navigate('/')}
-          >
-            Disconnect
-          </Button>
+          {/* Right side: Theme toggle and Disconnect */}
+          <Group gap="xs">
+            <ThemeToggle />
+            <Button
+              variant="outline"
+              color="red"
+              size="sm"
+              onClick={() => navigate('/')}
+            >
+              Disconnect
+            </Button>
+          </Group>
         </Group>
       </AppShell.Header>
 
