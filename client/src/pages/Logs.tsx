@@ -20,11 +20,16 @@ export function Logs() {
   const [logLevel, setLogLevel] = useState<string | null>('debug');
   const [filter, setFilter] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
+  // All 8 RFC 5424 log levels
   const [visibleLevels, setVisibleLevels] = useState({
     debug: true,
     info: true,
+    notice: true,
     warning: true,
     error: true,
+    critical: true,
+    alert: true,
+    emergency: true,
   });
 
   const toggleLevel = (level: string) => {
