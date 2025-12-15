@@ -56,8 +56,8 @@ const ListPane = <T extends object>({
   };
 
   return (
-    <div className="bg-card border border-border rounded-lg shadow">
-      <div className="p-4 border-b border-gray-200 dark:border-border">
+    <div className="bg-card border border-border rounded-lg shadow h-full flex flex-col overflow-hidden">
+      <div className="p-4 border-b border-gray-200 dark:border-border flex-shrink-0">
         <div className="flex items-center justify-between gap-4">
           <h3 className="font-semibold dark:text-white flex-shrink-0">
             {title}
@@ -92,10 +92,10 @@ const ListPane = <T extends object>({
           </div>
         </div>
       </div>
-      <div className="p-4">
+      <div className="p-4 flex flex-col flex-1 overflow-hidden">
         <Button
           variant="outline"
-          className="w-full mb-4"
+          className="w-full mb-4 flex-shrink-0"
           onClick={listItems}
           disabled={isButtonDisabled}
         >
@@ -103,13 +103,13 @@ const ListPane = <T extends object>({
         </Button>
         <Button
           variant="outline"
-          className="w-full mb-4"
+          className="w-full mb-4 flex-shrink-0"
           onClick={clearItems}
           disabled={items.length === 0}
         >
           Clear
         </Button>
-        <div className="space-y-2 overflow-y-auto max-h-96">
+        <div className="space-y-2 overflow-y-auto flex-1">
           {filteredItems.map((item, index) => (
             <div
               key={index}
