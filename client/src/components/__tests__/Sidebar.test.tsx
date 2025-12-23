@@ -1,10 +1,11 @@
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, it, beforeEach, jest } from "@jest/globals";
 import Sidebar from "../Sidebar";
 import { DEFAULT_INSPECTOR_CONFIG } from "@/lib/constants";
 import { InspectorConfig } from "@/lib/configurationTypes";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { McpError } from "@modelcontextprotocol/sdk/types.js";
 
 // Mock theme hook
 jest.mock("../../lib/hooks/useTheme", () => ({
@@ -1044,6 +1045,71 @@ describe("Sidebar", () => {
           },
         }),
       );
+    });
+  });
+
+  describe("Connection status errors", () => {
+    it("shows MCP error details and hides proxy token hint", () => {
+      const mcpError = new McpError(
+        -32602,
+        "Unsupported protocol version: 2025-11-25 - supported versions: 2025-06-18,2025-03-26,2024-11-05,2024-10-07",
+      );
+
+      renderSidebar({
+        connectionStatus: "error",
+        connectionError: mcpError,
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_PROXY_AUTH_TOKEN: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
+            value: "",
+          },
+        },
+      });
+
+      expect(
+        screen.getAllByText(
+          /MCP error -32602: Unsupported protocol version: 2025-11-25/i,
+        ).length,
+      ).toBeGreaterThan(0);
+
+      expect(
+        within(screen.getByTestId("connection-error-details")).getAllByText(
+          /Supported versions:/i,
+        ).length,
+      ).toBeGreaterThan(0);
+
+      const details = within(screen.getByTestId("connection-error-details"));
+      expect(details.getAllByText(/2025-06-18/).length).toBeGreaterThan(0);
+      expect(details.getAllByText(/2025-03-26/).length).toBeGreaterThan(0);
+      expect(details.getAllByText(/2024-11-05/).length).toBeGreaterThan(0);
+      expect(details.getAllByText(/2024-10-07/).length).toBeGreaterThan(0);
+
+      expect(
+        screen.queryByText(
+          /Did you add the proxy session token in Configuration\?/i,
+        ),
+      ).not.toBeInTheDocument();
+    });
+
+    it("does not show proxy token hint for direct connections", () => {
+      renderSidebar({
+        connectionStatus: "error",
+        connectionType: "direct",
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_PROXY_AUTH_TOKEN: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
+            value: "",
+          },
+        },
+      });
+
+      expect(
+        screen.queryByText(
+          /Did you add the proxy session token in Configuration\?/i,
+        ),
+      ).not.toBeInTheDocument();
     });
   });
 });
