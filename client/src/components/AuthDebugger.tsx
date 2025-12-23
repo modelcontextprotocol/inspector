@@ -1,7 +1,7 @@
-import { useCallback, useMemo, useEffect } from "react";
+import { useCallback, useMemo, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DebugInspectorOAuthClientProvider } from "../lib/auth";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Eye, EyeOff } from "lucide-react";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
 import { OAuthStateMachine } from "../lib/oauth-state-machine";
@@ -61,6 +61,8 @@ const AuthDebugger = ({
   authState,
   updateAuthState,
 }: AuthDebuggerProps) => {
+  const [showFullToken, setShowFullToken] = useState(false);
+
   // Check for existing tokens on mount
   useEffect(() => {
     if (serverUrl && !authState.oauthTokens) {
@@ -266,9 +268,25 @@ const AuthDebugger = ({
               <div className="space-y-4">
                 {authState.oauthTokens && (
                   <div className="space-y-2">
-                    <p className="text-sm font-medium">Access Token:</p>
-                    <div className="bg-muted p-2 rounded-md text-xs overflow-x-auto">
-                      {authState.oauthTokens.access_token.substring(0, 25)}...
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium">Access Token:</p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowFullToken(!showFullToken)}
+                        className="h-6 px-2"
+                      >
+                        {showFullToken ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                    <div className="bg-muted p-2 rounded-md text-xs overflow-x-auto break-all">
+                      {showFullToken
+                        ? authState.oauthTokens.access_token
+                        : `${authState.oauthTokens.access_token.substring(0, 25)}...`}
                     </div>
                   </div>
                 )}
