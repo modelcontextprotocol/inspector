@@ -6,8 +6,126 @@ import path from "node:path";
 import { dirname, resolve } from "path";
 import { spawnPromise } from "spawn-rx";
 import { fileURLToPath } from "url";
+import { execSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Validate environment variable names
+ * - Must start with letter or underscore
+ * - Can contain letters, numbers, underscores
+ */
+function isValidEnvVarName(name: string): boolean {
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name);
+}
+
+/**
+ * Validate environment variable values
+ * - No null bytes (could truncate strings)
+ */
+function isValidEnvVarValue(value: string): boolean {
+  return !value.includes("\0");
+}
+
+/**
+ * Validate and sanitize environment variables
+ * Returns filtered environment variables with invalid entries removed
+ */
+function validateEnvVars(env: Record<string, string>): Record<string, string> {
+  const validated: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(env)) {
+    if (!isValidEnvVarName(key)) {
+      console.warn(
+        `Warning: Skipping invalid environment variable name: ${key}`,
+      );
+      continue;
+    }
+
+    if (!isValidEnvVarValue(value)) {
+      console.warn(
+        `Warning: Skipping environment variable with invalid value: ${key}`,
+      );
+      continue;
+    }
+
+    validated[key] = value;
+  }
+
+  return validated;
+}
+
+/**
+ * Validate that a URL is safe for connection
+ * - Must be http or https
+ * - Warns about private/internal IPs (potential SSRF)
+ */
+function validateServerUrl(url: string): void {
+  try {
+    const parsed = new URL(url);
+
+    // Must be http or https
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error(
+        `Invalid URL protocol: ${parsed.protocol}. Must be http or https.`,
+      );
+    }
+
+    // Warn about private IPs (potential SSRF attack vector)
+    const hostname = parsed.hostname.toLowerCase();
+    const privatePatterns = [
+      /^localhost$/,
+      /^127\./,
+      /^10\./,
+      /^172\.(1[6-9]|2[0-9]|3[01])\./,
+      /^192\.168\./,
+      /^169\.254\./, // Link-local
+      /^\[::1\]$/, // IPv6 localhost
+      /^\[fe80:/i, // IPv6 link-local
+    ];
+
+    // Only warn for private IPs (don't block - may be intentional for local testing)
+    if (privatePatterns.some((pattern) => pattern.test(hostname))) {
+      console.warn(
+        `Warning: Connecting to private/internal address: ${hostname}`,
+      );
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Invalid URL")) {
+      throw new Error(`Invalid server URL: ${url}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Validate a command exists and is safe to execute
+ */
+function validateCommand(command: string): void {
+  // Check for shell metacharacters
+  const dangerousChars = /[;&|`$(){}[\]<>!]/;
+  if (dangerousChars.test(command)) {
+    throw new Error(
+      `Invalid command: contains shell metacharacters: ${command}`,
+    );
+  }
+
+  // For absolute paths, verify the file exists
+  if (path.isAbsolute(command)) {
+    if (!fs.existsSync(command)) {
+      throw new Error(`Command not found: ${command}`);
+    }
+    return;
+  }
+
+  // For relative commands, verify they exist in PATH
+  try {
+    const whichCmd = process.platform === "win32" ? "where" : "which";
+    execSync(`${whichCmd} "${command}"`, { stdio: "pipe" });
+  } catch {
+    throw new Error(`Command not found in PATH: ${command}`);
+  }
+}
 
 type Args = {
   command: string;
@@ -63,6 +181,17 @@ function delay(ms: number): Promise<void> {
 }
 
 async function runWebClient(args: Args): Promise<void> {
+  // Validate inputs before proceeding
+  const validatedEnvArgs = validateEnvVars(args.envArgs);
+
+  if (args.serverUrl) {
+    validateServerUrl(args.serverUrl);
+  }
+
+  if (args.command) {
+    validateCommand(args.command);
+  }
+
   // Path to the client entry point
   const inspectorClientPath = resolve(
     __dirname,
@@ -82,8 +211,8 @@ async function runWebClient(args: Args): Promise<void> {
   // Build arguments to pass to start.js
   const startArgs: string[] = [];
 
-  // Pass environment variables
-  for (const [key, value] of Object.entries(args.envArgs)) {
+  // Pass validated environment variables
+  for (const [key, value] of Object.entries(validatedEnvArgs)) {
     startArgs.push("-e", `${key}=${value}`);
   }
 
@@ -117,6 +246,21 @@ async function runWebClient(args: Args): Promise<void> {
 }
 
 async function runCli(args: Args): Promise<void> {
+  // Validate inputs before proceeding
+  const validatedEnvArgs = validateEnvVars(args.envArgs);
+
+  if (args.command) {
+    // For CLI mode, command might be a URL - validate appropriately
+    if (
+      args.command.startsWith("http://") ||
+      args.command.startsWith("https://")
+    ) {
+      validateServerUrl(args.command);
+    } else {
+      validateCommand(args.command);
+    }
+  }
+
   const projectRoot = resolve(__dirname, "..");
   const cliPath = resolve(projectRoot, "build", "index.js");
 
@@ -152,7 +296,7 @@ async function runCli(args: Args): Promise<void> {
     }
 
     await spawnPromise("node", cliArgs, {
-      env: { ...process.env, ...args.envArgs },
+      env: { ...process.env, ...validatedEnvArgs },
       signal: abort.signal,
       echoOutput: true,
       // pipe the stdout through here, prevents issues with buffering and
