@@ -1,4 +1,4 @@
-import { validateRedirectUrl } from "../urlValidation";
+import { validateRedirectUrl, isPrivateUrl } from "../urlValidation";
 
 describe("validateRedirectUrl", () => {
   describe("valid URLs", () => {
@@ -131,5 +131,149 @@ describe("validateRedirectUrl", () => {
         "Authorization URL must be HTTP or HTTPS",
       );
     });
+  });
+
+  describe("SSRF protection", () => {
+    it("should block localhost", () => {
+      expect(() => validateRedirectUrl("http://localhost/callback")).toThrow(
+        "private/internal address",
+      );
+    });
+
+    it("should block localhost with port", () => {
+      expect(() =>
+        validateRedirectUrl("http://localhost:3000/callback"),
+      ).toThrow("private/internal address");
+    });
+
+    it("should block 127.0.0.1", () => {
+      expect(() => validateRedirectUrl("http://127.0.0.1/callback")).toThrow(
+        "private/internal address",
+      );
+    });
+
+    it("should block 127.x.x.x range", () => {
+      expect(() => validateRedirectUrl("http://127.0.0.2:8080/")).toThrow(
+        "private/internal address",
+      );
+    });
+
+    it("should block private 10.x.x.x range", () => {
+      expect(() => validateRedirectUrl("http://10.0.0.1/callback")).toThrow(
+        "private/internal address",
+      );
+      expect(() => validateRedirectUrl("http://10.255.255.255/")).toThrow(
+        "private/internal address",
+      );
+    });
+
+    it("should block private 172.16-31.x.x range", () => {
+      expect(() => validateRedirectUrl("http://172.16.0.1/callback")).toThrow(
+        "private/internal address",
+      );
+      expect(() => validateRedirectUrl("http://172.31.255.255/")).toThrow(
+        "private/internal address",
+      );
+    });
+
+    it("should allow non-private 172.x.x.x", () => {
+      // 172.15.x.x and 172.32.x.x are public
+      expect(() =>
+        validateRedirectUrl("http://172.15.0.1/callback"),
+      ).not.toThrow();
+      expect(() =>
+        validateRedirectUrl("http://172.32.0.1/callback"),
+      ).not.toThrow();
+    });
+
+    it("should block private 192.168.x.x range", () => {
+      expect(() => validateRedirectUrl("http://192.168.0.1/callback")).toThrow(
+        "private/internal address",
+      );
+      expect(() => validateRedirectUrl("http://192.168.255.255/")).toThrow(
+        "private/internal address",
+      );
+    });
+
+    it("should block link-local 169.254.x.x", () => {
+      expect(() => validateRedirectUrl("http://169.254.1.1/callback")).toThrow(
+        "private/internal address",
+      );
+    });
+
+    it("should block AWS/GCP metadata endpoint 169.254.169.254", () => {
+      expect(() =>
+        validateRedirectUrl("http://169.254.169.254/latest/meta-data/"),
+      ).toThrow("private/internal address");
+    });
+
+    it("should block IPv6 localhost [::1]", () => {
+      expect(() => validateRedirectUrl("http://[::1]/callback")).toThrow(
+        "private/internal address",
+      );
+    });
+
+    it("should block IPv6 link-local [fe80::]", () => {
+      expect(() => validateRedirectUrl("http://[fe80::1]/callback")).toThrow(
+        "private/internal address",
+      );
+    });
+
+    it("should allow private IPs with allowPrivateIPs option", () => {
+      expect(() =>
+        validateRedirectUrl("http://localhost/callback", {
+          allowPrivateIPs: true,
+        }),
+      ).not.toThrow();
+      expect(() =>
+        validateRedirectUrl("http://127.0.0.1/callback", {
+          allowPrivateIPs: true,
+        }),
+      ).not.toThrow();
+      expect(() =>
+        validateRedirectUrl("http://192.168.1.1/callback", {
+          allowPrivateIPs: true,
+        }),
+      ).not.toThrow();
+    });
+
+    it("should allow public IPs", () => {
+      expect(() =>
+        validateRedirectUrl("https://api.example.com/callback"),
+      ).not.toThrow();
+      expect(() =>
+        validateRedirectUrl("https://8.8.8.8/callback"),
+      ).not.toThrow();
+      expect(() =>
+        validateRedirectUrl("https://1.1.1.1/callback"),
+      ).not.toThrow();
+    });
+  });
+});
+
+describe("isPrivateUrl", () => {
+  it("should return true for localhost", () => {
+    expect(isPrivateUrl("http://localhost/")).toBe(true);
+  });
+
+  it("should return true for private IPs", () => {
+    expect(isPrivateUrl("http://127.0.0.1/")).toBe(true);
+    expect(isPrivateUrl("http://10.0.0.1/")).toBe(true);
+    expect(isPrivateUrl("http://192.168.1.1/")).toBe(true);
+    expect(isPrivateUrl("http://172.16.0.1/")).toBe(true);
+  });
+
+  it("should return true for metadata endpoints", () => {
+    expect(isPrivateUrl("http://169.254.169.254/")).toBe(true);
+  });
+
+  it("should return false for public IPs", () => {
+    expect(isPrivateUrl("https://example.com/")).toBe(false);
+    expect(isPrivateUrl("https://8.8.8.8/")).toBe(false);
+    expect(isPrivateUrl("https://api.github.com/")).toBe(false);
+  });
+
+  it("should return false for invalid URLs", () => {
+    expect(isPrivateUrl("not a url")).toBe(false);
   });
 });
