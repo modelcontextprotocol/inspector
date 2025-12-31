@@ -1,15 +1,28 @@
 {
-  "name": "@modelcontextprotocol/inspector-cli",
-  "version": "0.18.0",
-  "description": "CLI for the Model Context Protocol inspector",
+  "name": "@bryan-thompson/inspector-assessment-cli",
+  "version": "1.15.3",
+  "description": "CLI for the Enhanced MCP Inspector with assessment capabilities",
   "license": "MIT",
-  "author": "Anthropic, PBC (https://anthropic.com)",
-  "homepage": "https://modelcontextprotocol.io",
-  "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
+  "author": "Bryan Thompson <bryan@triepod.ai>",
+  "contributors": [
+    "Anthropic, PBC (original MCP Inspector)"
+  ],
+  "homepage": "https://github.com/triepod-ai/inspector-assessment",
+  "bugs": "https://github.com/triepod-ai/inspector-assessment/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/triepod-ai/inspector-assessment.git"
+  },
   "main": "build/cli.js",
   "type": "module",
   "bin": {
-    "mcp-inspector-cli": "build/cli.js"
+    "mcp-inspector-assess-cli": "build/cli.js",
+    "mcp-assess-full": "build/assess-full.js",
+    "mcp-assess-security": "build/assess-security.js",
+    "mcp-validate-testbed": "build/validate-testbed.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "build"
@@ -17,15 +30,18 @@
   "scripts": {
     "build": "tsc",
     "postbuild": "node scripts/make-executable.js",
-    "test": "node scripts/cli-tests.js && node scripts/cli-tool-tests.js && node scripts/cli-header-tests.js",
+    "test": "node scripts/cli-tests.js && node scripts/cli-tool-tests.js && node scripts/cli-header-tests.js && node scripts/cli-validation-tests.js",
     "test:cli": "node scripts/cli-tests.js",
     "test:cli-tools": "node scripts/cli-tool-tests.js",
-    "test:cli-headers": "node scripts/cli-header-tests.js"
+    "test:cli-headers": "node scripts/cli-header-tests.js",
+    "test:cli-validation": "node scripts/cli-validation-tests.js"
   },
   "devDependencies": {},
   "dependencies": {
+    "@bryan-thompson/inspector-assessment-client": "^1.5.0",
     "@modelcontextprotocol/sdk": "^1.24.3",
     "commander": "^13.1.0",
-    "spawn-rx": "^5.1.2"
+    "spawn-rx": "^5.1.2",
+    "zod": "^3.25.76"
   }
 }
