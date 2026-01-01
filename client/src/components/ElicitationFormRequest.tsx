@@ -6,19 +6,22 @@ import { JsonSchemaType, JsonValue } from "@/utils/jsonUtils";
 import { generateDefaultValue } from "@/utils/schemaUtils";
 import {
   PendingElicitationRequest,
+  FormElicitationRequestData,
   ElicitationResponse,
 } from "./ElicitationTab";
 import Ajv from "ajv";
 
-export type ElicitationRequestProps = {
-  request: PendingElicitationRequest;
+export type ElicitationFormRequestProps = {
+  request: PendingElicitationRequest & {
+    request: FormElicitationRequestData;
+  };
   onResolve: (id: number, response: ElicitationResponse) => void;
 };
 
-const ElicitationRequest = ({
+const ElicitationFormRequest = ({
   request,
   onResolve,
-}: ElicitationRequestProps) => {
+}: ElicitationFormRequestProps) => {
   const [formData, setFormData] = useState<JsonValue>({});
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -170,4 +173,4 @@ const ElicitationRequest = ({
   );
 };
 
-export default ElicitationRequest;
+export default ElicitationFormRequest;
