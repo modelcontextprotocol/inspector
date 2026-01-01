@@ -70,9 +70,6 @@ const ElicitationUrlRequest = ({
     if (parsedUrl.hostname.includes("xn--")) {
       warnings.push("This URL contains internationalized characters");
     }
-    if (/[^\u0020-\u007E]/.test(parsedUrl.hostname)) {
-      warnings.push("This URL contains non-Latin characters");
-    }
     return warnings;
   })();
 
