@@ -64,11 +64,11 @@ const ElicitationUrlRequest = ({
     const warnings: string[] = [];
 
     if (parsedUrl.protocol !== "https:") {
-      warnings.push("Not https protocol");
+      warnings.push("Not HTTPS protocol");
     }
 
     if (parsedUrl.hostname.includes("xn--")) {
-      warnings.push("This URL contains internationalized characters");
+      warnings.push("This URL contains internationalized (non-ASCII) characters");
     }
     return warnings;
   })();
