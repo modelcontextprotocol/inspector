@@ -107,7 +107,7 @@ const ElicitationUrlRequest = ({
             warnings.map((msg, index) => (
               <div
                 key={index}
-                className="bg-yellow-100 border-l-4 border-yellow-500 p-2 text-xs text-yellow-700"
+                className="bg-yellow-100 border-l-4 border-yellow-500 p-2 text-xs text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200"
               >
                 {msg}
               </div>
