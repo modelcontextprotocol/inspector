@@ -136,6 +136,7 @@ const ElicitationUrlRequest = ({
             Cancel
           </Button>
           <Button
+            type="button"
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(request.request.url);
