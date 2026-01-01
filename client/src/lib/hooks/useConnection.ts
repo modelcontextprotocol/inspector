@@ -27,6 +27,7 @@ import {
   ResourceListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
   PromptListChangedNotificationSchema,
+  ElicitationCompleteNotificationSchema,
   Progress,
   LoggingLevel,
   ElicitRequestSchema,
@@ -414,7 +415,10 @@ export function useConnection({
     const clientCapabilities = {
       capabilities: {
         sampling: {},
-        elicitation: {},
+        elicitation: {
+          form: {},
+          url: {},
+        },
         roots: {
           listChanged: true,
         },
@@ -695,6 +699,7 @@ export function useConnection({
           ResourceListChangedNotificationSchema,
           ToolListChangedNotificationSchema,
           PromptListChangedNotificationSchema,
+          ElicitationCompleteNotificationSchema,
         ].forEach((notificationSchema) => {
           client.setNotificationHandler(notificationSchema, onNotification);
         });

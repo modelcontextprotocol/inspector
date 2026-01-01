@@ -341,7 +341,10 @@ const App = () => {
           request: {
             id: nextRequestId.current,
             message: request.params.message,
+            mode: request.params.mode,
             requestedSchema: request.params.requestedSchema,
+            url: request.params.url,
+            elicitationId: request.params.elicitationId,
           },
           originatingTab: currentTab,
           resolve,
