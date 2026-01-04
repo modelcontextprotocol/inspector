@@ -757,6 +757,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
               debouncedUpdateParent(newValue);
             }}
             error={jsonError}
+            placeholder={schema.description}
           />
         ) : // If schema type is object but value is not an object or is empty, and we have actual JSON data,
         // render a simple representation of the JSON data
