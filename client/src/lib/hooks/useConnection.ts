@@ -393,11 +393,22 @@ export function useConnection({
       saveScopeToSessionStorage(sseUrl, scope);
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
-      const result = await auth(serverAuthProvider, {
-        serverUrl: sseUrl,
-        scope,
-      });
-      return result === "AUTHORIZED";
+      try {
+        const result = await auth(serverAuthProvider, {
+          serverUrl: sseUrl,
+          scope,
+        });
+        return result === "AUTHORIZED";
+      } catch (authError) {
+        // Show user-friendly error message for OAuth failures
+        toast({
+          title: "OAuth Authentication Failed",
+          description:
+            authError instanceof Error ? authError.message : String(authError),
+          variant: "destructive",
+        });
+        return false;
+      }
     }
 
     return false;
