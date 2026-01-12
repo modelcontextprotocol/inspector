@@ -72,6 +72,7 @@ interface UseConnectionOptions {
   args: string;
   sseUrl: string;
   env: Record<string, string>;
+  workingDir?: string;
   // Custom headers support
   customHeaders?: CustomHeaders;
   oauthClientId?: string;
@@ -98,6 +99,7 @@ export function useConnection({
   args,
   sseUrl,
   env,
+  workingDir,
   customHeaders,
   oauthClientId,
   oauthClientSecret,
@@ -602,6 +604,9 @@ export function useConnection({
             mcpProxyServerUrl.searchParams.append("command", command);
             mcpProxyServerUrl.searchParams.append("args", args);
             mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
+            if (workingDir) {
+              mcpProxyServerUrl.searchParams.append("workingDir", workingDir);
+            }
 
             const proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS
               .value as string;
