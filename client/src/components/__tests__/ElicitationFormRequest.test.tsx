@@ -1,8 +1,11 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, it, jest, beforeEach, afterEach } from "@jest/globals";
-import ElicitationRequest from "../ElicitationRequest";
-import { PendingElicitationRequest } from "../ElicitationTab";
+import ElicitationFormRequest from "../ElicitationFormRequest";
+import {
+  FormElicitationRequestData,
+  PendingElicitationRequest,
+} from "../ElicitationTab";
 
 jest.mock("../DynamicJsonForm", () => {
   return function MockDynamicJsonForm({
@@ -38,6 +41,10 @@ jest.mock("../DynamicJsonForm", () => {
 describe("ElicitationRequest", () => {
   const mockOnResolve = jest.fn();
 
+  type FormPendingElicitationRequest = PendingElicitationRequest & {
+    request: FormElicitationRequestData;
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
   });
@@ -47,8 +54,8 @@ describe("ElicitationRequest", () => {
   });
 
   const createMockRequest = (
-    overrides: Partial<PendingElicitationRequest> = {},
-  ): PendingElicitationRequest => ({
+    overrides: Partial<FormPendingElicitationRequest> = {},
+  ): FormPendingElicitationRequest => ({
     id: 1,
     request: {
       id: 1,
@@ -66,10 +73,10 @@ describe("ElicitationRequest", () => {
   });
 
   const renderElicitationRequest = (
-    request: PendingElicitationRequest = createMockRequest(),
+    request: FormPendingElicitationRequest = createMockRequest(),
   ) => {
     return render(
-      <ElicitationRequest request={request} onResolve={mockOnResolve} />,
+      <ElicitationFormRequest request={request} onResolve={mockOnResolve} />,
     );
   };
 
