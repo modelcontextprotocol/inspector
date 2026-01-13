@@ -4,6 +4,7 @@ import { defineConfig } from "vite";
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: process.env.CLIENT__BASE_HREF || "/",
   plugins: [react()],
   server: {
     host: true,
