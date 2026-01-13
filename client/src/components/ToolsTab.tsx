@@ -149,8 +149,8 @@ const ToolsTab = ({
   });
 
   return (
-    <TabsContent value="tools">
-      <div className="grid grid-cols-2 gap-4">
+    <TabsContent value="tools" className="h-[calc(100vh-16rem)]">
+      <div className="grid grid-cols-2 gap-4 h-full">
         <ListPane
           items={tools}
           listItems={listTools}
@@ -178,8 +178,8 @@ const ToolsTab = ({
           isButtonDisabled={!nextCursor && tools.length > 0}
         />
 
-        <div className="bg-card border border-border rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200 dark:border-border">
+        <div className="bg-card border border-border rounded-lg shadow h-full flex flex-col overflow-hidden">
+          <div className="p-4 border-b border-gray-200 dark:border-border flex-shrink-0">
             <div className="flex items-center gap-2">
               {selectedTool && (
                 <IconDisplay
@@ -192,7 +192,7 @@ const ToolsTab = ({
               </h3>
             </div>
           </div>
-          <div className="p-4">
+          <div className="p-4 overflow-y-auto flex-1">
             {selectedTool ? (
               <div className="space-y-4">
                 {error && (
