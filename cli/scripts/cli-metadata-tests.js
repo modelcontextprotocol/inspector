@@ -56,7 +56,7 @@ const BUILD_DIR = path.resolve(SCRIPTS_DIR, "../build");
 
 // Define the test server command using npx
 const TEST_CMD = "npx";
-const TEST_ARGS = ["@modelcontextprotocol/server-everything"];
+const TEST_ARGS = ["@modelcontextprotocol/server-everything@2026.1.14"];
 
 // Create output directory for test results
 const OUTPUT_DIR = path.join(SCRIPTS_DIR, "metadata-test-output");
@@ -335,7 +335,7 @@ async function runTests() {
     "--method",
     "resources/read",
     "--uri",
-    "test://static/resource/1",
+    "demo://resource/static/document/architecture.md",
     "--metadata",
     "client=test-client",
   );
@@ -349,7 +349,7 @@ async function runTests() {
     "--method",
     "prompts/get",
     "--prompt-name",
-    "simple_prompt",
+    "simple-prompt",
     "--metadata",
     "client=test-client",
   );
@@ -383,7 +383,7 @@ async function runTests() {
     "--method",
     "tools/call",
     "--tool-name",
-    "add",
+    "get-sum",
     "--tool-arg",
     "a=10",
     "b=20",
@@ -566,7 +566,7 @@ async function runTests() {
     "--method",
     "prompts/get",
     "--prompt-name",
-    "simple_prompt",
+    "simple-prompt",
     "--metadata",
     "prompt_client=test-prompt-client",
   );
