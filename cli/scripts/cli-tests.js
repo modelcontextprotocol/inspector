@@ -56,8 +56,9 @@ const PROJECT_ROOT = path.join(SCRIPTS_DIR, "../../");
 const BUILD_DIR = path.resolve(SCRIPTS_DIR, "../build");
 
 // Define the test server command using npx
+const EVERYTHING_SERVER = "@modelcontextprotocol/server-everything@2026.1.14";
 const TEST_CMD = "npx";
-const TEST_ARGS = ["@modelcontextprotocol/server-everything"];
+const TEST_ARGS = [EVERYTHING_SERVER];
 
 // Create output directory for test results
 const OUTPUT_DIR = path.join(SCRIPTS_DIR, "test-output");
@@ -163,7 +164,7 @@ fs.writeFileSync(
         "test-stdio": {
           type: "stdio",
           command: "npx",
-          args: ["@modelcontextprotocol/server-everything"],
+          args: [EVERYTHING_SERVER],
           env: {
             TEST_ENV: "test-value",
           },
@@ -184,7 +185,7 @@ fs.writeFileSync(
       mcpServers: {
         "test-legacy": {
           command: "npx",
-          args: ["@modelcontextprotocol/server-everything"],
+          args: [EVERYTHING_SERVER],
           env: {
             LEGACY_ENV: "legacy-value",
           },
@@ -543,7 +544,7 @@ async function runTests() {
     "--method",
     "resources/read",
     "--uri",
-    "test://static/resource/1",
+    "demo://resource/static/document/architecture.md",
   );
 
   // Test 17: CLI mode with resource read but missing URI (should fail)
@@ -569,7 +570,7 @@ async function runTests() {
     "--method",
     "prompts/get",
     "--prompt-name",
-    "simple_prompt",
+    "simple-prompt",
   );
 
   // Test 19: CLI mode with prompt get and args
@@ -581,10 +582,10 @@ async function runTests() {
     "--method",
     "prompts/get",
     "--prompt-name",
-    "complex_prompt",
+    "args-prompt",
     "--prompt-args",
-    "temperature=0.7",
-    "style=concise",
+    "city=New York",
+    "state=NY",
   );
 
   // Test 20: CLI mode with prompt get but missing prompt name (should fail)
@@ -734,7 +735,7 @@ async function runTests() {
         mcpServers: {
           "only-server": {
             command: "npx",
-            args: ["@modelcontextprotocol/server-everything"],
+            args: [EVERYTHING_SERVER],
           },
         },
       },
@@ -755,7 +756,7 @@ async function runTests() {
         mcpServers: {
           "default-server": {
             command: "npx",
-            args: ["@modelcontextprotocol/server-everything"],
+            args: [EVERYTHING_SERVER],
           },
           "other-server": {
             command: "node",
@@ -777,7 +778,7 @@ async function runTests() {
         mcpServers: {
           server1: {
             command: "npx",
-            args: ["@modelcontextprotocol/server-everything"],
+            args: [EVERYTHING_SERVER],
           },
           server2: {
             command: "node",
@@ -827,14 +828,10 @@ async function runTests() {
   console.log(
     `${colors.BLUE}Starting server-everything in streamableHttp mode.${colors.NC}`,
   );
-  const httpServer = spawn(
-    "npx",
-    ["@modelcontextprotocol/server-everything", "streamableHttp"],
-    {
-      detached: true,
-      stdio: "ignore",
-    },
-  );
+  const httpServer = spawn("npx", [EVERYTHING_SERVER, "streamableHttp"], {
+    detached: true,
+    stdio: "ignore",
+  });
   runningServers.push(httpServer);
 
   await new Promise((resolve) => setTimeout(resolve, 3000));

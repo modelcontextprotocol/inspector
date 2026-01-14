@@ -50,7 +50,7 @@ const BUILD_DIR = path.resolve(SCRIPTS_DIR, "../build");
 
 // Define the test server command using npx
 const TEST_CMD = "npx";
-const TEST_ARGS = ["@modelcontextprotocol/server-everything"];
+const TEST_ARGS = ["@modelcontextprotocol/server-everything@2026.1.14"];
 
 // Create output directory for test results
 const OUTPUT_DIR = path.join(SCRIPTS_DIR, "tool-test-output");
@@ -137,7 +137,21 @@ async function runBasicTest(testName, ...args) {
         clearTimeout(timeout);
         outputStream.end();
 
+        // Check for JSON errors even if exit code is 0
+        let hasJsonError = false;
         if (code === 0) {
+          try {
+            const jsonMatch = output.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              hasJsonError = parsed.isError === true;
+            }
+          } catch (e) {
+            // Not valid JSON or parse failed, continue with original check
+          }
+        }
+
+        if (code === 0 && !hasJsonError) {
           console.log(`${colors.GREEN}✓ Test passed: ${testName}${colors.NC}`);
           console.log(`${colors.BLUE}First few lines of output:${colors.NC}`);
           const firstFewLines = output
@@ -225,8 +239,22 @@ async function runErrorTest(testName, ...args) {
         clearTimeout(timeout);
         outputStream.end();
 
-        // For error tests, we expect a non-zero exit code
-        if (code !== 0) {
+        // For error tests, we expect a non-zero exit code OR JSON with isError: true
+        let hasJsonError = false;
+        if (code === 0) {
+          // Try to parse JSON and check for isError field
+          try {
+            const jsonMatch = output.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              hasJsonError = parsed.isError === true;
+            }
+          } catch (e) {
+            // Not valid JSON or parse failed, continue with original check
+          }
+        }
+
+        if (code !== 0 || hasJsonError) {
           console.log(
             `${colors.GREEN}✓ Error test passed: ${testName}${colors.NC}`,
           );
@@ -312,7 +340,7 @@ async function runTests() {
     "--method",
     "tools/call",
     "--tool-name",
-    "add",
+    "get-sum",
     "--tool-arg",
     "a=42",
     "b=58",
@@ -327,7 +355,7 @@ async function runTests() {
     "--method",
     "tools/call",
     "--tool-name",
-    "add",
+    "get-sum",
     "--tool-arg",
     "a=19.99",
     "b=20.01",
@@ -342,7 +370,7 @@ async function runTests() {
     "--method",
     "tools/call",
     "--tool-name",
-    "annotatedMessage",
+    "get-annotated-message",
     "--tool-arg",
     "messageType=success",
     "includeImage=true",
@@ -357,7 +385,7 @@ async function runTests() {
     "--method",
     "tools/call",
     "--tool-name",
-    "annotatedMessage",
+    "get-annotated-message",
     "--tool-arg",
     "messageType=error",
     "includeImage=false",
@@ -386,7 +414,7 @@ async function runTests() {
     "--method",
     "tools/call",
     "--tool-name",
-    "add",
+    "get-sum",
     "--tool-arg",
     "a=42.5",
     "b=57.5",
@@ -537,11 +565,10 @@ async function runTests() {
     "--method",
     "prompts/get",
     "--prompt-name",
-    "complex_prompt",
+    "args-prompt",
     "--prompt-args",
-    "temperature=0.7",
-    'style="concise"',
-    'options={"format":"json","max_tokens":100}',
+    "city=New York",
+    "state=NY",
   );
 
   // Test 25: Prompt with simple arguments
@@ -553,7 +580,7 @@ async function runTests() {
     "--method",
     "prompts/get",
     "--prompt-name",
-    "simple_prompt",
+    "simple-prompt",
     "--prompt-args",
     "name=test",
     "count=5",
@@ -586,7 +613,7 @@ async function runTests() {
     "--method",
     "tools/call",
     "--tool-name",
-    "add",
+    "get-sum",
     "--tool-arg",
     "a=10",
     "b=20",

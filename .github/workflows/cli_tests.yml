@@ -32,7 +32,7 @@ jobs:
         run: npm run build
 
       - name: Explicitly pre-install test dependencies
-        run: npx -y @modelcontextprotocol/server-everything --help || true
+        run: npx -y @modelcontextprotocol/server-everything@2026.1.14 --help || true
 
       - name: Run tests
         run: npm test
