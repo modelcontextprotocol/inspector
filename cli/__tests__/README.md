@@ -39,6 +39,6 @@ The `helpers/` directory contains shared utilities:
 - Tests within a file run sequentially (we have isolated config files and ports, so we could get more aggressive if desired)
 - Config files use `crypto.randomUUID()` for uniqueness in parallel execution
 - HTTP/SSE servers use dynamic port allocation to avoid conflicts
-- Coverage is not used because the code that we want to measure is run by a spawned process, so it can't be tracked by Vitest
+- Coverage is not used because much of the code that we want to measure is run by a spawned process, so it can't be tracked by Vitest
 - /sample-config.json is no longer used by tests - not clear if this file serves some other purpose so leaving it for now
 - All tests now use built-in MCP test servers, there are no external dependencies on servers from a registry

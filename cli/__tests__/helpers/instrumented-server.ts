@@ -91,7 +91,6 @@ export class InstrumentedServer {
   private recordedRequests: RecordedRequest[] = [];
   private httpServer?: HttpServer;
   private transport?: StreamableHTTPServerTransport | SSEServerTransport;
-  private port?: number;
   private url?: string;
   private currentRequestHeaders?: Record<string, string>;
   private currentLogLevel: string | null = null;
@@ -227,7 +226,6 @@ export class InstrumentedServer {
       ? await findAvailablePort(requestedPort)
       : await findAvailablePort(transport === "http" ? 3001 : 3000);
 
-    this.port = port;
     this.url = `http://localhost:${port}`;
 
     if (transport === "http") {
