@@ -1,27 +1,12 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  afterAll,
-  beforeEach,
-  afterEach,
-} from "vitest";
+import { describe, it, beforeAll, afterAll } from "vitest";
 import { runCli } from "./helpers/cli-runner.js";
 import { expectCliSuccess, expectCliFailure } from "./helpers/assertions.js";
 import {
   TEST_SERVER,
   getSampleConfigPath,
-  createStdioConfig,
-  createSseConfig,
-  createHttpConfig,
-  createLegacyConfig,
-  createSingleServerConfig,
-  createDefaultServerConfig,
-  createMultiServerConfig,
+  createTestConfig,
   createInvalidConfig,
-  getConfigDir,
-  cleanupTempDir,
+  deleteConfigFile,
 } from "./helpers/fixtures.js";
 import { TestServerManager } from "./helpers/test-server.js";
 
@@ -30,34 +15,8 @@ const TEST_ARGS = [TEST_SERVER];
 
 describe("CLI Tests", () => {
   const serverManager = new TestServerManager();
-  let stdioConfigPath: string;
-  let sseConfigPath: string;
-  let httpConfigPath: string;
-  let legacyConfigPath: string;
-  let singleServerConfigPath: string;
-  let defaultServerConfigPath: string;
-  let multiServerConfigPath: string;
-
-  beforeAll(() => {
-    // Create test config files
-    stdioConfigPath = createStdioConfig();
-    sseConfigPath = createSseConfig();
-    httpConfigPath = createHttpConfig();
-    legacyConfigPath = createLegacyConfig();
-    singleServerConfigPath = createSingleServerConfig();
-    defaultServerConfigPath = createDefaultServerConfig();
-    multiServerConfigPath = createMultiServerConfig();
-  });
 
   afterAll(() => {
-    // Cleanup test config files
-    cleanupTempDir(getConfigDir(stdioConfigPath));
-    cleanupTempDir(getConfigDir(sseConfigPath));
-    cleanupTempDir(getConfigDir(httpConfigPath));
-    cleanupTempDir(getConfigDir(legacyConfigPath));
-    cleanupTempDir(getConfigDir(singleServerConfigPath));
-    cleanupTempDir(getConfigDir(defaultServerConfigPath));
-    cleanupTempDir(getConfigDir(multiServerConfigPath));
     serverManager.cleanup();
   });
 
@@ -222,7 +181,7 @@ describe("CLI Tests", () => {
 
         expectCliFailure(result);
       } finally {
-        cleanupTempDir(getConfigDir(invalidConfigPath));
+        deleteConfigFile(invalidConfigPath);
       }
     });
 
@@ -386,97 +345,198 @@ describe("CLI Tests", () => {
 
   describe("Config Transport Types", () => {
     it("should work with stdio transport type", async () => {
-      const result = await runCli([
-        "--config",
-        stdioConfigPath,
-        "--server",
-        "test-stdio",
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const configPath = createTestConfig({
+        mcpServers: {
+          "test-stdio": {
+            type: "stdio",
+            command: "npx",
+            args: [TEST_SERVER],
+            env: {
+              TEST_ENV: "test-value",
+            },
+          },
+        },
+      });
+      try {
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "test-stdio",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
 
-      expectCliSuccess(result);
+        expectCliSuccess(result);
+      } finally {
+        deleteConfigFile(configPath);
+      }
     });
 
     it("should fail with SSE transport type in CLI mode (connection error)", async () => {
-      const result = await runCli([
-        "--config",
-        sseConfigPath,
-        "--server",
-        "test-sse",
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const configPath = createTestConfig({
+        mcpServers: {
+          "test-sse": {
+            type: "sse",
+            url: "http://localhost:3000/sse",
+            note: "Test SSE server",
+          },
+        },
+      });
+      try {
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "test-sse",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
 
-      expectCliFailure(result);
+        expectCliFailure(result);
+      } finally {
+        deleteConfigFile(configPath);
+      }
     });
 
     it("should fail with HTTP transport type in CLI mode (connection error)", async () => {
-      const result = await runCli([
-        "--config",
-        httpConfigPath,
-        "--server",
-        "test-http",
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const configPath = createTestConfig({
+        mcpServers: {
+          "test-http": {
+            type: "streamable-http",
+            url: "http://localhost:3001/mcp",
+            note: "Test HTTP server",
+          },
+        },
+      });
+      try {
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "test-http",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
 
-      expectCliFailure(result);
+        expectCliFailure(result);
+      } finally {
+        deleteConfigFile(configPath);
+      }
     });
 
     it("should work with legacy config without type field", async () => {
-      const result = await runCli([
-        "--config",
-        legacyConfigPath,
-        "--server",
-        "test-legacy",
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const configPath = createTestConfig({
+        mcpServers: {
+          "test-legacy": {
+            command: "npx",
+            args: [TEST_SERVER],
+            env: {
+              LEGACY_ENV: "legacy-value",
+            },
+          },
+        },
+      });
+      try {
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "test-legacy",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
 
-      expectCliSuccess(result);
+        expectCliSuccess(result);
+      } finally {
+        deleteConfigFile(configPath);
+      }
     });
   });
 
   describe("Default Server Selection", () => {
     it("should auto-select single server", async () => {
-      const result = await runCli([
-        "--config",
-        singleServerConfigPath,
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const configPath = createTestConfig({
+        mcpServers: {
+          "only-server": {
+            command: "npx",
+            args: [TEST_SERVER],
+          },
+        },
+      });
+      try {
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
 
-      expectCliSuccess(result);
+        expectCliSuccess(result);
+      } finally {
+        deleteConfigFile(configPath);
+      }
     });
 
     it("should require explicit server selection even with default-server key (multiple servers)", async () => {
-      const result = await runCli([
-        "--config",
-        defaultServerConfigPath,
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const configPath = createTestConfig({
+        mcpServers: {
+          "default-server": {
+            command: "npx",
+            args: [TEST_SERVER],
+          },
+          "other-server": {
+            command: "node",
+            args: ["other.js"],
+          },
+        },
+      });
+      try {
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
 
-      expectCliFailure(result);
+        expectCliFailure(result);
+      } finally {
+        deleteConfigFile(configPath);
+      }
     });
 
     it("should require explicit server selection with multiple servers", async () => {
-      const result = await runCli([
-        "--config",
-        multiServerConfigPath,
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const configPath = createTestConfig({
+        mcpServers: {
+          server1: {
+            command: "npx",
+            args: [TEST_SERVER],
+          },
+          server2: {
+            command: "node",
+            args: ["other.js"],
+          },
+        },
+      });
+      try {
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
 
-      expectCliFailure(result);
+        expectCliFailure(result);
+      } finally {
+        deleteConfigFile(configPath);
+      }
     });
   });
 
