@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
+    "tsx": "^4.7.0",
     "vitest": "^4.0.17"
   },
   "dependencies": {
