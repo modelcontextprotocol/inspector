@@ -6,15 +6,38 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "../../../");
-
-export const TEST_SERVER = "@modelcontextprotocol/server-everything@2026.1.14";
 
 /**
- * Get the sample config file path
+ * Sentinel value for tests that don't need a real server
+ * (tests that expect failure before connecting)
  */
-export function getSampleConfigPath(): string {
-  return path.join(PROJECT_ROOT, "sample-config.json");
+export const NO_SERVER_SENTINEL = "invalid-command-that-does-not-exist";
+
+/**
+ * Create a sample test config with test-stdio and test-http servers
+ * Returns a temporary config file path that should be cleaned up with deleteConfigFile()
+ * @param httpUrl - Optional full URL (including /mcp path) for test-http server.
+ *                  If not provided, uses a placeholder URL. The test-http server exists
+ *                  to test server selection logic and may not actually be used.
+ */
+export function createSampleTestConfig(httpUrl?: string): string {
+  const { command, args } = getTestMcpServerCommand();
+  return createTestConfig({
+    mcpServers: {
+      "test-stdio": {
+        type: "stdio",
+        command,
+        args,
+        env: {
+          HELLO: "Hello MCP!",
+        },
+      },
+      "test-http": {
+        type: "streamable-http",
+        url: httpUrl || "http://localhost:3001/mcp",
+      },
+    },
+  });
 }
 
 /**
@@ -66,4 +89,21 @@ export function createInvalidConfig(): string {
  */
 export function deleteConfigFile(configPath: string): void {
   cleanupTempDir(path.dirname(configPath));
+}
+
+/**
+ * Get the path to the test MCP server script
+ */
+export function getTestMcpServerPath(): string {
+  return path.resolve(__dirname, "test-mcp-server.ts");
+}
+
+/**
+ * Get the command and args to run the test MCP server
+ */
+export function getTestMcpServerCommand(): { command: string; args: string[] } {
+  return {
+    command: "tsx",
+    args: [getTestMcpServerPath()],
+  };
 }
