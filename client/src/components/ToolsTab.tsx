@@ -64,6 +64,7 @@ const ToolsTab = ({
   selectedTool,
   setSelectedTool,
   toolResult,
+  isPollingTask,
   nextCursor,
   error,
   resourceContent,
@@ -76,16 +77,19 @@ const ToolsTab = ({
     name: string,
     params: Record<string, unknown>,
     metadata?: Record<string, unknown>,
+    runAsTask?: boolean,
   ) => Promise<void>;
   selectedTool: Tool | null;
   setSelectedTool: (tool: Tool | null) => void;
   toolResult: CompatibilityCallToolResult | null;
+  isPollingTask?: boolean;
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
   resourceContent: Record<string, string>;
   onReadResource?: (uri: string) => void;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
+  const [runAsTask, setRunAsTask] = useState(false);
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
   const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
@@ -125,6 +129,7 @@ const ToolsTab = ({
       ];
     });
     setParams(Object.fromEntries(params));
+    setRunAsTask(false);
 
     // Reset validation errors when switching tools
     setHasValidationErrors(false);
@@ -157,6 +162,7 @@ const ToolsTab = ({
           clearItems={() => {
             clearTools();
             setSelectedTool(null);
+            setRunAsTask(false);
           }}
           setSelectedItem={setSelectedTool}
           renderItem={(tool) => (
@@ -651,6 +657,21 @@ const ToolsTab = ({
                       </div>
                     </div>
                   )}
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="run-as-task"
+                    checked={runAsTask}
+                    onCheckedChange={(checked: boolean) =>
+                      setRunAsTask(checked)
+                    }
+                  />
+                  <Label
+                    htmlFor="run-as-task"
+                    className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
+                  >
+                    Run as task
+                  </Label>
+                </div>
                 <Button
                   onClick={async () => {
                     // Validate JSON inputs before calling tool
@@ -676,6 +697,7 @@ const ToolsTab = ({
                         selectedTool.name,
                         params,
                         Object.keys(metadata).length ? metadata : undefined,
+                        runAsTask,
                       );
                     } finally {
                       setIsToolRunning(false);
@@ -683,16 +705,17 @@ const ToolsTab = ({
                   }}
                   disabled={
                     isToolRunning ||
+                    isPollingTask ||
                     hasValidationErrors ||
                     hasReservedMetadataEntry ||
                     hasInvalidMetaPrefixEntry ||
                     hasInvalidMetaNameEntry
                   }
                 >
-                  {isToolRunning ? (
+                  {isToolRunning || isPollingTask ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Running...
+                      {isPollingTask ? "Polling Task..." : "Running..."}
                     </>
                   ) : (
                     <>
@@ -731,6 +754,7 @@ const ToolsTab = ({
                   selectedTool={selectedTool}
                   resourceContent={resourceContent}
                   onReadResource={onReadResource}
+                  isPollingTask={isPollingTask}
                 />
               </div>
             ) : (

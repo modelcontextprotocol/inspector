@@ -3,14 +3,14 @@ import "@testing-library/jest-dom";
 import { describe, it, jest, beforeEach } from "@jest/globals";
 import ToolsTab from "../ToolsTab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { Tabs } from "@/components/ui/tabs";
-import { cacheToolOutputSchemas } from "@/utils/schemaUtils";
+import { Tabs } from "../ui/tabs";
+import { cacheToolOutputSchemas } from "../../utils/schemaUtils";
 import { within } from "@testing-library/react";
 import {
   META_NAME_RULES_MESSAGE,
   META_PREFIX_RULES_MESSAGE,
   RESERVED_NAMESPACE_MESSAGE,
-} from "@/utils/metaUtils";
+} from "../../utils/metaUtils";
 
 describe("ToolsTab", () => {
   beforeEach(() => {
@@ -130,6 +130,7 @@ describe("ToolsTab", () => {
         count: 42,
       },
       undefined,
+      false,
     );
   });
 
@@ -155,6 +156,7 @@ describe("ToolsTab", () => {
         num: -42,
       },
       undefined,
+      false,
     );
   });
 
@@ -191,6 +193,7 @@ describe("ToolsTab", () => {
         num: null,
       },
       undefined,
+      false,
     );
   });
 
@@ -234,6 +237,7 @@ describe("ToolsTab", () => {
         optionalBoolean: null,
       },
       undefined,
+      false,
     );
 
     // State 2: Uncheck null checkbox -> should set value to false and enable input
@@ -255,6 +259,7 @@ describe("ToolsTab", () => {
         optionalBoolean: false,
       },
       undefined,
+      false,
     );
 
     // State 3: Check boolean checkbox -> should set value to true
@@ -277,6 +282,7 @@ describe("ToolsTab", () => {
         optionalBoolean: true,
       },
       undefined,
+      false,
     );
 
     // State 4: Check null checkbox again -> should set value back to null and disable input
@@ -295,6 +301,7 @@ describe("ToolsTab", () => {
         optionalBoolean: null,
       },
       undefined,
+      false,
     );
   });
 
@@ -816,6 +823,7 @@ describe("ToolsTab", () => {
         mockTools[0].name,
         expect.any(Object),
         { requestId: "abc123" },
+        false,
       );
     });
   });
@@ -1080,6 +1088,7 @@ describe("ToolsTab", () => {
           count: 5,
         },
         undefined,
+        false,
       );
     });
 

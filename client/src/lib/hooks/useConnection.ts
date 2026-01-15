@@ -32,6 +32,9 @@ import {
   LoggingLevel,
   ElicitRequestSchema,
   Implementation,
+  ListTasksResultSchema,
+  CancelTaskResultSchema,
+  TaskStatusNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
   AnySchema,
@@ -422,6 +425,10 @@ export function useConnection({
         roots: {
           listChanged: true,
         },
+        tasks: {
+          list: {},
+          cancel: {},
+        },
       },
     };
 
@@ -699,6 +706,7 @@ export function useConnection({
           ResourceListChangedNotificationSchema,
           ToolListChangedNotificationSchema,
           PromptListChangedNotificationSchema,
+          TaskStatusNotificationSchema,
         ].forEach((notificationSchema) => {
           client.setNotificationHandler(notificationSchema, onNotification);
         });
@@ -840,6 +848,26 @@ export function useConnection({
     }
   };
 
+  const cancelTask = async (taskId: string) => {
+    return makeRequest(
+      {
+        method: "tasks/cancel",
+        params: { taskId },
+      },
+      CancelTaskResultSchema,
+    );
+  };
+
+  const listTasks = async (cursor?: string) => {
+    return makeRequest(
+      {
+        method: "tasks/list",
+        params: { cursor },
+      },
+      ListTasksResultSchema,
+    );
+  };
+
   const disconnect = async () => {
     if (transportType === "streamable-http")
       await (
@@ -870,6 +898,8 @@ export function useConnection({
     requestHistory,
     clearRequestHistory,
     makeRequest,
+    cancelTask,
+    listTasks,
     sendNotification,
     handleCompletion,
     completionsSupported,
