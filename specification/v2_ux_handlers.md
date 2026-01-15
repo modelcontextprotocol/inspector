@@ -11,6 +11,7 @@
     * [Elicitation Handler](#elicitation-handler)
     * [Roots Configuration](#roots-configuration)
     * [Experimental Features Panel](#experimental-features-panel)
+  * [Sampling Providers & Testing Profiles](#sampling-providers--testing-profiles)
   * [Form Generation](#form-generation)
   * [Error Handling UX](#error-handling-ux)
 
@@ -20,7 +21,53 @@ These are modals/panels that appear when the server invokes client capabilities.
 
 ### Sampling Panel
 
-When server sends `sampling/createMessage` request:
+Sampling requests appear in two contexts:
+
+1. **Inline** - When triggered during tool execution (shown in Tools screen)
+2. **Modal** - For standalone testing or when triggered outside tool context
+
+#### Inline Expansion (Primary)
+
+When a tool call triggers a sampling request, it appears inline within the tool execution flow:
+
+```
++-------------------------------------------------------------------------+
+| Tool: query_database                                     [Executing...] |
++-------------------------------------------------------------------------+
+| Parameters: { "table": "users", "limit": 10 }                           |
++-------------------------------------------------------------------------+
+| [!] Sampling Request                           [Profile: Quick Mock v]  |
+|                                                                         |
+| +---------------------------------------------------------------------+ |
+| | Model hints: claude-3-sonnet, gpt-4                                 | |
+| | Messages: "Analyze this database schema and recommend an index..."  | |
+| |                                                      [View Details] | |
+| +---------------------------------------------------------------------+ |
+|                                                                         |
+| Response:                                                               |
+| +---------------------------------------------------------------------+ |
+| | Based on the query patterns, I recommend creating a composite       | |
+| | index on (user_id, created_at) for optimal performance...           | |
+| +---------------------------------------------------------------------+ |
+|                                                                         |
+| Model Used: [mock-model-1.0]    Stop Reason: [end_turn v]               |
+|                                                                         |
+|                     [Auto-respond]  [Edit & Send]  [Reject]             |
++-------------------------------------------------------------------------+
+```
+
+**Inline Features:**
+- Compact view showing essential info (model hints, message preview)
+- [View Details] expands to show full request (like modal view)
+- **Testing Profile** dropdown to quickly switch response behavior
+- **[Auto-respond]** uses active Testing Profile to generate response
+- **[Edit & Send]** allows modifying response before sending
+- **[Reject]** declines the sampling request
+- Response field pre-filled based on active Testing Profile
+
+#### Modal View (Standalone Testing)
+
+For testing sampling outside of tool execution, or when [View Details] is clicked:
 
 ```
 +-------------------------------------------------------------------------+
@@ -55,7 +102,9 @@ When server sends `sampling/createMessage` request:
 |                                                                         |
 | ----------------------------------------------------------------------- |
 |                                                                         |
-| Response (enter mock response or connect to LLM):                       |
+| Testing Profile: [Quick Mock v]                        [Edit Profiles]  |
+|                                                                         |
+| Response:                                                               |
 | +---------------------------------------------------------------------+ |
 | | Based on the data chart, I can see several key trends:              | |
 | |                                                                     | |
@@ -64,29 +113,210 @@ When server sends `sampling/createMessage` request:
 | |                                                                     | |
 | +---------------------------------------------------------------------+ |
 |                                                                         |
-| Model Used: ________________    Stop Reason: [end_turn v]               |
+| Model Used: [mock-model-1.0]    Stop Reason: [end_turn v]               |
+|                                                                         |
+|              [Auto-respond]  [Reject Request]  [Send Response]          |
++-------------------------------------------------------------------------+
+```
+
+**Modal Features:**
+- Display full sampling request details:
+  - Messages with text, image, and audio content
+  - Model hints and preferences (cost, speed, intelligence priorities)
+  - Max tokens, stop sequences, temperature
+  - Context inclusion settings
+  - **Tools** and **toolChoice** (if provided) for tool-enabled sampling
+- **Testing Profile** selector with [Edit Profiles] link
+- **[Auto-respond]** generates response from active profile
+- **Editable response field** for mock LLM testing
+- Model and stop reason fields for response
+- **Approve/Reject** with human-in-the-loop
+- Image/audio preview in messages
+- Integration with Testing Profiles (see below)
+
+#### Sampling with Tool Calling (2025-11-25)
+
+Sampling requests can include `tools` and `toolChoice` parameters, enabling multi-turn agentic loops where the LLM can request tool execution.
+
+**Request with Tools:**
+
+```
++-------------------------------------------------------------------------+
+| Sampling Request (with tools)                                       [x] |
++-------------------------------------------------------------------------+
+|                                                                         |
+| Messages:                                                               |
+| +---------------------------------------------------------------------+ |
+| | [0] role: user                                                      | |
+| |     "What's the weather in Paris and London?"                       | |
+| +---------------------------------------------------------------------+ |
+|                                                                         |
+| Available Tools (2):                                                    |
+| +---------------------------------------------------------------------+ |
+| | get_weather                                                         | |
+| |   Get current weather for a city                                    | |
+| |   Parameters: { city: string }                                      | |
+| +---------------------------------------------------------------------+ |
+| | get_forecast                                                        | |
+| |   Get 5-day forecast for a city                                     | |
+| |   Parameters: { city: string, days: number }                        | |
+| +---------------------------------------------------------------------+ |
+|                                                                         |
+| Tool Choice: [auto v]  (auto | none | required | specific tool)         |
+|                                                                         |
++-------------------------------------------------------------------------+
+```
+
+**Response with Tool Use:**
+
+When the LLM wants to call tools, the response includes `stopReason: "toolUse"`:
+
+```
++-------------------------------------------------------------------------+
+| Sampling Response                                                       |
++-------------------------------------------------------------------------+
+|                                                                         |
+| Response Content:                                                       |
+| +---------------------------------------------------------------------+ |
+| | I'll check the weather for both cities.                             | |
+| +---------------------------------------------------------------------+ |
+|                                                                         |
+| Tool Calls Requested:                                                   |
+| +---------------------------------------------------------------------+ |
+| | [1] get_weather({ "city": "Paris" })                                | |
+| | [2] get_weather({ "city": "London" })                               | |
+| +---------------------------------------------------------------------+ |
+|                                                                         |
+| Model Used: [claude-3-sonnet]    Stop Reason: [toolUse]                 |
+|                                                                         |
+| [!] Server must execute tools and send follow-up sampling request       |
 |                                                                         |
 |                                      [Reject Request]  [Send Response]  |
 +-------------------------------------------------------------------------+
 ```
 
-**Features:**
-- Display full sampling request details:
-  - Messages with text, image, and audio content
-  - Model hints and preferences
-  - Max tokens, stop sequences, temperature
-  - Context inclusion settings
-- **Editable response field** for mock LLM testing
-- Model and stop reason fields for response
-- **Approve/Reject** with human-in-the-loop
-- Image/audio preview in messages
-- Option to integrate with real LLM (deferred to plugins)
+**Multi-Turn Tool Loop Flow:**
+
+```
+Server                              Client (Inspector)
+  |                                        |
+  |  sampling/createMessage (with tools)   |
+  |--------------------------------------->|
+  |                                        |  [User reviews request]
+  |                                        |  [User approves/provides response]
+  |      Response (stopReason: toolUse)    |
+  |<---------------------------------------|
+  |                                        |
+  |  [Server executes requested tools]     |
+  |                                        |
+  |  sampling/createMessage                |
+  |  (history + tool_results + tools)      |
+  |--------------------------------------->|
+  |                                        |  [User reviews continuation]
+  |      Response (stopReason: endTurn)    |
+  |<---------------------------------------|
+  |                                        |
+  |  [Server processes final response]     |
+```
+
+**Tool Results in Follow-up Request:**
+
+The server sends tool results back in a continuation request:
+
+```
++-------------------------------------------------------------------------+
+| Sampling Request (continuation with tool results)                   [x] |
++-------------------------------------------------------------------------+
+|                                                                         |
+| Messages:                                                               |
+| +---------------------------------------------------------------------+ |
+| | [0] role: user                                                      | |
+| |     "What's the weather in Paris and London?"                       | |
+| |                                                                     | |
+| | [1] role: assistant                                                 | |
+| |     "I'll check the weather for both cities."                       | |
+| |     Tool calls: get_weather(Paris), get_weather(London)             | |
+| |                                                                     | |
+| | [2] role: user (tool_result)                                        | |
+| |     get_weather(Paris): { "temp": 18, "conditions": "Sunny" }       | |
+| |     get_weather(London): { "temp": 14, "conditions": "Cloudy" }     | |
+| +---------------------------------------------------------------------+ |
+|                                                                         |
+| Available Tools (2): [same as before]                                   |
+|                                                                         |
++-------------------------------------------------------------------------+
+```
+
+**History View:**
+
+The History screen shows the complete tool loop as a nested chain:
+
+```
+[>] 14:35:22  tools/call  weather_report        [success] 2.5s  [Replay]
+    +-- 14:35:23  sampling/createMessage (with tools)         [+100ms]
+    |     Response: toolUse - get_weather(Paris), get_weather(London)
+    +-- 14:35:24  [tool execution: get_weather x2]            [+500ms]
+    +-- 14:35:25  sampling/createMessage (continuation)       [+1.2s]
+    |     Response: "Paris is 18C and sunny, London is 14C and cloudy"
+```
 
 ### Elicitation Handler
 
-When server sends `elicitation/create` request:
+Elicitation requests appear in two contexts:
 
-**Form Mode:**
+1. **Inline** - When triggered during tool execution (shown in Tools screen)
+2. **Modal** - For standalone testing or when triggered outside tool context
+
+#### Inline Expansion (Form Mode)
+
+When a tool call triggers a form elicitation, it appears inline:
+
+```
++-------------------------------------------------------------------------+
+| Tool: process_data                                       [Executing...] |
++-------------------------------------------------------------------------+
+| Parameters: { "dataset": "quarterly_sales" }                            |
++-------------------------------------------------------------------------+
+| [!] Elicitation Request (form)                                          |
+|                                                                         |
+| "Please confirm the data processing parameters."                        |
+|                                                                         |
+| +---------------------------------------------------------------------+ |
+| | include_deleted: [ ] No    output_format: [CSV v]                   | |
+| | date_range: [2024-01-01] to [2024-12-31]                            | |
+| +---------------------------------------------------------------------+ |
+|                                                                         |
+| WARNING: Server "data-processor" is requesting this data.               |
+|                                                                         |
+|                                              [Cancel]  [Submit]         |
++-------------------------------------------------------------------------+
+```
+
+#### Inline Expansion (URL Mode)
+
+When a tool call triggers a URL elicitation:
+
+```
++-------------------------------------------------------------------------+
+| Tool: connect_oauth                                      [Executing...] |
++-------------------------------------------------------------------------+
+| Parameters: { "provider": "github" }                                    |
++-------------------------------------------------------------------------+
+| [!] Elicitation Request (external URL)                                  |
+|                                                                         |
+| "Please complete OAuth authorization."                                  |
+|                                                                         |
+| URL: https://github.com/login/oauth/authorize?...         [Copy] [Open] |
+|                                                                         |
+| Status: Waiting for completion...                          (spinning)   |
+|                                                                         |
+|                                                            [Cancel]     |
++-------------------------------------------------------------------------+
+```
+
+#### Modal View - Form Mode
+
+For standalone testing or expanded view:
 
 ```
 +-------------------------------------------------------------------------+
@@ -124,7 +354,7 @@ When server sends `elicitation/create` request:
 +-------------------------------------------------------------------------+
 ```
 
-**URL Mode:**
+#### Modal View - URL Mode
 
 ```
 +-------------------------------------------------------------------------+
@@ -158,12 +388,22 @@ When server sends `elicitation/create` request:
 ```
 
 **Features:**
+
+- **Inline Display:**
+  - Compact form showing essential fields
+  - Integrated with tool execution flow
+  - Clear connection between tool call and elicitation
+  - Same submit/cancel behavior as modal
+
 - **Form Mode:**
   - Generate form from JSON Schema in request
+  - **Schema restriction:** Flat objects with primitive properties only (string, number, boolean, enum) - no nested objects or arrays
   - Validate input before submission
   - Required field indicators
   - Security warning with server name
   - Submit returns response to server
+  - Response `action`: "accept" | "decline" | "cancel"
+
 - **URL Mode:**
   - Display URL for user to visit
   - Copy URL button
@@ -171,6 +411,7 @@ When server sends `elicitation/create` request:
   - Waiting indicator until `notifications/elicitation/complete` received
   - Elicitation ID display
   - Domain verification warning
+
 - **Cancel** sends declined response
 
 ### Roots Configuration
@@ -323,6 +564,124 @@ Accessed via Settings or dedicated nav item:
   - Verifying `_meta`/`progressToken` handling
   - Testing experimental methods before SDK support
   - Comparing behavior across different servers
+
+## Sampling Providers & Testing Profiles
+
+Testing Profiles allow quick switching between different sampling response strategies.
+
+### Architecture
+
+```
+Sampling Providers (built-in for V2):
++-- Manual        - User types each response
++-- Mock/Template - Auto-respond with preconfigured templates
+
+Testing Profiles (saved configurations):
++-- Profile selects a provider
++-- Profile configures that provider's settings
++-- Quick switch between profiles for different testing scenarios
+```
+
+### Testing Profiles Settings
+
+```
++-------------------------------------------------------------------------+
+| Sampling Settings                                                       |
++-------------------------------------------------------------------------+
+|                                                                         |
+| Active Profile: [Quick Mock v]                          [+ New Profile] |
+|                                                                         |
+| Saved Profiles:                                                         |
+| +---------------------------------------------------------------------+ |
+| | (*) Quick Mock      | Mock, auto-respond, simple template          | |
+| | ( ) Detailed Mock   | Mock, model-specific templates               | |
+| | ( ) Manual Review   | Manual, no auto-respond                      | |
+| +---------------------------------------------------------------------+ |
+|                                           [Edit Selected] [Delete]      |
+|                                                                         |
++-------------------------------------------------------------------------+
+| Profile: Quick Mock                                         [Editing]   |
++-------------------------------------------------------------------------+
+|                                                                         |
+| Profile Name: [Quick Mock                    ]                          |
+|                                                                         |
+| Provider: [Mock/Template v]                                             |
+|                                                                         |
+| [x] Auto-respond to sampling requests                                   |
+|                                                                         |
+| Default Response Template:                                              |
+| +---------------------------------------------------------------------+ |
+| | This is a mock LLM response for testing purposes.                   | |
+| +---------------------------------------------------------------------+ |
+|                                                                         |
+| Default Model: [mock-model-1.0           ]                              |
+| Default Stop Reason: [end_turn v]                                       |
+|                                                                         |
+| Model-Specific Overrides:                                   [+ Add]     |
+| +---------------------------------------------------------------------+ |
+| | Pattern        | Response Template                        | Actions | |
+| +---------------------------------------------------------------------+ |
+| | claude-*       | "I'll analyze this as Claude would..."   | [Edit]  | |
+| | gpt-*          | "As an AI assistant, I can help..."      | [Edit]  | |
+| +---------------------------------------------------------------------+ |
+|                                                                         |
+|                                              [Save Profile] [Cancel]    |
++-------------------------------------------------------------------------+
+```
+
+### Provider: Manual
+
+User manually enters each sampling response:
+
+- No auto-respond
+- Response field starts empty
+- User must type or paste response
+- Best for careful testing of specific responses
+
+### Provider: Mock/Template
+
+Automatically generates responses based on templates:
+
+- **Auto-respond** enabled by default
+- Default template used for all requests (unless overridden)
+- **Model-specific overrides** match model hints with patterns:
+  - `claude-*` matches any Claude model hint
+  - `gpt-*` matches any GPT model hint
+  - First matching pattern wins
+- Response pre-filled in UI (user can still edit before sending)
+
+### Profile Switching
+
+Profiles can be switched from:
+
+1. **Sampling Settings** panel (global)
+2. **Inline sampling request** dropdown (per-request override)
+3. **Modal sampling view** dropdown
+
+### Extension Points (Future)
+
+The provider interface is designed for future plugin extensions:
+
+```typescript
+interface SamplingProvider {
+  name: string;
+  description: string;
+  configure(): ProviderConfig;  // Returns config UI schema
+  respond(request: SamplingRequest, config: ProviderConfig): Promise<SamplingResponse>;
+}
+```
+
+**Built-in providers (V2):**
+- Manual
+- Mock/Template
+
+**Future plugin examples:**
+- OpenAI Provider (forwards to OpenAI API)
+- Anthropic Provider (forwards to Claude API)
+- Ollama Provider (local LLM)
+- Custom Provider (user-defined handler)
+
+When plugins are installed, they appear as additional provider options in the profile configuration.
 
 ## Form Generation
 
