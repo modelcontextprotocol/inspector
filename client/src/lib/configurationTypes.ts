@@ -40,4 +40,9 @@ export type InspectorConfig = {
    * Session token for authenticating with the MCP Proxy Server. This token is displayed in the proxy server console on startup.
    */
   MCP_PROXY_AUTH_TOKEN: ConfigItem;
+
+  /**
+   * Default Time-to-Live (TTL) in milliseconds for newly created tasks.
+   */
+  MCP_TASK_TTL: ConfigItem;
 };
