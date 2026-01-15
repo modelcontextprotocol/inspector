@@ -28,8 +28,7 @@ npm run test:cli-metadata # metadata.test.ts
 The `helpers/` directory contains shared utilities:
 
 - `cli-runner.ts` - Spawns CLI as subprocess and captures output
-- `test-mcp-server.ts` - Standalone stdio MCP server script for stdio transport testing
-- `instrumented-server.ts` - In-process MCP test server for HTTP/SSE transports with request recording
+- `test-server.ts` - Manages external MCP test servers (HTTP/SSE) with dynamic port allocation
 - `assertions.ts` - Custom assertion helpers for CLI output validation
 - `fixtures.ts` - Test config file generators and temporary directory management
 
@@ -39,6 +38,8 @@ The `helpers/` directory contains shared utilities:
 - Tests within a file run sequentially (we have isolated config files and ports, so we could get more aggressive if desired)
 - Config files use `crypto.randomUUID()` for uniqueness in parallel execution
 - HTTP/SSE servers use dynamic port allocation to avoid conflicts
-- Coverage is not used because much of the code that we want to measure is run by a spawned process, so it can't be tracked by Vitest
-- /sample-config.json is no longer used by tests - not clear if this file serves some other purpose so leaving it for now
-- All tests now use built-in MCP test servers, there are no external dependencies on servers from a registry
+- Coverage is not used because the code that we want to measure is run by a spawned process, so it can't be tracked by Vi
+
+## Future
+
+"Dependence on the everything server is not really a super coupling. Simpler examples for each of the features, self-contained in the test suite would be a better approach." - Cliff Hall

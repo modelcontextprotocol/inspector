@@ -1,47 +1,27 @@
-import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
-import * as crypto from "crypto";
-import { getTestMcpServerCommand } from "./test-server-stdio.js";
+import fs from "fs";
+import path from "path";
+import os from "os";
+import crypto from "crypto";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(__dirname, "../../../");
+
+export const TEST_SERVER = "@modelcontextprotocol/server-everything@2026.1.14";
 
 /**
- * Sentinel value for tests that don't need a real server
- * (tests that expect failure before connecting)
+ * Get the sample config file path
  */
-export const NO_SERVER_SENTINEL = "invalid-command-that-does-not-exist";
-
-/**
- * Create a sample test config with test-stdio and test-http servers
- * Returns a temporary config file path that should be cleaned up with deleteConfigFile()
- * @param httpUrl - Optional full URL (including /mcp path) for test-http server.
- *                  If not provided, uses a placeholder URL. The test-http server exists
- *                  to test server selection logic and may not actually be used.
- */
-export function createSampleTestConfig(httpUrl?: string): string {
-  const { command, args } = getTestMcpServerCommand();
-  return createTestConfig({
-    mcpServers: {
-      "test-stdio": {
-        type: "stdio",
-        command,
-        args,
-        env: {
-          HELLO: "Hello MCP!",
-        },
-      },
-      "test-http": {
-        type: "streamable-http",
-        url: httpUrl || "http://localhost:3001/mcp",
-      },
-    },
-  });
+export function getSampleConfigPath(): string {
+  return path.join(PROJECT_ROOT, "sample-config.json");
 }
 
 /**
  * Create a temporary directory for test files
  * Uses crypto.randomUUID() to ensure uniqueness even when called in parallel
  */
-function createTempDir(prefix: string = "mcp-inspector-test-"): string {
+export function createTempDir(prefix: string = "mcp-inspector-test-"): string {
   const uniqueId = crypto.randomUUID();
   const tempDir = path.join(os.tmpdir(), `${prefix}${uniqueId}`);
   fs.mkdirSync(tempDir, { recursive: true });
@@ -51,7 +31,7 @@ function createTempDir(prefix: string = "mcp-inspector-test-"): string {
 /**
  * Clean up temporary directory
  */
-function cleanupTempDir(dir: string) {
+export function cleanupTempDir(dir: string) {
   try {
     fs.rmSync(dir, { recursive: true, force: true });
   } catch (err) {
@@ -82,8 +62,123 @@ export function createInvalidConfig(): string {
 }
 
 /**
- * Delete a config file and its containing directory
+ * Get the directory containing a config file (for cleanup)
  */
-export function deleteConfigFile(configPath: string): void {
-  cleanupTempDir(path.dirname(configPath));
+export function getConfigDir(configPath: string): string {
+  return path.dirname(configPath);
+}
+
+/**
+ * Create a stdio config file
+ */
+export function createStdioConfig(): string {
+  return createTestConfig({
+    mcpServers: {
+      "test-stdio": {
+        type: "stdio",
+        command: "npx",
+        args: [TEST_SERVER],
+        env: {
+          TEST_ENV: "test-value",
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Create an SSE config file
+ */
+export function createSseConfig(): string {
+  return createTestConfig({
+    mcpServers: {
+      "test-sse": {
+        type: "sse",
+        url: "http://localhost:3000/sse",
+        note: "Test SSE server",
+      },
+    },
+  });
+}
+
+/**
+ * Create an HTTP config file
+ */
+export function createHttpConfig(): string {
+  return createTestConfig({
+    mcpServers: {
+      "test-http": {
+        type: "streamable-http",
+        url: "http://localhost:3001/mcp",
+        note: "Test HTTP server",
+      },
+    },
+  });
+}
+
+/**
+ * Create a legacy config file (without type field)
+ */
+export function createLegacyConfig(): string {
+  return createTestConfig({
+    mcpServers: {
+      "test-legacy": {
+        command: "npx",
+        args: [TEST_SERVER],
+        env: {
+          LEGACY_ENV: "legacy-value",
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Create a single-server config (for auto-selection)
+ */
+export function createSingleServerConfig(): string {
+  return createTestConfig({
+    mcpServers: {
+      "only-server": {
+        command: "npx",
+        args: [TEST_SERVER],
+      },
+    },
+  });
+}
+
+/**
+ * Create a multi-server config with a "default-server" key (but still requires explicit selection)
+ */
+export function createDefaultServerConfig(): string {
+  return createTestConfig({
+    mcpServers: {
+      "default-server": {
+        command: "npx",
+        args: [TEST_SERVER],
+      },
+      "other-server": {
+        command: "node",
+        args: ["other.js"],
+      },
+    },
+  });
+}
+
+/**
+ * Create a multi-server config (no default)
+ */
+export function createMultiServerConfig(): string {
+  return createTestConfig({
+    mcpServers: {
+      server1: {
+        command: "npx",
+        args: [TEST_SERVER],
+      },
+      server2: {
+        command: "node",
+        args: ["other.js"],
+      },
+    },
+  });
 }
