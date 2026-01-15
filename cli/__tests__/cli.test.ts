@@ -1,42 +1,50 @@
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import { runCli } from "./helpers/cli-runner.js";
-import { expectCliSuccess, expectCliFailure } from "./helpers/assertions.js";
 import {
-  TEST_SERVER,
-  getSampleConfigPath,
+  expectCliSuccess,
+  expectCliFailure,
+  expectValidJson,
+} from "./helpers/assertions.js";
+import {
+  NO_SERVER_SENTINEL,
+  createSampleTestConfig,
   createTestConfig,
   createInvalidConfig,
   deleteConfigFile,
+  getTestMcpServerCommand,
 } from "./helpers/fixtures.js";
-import { TestServerManager } from "./helpers/test-server.js";
-
-const TEST_CMD = "npx";
-const TEST_ARGS = [TEST_SERVER];
+import {
+  createInstrumentedServer,
+  createEchoTool,
+} from "./helpers/instrumented-server.js";
 
 describe("CLI Tests", () => {
-  const serverManager = new TestServerManager();
-
-  afterAll(() => {
-    serverManager.cleanup();
-  });
-
   describe("Basic CLI Mode", () => {
     it("should execute tools/list successfully", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
+        command,
+        ...args,
         "--cli",
         "--method",
         "tools/list",
       ]);
 
       expectCliSuccess(result);
+      const json = expectValidJson(result);
+      expect(json).toHaveProperty("tools");
+      expect(Array.isArray(json.tools)).toBe(true);
+
+      // Validate expected tools from test-mcp-server
+      const toolNames = json.tools.map((tool: any) => tool.name);
+      expect(toolNames).toContain("echo");
+      expect(toolNames).toContain("get-sum");
+      expect(toolNames).toContain("get-annotated-message");
     });
 
     it("should fail with nonexistent method", async () => {
       const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
+        NO_SERVER_SENTINEL,
         "--cli",
         "--method",
         "nonexistent/method",
@@ -46,7 +54,7 @@ describe("CLI Tests", () => {
     });
 
     it("should fail without method", async () => {
-      const result = await runCli([TEST_CMD, ...TEST_ARGS, "--cli"]);
+      const result = await runCli([NO_SERVER_SENTINEL, "--cli"]);
 
       expectCliFailure(result);
     });
@@ -54,25 +62,36 @@ describe("CLI Tests", () => {
 
   describe("Environment Variables", () => {
     it("should accept environment variables", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
+        command,
+        ...args,
         "-e",
         "KEY1=value1",
         "-e",
         "KEY2=value2",
         "--cli",
         "--method",
-        "tools/list",
+        "resources/read",
+        "--uri",
+        "test://env",
       ]);
 
       expectCliSuccess(result);
+      const json = expectValidJson(result);
+      expect(json).toHaveProperty("contents");
+      expect(Array.isArray(json.contents)).toBe(true);
+      expect(json.contents.length).toBeGreaterThan(0);
+
+      // Parse the env vars from the resource
+      const envVars = JSON.parse(json.contents[0].text);
+      expect(envVars.KEY1).toBe("value1");
+      expect(envVars.KEY2).toBe("value2");
     });
 
     it("should reject invalid environment variable format", async () => {
       const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
+        NO_SERVER_SENTINEL,
         "-e",
         "INVALID_FORMAT",
         "--cli",
@@ -84,65 +103,93 @@ describe("CLI Tests", () => {
     });
 
     it("should handle environment variable with equals sign in value", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
+        command,
+        ...args,
         "-e",
         "API_KEY=abc123=xyz789==",
         "--cli",
         "--method",
-        "tools/list",
+        "resources/read",
+        "--uri",
+        "test://env",
       ]);
 
       expectCliSuccess(result);
+      const json = expectValidJson(result);
+      const envVars = JSON.parse(json.contents[0].text);
+      expect(envVars.API_KEY).toBe("abc123=xyz789==");
     });
 
     it("should handle environment variable with base64-encoded value", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
+        command,
+        ...args,
         "-e",
         "JWT_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0=",
         "--cli",
         "--method",
-        "tools/list",
+        "resources/read",
+        "--uri",
+        "test://env",
       ]);
 
       expectCliSuccess(result);
+      const json = expectValidJson(result);
+      const envVars = JSON.parse(json.contents[0].text);
+      expect(envVars.JWT_TOKEN).toBe(
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0=",
+      );
     });
   });
 
   describe("Config File", () => {
     it("should use config file with CLI mode", async () => {
-      const result = await runCli([
-        "--config",
-        getSampleConfigPath(),
-        "--server",
-        "everything",
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const configPath = createSampleTestConfig();
+      try {
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "test-stdio",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
 
-      expectCliSuccess(result);
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json).toHaveProperty("tools");
+        expect(Array.isArray(json.tools)).toBe(true);
+        expect(json.tools.length).toBeGreaterThan(0);
+      } finally {
+        deleteConfigFile(configPath);
+      }
     });
 
     it("should fail when using config file without server name", async () => {
-      const result = await runCli([
-        "--config",
-        getSampleConfigPath(),
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const configPath = createSampleTestConfig();
+      try {
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
 
-      expectCliFailure(result);
+        expectCliFailure(result);
+      } finally {
+        deleteConfigFile(configPath);
+      }
     });
 
     it("should fail when using server name without config file", async () => {
       const result = await runCli([
         "--server",
-        "everything",
+        "test-stdio",
         "--cli",
         "--method",
         "tools/list",
@@ -156,7 +203,7 @@ describe("CLI Tests", () => {
         "--config",
         "./nonexistent-config.json",
         "--server",
-        "everything",
+        "test-stdio",
         "--cli",
         "--method",
         "tools/list",
@@ -173,7 +220,7 @@ describe("CLI Tests", () => {
           "--config",
           invalidConfigPath,
           "--server",
-          "everything",
+          "test-stdio",
           "--cli",
           "--method",
           "tools/list",
@@ -186,25 +233,31 @@ describe("CLI Tests", () => {
     });
 
     it("should fail with nonexistent server in config", async () => {
-      const result = await runCli([
-        "--config",
-        getSampleConfigPath(),
-        "--server",
-        "nonexistent",
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const configPath = createSampleTestConfig();
+      try {
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "nonexistent",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
 
-      expectCliFailure(result);
+        expectCliFailure(result);
+      } finally {
+        deleteConfigFile(configPath);
+      }
     });
   });
 
   describe("Resource Options", () => {
     it("should read resource with URI", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
+        command,
+        ...args,
         "--cli",
         "--method",
         "resources/read",
@@ -213,12 +266,24 @@ describe("CLI Tests", () => {
       ]);
 
       expectCliSuccess(result);
+      const json = expectValidJson(result);
+      expect(json).toHaveProperty("contents");
+      expect(Array.isArray(json.contents)).toBe(true);
+      expect(json.contents.length).toBeGreaterThan(0);
+      expect(json.contents[0]).toHaveProperty(
+        "uri",
+        "demo://resource/static/document/architecture.md",
+      );
+      expect(json.contents[0]).toHaveProperty("mimeType", "text/markdown");
+      expect(json.contents[0]).toHaveProperty("text");
+      expect(json.contents[0].text).toContain("Architecture Documentation");
     });
 
     it("should fail when reading resource without URI", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
+        command,
+        ...args,
         "--cli",
         "--method",
         "resources/read",
@@ -230,9 +295,10 @@ describe("CLI Tests", () => {
 
   describe("Prompt Options", () => {
     it("should get prompt by name", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
+        command,
+        ...args,
         "--cli",
         "--method",
         "prompts/get",
@@ -241,12 +307,23 @@ describe("CLI Tests", () => {
       ]);
 
       expectCliSuccess(result);
+      const json = expectValidJson(result);
+      expect(json).toHaveProperty("messages");
+      expect(Array.isArray(json.messages)).toBe(true);
+      expect(json.messages.length).toBeGreaterThan(0);
+      expect(json.messages[0]).toHaveProperty("role", "user");
+      expect(json.messages[0]).toHaveProperty("content");
+      expect(json.messages[0].content).toHaveProperty("type", "text");
+      expect(json.messages[0].content.text).toBe(
+        "This is a simple prompt for testing purposes.",
+      );
     });
 
     it("should get prompt with arguments", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
+        command,
+        ...args,
         "--cli",
         "--method",
         "prompts/get",
@@ -258,12 +335,23 @@ describe("CLI Tests", () => {
       ]);
 
       expectCliSuccess(result);
+      const json = expectValidJson(result);
+      expect(json).toHaveProperty("messages");
+      expect(Array.isArray(json.messages)).toBe(true);
+      expect(json.messages.length).toBeGreaterThan(0);
+      expect(json.messages[0]).toHaveProperty("role", "user");
+      expect(json.messages[0]).toHaveProperty("content");
+      expect(json.messages[0].content).toHaveProperty("type", "text");
+      // Verify that the arguments were actually used in the response
+      expect(json.messages[0].content.text).toContain("city=New York");
+      expect(json.messages[0].content.text).toContain("state=NY");
     });
 
     it("should fail when getting prompt without name", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
+        command,
+        ...args,
         "--cli",
         "--method",
         "prompts/get",
@@ -275,23 +363,40 @@ describe("CLI Tests", () => {
 
   describe("Logging Options", () => {
     it("should set log level", async () => {
-      const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
-        "--cli",
-        "--method",
-        "logging/setLevel",
-        "--log-level",
-        "debug",
-      ]);
+      const server = createInstrumentedServer({});
 
-      expectCliSuccess(result);
+      try {
+        const port = await server.start("http");
+        const serverUrl = `${server.getUrl()}/mcp`;
+
+        const result = await runCli([
+          serverUrl,
+          "--cli",
+          "--method",
+          "logging/setLevel",
+          "--log-level",
+          "debug",
+          "--transport",
+          "http",
+        ]);
+
+        expectCliSuccess(result);
+        // Validate the response - logging/setLevel should return an empty result
+        const json = expectValidJson(result);
+        expect(json).toEqual({});
+
+        // Validate that the server actually received and recorded the log level
+        expect(server.getCurrentLogLevel()).toBe("debug");
+      } finally {
+        await server.stop();
+      }
     });
 
     it("should reject invalid log level", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
-        TEST_CMD,
-        ...TEST_ARGS,
+        command,
+        ...args,
         "--cli",
         "--method",
         "logging/setLevel",
@@ -305,52 +410,80 @@ describe("CLI Tests", () => {
 
   describe("Combined Options", () => {
     it("should handle config file with environment variables", async () => {
-      const result = await runCli([
-        "--config",
-        getSampleConfigPath(),
-        "--server",
-        "everything",
-        "-e",
-        "CLI_ENV_VAR=cli_value",
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const configPath = createSampleTestConfig();
+      try {
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "test-stdio",
+          "-e",
+          "CLI_ENV_VAR=cli_value",
+          "--cli",
+          "--method",
+          "resources/read",
+          "--uri",
+          "test://env",
+        ]);
 
-      expectCliSuccess(result);
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json).toHaveProperty("contents");
+        expect(Array.isArray(json.contents)).toBe(true);
+        expect(json.contents.length).toBeGreaterThan(0);
+
+        // Parse the env vars from the resource
+        const envVars = JSON.parse(json.contents[0].text);
+        expect(envVars).toHaveProperty("CLI_ENV_VAR");
+        expect(envVars.CLI_ENV_VAR).toBe("cli_value");
+      } finally {
+        deleteConfigFile(configPath);
+      }
     });
 
     it("should handle all options together", async () => {
-      const result = await runCli([
-        "--config",
-        getSampleConfigPath(),
-        "--server",
-        "everything",
-        "-e",
-        "CLI_ENV_VAR=cli_value",
-        "--cli",
-        "--method",
-        "tools/call",
-        "--tool-name",
-        "echo",
-        "--tool-arg",
-        "message=Hello",
-        "--log-level",
-        "debug",
-      ]);
+      const configPath = createSampleTestConfig();
+      try {
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "test-stdio",
+          "-e",
+          "CLI_ENV_VAR=cli_value",
+          "--cli",
+          "--method",
+          "tools/call",
+          "--tool-name",
+          "echo",
+          "--tool-arg",
+          "message=Hello",
+          "--log-level",
+          "debug",
+        ]);
 
-      expectCliSuccess(result);
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json).toHaveProperty("content");
+        expect(Array.isArray(json.content)).toBe(true);
+        expect(json.content.length).toBeGreaterThan(0);
+        expect(json.content[0]).toHaveProperty("type", "text");
+        expect(json.content[0].text).toBe("Echo: Hello");
+      } finally {
+        deleteConfigFile(configPath);
+      }
     });
   });
 
   describe("Config Transport Types", () => {
     it("should work with stdio transport type", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const configPath = createTestConfig({
         mcpServers: {
           "test-stdio": {
             type: "stdio",
-            command: "npx",
-            args: [TEST_SERVER],
+            command,
+            args,
             env: {
               TEST_ENV: "test-value",
             },
@@ -358,7 +491,8 @@ describe("CLI Tests", () => {
         },
       });
       try {
-        const result = await runCli([
+        // First validate tools/list works
+        const toolsResult = await runCli([
           "--config",
           configPath,
           "--server",
@@ -368,7 +502,30 @@ describe("CLI Tests", () => {
           "tools/list",
         ]);
 
-        expectCliSuccess(result);
+        expectCliSuccess(toolsResult);
+        const toolsJson = expectValidJson(toolsResult);
+        expect(toolsJson).toHaveProperty("tools");
+        expect(Array.isArray(toolsJson.tools)).toBe(true);
+        expect(toolsJson.tools.length).toBeGreaterThan(0);
+
+        // Then validate env vars from config are passed to server
+        const envResult = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "test-stdio",
+          "--cli",
+          "--method",
+          "resources/read",
+          "--uri",
+          "test://env",
+        ]);
+
+        expectCliSuccess(envResult);
+        const envJson = expectValidJson(envResult);
+        const envVars = JSON.parse(envJson.contents[0].text);
+        expect(envVars).toHaveProperty("TEST_ENV");
+        expect(envVars.TEST_ENV).toBe("test-value");
       } finally {
         deleteConfigFile(configPath);
       }
@@ -429,11 +586,12 @@ describe("CLI Tests", () => {
     });
 
     it("should work with legacy config without type field", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const configPath = createTestConfig({
         mcpServers: {
           "test-legacy": {
-            command: "npx",
-            args: [TEST_SERVER],
+            command,
+            args,
             env: {
               LEGACY_ENV: "legacy-value",
             },
@@ -441,7 +599,8 @@ describe("CLI Tests", () => {
         },
       });
       try {
-        const result = await runCli([
+        // First validate tools/list works
+        const toolsResult = await runCli([
           "--config",
           configPath,
           "--server",
@@ -451,7 +610,30 @@ describe("CLI Tests", () => {
           "tools/list",
         ]);
 
-        expectCliSuccess(result);
+        expectCliSuccess(toolsResult);
+        const toolsJson = expectValidJson(toolsResult);
+        expect(toolsJson).toHaveProperty("tools");
+        expect(Array.isArray(toolsJson.tools)).toBe(true);
+        expect(toolsJson.tools.length).toBeGreaterThan(0);
+
+        // Then validate env vars from config are passed to server
+        const envResult = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "test-legacy",
+          "--cli",
+          "--method",
+          "resources/read",
+          "--uri",
+          "test://env",
+        ]);
+
+        expectCliSuccess(envResult);
+        const envJson = expectValidJson(envResult);
+        const envVars = JSON.parse(envJson.contents[0].text);
+        expect(envVars).toHaveProperty("LEGACY_ENV");
+        expect(envVars.LEGACY_ENV).toBe("legacy-value");
       } finally {
         deleteConfigFile(configPath);
       }
@@ -460,11 +642,12 @@ describe("CLI Tests", () => {
 
   describe("Default Server Selection", () => {
     it("should auto-select single server", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const configPath = createTestConfig({
         mcpServers: {
           "only-server": {
-            command: "npx",
-            args: [TEST_SERVER],
+            command,
+            args,
           },
         },
       });
@@ -478,17 +661,22 @@ describe("CLI Tests", () => {
         ]);
 
         expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json).toHaveProperty("tools");
+        expect(Array.isArray(json.tools)).toBe(true);
+        expect(json.tools.length).toBeGreaterThan(0);
       } finally {
         deleteConfigFile(configPath);
       }
     });
 
     it("should require explicit server selection even with default-server key (multiple servers)", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const configPath = createTestConfig({
         mcpServers: {
           "default-server": {
-            command: "npx",
-            args: [TEST_SERVER],
+            command,
+            args,
           },
           "other-server": {
             command: "node",
@@ -512,11 +700,12 @@ describe("CLI Tests", () => {
     });
 
     it("should require explicit server selection with multiple servers", async () => {
+      const { command, args } = getTestMcpServerCommand();
       const configPath = createTestConfig({
         mcpServers: {
           server1: {
-            command: "npx",
-            args: [TEST_SERVER],
+            command,
+            args,
           },
           server2: {
             command: "node",
@@ -541,71 +730,110 @@ describe("CLI Tests", () => {
   });
 
   describe("HTTP Transport", () => {
-    let httpPort: number;
-
-    beforeAll(async () => {
-      // Start HTTP server for these tests - get the actual port used
-      const serverInfo = await serverManager.startHttpServer(3001);
-      httpPort = serverInfo.port;
-      // Give extra time for server to be fully ready
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    });
-
-    afterAll(async () => {
-      // Cleanup handled by serverManager
-      serverManager.cleanup();
-      // Give time for cleanup
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    });
-
     it("should infer HTTP transport from URL ending with /mcp", async () => {
-      const result = await runCli([
-        `http://127.0.0.1:${httpPort}/mcp`,
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const server = createInstrumentedServer({
+        tools: [createEchoTool()],
+      });
 
-      expectCliSuccess(result);
+      try {
+        await server.start("http");
+        const serverUrl = `${server.getUrl()}/mcp`;
+
+        const result = await runCli([
+          serverUrl,
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json).toHaveProperty("tools");
+        expect(Array.isArray(json.tools)).toBe(true);
+        expect(json.tools.length).toBeGreaterThan(0);
+      } finally {
+        await server.stop();
+      }
     });
 
     it("should work with explicit --transport http flag", async () => {
-      const result = await runCli([
-        `http://127.0.0.1:${httpPort}/mcp`,
-        "--transport",
-        "http",
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const server = createInstrumentedServer({
+        tools: [createEchoTool()],
+      });
 
-      expectCliSuccess(result);
+      try {
+        await server.start("http");
+        const serverUrl = `${server.getUrl()}/mcp`;
+
+        const result = await runCli([
+          serverUrl,
+          "--transport",
+          "http",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json).toHaveProperty("tools");
+        expect(Array.isArray(json.tools)).toBe(true);
+        expect(json.tools.length).toBeGreaterThan(0);
+      } finally {
+        await server.stop();
+      }
     });
 
     it("should work with explicit transport flag and URL suffix", async () => {
-      const result = await runCli([
-        `http://127.0.0.1:${httpPort}/mcp`,
-        "--transport",
-        "http",
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const server = createInstrumentedServer({
+        tools: [createEchoTool()],
+      });
 
-      expectCliSuccess(result);
+      try {
+        await server.start("http");
+        const serverUrl = `${server.getUrl()}/mcp`;
+
+        const result = await runCli([
+          serverUrl,
+          "--transport",
+          "http",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json).toHaveProperty("tools");
+        expect(Array.isArray(json.tools)).toBe(true);
+        expect(json.tools.length).toBeGreaterThan(0);
+      } finally {
+        await server.stop();
+      }
     });
 
     it("should fail when SSE transport is given to HTTP server", async () => {
-      const result = await runCli([
-        `http://127.0.0.1:${httpPort}`,
-        "--transport",
-        "sse",
-        "--cli",
-        "--method",
-        "tools/list",
-      ]);
+      const server = createInstrumentedServer({
+        tools: [createEchoTool()],
+      });
 
-      expectCliFailure(result);
+      try {
+        await server.start("http");
+        const serverUrl = `${server.getUrl()}/mcp`;
+
+        const result = await runCli([
+          serverUrl,
+          "--transport",
+          "sse",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliFailure(result);
+      } finally {
+        await server.stop();
+      }
     });
 
     it("should fail when HTTP transport is specified without URL", async () => {

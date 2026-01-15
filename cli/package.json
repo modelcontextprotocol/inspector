@@ -25,11 +25,13 @@
     "test:cli-metadata": "vitest run metadata.test.ts"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "vitest": "^4.0.17"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
     "commander": "^13.1.0",
+    "express": "^5.2.1",
     "spawn-rx": "^5.1.2"
   }
 }
