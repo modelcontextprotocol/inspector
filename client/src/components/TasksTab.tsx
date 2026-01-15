@@ -54,6 +54,10 @@ const TasksTab = ({
 }) => {
   const [isCancelling, setIsCancelling] = useState<string | null>(null);
 
+  const displayedTask = selectedTask
+    ? tasks.find((t) => t.taskId === selectedTask.taskId) || selectedTask
+    : null;
+
   const handleCancel = async (taskId: string) => {
     setIsCancelling(taskId);
     try {
@@ -99,7 +103,7 @@ const TasksTab = ({
             </Alert>
           )}
 
-          {selectedTask ? (
+          {displayedTask ? (
             <div className="space-y-6">
               <div className="flex items-center justify-between border-b pb-4">
                 <div>
@@ -107,17 +111,17 @@ const TasksTab = ({
                     Task Details
                   </h2>
                   <p className="text-muted-foreground">
-                    ID: {selectedTask.taskId}
+                    ID: {displayedTask.taskId}
                   </p>
                 </div>
-                {selectedTask.status === "working" && (
+                {displayedTask.status === "working" && (
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={() => handleCancel(selectedTask.taskId)}
-                    disabled={isCancelling === selectedTask.taskId}
+                    onClick={() => handleCancel(displayedTask.taskId)}
+                    disabled={isCancelling === displayedTask.taskId}
                   >
-                    {isCancelling === selectedTask.taskId ? (
+                    {isCancelling === displayedTask.taskId ? (
                       <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <XCircle className="mr-2 h-4 w-4" />
@@ -133,19 +137,20 @@ const TasksTab = ({
                     Status
                   </p>
                   <div className="mt-1 flex items-center gap-2">
-                    <TaskStatusIcon status={selectedTask.status} />
+                    <TaskStatusIcon status={displayedTask.status} />
                     <span
                       className={cn(
                         "font-semibold capitalize",
-                        selectedTask.status === "working" && "text-blue-500",
-                        selectedTask.status === "completed" && "text-green-500",
-                        selectedTask.status === "failed" && "text-red-500",
-                        selectedTask.status === "cancelled" && "text-gray-500",
-                        selectedTask.status === "input_required" &&
+                        displayedTask.status === "working" && "text-blue-500",
+                        displayedTask.status === "completed" &&
+                          "text-green-500",
+                        displayedTask.status === "failed" && "text-red-500",
+                        displayedTask.status === "cancelled" && "text-gray-500",
+                        displayedTask.status === "input_required" &&
                           "text-yellow-500",
                       )}
                     >
-                      {selectedTask.status.replace("_", " ")}
+                      {displayedTask.status.replace("_", " ")}
                     </span>
                   </div>
                 </div>
@@ -154,7 +159,7 @@ const TasksTab = ({
                     Last Updated
                   </p>
                   <p className="mt-1 font-medium">
-                    {new Date(selectedTask.lastUpdatedAt).toLocaleString()}
+                    {new Date(displayedTask.lastUpdatedAt).toLocaleString()}
                   </p>
                 </div>
                 <div className="rounded-lg border p-3">
@@ -162,7 +167,7 @@ const TasksTab = ({
                     Created At
                   </p>
                   <p className="mt-1 font-medium">
-                    {new Date(selectedTask.createdAt).toLocaleString()}
+                    {new Date(displayedTask.createdAt).toLocaleString()}
                   </p>
                 </div>
                 <div className="rounded-lg border p-3">
@@ -170,20 +175,20 @@ const TasksTab = ({
                     TTL
                   </p>
                   <p className="mt-1 font-medium">
-                    {selectedTask.ttl === null
+                    {displayedTask.ttl === null
                       ? "Infinite"
-                      : `${selectedTask.ttl}s`}
+                      : `${displayedTask.ttl}s`}
                   </p>
                 </div>
               </div>
 
-              {selectedTask.statusMessage && (
+              {displayedTask.statusMessage && (
                 <div className="rounded-lg border p-3">
                   <p className="text-sm font-medium text-muted-foreground">
                     Status Message
                   </p>
                   <p className="mt-1 whitespace-pre-wrap">
-                    {selectedTask.statusMessage}
+                    {displayedTask.statusMessage}
                   </p>
                 </div>
               )}
@@ -191,7 +196,7 @@ const TasksTab = ({
               <div className="space-y-2">
                 <h3 className="text-lg font-semibold">Full Task Object</h3>
                 <div className="rounded-md border">
-                  <JsonView data={selectedTask} />
+                  <JsonView data={displayedTask} />
                 </div>
               </div>
             </div>

@@ -307,6 +307,11 @@ const App = () => {
     handleDragStart: handleSidebarDragStart,
   } = useDraggableSidebar(320);
 
+  const selectedTaskRef = useRef<Task | null>(null);
+  useEffect(() => {
+    selectedTaskRef.current = selectedTask;
+  }, [selectedTask]);
+
   const {
     connectionStatus,
     serverCapabilities,
@@ -351,7 +356,7 @@ const App = () => {
             return [task, ...prev];
           }
         });
-        if (selectedTask?.taskId === task.taskId) {
+        if (selectedTaskRef.current?.taskId === task.taskId) {
           setSelectedTask(task);
         }
       }
