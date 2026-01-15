@@ -422,6 +422,8 @@ export class InstrumentedServer {
 
     if (this.httpServer) {
       return new Promise((resolve) => {
+        // Force close all connections
+        this.httpServer!.closeAllConnections?.();
         this.httpServer!.close(() => {
           this.httpServer = undefined;
           resolve();

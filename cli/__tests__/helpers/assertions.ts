@@ -50,17 +50,3 @@ export function expectJsonStructure(result: CliResult, expectedKeys: string[]) {
   });
   return json;
 }
-
-/**
- * Check if output contains valid JSON (for tools/resources/prompts responses)
- */
-export function hasValidJsonOutput(output: string): boolean {
-  return (
-    output.includes('"tools"') ||
-    output.includes('"resources"') ||
-    output.includes('"prompts"') ||
-    output.includes('"content"') ||
-    output.includes('"messages"') ||
-    output.includes('"contents"')
-  );
-}

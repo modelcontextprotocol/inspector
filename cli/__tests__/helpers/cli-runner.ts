@@ -41,22 +41,26 @@ export async function runCli(
     let stderr = "";
     let resolved = false;
 
-    // Default timeout of 12 seconds (less than vitest's 15s)
-    const timeoutMs = options.timeout ?? 12000;
+    // Default timeout of 10 seconds (less than vitest's 15s)
+    const timeoutMs = options.timeout ?? 10000;
     const timeout = setTimeout(() => {
       if (!resolved) {
         resolved = true;
         // Kill the process and all its children
         try {
           if (process.platform === "win32") {
-            child.kill();
+            child.kill("SIGTERM");
           } else {
             // On Unix, kill the process group
             process.kill(-child.pid!, "SIGTERM");
           }
         } catch (e) {
-          // Process might already be dead
-          child.kill();
+          // Process might already be dead, try direct kill
+          try {
+            child.kill("SIGKILL");
+          } catch (e2) {
+            // Process is definitely dead
+          }
         }
         reject(new Error(`CLI command timed out after ${timeoutMs}ms`));
       }
