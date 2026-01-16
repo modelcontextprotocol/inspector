@@ -11,12 +11,13 @@ import {
   createTestConfig,
   createInvalidConfig,
   deleteConfigFile,
-  getTestMcpServerCommand,
 } from "./helpers/fixtures.js";
+import { getTestMcpServerCommand } from "./helpers/test-server-stdio.js";
+import { createTestServerHttp } from "./helpers/test-server-http.js";
 import {
-  createInstrumentedServer,
   createEchoTool,
-} from "./helpers/instrumented-server.js";
+  createTestServerInfo,
+} from "./helpers/test-fixtures.js";
 
 describe("CLI Tests", () => {
   describe("Basic CLI Mode", () => {
@@ -363,7 +364,10 @@ describe("CLI Tests", () => {
 
   describe("Logging Options", () => {
     it("should set log level", async () => {
-      const server = createInstrumentedServer({});
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        logging: true,
+      });
 
       try {
         const port = await server.start("http");
@@ -731,7 +735,8 @@ describe("CLI Tests", () => {
 
   describe("HTTP Transport", () => {
     it("should infer HTTP transport from URL ending with /mcp", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -757,7 +762,8 @@ describe("CLI Tests", () => {
     });
 
     it("should work with explicit --transport http flag", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -785,7 +791,8 @@ describe("CLI Tests", () => {
     });
 
     it("should work with explicit transport flag and URL suffix", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -813,7 +820,8 @@ describe("CLI Tests", () => {
     });
 
     it("should fail when SSE transport is given to HTTP server", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 

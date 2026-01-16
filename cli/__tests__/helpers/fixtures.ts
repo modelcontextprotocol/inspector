@@ -2,10 +2,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import crypto from "crypto";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { getTestMcpServerCommand } from "./test-server-stdio.js";
 
 /**
  * Sentinel value for tests that don't need a real server
@@ -89,21 +86,4 @@ export function createInvalidConfig(): string {
  */
 export function deleteConfigFile(configPath: string): void {
   cleanupTempDir(path.dirname(configPath));
-}
-
-/**
- * Get the path to the test MCP server script
- */
-export function getTestMcpServerPath(): string {
-  return path.resolve(__dirname, "test-mcp-server.ts");
-}
-
-/**
- * Get the command and args to run the test MCP server
- */
-export function getTestMcpServerCommand(): { command: string; args: string[] } {
-  return {
-    command: "tsx",
-    args: [getTestMcpServerPath()],
-  };
 }

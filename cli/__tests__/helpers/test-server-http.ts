@@ -6,37 +6,8 @@ import type { Request, Response } from "express";
 import express from "express";
 import { createServer as createHttpServer, Server as HttpServer } from "http";
 import { createServer as createNetServer } from "net";
-
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: Record<string, any>; // JSON Schema
-  handler: (params: Record<string, any>) => Promise<any>;
-}
-
-export interface ResourceDefinition {
-  uri: string;
-  name: string;
-  description?: string;
-  mimeType?: string;
-  text?: string;
-}
-
-export interface PromptDefinition {
-  name: string;
-  description?: string;
-  arguments?: Array<{
-    name: string;
-    description?: string;
-    required?: boolean;
-  }>;
-}
-
-export interface ServerConfig {
-  tools?: ToolDefinition[];
-  resources?: ResourceDefinition[];
-  prompts?: PromptDefinition[];
-}
+import * as z from "zod/v4";
+import type { ServerConfig } from "./test-fixtures.js";
 
 export interface RecordedRequest {
   method: string;
@@ -85,7 +56,9 @@ function extractHeaders(req: Request): Record<string, string> {
   return headers;
 }
 
-export class InstrumentedServer {
+// With this test server, your test can hold an instance and you can get the server's recorded message history at any time.
+//
+export class TestServerHttp {
   private mcpServer: McpServer;
   private config: ServerConfig;
   private recordedRequests: RecordedRequest[] = [];
@@ -97,23 +70,35 @@ export class InstrumentedServer {
 
   constructor(config: ServerConfig) {
     this.config = config;
-    this.mcpServer = new McpServer(
-      {
-        name: "instrumented-test-server",
-        version: "1.0.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-          resources: {},
-          prompts: {},
-          logging: {},
-        },
-      },
-    );
+    const capabilities: {
+      tools?: {};
+      resources?: {};
+      prompts?: {};
+      logging?: {};
+    } = {};
+
+    // Only include capabilities for features that are present in config
+    if (config.tools !== undefined) {
+      capabilities.tools = {};
+    }
+    if (config.resources !== undefined) {
+      capabilities.resources = {};
+    }
+    if (config.prompts !== undefined) {
+      capabilities.prompts = {};
+    }
+    if (config.logging === true) {
+      capabilities.logging = {};
+    }
+
+    this.mcpServer = new McpServer(config.serverInfo, {
+      capabilities,
+    });
 
     this.setupHandlers();
-    this.setupLoggingHandler();
+    if (config.logging === true) {
+      this.setupLoggingHandler();
+    }
   }
 
   private setupHandlers() {
@@ -164,25 +149,11 @@ export class InstrumentedServer {
     // Set up prompts
     if (this.config.prompts && this.config.prompts.length > 0) {
       for (const prompt of this.config.prompts) {
-        // Convert arguments array to a schema object if provided
-        const argsSchema = prompt.arguments
-          ? prompt.arguments.reduce(
-              (acc, arg) => {
-                acc[arg.name] = {
-                  type: "string",
-                  description: arg.description,
-                };
-                return acc;
-              },
-              {} as Record<string, any>,
-            )
-          : undefined;
-
         this.mcpServer.registerPrompt(
           prompt.name,
           {
             description: prompt.description,
-            argsSchema,
+            argsSchema: prompt.argsSchema,
           },
           async (args) => {
             // Return a simple prompt response
@@ -465,53 +436,8 @@ export class InstrumentedServer {
 }
 
 /**
- * Create an instrumented MCP server for testing
+ * Create an HTTP/SSE MCP test server
  */
-export function createInstrumentedServer(
-  config: ServerConfig,
-): InstrumentedServer {
-  return new InstrumentedServer(config);
-}
-
-/**
- * Create a simple "add" tool definition that adds two numbers
- */
-export function createAddTool(): ToolDefinition {
-  return {
-    name: "add",
-    description: "Add two numbers together",
-    inputSchema: {
-      type: "object",
-      properties: {
-        a: { type: "number", description: "First number" },
-        b: { type: "number", description: "Second number" },
-      },
-      required: ["a", "b"],
-    },
-    handler: async (params: Record<string, any>) => {
-      const a = params.a as number;
-      const b = params.b as number;
-      return { result: a + b };
-    },
-  };
-}
-
-/**
- * Create a simple "echo" tool definition that echoes back the input
- */
-export function createEchoTool(): ToolDefinition {
-  return {
-    name: "echo",
-    description: "Echo back the input message",
-    inputSchema: {
-      type: "object",
-      properties: {
-        message: { type: "string", description: "Message to echo back" },
-      },
-      required: ["message"],
-    },
-    handler: async (params: Record<string, any>) => {
-      return { message: `Echo: ${params.message as string}` };
-    },
-  };
+export function createTestServerHttp(config: ServerConfig): TestServerHttp {
+  return new TestServerHttp(config);
 }
