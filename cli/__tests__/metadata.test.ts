@@ -5,17 +5,19 @@ import {
   expectCliFailure,
   expectValidJson,
 } from "./helpers/assertions.js";
+import { createTestServerHttp } from "./helpers/test-server-http.js";
 import {
-  createInstrumentedServer,
   createEchoTool,
   createAddTool,
-} from "./helpers/instrumented-server.js";
+  createTestServerInfo,
+} from "./helpers/test-fixtures.js";
 import { NO_SERVER_SENTINEL } from "./helpers/fixtures.js";
 
 describe("Metadata Tests", () => {
   describe("General Metadata", () => {
     it("should work with tools/list", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -51,7 +53,8 @@ describe("Metadata Tests", () => {
     });
 
     it("should work with resources/list", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         resources: [
           {
             uri: "test://resource",
@@ -95,7 +98,8 @@ describe("Metadata Tests", () => {
     });
 
     it("should work with prompts/list", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         prompts: [
           {
             name: "test-prompt",
@@ -138,7 +142,8 @@ describe("Metadata Tests", () => {
     });
 
     it("should work with resources/read", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         resources: [
           {
             uri: "test://resource",
@@ -182,7 +187,8 @@ describe("Metadata Tests", () => {
     });
 
     it("should work with prompts/get", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         prompts: [
           {
             name: "test-prompt",
@@ -227,7 +233,8 @@ describe("Metadata Tests", () => {
 
   describe("Tool-Specific Metadata", () => {
     it("should work with tools/call", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -267,7 +274,8 @@ describe("Metadata Tests", () => {
     });
 
     it("should work with complex tool", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createAddTool()],
       });
 
@@ -310,7 +318,8 @@ describe("Metadata Tests", () => {
 
   describe("Metadata Merging", () => {
     it("should merge general and tool-specific metadata (tool-specific overrides)", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -356,7 +365,8 @@ describe("Metadata Tests", () => {
 
   describe("Metadata Parsing", () => {
     it("should handle numeric values", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -396,7 +406,8 @@ describe("Metadata Tests", () => {
     });
 
     it("should handle JSON values", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -436,7 +447,8 @@ describe("Metadata Tests", () => {
     });
 
     it("should handle special characters", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -478,7 +490,8 @@ describe("Metadata Tests", () => {
 
   describe("Metadata Edge Cases", () => {
     it("should handle single metadata entry", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -514,7 +527,8 @@ describe("Metadata Tests", () => {
     });
 
     it("should handle many metadata entries", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -592,7 +606,8 @@ describe("Metadata Tests", () => {
 
   describe("Metadata Impact", () => {
     it("should handle tool-specific metadata precedence over general", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -634,7 +649,8 @@ describe("Metadata Tests", () => {
     });
 
     it("should work with resources methods", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         resources: [
           {
             uri: "test://resource",
@@ -676,7 +692,8 @@ describe("Metadata Tests", () => {
     });
 
     it("should work with prompts methods", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         prompts: [
           {
             name: "test-prompt",
@@ -721,7 +738,8 @@ describe("Metadata Tests", () => {
 
   describe("Metadata Validation", () => {
     it("should handle special characters in keys", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -767,7 +785,8 @@ describe("Metadata Tests", () => {
 
   describe("Metadata Integration", () => {
     it("should work with all MCP methods", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -805,7 +824,8 @@ describe("Metadata Tests", () => {
     });
 
     it("should handle complex metadata scenario", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -858,7 +878,8 @@ describe("Metadata Tests", () => {
     });
 
     it("should handle metadata parsing validation", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 

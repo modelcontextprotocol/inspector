@@ -5,15 +5,17 @@ import {
   expectOutputContains,
   expectCliSuccess,
 } from "./helpers/assertions.js";
+import { createTestServerHttp } from "./helpers/test-server-http.js";
 import {
-  createInstrumentedServer,
   createEchoTool,
-} from "./helpers/instrumented-server.js";
+  createTestServerInfo,
+} from "./helpers/test-fixtures.js";
 
 describe("Header Parsing and Validation", () => {
   describe("Valid Headers", () => {
     it("should parse valid single header and send it to server", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -52,7 +54,8 @@ describe("Header Parsing and Validation", () => {
     });
 
     it("should parse multiple headers", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -86,7 +89,8 @@ describe("Header Parsing and Validation", () => {
     });
 
     it("should handle header with colons in value", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
@@ -119,7 +123,8 @@ describe("Header Parsing and Validation", () => {
     });
 
     it("should handle whitespace in headers", async () => {
-      const server = createInstrumentedServer({
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
       });
 
