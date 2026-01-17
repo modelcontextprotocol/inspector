@@ -49,6 +49,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
+  AppWindow,
   Bell,
   Files,
   FolderTree,
@@ -71,6 +72,8 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import AppsTab from "./components/AppsTab";
+import { getAppTools } from "./lib/app-utils";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
   getMCPProxyAddress,
@@ -265,6 +268,9 @@ const App = () => {
 
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
+  const [selectedAppTool, setSelectedAppTool] = useState<Tool | null>(null);
+  const [appToolResult, setAppToolResult] =
+    useState<CompatibilityCallToolResult | null>(null);
   const [nextResourceCursor, setNextResourceCursor] = useState<
     string | undefined
   >();
@@ -367,6 +373,7 @@ const App = () => {
         ...(serverCapabilities?.resources ? ["resources"] : []),
         ...(serverCapabilities?.prompts ? ["prompts"] : []),
         ...(serverCapabilities?.tools ? ["tools"] : []),
+        ...(getAppTools(tools).length > 0 ? ["apps"] : []),
         "ping",
         "sampling",
         "elicitations",
@@ -666,6 +673,7 @@ const App = () => {
             ...(serverCapabilities?.resources ? ["resources"] : []),
             ...(serverCapabilities?.prompts ? ["prompts"] : []),
             ...(serverCapabilities?.tools ? ["tools"] : []),
+            ...(getAppTools(tools).length > 0 ? ["apps"] : []),
             "ping",
             "sampling",
             "elicitations",
@@ -891,6 +899,48 @@ const App = () => {
     }
   };
 
+  const callAppTool = async (name: string, params: Record<string, unknown>) => {
+    lastToolCallOriginTabRef.current = currentTabRef.current;
+
+    const tool = tools.find((t) => t.name === name);
+    const cleanedParams = tool?.inputSchema
+      ? cleanParams(params, tool.inputSchema as JsonSchemaType)
+      : params;
+
+    const mergedMetadata = {
+      ...metadata,
+      progressToken: progressTokenRef.current++,
+    };
+
+    const response = await sendMCPRequest(
+      {
+        method: "tools/call" as const,
+        params: {
+          name,
+          arguments: cleanedParams,
+          _meta: mergedMetadata,
+        },
+      },
+      CompatibilityCallToolResultSchema,
+      "tools",
+    );
+
+    setAppToolResult(response);
+    setErrors((prev) => ({ ...prev, tools: null }));
+    return response;
+  };
+
+  const makeResourceRequest = async (uri: string) => {
+    return sendMCPRequest(
+      {
+        method: "resources/read" as const,
+        params: { uri },
+      },
+      ReadResourceResultSchema,
+      "resources",
+    );
+  };
+
   const handleRootsChange = async () => {
     await sendNotification({ method: "notifications/roots/list_changed" });
   };
@@ -1034,6 +1084,12 @@ const App = () => {
                   <Hammer className="w-4 h-4 mr-2" />
                   Tools
                 </TabsTrigger>
+                {getAppTools(tools).length > 0 && (
+                  <TabsTrigger value="apps">
+                    <AppWindow className="w-4 h-4 mr-2" />
+                    Apps
+                  </TabsTrigger>
+                )}
                 <TabsTrigger value="ping">
                   <Bell className="w-4 h-4 mr-2" />
                   Ping
@@ -1202,6 +1258,36 @@ const App = () => {
                         readResource(uri);
                       }}
                     />
+                    {getAppTools(tools).length > 0 && (
+                      <AppsTab
+                        tools={tools}
+                        listTools={() => {
+                          clearError("tools");
+                          listTools();
+                        }}
+                        clearTools={() => {
+                          setTools([]);
+                          setNextToolCursor(undefined);
+                          cacheToolOutputSchemas([]);
+                        }}
+                        callTool={callAppTool}
+                        selectedTool={selectedAppTool}
+                        setSelectedTool={(tool) => {
+                          clearError("tools");
+                          setSelectedAppTool(tool);
+                          setAppToolResult(null);
+                        }}
+                        toolResult={appToolResult}
+                        nextCursor={nextToolCursor}
+                        error={errors.tools}
+                        resourceContent={resourceContentMap}
+                        onReadResource={(uri: string) => {
+                          clearError("resources");
+                          readResource(uri);
+                        }}
+                        makeResourceRequest={makeResourceRequest}
+                      />
+                    )}
                     <ConsoleTab />
                     <PingTab
                       onPingClick={() => {
