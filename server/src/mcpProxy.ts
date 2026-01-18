@@ -36,7 +36,9 @@ export default function mcpProxy({
           id: message.id,
           error: {
             code: -32001,
-            message: error.message,
+            message: error.cause
+              ? `${error.message} (cause: ${error.cause})`
+              : error.message,
             data: error,
           },
         };

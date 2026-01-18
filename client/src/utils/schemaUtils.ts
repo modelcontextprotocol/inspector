@@ -100,6 +100,7 @@ export function generateDefaultValue(
     propertyName && parentSchema
       ? isPropertyRequired(propertyName, parentSchema)
       : false;
+  const isRootSchema = propertyName === undefined && parentSchema === undefined;
 
   switch (schema.type) {
     case "string":
@@ -112,19 +113,27 @@ export function generateDefaultValue(
     case "array":
       return isRequired ? [] : undefined;
     case "object": {
-      if (!schema.properties) return isRequired ? {} : undefined;
+      if (!schema.properties) {
+        return isRequired || isRootSchema ? {} : undefined;
+      }
 
       const obj: JsonObject = {};
-      // Only include properties that are required according to the schema's required array
+      // Include required properties OR optional properties that declare a default
       Object.entries(schema.properties).forEach(([key, prop]) => {
-        if (isPropertyRequired(key, schema)) {
+        const hasExplicitDefault =
+          "default" in prop && (prop as JsonSchemaType).default !== undefined;
+        if (isPropertyRequired(key, schema) || hasExplicitDefault) {
           const value = generateDefaultValue(prop, key, schema);
           if (value !== undefined) {
             obj[key] = value;
           }
         }
       });
-      return isRequired ? obj : Object.keys(obj).length > 0 ? obj : undefined;
+
+      if (Object.keys(obj).length === 0) {
+        return isRequired || isRootSchema ? {} : undefined;
+      }
+      return obj;
     }
     case "null":
       return null;

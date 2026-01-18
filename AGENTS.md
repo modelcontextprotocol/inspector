@@ -1,6 +1,6 @@
 # MCP Inspector Development Guide
 
-> **Note:** Inspector V2 is under development to address architectural and UX improvements. These guidelines apply to the current version (V1). See [CONTRIBUTING.md](CONTRIBUTING.md) for information about V2 development.
+> **Note:** Inspector V2 is under development to address architectural and UX improvements. During this time, V1 contributions should focus on **bug fixes and MCP spec compliance**. See [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
 
 ## Build Commands
 

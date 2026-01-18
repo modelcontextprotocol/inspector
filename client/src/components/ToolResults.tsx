@@ -80,8 +80,8 @@ const ToolResults = ({
           <h4 className="font-semibold mb-2">Invalid Tool Result:</h4>
           <JsonView data={toolResult} />
           <h4 className="font-semibold mb-2">Errors:</h4>
-          {parsedResult.error.errors.map((error, idx) => (
-            <JsonView data={error} key={idx} />
+          {parsedResult.error.issues.map((issue, idx) => (
+            <JsonView data={issue} key={idx} />
           ))}
         </>
       );

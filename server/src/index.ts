@@ -17,7 +17,10 @@ import {
   StdioClientTransport,
   getDefaultEnvironment,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  StreamableHTTPClientTransport,
+  StreamableHTTPError,
+} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -43,6 +46,22 @@ const { values } = parseArgs({
     "server-url": { type: "string", default: "" },
   },
 });
+
+/**
+ * Helper function to detect 401 Unauthorized errors from various transport types.
+ * StreamableHTTPClientTransport throws a generic Error with "HTTP 401" in the message
+ * when there's no authProvider configured, while SSEClientTransport throws SseError.
+ */
+const is401Error = (error: unknown): boolean => {
+  if (error instanceof SseError && error.code === 401) return true;
+  if (error instanceof StreamableHTTPError && error.code === 401) return true;
+  if (
+    error instanceof Error &&
+    (error.message.includes("HTTP 401") || error.message.includes("(401)"))
+  )
+    return true;
+  return false;
+};
 
 // Function to get HTTP headers.
 const getHttpHeaders = (req: express.Request): Record<string, string> => {
@@ -241,17 +260,30 @@ const authMiddleware = (
  * This is necessary for the EventSource polyfill which expects web streams
  */
 const createWebReadableStream = (nodeStream: any): ReadableStream => {
+  let closed = false;
   return new ReadableStream({
     start(controller) {
       nodeStream.on("data", (chunk: any) => {
-        controller.enqueue(chunk);
+        if (!closed) {
+          controller.enqueue(chunk);
+        }
       });
       nodeStream.on("end", () => {
-        controller.close();
+        if (!closed) {
+          closed = true;
+          controller.close();
+        }
       });
       nodeStream.on("error", (err: any) => {
-        controller.error(err);
+        if (!closed) {
+          closed = true;
+          controller.error(err);
+        }
       });
+    },
+    cancel() {
+      closed = true;
+      nodeStream.destroy();
     },
   });
 };
@@ -495,10 +527,10 @@ app.post(
           req.body,
         );
       } catch (error) {
-        if (error instanceof SseError && error.code === 401) {
+        if (is401Error(error)) {
           console.error(
             "Received 401 Unauthorized from MCP server:",
-            error.message,
+            error instanceof Error ? error.message : error,
           );
           res.status(401).json(error);
           return;
@@ -526,6 +558,7 @@ app.delete(
           res.status(404).end("Transport not found for sessionId " + sessionId);
         } else {
           await serverTransport.terminateSession();
+          await serverTransport.close();
           webAppTransports.delete(sessionId);
           serverTransports.delete(sessionId);
           sessionHeaderHolders.delete(sessionId);
@@ -635,7 +668,7 @@ app.get(
         transportToServer: serverTransport,
       });
     } catch (error) {
-      if (error instanceof SseError && error.code === 401) {
+      if (is401Error(error)) {
         console.error(
           "Received 401 Unauthorized from MCP server. Authentication failure.",
         );
@@ -681,7 +714,7 @@ app.get(
         transportToServer: serverTransport,
       });
     } catch (error) {
-      if (error instanceof SseError && error.code === 401) {
+      if (is401Error(error)) {
         console.error(
           "Received 401 Unauthorized from MCP server. Authentication failure.",
         );

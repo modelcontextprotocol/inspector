@@ -15,8 +15,7 @@ We're actively developing **Inspector V2** to address architectural and UX impro
 
 **Current version (V1) contribution scope:**
 
-- Critical issues are actively maintained
-- Small UX improvements are welcome
+- Bug fixes and MCP spec compliance are actively maintained
 - Documentation updates are always appreciated
 - Major changes will be directed to V2 development
 
@@ -41,7 +40,7 @@ If you find a security vulnerability, please refer to our [Security Policy](SECU
 
 ## Questions?
 
-Feel free to [open an issue](https://github.com/modelcontextprotocol/mcp-inspector/issues) for questions or join the MCP Contributor [Discord server](https://modelcontextprotocol.io/community/communication). Also, please see notes above on Inspector V2 Development.
+Feel free to [open an issue](https://github.com/modelcontextprotocol/inspector/issues) for questions or join the MCP Contributor [Discord server](https://modelcontextprotocol.io/community/communication). Also, please see notes above on Inspector V2 Development.
 
 ## License
 

@@ -7,6 +7,7 @@ import {
 import {
   StreamableHTTPClientTransport,
   StreamableHTTPClientTransportOptions,
+  StreamableHTTPError,
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   ClientNotification,
@@ -30,11 +31,15 @@ import {
   Progress,
   LoggingLevel,
   ElicitRequestSchema,
+  Implementation,
 } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  AnySchema,
+  SchemaOutput,
+} from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useEffect, useState } from "react";
 import { useToast } from "@/lib/hooks/useToast";
-import { z } from "zod";
 import { ConnectionStatus, CLIENT_IDENTITY } from "../constants";
 import { Notification } from "../notificationTypes";
 import {
@@ -83,6 +88,7 @@ interface UseConnectionOptions {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getRoots?: () => any[];
   defaultLoggingLevel?: LoggingLevel;
+  serverImplementation?: Implementation;
   metadata?: Record<string, string>;
 }
 
@@ -122,6 +128,8 @@ export function useConnection({
   const [mcpProtocolVersion, setMcpProtocolVersion] = useState<string | null>(
     null,
   );
+  const [serverImplementation, setServerImplementation] =
+    useState<Implementation | null>(null);
 
   useEffect(() => {
     if (!oauthClientId) {
@@ -166,11 +174,11 @@ export function useConnection({
     ]);
   };
 
-  const makeRequest = async <T extends z.ZodType>(
+  const makeRequest = async <T extends AnySchema>(
     request: ClientRequest,
     schema: T,
     options?: RequestOptions & { suppressToast?: boolean },
-  ): Promise<z.output<T>> => {
+  ): Promise<SchemaOutput<T>> => {
     if (!mcpClient) {
       throw new Error("MCP client not connected");
     }
@@ -351,8 +359,11 @@ export function useConnection({
   const is401Error = (error: unknown): boolean => {
     return (
       (error instanceof SseError && error.code === 401) ||
+      (error instanceof StreamableHTTPError && error.code === 401) ||
       (error instanceof Error && error.message.includes("401")) ||
-      (error instanceof Error && error.message.includes("Unauthorized"))
+      (error instanceof Error && error.message.includes("Unauthorized")) ||
+      (error instanceof Error &&
+        error.message.includes("Missing Authorization header"))
     );
   };
 
@@ -382,11 +393,22 @@ export function useConnection({
       saveScopeToSessionStorage(sseUrl, scope);
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
-      const result = await auth(serverAuthProvider, {
-        serverUrl: sseUrl,
-        scope,
-      });
-      return result === "AUTHORIZED";
+      try {
+        const result = await auth(serverAuthProvider, {
+          serverUrl: sseUrl,
+          scope,
+        });
+        return result === "AUTHORIZED";
+      } catch (authError) {
+        // Show user-friendly error message for OAuth failures
+        toast({
+          title: "OAuth Authentication Failed",
+          description:
+            authError instanceof Error ? authError.message : String(authError),
+          variant: "destructive",
+        });
+        return false;
+      }
     }
 
     return false;
@@ -727,6 +749,8 @@ export function useConnection({
         setClientTransport(transport);
 
         capabilities = client.getServerCapabilities();
+        const serverInfo = client.getServerVersion();
+        setServerImplementation(serverInfo || null);
         const initializeRequest = {
           method: "initialize",
         };
@@ -819,6 +843,12 @@ export function useConnection({
           description: `Server declares logging capability but doesn't implement method: "${lastRequest}"`,
           variant: "destructive",
         });
+      } else {
+        toast({
+          title: "Connection error",
+          description: `Connection failed: "${e}"`,
+          variant: "destructive",
+        });
       }
       console.error(e);
       setConnectionStatus("error");
@@ -844,11 +874,13 @@ export function useConnection({
 
   const clearRequestHistory = () => {
     setRequestHistory([]);
+    setServerImplementation(null);
   };
 
   return {
     connectionStatus,
     serverCapabilities,
+    serverImplementation,
     mcpClient,
     requestHistory,
     clearRequestHistory,

@@ -43,8 +43,38 @@ describe("generateDefaultValue", () => {
     expect(generateDefaultValue({ type: "array" })).toBe(undefined);
   });
 
-  test("generates undefined for optional object", () => {
-    expect(generateDefaultValue({ type: "object" })).toBe(undefined);
+  test("generates empty object for optional root object", () => {
+    expect(generateDefaultValue({ type: "object" })).toEqual({});
+  });
+
+  test("generates undefined for nested optional object", () => {
+    // When called WITH propertyName and parentSchema, and the property is NOT required,
+    // nested optional objects should return undefined
+    const parentSchema = {
+      type: "object" as const,
+      required: ["otherField"],
+      properties: {
+        optionalObject: { type: "object" as const },
+        otherField: { type: "string" as const },
+      },
+    };
+    expect(
+      generateDefaultValue({ type: "object" }, "optionalObject", parentSchema),
+    ).toBe(undefined);
+  });
+
+  test("generates empty object for root-level object with all optional properties", () => {
+    // Root-level schema with properties but no required array
+    // This is the exact scenario from PR #926 - elicitation with all optional fields
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        optionalField1: { type: "string" },
+        optionalField2: { type: "number" },
+      },
+      // No required array - all fields are optional
+    };
+    expect(generateDefaultValue(schema)).toEqual({});
   });
 
   test("generates default null for unknown types", () => {
