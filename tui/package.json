@@ -1,0 +1,38 @@
+{
+  "name": "@modelcontextprotocol/inspector-tui",
+  "version": "0.18.0",
+  "description": "Terminal User Interface (TUI) for the Model Context Protocol inspector",
+  "license": "MIT",
+  "author": {
+    "name": "Bob Dickinson (TeamSpark AI)",
+    "email": "bob@teamspark.ai"
+  },
+  "homepage": "https://modelcontextprotocol.io",
+  "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
+  "type": "module",
+  "main": "build/tui.js",
+  "bin": {
+    "mcp-inspector-tui": "./build/tui.js"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx tui.tsx"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "fullscreen-ink": "^0.1.0",
+    "ink": "^6.6.0",
+    "ink-form": "^2.0.1",
+    "ink-scroll-view": "^0.3.5",
+    "react": "^19.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "@types/react": "^19.2.7",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

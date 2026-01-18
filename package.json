@@ -14,18 +14,21 @@
     "client/bin",
     "client/dist",
     "server/build",
-    "cli/build"
+    "cli/build",
+    "tui/build"
   ],
   "workspaces": [
     "client",
     "server",
-    "cli"
+    "cli",
+    "tui"
   ],
   "scripts": {
-    "build": "npm run build-server && npm run build-client && npm run build-cli",
+    "build": "npm run build-server && npm run build-client && npm run build-cli && npm run build-tui",
     "build-server": "cd server && npm run build",
     "build-client": "cd client && npm run build",
     "build-cli": "cd cli && npm run build",
+    "build-tui": "cd tui && npm run build",
     "clean": "rimraf ./node_modules ./client/node_modules ./cli/node_modules ./build ./client/dist ./server/build ./cli/build ./package-lock.json && npm install",
     "dev": "node client/bin/start.js --dev",
     "dev:windows": "node client/bin/start.js --dev",
