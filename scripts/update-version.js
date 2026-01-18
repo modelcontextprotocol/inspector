@@ -40,6 +40,7 @@ const packagePaths = [
   "client/package.json",
   "server/package.json",
   "cli/package.json",
+  "tui/package.json",
 ];
 
 const updatedFiles = [];

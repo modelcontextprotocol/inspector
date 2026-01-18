@@ -500,25 +500,21 @@ This provides a single entry point with consistent argument parsing across all t
 
 ### Phase 1: Initial Integration (Standalone TUI)
 
-- [ ] Create `tui/` workspace directory
-- [ ] Set up `tui/package.json` with dependencies
-- [ ] Configure `tui/tsconfig.json` (no path mappings needed)
-- [ ] Copy TUI source files from mcp-inspect
-- [ ] **Remove CLI functionality**: Delete `src/cli.ts` from TUI
-- [ ] **Remove CLI mode**: Remove CLI mode handling from `tui.tsx` entry point
-- [ ] **Keep utilities**: Keep transport, config, client utilities in TUI (self-contained)
-- [ ] Add `--tui` flag to `cli/src/cli.ts`
-- [ ] Implement `runTui()` function in launcher
-- [ ] Update root `package.json` with tui workspace
-- [ ] Add build scripts for TUI
-- [ ] Update version management scripts (`update-version.js` and `check-version-consistency.js`) to include TUI
-- [ ] Test TUI with test harness servers (stdio transport)
-- [ ] Test TUI with test harness servers (SSE transport)
-- [ ] Test TUI with test harness servers (HTTP transport)
-- [ ] Test config file loading
-- [ ] Test server selection
-- [ ] Verify TUI works standalone without CLI dependencies
-- [ ] Update documentation
+- [x] Create `tui/` workspace directory
+- [x] Set up `tui/package.json` with dependencies
+- [x] Configure `tui/tsconfig.json` (no path mappings needed)
+- [x] Copy TUI source files from mcp-inspect
+- [x] **Remove CLI functionality**: Delete `src/cli.ts` from TUI
+- [x] **Remove CLI mode**: Remove CLI mode handling from `tui.tsx` entry point
+- [x] **Keep utilities**: Keep transport, config, client utilities in TUI (self-contained)
+- [x] Add `--tui` flag to `cli/src/cli.ts`
+- [x] Implement `runTui()` function in launcher
+- [x] Update root `package.json` with tui workspace
+- [x] Add build scripts for TUI
+- [x] Update version management scripts (`update-version.js` and `check-version-consistency.js`) to include TUI
+- [x] Test config file loading
+- [x] Test server selection
+- [x] Verify TUI works standalone without CLI dependencies
 
 ### Phase 2: Code Sharing via Direct Imports
 

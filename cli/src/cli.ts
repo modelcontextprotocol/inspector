@@ -167,6 +167,36 @@ async function runCli(args: Args): Promise<void> {
   }
 }
 
+async function runTui(tuiArgs: string[]): Promise<void> {
+  const projectRoot = resolve(__dirname, "../..");
+  const tuiPath = resolve(projectRoot, "tui", "build", "tui.js");
+
+  const abort = new AbortController();
+
+  let cancelled = false;
+
+  process.on("SIGINT", () => {
+    cancelled = true;
+    abort.abort();
+  });
+
+  try {
+    // Remove --tui flag and pass everything else directly to TUI
+    const filteredArgs = tuiArgs.filter((arg) => arg !== "--tui");
+
+    await spawnPromise("node", [tuiPath, ...filteredArgs], {
+      env: process.env,
+      signal: abort.signal,
+      echoOutput: true,
+      stdio: "inherit",
+    });
+  } catch (e) {
+    if (!cancelled || process.env.DEBUG) {
+      throw e;
+    }
+  }
+}
+
 function loadConfigFile(configPath: string, serverName: string): ServerConfig {
   try {
     const resolvedConfigPath = path.isAbsolute(configPath)
@@ -267,6 +297,7 @@ function parseArgs(): Args {
     .option("--config <path>", "config file path")
     .option("--server <n>", "server name from config file")
     .option("--cli", "enable CLI mode")
+    .option("--tui", "enable TUI mode")
     .option("--transport <type>", "transport type (stdio, sse, http)")
     .option("--server-url <url>", "server URL for SSE/HTTP transport")
     .option(
@@ -379,6 +410,15 @@ async function main(): Promise<void> {
   });
 
   try {
+    // For now we just pass the raw args to TUI (we'll integrate config later)
+    // The main issue is that Inspector only supports a single server and the TUI supports a set
+    //
+    // Check for --tui in raw argv - if present, bypass all parsing
+    if (process.argv.includes("--tui")) {
+      await runTui(process.argv.slice(2));
+      return;
+    }
+
     const args = parseArgs();
 
     if (args.cli) {
