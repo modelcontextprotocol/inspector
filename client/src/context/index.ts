@@ -12,3 +12,20 @@ export {
   type ConnectionOptions,
   type ConnectionError,
 } from './McpContext';
+
+export {
+  ExecutionProvider,
+  useExecution,
+  useActiveProfile,
+  usePendingRequestsCount,
+  useCurrentPendingRequest,
+  useResolvedRequestsCount,
+  generateRequestId,
+  generateClientRequestId,
+  type ExecutionState,
+  type ExecutionAction,
+  type PendingClientRequest,
+  type ClientRequestType,
+  type ClientRequestStatus,
+  type ExecutionProgress,
+} from './ExecutionContext';

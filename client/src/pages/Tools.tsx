@@ -17,25 +17,29 @@ import {
 import { IconPlugConnectedX, IconAlertCircle } from '@tabler/icons-react';
 import { ListChangedIndicator } from '../components/ListChangedIndicator';
 import { AnnotationBadges } from '../components/AnnotationBadges';
-import { useMcp } from '@/context';
-import { useMcpTools } from '@/hooks';
+import { PendingClientRequestsPanel } from '../components/PendingClientRequestsPanel';
+import {
+  useExecution,
+  useActiveProfile,
+  useMcp,
+  generateRequestId,
+} from '@/context';
+import { useMcpTools, useSamplingHandler } from '@/hooks';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
-// NOTE: Using local state instead of ExecutionContext.
-// Client features (PendingClientRequestsPanel, inline queue) will be added in PR #3.
+import type { SamplingResponse } from '@modelcontextprotocol/inspector-core';
 
 export function Tools() {
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
   const [toolArgs, setToolArgs] = useState('{}');
   const [toolResult, setToolResult] = useState<string | null>(null);
-  const [isExecuting, setIsExecuting] = useState(false);
   const [executionStartTime, setExecutionStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [progress, setProgress] = useState<{ current: number; message: string } | null>(null);
 
   // MCP connection and tools
-  const { client, isConnected } = useMcp();
+  const { isConnected } = useMcp();
+  // NOTE: Using useMcpTools instead of useTrackedMcpTools.
+  // Tracked version (with history/logging) will be added when storage contexts are implemented.
   const {
     tools,
     isLoading: toolsLoading,
@@ -43,7 +47,21 @@ export function Tools() {
     listChanged,
     refresh,
     clearListChanged,
+    executeTool,
   } = useMcpTools();
+
+  // Use ExecutionContext for execution state
+  const { state, dispatch } = useExecution();
+  const activeProfile = useActiveProfile();
+  const isExecuting = state.isExecuting;
+
+  // Sampling handler for client requests
+  const {
+    setupHandler: setupSamplingHandler,
+    handleResponse: handleSamplingResponse,
+    handleReject: handleSamplingReject,
+    cleanup: cleanupSampling,
+  } = useSamplingHandler();
 
   // Select first tool when tools load
   useEffect(() => {
@@ -70,12 +88,21 @@ export function Tools() {
   };
 
   const handleExecute = async () => {
-    if (!selectedTool || !client) return;
+    if (!selectedTool) return;
 
-    setIsExecuting(true);
+    const requestId = generateRequestId();
+    dispatch({ type: 'START_EXECUTION', requestId });
     setToolResult(null);
     setExecutionStartTime(Date.now());
-    setProgress({ current: 0, message: 'Sending request to server...' });
+
+    // Set up sampling handler for this execution
+    setupSamplingHandler(requestId);
+
+    // Show progress
+    dispatch({
+      type: 'UPDATE_PROGRESS',
+      progress: { current: 0, total: 100, message: 'Sending request to server...' },
+    });
 
     try {
       // Parse tool arguments
@@ -89,29 +116,66 @@ export function Tools() {
         }
       }
 
-      setProgress({ current: 50, message: 'Executing tool...' });
+      dispatch({
+        type: 'UPDATE_PROGRESS',
+        progress: { current: 50, total: 100, message: 'Executing tool...' },
+      });
 
-      // Execute tool via MCP client
-      const result = await client.callTool({ name: selectedTool.name, arguments: args });
+      // Execute tool (tracking will be added when storage contexts are implemented)
+      const result = await executeTool(selectedTool.name, args);
 
-      setProgress({ current: 100, message: 'Complete!' });
+      dispatch({
+        type: 'UPDATE_PROGRESS',
+        progress: { current: 100, total: 100, message: 'Complete!' },
+      });
 
       // Show result
       setToolResult(JSON.stringify(result, null, 2));
+      dispatch({ type: 'END_EXECUTION' });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setToolResult(JSON.stringify({ error: errorMessage }, null, 2));
+      dispatch({ type: 'END_EXECUTION' });
     } finally {
-      setIsExecuting(false);
-      setProgress(null);
+      // Clean up sampling handler
+      cleanupSampling();
     }
   };
 
   const handleCancel = () => {
-    setIsExecuting(false);
-    setProgress(null);
+    dispatch({ type: 'CANCEL_EXECUTION' });
+    cleanupSampling();
     setToolResult(null);
     setExecutionStartTime(null);
+  };
+
+  const handleProfileChange = (profileId: string) => {
+    dispatch({ type: 'SET_ACTIVE_PROFILE', profileId });
+  };
+
+  const handleResolveSampling = (requestId: string, response: SamplingResponse) => {
+    // Use the sampling handler to resolve the request (sends response to server)
+    handleSamplingResponse(requestId, response);
+    // Remove from UI
+    dispatch({ type: 'REMOVE_CLIENT_REQUEST', id: requestId });
+  };
+
+  const handleResolveElicitation = (requestId: string, data: Record<string, unknown>) => {
+    // TODO: Wire up elicitation handler when implemented
+    dispatch({
+      type: 'UPDATE_CLIENT_REQUEST',
+      id: requestId,
+      status: 'completed',
+      response: data,
+    });
+    dispatch({ type: 'REMOVE_CLIENT_REQUEST', id: requestId });
+  };
+
+  const handleReject = (requestId: string) => {
+    // Use the sampling handler to reject the request
+    handleSamplingReject(requestId);
+    // Remove from UI
+    dispatch({ type: 'REMOVE_CLIENT_REQUEST', id: requestId });
   };
 
   const filteredTools = tools.filter((tool) =>
@@ -279,23 +343,23 @@ export function Tools() {
             )}
 
             {/* Progress indicator during execution */}
-            {isExecuting && progress && (
+            {isExecuting && state.progress && (
               <Stack gap="xs">
                 <Group justify="space-between">
                   <Text size="sm" c="dimmed">
-                    {progress.message || 'Executing...'}
+                    {state.progress.message || 'Executing...'}
                   </Text>
                   <Text size="sm" c="dimmed">
                     {(elapsedTime / 1000).toFixed(1)}s
                   </Text>
                 </Group>
                 <Progress
-                  value={progress.current}
+                  value={(state.progress.current / state.progress.total) * 100}
                   size="md"
                   animated
                 />
                 <Text size="xs" c="dimmed" ta="center">
-                  {progress.current}% complete
+                  {state.progress.current}% complete
                 </Text>
               </Stack>
             )}
@@ -306,37 +370,46 @@ export function Tools() {
       {/* Results Panel (4/12) */}
       <Grid.Col span={4}>
         <Card h="100%" withBorder>
-          <Stack gap="md" p="md">
-            <Title order={4}>Results</Title>
-            <ScrollArea flex={1} mah="60vh">
-              <Code block>
-                {toolResult || JSON.stringify(
-                  {
-                    content: [
-                      {
-                        type: 'text',
-                        text: 'Execute a tool to see results here.',
-                      },
-                    ],
-                  },
-                  null,
-                  2
-                )}
-              </Code>
-            </ScrollArea>
-            <Group gap="sm">
-              <Button
-                variant="outline"
-                size="xs"
-                onClick={() => toolResult && navigator.clipboard.writeText(toolResult)}
-              >
-                Copy
-              </Button>
-              <Button variant="outline" size="xs" onClick={() => setToolResult(null)}>
-                Clear
-              </Button>
-            </Group>
-          </Stack>
+          {state.pendingClientRequests.length > 0 ? (
+            <PendingClientRequestsPanel
+              requests={state.pendingClientRequests}
+              activeProfile={activeProfile}
+              profiles={state.profiles}
+              onProfileChange={handleProfileChange}
+              onResolveSampling={handleResolveSampling}
+              onResolveElicitation={handleResolveElicitation}
+              onReject={handleReject}
+              onCancelTool={handleCancel}
+            />
+          ) : (
+            <Stack gap="md" p="md">
+              <Title order={4}>Results</Title>
+              <ScrollArea flex={1} mah="60vh">
+                <Code block>
+                  {toolResult || JSON.stringify(
+                    {
+                      content: [
+                        {
+                          type: 'text',
+                          text: 'Execute a tool to see results here.',
+                        },
+                      ],
+                    },
+                    null,
+                    2
+                  )}
+                </Code>
+              </ScrollArea>
+              <Group gap="sm">
+                <Button variant="outline" size="xs">
+                  Copy
+                </Button>
+                <Button variant="outline" size="xs" onClick={() => setToolResult(null)}>
+                  Clear
+                </Button>
+              </Group>
+            </Stack>
+          )}
         </Card>
       </Grid.Col>
     </Grid>
