@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
-import type { MessageEntry } from "../types.js";
+import type { MessageEntry } from "../mcp/index.js";
 
 interface HistoryTabProps {
   serverName: string | null;

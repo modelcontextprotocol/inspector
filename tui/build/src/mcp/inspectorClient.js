@@ -1,43 +1,7 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type {
-  MCPServerConfig,
-  StderrLogEntry,
-  ConnectionStatus,
-  MessageEntry,
-} from "../types.js";
-import { createTransport, type CreateTransportOptions } from "./transport.js";
+import { createTransport } from "./transport.js";
 import { createClient } from "./client.js";
-import {
-  MessageTrackingTransport,
-  type MessageTrackingCallbacks,
-} from "./messageTrackingTransport.js";
-import type {
-  JSONRPCRequest,
-  JSONRPCNotification,
-  JSONRPCResultResponse,
-  JSONRPCErrorResponse,
-  ServerCapabilities,
-  Implementation,
-} from "@modelcontextprotocol/sdk/types.js";
+import { MessageTrackingTransport } from "./messageTrackingTransport.js";
 import { EventEmitter } from "events";
-
-export interface InspectorClientOptions {
-  /**
-   * Maximum number of messages to store (0 = unlimited, but not recommended)
-   */
-  maxMessages?: number;
-
-  /**
-   * Maximum number of stderr log entries to store (0 = unlimited, but not recommended)
-   */
-  maxStderrLogEvents?: number;
-
-  /**
-   * Whether to pipe stderr for stdio transports (default: true for TUI, false for CLI)
-   */
-  pipeStderr?: boolean;
-}
-
 /**
  * InspectorClient wraps an MCP Client and provides:
  * - Message tracking and storage
@@ -46,34 +10,31 @@ export interface InspectorClientOptions {
  * - Access to client functionality (prompts, resources, tools)
  */
 export class InspectorClient extends EventEmitter {
-  private client: Client | null = null;
-  private transport: any = null;
-  private baseTransport: any = null;
-  private messages: MessageEntry[] = [];
-  private stderrLogs: StderrLogEntry[] = [];
-  private maxMessages: number;
-  private maxStderrLogEvents: number;
-  private status: ConnectionStatus = "disconnected";
+  transportConfig;
+  client = null;
+  transport = null;
+  baseTransport = null;
+  messages = [];
+  stderrLogs = [];
+  maxMessages;
+  maxStderrLogEvents;
+  status = "disconnected";
   // Server data
-  private tools: any[] = [];
-  private resources: any[] = [];
-  private prompts: any[] = [];
-  private capabilities?: ServerCapabilities;
-  private serverInfo?: Implementation;
-  private instructions?: string;
-
-  constructor(
-    private transportConfig: MCPServerConfig,
-    options: InspectorClientOptions = {},
-  ) {
+  tools = [];
+  resources = [];
+  prompts = [];
+  capabilities;
+  serverInfo;
+  instructions;
+  constructor(transportConfig, options = {}) {
     super();
+    this.transportConfig = transportConfig;
     this.maxMessages = options.maxMessages ?? 1000;
     this.maxStderrLogEvents = options.maxStderrLogEvents ?? 1000;
-
     // Set up message tracking callbacks
-    const messageTracking: MessageTrackingCallbacks = {
-      trackRequest: (message: JSONRPCRequest) => {
-        const entry: MessageEntry = {
+    const messageTracking = {
+      trackRequest: (message) => {
+        const entry = {
           id: `${Date.now()}-${Math.random()}`,
           timestamp: new Date(),
           direction: "request",
@@ -81,9 +42,7 @@ export class InspectorClient extends EventEmitter {
         };
         this.addMessage(entry);
       },
-      trackResponse: (
-        message: JSONRPCResultResponse | JSONRPCErrorResponse,
-      ) => {
+      trackResponse: (message) => {
         const messageId = message.id;
         // Find the matching request by message ID
         const requestIndex = this.messages.findIndex(
@@ -92,13 +51,12 @@ export class InspectorClient extends EventEmitter {
             "id" in e.message &&
             e.message.id === messageId,
         );
-
         if (requestIndex !== -1) {
           // Update the request entry with the response
           this.updateMessageResponse(requestIndex, message);
         } else {
           // No matching request found, create orphaned response entry
-          const entry: MessageEntry = {
+          const entry = {
             id: `${Date.now()}-${Math.random()}`,
             timestamp: new Date(),
             direction: "response",
@@ -107,8 +65,8 @@ export class InspectorClient extends EventEmitter {
           this.addMessage(entry);
         }
       },
-      trackNotification: (message: JSONRPCNotification) => {
-        const entry: MessageEntry = {
+      trackNotification: (message) => {
+        const entry = {
           id: `${Date.now()}-${Math.random()}`,
           timestamp: new Date(),
           direction: "notification",
@@ -117,29 +75,24 @@ export class InspectorClient extends EventEmitter {
         this.addMessage(entry);
       },
     };
-
     // Create transport with stderr logging if needed
-    const transportOptions: CreateTransportOptions = {
+    const transportOptions = {
       pipeStderr: options.pipeStderr ?? false,
-      onStderr: (entry: StderrLogEntry) => {
+      onStderr: (entry) => {
         this.addStderrLog(entry);
       },
     };
-
     const { transport: baseTransport } = createTransport(
       transportConfig,
       transportOptions,
     );
-
     // Store base transport for event listeners (always listen to actual transport, not wrapper)
     this.baseTransport = baseTransport;
-
     // Wrap with MessageTrackingTransport if we're tracking messages
     this.transport =
       this.maxMessages > 0
         ? new MessageTrackingTransport(baseTransport, messageTracking)
         : baseTransport;
-
     // Set up transport event listeners on base transport to track disconnections
     this.baseTransport.onclose = () => {
       if (this.status !== "disconnected") {
@@ -148,30 +101,25 @@ export class InspectorClient extends EventEmitter {
         this.emit("disconnect");
       }
     };
-
-    this.baseTransport.onerror = (error: Error) => {
+    this.baseTransport.onerror = (error) => {
       this.status = "error";
       this.emit("statusChange", this.status);
       this.emit("error", error);
     };
-
     // Create client
     this.client = createClient(this.transport);
   }
-
   /**
    * Connect to the MCP server
    */
-  async connect(): Promise<void> {
+  async connect() {
     if (!this.client || !this.transport) {
       throw new Error("Client or transport not initialized");
     }
-
     // If already connected, return early
     if (this.status === "connected") {
       return;
     }
-
     try {
       this.status = "connecting";
       this.emit("statusChange", this.status);
@@ -179,7 +127,6 @@ export class InspectorClient extends EventEmitter {
       this.status = "connected";
       this.emit("statusChange", this.status);
       this.emit("connect");
-
       // Auto-fetch server data on connect
       await this.fetchServerData();
     } catch (error) {
@@ -189,11 +136,10 @@ export class InspectorClient extends EventEmitter {
       throw error;
     }
   }
-
   /**
    * Disconnect from the MCP server
    */
-  async disconnect(): Promise<void> {
+  async disconnect() {
     if (this.client) {
       try {
         await this.client.close();
@@ -208,118 +154,102 @@ export class InspectorClient extends EventEmitter {
       this.emit("disconnect");
     }
   }
-
   /**
    * Get the underlying MCP Client
    */
-  getClient(): Client {
+  getClient() {
     if (!this.client) {
       throw new Error("Client not initialized");
     }
     return this.client;
   }
-
   /**
    * Get all messages
    */
-  getMessages(): MessageEntry[] {
+  getMessages() {
     return [...this.messages];
   }
-
   /**
    * Get all stderr logs
    */
-  getStderrLogs(): StderrLogEntry[] {
+  getStderrLogs() {
     return [...this.stderrLogs];
   }
-
   /**
    * Clear all messages
    */
-  clearMessages(): void {
+  clearMessages() {
     this.messages = [];
     this.emit("messagesChange");
   }
-
   /**
    * Clear all stderr logs
    */
-  clearStderrLogs(): void {
+  clearStderrLogs() {
     this.stderrLogs = [];
     this.emit("stderrLogsChange");
   }
-
   /**
    * Get the current connection status
    */
-  getStatus(): ConnectionStatus {
+  getStatus() {
     return this.status;
   }
-
   /**
    * Get the MCP server configuration used to create this client
    */
-  getTransportConfig(): MCPServerConfig {
+  getTransportConfig() {
     return this.transportConfig;
   }
-
   /**
    * Get all tools
    */
-  getTools(): any[] {
+  getTools() {
     return [...this.tools];
   }
-
   /**
    * Get all resources
    */
-  getResources(): any[] {
+  getResources() {
     return [...this.resources];
   }
-
   /**
    * Get all prompts
    */
-  getPrompts(): any[] {
+  getPrompts() {
     return [...this.prompts];
   }
-
   /**
    * Get server capabilities
    */
-  getCapabilities(): ServerCapabilities | undefined {
+  getCapabilities() {
     return this.capabilities;
   }
-
   /**
    * Get server info (name, version)
    */
-  getServerInfo(): Implementation | undefined {
+  getServerInfo() {
     return this.serverInfo;
   }
-
   /**
    * Get server instructions
    */
-  getInstructions(): string | undefined {
+  getInstructions() {
     return this.instructions;
   }
-
   /**
    * Fetch server data (capabilities, tools, resources, prompts, serverInfo, instructions)
    * Called automatically on connect, but can be called manually if needed.
    * TODO: Add support for listChanged notifications to auto-refresh when server data changes
    */
-  private async fetchServerData(): Promise<void> {
+  async fetchServerData() {
     if (!this.client) {
       return;
     }
-
     try {
       // Get server capabilities
       this.capabilities = this.client.getServerCapabilities();
       this.emit("capabilitiesChange", this.capabilities);
-
       // Get server info (name, version) and instructions
       this.serverInfo = this.client.getServerVersion();
       this.instructions = this.client.getInstructions();
@@ -327,7 +257,6 @@ export class InspectorClient extends EventEmitter {
       if (this.instructions !== undefined) {
         this.emit("instructionsChange", this.instructions);
       }
-
       // Query resources, prompts, and tools based on capabilities
       if (this.capabilities?.resources) {
         try {
@@ -340,7 +269,6 @@ export class InspectorClient extends EventEmitter {
           this.emit("resourcesChange", this.resources);
         }
       }
-
       if (this.capabilities?.prompts) {
         try {
           const result = await this.client.listPrompts();
@@ -352,7 +280,6 @@ export class InspectorClient extends EventEmitter {
           this.emit("promptsChange", this.prompts);
         }
       }
-
       if (this.capabilities?.tools) {
         try {
           const result = await this.client.listTools();
@@ -370,8 +297,7 @@ export class InspectorClient extends EventEmitter {
       this.emit("error", error);
     }
   }
-
-  private addMessage(entry: MessageEntry): void {
+  addMessage(entry) {
     if (this.maxMessages > 0 && this.messages.length >= this.maxMessages) {
       // Remove oldest message
       this.messages.shift();
@@ -380,11 +306,7 @@ export class InspectorClient extends EventEmitter {
     this.emit("message", entry);
     this.emit("messagesChange");
   }
-
-  private updateMessageResponse(
-    requestIndex: number,
-    response: JSONRPCResultResponse | JSONRPCErrorResponse,
-  ): void {
+  updateMessageResponse(requestIndex, response) {
     const requestEntry = this.messages[requestIndex];
     const duration = Date.now() - requestEntry.timestamp.getTime();
     this.messages[requestIndex] = {
@@ -395,8 +317,7 @@ export class InspectorClient extends EventEmitter {
     this.emit("message", this.messages[requestIndex]);
     this.emit("messagesChange");
   }
-
-  private addStderrLog(entry: StderrLogEntry): void {
+  addStderrLog(entry) {
     if (
       this.maxStderrLogEvents > 0 &&
       this.stderrLogs.length >= this.maxStderrLogEvents

@@ -1,8 +1,7 @@
 import React, { useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
-import type { MCPServerConfig } from "../types.js";
-import type { ServerState } from "../types.js";
+import type { MCPServerConfig, ServerState } from "../mcp/index.js";
 
 interface InfoTabProps {
   serverName: string | null;
