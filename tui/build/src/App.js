@@ -9,8 +9,8 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { loadMcpServersConfig } from "./utils/config.js";
-import { useMCPClient, LoggingProxyTransport } from "./hooks/useMCPClient.js";
-import { useMessageTracking } from "./hooks/useMessageTracking.js";
+import { InspectorClient } from "./utils/inspectorClient.js";
+import { useInspectorClient } from "./hooks/useInspectorClient.js";
 import { Tabs, tabs as tabList } from "./components/Tabs.js";
 import { InfoTab } from "./components/InfoTab.js";
 import { ResourcesTab } from "./components/ResourcesTab.js";
@@ -20,8 +20,7 @@ import { NotificationsTab } from "./components/NotificationsTab.js";
 import { HistoryTab } from "./components/HistoryTab.js";
 import { ToolTestModal } from "./components/ToolTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
-import { createTransport, getServerType } from "./utils/transport.js";
-import { createClient } from "./utils/client.js";
+import { getServerType } from "./utils/transport.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 // Read package.json to get project info
@@ -49,17 +48,8 @@ function App({ configFile }) {
   const [toolTestModal, setToolTestModal] = useState(null);
   // Details modal state
   const [detailsModal, setDetailsModal] = useState(null);
-  // Server state management - store state for all servers
-  const [serverStates, setServerStates] = useState({});
-  const [serverClients, setServerClients] = useState({});
-  // Message tracking
-  const {
-    history: messageHistory,
-    trackRequest,
-    trackResponse,
-    trackNotification,
-    clearHistory,
-  } = useMessageTracking();
+  // InspectorClient instances for each server
+  const [inspectorClients, setInspectorClients] = useState({});
   const [dimensions, setDimensions] = useState({
     width: process.stdout.columns || 80,
     height: process.stdout.rows || 24,
@@ -93,6 +83,34 @@ function App({ configFile }) {
   const selectedServerConfig = selectedServer
     ? mcpConfig.mcpServers[selectedServer]
     : null;
+  // Create InspectorClient instances for each server on mount
+  useEffect(() => {
+    const newClients = {};
+    for (const serverName of serverNames) {
+      if (!(serverName in inspectorClients)) {
+        const serverConfig = mcpConfig.mcpServers[serverName];
+        newClients[serverName] = new InspectorClient(serverConfig, {
+          maxMessages: 1000,
+          maxStderrLogEvents: 1000,
+          pipeStderr: true,
+        });
+      }
+    }
+    if (Object.keys(newClients).length > 0) {
+      setInspectorClients((prev) => ({ ...prev, ...newClients }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Cleanup: disconnect all clients on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(inspectorClients).forEach((client) => {
+        client.disconnect().catch(() => {
+          // Ignore errors during cleanup
+        });
+      });
+    };
+  }, [inspectorClients]);
   // Preselect the first server on mount
   useEffect(() => {
     if (serverNames.length > 0 && selectedServer === null) {
@@ -100,247 +118,79 @@ function App({ configFile }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // Initialize server states for all configured servers on mount
-  useEffect(() => {
-    const initialStates = {};
-    for (const serverName of serverNames) {
-      if (!(serverName in serverStates)) {
-        initialStates[serverName] = {
-          status: "disconnected",
-          error: null,
-          capabilities: {},
-          serverInfo: undefined,
-          instructions: undefined,
-          resources: [],
-          prompts: [],
-          tools: [],
-          stderrLogs: [],
-        };
-      }
-    }
-    if (Object.keys(initialStates).length > 0) {
-      setServerStates((prev) => ({ ...prev, ...initialStates }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  // Memoize message tracking callbacks to prevent unnecessary re-renders
-  const messageTracking = useMemo(() => {
-    if (!selectedServer) return undefined;
-    return {
-      trackRequest: (msg) => trackRequest(selectedServer, msg),
-      trackResponse: (msg) => trackResponse(selectedServer, msg),
-      trackNotification: (msg) => trackNotification(selectedServer, msg),
-    };
-  }, [selectedServer, trackRequest, trackResponse, trackNotification]);
-  // Get client for selected server (for connection management)
+  // Get InspectorClient for selected server
+  const selectedInspectorClient = useMemo(
+    () => (selectedServer ? inspectorClients[selectedServer] : null),
+    [selectedServer, inspectorClients],
+  );
+  // Use the hook to get reactive state from InspectorClient
   const {
-    connection,
-    connect: connectClient,
-    disconnect: disconnectClient,
-  } = useMCPClient(selectedServer, selectedServerConfig, messageTracking);
-  // Helper function to create the appropriate transport with stderr logging
-  const createTransportWithLogging = useCallback((config, serverName) => {
-    return createTransport(config, {
-      pipeStderr: true,
-      onStderr: (entry) => {
-        setServerStates((prev) => {
-          const existingState = prev[serverName];
-          if (!existingState) {
-            // Initialize state if it doesn't exist yet
-            return {
-              ...prev,
-              [serverName]: {
-                status: "connecting",
-                error: null,
-                capabilities: {},
-                serverInfo: undefined,
-                instructions: undefined,
-                resources: [],
-                prompts: [],
-                tools: [],
-                stderrLogs: [entry],
-              },
-            };
-          }
-          return {
-            ...prev,
-            [serverName]: {
-              ...existingState,
-              stderrLogs: [...(existingState.stderrLogs || []), entry].slice(
-                -1000,
-              ), // Keep last 1000 log entries
-            },
-          };
-        });
-      },
-    });
-  }, []);
-  // Connect handler - connects, gets capabilities, and queries resources/prompts/tools
+    status: inspectorStatus,
+    messages: inspectorMessages,
+    stderrLogs: inspectorStderrLogs,
+    tools: inspectorTools,
+    resources: inspectorResources,
+    prompts: inspectorPrompts,
+    capabilities: inspectorCapabilities,
+    serverInfo: inspectorServerInfo,
+    instructions: inspectorInstructions,
+    client: inspectorClient,
+    connect: connectInspector,
+    disconnect: disconnectInspector,
+    clearMessages: clearInspectorMessages,
+    clearStderrLogs: clearInspectorStderrLogs,
+  } = useInspectorClient(selectedInspectorClient);
+  // Connect handler - InspectorClient now handles fetching server data automatically
   const handleConnect = useCallback(async () => {
-    if (!selectedServer || !selectedServerConfig) return;
-    // Capture server name immediately to avoid closure issues
-    const serverName = selectedServer;
-    const serverConfig = selectedServerConfig;
-    // Clear all data when connecting/reconnecting to start fresh
-    clearHistory(serverName);
-    // Clear stderr logs BEFORE connecting
-    setServerStates((prev) => ({
-      ...prev,
-      [serverName]: {
-        ...(prev[serverName] || {
-          status: "disconnected",
-          error: null,
-          capabilities: {},
-          resources: [],
-          prompts: [],
-          tools: [],
-        }),
-        status: "connecting",
-        stderrLogs: [], // Clear logs before connecting
-      },
-    }));
-    // Create the appropriate transport with stderr logging
-    const { transport: baseTransport } = createTransportWithLogging(
-      serverConfig,
-      serverName,
-    );
-    // Wrap with proxy transport if message tracking is enabled
-    const transport = messageTracking
-      ? new LoggingProxyTransport(baseTransport, messageTracking)
-      : baseTransport;
-    const client = createClient(transport);
+    if (!selectedServer || !selectedInspectorClient) return;
+    // Clear messages and stderr logs when connecting/reconnecting
+    clearInspectorMessages();
+    clearInspectorStderrLogs();
     try {
-      await client.connect(transport);
-      // Store client immediately
-      setServerClients((prev) => ({ ...prev, [serverName]: client }));
-      // Get server capabilities
-      const serverCapabilities = client.getServerCapabilities() || {};
-      const capabilities = {
-        resources: !!serverCapabilities.resources,
-        prompts: !!serverCapabilities.prompts,
-        tools: !!serverCapabilities.tools,
-      };
-      // Get server info (name, version) and instructions
-      const serverVersion = client.getServerVersion();
-      const serverInfo = serverVersion
-        ? {
-            name: serverVersion.name,
-            version: serverVersion.version,
-          }
-        : undefined;
-      const instructions = client.getInstructions();
-      // Query resources, prompts, and tools based on capabilities
-      let resources = [];
-      let prompts = [];
-      let tools = [];
-      if (capabilities.resources) {
-        try {
-          const result = await client.listResources();
-          resources = result.resources || [];
-        } catch (err) {
-          // Ignore errors, just leave empty
-        }
-      }
-      if (capabilities.prompts) {
-        try {
-          const result = await client.listPrompts();
-          prompts = result.prompts || [];
-        } catch (err) {
-          // Ignore errors, just leave empty
-        }
-      }
-      if (capabilities.tools) {
-        try {
-          const result = await client.listTools();
-          tools = result.tools || [];
-        } catch (err) {
-          // Ignore errors, just leave empty
-        }
-      }
-      // Update server state - use captured serverName to ensure we update the correct server
-      // Preserve stderrLogs that were captured during connection (after we cleared them before connecting)
-      setServerStates((prev) => ({
-        ...prev,
-        [serverName]: {
-          status: "connected",
-          error: null,
-          capabilities,
-          serverInfo,
-          instructions,
-          resources,
-          prompts,
-          tools,
-          stderrLogs: prev[serverName]?.stderrLogs || [], // Preserve logs captured during connection
-        },
-      }));
+      await connectInspector();
+      // InspectorClient automatically fetches server data (capabilities, tools, resources, prompts, etc.)
+      // on connect, so we don't need to do anything here
     } catch (error) {
-      // Make sure we clean up the client on error
-      try {
-        await client.close();
-      } catch (closeErr) {
-        // Ignore close errors
-      }
-      setServerStates((prev) => ({
-        ...prev,
-        [serverName]: {
-          ...(prev[serverName] || {
-            status: "disconnected",
-            error: null,
-            capabilities: {},
-            resources: [],
-            prompts: [],
-            tools: [],
-          }),
-          status: "error",
-          error: error instanceof Error ? error.message : "Unknown error",
-        },
-      }));
+      // Error handling is done by InspectorClient and will be reflected in status
     }
-  }, [selectedServer, selectedServerConfig, messageTracking]);
+  }, [
+    selectedServer,
+    selectedInspectorClient,
+    connectInspector,
+    clearInspectorMessages,
+    clearInspectorStderrLogs,
+  ]);
   // Disconnect handler
   const handleDisconnect = useCallback(async () => {
     if (!selectedServer) return;
-    await disconnectClient();
-    setServerClients((prev) => {
-      const newClients = { ...prev };
-      delete newClients[selectedServer];
-      return newClients;
-    });
-    // Preserve all data when disconnecting - only change status
-    setServerStates((prev) => ({
-      ...prev,
-      [selectedServer]: {
-        ...prev[selectedServer],
-        status: "disconnected",
-        error: null,
-        // Keep all existing data: capabilities, serverInfo, instructions, resources, prompts, tools, stderrLogs
-      },
-    }));
-    // Update tab counts based on preserved data
-    const preservedState = serverStates[selectedServer];
-    if (preservedState) {
-      setTabCounts((prev) => ({
-        ...prev,
-        resources: preservedState.resources?.length || 0,
-        prompts: preservedState.prompts?.length || 0,
-        tools: preservedState.tools?.length || 0,
-        messages: messageHistory[selectedServer]?.length || 0,
-        logging: preservedState.stderrLogs?.length || 0,
-      }));
-    }
-  }, [selectedServer, disconnectClient, serverStates, messageHistory]);
-  const currentServerMessages = useMemo(
-    () => (selectedServer ? messageHistory[selectedServer] || [] : []),
-    [selectedServer, messageHistory],
-  );
-  const currentServerState = useMemo(
-    () => (selectedServer ? serverStates[selectedServer] || null : null),
-    [selectedServer, serverStates],
-  );
-  const currentServerClient = useMemo(
-    () => (selectedServer ? serverClients[selectedServer] || null : null),
-    [selectedServer, serverClients],
-  );
+    await disconnectInspector();
+    // InspectorClient will update status automatically, and data is preserved
+  }, [selectedServer, disconnectInspector]);
+  // Build current server state from InspectorClient data
+  const currentServerState = useMemo(() => {
+    if (!selectedServer) return null;
+    return {
+      status: inspectorStatus,
+      error: null, // InspectorClient doesn't track error in state, only emits error events
+      capabilities: inspectorCapabilities,
+      serverInfo: inspectorServerInfo,
+      instructions: inspectorInstructions,
+      resources: inspectorResources,
+      prompts: inspectorPrompts,
+      tools: inspectorTools,
+      stderrLogs: inspectorStderrLogs, // InspectorClient manages this
+    };
+  }, [
+    selectedServer,
+    inspectorStatus,
+    inspectorCapabilities,
+    inspectorServerInfo,
+    inspectorInstructions,
+    inspectorResources,
+    inspectorPrompts,
+    inspectorTools,
+    inspectorStderrLogs,
+  ]);
   // Helper functions to render details modal content
   const renderResourceDetails = (resource) =>
     _jsxs(_Fragment, {
@@ -605,29 +455,38 @@ function App({ configFile }) {
             }),
       ],
     });
-  // Update tab counts when selected server changes
+  // Update tab counts when selected server changes or InspectorClient state changes
   useEffect(() => {
     if (!selectedServer) {
       return;
     }
-    const serverState = serverStates[selectedServer];
-    if (serverState?.status === "connected") {
+    if (inspectorStatus === "connected") {
       setTabCounts({
-        resources: serverState.resources?.length || 0,
-        prompts: serverState.prompts?.length || 0,
-        tools: serverState.tools?.length || 0,
-        messages: messageHistory[selectedServer]?.length || 0,
+        resources: inspectorResources.length || 0,
+        prompts: inspectorPrompts.length || 0,
+        tools: inspectorTools.length || 0,
+        messages: inspectorMessages.length || 0,
+        logging: inspectorStderrLogs.length || 0,
       });
-    } else if (serverState?.status !== "connecting") {
+    } else if (inspectorStatus !== "connecting") {
       // Reset counts for disconnected or error states
       setTabCounts({
         resources: 0,
         prompts: 0,
         tools: 0,
-        messages: messageHistory[selectedServer]?.length || 0,
+        messages: inspectorMessages.length || 0,
+        logging: inspectorStderrLogs.length || 0,
       });
     }
-  }, [selectedServer, serverStates, messageHistory]);
+  }, [
+    selectedServer,
+    inspectorStatus,
+    inspectorResources,
+    inspectorPrompts,
+    inspectorTools,
+    inspectorMessages,
+    inspectorStderrLogs,
+  ]);
   // Keep focus state consistent when switching tabs
   useEffect(() => {
     if (activeTab === "messages") {
@@ -735,17 +594,14 @@ function App({ configFile }) {
     }
     // Accelerator keys for connect/disconnect (work from anywhere)
     if (selectedServer) {
-      const serverState = serverStates[selectedServer];
       if (
         input.toLowerCase() === "c" &&
-        (serverState?.status === "disconnected" ||
-          serverState?.status === "error")
+        (inspectorStatus === "disconnected" || inspectorStatus === "error")
       ) {
         handleConnect();
       } else if (
         input.toLowerCase() === "d" &&
-        (serverState?.status === "connected" ||
-          serverState?.status === "connecting")
+        (inspectorStatus === "connected" || inspectorStatus === "connecting")
       ) {
         handleDisconnect();
       }
@@ -983,8 +839,7 @@ function App({ configFile }) {
                         focus === "tabContentList" ||
                         focus === "tabContentDetails",
                     }),
-                  currentServerState?.status === "connected" &&
-                  currentServerClient
+                  currentServerState?.status === "connected" && inspectorClient
                     ? _jsxs(_Fragment, {
                         children: [
                           activeTab === "resources" &&
@@ -992,7 +847,7 @@ function App({ configFile }) {
                               ResourcesTab,
                               {
                                 resources: currentServerState.resources,
-                                client: currentServerClient,
+                                client: inspectorClient,
                                 width: contentWidth,
                                 height: contentHeight,
                                 onCountChange: (count) =>
@@ -1020,7 +875,7 @@ function App({ configFile }) {
                               PromptsTab,
                               {
                                 prompts: currentServerState.prompts,
-                                client: currentServerClient,
+                                client: inspectorClient,
                                 width: contentWidth,
                                 height: contentHeight,
                                 onCountChange: (count) =>
@@ -1048,7 +903,7 @@ function App({ configFile }) {
                               ToolsTab,
                               {
                                 tools: currentServerState.tools,
-                                client: currentServerClient,
+                                client: inspectorClient,
                                 width: contentWidth,
                                 height: contentHeight,
                                 onCountChange: (count) =>
@@ -1065,7 +920,7 @@ function App({ configFile }) {
                                 onTestTool: (tool) =>
                                   setToolTestModal({
                                     tool,
-                                    client: currentServerClient,
+                                    client: inspectorClient,
                                   }),
                                 onViewDetails: (tool) =>
                                   setDetailsModal({
@@ -1079,7 +934,7 @@ function App({ configFile }) {
                           activeTab === "messages" &&
                             _jsx(HistoryTab, {
                               serverName: selectedServer,
-                              messages: currentServerMessages,
+                              messages: inspectorMessages,
                               width: contentWidth,
                               height: contentHeight,
                               onCountChange: (count) =>
@@ -1113,8 +968,8 @@ function App({ configFile }) {
                             }),
                           activeTab === "logging" &&
                             _jsx(NotificationsTab, {
-                              client: currentServerClient,
-                              stderrLogs: currentServerState?.stderrLogs || [],
+                              client: inspectorClient,
+                              stderrLogs: inspectorStderrLogs,
                               width: contentWidth,
                               height: contentHeight,
                               onCountChange: (count) =>

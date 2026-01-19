@@ -44,18 +44,33 @@ export interface StderrLogEntry {
   message: string;
 }
 
+import type {
+  ServerCapabilities,
+  Implementation,
+  JSONRPCRequest,
+  JSONRPCNotification,
+  JSONRPCResultResponse,
+  JSONRPCErrorResponse,
+} from "@modelcontextprotocol/sdk/types.js";
+
+export interface MessageEntry {
+  id: string;
+  timestamp: Date;
+  direction: "request" | "response" | "notification";
+  message:
+    | JSONRPCRequest
+    | JSONRPCNotification
+    | JSONRPCResultResponse
+    | JSONRPCErrorResponse;
+  response?: JSONRPCResultResponse | JSONRPCErrorResponse;
+  duration?: number; // Time between request and response in ms
+}
+
 export interface ServerState {
   status: ConnectionStatus;
   error: string | null;
-  capabilities: {
-    resources?: boolean;
-    prompts?: boolean;
-    tools?: boolean;
-  };
-  serverInfo?: {
-    name?: string;
-    version?: string;
-  };
+  capabilities?: ServerCapabilities;
+  serverInfo?: Implementation;
   instructions?: string;
   resources: any[];
   prompts: any[];

@@ -1,79 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-// Proxy Transport that intercepts all messages for logging/tracking
-class LoggingProxyTransport {
-  baseTransport;
-  callbacks;
-  constructor(baseTransport, callbacks) {
-    this.baseTransport = baseTransport;
-    this.callbacks = callbacks;
-  }
-  async start() {
-    return this.baseTransport.start();
-  }
-  async send(message, options) {
-    // Track outgoing requests (only requests have a method and are sent by the client)
-    if ("method" in message && "id" in message) {
-      this.callbacks.trackRequest?.(message);
-    }
-    return this.baseTransport.send(message, options);
-  }
-  async close() {
-    return this.baseTransport.close();
-  }
-  get onclose() {
-    return this.baseTransport.onclose;
-  }
-  set onclose(handler) {
-    this.baseTransport.onclose = handler;
-  }
-  get onerror() {
-    return this.baseTransport.onerror;
-  }
-  set onerror(handler) {
-    this.baseTransport.onerror = handler;
-  }
-  get onmessage() {
-    return this.baseTransport.onmessage;
-  }
-  set onmessage(handler) {
-    if (handler) {
-      // Wrap the handler to track incoming messages
-      this.baseTransport.onmessage = (message, extra) => {
-        // Track incoming messages
-        if (
-          "id" in message &&
-          message.id !== null &&
-          message.id !== undefined
-        ) {
-          // Check if it's a response (has 'result' or 'error' property)
-          if ("result" in message || "error" in message) {
-            this.callbacks.trackResponse?.(message);
-          } else if ("method" in message) {
-            // This is a request coming from the server
-            this.callbacks.trackRequest?.(message);
-          }
-        } else if ("method" in message) {
-          // Notification (no ID, has method)
-          this.callbacks.trackNotification?.(message);
-        }
-        // Call the original handler
-        handler(message, extra);
-      };
-    } else {
-      this.baseTransport.onmessage = undefined;
-    }
-  }
-  get sessionId() {
-    return this.baseTransport.sessionId;
-  }
-  get setProtocolVersion() {
-    return this.baseTransport.setProtocolVersion;
-  }
-}
-// Export LoggingProxyTransport for use in other hooks
-export { LoggingProxyTransport };
+import { MessageTrackingTransport } from "../utils/messageTrackingTransport.js";
 export function useMCPClient(serverName, config, messageTracking) {
   const [connection, setConnection] = useState(null);
   const clientRef = useRef(null);
@@ -116,9 +44,12 @@ export function useMCPClient(serverName, config, messageTracking) {
         args: stdioConfig.args || [],
         env: stdioConfig.env,
       });
-      // Wrap with proxy transport if message tracking is enabled
+      // Wrap with message tracking transport if message tracking is enabled
       const transport = messageTrackingRef.current
-        ? new LoggingProxyTransport(baseTransport, messageTrackingRef.current)
+        ? new MessageTrackingTransport(
+            baseTransport,
+            messageTrackingRef.current,
+          )
         : baseTransport;
       const client = new Client(
         {

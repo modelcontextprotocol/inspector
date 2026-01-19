@@ -77,12 +77,7 @@ export function NotificationsTab({
                   children: [
                     _jsxs(Text, {
                       dimColor: true,
-                      children: [
-                        "[",
-                        log.timestamp.toLocaleTimeString(),
-                        "]",
-                        " ",
-                      ],
+                      children: ["[", log.timestamp.toLocaleTimeString(), "] "],
                     }),
                     _jsx(Text, { color: "red", children: log.message }),
                   ],

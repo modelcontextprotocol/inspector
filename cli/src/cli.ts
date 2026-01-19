@@ -9,6 +9,8 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// This represents the parsed arguments produced by parseArgs()
+//
 type Args = {
   command: string;
   args: string[];
@@ -19,6 +21,9 @@ type Args = {
   headers?: Record<string, string>;
 };
 
+// This is only to provide typed access to the parsed program options
+// This could just be defined locally in parseArgs() since that's the only place it is used
+//
 type CliOptions = {
   e?: Record<string, string>;
   config?: string;

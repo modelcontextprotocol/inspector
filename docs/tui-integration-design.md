@@ -558,3 +558,27 @@ This provides a single entry point with consistent argument parsing across all t
 
 - The TUI from mcp-inspect is well-structured and should integrate cleanly
 - All phase-specific details, code sharing strategies, and implementation notes are documented in their respective sections above
+
+## Additonal Notes
+
+InspectorClient wraps or abstracts an McpClient + server
+
+- Collect message
+- Collect logging
+- Provide access to client functionality (prompts, resources, tools)
+
+```javascript
+InspectorClient(
+  transportConfig, // so it can create transport with logging if needed)
+  maxMessages, // if zero, don't listen
+  maxLogEvents, // if zero, don't listen
+);
+// Create Client
+// Create Transport (wrap with MessageTrackingTransport if needed)
+// - Stdio transport needs to be created with pipe and listener as appropriate
+// We will keep the list of messages and log events in this object instead of directl in the React state
+```
+
+May be used by CLI (plain TypeScript) or in our TUI (React app), so it needs to be React friendly
+
+- To make it React friendly, event emitter + custom hooks?

@@ -195,7 +195,8 @@ export function PromptsTab({
                                   children: [
                                     "- ",
                                     arg.name,
-                                    ": ",
+                                    ":",
+                                    " ",
                                     arg.description || arg.type || "string",
                                   ],
                                 }),
