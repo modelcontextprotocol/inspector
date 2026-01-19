@@ -189,17 +189,11 @@ function App({ configFile }: AppProps) {
     client: inspectorClient,
     connect: connectInspector,
     disconnect: disconnectInspector,
-    clearMessages: clearInspectorMessages,
-    clearStderrLogs: clearInspectorStderrLogs,
   } = useInspectorClient(selectedInspectorClient);
 
   // Connect handler - InspectorClient now handles fetching server data automatically
   const handleConnect = useCallback(async () => {
     if (!selectedServer || !selectedInspectorClient) return;
-
-    // Clear messages and stderr logs when connecting/reconnecting
-    clearInspectorMessages();
-    clearInspectorStderrLogs();
 
     try {
       await connectInspector();
@@ -208,13 +202,7 @@ function App({ configFile }: AppProps) {
     } catch (error) {
       // Error handling is done by InspectorClient and will be reflected in status
     }
-  }, [
-    selectedServer,
-    selectedInspectorClient,
-    connectInspector,
-    clearInspectorMessages,
-    clearInspectorStderrLogs,
-  ]);
+  }, [selectedServer, selectedInspectorClient, connectInspector]);
 
   // Disconnect handler
   const handleDisconnect = useCallback(async () => {
@@ -408,32 +396,21 @@ function App({ configFile }: AppProps) {
   );
 
   // Update tab counts when selected server changes or InspectorClient state changes
+  // Just reflect InspectorClient state - don't try to be clever
   useEffect(() => {
     if (!selectedServer) {
       return;
     }
 
-    if (inspectorStatus === "connected") {
-      setTabCounts({
-        resources: inspectorResources.length || 0,
-        prompts: inspectorPrompts.length || 0,
-        tools: inspectorTools.length || 0,
-        messages: inspectorMessages.length || 0,
-        logging: inspectorStderrLogs.length || 0,
-      });
-    } else if (inspectorStatus !== "connecting") {
-      // Reset counts for disconnected or error states
-      setTabCounts({
-        resources: 0,
-        prompts: 0,
-        tools: 0,
-        messages: inspectorMessages.length || 0,
-        logging: inspectorStderrLogs.length || 0,
-      });
-    }
+    setTabCounts({
+      resources: inspectorResources.length || 0,
+      prompts: inspectorPrompts.length || 0,
+      tools: inspectorTools.length || 0,
+      messages: inspectorMessages.length || 0,
+      logging: inspectorStderrLogs.length || 0,
+    });
   }, [
     selectedServer,
-    inspectorStatus,
     inspectorResources,
     inspectorPrompts,
     inspectorTools,
@@ -780,140 +757,137 @@ function App({ configFile }: AppProps) {
                 }
               />
             )}
-            {currentServerState?.status === "connected" && inspectorClient ? (
-              <>
-                {activeTab === "resources" && (
-                  <ResourcesTab
-                    key={`resources-${selectedServer}`}
-                    resources={currentServerState.resources}
-                    client={inspectorClient}
-                    width={contentWidth}
-                    height={contentHeight}
-                    onCountChange={(count) =>
-                      setTabCounts((prev) => ({ ...prev, resources: count }))
-                    }
-                    focusedPane={
-                      focus === "tabContentDetails"
-                        ? "details"
-                        : focus === "tabContentList"
-                          ? "list"
-                          : null
-                    }
-                    onViewDetails={(resource) =>
-                      setDetailsModal({
-                        title: `Resource: ${resource.name || resource.uri || "Unknown"}`,
-                        content: renderResourceDetails(resource),
-                      })
-                    }
-                    modalOpen={!!(toolTestModal || detailsModal)}
-                  />
-                )}
-                {activeTab === "prompts" && (
-                  <PromptsTab
-                    key={`prompts-${selectedServer}`}
-                    prompts={currentServerState.prompts}
-                    client={inspectorClient}
-                    width={contentWidth}
-                    height={contentHeight}
-                    onCountChange={(count) =>
-                      setTabCounts((prev) => ({ ...prev, prompts: count }))
-                    }
-                    focusedPane={
-                      focus === "tabContentDetails"
-                        ? "details"
-                        : focus === "tabContentList"
-                          ? "list"
-                          : null
-                    }
-                    onViewDetails={(prompt) =>
-                      setDetailsModal({
-                        title: `Prompt: ${prompt.name || "Unknown"}`,
-                        content: renderPromptDetails(prompt),
-                      })
-                    }
-                    modalOpen={!!(toolTestModal || detailsModal)}
-                  />
-                )}
-                {activeTab === "tools" && (
-                  <ToolsTab
-                    key={`tools-${selectedServer}`}
-                    tools={currentServerState.tools}
-                    client={inspectorClient}
-                    width={contentWidth}
-                    height={contentHeight}
-                    onCountChange={(count) =>
-                      setTabCounts((prev) => ({ ...prev, tools: count }))
-                    }
-                    focusedPane={
-                      focus === "tabContentDetails"
-                        ? "details"
-                        : focus === "tabContentList"
-                          ? "list"
-                          : null
-                    }
-                    onTestTool={(tool) =>
-                      setToolTestModal({ tool, client: inspectorClient })
-                    }
-                    onViewDetails={(tool) =>
-                      setDetailsModal({
-                        title: `Tool: ${tool.name || "Unknown"}`,
-                        content: renderToolDetails(tool),
-                      })
-                    }
-                    modalOpen={!!(toolTestModal || detailsModal)}
-                  />
-                )}
-                {activeTab === "messages" && (
-                  <HistoryTab
-                    serverName={selectedServer}
-                    messages={inspectorMessages}
-                    width={contentWidth}
-                    height={contentHeight}
-                    onCountChange={(count) =>
-                      setTabCounts((prev) => ({ ...prev, messages: count }))
-                    }
-                    focusedPane={
-                      focus === "messagesDetail"
-                        ? "details"
-                        : focus === "messagesList"
-                          ? "messages"
-                          : null
-                    }
-                    modalOpen={!!(toolTestModal || detailsModal)}
-                    onViewDetails={(message) => {
-                      const label =
-                        message.direction === "request" &&
-                        "method" in message.message
+            {activeTab === "resources" &&
+            currentServerState?.status === "connected" &&
+            inspectorClient ? (
+              <ResourcesTab
+                key={`resources-${selectedServer}`}
+                resources={currentServerState.resources}
+                client={inspectorClient}
+                width={contentWidth}
+                height={contentHeight}
+                onCountChange={(count) =>
+                  setTabCounts((prev) => ({ ...prev, resources: count }))
+                }
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
+                onViewDetails={(resource) =>
+                  setDetailsModal({
+                    title: `Resource: ${resource.name || resource.uri || "Unknown"}`,
+                    content: renderResourceDetails(resource),
+                  })
+                }
+                modalOpen={!!(toolTestModal || detailsModal)}
+              />
+            ) : activeTab === "prompts" &&
+              currentServerState?.status === "connected" &&
+              inspectorClient ? (
+              <PromptsTab
+                key={`prompts-${selectedServer}`}
+                prompts={currentServerState.prompts}
+                client={inspectorClient}
+                width={contentWidth}
+                height={contentHeight}
+                onCountChange={(count) =>
+                  setTabCounts((prev) => ({ ...prev, prompts: count }))
+                }
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
+                onViewDetails={(prompt) =>
+                  setDetailsModal({
+                    title: `Prompt: ${prompt.name || "Unknown"}`,
+                    content: renderPromptDetails(prompt),
+                  })
+                }
+                modalOpen={!!(toolTestModal || detailsModal)}
+              />
+            ) : activeTab === "tools" &&
+              currentServerState?.status === "connected" &&
+              inspectorClient ? (
+              <ToolsTab
+                key={`tools-${selectedServer}`}
+                tools={currentServerState.tools}
+                client={inspectorClient}
+                width={contentWidth}
+                height={contentHeight}
+                onCountChange={(count) =>
+                  setTabCounts((prev) => ({ ...prev, tools: count }))
+                }
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
+                onTestTool={(tool) =>
+                  setToolTestModal({ tool, client: inspectorClient })
+                }
+                onViewDetails={(tool) =>
+                  setDetailsModal({
+                    title: `Tool: ${tool.name || "Unknown"}`,
+                    content: renderToolDetails(tool),
+                  })
+                }
+                modalOpen={!!(toolTestModal || detailsModal)}
+              />
+            ) : activeTab === "messages" && selectedInspectorClient ? (
+              <HistoryTab
+                serverName={selectedServer}
+                messages={inspectorMessages}
+                width={contentWidth}
+                height={contentHeight}
+                onCountChange={(count) =>
+                  setTabCounts((prev) => ({ ...prev, messages: count }))
+                }
+                focusedPane={
+                  focus === "messagesDetail"
+                    ? "details"
+                    : focus === "messagesList"
+                      ? "messages"
+                      : null
+                }
+                modalOpen={!!(toolTestModal || detailsModal)}
+                onViewDetails={(message) => {
+                  const label =
+                    message.direction === "request" &&
+                    "method" in message.message
+                      ? message.message.method
+                      : message.direction === "response"
+                        ? "Response"
+                        : message.direction === "notification" &&
+                            "method" in message.message
                           ? message.message.method
-                          : message.direction === "response"
-                            ? "Response"
-                            : message.direction === "notification" &&
-                                "method" in message.message
-                              ? message.message.method
-                              : "Message";
-                      setDetailsModal({
-                        title: `Message: ${label}`,
-                        content: renderMessageDetails(message),
-                      });
-                    }}
-                  />
-                )}
-                {activeTab === "logging" && (
-                  <NotificationsTab
-                    client={inspectorClient}
-                    stderrLogs={inspectorStderrLogs}
-                    width={contentWidth}
-                    height={contentHeight}
-                    onCountChange={(count) =>
-                      setTabCounts((prev) => ({ ...prev, logging: count }))
-                    }
-                    focused={
-                      focus === "tabContentList" ||
-                      focus === "tabContentDetails"
-                    }
-                  />
-                )}
-              </>
+                          : "Message";
+                  setDetailsModal({
+                    title: `Message: ${label}`,
+                    content: renderMessageDetails(message),
+                  });
+                }}
+              />
+            ) : activeTab === "logging" && selectedInspectorClient ? (
+              <NotificationsTab
+                client={inspectorClient}
+                stderrLogs={inspectorStderrLogs}
+                width={contentWidth}
+                height={contentHeight}
+                onCountChange={(count) =>
+                  setTabCounts((prev) => ({ ...prev, logging: count }))
+                }
+                focused={
+                  focus === "tabContentList" || focus === "tabContentDetails"
+                }
+              />
             ) : activeTab !== "info" && selectedServer ? (
               <Box paddingX={1} paddingY={1}>
                 <Text dimColor>Server not connected</Text>

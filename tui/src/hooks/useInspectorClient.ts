@@ -24,8 +24,6 @@ export interface UseInspectorClientResult {
   client: Client | null;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
-  clearMessages: () => void;
-  clearStderrLogs: () => void;
 }
 
 /**
@@ -158,16 +156,6 @@ export function useInspectorClient(
     await inspectorClient.disconnect();
   }, [inspectorClient]);
 
-  const clearMessages = useCallback(() => {
-    if (!inspectorClient) return;
-    inspectorClient.clearMessages();
-  }, [inspectorClient]);
-
-  const clearStderrLogs = useCallback(() => {
-    if (!inspectorClient) return;
-    inspectorClient.clearStderrLogs();
-  }, [inspectorClient]);
-
   return {
     status,
     messages,
@@ -181,7 +169,5 @@ export function useInspectorClient(
     client: inspectorClient?.getClient() ?? null,
     connect,
     disconnect,
-    clearMessages,
-    clearStderrLogs,
   };
 }
