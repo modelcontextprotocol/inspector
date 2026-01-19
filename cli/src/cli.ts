@@ -73,7 +73,7 @@ async function runWebClient(args: Args): Promise<void> {
   );
 
   const abort = new AbortController();
-  let cancelled: boolean = false;
+  let cancelled = false;
   process.on("SIGINT", () => {
     cancelled = true;
     abort.abort();
