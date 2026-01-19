@@ -114,7 +114,8 @@ const TasksTab = ({
                     ID: {displayedTask.taskId}
                   </p>
                 </div>
-                {displayedTask.status === "working" && (
+                {(displayedTask.status === "working" ||
+                  displayedTask.status === "input_required") && (
                   <Button
                     variant="destructive"
                     size="sm"
