@@ -17,15 +17,22 @@
   "scripts": {
     "build": "tsc",
     "postbuild": "node scripts/make-executable.js",
-    "test": "node scripts/cli-tests.js && node scripts/cli-tool-tests.js && node scripts/cli-header-tests.js",
-    "test:cli": "node scripts/cli-tests.js",
-    "test:cli-tools": "node scripts/cli-tool-tests.js",
-    "test:cli-headers": "node scripts/cli-header-tests.js"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cli": "vitest run cli.test.ts",
+    "test:cli-tools": "vitest run tools.test.ts",
+    "test:cli-headers": "vitest run headers.test.ts",
+    "test:cli-metadata": "vitest run metadata.test.ts"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "tsx": "^4.7.0",
+    "vitest": "^4.0.17"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
     "commander": "^13.1.0",
+    "express": "^5.2.1",
     "spawn-rx": "^5.1.2"
   }
 }
