@@ -179,6 +179,12 @@ export class InspectorClient extends EventEmitter {
     try {
       this.status = "connecting";
       this.emit("statusChange", this.status);
+
+      // Clear message history on connect (start fresh for new session)
+      // Don't clear stderrLogs - they persist across reconnects
+      this.messages = [];
+      this.emit("messagesChange");
+
       await this.client.connect(this.transport);
       this.status = "connected";
       this.emit("statusChange", this.status);
@@ -205,12 +211,28 @@ export class InspectorClient extends EventEmitter {
         // Ignore errors on close
       }
     }
-    // Update status - transport onclose handler will also fire, but we update here too
+    // Update status - transport onclose handler will also fire and clear state
+    // But we also do it here in case disconnect() is called directly
     if (this.status !== "disconnected") {
       this.status = "disconnected";
       this.emit("statusChange", this.status);
       this.emit("disconnect");
     }
+
+    // Clear server state (tools, resources, prompts) on disconnect
+    // These are only valid when connected
+    this.tools = [];
+    this.resources = [];
+    this.prompts = [];
+    this.capabilities = undefined;
+    this.serverInfo = undefined;
+    this.instructions = undefined;
+    this.emit("toolsChange", this.tools);
+    this.emit("resourcesChange", this.resources);
+    this.emit("promptsChange", this.prompts);
+    this.emit("capabilitiesChange", this.capabilities);
+    this.emit("serverInfoChange", this.serverInfo);
+    this.emit("instructionsChange", this.instructions);
   }
 
   /**
@@ -235,22 +257,6 @@ export class InspectorClient extends EventEmitter {
    */
   getStderrLogs(): StderrLogEntry[] {
     return [...this.stderrLogs];
-  }
-
-  /**
-   * Clear all messages
-   */
-  clearMessages(): void {
-    this.messages = [];
-    this.emit("messagesChange");
-  }
-
-  /**
-   * Clear all stderr logs
-   */
-  clearStderrLogs(): void {
-    this.stderrLogs = [];
-    this.emit("stderrLogsChange");
   }
 
   /**
