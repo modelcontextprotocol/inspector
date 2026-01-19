@@ -4,7 +4,6 @@ import { render } from "ink";
 import App from "./src/App.js";
 export async function runTui() {
   const args = process.argv.slice(2);
-  // TUI mode
   const configFile = args[0];
   if (!configFile) {
     console.error("Usage: mcp-inspector-tui <config-file.json>");

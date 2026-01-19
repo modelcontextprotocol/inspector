@@ -126,7 +126,8 @@ export function InfoTab({
                                         children: _jsxs(Text, {
                                           dimColor: true,
                                           children: [
-                                            "Env: ",
+                                            "Env:",
+                                            " ",
                                             Object.entries(serverConfig.env)
                                               .map(([k, v]) => `${k}=${v}`)
                                               .join(", "),
@@ -162,7 +163,8 @@ export function InfoTab({
                                           children: _jsxs(Text, {
                                             dimColor: true,
                                             children: [
-                                              "Headers: ",
+                                              "Headers:",
+                                              " ",
                                               Object.entries(
                                                 serverConfig.headers,
                                               )
@@ -191,7 +193,8 @@ export function InfoTab({
                                           children: _jsxs(Text, {
                                             dimColor: true,
                                             children: [
-                                              "Headers: ",
+                                              "Headers:",
+                                              " ",
                                               Object.entries(
                                                 serverConfig.headers,
                                               )
