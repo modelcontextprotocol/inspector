@@ -16,8 +16,8 @@ import type {
   ToolDefinition,
   PromptDefinition,
   ResourceDefinition,
-} from "./test-fixtures.js";
-import { getDefaultServerConfig } from "./test-fixtures.js";
+} from "./test-server-fixtures.js";
+import { getDefaultServerConfig } from "./test-server-fixtures.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "dev": "tsx tui.tsx"
+    "dev": "NODE_PATH=./node_modules:$NODE_PATH tsx tui.tsx"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",

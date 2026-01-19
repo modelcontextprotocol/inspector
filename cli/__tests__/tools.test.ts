@@ -6,7 +6,7 @@ import {
   expectValidJson,
   expectJsonError,
 } from "./helpers/assertions.js";
-import { getTestMcpServerCommand } from "./helpers/test-server-stdio.js";
+import { getTestMcpServerCommand } from "../../shared/test/test-server-stdio.js";
 
 describe("Tool Tests", () => {
   describe("Tool Discovery", () => {

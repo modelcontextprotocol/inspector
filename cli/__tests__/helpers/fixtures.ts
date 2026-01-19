@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import crypto from "crypto";
-import { getTestMcpServerCommand } from "./test-server-stdio.js";
+import { getTestMcpServerCommand } from "../../../shared/test/test-server-stdio.js";
 
 /**
  * Sentinel value for tests that don't need a real server
