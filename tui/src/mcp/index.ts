@@ -4,29 +4,14 @@
 export { InspectorClient } from "./inspectorClient.js";
 export type { InspectorClientOptions } from "./inspectorClient.js";
 
-export { createTransport, getServerType } from "./transport.js";
-export type {
-  CreateTransportOptions,
-  CreateTransportResult,
-  ServerType,
-} from "./transport.js";
-
-export { createClient } from "./client.js";
-
-export { MessageTrackingTransport } from "./messageTrackingTransport.js";
-export type { MessageTrackingCallbacks } from "./messageTrackingTransport.js";
-
 export { loadMcpServersConfig } from "./config.js";
 
-// Re-export all types
+// Re-export types used by consumers
 export type {
-  // Transport config types
-  StdioServerConfig,
-  SseServerConfig,
-  StreamableHttpServerConfig,
-  MCPServerConfig,
+  // Config types
   MCPConfig,
-  // Connection and state types
+  MCPServerConfig,
+  // Connection and state types (used by components and hooks)
   ConnectionStatus,
   StderrLogEntry,
   MessageEntry,

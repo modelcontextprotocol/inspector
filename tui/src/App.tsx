@@ -3,7 +3,7 @@ import { Box, Text, useInput, useApp, type Key } from "ink";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import type { MCPServerConfig, MessageEntry } from "./mcp/index.js";
+import type { MessageEntry } from "./mcp/index.js";
 import { loadMcpServersConfig } from "./mcp/index.js";
 import { InspectorClient } from "./mcp/index.js";
 import { useInspectorClient } from "./hooks/useInspectorClient.js";
@@ -17,8 +17,6 @@ import { HistoryTab } from "./components/HistoryTab.js";
 import { ToolTestModal } from "./components/ToolTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { createTransport, getServerType } from "./mcp/index.js";
-import { createClient } from "./mcp/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -458,13 +456,13 @@ function App({ configFile }: AppProps) {
 
   // Switch away from logging tab if server is not stdio
   useEffect(() => {
-    if (activeTab === "logging" && selectedServerConfig) {
-      const serverType = getServerType(selectedServerConfig);
-      if (serverType !== "stdio") {
+    if (activeTab === "logging" && selectedServer) {
+      const client = inspectorClients[selectedServer];
+      if (client && client.getServerType() !== "stdio") {
         setActiveTab("info");
       }
     }
-  }, [selectedServerConfig, activeTab, getServerType]);
+  }, [selectedServer, activeTab, inspectorClients]);
 
   useInput((input: string, key: Key) => {
     // Don't process input when modal is open
@@ -755,8 +753,8 @@ function App({ configFile }: AppProps) {
             counts={tabCounts}
             focused={focus === "tabs"}
             showLogging={
-              selectedServerConfig
-                ? getServerType(selectedServerConfig) === "stdio"
+              selectedServer && inspectorClients[selectedServer]
+                ? inspectorClients[selectedServer].getServerType() === "stdio"
                 : false
             }
           />

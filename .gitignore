@@ -8,6 +8,7 @@ client/dist
 client/tsconfig.app.tsbuildinfo
 client/tsconfig.node.tsbuildinfo
 cli/build
+tui/build
 test-output
 tool-test-output
 metadata-test-output
