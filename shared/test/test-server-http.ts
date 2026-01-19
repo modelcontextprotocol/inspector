@@ -7,7 +7,7 @@ import express from "express";
 import { createServer as createHttpServer, Server as HttpServer } from "http";
 import { createServer as createNetServer } from "net";
 import * as z from "zod/v4";
-import type { ServerConfig } from "./test-fixtures.js";
+import type { ServerConfig } from "./test-server-fixtures.js";
 
 export interface RecordedRequest {
   method: string;

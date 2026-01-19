@@ -4,7 +4,7 @@
 export { InspectorClient } from "./inspectorClient.js";
 export type { InspectorClientOptions } from "./inspectorClient.js";
 
-export { loadMcpServersConfig } from "./config.js";
+export { loadMcpServersConfig, argsToMcpServerConfig } from "./config.js";
 
 // Re-export types used by consumers
 export type {

@@ -12,9 +12,9 @@ The `mcp-inspect` project is a standalone Terminal User Interface (TUI) inspecto
 
 Our goal is to integrate the TUI into the MCP Inspector project, making it a first-class UX option alongside the existing web client and CLI. The integration will be done incrementally across three development phases:
 
-1. **Phase 1**: Integrate TUI as a standalone runnable workspace (no code sharing)
-2. **Phase 2**: Share code with CLI via direct imports (transport, config, client utilities)
-3. **Phase 3**: Extract shared code to a common directory for better organization
+1. **Phase 1**: Integrate TUI as a standalone runnable workspace (no code sharing) ✅ COMPLETE
+2. **Phase 2**: Extract MCP module to shared directory (move TUI's MCP code to `shared/` for reuse) ✅ COMPLETE
+3. **Phase 3**: Convert CLI to use shared code (replace CLI's direct SDK usage with `InspectorClient` from `shared/`)
 
 **Note**: These three phases represent development staging to break down the work into manageable steps. The first release (PR) will be submitted at the completion of Phase 3, after all code sharing and organization is complete.
 
@@ -58,31 +58,29 @@ inspector/
 ├── cli/              # CLI workspace
 │   ├── src/
 │   │   ├── cli.ts    # Launcher (spawns web client, CLI, or TUI)
-│   │   ├── index.ts  # CLI implementation
-│   │   ├── transport.ts  # Phase 2: TUI imports, Phase 3: moved to shared/
-│   │   └── client/   # MCP client utilities (Phase 2: TUI imports, Phase 3: moved to shared/)
+│   │   ├── index.ts  # CLI implementation (Phase 3: uses shared/mcp/)
+│   │   ├── transport.ts  # Phase 3: deprecated (use shared/mcp/transport.ts)
+│   │   └── client/   # MCP client utilities (Phase 3: deprecated, use InspectorClient)
 │   ├── __tests__/
-│   │   └── helpers/  # Phase 2: keep here, Phase 3: moved to shared/test/
+│   │   └── helpers/  # Phase 2: test fixtures moved to shared/test/, Phase 3: imports from shared/test/
 │   └── package.json
 ├── tui/              # NEW: TUI workspace
 │   ├── src/
 │   │   ├── App.tsx   # Main TUI application
-│   │   ├── components/  # TUI React components
-│   │   ├── hooks/       # TUI-specific hooks
-│   │   ├── types/       # TUI-specific types
-│   │   └── utils/       # Phase 1: self-contained, Phase 2: imports from CLI, Phase 3: imports from shared/
+│   │   └── components/  # TUI React components
 │   ├── tui.tsx       # TUI entry point
 │   └── package.json
-├── shared/           # NEW: Shared code directory (Phase 3)
-│   ├── transport.ts
-│   ├── config.ts
-│   ├── client/       # MCP client utilities
-│   │   ├── index.ts
-│   │   ├── connection.ts
-│   │   ├── tools.ts
-│   │   ├── resources.ts
-│   │   ├── prompts.ts
-│   │   └── types.ts
+├── shared/           # NEW: Shared code directory (Phase 2)
+│   ├── mcp/          # MCP client/server interaction code
+│   │   ├── index.ts  # Public API exports
+│   │   ├── inspectorClient.ts  # Main InspectorClient class
+│   │   ├── transport.ts        # Transport creation from MCPServerConfig
+│   │   ├── config.ts           # Config loading and argument conversion
+│   │   ├── types.ts            # Shared types
+│   │   ├── messageTrackingTransport.ts
+│   │   └── client.ts
+│   ├── react/        # React-specific utilities
+│   │   └── useInspectorClient.ts  # React hook for InspectorClient
 │   └── test/         # Test fixtures and harness servers
 │       ├── test-server-fixtures.ts
 │       ├── test-server-http.ts
@@ -125,6 +123,8 @@ For Phase 1, the TUI should be completely self-contained:
 - **Keep**: All utilities from `mcp-inspect` (transport, config, client) in the TUI workspace
 - **No imports**: Do not import from CLI workspace yet
 - **Goal**: Get TUI working standalone first, then refactor to share code
+
+**Note**: During Phase 1 implementation, the TUI developed `InspectorClient` and organized MCP code into a `tui/src/mcp/` module. This provides a better foundation for code sharing than originally planned. See "Phase 1.5: InspectorClient Architecture" for details.
 
 ### 1.4 Entry Point Strategy
 
@@ -186,194 +186,286 @@ function main() {
    - Test server selection
    - Verify TUI works standalone without CLI dependencies
 
-## Phase 2: Code Sharing via Direct Imports
+## Phase 1.5: InspectorClient Architecture (Current State)
 
-Once Phase 1 is complete and TUI is working, update TUI to use code from the CLI workspace via direct imports.
+During Phase 1 implementation, the TUI developed a comprehensive client wrapper architecture that provides a better foundation for code sharing than originally planned.
 
-### 2.1 Identify Shared Code
+### InspectorClient Overview
 
-The following utilities from TUI should be replaced with CLI equivalents:
+The project now includes `InspectorClient` (`shared/mcp/inspectorClient.ts`), a comprehensive client wrapper that:
 
-1. **Transport creation** (`tui/src/utils/transport.ts`)
-   - Replace with direct import from `cli/src/transport.ts`
-   - Use `createTransport()` from CLI
+- **Wraps MCP SDK Client**: Provides a clean interface over the underlying SDK `Client`
+- **Message Tracking**: Automatically tracks all JSON-RPC messages (requests, responses, notifications)
+- **Stderr Logging**: Captures and stores stderr output from stdio transports
+- **Event-Driven**: Extends `EventEmitter` for reactive UI updates
+- **Server Data Management**: Automatically fetches and caches tools, resources, prompts, capabilities, server info, and instructions
+- **State Management**: Manages connection status, message history, and server state
+- **Transport Abstraction**: Works with all transport types (stdio, SSE, streamableHttp)
 
-2. **Config file loading** (`tui/src/utils/config.ts`)
-   - Extract `loadConfigFile()` from `cli/src/cli.ts` to `cli/src/utils/config.ts` if not already there
-   - Replace TUI config loading with CLI version
-   - **Note**: TUI will use the same config file format and location as CLI/web client for consistency
+### Shared MCP Module Structure (Phase 2 Complete)
 
-3. **Client utilities** (`tui/src/utils/client.ts`)
-   - Replace with direct imports from `cli/src/client/`
-   - Use existing MCP client wrapper functions:
-     - `connect()`, `disconnect()`, `setLoggingLevel()` from `cli/src/client/connection.ts`
-     - `listTools()`, `callTool()` from `cli/src/client/tools.ts`
-     - `listResources()`, `readResource()`, `listResourceTemplates()` from `cli/src/client/resources.ts`
-     - `listPrompts()`, `getPrompt()` from `cli/src/client/prompts.ts`
-     - `McpResponse` type from `cli/src/client/types.ts`
+The MCP-related code has been moved to `shared/mcp/` and is used by both TUI and CLI:
 
-4. **Types** (consolidate)
-   - Align TUI types with CLI types
-   - Use CLI types where possible
+- `inspectorClient.ts` - Main `InspectorClient` class
+- `transport.ts` - Transport creation from `MCPServerConfig`
+- `config.ts` - Config file loading (`loadMcpServersConfig`) and argument conversion (`argsToMcpServerConfig`)
+- `types.ts` - Shared types (`MCPServerConfig`, `MessageEntry`, `ConnectionStatus`, etc.)
+- `messageTrackingTransport.ts` - Transport wrapper for message tracking
+- `client.ts` - Thin wrapper around SDK `Client` creation
+- `index.ts` - Public API exports
 
-### 2.2 Direct Import Strategy
+### Benefits of InspectorClient
 
-Use direct relative imports from TUI to CLI:
+1. **Unified Client Interface**: Single class handles all client operations
+2. **Automatic State Management**: No manual state synchronization needed
+3. **Event-Driven Updates**: Perfect for reactive UIs (React/Ink)
+4. **Message History**: Built-in request/response/notification tracking
+5. **Stderr Capture**: Automatic logging for stdio transports
+6. **Type Safety**: Uses SDK types directly, no data loss
 
-```typescript
-// tui/src/utils/transport.ts (or wherever needed)
-import { createTransport } from "../../cli/src/transport.js";
-import { loadConfigFile } from "../../cli/src/utils/config.js";
-import { listTools, callTool } from "../../cli/src/client/tools.js";
-```
+## Phase 2: Extract MCP Module to Shared Directory ✅ COMPLETE
 
-**No TypeScript path mappings needed** - direct relative imports are simpler and clearer.
+Move the TUI's MCP module to a shared directory so both TUI and CLI can use it. This establishes the shared codebase before converting the CLI.
 
-**Path Structure**: From `tui/src/` to `cli/src/`, the relative path is `../../cli/src/`. This works because both `tui/` and `cli/` are sibling directories at the workspace root level.
+**Status**: Phase 2 is complete. All MCP code has been moved to `shared/mcp/`, the React hook moved to `shared/react/`, and test fixtures moved to `shared/test/`. The `argsToMcpServerConfig()` function has been implemented.
 
-### 2.3 Migration Steps
+### 2.1 Shared Directory Structure
 
-1. **Extract config utility from CLI** (if needed)
-   - Move `loadConfigFile()` from `cli/src/cli.ts` to `cli/src/utils/config.ts`
-   - Ensure it's exported and reusable
-
-2. **Update TUI imports**
-   - Replace TUI transport code with import from CLI
-   - Replace TUI config code with import from CLI
-   - Replace TUI client code with imports from CLI:
-     - Replace direct SDK calls (`client.listTools()`, `client.callTool()`, etc.) with wrapper functions
-     - Use `connect()`, `disconnect()`, `setLoggingLevel()` from `cli/src/client/connection.ts`
-     - Use `listTools()`, `callTool()` from `cli/src/client/tools.ts`
-     - Use `listResources()`, `readResource()`, `listResourceTemplates()` from `cli/src/client/resources.ts`
-     - Use `listPrompts()`, `getPrompt()` from `cli/src/client/prompts.ts`
-   - Delete duplicate utilities from TUI
-
-3. **Test thoroughly**
-   - Ensure all functionality still works
-   - Test with test harness servers
-   - Verify no regressions
-
-## Phase 3: Extract Shared Code to Shared Directory
-
-After Phase 2 is complete and working, extract shared code to a `shared/` directory for better organization. This includes both runtime utilities and test fixtures.
-
-### 3.1 Shared Directory Structure
+Create a `shared/` directory at the root level (not a workspace, just a directory):
 
 ```
 shared/              # Not a workspace, just a directory
-├── transport.ts
-├── config.ts
-├── client/          # MCP client utilities
-│   ├── index.ts     # Re-exports
-│   ├── connection.ts
-│   ├── tools.ts
-│   ├── resources.ts
-│   ├── prompts.ts
-│   └── types.ts
+├── mcp/             # MCP client/server interaction code
+│   ├── index.ts     # Re-exports public API
+│   ├── inspectorClient.ts  # Main InspectorClient class
+│   ├── transport.ts       # Transport creation from MCPServerConfig
+│   ├── config.ts           # Config loading and argument conversion
+│   ├── types.ts            # Shared types (MCPServerConfig, MessageEntry, etc.)
+│   ├── messageTrackingTransport.ts  # Transport wrapper for message tracking
+│   └── client.ts           # Thin wrapper around SDK Client creation
+├── react/           # React-specific utilities
+│   └── useInspectorClient.ts  # React hook for InspectorClient
 └── test/            # Test fixtures and harness servers
     ├── test-server-fixtures.ts  # Shared server configs and definitions
     ├── test-server-http.ts
     └── test-server-stdio.ts
 ```
 
-### 3.2 Code to Move to Shared Directory
+### 2.2 Code to Move
 
-**Runtime utilities:**
+**MCP Module** (from `tui/src/mcp/` to `shared/mcp/`):
 
-- `cli/src/transport.ts` → `shared/transport.ts`
-- `cli/src/utils/config.ts` (extracted from `cli/src/cli.ts`) → `shared/config.ts`
-- `cli/src/client/connection.ts` → `shared/client/connection.ts`
-- `cli/src/client/tools.ts` → `shared/client/tools.ts`
-- `cli/src/client/resources.ts` → `shared/client/resources.ts`
-- `cli/src/client/prompts.ts` → `shared/client/prompts.ts`
-- `cli/src/client/types.ts` → `shared/client/types.ts`
-- `cli/src/client/index.ts` → `shared/client/index.ts` (re-exports)
+- `inspectorClient.ts` → `shared/mcp/inspectorClient.ts`
+- `transport.ts` → `shared/mcp/transport.ts`
+- `config.ts` → `shared/mcp/config.ts` (add `argsToMcpServerConfig` function)
+- `types.ts` → `shared/mcp/types.ts`
+- `messageTrackingTransport.ts` → `shared/mcp/messageTrackingTransport.ts`
+- `client.ts` → `shared/mcp/client.ts`
+- `index.ts` → `shared/mcp/index.ts`
 
-**Test fixtures:**
+**React Hook** (from `tui/src/hooks/` to `shared/react/`):
 
-- `cli/__tests__/helpers/test-fixtures.ts` → `shared/test/test-server-fixtures.ts` (renamed)
-- `cli/__tests__/helpers/test-server-http.ts` → `shared/test/test-server-http.ts`
-- `cli/__tests__/helpers/test-server-stdio.ts` → `shared/test/test-server-stdio.ts`
+- `useInspectorClient.ts` → `shared/react/useInspectorClient.ts`
 
-**Note**: `cli/__tests__/helpers/fixtures.ts` (CLI-specific test utilities like config file creation) stays in CLI tests, not shared.
+**Test Fixtures** (from `cli/__tests__/helpers/` to `shared/test/`):
 
-### 3.3 Migration to Shared Directory
+- `test-fixtures.ts` → `shared/test/test-server-fixtures.ts` (renamed)
+- `test-server-http.ts` → `shared/test/test-server-http.ts`
+- `test-server-stdio.ts` → `shared/test/test-server-stdio.ts`
 
-1. **Create shared directory structure**
-   - Create `shared/` directory at root
-   - Create `shared/test/` subdirectory
+### 2.3 Add argsToMcpServerConfig Function
 
-2. **Move runtime utilities**
-   - Move transport code from `cli/src/transport.ts` to `shared/transport.ts`
-   - Move config code from `cli/src/utils/config.ts` to `shared/config.ts`
-   - Move client utilities from `cli/src/client/` to `shared/client/`:
-     - `connection.ts` → `shared/client/connection.ts`
-     - `tools.ts` → `shared/client/tools.ts`
-     - `resources.ts` → `shared/client/resources.ts`
-     - `prompts.ts` → `shared/client/prompts.ts`
-     - `types.ts` → `shared/client/types.ts`
-     - `index.ts` → `shared/client/index.ts` (re-exports)
+Add a utility function to convert CLI arguments to `MCPServerConfig`:
 
-3. **Move test fixtures**
-   - Move `test-fixtures.ts` from `cli/__tests__/helpers/` to `shared/test/test-server-fixtures.ts` (renamed)
-   - Move test server implementations to `shared/test/`
-   - Update imports in CLI tests to use `shared/test/`
-   - Update imports in TUI tests (if any) to use `shared/test/`
-   - **Note**: `fixtures.ts` (CLI-specific test utilities) stays in CLI tests
+```typescript
+// shared/mcp/config.ts
+export function argsToMcpServerConfig(args: {
+  command?: string;
+  args?: string[];
+  envArgs?: Record<string, string>;
+  transport?: "stdio" | "sse" | "streamable-http";
+  serverUrl?: string;
+  headers?: Record<string, string>;
+}): MCPServerConfig {
+  // Convert CLI args format to MCPServerConfig format
+  // Handle stdio, SSE, and streamableHttp transports
+}
+```
 
-4. **Update imports**
-   - Update CLI to import from `../shared/`
-   - Update TUI to import from `../shared/`
-   - Update CLI tests to import from `../../shared/test/`
-   - Update TUI tests to import from `../../shared/test/`
+**Key conversions needed**:
 
-5. **Test thoroughly**
-   - Ensure CLI still works
-   - Ensure TUI still works
-   - Ensure all tests pass (CLI and TUI)
-   - Verify test harness servers work correctly
+- CLI `transport: "streamable-http"` → `MCPServerConfig.type: "streamableHttp"`
+- CLI `command` + `args` + `envArgs` → `StdioServerConfig`
+- CLI `serverUrl` + `headers` → `SseServerConfig` or `StreamableHttpServerConfig`
+- Auto-detect transport type from URL if not specified
 
-### 3.4 Considerations
+### 2.4 Status
 
-- **Not a package**: This is just a directory for internal helpers, not a published package
-- **Direct imports**: Both CLI and TUI import directly from `shared/` directory
-- **Test fixtures shared**: Test harness servers and fixtures are available to both CLI and TUI tests
-- **Browser vs Node**: Some utilities may need different implementations for web client (evaluate later)
+**Phase 2 is complete.** All MCP code has been moved to `shared/mcp/`, the React hook to `shared/react/`, and test fixtures to `shared/test/`. The `argsToMcpServerConfig()` function has been implemented. TUI successfully imports from and uses the shared code.
 
 ## File-by-File Migration Guide
 
 ### From mcp-inspect to inspector/tui
 
-| mcp-inspect                 | inspector/tui                   | Phase | Notes                                               |
-| --------------------------- | ------------------------------- | ----- | --------------------------------------------------- |
-| `tui.tsx`                   | `tui/tui.tsx`                   | 1     | Entry point, remove CLI mode handling               |
-| `src/App.tsx`               | `tui/src/App.tsx`               | 1     | Main TUI application                                |
-| `src/components/*`          | `tui/src/components/*`          | 1     | All TUI components                                  |
-| `src/hooks/*`               | `tui/src/hooks/*`               | 1     | TUI-specific hooks                                  |
-| `src/types/*`               | `tui/src/types/*`               | 1     | TUI-specific types                                  |
-| `src/cli.ts`                | **DELETE**                      | 1     | CLI functionality exists in `cli/src/index.ts`      |
-| `src/utils/transport.ts`    | `tui/src/utils/transport.ts`    | 1     | Keep in Phase 1, replace with CLI import in Phase 2 |
-| `src/utils/config.ts`       | `tui/src/utils/config.ts`       | 1     | Keep in Phase 1, replace with CLI import in Phase 2 |
-| `src/utils/client.ts`       | `tui/src/utils/client.ts`       | 1     | Keep in Phase 1, replace with CLI import in Phase 2 |
-| `src/utils/schemaToForm.ts` | `tui/src/utils/schemaToForm.ts` | 1     | TUI-specific (form generation), keep                |
+| mcp-inspect                 | inspector/tui                   | Phase | Notes                                                            |
+| --------------------------- | ------------------------------- | ----- | ---------------------------------------------------------------- |
+| `tui.tsx`                   | `tui/tui.tsx`                   | 1     | Entry point, remove CLI mode handling                            |
+| `src/App.tsx`               | `tui/src/App.tsx`               | 1     | Main TUI application                                             |
+| `src/components/*`          | `tui/src/components/*`          | 1     | All TUI components                                               |
+| `src/hooks/*`               | `tui/src/hooks/*`               | 1     | TUI-specific hooks                                               |
+| `src/types/*`               | `tui/src/types/*`               | 1     | TUI-specific types                                               |
+| `src/cli.ts`                | **DELETE**                      | 1     | CLI functionality exists in `cli/src/index.ts`                   |
+| `src/utils/transport.ts`    | `shared/mcp/transport.ts`       | 2     | Moved to `shared/mcp/` (Phase 2 complete)                        |
+| `src/utils/config.ts`       | `shared/mcp/config.ts`          | 2     | Moved to `shared/mcp/` (Phase 2 complete)                        |
+| `src/utils/client.ts`       | **N/A**                         | 1     | Replaced by `InspectorClient` in `shared/mcp/inspectorClient.ts` |
+| `src/utils/schemaToForm.ts` | `tui/src/utils/schemaToForm.ts` | 1     | TUI-specific (form generation), keep                             |
 
-### CLI Code to Share
+### Code Sharing Strategy
 
-| Current Location                             | Phase 2 Action                                    | Phase 3 Action                                          | Notes                                                    |
-| -------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------- |
-| `cli/src/transport.ts`                       | TUI imports directly                              | Move to `shared/transport.ts`                           | Already well-structured                                  |
-| `cli/src/cli.ts::loadConfigFile()`           | Extract to `cli/src/utils/config.ts`, TUI imports | Move to `shared/config.ts`                              | Needs extraction                                         |
-| `cli/src/client/connection.ts`               | TUI imports directly                              | Move to `shared/client/connection.ts`                   | Connection management, logging                           |
-| `cli/src/client/tools.ts`                    | TUI imports directly                              | Move to `shared/client/tools.ts`                        | Tool listing and calling with metadata                   |
-| `cli/src/client/resources.ts`                | TUI imports directly                              | Move to `shared/client/resources.ts`                    | Resource operations with metadata                        |
-| `cli/src/client/prompts.ts`                  | TUI imports directly                              | Move to `shared/client/prompts.ts`                      | Prompt operations with metadata                          |
-| `cli/src/client/types.ts`                    | TUI imports directly                              | Move to `shared/client/types.ts`                        | Shared types (McpResponse, etc.)                         |
-| `cli/src/client/index.ts`                    | TUI imports directly                              | Move to `shared/client/index.ts`                        | Re-exports                                               |
-| `cli/src/index.ts::parseArgs()`              | Keep CLI-specific                                 | Keep CLI-specific                                       | CLI-only argument parsing                                |
-| `cli/__tests__/helpers/test-fixtures.ts`     | Keep in CLI tests                                 | Move to `shared/test/test-server-fixtures.ts` (renamed) | Shared test server configs and definitions               |
-| `cli/__tests__/helpers/test-server-http.ts`  | Keep in CLI tests                                 | Move to `shared/test/test-server-http.ts`               | Shared test harness                                      |
-| `cli/__tests__/helpers/test-server-stdio.ts` | Keep in CLI tests                                 | Move to `shared/test/test-server-stdio.ts`              | Shared test harness                                      |
-| `cli/__tests__/helpers/fixtures.ts`          | Keep in CLI tests                                 | Keep in CLI tests                                       | CLI-specific test utilities (config file creation, etc.) |
+| Current Location                             | Phase 2 Status                                                    | Phase 3 Action                                     | Notes                                                    |
+| -------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------- |
+| `tui/src/mcp/inspectorClient.ts`             | ✅ Moved to `shared/mcp/inspectorClient.ts`                       | CLI imports and uses                               | Main client wrapper, replaces CLI wrapper functions      |
+| `tui/src/mcp/transport.ts`                   | ✅ Moved to `shared/mcp/transport.ts`                             | CLI imports and uses                               | Transport creation from MCPServerConfig                  |
+| `tui/src/mcp/config.ts`                      | ✅ Moved to `shared/mcp/config.ts` (with `argsToMcpServerConfig`) | CLI imports and uses                               | Config loading and argument conversion                   |
+| `tui/src/mcp/types.ts`                       | ✅ Moved to `shared/mcp/types.ts`                                 | CLI imports and uses                               | Shared types (MCPServerConfig, MessageEntry, etc.)       |
+| `tui/src/mcp/messageTrackingTransport.ts`    | ✅ Moved to `shared/mcp/messageTrackingTransport.ts`              | CLI imports (if needed)                            | Transport wrapper for message tracking                   |
+| `tui/src/hooks/useInspectorClient.ts`        | ✅ Moved to `shared/react/useInspectorClient.ts`                  | TUI imports from shared                            | React hook for InspectorClient                           |
+| `cli/src/transport.ts`                       | Keep (temporary)                                                  | **Deprecated** (use `shared/mcp/transport.ts`)     | Replaced by `shared/mcp/transport.ts`                    |
+| `cli/src/client/connection.ts`               | Keep (temporary)                                                  | **Deprecated** (use `InspectorClient`)             | Replaced by `InspectorClient`                            |
+| `cli/src/client/tools.ts`                    | Keep (temporary)                                                  | **Deprecated** (use `InspectorClient.getClient()`) | Use SDK methods directly via `InspectorClient`           |
+| `cli/src/client/resources.ts`                | Keep (temporary)                                                  | **Deprecated** (use `InspectorClient.getClient()`) | Use SDK methods directly via `InspectorClient`           |
+| `cli/src/client/prompts.ts`                  | Keep (temporary)                                                  | **Deprecated** (use `InspectorClient.getClient()`) | Use SDK methods directly via `InspectorClient`           |
+| `cli/src/client/types.ts`                    | Keep (temporary)                                                  | **Deprecated** (use SDK types)                     | Use SDK types directly                                   |
+| `cli/src/index.ts::parseArgs()`              | Keep CLI-specific                                                 | Keep CLI-specific                                  | CLI-only argument parsing                                |
+| `cli/__tests__/helpers/test-fixtures.ts`     | ✅ Moved to `shared/test/test-server-fixtures.ts` (renamed)       | CLI tests import from shared                       | Shared test server configs and definitions               |
+| `cli/__tests__/helpers/test-server-http.ts`  | ✅ Moved to `shared/test/test-server-http.ts`                     | CLI tests import from shared                       | Shared test harness                                      |
+| `cli/__tests__/helpers/test-server-stdio.ts` | ✅ Moved to `shared/test/test-server-stdio.ts`                    | CLI tests import from shared                       | Shared test harness                                      |
+| `cli/__tests__/helpers/fixtures.ts`          | Keep in CLI tests                                                 | Keep in CLI tests                                  | CLI-specific test utilities (config file creation, etc.) |
+
+## Phase 3: Convert CLI to Use Shared Code
+
+Replace the CLI's direct MCP SDK usage with `InspectorClient` from `shared/mcp/`, consolidating client logic and leveraging the shared codebase.
+
+### 3.1 Current CLI Architecture
+
+The CLI currently:
+
+- Uses direct SDK `Client` instances (`new Client()`)
+- Has its own `transport.ts` with `createTransport()` and `TransportOptions`
+- Has `createTransportOptions()` function to convert CLI args to transport options
+- Uses `client/*` utilities that wrap SDK methods (tools, resources, prompts, connection)
+- Manages connection lifecycle manually (`connect()`, `disconnect()`)
+
+**Current files to be replaced/deprecated:**
+
+- `cli/src/transport.ts` - Replace with `shared/mcp/transport.ts`
+- `cli/src/client/connection.ts` - Replace with `InspectorClient.connect()`/`disconnect()`
+- `cli/src/client/tools.ts` - Update to use `InspectorClient.getClient()`
+- `cli/src/client/resources.ts` - Update to use `InspectorClient.getClient()`
+- `cli/src/client/prompts.ts` - Update to use `InspectorClient.getClient()`
+
+### 3.2 Conversion Strategy
+
+**Replace direct Client usage with InspectorClient:**
+
+1. **Replace transport creation:**
+   - Remove `createTransportOptions()` function
+   - Replace `createTransport(transportOptions)` with `createTransportFromConfig(mcpServerConfig)`
+   - Convert CLI args to `MCPServerConfig` using `argsToMcpServerConfig()`
+
+2. **Replace connection management:**
+   - Replace `new Client()` + `connect(client, transport)` with `new InspectorClient(config)` + `inspectorClient.connect()`
+   - Replace `disconnect(transport)` with `inspectorClient.disconnect()`
+
+3. **Update client utilities:**
+   - Keep CLI-specific utility functions (`listTools`, `callTool`, etc.) but update them to accept `InspectorClient` instead of `Client`
+   - Use `inspectorClient.getClient()` to access SDK methods
+   - This preserves the CLI's API while using shared code internally
+
+4. **Update main CLI flow:**
+   - In `callMethod()`, replace transport/client setup with `InspectorClient`
+   - Update all method calls to use utilities that work with `InspectorClient`
+
+### 3.3 Migration Steps
+
+1. **Update imports in `cli/src/index.ts`:**
+   - Import `InspectorClient` from `../../shared/mcp/index.js`
+   - Import `argsToMcpServerConfig` from `../../shared/mcp/index.js`
+   - Import `createTransportFromConfig` from `../../shared/mcp/index.js`
+   - Import `MCPServerConfig` type from `../../shared/mcp/index.js`
+
+2. **Replace transport creation:**
+   - Remove `createTransportOptions()` function
+   - Remove `createTransport()` import from `./transport.js`
+   - Update `callMethod()` to use `argsToMcpServerConfig()` to convert CLI args
+   - Use `createTransportFromConfig()` instead of `createTransport()`
+
+3. **Replace Client with InspectorClient:**
+   - Replace `new Client(clientIdentity)` with `new InspectorClient(mcpServerConfig)`
+   - Replace `connect(client, transport)` with `inspectorClient.connect()`
+   - Replace `disconnect(transport)` with `inspectorClient.disconnect()`
+
+4. **Update client utilities:**
+   - Update `cli/src/client/tools.ts` to accept `InspectorClient` instead of `Client`
+   - Update `cli/src/client/resources.ts` to accept `InspectorClient` instead of `Client`
+   - Update `cli/src/client/prompts.ts` to accept `InspectorClient` instead of `Client`
+   - Update `cli/src/client/connection.ts` or remove it (use `InspectorClient` methods directly)
+   - All utilities should use `inspectorClient.getClient()` to access SDK methods
+
+5. **Update CLI argument conversion:**
+   - Map CLI's `Args` type to `argsToMcpServerConfig()` parameters
+   - Handle transport type mapping: CLI uses `"http"` for streamable-http, map to `"streamable-http"` for the function
+   - Ensure all CLI argument combinations are correctly converted
+
+6. **Update tests:**
+   - Update CLI test imports to use `../../shared/test/` (already done in Phase 2)
+   - Update tests to use `InspectorClient` instead of direct `Client`
+   - Verify all test scenarios still pass
+
+7. **Deprecate old files:**
+   - Mark `cli/src/transport.ts` as deprecated (keep for now, add deprecation comment)
+   - Mark `cli/src/client/connection.ts` as deprecated (keep for now, add deprecation comment)
+   - These can be removed in a future cleanup after confirming everything works
+
+8. **Test thoroughly:**
+   - Test all CLI methods (tools/list, tools/call, resources/list, resources/read, prompts/list, prompts/get, logging/setLevel)
+   - Test all transport types (stdio, SSE, streamable-http)
+   - Verify CLI output format is preserved (JSON output should be identical)
+   - Run all CLI tests
+   - Test with real MCP servers (not just test harness)
+
+### 3.4 Example Conversion
+
+**Before (current):**
+
+```typescript
+const transportOptions = createTransportOptions(
+  args.target,
+  args.transport,
+  args.headers,
+);
+const transport = createTransport(transportOptions);
+const client = new Client(clientIdentity);
+await connect(client, transport);
+const result = await listTools(client, args.metadata);
+await disconnect(transport);
+```
+
+**After (with shared code):**
+
+```typescript
+const config = argsToMcpServerConfig({
+  command: args.target[0],
+  args: args.target.slice(1),
+  transport: args.transport === "http" ? "streamable-http" : args.transport,
+  serverUrl: args.target[0]?.startsWith("http") ? args.target[0] : undefined,
+  headers: args.headers,
+});
+const inspectorClient = new InspectorClient(config);
+await inspectorClient.connect();
+const result = await listTools(inspectorClient, args.metadata);
+await inspectorClient.disconnect();
+```
 
 ## Package.json Configuration
 
@@ -516,69 +608,47 @@ This provides a single entry point with consistent argument parsing across all t
 - [x] Test server selection
 - [x] Verify TUI works standalone without CLI dependencies
 
-### Phase 2: Code Sharing via Direct Imports
+### Phase 2: Extract MCP Module to Shared Directory
 
-- [ ] Extract `loadConfigFile()` from `cli/src/cli.ts` to `cli/src/utils/config.ts` (if not already there)
-- [ ] Update TUI to import transport from `cli/src/transport.ts`
-- [ ] Update TUI to import config from `cli/src/utils/config.ts`
-- [ ] Update TUI to import client utilities from `cli/src/client/`
-- [ ] Delete duplicate utilities from TUI (transport, config, client)
-- [ ] Test TUI with test harness servers (all transports)
-- [ ] Verify all functionality still works
+- [x] Create `shared/` directory structure (not a workspace)
+- [x] Create `shared/mcp/` subdirectory
+- [x] Create `shared/react/` subdirectory
+- [x] Create `shared/test/` subdirectory
+- [x] Move MCP module from `tui/src/mcp/` to `shared/mcp/`:
+  - [x] `inspectorClient.ts` → `shared/mcp/inspectorClient.ts`
+  - [x] `transport.ts` → `shared/mcp/transport.ts`
+  - [x] `config.ts` → `shared/mcp/config.ts`
+  - [x] `types.ts` → `shared/mcp/types.ts`
+  - [x] `messageTrackingTransport.ts` → `shared/mcp/messageTrackingTransport.ts`
+  - [x] `client.ts` → `shared/mcp/client.ts`
+  - [x] `index.ts` → `shared/mcp/index.ts`
+- [x] Add `argsToMcpServerConfig()` function to `shared/mcp/config.ts`
+- [x] Move React hook from `tui/src/hooks/useInspectorClient.ts` to `shared/react/useInspectorClient.ts`
+- [x] Move test fixtures from `cli/__tests__/helpers/` to `shared/test/`:
+  - [x] `test-fixtures.ts` → `shared/test/test-server-fixtures.ts` (renamed)
+  - [x] `test-server-http.ts` → `shared/test/test-server-http.ts`
+  - [x] `test-server-stdio.ts` → `shared/test/test-server-stdio.ts`
+- [x] Update TUI imports to use `../../shared/mcp/` and `../../shared/react/`
+- [x] Update CLI test imports to use `../../shared/test/`
+- [x] Test TUI functionality (verify it still works with shared code)
+- [x] Test CLI tests (verify test fixtures work from new location)
+- [x] Update documentation
+
+### Phase 3: Convert CLI to Use Shared Code
+
+- [ ] Update CLI imports to use `InspectorClient`, `argsToMcpServerConfig`, `createTransportFromConfig` from `../../shared/mcp/`
+- [ ] Replace `createTransportOptions()` with `argsToMcpServerConfig()` in `cli/src/index.ts`
+- [ ] Replace `createTransport()` with `createTransportFromConfig()`
+- [ ] Replace `new Client()` + `connect()` with `new InspectorClient()` + `connect()`
+- [ ] Replace `disconnect(transport)` with `inspectorClient.disconnect()`
+- [ ] Update `cli/src/client/tools.ts` to accept `InspectorClient` instead of `Client`
+- [ ] Update `cli/src/client/resources.ts` to accept `InspectorClient` instead of `Client`
+- [ ] Update `cli/src/client/prompts.ts` to accept `InspectorClient` instead of `Client`
+- [ ] Update `cli/src/client/connection.ts` or remove it (use `InspectorClient` methods)
+- [ ] Handle transport type mapping (`"http"` → `"streamable-http"`)
+- [ ] Mark `cli/src/transport.ts` as deprecated
+- [ ] Mark `cli/src/client/connection.ts` as deprecated
+- [ ] Test all CLI methods with all transport types
+- [ ] Verify CLI output format is preserved (identical JSON)
+- [ ] Run all CLI tests
 - [ ] Update documentation
-
-### Phase 3: Extract Shared Code to Shared Directory
-
-- [ ] Create `shared/` directory structure (not a workspace)
-- [ ] Create `shared/test/` subdirectory
-- [ ] Move transport code from CLI to `shared/transport.ts`
-- [ ] Move config code from CLI to `shared/config.ts`
-- [ ] Move client utilities from CLI to `shared/client/`:
-  - [ ] `connection.ts` → `shared/client/connection.ts`
-  - [ ] `tools.ts` → `shared/client/tools.ts`
-  - [ ] `resources.ts` → `shared/client/resources.ts`
-  - [ ] `prompts.ts` → `shared/client/prompts.ts`
-  - [ ] `types.ts` → `shared/client/types.ts`
-  - [ ] `index.ts` → `shared/client/index.ts`
-- [ ] Move test fixtures from `cli/__tests__/helpers/test-fixtures.ts` to `shared/test/test-server-fixtures.ts` (renamed)
-- [ ] Move test server HTTP from `cli/__tests__/helpers/test-server-http.ts` to `shared/test/test-server-http.ts`
-- [ ] Move test server stdio from `cli/__tests__/helpers/test-server-stdio.ts` to `shared/test/test-server-stdio.ts`
-- [ ] Update CLI to import from `../shared/`
-- [ ] Update TUI to import from `../shared/`
-- [ ] Update CLI tests to import from `../../shared/test/`
-- [ ] Update TUI tests (if any) to import from `../../shared/test/`
-- [ ] Test CLI functionality
-- [ ] Test TUI functionality
-- [ ] Test CLI tests (verify test harness servers work)
-- [ ] Test TUI tests (if any)
-- [ ] Evaluate web client needs (may need different implementations)
-- [ ] Update documentation
-
-## Notes
-
-- The TUI from mcp-inspect is well-structured and should integrate cleanly
-- All phase-specific details, code sharing strategies, and implementation notes are documented in their respective sections above
-
-## Additonal Notes
-
-InspectorClient wraps or abstracts an McpClient + server
-
-- Collect message
-- Collect logging
-- Provide access to client functionality (prompts, resources, tools)
-
-```javascript
-InspectorClient(
-  transportConfig, // so it can create transport with logging if needed)
-  maxMessages, // if zero, don't listen
-  maxLogEvents, // if zero, don't listen
-);
-// Create Client
-// Create Transport (wrap with MessageTrackingTransport if needed)
-// - Stdio transport needs to be created with pipe and listener as appropriate
-// We will keep the list of messages and log events in this object instead of directl in the React state
-```
-
-May be used by CLI (plain TypeScript) or in our TUI (React app), so it needs to be React friendly
-
-- To make it React friendly, event emitter + custom hooks?
