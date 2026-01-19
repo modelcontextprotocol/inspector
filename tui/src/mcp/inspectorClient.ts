@@ -5,7 +5,12 @@ import type {
   ConnectionStatus,
   MessageEntry,
 } from "./types.js";
-import { createTransport, type CreateTransportOptions } from "./transport.js";
+import {
+  createTransport,
+  type CreateTransportOptions,
+  getServerType as getServerTypeFromConfig,
+  type ServerType,
+} from "./transport.js";
 import { createClient } from "./client.js";
 import {
   MessageTrackingTransport,
@@ -155,8 +160,7 @@ export class InspectorClient extends EventEmitter {
       this.emit("error", error);
     };
 
-    // Create client
-    this.client = createClient(this.transport);
+    this.client = createClient();
   }
 
   /**
@@ -261,6 +265,13 @@ export class InspectorClient extends EventEmitter {
    */
   getTransportConfig(): MCPServerConfig {
     return this.transportConfig;
+  }
+
+  /**
+   * Get the server type (stdio, sse, or streamableHttp)
+   */
+  getServerType(): ServerType {
+    return getServerTypeFromConfig(this.transportConfig);
   }
 
   /**
