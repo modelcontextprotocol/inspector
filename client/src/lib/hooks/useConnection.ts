@@ -7,6 +7,7 @@ import {
 import {
   StreamableHTTPClientTransport,
   StreamableHTTPClientTransportOptions,
+  StreamableHTTPError,
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   ClientNotification,
@@ -359,8 +360,11 @@ export function useConnection({
   const is401Error = (error: unknown): boolean => {
     return (
       (error instanceof SseError && error.code === 401) ||
+      (error instanceof StreamableHTTPError && error.code === 401) ||
       (error instanceof Error && error.message.includes("401")) ||
-      (error instanceof Error && error.message.includes("Unauthorized"))
+      (error instanceof Error && error.message.includes("Unauthorized")) ||
+      (error instanceof Error &&
+        error.message.includes("Missing Authorization header"))
     );
   };
 
@@ -390,11 +394,22 @@ export function useConnection({
       saveScopeToSessionStorage(sseUrl, scope);
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
-      const result = await auth(serverAuthProvider, {
-        serverUrl: sseUrl,
-        scope,
-      });
-      return result === "AUTHORIZED";
+      try {
+        const result = await auth(serverAuthProvider, {
+          serverUrl: sseUrl,
+          scope,
+        });
+        return result === "AUTHORIZED";
+      } catch (authError) {
+        // Show user-friendly error message for OAuth failures
+        toast({
+          title: "OAuth Authentication Failed",
+          description:
+            authError instanceof Error ? authError.message : String(authError),
+          variant: "destructive",
+        });
+        return false;
+      }
     }
 
     return false;
@@ -534,6 +549,7 @@ export function useConnection({
             requestHeaders["Accept"] = "text/event-stream";
             requestHeaders["content-type"] = "application/json";
             transportOptions = {
+              authProvider: serverAuthProvider,
               fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
@@ -555,6 +571,7 @@ export function useConnection({
 
           case "streamable-http":
             transportOptions = {
+              authProvider: serverAuthProvider,
               fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
@@ -643,6 +660,7 @@ export function useConnection({
               );
             }
             transportOptions = {
+              authProvider: serverAuthProvider,
               eventSourceInit: {
                 fetch: (
                   url: string | URL | globalThis.Request,
@@ -664,6 +682,7 @@ export function useConnection({
             mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
             mcpProxyServerUrl.searchParams.append("url", sseUrl);
             transportOptions = {
+              authProvider: serverAuthProvider,
               eventSourceInit: {
                 fetch: (
                   url: string | URL | globalThis.Request,
@@ -827,6 +846,12 @@ export function useConnection({
         toast({
           title: "Error",
           description: `Server declares logging capability but doesn't implement method: "${lastRequest}"`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Connection error",
+          description: `Connection failed: "${e}"`,
           variant: "destructive",
         });
       }
