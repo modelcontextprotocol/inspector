@@ -3,10 +3,9 @@ import { Box, Text, useInput, useApp, type Key } from "ink";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import type { MCPServerConfig, MessageEntry } from "./types.js";
-import { loadMcpServersConfig } from "./utils/config.js";
-import type { FocusArea } from "./types/focus.js";
-import { InspectorClient } from "./utils/inspectorClient.js";
+import type { MCPServerConfig, MessageEntry } from "./mcp/index.js";
+import { loadMcpServersConfig } from "./mcp/index.js";
+import { InspectorClient } from "./mcp/index.js";
 import { useInspectorClient } from "./hooks/useInspectorClient.js";
 import { Tabs, type TabType, tabs as tabList } from "./components/Tabs.js";
 import { InfoTab } from "./components/InfoTab.js";
@@ -18,8 +17,8 @@ import { HistoryTab } from "./components/HistoryTab.js";
 import { ToolTestModal } from "./components/ToolTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { createTransport, getServerType } from "./utils/transport.js";
-import { createClient } from "./utils/client.js";
+import { createTransport, getServerType } from "./mcp/index.js";
+import { createClient } from "./mcp/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -48,6 +47,18 @@ try {
     version: string;
   };
 }
+
+// Focus management types
+type FocusArea =
+  | "serverList"
+  | "tabs"
+  // Used by Resources/Prompts/Tools - list pane
+  | "tabContentList"
+  // Used by Resources/Prompts/Tools - details pane
+  | "tabContentDetails"
+  // Used only when activeTab === 'messages'
+  | "messagesList"
+  | "messagesDetail";
 
 interface AppProps {
   configFile: string;

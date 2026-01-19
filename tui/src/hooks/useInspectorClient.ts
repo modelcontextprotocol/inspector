@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
-import { InspectorClient } from "../utils/inspectorClient.js";
+import { InspectorClient } from "../mcp/index.js";
 import type {
   ConnectionStatus,
   StderrLogEntry,
   MessageEntry,
-} from "../types.js";
+} from "../mcp/index.js";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type {
   ServerCapabilities,
