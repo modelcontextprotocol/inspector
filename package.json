@@ -1,0 +1,17 @@
+{
+  "name": "@modelcontextprotocol/inspector",
+  "version": "2.0.0-alpha.0",
+  "description": "MCP Inspector V2 - A tool for testing and debugging MCP servers",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "core"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
