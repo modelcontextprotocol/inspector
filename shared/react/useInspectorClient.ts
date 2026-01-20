@@ -9,6 +9,9 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type {
   ServerCapabilities,
   Implementation,
+  Tool,
+  ResourceReference,
+  PromptReference,
 } from "@modelcontextprotocol/sdk/types.js";
 
 export interface UseInspectorClientResult {
@@ -85,64 +88,93 @@ export function useInspectorClient(
     setInstructions(inspectorClient.getInstructions());
 
     // Event handlers
-    const onStatusChange = (newStatus: ConnectionStatus) => {
-      setStatus(newStatus);
+    // Note: We use event payloads when available for efficiency, with explicit type casting
+    // since EventTarget doesn't provide compile-time type safety
+    const onStatusChange = (event: Event) => {
+      const customEvent = event as CustomEvent<ConnectionStatus>;
+      setStatus(customEvent.detail);
     };
 
     const onMessagesChange = () => {
+      // messagesChange doesn't include payload, so we fetch
       setMessages(inspectorClient.getMessages());
     };
 
     const onStderrLogsChange = () => {
+      // stderrLogsChange doesn't include payload, so we fetch
       setStderrLogs(inspectorClient.getStderrLogs());
     };
 
-    const onToolsChange = (newTools: any[]) => {
-      setTools(newTools);
+    const onToolsChange = (event: Event) => {
+      const customEvent = event as CustomEvent<Tool[]>;
+      setTools(customEvent.detail);
     };
 
-    const onResourcesChange = (newResources: any[]) => {
-      setResources(newResources);
+    const onResourcesChange = (event: Event) => {
+      const customEvent = event as CustomEvent<ResourceReference[]>;
+      setResources(customEvent.detail);
     };
 
-    const onPromptsChange = (newPrompts: any[]) => {
-      setPrompts(newPrompts);
+    const onPromptsChange = (event: Event) => {
+      const customEvent = event as CustomEvent<PromptReference[]>;
+      setPrompts(customEvent.detail);
     };
 
-    const onCapabilitiesChange = (newCapabilities?: ServerCapabilities) => {
-      setCapabilities(newCapabilities);
+    const onCapabilitiesChange = (event: Event) => {
+      const customEvent = event as CustomEvent<ServerCapabilities | undefined>;
+      setCapabilities(customEvent.detail);
     };
 
-    const onServerInfoChange = (newServerInfo?: Implementation) => {
-      setServerInfo(newServerInfo);
+    const onServerInfoChange = (event: Event) => {
+      const customEvent = event as CustomEvent<Implementation | undefined>;
+      setServerInfo(customEvent.detail);
     };
 
-    const onInstructionsChange = (newInstructions?: string) => {
-      setInstructions(newInstructions);
+    const onInstructionsChange = (event: Event) => {
+      const customEvent = event as CustomEvent<string | undefined>;
+      setInstructions(customEvent.detail);
     };
 
     // Subscribe to events
-    inspectorClient.on("statusChange", onStatusChange);
-    inspectorClient.on("messagesChange", onMessagesChange);
-    inspectorClient.on("stderrLogsChange", onStderrLogsChange);
-    inspectorClient.on("toolsChange", onToolsChange);
-    inspectorClient.on("resourcesChange", onResourcesChange);
-    inspectorClient.on("promptsChange", onPromptsChange);
-    inspectorClient.on("capabilitiesChange", onCapabilitiesChange);
-    inspectorClient.on("serverInfoChange", onServerInfoChange);
-    inspectorClient.on("instructionsChange", onInstructionsChange);
+    inspectorClient.addEventListener("statusChange", onStatusChange);
+    inspectorClient.addEventListener("messagesChange", onMessagesChange);
+    inspectorClient.addEventListener("stderrLogsChange", onStderrLogsChange);
+    inspectorClient.addEventListener("toolsChange", onToolsChange);
+    inspectorClient.addEventListener("resourcesChange", onResourcesChange);
+    inspectorClient.addEventListener("promptsChange", onPromptsChange);
+    inspectorClient.addEventListener(
+      "capabilitiesChange",
+      onCapabilitiesChange,
+    );
+    inspectorClient.addEventListener("serverInfoChange", onServerInfoChange);
+    inspectorClient.addEventListener(
+      "instructionsChange",
+      onInstructionsChange,
+    );
 
     // Cleanup
     return () => {
-      inspectorClient.off("statusChange", onStatusChange);
-      inspectorClient.off("messagesChange", onMessagesChange);
-      inspectorClient.off("stderrLogsChange", onStderrLogsChange);
-      inspectorClient.off("toolsChange", onToolsChange);
-      inspectorClient.off("resourcesChange", onResourcesChange);
-      inspectorClient.off("promptsChange", onPromptsChange);
-      inspectorClient.off("capabilitiesChange", onCapabilitiesChange);
-      inspectorClient.off("serverInfoChange", onServerInfoChange);
-      inspectorClient.off("instructionsChange", onInstructionsChange);
+      inspectorClient.removeEventListener("statusChange", onStatusChange);
+      inspectorClient.removeEventListener("messagesChange", onMessagesChange);
+      inspectorClient.removeEventListener(
+        "stderrLogsChange",
+        onStderrLogsChange,
+      );
+      inspectorClient.removeEventListener("toolsChange", onToolsChange);
+      inspectorClient.removeEventListener("resourcesChange", onResourcesChange);
+      inspectorClient.removeEventListener("promptsChange", onPromptsChange);
+      inspectorClient.removeEventListener(
+        "capabilitiesChange",
+        onCapabilitiesChange,
+      );
+      inspectorClient.removeEventListener(
+        "serverInfoChange",
+        onServerInfoChange,
+      );
+      inspectorClient.removeEventListener(
+        "instructionsChange",
+        onInstructionsChange,
+      );
     };
   }, [inspectorClient]);
 

@@ -206,7 +206,7 @@ The project now includes `InspectorClient` (`shared/mcp/inspectorClient.ts`), a 
 - **Wraps MCP SDK Client**: Provides a clean interface over the underlying SDK `Client`
 - **Message Tracking**: Automatically tracks all JSON-RPC messages (requests, responses, notifications)
 - **Stderr Logging**: Captures and stores stderr output from stdio transports
-- **Event-Driven**: Extends `EventEmitter` for reactive UI updates
+- **Event-Driven**: Extends `EventTarget` for reactive UI updates (cross-platform: works in both browser and Node.js)
 - **Server Data Management**: Automatically fetches and caches tools, resources, prompts, capabilities, server info, and instructions
 - **State Management**: Manages connection status, message history, and server state
 - **Transport Abstraction**: Works with all transport types (stdio, sse, streamable-http)
@@ -242,7 +242,7 @@ The shared codebase includes MCP, React, JSON utilities, and test fixtures:
 
 **`shared/react/`** - React-specific utilities:
 
-- `useInspectorClient.ts` - React hook for `InspectorClient`
+- `useInspectorClient.ts` - React hook for `InspectorClient` that subscribes to EventTarget events and provides reactive state (works in both TUI and web client)
 
 **`shared/test/`** - Test fixtures and harness servers:
 
@@ -254,12 +254,13 @@ The shared codebase includes MCP, React, JSON utilities, and test fixtures:
 
 1. **Unified Client Interface**: Single class handles all client operations
 2. **Automatic State Management**: No manual state synchronization needed
-3. **Event-Driven Updates**: Perfect for reactive UIs (React/Ink)
+3. **Event-Driven Updates**: Perfect for reactive UIs (React/Ink) using EventTarget (cross-platform compatible)
 4. **Message History**: Built-in request/response/notification tracking
 5. **Stderr Capture**: Automatic logging for stdio transports
 6. **Type Safety**: Uses SDK types directly, no data loss
 7. **High-Level Methods**: Provides convenient wrappers for tools, resources, prompts, and logging with automatic parameter conversion and error handling
 8. **Code Reuse**: CLI and TUI both use the same `InspectorClient` methods, eliminating duplicate helper code
+9. **Cross-Platform Events**: EventTarget works in both browser and Node.js, enabling future web client integration
 
 ## Phase 2: Extract MCP Module to Shared Directory ✅ COMPLETE
 
