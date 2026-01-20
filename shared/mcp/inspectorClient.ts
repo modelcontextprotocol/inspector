@@ -11,7 +11,6 @@ import {
   getServerType as getServerTypeFromConfig,
   type ServerType,
 } from "./transport.js";
-import { createClient } from "./client.js";
 import {
   MessageTrackingTransport,
   type MessageTrackingCallbacks,
@@ -23,10 +22,18 @@ import type {
   JSONRPCErrorResponse,
   ServerCapabilities,
   Implementation,
+  LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
 import { EventEmitter } from "events";
 
 export interface InspectorClientOptions {
+  /**
+   * Client identity (name and version)
+   */
+  clientIdentity?: {
+    name: string;
+    version: string;
+  };
   /**
    * Maximum number of messages to store (0 = unlimited, but not recommended)
    */
@@ -41,6 +48,18 @@ export interface InspectorClientOptions {
    * Whether to pipe stderr for stdio transports (default: true for TUI, false for CLI)
    */
   pipeStderr?: boolean;
+
+  /**
+   * Whether to automatically fetch server contents (tools, resources, prompts) on connect
+   * (default: true for backward compatibility with TUI)
+   */
+  autoFetchServerContents?: boolean;
+
+  /**
+   * Initial logging level to set after connection (if server supports logging)
+   * If not provided, logging level will not be set automatically
+   */
+  initialLoggingLevel?: LoggingLevel;
 }
 
 /**
@@ -58,6 +77,8 @@ export class InspectorClient extends EventEmitter {
   private stderrLogs: StderrLogEntry[] = [];
   private maxMessages: number;
   private maxStderrLogEvents: number;
+  private autoFetchServerContents: boolean;
+  private initialLoggingLevel?: LoggingLevel;
   private status: ConnectionStatus = "disconnected";
   // Server data
   private tools: any[] = [];
@@ -74,6 +95,8 @@ export class InspectorClient extends EventEmitter {
     super();
     this.maxMessages = options.maxMessages ?? 1000;
     this.maxStderrLogEvents = options.maxStderrLogEvents ?? 1000;
+    this.autoFetchServerContents = options.autoFetchServerContents ?? true;
+    this.initialLoggingLevel = options.initialLoggingLevel;
 
     // Set up message tracking callbacks
     const messageTracking: MessageTrackingCallbacks = {
@@ -160,7 +183,12 @@ export class InspectorClient extends EventEmitter {
       this.emit("error", error);
     };
 
-    this.client = createClient();
+    this.client = new Client(
+      options.clientIdentity ?? {
+        name: "@modelcontextprotocol/inspector",
+        version: "0.18.0",
+      },
+    );
   }
 
   /**
@@ -190,8 +218,18 @@ export class InspectorClient extends EventEmitter {
       this.emit("statusChange", this.status);
       this.emit("connect");
 
-      // Auto-fetch server data on connect
-      await this.fetchServerData();
+      // Always fetch server info (capabilities, serverInfo, instructions) - this is just cached data from initialize
+      await this.fetchServerInfo();
+
+      // Set initial logging level if configured and server supports it
+      if (this.initialLoggingLevel && this.capabilities?.logging) {
+        await this.client.setLoggingLevel(this.initialLoggingLevel);
+      }
+
+      // Auto-fetch server contents (tools, resources, prompts) if enabled
+      if (this.autoFetchServerContents) {
+        await this.fetchServerContents();
+      }
     } catch (error) {
       this.status = "error";
       this.emit("statusChange", this.status);
@@ -323,28 +361,43 @@ export class InspectorClient extends EventEmitter {
   }
 
   /**
-   * Fetch server data (capabilities, tools, resources, prompts, serverInfo, instructions)
-   * Called automatically on connect, but can be called manually if needed.
-   * TODO: Add support for listChanged notifications to auto-refresh when server data changes
+   * Fetch server info (capabilities, serverInfo, instructions) from cached initialize response
+   * This does not send any additional MCP requests - it just reads cached data
+   * Always called on connect
    */
-  private async fetchServerData(): Promise<void> {
+  private async fetchServerInfo(): Promise<void> {
     if (!this.client) {
       return;
     }
 
     try {
-      // Get server capabilities
+      // Get server capabilities (cached from initialize response)
       this.capabilities = this.client.getServerCapabilities();
       this.emit("capabilitiesChange", this.capabilities);
 
-      // Get server info (name, version) and instructions
+      // Get server info (name, version) and instructions (cached from initialize response)
       this.serverInfo = this.client.getServerVersion();
       this.instructions = this.client.getInstructions();
       this.emit("serverInfoChange", this.serverInfo);
       if (this.instructions !== undefined) {
         this.emit("instructionsChange", this.instructions);
       }
+    } catch (error) {
+      // Ignore errors in fetching server info
+    }
+  }
 
+  /**
+   * Fetch server contents (tools, resources, prompts) by sending MCP requests
+   * This is only called when autoFetchServerContents is enabled
+   * TODO: Add support for listChanged notifications to auto-refresh when server data changes
+   */
+  private async fetchServerContents(): Promise<void> {
+    if (!this.client) {
+      return;
+    }
+
+    try {
       // Query resources, prompts, and tools based on capabilities
       if (this.capabilities?.resources) {
         try {
@@ -382,9 +435,7 @@ export class InspectorClient extends EventEmitter {
         }
       }
     } catch (error) {
-      // If fetching fails, we still consider the connection successful
-      // but log the error
-      this.emit("error", error);
+      // Ignore errors in fetching server contents
     }
   }
 

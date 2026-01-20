@@ -1,25 +1,18 @@
 #!/usr/bin/env node
 
 import * as fs from "fs";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Command } from "commander";
 import {
   callTool,
-  connect,
-  disconnect,
   getPrompt,
   listPrompts,
   listResources,
   listResourceTemplates,
   listTools,
-  LogLevel,
   McpResponse,
   readResource,
-  setLoggingLevel,
-  validLogLevels,
 } from "./client/index.js";
 import { handleError } from "./error-handler.js";
-import { createTransport, TransportOptions } from "./transport.js";
 import { awaitableLog } from "./utils/awaitable-log.js";
 import type {
   MCPServerConfig,
@@ -27,6 +20,12 @@ import type {
   SseServerConfig,
   StreamableHttpServerConfig,
 } from "@modelcontextprotocol/inspector-shared/mcp/types.js";
+import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/inspectorClient.js";
+import {
+  LoggingLevelSchema,
+  type LoggingLevel,
+} from "@modelcontextprotocol/sdk/types.js";
+import { getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 // JSON value type for CLI arguments
 type JsonValue =
@@ -38,13 +37,17 @@ type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+export const validLogLevels: LoggingLevel[] = Object.values(
+  LoggingLevelSchema.enum,
+);
+
 type Args = {
   target: string[];
   method?: string;
   promptName?: string;
   promptArgs?: Record<string, JsonValue>;
   uri?: string;
-  logLevel?: LogLevel;
+  logLevel?: LoggingLevel;
   toolName?: string;
   toolArg?: Record<string, JsonValue>;
   toolMeta?: Record<string, string>;
@@ -148,61 +151,24 @@ function argsToMcpServerConfig(args: Args): MCPServerConfig {
     config.args = targetArgs;
   }
 
-  return config;
-}
+  const processEnv: Record<string, string> = {};
 
-function createTransportOptions(
-  target: string[],
-  transport?: "sse" | "stdio" | "http",
-  headers?: Record<string, string>,
-): TransportOptions {
-  if (target.length === 0) {
-    throw new Error(
-      "Target is required. Specify a URL or a command to execute.",
-    );
-  }
-
-  const [command, ...commandArgs] = target;
-
-  if (!command) {
-    throw new Error("Command is required.");
-  }
-
-  const isUrl = command.startsWith("http://") || command.startsWith("https://");
-
-  if (isUrl && commandArgs.length > 0) {
-    throw new Error("Arguments cannot be passed to a URL-based MCP server.");
-  }
-
-  let transportType: "sse" | "stdio" | "http";
-  if (transport) {
-    if (!isUrl && transport !== "stdio") {
-      throw new Error("Only stdio transport can be used with local commands.");
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) {
+      processEnv[key] = value;
     }
-    if (isUrl && transport === "stdio") {
-      throw new Error("stdio transport cannot be used with URLs.");
-    }
-    transportType = transport;
-  } else if (isUrl) {
-    const url = new URL(command);
-    if (url.pathname.endsWith("/mcp")) {
-      transportType = "http";
-    } else if (url.pathname.endsWith("/sse")) {
-      transportType = "sse";
-    } else {
-      transportType = "sse";
-    }
-  } else {
-    transportType = "stdio";
   }
 
-  return {
-    transportType,
-    command: isUrl ? undefined : command,
-    args: isUrl ? undefined : commandArgs,
-    url: isUrl ? command : undefined,
-    headers,
+  const defaultEnv = getDefaultEnvironment();
+
+  const env: Record<string, string> = {
+    ...defaultEnv,
+    ...processEnv,
   };
+
+  config.env = env;
+
+  return config;
 }
 
 async function callMethod(args: Args): Promise<void> {
@@ -215,27 +181,24 @@ async function callMethod(args: Args): Promise<void> {
   });
   packageJson = packageJsonData.default;
 
-  const transportOptions = createTransportOptions(
-    args.target,
-    args.transport,
-    args.headers,
-  );
-  const transport = createTransport(transportOptions);
-
   const [, name = packageJson.name] = packageJson.name.split("/");
   const version = packageJson.version;
   const clientIdentity = { name, version };
 
-  const client = new Client(clientIdentity);
+  const inspectorClient = new InspectorClient(argsToMcpServerConfig(args), {
+    clientIdentity,
+    autoFetchServerContents: false, // CLI doesn't need auto-fetching, it calls methods directly
+    initialLoggingLevel: "debug", // Set debug logging level for CLI
+  });
 
   try {
-    await connect(client, transport);
+    await inspectorClient.connect();
 
     let result: McpResponse;
 
     // Tools methods
     if (args.method === "tools/list") {
-      result = await listTools(client, args.metadata);
+      result = await listTools(inspectorClient.getClient(), args.metadata);
     } else if (args.method === "tools/call") {
       if (!args.toolName) {
         throw new Error(
@@ -244,7 +207,7 @@ async function callMethod(args: Args): Promise<void> {
       }
 
       result = await callTool(
-        client,
+        inspectorClient.getClient(),
         args.toolName,
         args.toolArg || {},
         args.metadata,
@@ -253,7 +216,7 @@ async function callMethod(args: Args): Promise<void> {
     }
     // Resources methods
     else if (args.method === "resources/list") {
-      result = await listResources(client, args.metadata);
+      result = await listResources(inspectorClient.getClient(), args.metadata);
     } else if (args.method === "resources/read") {
       if (!args.uri) {
         throw new Error(
@@ -261,13 +224,20 @@ async function callMethod(args: Args): Promise<void> {
         );
       }
 
-      result = await readResource(client, args.uri, args.metadata);
+      result = await readResource(
+        inspectorClient.getClient(),
+        args.uri,
+        args.metadata,
+      );
     } else if (args.method === "resources/templates/list") {
-      result = await listResourceTemplates(client, args.metadata);
+      result = await listResourceTemplates(
+        inspectorClient.getClient(),
+        args.metadata,
+      );
     }
     // Prompts methods
     else if (args.method === "prompts/list") {
-      result = await listPrompts(client, args.metadata);
+      result = await listPrompts(inspectorClient.getClient(), args.metadata);
     } else if (args.method === "prompts/get") {
       if (!args.promptName) {
         throw new Error(
@@ -276,7 +246,7 @@ async function callMethod(args: Args): Promise<void> {
       }
 
       result = await getPrompt(
-        client,
+        inspectorClient.getClient(),
         args.promptName,
         args.promptArgs || {},
         args.metadata,
@@ -290,7 +260,8 @@ async function callMethod(args: Args): Promise<void> {
         );
       }
 
-      result = await setLoggingLevel(client, args.logLevel);
+      await inspectorClient.getClient().setLoggingLevel(args.logLevel);
+      result = {};
     } else {
       throw new Error(
         `Unsupported method: ${args.method}. Supported methods include: tools/list, tools/call, resources/list, resources/read, resources/templates/list, prompts/list, prompts/get, logging/setLevel`,
@@ -300,7 +271,7 @@ async function callMethod(args: Args): Promise<void> {
     await awaitableLog(JSON.stringify(result, null, 2));
   } finally {
     try {
-      await disconnect(transport);
+      await inspectorClient.disconnect();
     } catch (disconnectError) {
       throw disconnectError;
     }
@@ -412,13 +383,13 @@ function parseArgs(): Args {
       "--log-level <level>",
       "Logging level (for logging/setLevel method)",
       (value: string) => {
-        if (!validLogLevels.includes(value as any)) {
+        if (!validLogLevels.includes(value as LoggingLevel)) {
           throw new Error(
             `Invalid log level: ${value}. Valid levels are: ${validLogLevels.join(", ")}`,
           );
         }
 
-        return value as LogLevel;
+        return value as LoggingLevel;
       },
     )
     //
