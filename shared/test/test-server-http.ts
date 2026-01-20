@@ -234,6 +234,12 @@ export class TestServerHttp {
       }
     });
 
+    // Handle GET requests for SSE stream - return 405 to indicate SSE is not supported
+    // The StreamableHTTPClientTransport will treat 405 as acceptable and continue without SSE
+    app.get("/mcp", (req: Request, res: Response) => {
+      res.status(405).send("Method Not Allowed");
+    });
+
     // Intercept messages to record them
     const originalOnMessage = this.transport.onmessage;
     this.transport.onmessage = async (message) => {

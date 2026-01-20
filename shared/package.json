@@ -3,8 +3,14 @@
   "version": "0.18.0",
   "private": true,
   "type": "module",
-  "main": "./build/index.js",
-  "types": "./build/index.d.ts",
+  "main": "./build/mcp/index.js",
+  "types": "./build/mcp/index.d.ts",
+  "exports": {
+    ".": "./build/mcp/index.js",
+    "./mcp/*": "./build/mcp/*",
+    "./react/*": "./build/react/*",
+    "./test/*": "./build/test/*"
+  },
   "files": [
     "build"
   ],
