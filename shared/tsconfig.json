@@ -16,6 +16,6 @@
     "resolveJsonModule": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["mcp/**/*.ts", "react/**/*.ts", "react/**/*.tsx"],
+  "include": ["mcp/**/*.ts", "react/**/*.ts", "react/**/*.tsx", "json/**/*.ts"],
   "exclude": ["node_modules", "build"]
 }

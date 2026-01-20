@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { Form } from "ink-form";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { schemaToForm } from "../utils/schemaToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 
 interface ToolTestModalProps {
   tool: any;
-  client: Client | null;
+  inspectorClient: InspectorClient | null;
   width: number;
   height: number;
   onClose: () => void;
@@ -25,7 +25,7 @@ interface ToolResult {
 
 export function ToolTestModal({
   tool,
-  client,
+  inspectorClient,
   width,
   height,
   onClose,
@@ -110,29 +110,29 @@ export function ToolTestModal({
   );
 
   const handleFormSubmit = async (values: Record<string, any>) => {
-    if (!client || !tool) return;
+    if (!inspectorClient || !tool) return;
 
     setState("loading");
     const startTime = Date.now();
 
     try {
-      const response = await client.callTool({
-        name: tool.name,
-        arguments: values,
-      });
+      // Use InspectorClient.callTool() which handles parameter conversion and metadata
+      const response = await inspectorClient.callTool(tool.name, values);
 
       const duration = Date.now() - startTime;
 
-      // Handle MCP SDK response format
-      const output = response.isError
+      // InspectorClient.callTool() returns Record<string, unknown>
+      // Check for error indicators in the response
+      const isError = "isError" in response && response.isError === true;
+      const output = isError
         ? { error: true, content: response.content }
         : response.structuredContent || response.content || response;
 
       setResult({
         input: values,
-        output: response.isError ? null : output,
-        error: response.isError ? "Tool returned an error" : undefined,
-        errorDetails: response.isError ? output : undefined,
+        output: isError ? null : output,
+        error: isError ? "Tool returned an error" : undefined,
+        errorDetails: isError ? output : undefined,
         duration,
       });
       setState("results");

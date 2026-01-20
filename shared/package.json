@@ -9,7 +9,8 @@
     ".": "./build/mcp/index.js",
     "./mcp/*": "./build/mcp/*",
     "./react/*": "./build/react/*",
-    "./test/*": "./build/test/*"
+    "./test/*": "./build/test/*",
+    "./json/*": "./build/json/*"
   },
   "files": [
     "build"

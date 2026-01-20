@@ -17,3 +17,11 @@ export type {
   MessageEntry,
   ServerState,
 } from "./types.js";
+
+// Re-export JSON utilities
+export type { JsonValue } from "../json/jsonUtils.js";
+export {
+  convertParameterValue,
+  convertToolParameters,
+  convertPromptArguments,
+} from "../json/jsonUtils.js";
