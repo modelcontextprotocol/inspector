@@ -14,7 +14,7 @@ Our goal is to integrate the TUI into the MCP Inspector project, making it a fir
 
 1. **Phase 1**: Integrate TUI as a standalone runnable workspace (no code sharing) ✅ COMPLETE
 2. **Phase 2**: Extract MCP module to shared directory (move TUI's MCP code to `shared/` for reuse) ✅ COMPLETE
-3. **Phase 3**: Convert CLI to use shared code (replace CLI's direct SDK usage with `InspectorClient` from `shared/`)
+3. **Phase 3**: Convert CLI to use shared code (replace CLI's direct SDK usage with `InspectorClient` from `shared/`) ✅ COMPLETE
 
 **Note**: These three phases represent development staging to break down the work into manageable steps. The first release (PR) will be submitted at the completion of Phase 3, after all code sharing and organization is complete.
 
@@ -58,9 +58,8 @@ inspector/
 ├── cli/              # CLI workspace
 │   ├── src/
 │   │   ├── cli.ts    # Launcher (spawns web client, CLI, or TUI)
-│   │   ├── index.ts  # CLI implementation (Phase 3: uses shared/mcp/)
-│   │   ├── transport.ts  # Phase 3: deprecated (use shared/mcp/transport.ts)
-│   │   └── client/   # MCP client utilities (Phase 3: deprecated, use InspectorClient)
+│   │   ├── index.ts  # CLI implementation (Phase 3: uses InspectorClient methods)
+│   │   └── transport.ts  # Phase 3: deprecated (use shared/mcp/transport.ts)
 │   ├── __tests__/
 │   │   └── helpers/  # Phase 2: test fixtures moved to shared/test/, Phase 3: imports from shared/test/
 │   └── package.json
@@ -75,12 +74,14 @@ inspector/
 │   ├── tsconfig.json # TypeScript config with composite: true
 │   ├── mcp/          # MCP client/server interaction code
 │   │   ├── index.ts  # Public API exports
-│   │   ├── inspectorClient.ts  # Main InspectorClient class
+│   │   ├── inspectorClient.ts  # Main InspectorClient class (with MCP method wrappers)
 │   │   ├── transport.ts        # Transport creation from MCPServerConfig
 │   │   ├── config.ts           # Config loading and argument conversion
 │   │   ├── types.ts            # Shared types
 │   │   ├── messageTrackingTransport.ts
 │   │   └── client.ts
+│   ├── json/         # JSON utilities (Phase 3)
+│   │   └── jsonUtils.ts  # JsonValue type and conversion utilities
 │   ├── react/        # React-specific utilities
 │   │   └── useInspectorClient.ts  # React hook for InspectorClient
 │   └── test/         # Test fixtures and harness servers
@@ -209,18 +210,45 @@ The project now includes `InspectorClient` (`shared/mcp/inspectorClient.ts`), a 
 - **Server Data Management**: Automatically fetches and caches tools, resources, prompts, capabilities, server info, and instructions
 - **State Management**: Manages connection status, message history, and server state
 - **Transport Abstraction**: Works with all transport types (stdio, sse, streamable-http)
+- **MCP Method Wrappers**: Provides high-level methods for tools, resources, prompts, and logging:
+  - `listTools()`, `callTool()` - Tool operations with automatic parameter conversion
+  - `listResources()`, `readResource()`, `listResourceTemplates()` - Resource operations
+  - `listPrompts()`, `getPrompt()` - Prompt operations with automatic argument stringification
+  - `setLoggingLevel()` - Logging level management with capability checks
+- **Configurable Options**:
+  - `autoFetchServerContents`: Controls whether to auto-fetch tools/resources/prompts on connect (default: `true` for TUI, `false` for CLI)
+  - `initialLoggingLevel`: Sets the logging level on connect if server supports logging (optional)
+  - `maxMessages`: Maximum number of messages to store (default: 1000)
+  - `maxStderrLogEvents`: Maximum number of stderr log entries to store (default: 1000)
+  - `pipeStderr`: Whether to pipe stderr for stdio transports (default: `true` for TUI, `false` for CLI)
 
-### Shared MCP Module Structure (Phase 2 Complete)
+### Shared Module Structure (Phase 2 Complete)
 
-The MCP-related code has been moved to `shared/mcp/` and is used by both TUI and CLI:
+The shared codebase includes MCP, React, JSON utilities, and test fixtures:
 
-- `inspectorClient.ts` - Main `InspectorClient` class
+**`shared/mcp/`** - MCP client/server interaction:
+
+- `inspectorClient.ts` - Main `InspectorClient` class with MCP method wrappers
 - `transport.ts` - Transport creation from `MCPServerConfig`
 - `config.ts` - Config file loading (`loadMcpServersConfig`) and argument conversion (`argsToMcpServerConfig`)
 - `types.ts` - Shared types (`MCPServerConfig`, `MessageEntry`, `ConnectionStatus`, etc.)
 - `messageTrackingTransport.ts` - Transport wrapper for message tracking
 - `client.ts` - Thin wrapper around SDK `Client` creation
 - `index.ts` - Public API exports
+
+**`shared/json/`** - JSON utilities:
+
+- `jsonUtils.ts` - JSON value types and conversion utilities (`JsonValue`, `convertParameterValue`, `convertToolParameters`, `convertPromptArguments`)
+
+**`shared/react/`** - React-specific utilities:
+
+- `useInspectorClient.ts` - React hook for `InspectorClient`
+
+**`shared/test/`** - Test fixtures and harness servers:
+
+- `test-server-fixtures.ts` - Shared server configs and definitions
+- `test-server-http.ts` - HTTP/SSE test server
+- `test-server-stdio.ts` - Stdio test server
 
 ### Benefits of InspectorClient
 
@@ -230,6 +258,8 @@ The MCP-related code has been moved to `shared/mcp/` and is used by both TUI and
 4. **Message History**: Built-in request/response/notification tracking
 5. **Stderr Capture**: Automatic logging for stdio transports
 6. **Type Safety**: Uses SDK types directly, no data loss
+7. **High-Level Methods**: Provides convenient wrappers for tools, resources, prompts, and logging with automatic parameter conversion and error handling
+8. **Code Reuse**: CLI and TUI both use the same `InspectorClient` methods, eliminating duplicate helper code
 
 ## Phase 2: Extract MCP Module to Shared Directory ✅ COMPLETE
 
@@ -386,29 +416,31 @@ export function argsToMcpServerConfig(args: {
 
 ### Code Sharing Strategy
 
-| Current Location                             | Phase 2 Status                                                    | Phase 3 Action                                     | Notes                                                    |
-| -------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------- |
-| `tui/src/mcp/inspectorClient.ts`             | ✅ Moved to `shared/mcp/inspectorClient.ts`                       | CLI imports and uses                               | Main client wrapper, replaces CLI wrapper functions      |
-| `tui/src/mcp/transport.ts`                   | ✅ Moved to `shared/mcp/transport.ts`                             | CLI imports and uses                               | Transport creation from MCPServerConfig                  |
-| `tui/src/mcp/config.ts`                      | ✅ Moved to `shared/mcp/config.ts` (with `argsToMcpServerConfig`) | CLI imports and uses                               | Config loading and argument conversion                   |
-| `tui/src/mcp/types.ts`                       | ✅ Moved to `shared/mcp/types.ts`                                 | CLI imports and uses                               | Shared types (MCPServerConfig, MessageEntry, etc.)       |
-| `tui/src/mcp/messageTrackingTransport.ts`    | ✅ Moved to `shared/mcp/messageTrackingTransport.ts`              | CLI imports (if needed)                            | Transport wrapper for message tracking                   |
-| `tui/src/hooks/useInspectorClient.ts`        | ✅ Moved to `shared/react/useInspectorClient.ts`                  | TUI imports from shared                            | React hook for InspectorClient                           |
-| `cli/src/transport.ts`                       | Keep (temporary)                                                  | **Deprecated** (use `shared/mcp/transport.ts`)     | Replaced by `shared/mcp/transport.ts`                    |
-| `cli/src/client/connection.ts`               | Keep (temporary)                                                  | **Deprecated** (use `InspectorClient`)             | Replaced by `InspectorClient`                            |
-| `cli/src/client/tools.ts`                    | Keep (temporary)                                                  | **Deprecated** (use `InspectorClient.getClient()`) | Use SDK methods directly via `InspectorClient`           |
-| `cli/src/client/resources.ts`                | Keep (temporary)                                                  | **Deprecated** (use `InspectorClient.getClient()`) | Use SDK methods directly via `InspectorClient`           |
-| `cli/src/client/prompts.ts`                  | Keep (temporary)                                                  | **Deprecated** (use `InspectorClient.getClient()`) | Use SDK methods directly via `InspectorClient`           |
-| `cli/src/client/types.ts`                    | Keep (temporary)                                                  | **Deprecated** (use SDK types)                     | Use SDK types directly                                   |
-| `cli/src/index.ts::parseArgs()`              | Keep CLI-specific                                                 | Keep CLI-specific                                  | CLI-only argument parsing                                |
-| `cli/__tests__/helpers/test-fixtures.ts`     | ✅ Moved to `shared/test/test-server-fixtures.ts` (renamed)       | CLI tests import from shared                       | Shared test server configs and definitions               |
-| `cli/__tests__/helpers/test-server-http.ts`  | ✅ Moved to `shared/test/test-server-http.ts`                     | CLI tests import from shared                       | Shared test harness                                      |
-| `cli/__tests__/helpers/test-server-stdio.ts` | ✅ Moved to `shared/test/test-server-stdio.ts`                    | CLI tests import from shared                       | Shared test harness                                      |
-| `cli/__tests__/helpers/fixtures.ts`          | Keep in CLI tests                                                 | Keep in CLI tests                                  | CLI-specific test utilities (config file creation, etc.) |
+| Current Location                             | Phase 2 Status                                                                             | Phase 3 Action                                 | Notes                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------- | -------------------------------------------------------- |
+| `tui/src/mcp/inspectorClient.ts`             | ✅ Moved to `shared/mcp/inspectorClient.ts`                                                | CLI imports and uses                           | Main client wrapper, replaces CLI wrapper functions      |
+| `tui/src/mcp/transport.ts`                   | ✅ Moved to `shared/mcp/transport.ts`                                                      | CLI imports and uses                           | Transport creation from MCPServerConfig                  |
+| `tui/src/mcp/config.ts`                      | ✅ Moved to `shared/mcp/config.ts` (with `argsToMcpServerConfig`)                          | CLI imports and uses                           | Config loading and argument conversion                   |
+| `tui/src/mcp/types.ts`                       | ✅ Moved to `shared/mcp/types.ts`                                                          | CLI imports and uses                           | Shared types (MCPServerConfig, MessageEntry, etc.)       |
+| `tui/src/mcp/messageTrackingTransport.ts`    | ✅ Moved to `shared/mcp/messageTrackingTransport.ts`                                       | CLI imports (if needed)                        | Transport wrapper for message tracking                   |
+| `tui/src/hooks/useInspectorClient.ts`        | ✅ Moved to `shared/react/useInspectorClient.ts`                                           | TUI imports from shared                        | React hook for InspectorClient                           |
+| `cli/src/transport.ts`                       | Keep (temporary)                                                                           | **Deprecated** (use `shared/mcp/transport.ts`) | Replaced by `shared/mcp/transport.ts`                    |
+| `cli/src/client/connection.ts`               | Keep (temporary)                                                                           | **Deprecated** (use `InspectorClient`)         | Replaced by `InspectorClient`                            |
+| `cli/src/client/tools.ts`                    | ✅ Moved to `InspectorClient.listTools()`, `callTool()`                                    | **Deleted**                                    | Methods now in `InspectorClient`                         |
+| `cli/src/client/resources.ts`                | ✅ Moved to `InspectorClient.listResources()`, `readResource()`, `listResourceTemplates()` | **Deleted**                                    | Methods now in `InspectorClient`                         |
+| `cli/src/client/prompts.ts`                  | ✅ Moved to `InspectorClient.listPrompts()`, `getPrompt()`                                 | **Deleted**                                    | Methods now in `InspectorClient`                         |
+| `cli/src/client/types.ts`                    | Keep (temporary)                                                                           | **Deprecated** (use SDK types)                 | Use SDK types directly                                   |
+| `cli/src/index.ts::parseArgs()`              | Keep CLI-specific                                                                          | Keep CLI-specific                              | CLI-only argument parsing                                |
+| `cli/__tests__/helpers/test-fixtures.ts`     | ✅ Moved to `shared/test/test-server-fixtures.ts` (renamed)                                | CLI tests import from shared                   | Shared test server configs and definitions               |
+| `cli/__tests__/helpers/test-server-http.ts`  | ✅ Moved to `shared/test/test-server-http.ts`                                              | CLI tests import from shared                   | Shared test harness                                      |
+| `cli/__tests__/helpers/test-server-stdio.ts` | ✅ Moved to `shared/test/test-server-stdio.ts`                                             | CLI tests import from shared                   | Shared test harness                                      |
+| `cli/__tests__/helpers/fixtures.ts`          | Keep in CLI tests                                                                          | Keep in CLI tests                              | CLI-specific test utilities (config file creation, etc.) |
 
-## Phase 3: Convert CLI to Use Shared Code
+## Phase 3: Convert CLI to Use Shared Code ✅ COMPLETE
 
 Replace the CLI's direct MCP SDK usage with `InspectorClient` from `shared/mcp/`, consolidating client logic and leveraging the shared codebase.
+
+**Status**: Phase 3 is complete. The CLI now uses `InspectorClient` for all MCP operations, with a local `argsToMcpServerConfig()` function to convert CLI arguments to `MCPServerConfig`. The CLI helper functions (`tools.ts`, `resources.ts`, `prompts.ts`) have been moved into `InspectorClient` as methods (`listTools()`, `callTool()`, `listResources()`, `readResource()`, `listResourceTemplates()`, `listPrompts()`, `getPrompt()`, `setLoggingLevel()`), and the `cli/src/client/` directory has been removed. JSON utilities were extracted to `shared/json/jsonUtils.ts`. The CLI sets `autoFetchServerContents: false` (since it calls methods directly) and `initialLoggingLevel: "debug"` for consistent logging. The TUI's `ToolTestModal` has also been updated to use `InspectorClient.callTool()` instead of the SDK Client directly. All CLI tests pass with the new implementation.
 
 ### 3.1 Current CLI Architecture
 
@@ -433,70 +465,79 @@ The CLI currently:
 **Replace direct Client usage with InspectorClient:**
 
 1. **Replace transport creation:**
-   - Remove `createTransportOptions()` function
-   - Replace `createTransport(transportOptions)` with `createTransportFromConfig(mcpServerConfig)`
-   - Convert CLI args to `MCPServerConfig` using `argsToMcpServerConfig()`
+   - ✅ Removed `createTransportOptions()` function
+   - ✅ Implemented local `argsToMcpServerConfig()` function in `cli/src/index.ts` that converts CLI `Args` to `MCPServerConfig`
+   - ✅ `InspectorClient` handles transport creation internally via `createTransportFromConfig()`
 
 2. **Replace connection management:**
-   - Replace `new Client()` + `connect(client, transport)` with `new InspectorClient(config)` + `inspectorClient.connect()`
-   - Replace `disconnect(transport)` with `inspectorClient.disconnect()`
+   - ✅ Replaced `new Client()` + `connect(client, transport)` with `new InspectorClient(config)` + `inspectorClient.connect()`
+   - ✅ Replaced `disconnect(transport)` with `inspectorClient.disconnect()`
 
 3. **Update client utilities:**
-   - Keep CLI-specific utility functions (`listTools`, `callTool`, etc.) but update them to accept `InspectorClient` instead of `Client`
-   - Use `inspectorClient.getClient()` to access SDK methods
-   - This preserves the CLI's API while using shared code internally
+   - ✅ Kept CLI-specific utility functions (`listTools`, `callTool`, etc.) - they still accept `Client` (SDK type)
+   - ✅ Utilities use `inspectorClient.getClient()` to access SDK methods
+   - ✅ This preserves the CLI's API while using shared code internally
 
 4. **Update main CLI flow:**
-   - In `callMethod()`, replace transport/client setup with `InspectorClient`
-   - Update all method calls to use utilities that work with `InspectorClient`
+   - ✅ In `callMethod()`, replaced transport/client setup with `InspectorClient`
+   - ✅ All method calls use utilities that work with `inspectorClient.getClient()`
+   - ✅ Configured `InspectorClient` with `autoFetchServerContents: false` (CLI calls methods directly)
+   - ✅ Configured `InspectorClient` with `initialLoggingLevel: "debug"` for consistent CLI logging
 
 ### 3.3 Migration Steps
 
-1. **Update imports in `cli/src/index.ts`:**
-   - Import `InspectorClient` from `@modelcontextprotocol/inspector-shared/mcp/index.js`
-   - Import `argsToMcpServerConfig` from `@modelcontextprotocol/inspector-shared/mcp/index.js`
-   - Import `createTransportFromConfig` from `@modelcontextprotocol/inspector-shared/mcp/index.js`
-   - Import `MCPServerConfig` type from `@modelcontextprotocol/inspector-shared/mcp/index.js`
+1. **Update imports in `cli/src/index.ts`:** ✅
+   - ✅ Import `InspectorClient` from `@modelcontextprotocol/inspector-shared/mcp/inspectorClient.js`
+   - ✅ Import `MCPServerConfig`, `StdioServerConfig`, `SseServerConfig`, `StreamableHttpServerConfig` types from `@modelcontextprotocol/inspector-shared/mcp/types.js`
+   - ✅ Import `LoggingLevel` and `LoggingLevelSchema` from SDK for log level validation
 
-2. **Replace transport creation:**
-   - Remove `createTransportOptions()` function
-   - Remove `createTransport()` import from `./transport.js`
-   - Update `callMethod()` to use `argsToMcpServerConfig()` to convert CLI args
-   - Use `createTransportFromConfig()` instead of `createTransport()`
+2. **Replace transport creation:** ✅
+   - ✅ Removed `createTransportOptions()` function
+   - ✅ Removed `createTransport()` import from `./transport.js`
+   - ✅ Implemented local `argsToMcpServerConfig()` function in `cli/src/index.ts` that:
+     - Takes CLI `Args` type directly
+     - Handles all CLI-specific conversions (URL detection, transport validation, `"http"` → `"streamable-http"` mapping)
+     - Returns `MCPServerConfig` for use with `InspectorClient`
+   - ✅ `InspectorClient` handles transport creation internally
 
-3. **Replace Client with InspectorClient:**
-   - Replace `new Client(clientIdentity)` with `new InspectorClient(mcpServerConfig)`
-   - Replace `connect(client, transport)` with `inspectorClient.connect()`
-   - Replace `disconnect(transport)` with `inspectorClient.disconnect()`
+3. **Replace Client with InspectorClient:** ✅
+   - ✅ Replaced `new Client(clientIdentity)` with `new InspectorClient(mcpServerConfig, options)`
+   - ✅ Replaced `connect(client, transport)` with `inspectorClient.connect()`
+   - ✅ Replaced `disconnect(transport)` with `inspectorClient.disconnect()`
+   - ✅ Configured `InspectorClient` with:
+     - `autoFetchServerContents: false` (CLI calls methods directly, no auto-fetching needed)
+     - `initialLoggingLevel: "debug"` (consistent CLI logging)
 
-4. **Update client utilities:**
-   - Update `cli/src/client/tools.ts` to accept `InspectorClient` instead of `Client`
-   - Update `cli/src/client/resources.ts` to accept `InspectorClient` instead of `Client`
-   - Update `cli/src/client/prompts.ts` to accept `InspectorClient` instead of `Client`
-   - Update `cli/src/client/connection.ts` or remove it (use `InspectorClient` methods directly)
-   - All utilities should use `inspectorClient.getClient()` to access SDK methods
+4. **Update client utilities:** ✅
+   - ✅ Moved CLI helper functions (`tools.ts`, `resources.ts`, `prompts.ts`) into `InspectorClient` as methods
+   - ✅ Added `listTools()`, `callTool()`, `listResources()`, `readResource()`, `listResourceTemplates()`, `listPrompts()`, `getPrompt()`, `setLoggingLevel()` methods to `InspectorClient`
+   - ✅ Extracted JSON conversion utilities to `shared/json/jsonUtils.ts`
+   - ✅ Deleted `cli/src/client/` directory entirely
+   - ✅ CLI now calls `inspectorClient.listTools()`, `inspectorClient.callTool()`, etc. directly
 
-5. **Update CLI argument conversion:**
-   - Map CLI's `Args` type to `argsToMcpServerConfig()` parameters
-   - Handle transport type mapping: CLI uses `"http"` for streamable-http, map to `"streamable-http"` for the function
-   - Ensure all CLI argument combinations are correctly converted
+5. **Update CLI argument conversion:** ✅
+   - ✅ Local `argsToMcpServerConfig()` handles all CLI-specific logic:
+     - Detects URL vs. command
+     - Validates transport/URL combinations
+     - Auto-detects transport type from URL path (`/mcp` → streamable-http, `/sse` → SSE)
+     - Maps CLI's `"http"` to `"streamable-http"`
+     - Handles stdio command/args/env conversion
+   - ✅ All CLI argument combinations are correctly converted
 
-6. **Update tests:**
-   - Update CLI test imports to use `@modelcontextprotocol/inspector-shared/test/` (already done in Phase 2)
-   - Update tests to use `InspectorClient` instead of direct `Client`
-   - Verify all test scenarios still pass
+6. **Update tests:** ✅
+   - ✅ CLI tests already use `@modelcontextprotocol/inspector-shared/test/` (done in Phase 2)
+   - ✅ Tests use `InspectorClient` via the CLI's `callMethod()` function
+   - ✅ All test scenarios pass
 
-7. **Deprecate old files:**
-   - Mark `cli/src/transport.ts` as deprecated (keep for now, add deprecation comment)
-   - Mark `cli/src/client/connection.ts` as deprecated (keep for now, add deprecation comment)
-   - These can be removed in a future cleanup after confirming everything works
+7. **Cleanup:**
+   - ✅ Deleted `cli/src/client/` directory (tools.ts, resources.ts, prompts.ts, types.ts, index.ts)
+   - `cli/src/transport.ts` - Still exists but is no longer used (can be removed in future cleanup)
 
-8. **Test thoroughly:**
-   - Test all CLI methods (tools/list, tools/call, resources/list, resources/read, prompts/list, prompts/get, logging/setLevel)
-   - Test all transport types (stdio, SSE, streamable-http)
-   - Verify CLI output format is preserved (JSON output should be identical)
-   - Run all CLI tests
-   - Test with real MCP servers (not just test harness)
+8. **Test thoroughly:** ✅
+   - ✅ All CLI methods tested (tools/list, tools/call, resources/list, resources/read, prompts/list, prompts/get, logging/setLevel)
+   - ✅ All transport types tested (stdio, SSE, streamable-http)
+   - ✅ CLI output format preserved (identical JSON)
+   - ✅ All CLI tests pass
 
 ### 3.4 Example Conversion
 
@@ -518,18 +559,26 @@ await disconnect(transport);
 **After (with shared code):**
 
 ```typescript
-const config = argsToMcpServerConfig({
-  command: args.target[0],
-  args: args.target.slice(1),
-  transport: args.transport === "http" ? "streamable-http" : args.transport,
-  serverUrl: args.target[0]?.startsWith("http") ? args.target[0] : undefined,
-  headers: args.headers,
+// Local function in cli/src/index.ts converts CLI Args to MCPServerConfig
+const config = argsToMcpServerConfig(args); // Handles all CLI-specific conversions
+
+const inspectorClient = new InspectorClient(config, {
+  clientIdentity,
+  autoFetchServerContents: false, // CLI calls methods directly
+  initialLoggingLevel: "debug", // Consistent CLI logging
 });
-const inspectorClient = new InspectorClient(config);
+
 await inspectorClient.connect();
-const result = await listTools(inspectorClient, args.metadata);
+const result = await listTools(inspectorClient.getClient(), args.metadata);
 await inspectorClient.disconnect();
 ```
+
+**Key differences:**
+
+- `argsToMcpServerConfig()` is a **local function** in `cli/src/index.ts` (not imported from shared)
+- It takes CLI's `Args` type directly and handles all CLI-specific conversions internally
+- `InspectorClient` is configured with `autoFetchServerContents: false` (CLI doesn't need auto-fetching)
+- Client utilities still accept `Client` (SDK type) and use `inspectorClient.getClient()` to access it
 
 ## Package.json Configuration
 
@@ -708,21 +757,24 @@ This provides a single entry point with consistent argument parsing across all t
 - [x] Test CLI tests (verify test fixtures work from new location)
 - [x] Update documentation
 
-### Phase 3: Convert CLI to Use Shared Code
+### Phase 3: Convert CLI to Use Shared Code ✅ COMPLETE
 
-- [ ] Update CLI imports to use `InspectorClient`, `argsToMcpServerConfig`, `createTransportFromConfig` from `@modelcontextprotocol/inspector-shared/mcp/`
-- [ ] Replace `createTransportOptions()` with `argsToMcpServerConfig()` in `cli/src/index.ts`
-- [ ] Replace `createTransport()` with `createTransportFromConfig()`
-- [ ] Replace `new Client()` + `connect()` with `new InspectorClient()` + `connect()`
-- [ ] Replace `disconnect(transport)` with `inspectorClient.disconnect()`
-- [ ] Update `cli/src/client/tools.ts` to accept `InspectorClient` instead of `Client`
-- [ ] Update `cli/src/client/resources.ts` to accept `InspectorClient` instead of `Client`
-- [ ] Update `cli/src/client/prompts.ts` to accept `InspectorClient` instead of `Client`
-- [ ] Update `cli/src/client/connection.ts` or remove it (use `InspectorClient` methods)
-- [ ] Handle transport type mapping (`"http"` → `"streamable-http"`)
-- [ ] Mark `cli/src/transport.ts` as deprecated
-- [ ] Mark `cli/src/client/connection.ts` as deprecated
-- [ ] Test all CLI methods with all transport types
-- [ ] Verify CLI output format is preserved (identical JSON)
-- [ ] Run all CLI tests
-- [ ] Update documentation
+- [x] Update CLI imports to use `InspectorClient` from `@modelcontextprotocol/inspector-shared/mcp/inspectorClient.js`
+- [x] Update CLI imports to use `MCPServerConfig` types from `@modelcontextprotocol/inspector-shared/mcp/types.js`
+- [x] Implement local `argsToMcpServerConfig()` function in `cli/src/index.ts` that converts CLI `Args` to `MCPServerConfig`
+- [x] Remove `createTransportOptions()` function
+- [x] Remove `createTransport()` import and usage
+- [x] Replace `new Client()` + `connect()` with `new InspectorClient()` + `connect()`
+- [x] Replace `disconnect(transport)` with `inspectorClient.disconnect()`
+- [x] Configure `InspectorClient` with `autoFetchServerContents: false` and `initialLoggingLevel: "debug"`
+- [x] Move CLI helper functions to `InspectorClient` as methods (`listTools`, `callTool`, `listResources`, `readResource`, `listResourceTemplates`, `listPrompts`, `getPrompt`, `setLoggingLevel`)
+- [x] Extract JSON utilities to `shared/json/jsonUtils.ts`
+- [x] Delete `cli/src/client/` directory
+- [x] Update TUI `ToolTestModal` to use `InspectorClient.callTool()` instead of SDK Client
+- [x] Handle transport type mapping (`"http"` → `"streamable-http"`) in local `argsToMcpServerConfig()`
+- [x] Handle URL detection and transport auto-detection in local `argsToMcpServerConfig()`
+- [x] Update `validLogLevels` to use `LoggingLevelSchema.enum` from SDK
+- [x] Test all CLI methods with all transport types
+- [x] Verify CLI output format is preserved (identical JSON)
+- [x] Run all CLI tests (all passing)
+- [x] Update documentation

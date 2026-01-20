@@ -2,16 +2,8 @@
 
 import * as fs from "fs";
 import { Command } from "commander";
-import {
-  callTool,
-  getPrompt,
-  listPrompts,
-  listResources,
-  listResourceTemplates,
-  listTools,
-  McpResponse,
-  readResource,
-} from "./client/index.js";
+// CLI helper functions moved to InspectorClient methods
+type McpResponse = Record<string, unknown>;
 import { handleError } from "./error-handler.js";
 import { awaitableLog } from "./utils/awaitable-log.js";
 import type {
@@ -21,21 +13,12 @@ import type {
   StreamableHttpServerConfig,
 } from "@modelcontextprotocol/inspector-shared/mcp/types.js";
 import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/inspectorClient.js";
+import type { JsonValue } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import {
   LoggingLevelSchema,
   type LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
 import { getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
-
-// JSON value type for CLI arguments
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | undefined
-  | JsonValue[]
-  | { [key: string]: JsonValue };
 
 export const validLogLevels: LoggingLevel[] = Object.values(
   LoggingLevelSchema.enum,
@@ -198,7 +181,7 @@ async function callMethod(args: Args): Promise<void> {
 
     // Tools methods
     if (args.method === "tools/list") {
-      result = await listTools(inspectorClient.getClient(), args.metadata);
+      result = await inspectorClient.listTools(args.metadata);
     } else if (args.method === "tools/call") {
       if (!args.toolName) {
         throw new Error(
@@ -206,8 +189,7 @@ async function callMethod(args: Args): Promise<void> {
         );
       }
 
-      result = await callTool(
-        inspectorClient.getClient(),
+      result = await inspectorClient.callTool(
         args.toolName,
         args.toolArg || {},
         args.metadata,
@@ -216,7 +198,7 @@ async function callMethod(args: Args): Promise<void> {
     }
     // Resources methods
     else if (args.method === "resources/list") {
-      result = await listResources(inspectorClient.getClient(), args.metadata);
+      result = await inspectorClient.listResources(args.metadata);
     } else if (args.method === "resources/read") {
       if (!args.uri) {
         throw new Error(
@@ -224,20 +206,13 @@ async function callMethod(args: Args): Promise<void> {
         );
       }
 
-      result = await readResource(
-        inspectorClient.getClient(),
-        args.uri,
-        args.metadata,
-      );
+      result = await inspectorClient.readResource(args.uri, args.metadata);
     } else if (args.method === "resources/templates/list") {
-      result = await listResourceTemplates(
-        inspectorClient.getClient(),
-        args.metadata,
-      );
+      result = await inspectorClient.listResourceTemplates(args.metadata);
     }
     // Prompts methods
     else if (args.method === "prompts/list") {
-      result = await listPrompts(inspectorClient.getClient(), args.metadata);
+      result = await inspectorClient.listPrompts(args.metadata);
     } else if (args.method === "prompts/get") {
       if (!args.promptName) {
         throw new Error(
@@ -245,8 +220,7 @@ async function callMethod(args: Args): Promise<void> {
         );
       }
 
-      result = await getPrompt(
-        inspectorClient.getClient(),
+      result = await inspectorClient.getPrompt(
         args.promptName,
         args.promptArgs || {},
         args.metadata,
@@ -260,7 +234,7 @@ async function callMethod(args: Args): Promise<void> {
         );
       }
 
-      await inspectorClient.getClient().setLoggingLevel(args.logLevel);
+      await inspectorClient.setLoggingLevel(args.logLevel);
       result = {};
     } else {
       throw new Error(

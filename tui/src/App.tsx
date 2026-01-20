@@ -16,7 +16,6 @@ import { NotificationsTab } from "./components/NotificationsTab.js";
 import { HistoryTab } from "./components/HistoryTab.js";
 import { ToolTestModal } from "./components/ToolTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -80,7 +79,7 @@ function App({ configFile }: AppProps) {
   // Tool test modal state
   const [toolTestModal, setToolTestModal] = useState<{
     tool: any;
-    client: Client | null;
+    inspectorClient: InspectorClient | null;
   } | null>(null);
 
   // Details modal state
@@ -831,7 +830,10 @@ function App({ configFile }: AppProps) {
                       : null
                 }
                 onTestTool={(tool) =>
-                  setToolTestModal({ tool, client: inspectorClient })
+                  setToolTestModal({
+                    tool,
+                    inspectorClient: selectedInspectorClient,
+                  })
                 }
                 onViewDetails={(tool) =>
                   setDetailsModal({
@@ -901,7 +903,7 @@ function App({ configFile }: AppProps) {
       {toolTestModal && (
         <ToolTestModal
           tool={toolTestModal.tool}
-          client={toolTestModal.client}
+          inspectorClient={toolTestModal.inspectorClient}
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setToolTestModal(null)}

@@ -23,7 +23,13 @@ import type {
   ServerCapabilities,
   Implementation,
   LoggingLevel,
+  Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import {
+  type JsonValue,
+  convertToolParameters,
+  convertPromptArguments,
+} from "../json/jsonUtils.js";
 import { EventEmitter } from "events";
 
 export interface InspectorClientOptions {
@@ -358,6 +364,244 @@ export class InspectorClient extends EventEmitter {
    */
   getInstructions(): string | undefined {
     return this.instructions;
+  }
+
+  /**
+   * Set the logging level for the MCP server
+   * @param level Logging level to set
+   * @throws Error if client is not connected or server doesn't support logging
+   */
+  async setLoggingLevel(level: LoggingLevel): Promise<void> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    if (!this.capabilities?.logging) {
+      throw new Error("Server does not support logging");
+    }
+    await this.client.setLoggingLevel(level);
+  }
+
+  /**
+   * List available tools
+   * @param metadata Optional metadata to include in the request
+   * @returns Response containing tools array
+   */
+  async listTools(
+    metadata?: Record<string, string>,
+  ): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      const params =
+        metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
+      const response = await this.client.listTools(params);
+      return response;
+    } catch (error) {
+      throw new Error(
+        `Failed to list tools: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Call a tool by name
+   * @param name Tool name
+   * @param args Tool arguments
+   * @param generalMetadata Optional general metadata
+   * @param toolSpecificMetadata Optional tool-specific metadata (takes precedence over general)
+   * @returns Tool call response
+   */
+  async callTool(
+    name: string,
+    args: Record<string, JsonValue>,
+    generalMetadata?: Record<string, string>,
+    toolSpecificMetadata?: Record<string, string>,
+  ): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      const toolsResponse = await this.listTools(generalMetadata);
+      const tools = (toolsResponse.tools as Tool[]) || [];
+      const tool = tools.find((t) => t.name === name);
+
+      let convertedArgs: Record<string, JsonValue> = args;
+
+      if (tool) {
+        // Convert parameters based on the tool's schema, but only for string values
+        // since we now accept pre-parsed values from the CLI
+        const stringArgs: Record<string, string> = {};
+        for (const [key, value] of Object.entries(args)) {
+          if (typeof value === "string") {
+            stringArgs[key] = value;
+          }
+        }
+
+        if (Object.keys(stringArgs).length > 0) {
+          const convertedStringArgs = convertToolParameters(tool, stringArgs);
+          convertedArgs = { ...args, ...convertedStringArgs };
+        }
+      }
+
+      // Merge general metadata with tool-specific metadata
+      // Tool-specific metadata takes precedence over general metadata
+      let mergedMetadata: Record<string, string> | undefined;
+      if (generalMetadata || toolSpecificMetadata) {
+        mergedMetadata = {
+          ...(generalMetadata || {}),
+          ...(toolSpecificMetadata || {}),
+        };
+      }
+
+      const response = await this.client.callTool({
+        name: name,
+        arguments: convertedArgs,
+        _meta:
+          mergedMetadata && Object.keys(mergedMetadata).length > 0
+            ? mergedMetadata
+            : undefined,
+      });
+      return response;
+    } catch (error) {
+      throw new Error(
+        `Failed to call tool ${name}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * List available resources
+   * @param metadata Optional metadata to include in the request
+   * @returns Response containing resources array
+   */
+  async listResources(
+    metadata?: Record<string, string>,
+  ): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      const params =
+        metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
+      const response = await this.client.listResources(params);
+      return response;
+    } catch (error) {
+      throw new Error(
+        `Failed to list resources: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Read a resource by URI
+   * @param uri Resource URI
+   * @param metadata Optional metadata to include in the request
+   * @returns Resource content
+   */
+  async readResource(
+    uri: string,
+    metadata?: Record<string, string>,
+  ): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      const params: any = { uri };
+      if (metadata && Object.keys(metadata).length > 0) {
+        params._meta = metadata;
+      }
+      const response = await this.client.readResource(params);
+      return response;
+    } catch (error) {
+      throw new Error(
+        `Failed to read resource ${uri}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * List resource templates
+   * @param metadata Optional metadata to include in the request
+   * @returns Response containing resource templates array
+   */
+  async listResourceTemplates(
+    metadata?: Record<string, string>,
+  ): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      const params =
+        metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
+      const response = await this.client.listResourceTemplates(params);
+      return response;
+    } catch (error) {
+      throw new Error(
+        `Failed to list resource templates: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * List available prompts
+   * @param metadata Optional metadata to include in the request
+   * @returns Response containing prompts array
+   */
+  async listPrompts(
+    metadata?: Record<string, string>,
+  ): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      const params =
+        metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
+      const response = await this.client.listPrompts(params);
+      return response;
+    } catch (error) {
+      throw new Error(
+        `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Get a prompt by name
+   * @param name Prompt name
+   * @param args Optional prompt arguments
+   * @param metadata Optional metadata to include in the request
+   * @returns Prompt content
+   */
+  async getPrompt(
+    name: string,
+    args?: Record<string, JsonValue>,
+    metadata?: Record<string, string>,
+  ): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      // Convert all arguments to strings for prompt arguments
+      const stringArgs = args ? convertPromptArguments(args) : {};
+
+      const params: any = {
+        name,
+        arguments: stringArgs,
+      };
+
+      if (metadata && Object.keys(metadata).length > 0) {
+        params._meta = metadata;
+      }
+
+      const response = await this.client.getPrompt(params);
+
+      return response;
+    } catch (error) {
+      throw new Error(
+        `Failed to get prompt: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /**
