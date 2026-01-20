@@ -21,6 +21,12 @@ import {
 import { handleError } from "./error-handler.js";
 import { createTransport, TransportOptions } from "./transport.js";
 import { awaitableLog } from "./utils/awaitable-log.js";
+import type {
+  MCPServerConfig,
+  StdioServerConfig,
+  SseServerConfig,
+  StreamableHttpServerConfig,
+} from "@modelcontextprotocol/inspector-shared/mcp/types.js";
 
 // JSON value type for CLI arguments
 type JsonValue =
@@ -46,6 +52,104 @@ type Args = {
   headers?: Record<string, string>;
   metadata?: Record<string, string>;
 };
+
+/**
+ * Converts CLI Args to MCPServerConfig format
+ * This will be used to create an InspectorClient
+ */
+function argsToMcpServerConfig(args: Args): MCPServerConfig {
+  if (args.target.length === 0) {
+    throw new Error(
+      "Target is required. Specify a URL or a command to execute.",
+    );
+  }
+
+  const [firstTarget, ...targetArgs] = args.target;
+
+  if (!firstTarget) {
+    throw new Error("Target is required.");
+  }
+
+  const isUrl =
+    firstTarget.startsWith("http://") || firstTarget.startsWith("https://");
+
+  // Validation: URLs cannot have additional arguments
+  if (isUrl && targetArgs.length > 0) {
+    throw new Error("Arguments cannot be passed to a URL-based MCP server.");
+  }
+
+  // Validation: Transport/URL combinations
+  if (args.transport) {
+    if (!isUrl && args.transport !== "stdio") {
+      throw new Error("Only stdio transport can be used with local commands.");
+    }
+    if (isUrl && args.transport === "stdio") {
+      throw new Error("stdio transport cannot be used with URLs.");
+    }
+  }
+
+  // Handle URL-based transports (SSE or streamable-http)
+  if (isUrl) {
+    const url = new URL(firstTarget);
+
+    // Determine transport type
+    let transportType: "sse" | "streamable-http";
+    if (args.transport) {
+      // Convert CLI's "http" to "streamable-http"
+      if (args.transport === "http") {
+        transportType = "streamable-http";
+      } else if (args.transport === "sse") {
+        transportType = "sse";
+      } else {
+        // Should not happen due to validation above, but default to SSE
+        transportType = "sse";
+      }
+    } else {
+      // Auto-detect from URL path
+      if (url.pathname.endsWith("/mcp")) {
+        transportType = "streamable-http";
+      } else if (url.pathname.endsWith("/sse")) {
+        transportType = "sse";
+      } else {
+        // Default to SSE if path doesn't match known patterns
+        transportType = "sse";
+      }
+    }
+
+    // Create SSE or streamable-http config
+    if (transportType === "sse") {
+      const config: SseServerConfig = {
+        type: "sse",
+        url: firstTarget,
+      };
+      if (args.headers) {
+        config.headers = args.headers;
+      }
+      return config;
+    } else {
+      const config: StreamableHttpServerConfig = {
+        type: "streamable-http",
+        url: firstTarget,
+      };
+      if (args.headers) {
+        config.headers = args.headers;
+      }
+      return config;
+    }
+  }
+
+  // Handle stdio transport (command-based)
+  const config: StdioServerConfig = {
+    type: "stdio",
+    command: firstTarget,
+  };
+
+  if (targetArgs.length > 0) {
+    config.args = targetArgs;
+  }
+
+  return config;
+}
 
 function createTransportOptions(
   target: string[],

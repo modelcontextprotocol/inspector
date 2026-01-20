@@ -10,14 +10,30 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
-export type ServerType = "stdio" | "sse" | "streamableHttp";
+export type ServerType = "stdio" | "sse" | "streamable-http";
 
 export function getServerType(config: MCPServerConfig): ServerType {
-  if ("type" in config) {
-    if (config.type === "sse") return "sse";
-    if (config.type === "streamableHttp") return "streamableHttp";
+  // If type is not present, default to stdio
+  if (!("type" in config) || config.type === undefined) {
+    return "stdio";
   }
-  return "stdio";
+
+  // If type is present, validate it matches one of the valid values
+  const type = config.type;
+  if (type === "stdio") {
+    return "stdio";
+  }
+  if (type === "sse") {
+    return "sse";
+  }
+  if (type === "streamable-http") {
+    return "streamable-http";
+  }
+
+  // If type is present but doesn't match any valid value, throw error
+  throw new Error(
+    `Invalid server type: ${type}. Valid types are: stdio, sse, streamable-http`,
+  );
 }
 
 export interface CreateTransportOptions {
@@ -92,7 +108,7 @@ export function createTransport(
 
     return { transport };
   } else {
-    // streamableHttp
+    // streamable-http
     const httpConfig = config as StreamableHttpServerConfig;
     const url = new URL(httpConfig.url);
 

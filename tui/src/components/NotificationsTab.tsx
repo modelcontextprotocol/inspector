@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { StderrLogEntry } from "../../../shared/mcp/index.js";
+import type { StderrLogEntry } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 
 interface NotificationsTabProps {
   client: Client | null;

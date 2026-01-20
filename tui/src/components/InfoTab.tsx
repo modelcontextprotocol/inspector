@@ -4,7 +4,7 @@ import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type {
   MCPServerConfig,
   ServerState,
-} from "../../../shared/mcp/index.js";
+} from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 
 interface InfoTabProps {
   serverName: string | null;
@@ -131,7 +131,7 @@ export function InfoTab({
                     </>
                   ) : (
                     <>
-                      <Text dimColor>Type: streamableHttp</Text>
+                      <Text dimColor>Type: streamable-http</Text>
                       <Text dimColor>URL: {(serverConfig as any).url}</Text>
                       {(serverConfig as any).headers &&
                         Object.keys((serverConfig as any).headers).length >

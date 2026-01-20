@@ -91,16 +91,16 @@ export class InspectorClient extends EventEmitter {
       ) => {
         const messageId = message.id;
         // Find the matching request by message ID
-        const requestIndex = this.messages.findIndex(
+        const requestEntry = this.messages.find(
           (e) =>
             e.direction === "request" &&
             "id" in e.message &&
             e.message.id === messageId,
         );
 
-        if (requestIndex !== -1) {
+        if (requestEntry) {
           // Update the request entry with the response
-          this.updateMessageResponse(requestIndex, message);
+          this.updateMessageResponse(requestEntry, message);
         } else {
           // No matching request found, create orphaned response entry
           const entry: MessageEntry = {
@@ -274,7 +274,7 @@ export class InspectorClient extends EventEmitter {
   }
 
   /**
-   * Get the server type (stdio, sse, or streamableHttp)
+   * Get the server type (stdio, sse, or streamable-http)
    */
   getServerType(): ServerType {
     return getServerTypeFromConfig(this.transportConfig);
@@ -399,17 +399,14 @@ export class InspectorClient extends EventEmitter {
   }
 
   private updateMessageResponse(
-    requestIndex: number,
+    requestEntry: MessageEntry,
     response: JSONRPCResultResponse | JSONRPCErrorResponse,
   ): void {
-    const requestEntry = this.messages[requestIndex];
     const duration = Date.now() - requestEntry.timestamp.getTime();
-    this.messages[requestIndex] = {
-      ...requestEntry,
-      response,
-      duration,
-    };
-    this.emit("message", this.messages[requestIndex]);
+    // Update the entry in place (mutate the object directly)
+    requestEntry.response = response;
+    requestEntry.duration = duration;
+    this.emit("message", requestEntry);
     this.emit("messagesChange");
   }
 

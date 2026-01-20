@@ -70,7 +70,9 @@ inspector/
 │   │   └── components/  # TUI React components
 │   ├── tui.tsx       # TUI entry point
 │   └── package.json
-├── shared/           # NEW: Shared code directory (Phase 2)
+├── shared/           # NEW: Shared code workspace package (Phase 2)
+│   ├── package.json  # Workspace package config (private, internal-only)
+│   ├── tsconfig.json # TypeScript config with composite: true
 │   ├── mcp/          # MCP client/server interaction code
 │   │   ├── index.ts  # Public API exports
 │   │   ├── inspectorClient.ts  # Main InspectorClient class
@@ -90,7 +92,13 @@ inspector/
 └── package.json
 ```
 
-**Note**: The `shared/` directory is not a workspace/package, just a common directory for shared internal helpers. Direct imports are used from this directory. Test fixtures are also shared so both CLI and TUI tests can use the same test harness servers.
+**Note**: The `shared/` directory is a **workspace package** (`@modelcontextprotocol/inspector-shared`) that is:
+
+- **Private** (`"private": true`) - not published, internal-only
+- **Built separately** - compiles to `shared/build/` with TypeScript declarations
+- **Referenced via package name** - workspaces import using `@modelcontextprotocol/inspector-shared/*`
+- **Uses TypeScript Project References** - CLI and TUI reference shared for build ordering and type resolution
+- **React peer dependency** - declares React 19.2.3 as peer dependency (consumers provide React)
 
 ## Phase 1: Initial Integration (Standalone TUI)
 
@@ -200,7 +208,7 @@ The project now includes `InspectorClient` (`shared/mcp/inspectorClient.ts`), a 
 - **Event-Driven**: Extends `EventEmitter` for reactive UI updates
 - **Server Data Management**: Automatically fetches and caches tools, resources, prompts, capabilities, server info, and instructions
 - **State Management**: Manages connection status, message history, and server state
-- **Transport Abstraction**: Works with all transport types (stdio, SSE, streamableHttp)
+- **Transport Abstraction**: Works with all transport types (stdio, sse, streamable-http)
 
 ### Shared MCP Module Structure (Phase 2 Complete)
 
@@ -227,14 +235,17 @@ The MCP-related code has been moved to `shared/mcp/` and is used by both TUI and
 
 Move the TUI's MCP module to a shared directory so both TUI and CLI can use it. This establishes the shared codebase before converting the CLI.
 
-**Status**: Phase 2 is complete. All MCP code has been moved to `shared/mcp/`, the React hook moved to `shared/react/`, and test fixtures moved to `shared/test/`. The `argsToMcpServerConfig()` function has been implemented.
+**Status**: Phase 2 is complete. All MCP code has been moved to `shared/mcp/`, the React hook moved to `shared/react/`, and test fixtures moved to `shared/test/`. The `argsToMcpServerConfig()` function has been implemented. Shared is configured as a workspace package with TypeScript Project References. React 19.2.3 is used consistently across all workspaces.
 
-### 2.1 Shared Directory Structure
+### 2.1 Shared Package Structure
 
-Create a `shared/` directory at the root level (not a workspace, just a directory):
+Create a `shared/` workspace package at the root level:
 
 ```
-shared/              # Not a workspace, just a directory
+shared/              # Workspace package: @modelcontextprotocol/inspector-shared
+├── package.json     # Package config (private: true, peerDependencies: react)
+├── tsconfig.json    # TypeScript config (composite: true, declaration: true)
+├── build/           # Compiled output (JS + .d.ts files)
 ├── mcp/             # MCP client/server interaction code
 │   ├── index.ts     # Re-exports public API
 │   ├── inspectorClient.ts  # Main InspectorClient class
@@ -250,6 +261,28 @@ shared/              # Not a workspace, just a directory
     ├── test-server-http.ts
     └── test-server-stdio.ts
 ```
+
+**Package Configuration:**
+
+- `package.json`: Declares `"private": true"` (internal-only, not published)
+- `peerDependencies`: `"react": "^19.2.3"` (consumers provide React)
+- `devDependencies`: `react`, `@types/react`, `typescript` (for compilation)
+- `main`: `"./build/index.js"` (compiled output)
+- `types`: `"./build/index.d.ts"` (TypeScript declarations)
+
+**TypeScript Configuration:**
+
+- `composite: true` - Enables Project References
+- `declaration: true` - Generates .d.ts files
+- `rootDir: "."` - Compiles from source root
+- `outDir: "./build"` - Outputs to build directory
+
+**Workspace Integration:**
+
+- Added to root `workspaces` array
+- CLI and TUI declare dependency: `"@modelcontextprotocol/inspector-shared": "*"`
+- TypeScript Project References: `"references": [{ "path": "../shared" }]`
+- Build order: shared builds first, then CLI/TUI
 
 ### 2.2 Code to Move
 
@@ -288,20 +321,51 @@ export function argsToMcpServerConfig(args: {
   headers?: Record<string, string>;
 }): MCPServerConfig {
   // Convert CLI args format to MCPServerConfig format
-  // Handle stdio, SSE, and streamableHttp transports
+  // Handle stdio, SSE, and streamable-http transports
 }
 ```
 
 **Key conversions needed**:
 
-- CLI `transport: "streamable-http"` → `MCPServerConfig.type: "streamableHttp"`
+- CLI `transport: "streamable-http"` → `MCPServerConfig.type: "streamable-http"` (no mapping needed)
 - CLI `command` + `args` + `envArgs` → `StdioServerConfig`
 - CLI `serverUrl` + `headers` → `SseServerConfig` or `StreamableHttpServerConfig`
 - Auto-detect transport type from URL if not specified
+- CLI uses `"http"` for streamable-http, so map `"http"` → `"streamable-http"` when calling `argsToMcpServerConfig()`
 
-### 2.4 Status
+### 2.4 Implementation Details
 
-**Phase 2 is complete.** All MCP code has been moved to `shared/mcp/`, the React hook to `shared/react/`, and test fixtures to `shared/test/`. The `argsToMcpServerConfig()` function has been implemented. TUI successfully imports from and uses the shared code.
+**Shared Package Setup:**
+
+1. Created `shared/package.json` as a workspace package (`@modelcontextprotocol/inspector-shared`)
+2. Configured TypeScript with `composite: true` and `declaration: true` for Project References
+3. Set React 19.2.3 as peer dependency (both client and TUI upgraded to React 19.2.3)
+4. Added React and @types/react to devDependencies for TypeScript compilation
+5. Added `shared` to root `workspaces` array
+6. Updated root build script to build shared first: `"build-shared": "cd shared && npm run build"`
+
+**Import Strategy:**
+
+- Workspaces import using package name: `@modelcontextprotocol/inspector-shared/mcp/types.js`
+- No path mappings needed - npm workspaces resolve package name automatically
+- TypeScript Project References ensure correct build ordering and type resolution
+
+**Build Process:**
+
+- Shared compiles to `shared/build/` with TypeScript declarations
+- CLI and TUI reference shared via Project References
+- Build order: `npm run build-shared` → `npm run build-cli` → `npm run build-tui`
+
+**React Version Alignment:**
+
+- Upgraded client from React 18.3.1 to React 19.2.3 (matching TUI)
+- All Radix UI components support React 19
+- Single React 19.2.3 instance hoisted to root node_modules
+- Shared code uses peer dependency pattern (consumers provide React)
+
+### 2.5 Status
+
+**Phase 2 is complete.** All MCP code has been moved to `shared/mcp/`, the React hook to `shared/react/`, and test fixtures to `shared/test/`. The `argsToMcpServerConfig()` function has been implemented. Shared is configured as a workspace package with TypeScript Project References. TUI and CLI successfully import from and use the shared code. React 19.2.3 is used consistently across all workspaces.
 
 ## File-by-File Migration Guide
 
@@ -389,10 +453,10 @@ The CLI currently:
 ### 3.3 Migration Steps
 
 1. **Update imports in `cli/src/index.ts`:**
-   - Import `InspectorClient` from `../../shared/mcp/index.js`
-   - Import `argsToMcpServerConfig` from `../../shared/mcp/index.js`
-   - Import `createTransportFromConfig` from `../../shared/mcp/index.js`
-   - Import `MCPServerConfig` type from `../../shared/mcp/index.js`
+   - Import `InspectorClient` from `@modelcontextprotocol/inspector-shared/mcp/index.js`
+   - Import `argsToMcpServerConfig` from `@modelcontextprotocol/inspector-shared/mcp/index.js`
+   - Import `createTransportFromConfig` from `@modelcontextprotocol/inspector-shared/mcp/index.js`
+   - Import `MCPServerConfig` type from `@modelcontextprotocol/inspector-shared/mcp/index.js`
 
 2. **Replace transport creation:**
    - Remove `createTransportOptions()` function
@@ -418,7 +482,7 @@ The CLI currently:
    - Ensure all CLI argument combinations are correctly converted
 
 6. **Update tests:**
-   - Update CLI test imports to use `../../shared/test/` (already done in Phase 2)
+   - Update CLI test imports to use `@modelcontextprotocol/inspector-shared/test/` (already done in Phase 2)
    - Update tests to use `InspectorClient` instead of direct `Client`
    - Verify all test scenarios still pass
 
@@ -473,7 +537,7 @@ await inspectorClient.disconnect();
 
 ```json
 {
-  "workspaces": ["client", "server", "cli", "tui"],
+  "workspaces": ["client", "server", "cli", "tui", "shared"],
   "bin": {
     "mcp-inspector": "cli/build/cli.js"
   },
@@ -485,13 +549,16 @@ await inspectorClient.disconnect();
     "tui/build"
   ],
   "scripts": {
-    "build": "npm run build-server && npm run build-client && npm run build-cli && npm run build-tui",
+    "build": "npm run build-shared && npm run build-server && npm run build-client && npm run build-cli && npm run build-tui",
+    "build-shared": "cd shared && npm run build",
     "build-tui": "cd tui && npm run build",
     "update-version": "node scripts/update-version.js",
     "check-version": "node scripts/check-version-consistency.js"
   }
 }
 ```
+
+**Note**: `shared/` is a workspace package but is not included in `files` array (it's internal-only, not published).
 
 **Note**:
 
@@ -530,7 +597,7 @@ await inspectorClient.disconnect();
 }
 ```
 
-**Note**: TUI will have its own copy of React initially (different React versions for Ink vs web React). After v2 web UX lands and more code sharing begins, we may consider integrating React dependencies.
+**Note**: TUI and client both use React 19.2.3. React is hoisted to root node_modules, ensuring a single React instance across all workspaces. Shared package declares React as a peer dependency.
 
 ### tui/tsconfig.json
 
@@ -628,15 +695,22 @@ This provides a single entry point with consistent argument parsing across all t
   - [x] `test-fixtures.ts` → `shared/test/test-server-fixtures.ts` (renamed)
   - [x] `test-server-http.ts` → `shared/test/test-server-http.ts`
   - [x] `test-server-stdio.ts` → `shared/test/test-server-stdio.ts`
-- [x] Update TUI imports to use `../../shared/mcp/` and `../../shared/react/`
-- [x] Update CLI test imports to use `../../shared/test/`
+- [x] Update TUI imports to use `@modelcontextprotocol/inspector-shared/mcp/` and `@modelcontextprotocol/inspector-shared/react/`
+- [x] Create `shared/package.json` as workspace package
+- [x] Configure `shared/tsconfig.json` with composite and declaration
+- [x] Add shared to root workspaces
+- [x] Set React 19.2.3 as peer dependency in shared
+- [x] Upgrade client to React 19.2.3
+- [x] Configure TypeScript Project References in CLI and TUI
+- [x] Update root build script to build shared first
+- [x] Update CLI test imports to use `@modelcontextprotocol/inspector-shared/test/`
 - [x] Test TUI functionality (verify it still works with shared code)
 - [x] Test CLI tests (verify test fixtures work from new location)
 - [x] Update documentation
 
 ### Phase 3: Convert CLI to Use Shared Code
 
-- [ ] Update CLI imports to use `InspectorClient`, `argsToMcpServerConfig`, `createTransportFromConfig` from `../../shared/mcp/`
+- [ ] Update CLI imports to use `InspectorClient`, `argsToMcpServerConfig`, `createTransportFromConfig` from `@modelcontextprotocol/inspector-shared/mcp/`
 - [ ] Replace `createTransportOptions()` with `argsToMcpServerConfig()` in `cli/src/index.ts`
 - [ ] Replace `createTransport()` with `createTransportFromConfig()`
 - [ ] Replace `new Client()` + `connect()` with `new InspectorClient()` + `connect()`

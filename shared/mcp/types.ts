@@ -18,7 +18,7 @@ export interface SseServerConfig {
 
 // StreamableHTTP transport config
 export interface StreamableHttpServerConfig {
-  type: "streamableHttp";
+  type: "streamable-http";
   url: string;
   headers?: Record<string, string>;
   requestInit?: Record<string, unknown>;
