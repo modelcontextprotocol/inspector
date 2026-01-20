@@ -9,8 +9,10 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "outDir": "./build"
+    "outDir": "./build",
+    "rootDir": "."
   },
-  "include": ["src/**/*", "tui.tsx", "../shared/**/*.ts", "../shared/**/*.tsx"],
-  "exclude": ["node_modules", "build"]
+  "include": ["src/**/*", "tui.tsx"],
+  "exclude": ["node_modules", "build"],
+  "references": [{ "path": "../shared" }]
 }

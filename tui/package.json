@@ -19,9 +19,10 @@
   ],
   "scripts": {
     "build": "tsc",
-    "dev": "NODE_PATH=./node_modules:$NODE_PATH tsx tui.tsx"
+    "dev": "NODE_PATH=../node_modules:./node_modules:$NODE_PATH tsx tui.tsx"
   },
   "dependencies": {
+    "@modelcontextprotocol/inspector-shared": "*",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "fullscreen-ink": "^0.1.0",
     "ink": "^6.6.0",

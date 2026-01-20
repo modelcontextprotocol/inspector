@@ -21,10 +21,12 @@
     "client",
     "server",
     "cli",
-    "tui"
+    "tui",
+    "shared"
   ],
   "scripts": {
-    "build": "npm run build-server && npm run build-client && npm run build-cli && npm run build-tui",
+    "build": "npm run build-shared && npm run build-server && npm run build-client && npm run build-cli && npm run build-tui",
+    "build-shared": "cd shared && npm run build",
     "build-server": "cd server && npm run build",
     "build-client": "cd client && npm run build",
     "build-cli": "cd cli && npm run build",

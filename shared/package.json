@@ -1,0 +1,22 @@
+{
+  "name": "@modelcontextprotocol/inspector-shared",
+  "version": "0.18.0",
+  "private": true,
+  "type": "module",
+  "main": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "peerDependencies": {
+    "react": "^19.2.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.7",
+    "react": "^19.2.3",
+    "typescript": "^5.4.2"
+  }
+}

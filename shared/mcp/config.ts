@@ -34,47 +34,86 @@ export function loadMcpServersConfig(configPath: string): MCPConfig {
 }
 
 /**
- * Converts CLI arguments to MCPServerConfig format
- * @param args - CLI arguments object
+ * Converts CLI arguments to MCPServerConfig format.
+ * Handles all CLI-specific logic including:
+ * - Detecting if target is a URL or command
+ * - Validating transport/URL combinations
+ * - Auto-detecting transport type from URL path
+ * - Converting CLI's "http" transport to "streamable-http"
+ *
+ * @param args - CLI arguments object with target (URL or command), transport, and headers
  * @returns MCPServerConfig suitable for creating an InspectorClient
+ * @throws Error if arguments are invalid (e.g., args with URLs, stdio with URLs, etc.)
  */
 export function argsToMcpServerConfig(args: {
-  command?: string;
-  args?: string[];
-  envArgs?: Record<string, string>;
-  transport?: "stdio" | "sse" | "streamable-http";
-  serverUrl?: string;
+  target: string[];
+  transport?: "sse" | "stdio" | "http";
   headers?: Record<string, string>;
+  env?: Record<string, string>;
 }): MCPServerConfig {
-  // If serverUrl is provided, it's an HTTP-based transport
-  if (args.serverUrl) {
-    const url = new URL(args.serverUrl);
+  if (args.target.length === 0) {
+    throw new Error(
+      "Target is required. Specify a URL or a command to execute.",
+    );
+  }
+
+  const [firstTarget, ...targetArgs] = args.target;
+
+  if (!firstTarget) {
+    throw new Error("Target is required.");
+  }
+
+  const isUrl =
+    firstTarget.startsWith("http://") || firstTarget.startsWith("https://");
+
+  // Validation: URLs cannot have additional arguments
+  if (isUrl && targetArgs.length > 0) {
+    throw new Error("Arguments cannot be passed to a URL-based MCP server.");
+  }
+
+  // Validation: Transport/URL combinations
+  if (args.transport) {
+    if (!isUrl && args.transport !== "stdio") {
+      throw new Error("Only stdio transport can be used with local commands.");
+    }
+    if (isUrl && args.transport === "stdio") {
+      throw new Error("stdio transport cannot be used with URLs.");
+    }
+  }
+
+  // Handle URL-based transports (SSE or streamable-http)
+  if (isUrl) {
+    const url = new URL(firstTarget);
 
     // Determine transport type
-    let transportType: "sse" | "streamableHttp";
+    let transportType: "sse" | "streamable-http";
     if (args.transport) {
-      // Map "streamable-http" to "streamableHttp"
-      if (args.transport === "streamable-http") {
-        transportType = "streamableHttp";
+      // Convert CLI's "http" to "streamable-http"
+      if (args.transport === "http") {
+        transportType = "streamable-http";
       } else if (args.transport === "sse") {
         transportType = "sse";
       } else {
-        // Default to SSE for URLs if transport is not recognized
+        // Should not happen due to validation above, but default to SSE
         transportType = "sse";
       }
     } else {
       // Auto-detect from URL path
       if (url.pathname.endsWith("/mcp")) {
-        transportType = "streamableHttp";
+        transportType = "streamable-http";
+      } else if (url.pathname.endsWith("/sse")) {
+        transportType = "sse";
       } else {
+        // Default to SSE if path doesn't match known patterns
         transportType = "sse";
       }
     }
 
+    // Create SSE or streamable-http config
     if (transportType === "sse") {
       const config: SseServerConfig = {
         type: "sse",
-        url: args.serverUrl,
+        url: firstTarget,
       };
       if (args.headers) {
         config.headers = args.headers;
@@ -82,8 +121,8 @@ export function argsToMcpServerConfig(args: {
       return config;
     } else {
       const config: StreamableHttpServerConfig = {
-        type: "streamableHttp",
-        url: args.serverUrl,
+        type: "streamable-http",
+        url: firstTarget,
       };
       if (args.headers) {
         config.headers = args.headers;
@@ -92,22 +131,18 @@ export function argsToMcpServerConfig(args: {
     }
   }
 
-  // Otherwise, it's a stdio transport
-  if (!args.command) {
-    throw new Error("Command is required for stdio transport");
-  }
-
+  // Handle stdio transport (command-based)
   const config: StdioServerConfig = {
     type: "stdio",
-    command: args.command,
+    command: firstTarget,
   };
 
-  if (args.args && args.args.length > 0) {
-    config.args = args.args;
+  if (targetArgs.length > 0) {
+    config.args = targetArgs;
   }
 
-  if (args.envArgs && Object.keys(args.envArgs).length > 0) {
-    config.env = args.envArgs;
+  if (args.env && Object.keys(args.env).length > 0) {
+    config.env = args.env;
   }
 
   return config;
