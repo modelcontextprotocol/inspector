@@ -30,8 +30,6 @@ import {
   convertToolParameters,
   convertPromptArguments,
 } from "../json/jsonUtils.js";
-import { EventEmitter } from "events";
-
 export interface InspectorClientOptions {
   /**
    * Client identity (name and version)
@@ -72,10 +70,10 @@ export interface InspectorClientOptions {
  * InspectorClient wraps an MCP Client and provides:
  * - Message tracking and storage
  * - Stderr log tracking and storage (for stdio transports)
- * - Event emitter interface for React hooks
+ * - EventTarget interface for React hooks (cross-platform: works in browser and Node.js)
  * - Access to client functionality (prompts, resources, tools)
  */
-export class InspectorClient extends EventEmitter {
+export class InspectorClient extends EventTarget {
   private client: Client | null = null;
   private transport: any = null;
   private baseTransport: any = null;
@@ -178,15 +176,19 @@ export class InspectorClient extends EventEmitter {
     this.baseTransport.onclose = () => {
       if (this.status !== "disconnected") {
         this.status = "disconnected";
-        this.emit("statusChange", this.status);
-        this.emit("disconnect");
+        this.dispatchEvent(
+          new CustomEvent("statusChange", { detail: this.status }),
+        );
+        this.dispatchEvent(new Event("disconnect"));
       }
     };
 
     this.baseTransport.onerror = (error: Error) => {
       this.status = "error";
-      this.emit("statusChange", this.status);
-      this.emit("error", error);
+      this.dispatchEvent(
+        new CustomEvent("statusChange", { detail: this.status }),
+      );
+      this.dispatchEvent(new CustomEvent("error", { detail: error }));
     };
 
     this.client = new Client(
@@ -212,17 +214,21 @@ export class InspectorClient extends EventEmitter {
 
     try {
       this.status = "connecting";
-      this.emit("statusChange", this.status);
+      this.dispatchEvent(
+        new CustomEvent("statusChange", { detail: this.status }),
+      );
 
       // Clear message history on connect (start fresh for new session)
       // Don't clear stderrLogs - they persist across reconnects
       this.messages = [];
-      this.emit("messagesChange");
+      this.dispatchEvent(new Event("messagesChange"));
 
       await this.client.connect(this.transport);
       this.status = "connected";
-      this.emit("statusChange", this.status);
-      this.emit("connect");
+      this.dispatchEvent(
+        new CustomEvent("statusChange", { detail: this.status }),
+      );
+      this.dispatchEvent(new Event("connect"));
 
       // Always fetch server info (capabilities, serverInfo, instructions) - this is just cached data from initialize
       await this.fetchServerInfo();
@@ -238,8 +244,10 @@ export class InspectorClient extends EventEmitter {
       }
     } catch (error) {
       this.status = "error";
-      this.emit("statusChange", this.status);
-      this.emit("error", error);
+      this.dispatchEvent(
+        new CustomEvent("statusChange", { detail: this.status }),
+      );
+      this.dispatchEvent(new CustomEvent("error", { detail: error }));
       throw error;
     }
   }
@@ -259,8 +267,10 @@ export class InspectorClient extends EventEmitter {
     // But we also do it here in case disconnect() is called directly
     if (this.status !== "disconnected") {
       this.status = "disconnected";
-      this.emit("statusChange", this.status);
-      this.emit("disconnect");
+      this.dispatchEvent(
+        new CustomEvent("statusChange", { detail: this.status }),
+      );
+      this.dispatchEvent(new Event("disconnect"));
     }
 
     // Clear server state (tools, resources, prompts) on disconnect
@@ -271,12 +281,22 @@ export class InspectorClient extends EventEmitter {
     this.capabilities = undefined;
     this.serverInfo = undefined;
     this.instructions = undefined;
-    this.emit("toolsChange", this.tools);
-    this.emit("resourcesChange", this.resources);
-    this.emit("promptsChange", this.prompts);
-    this.emit("capabilitiesChange", this.capabilities);
-    this.emit("serverInfoChange", this.serverInfo);
-    this.emit("instructionsChange", this.instructions);
+    this.dispatchEvent(new CustomEvent("toolsChange", { detail: this.tools }));
+    this.dispatchEvent(
+      new CustomEvent("resourcesChange", { detail: this.resources }),
+    );
+    this.dispatchEvent(
+      new CustomEvent("promptsChange", { detail: this.prompts }),
+    );
+    this.dispatchEvent(
+      new CustomEvent("capabilitiesChange", { detail: this.capabilities }),
+    );
+    this.dispatchEvent(
+      new CustomEvent("serverInfoChange", { detail: this.serverInfo }),
+    );
+    this.dispatchEvent(
+      new CustomEvent("instructionsChange", { detail: this.instructions }),
+    );
   }
 
   /**
@@ -617,14 +637,20 @@ export class InspectorClient extends EventEmitter {
     try {
       // Get server capabilities (cached from initialize response)
       this.capabilities = this.client.getServerCapabilities();
-      this.emit("capabilitiesChange", this.capabilities);
+      this.dispatchEvent(
+        new CustomEvent("capabilitiesChange", { detail: this.capabilities }),
+      );
 
       // Get server info (name, version) and instructions (cached from initialize response)
       this.serverInfo = this.client.getServerVersion();
       this.instructions = this.client.getInstructions();
-      this.emit("serverInfoChange", this.serverInfo);
+      this.dispatchEvent(
+        new CustomEvent("serverInfoChange", { detail: this.serverInfo }),
+      );
       if (this.instructions !== undefined) {
-        this.emit("instructionsChange", this.instructions);
+        this.dispatchEvent(
+          new CustomEvent("instructionsChange", { detail: this.instructions }),
+        );
       }
     } catch (error) {
       // Ignore errors in fetching server info
@@ -647,11 +673,15 @@ export class InspectorClient extends EventEmitter {
         try {
           const result = await this.client.listResources();
           this.resources = result.resources || [];
-          this.emit("resourcesChange", this.resources);
+          this.dispatchEvent(
+            new CustomEvent("resourcesChange", { detail: this.resources }),
+          );
         } catch (err) {
           // Ignore errors, just leave empty
           this.resources = [];
-          this.emit("resourcesChange", this.resources);
+          this.dispatchEvent(
+            new CustomEvent("resourcesChange", { detail: this.resources }),
+          );
         }
       }
 
@@ -659,11 +689,15 @@ export class InspectorClient extends EventEmitter {
         try {
           const result = await this.client.listPrompts();
           this.prompts = result.prompts || [];
-          this.emit("promptsChange", this.prompts);
+          this.dispatchEvent(
+            new CustomEvent("promptsChange", { detail: this.prompts }),
+          );
         } catch (err) {
           // Ignore errors, just leave empty
           this.prompts = [];
-          this.emit("promptsChange", this.prompts);
+          this.dispatchEvent(
+            new CustomEvent("promptsChange", { detail: this.prompts }),
+          );
         }
       }
 
@@ -671,11 +705,15 @@ export class InspectorClient extends EventEmitter {
         try {
           const result = await this.client.listTools();
           this.tools = result.tools || [];
-          this.emit("toolsChange", this.tools);
+          this.dispatchEvent(
+            new CustomEvent("toolsChange", { detail: this.tools }),
+          );
         } catch (err) {
           // Ignore errors, just leave empty
           this.tools = [];
-          this.emit("toolsChange", this.tools);
+          this.dispatchEvent(
+            new CustomEvent("toolsChange", { detail: this.tools }),
+          );
         }
       }
     } catch (error) {
@@ -689,8 +727,8 @@ export class InspectorClient extends EventEmitter {
       this.messages.shift();
     }
     this.messages.push(entry);
-    this.emit("message", entry);
-    this.emit("messagesChange");
+    this.dispatchEvent(new CustomEvent("message", { detail: entry }));
+    this.dispatchEvent(new Event("messagesChange"));
   }
 
   private updateMessageResponse(
@@ -701,8 +739,8 @@ export class InspectorClient extends EventEmitter {
     // Update the entry in place (mutate the object directly)
     requestEntry.response = response;
     requestEntry.duration = duration;
-    this.emit("message", requestEntry);
-    this.emit("messagesChange");
+    this.dispatchEvent(new CustomEvent("message", { detail: requestEntry }));
+    this.dispatchEvent(new Event("messagesChange"));
   }
 
   private addStderrLog(entry: StderrLogEntry): void {
@@ -714,7 +752,7 @@ export class InspectorClient extends EventEmitter {
       this.stderrLogs.shift();
     }
     this.stderrLogs.push(entry);
-    this.emit("stderrLog", entry);
-    this.emit("stderrLogsChange");
+    this.dispatchEvent(new CustomEvent("stderrLog", { detail: entry }));
+    this.dispatchEvent(new Event("stderrLogsChange"));
   }
 }
