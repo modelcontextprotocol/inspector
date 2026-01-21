@@ -19,6 +19,10 @@ The shared code architecture addresses these issues by providing a single source
 
 ## Current Architecture
 
+### Architecture Diagram
+
+![Shared Code Architecture](shared-code-architecture.svg)
+
 ### Project Structure
 
 ```
@@ -62,6 +66,8 @@ The `shared/` directory is a **workspace package** that:
 - **State Management**: Manages connection status, message history, and server state
 - **Transport Abstraction**: Works with all `Transport` types (stdio, SSE, streamable-http)
 - **High-Level Methods**: Provides convenient wrappers for tools, resources, prompts, and logging
+
+![InspectorClient Details](inspector-client-details.svg)
 
 ### Key Features
 
