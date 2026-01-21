@@ -47,10 +47,8 @@ export function createFetchTracker(
     if (init?.body) {
       if (typeof init.body === "string") {
         requestBody = init.body;
-      } else if (init.body instanceof ReadableStream) {
-        // For streams, we can't read them without consuming, so we'll skip
-        requestBody = undefined;
       } else {
+        // Try to convert to string, but skip if it fails (e.g., ReadableStream)
         try {
           requestBody = String(init.body);
         } catch {
@@ -59,11 +57,12 @@ export function createFetchTracker(
       }
     } else if (input instanceof Request && input.body) {
       // Try to clone and read the request body
+      // Clone protects the original body from being consumed
       try {
         const cloned = input.clone();
         requestBody = await cloned.text();
       } catch {
-        // Can't read body, that's okay
+        // Can't read body (might be consumed, not readable, or other issue)
         requestBody = undefined;
       }
     }
@@ -100,27 +99,35 @@ export function createFetchTracker(
       responseHeaders[key] = value;
     });
 
-    // Try to read response body (clone so we don't consume it)
-    let responseBody: string | undefined;
+    // Check if this is a streaming response - if so, skip body reading entirely
+    // For streamable-http POST requests to /mcp, the response is always a stream
+    // that the transport needs to consume, so we should never try to read it
     const contentType = response.headers.get("content-type");
     const isStream =
       contentType?.includes("text/event-stream") ||
-      contentType?.includes("application/x-ndjson");
+      contentType?.includes("application/x-ndjson") ||
+      (method === "POST" && url.includes("/mcp"));
 
-    if (!isStream) {
-      try {
-        const cloned = response.clone();
-        responseBody = await cloned.text();
-      } catch {
-        // Can't read body (might be consumed or not readable)
-        responseBody = undefined;
-      }
+    let responseBody: string | undefined;
+    let duration: number;
+
+    if (isStream) {
+      // For streams, don't try to read the body - just record metadata and return immediately
+      // The transport needs to consume the stream, so we can't clone/read it
+      duration = Date.now() - startTime;
     } else {
-      // For streams, we can't read them without consuming, so we'll skip
-      responseBody = undefined;
+      // For regular responses, try to read the body (clone so we don't consume it)
+      if (response.body && !response.bodyUsed) {
+        try {
+          const cloned = response.clone();
+          responseBody = await cloned.text();
+        } catch {
+          // Can't read body (might be consumed, not readable, or other issue)
+          responseBody = undefined;
+        }
+      }
+      duration = Date.now() - startTime;
     }
-
-    const duration = Date.now() - startTime;
 
     // Create entry and track it
     const entry: FetchRequestEntry = {

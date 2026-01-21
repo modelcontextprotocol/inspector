@@ -24,7 +24,7 @@ export interface RecordedRequest {
 async function findAvailablePort(startPort: number): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createNetServer();
-    server.listen(startPort, () => {
+    server.listen(startPort, "127.0.0.1", () => {
       const port = (server.address() as { port: number })?.port;
       server.close(() => resolve(port || startPort));
     });
@@ -50,7 +50,10 @@ function extractHeaders(req: Request): Record<string, string> {
     if (typeof value === "string") {
       headers[key] = value;
     } else if (Array.isArray(value) && value.length > 0) {
-      headers[key] = value[value.length - 1];
+      const lastValue = value[value.length - 1];
+      if (typeof lastValue === "string") {
+        headers[key] = lastValue;
+      }
     }
   }
   return headers;
@@ -64,7 +67,7 @@ export class TestServerHttp {
   private recordedRequests: RecordedRequest[] = [];
   private httpServer?: HttpServer;
   private transport?: StreamableHTTPServerTransport | SSEServerTransport;
-  private url?: string;
+  private baseUrl?: string;
   private currentRequestHeaders?: Record<string, string>;
   private currentLogLevel: string | null = null;
 
@@ -187,19 +190,17 @@ export class TestServerHttp {
   }
 
   /**
-   * Start the server with the specified transport
+   * Start the server using the configuration from ServerConfig
    */
-  async start(
-    transport: "http" | "sse",
-    requestedPort?: number,
-  ): Promise<number> {
-    const port = requestedPort
-      ? await findAvailablePort(requestedPort)
-      : await findAvailablePort(transport === "http" ? 3001 : 3000);
+  async start(): Promise<number> {
+    const serverType = this.config.serverType ?? "streamable-http";
+    const requestedPort = this.config.port;
 
-    this.url = `http://localhost:${port}`;
+    // If a port is explicitly requested, find an available port starting from that value
+    // Otherwise, use 0 to let the OS assign an available port
+    const port = requestedPort ? await findAvailablePort(requestedPort) : 0;
 
-    if (transport === "http") {
+    if (serverType === "streamable-http") {
       return this.startHttp(port);
     } else {
       return this.startSse(port);
@@ -298,10 +299,15 @@ export class TestServerHttp {
     // Connect transport to server
     await this.mcpServer.connect(this.transport);
 
-    // Start listening
+    // Start listening on localhost only to avoid macOS firewall prompts
+    // Use port 0 to let the OS assign an available port if no port was specified
     return new Promise((resolve, reject) => {
-      this.httpServer!.listen(port, () => {
-        resolve(port);
+      this.httpServer!.listen(port, "127.0.0.1", () => {
+        const address = this.httpServer!.address();
+        const assignedPort =
+          typeof address === "object" && address !== null ? address.port : port;
+        this.baseUrl = `http://localhost:${assignedPort}`;
+        resolve(assignedPort);
       });
       this.httpServer!.on("error", reject);
     });
@@ -314,11 +320,21 @@ export class TestServerHttp {
     // Create HTTP server
     this.httpServer = createHttpServer(app);
 
-    // For SSE, we need to set up an Express route that creates the transport per request
-    // This is a simplified version - SSE transport is created per connection
-    app.get("/mcp", async (req: Request, res: Response) => {
+    // Store transports by sessionId (like the SDK example)
+    const sseTransports: Map<string, SSEServerTransport> = new Map();
+
+    // GET handler for SSE connection (establishes the SSE stream)
+    app.get("/sse", async (req: Request, res: Response) => {
       this.currentRequestHeaders = extractHeaders(req);
-      const sseTransport = new SSEServerTransport("/mcp", res);
+      const sseTransport = new SSEServerTransport("/sse", res);
+
+      // Store transport by sessionId immediately (before connecting)
+      sseTransports.set(sseTransport.sessionId, sseTransport);
+
+      // Clean up on connection close
+      res.on("close", () => {
+        sseTransports.delete(sseTransport.sessionId);
+      });
 
       // Intercept messages
       const originalOnMessage = sseTransport.onmessage;
@@ -338,7 +354,7 @@ export class TestServerHttp {
               : undefined;
 
           if (originalOnMessage) {
-            await originalOnMessage.call(sseTransport, message);
+            originalOnMessage.call(sseTransport, message);
           }
 
           this.recordedRequests.push({
@@ -370,17 +386,46 @@ export class TestServerHttp {
         }
       };
 
+      // Connect server to transport (this automatically calls start())
       await this.mcpServer.connect(sseTransport);
-      await sseTransport.start();
     });
 
-    // Note: SSE transport is created per request, so we don't store a single instance
-    this.transport = undefined;
+    // POST handler for SSE message sending (SSE uses GET for stream, POST for sending messages)
+    app.post("/sse", async (req: Request, res: Response) => {
+      this.currentRequestHeaders = extractHeaders(req);
+      const sessionId = req.query.sessionId as string | undefined;
 
-    // Start listening
+      if (!sessionId) {
+        res.status(400).json({ error: "Missing sessionId query parameter" });
+        return;
+      }
+
+      const transport = sseTransports.get(sessionId);
+      if (!transport) {
+        res.status(404).json({ error: "No transport found for sessionId" });
+        return;
+      }
+
+      try {
+        await transport.handlePostMessage(req, res, req.body);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        res.status(500).json({
+          error: errorMessage,
+        });
+      }
+    });
+
+    // Start listening on localhost only to avoid macOS firewall prompts
+    // Use port 0 to let the OS assign an available port if no port was specified
     return new Promise((resolve, reject) => {
-      this.httpServer!.listen(port, () => {
-        resolve(port);
+      this.httpServer!.listen(port, "127.0.0.1", () => {
+        const address = this.httpServer!.address();
+        const assignedPort =
+          typeof address === "object" && address !== null ? address.port : port;
+        this.baseUrl = `http://localhost:${assignedPort}`;
+        resolve(assignedPort);
       });
       this.httpServer!.on("error", reject);
     });
@@ -424,13 +469,15 @@ export class TestServerHttp {
   }
 
   /**
-   * Get the server URL
+   * Get the server URL with the appropriate endpoint path
    */
-  getUrl(): string {
-    if (!this.url) {
+  get url(): string {
+    if (!this.baseUrl) {
       throw new Error("Server not started");
     }
-    return this.url;
+    const serverType = this.config.serverType ?? "streamable-http";
+    const endpoint = serverType === "sse" ? "/sse" : "/mcp";
+    return `${this.baseUrl}${endpoint}`;
   }
 
   /**

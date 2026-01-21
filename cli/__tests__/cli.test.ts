@@ -370,11 +370,9 @@ describe("CLI Tests", () => {
       });
 
       try {
-        const port = await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        const port = await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "logging/setLevel",
@@ -741,11 +739,9 @@ describe("CLI Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
@@ -768,11 +764,9 @@ describe("CLI Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--transport",
           "http",
           "--cli",
@@ -797,11 +791,9 @@ describe("CLI Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--transport",
           "http",
           "--cli",
@@ -826,11 +818,9 @@ describe("CLI Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--transport",
           "sse",
           "--cli",
