@@ -14,7 +14,7 @@ import {
   Menu,
 } from '@mantine/core';
 import { IconCopy, IconChevronDown, IconDownload } from '@tabler/icons-react';
-import { LOG_LEVELS, LOG_LEVEL_COLORS, type LogLevel, type LogEntry } from '@/types/logs';
+import { LOG_LEVELS, LOG_LEVEL_COLORS, type LogLevel, type LogEntry } from '@modelcontextprotocol/inspector-core';
 import { mockLogs } from '@/mocks';
 
 // NOTE: Using local state with mock data instead of storage context.

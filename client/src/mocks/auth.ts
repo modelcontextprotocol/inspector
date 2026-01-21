@@ -2,8 +2,13 @@
  * Mock data for authentication and client requests testing
  */
 
-import type { SamplingRequest, ElicitationFormRequest, ElicitationUrlRequest } from '@/types/clientRequests';
-import type { OAuthState, Root } from '@/types/auth';
+import type {
+  SamplingRequest,
+  ElicitationFormRequest,
+  ElicitationUrlRequest,
+  OAuthState,
+  Root,
+} from '@modelcontextprotocol/inspector-core';
 
 // Mock OAuth state data
 export const mockOAuthState: OAuthState = {

@@ -20,8 +20,12 @@ import {
   Code,
 } from '@mantine/core';
 import { mockFormRequest, mockUrlRequest } from '@/mocks';
-import type { ElicitationFormRequest, ElicitationUrlRequest, ElicitationRequest } from '@/types';
-import type { ElicitationResponse } from '@/types/responses';
+import type {
+  ElicitationFormRequest,
+  ElicitationUrlRequest,
+  ElicitationRequest,
+  ElicitationResponse,
+} from '@modelcontextprotocol/inspector-core';
 
 interface ElicitationModalProps {
   open: boolean;

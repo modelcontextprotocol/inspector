@@ -2,7 +2,7 @@
  * Mock log data for testing
  */
 
-import type { LogEntry } from '@/types/logs';
+import type { LogEntry } from '@modelcontextprotocol/inspector-core';
 
 export const mockLogs: LogEntry[] = [
   { timestamp: '2025-11-30T14:23:01Z', level: 'info', message: 'Server connected', logger: 'connection' },

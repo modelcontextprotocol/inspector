@@ -25,8 +25,13 @@ import {
   ScrollArea,
 } from '@mantine/core';
 import { mockSamplingRequest } from '@/mocks';
-import type { SamplingMessage, SamplingRequest } from '@/types';
-import type { SamplingResponse, ToolCall, StopReason } from '@/types/responses';
+import type {
+  SamplingMessage,
+  SamplingRequest,
+  SamplingResponse,
+  ToolCall,
+  StopReason,
+} from '@modelcontextprotocol/inspector-core';
 
 // NOTE: Testing Profile integration will be added in PR #3.
 // This modal currently works standalone without ExecutionContext.

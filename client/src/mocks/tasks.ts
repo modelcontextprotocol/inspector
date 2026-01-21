@@ -2,7 +2,7 @@
  * Mock task data for testing
  */
 
-import type { ActiveTask, CompletedTask } from '@/types/tasks';
+import type { ActiveTask, CompletedTask } from '@modelcontextprotocol/inspector-core';
 
 // Mock active tasks
 export const mockActiveTasks: ActiveTask[] = [

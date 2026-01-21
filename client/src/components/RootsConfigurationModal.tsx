@@ -19,7 +19,7 @@ import {
   Alert,
 } from '@mantine/core';
 import { initialRoots } from '@/mocks';
-import type { Root } from '@/types';
+import type { Root } from '@modelcontextprotocol/inspector-core';
 
 interface RootsConfigurationModalProps {
   open: boolean;

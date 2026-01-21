@@ -2,7 +2,7 @@
  * Mock server data for testing
  */
 
-import type { ServerDisplayModel } from '@/types/servers';
+import type { ServerDisplayModel } from '@modelcontextprotocol/inspector-core';
 
 // Mock servers for demo/testing
 export const mockServers: ServerDisplayModel[] = [

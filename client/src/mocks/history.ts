@@ -2,7 +2,7 @@
  * Mock history data for testing
  */
 
-import type { HistoryEntry } from '@/types/history';
+import type { HistoryEntry } from '@modelcontextprotocol/inspector-core';
 
 export const initialHistory: HistoryEntry[] = [
   // Primary request with child sampling requests (hierarchical example)

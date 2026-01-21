@@ -26,7 +26,7 @@ import {
   CopyButton as MantineCopyButton,
 } from '@mantine/core';
 import { mockOAuthState } from '@/mocks';
-import type { OAuthState } from '@/types';
+import type { OAuthState } from '@modelcontextprotocol/inspector-core';
 
 type StepStatus = 'pending' | 'completed' | 'active' | 'error';
 

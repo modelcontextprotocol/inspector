@@ -12,7 +12,7 @@ import {
 } from '@mantine/core';
 import { IconRefresh, IconTrash } from '@tabler/icons-react';
 import { mockActiveTasks, mockCompletedTasks } from '@/mocks';
-import { taskStatusColors } from '@/types';
+import { taskStatusColors } from '@modelcontextprotocol/inspector-core';
 
 function formatElapsed(startedAt: string, endedAt?: string): string {
   const start = new Date(startedAt).getTime();

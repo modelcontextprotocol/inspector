@@ -20,7 +20,7 @@ import {
   IconChevronDown,
   IconChevronRight,
 } from '@tabler/icons-react';
-import type { HistoryEntry } from '@/types/history';
+import type { HistoryEntry } from '@modelcontextprotocol/inspector-core';
 import { initialHistory } from '@/mocks';
 
 // NOTE: Using local state with mock data instead of storage context.

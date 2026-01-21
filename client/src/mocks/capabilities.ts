@@ -2,7 +2,7 @@
  * Default experimental capabilities configuration
  */
 
-import type { ExperimentalCapability } from '@/types/capabilities';
+import type { ExperimentalCapability } from '@modelcontextprotocol/inspector-core';
 
 // Default experimental capabilities
 export const initialCapabilities: ExperimentalCapability[] = [

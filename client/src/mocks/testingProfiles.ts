@@ -2,7 +2,7 @@
  * Default testing profiles for sampling/elicitation
  */
 
-import type { TestingProfile } from '@/types/testingProfiles';
+import type { TestingProfile } from '@modelcontextprotocol/inspector-core';
 
 // Default testing profiles
 export const mockTestingProfiles: TestingProfile[] = [
