@@ -40,5 +40,5 @@ export {
 // All types
 export * from './types/index.js';
 
-// Data layer interfaces and memory stubs
+// Data layer interfaces
 export * from './data/index.js';

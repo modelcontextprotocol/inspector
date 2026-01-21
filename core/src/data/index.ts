@@ -1,12 +1,12 @@
 /**
- * Data Layer Interfaces and Memory Stubs
+ * Data Layer Interfaces
  *
- * This module provides:
- * - Repository interfaces for data storage (CRUD contracts)
- * - Service interfaces for stateful business logic
- * - Memory stub implementations for development/testing
+ * Repository interfaces define CRUD contracts for data storage.
+ * Implementations (proxy API, file-based, localStorage) to be added
+ * when proxy server is built.
  *
- * Real implementations (proxy API, file-based, localStorage) can be added later.
+ * Note: Connection/execution state management is handled by UI-specific
+ * patterns (React Context, Zustand stores) per v2_storage.md spec.
  */
 
 // Repository interfaces
@@ -18,27 +18,3 @@ export type {
   LogsListOptions,
   TestingProfileRepository,
 } from './repositories.js';
-
-// Service interfaces
-export type {
-  ConnectionService,
-  ConnectionState,
-  ConnectionError,
-  ConnectionOptions,
-  ExecutionService,
-  ExecutionState,
-  PendingClientRequest,
-} from './services.js';
-
-// Initial state exports
-export { initialConnectionState, initialExecutionState } from './services.js';
-
-// Memory stub implementations
-export {
-  createMemoryServerConfigRepository,
-  createMemoryHistoryRepository,
-  createMemoryLogsRepository,
-  createMemoryTestingProfileRepository,
-  createMemoryConnectionService,
-  createMemoryExecutionService,
-} from './memory.js';
