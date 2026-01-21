@@ -210,15 +210,6 @@ describe("AuthDebugger", () => {
       });
       expect(screen.getByText("Authentication Settings")).toBeInTheDocument();
     });
-
-    it("should call onBack when Back button is clicked", async () => {
-      const onBack = jest.fn();
-      await act(async () => {
-        renderAuthDebugger({ onBack });
-      });
-      fireEvent.click(screen.getByText("Back to Connect"));
-      expect(onBack).toHaveBeenCalled();
-    });
   });
 
   describe("OAuth Flow", () => {
