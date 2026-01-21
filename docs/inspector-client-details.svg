@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500">
+  <defs>
+    <style>
+      .box { fill: #e1f5ff; stroke: #0066cc; stroke-width: 3; rx: 8; }
+      .header { fill: #0066cc; }
+      .text { font-family: Arial, sans-serif; font-size: 14px; fill: #333; }
+      .title { font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; fill: #fff; }
+      .subtitle { font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; fill: #0066cc; }
+      .item { font-family: Arial, sans-serif; font-size: 13px; fill: #333; }
+      .bullet { font-family: Arial, sans-serif; font-size: 13px; fill: #0066cc; font-weight: bold; }
+      .description { font-family: Arial, sans-serif; font-size: 12px; fill: #666; font-style: italic; }
+    </style>
+  </defs>
+
+  <!-- Main Box -->
+  <rect x="50" y="50" width="700" height="400" class="box" />
+  
+  <!-- Header -->
+  <rect x="50" y="50" width="700" height="60" class="header" />
+  <text x="400" y="85" text-anchor="middle" class="title">InspectorClient</text>
+  
+  <!-- Description -->
+  <text x="400" y="140" text-anchor="middle" class="description">Implements all business logic for MCP client operations</text>
+  <text x="400" y="160" text-anchor="middle" class="description">Wraps MCP SDK Client and manages lifecycle</text>
+  
+  <!-- Core Responsibilities -->
+  <text x="80" y="200" class="subtitle">Core Responsibilities</text>
+  
+  <text x="100" y="230" class="bullet">•</text>
+  <text x="120" y="230" class="item">Client and Transport Lifecycle Management</text>
+  
+  <text x="100" y="255" class="bullet">•</text>
+  <text x="120" y="255" class="item">Message Tracking (all JSON-RPC messages)</text>
+  
+  <text x="100" y="280" class="bullet">•</text>
+  <text x="120" y="280" class="item">Stderr Logging (stdio transports)</text>
+  
+  <text x="100" y="305" class="bullet">•</text>
+  <text x="120" y="305" class="item">Server Data Management (tools, resources, prompts)</text>
+  
+  <text x="100" y="330" class="bullet">•</text>
+  <text x="120" y="330" class="item">Event-Driven Updates (EventTarget-based)</text>
+  
+  <text x="100" y="355" class="bullet">•</text>
+  <text x="120" y="355" class="item">State Management (connection status, history)</text>
+  
+  <text x="100" y="380" class="bullet">•</text>
+  <text x="120" y="380" class="item">Transport Abstraction (stdio, SSE, streamable-http)</text>
+  
+  <text x="100" y="405" class="bullet">•</text>
+  <text x="120" y="405" class="item">High-Level MCP Method Wrappers</text>
+</svg>
