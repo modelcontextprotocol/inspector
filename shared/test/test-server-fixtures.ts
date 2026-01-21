@@ -39,6 +39,8 @@ export interface ServerConfig {
   resources?: ResourceDefinition[]; // Resources to register (optional, empty array means no resources, but resources capability is still advertised)
   prompts?: PromptDefinition[]; // Prompts to register (optional, empty array means no prompts, but prompts capability is still advertised)
   logging?: boolean; // Whether to advertise logging capability (default: false)
+  serverType?: "sse" | "streamable-http"; // Transport type (default: "streamable-http")
+  port?: number; // Port to use (optional, will find available port if not specified)
 }
 
 /**

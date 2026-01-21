@@ -222,9 +222,9 @@ export function getTestMcpServerCommand(): { command: string; args: string[] } {
 // If run as a standalone script, start with default config
 // Check if this file is being executed directly (not imported)
 const isMainModule =
-  import.meta.url.endsWith(process.argv[1]) ||
-  process.argv[1]?.endsWith("test-server-stdio.ts") ||
-  process.argv[1]?.endsWith("test-server-stdio.js");
+  import.meta.url.endsWith(process.argv[1] || "") ||
+  (process.argv[1]?.endsWith("test-server-stdio.ts") ?? false) ||
+  (process.argv[1]?.endsWith("test-server-stdio.js") ?? false);
 
 if (isMainModule) {
   const server = new TestServerStdio(getDefaultServerConfig());
