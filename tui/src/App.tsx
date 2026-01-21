@@ -3,7 +3,10 @@ import { Box, Text, useInput, useApp, type Key } from "ink";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import type { MessageEntry } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import type {
+  MessageEntry,
+  FetchRequestEntry,
+} from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { loadMcpServersConfig } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { useInspectorClient } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
@@ -14,6 +17,7 @@ import { PromptsTab } from "./components/PromptsTab.js";
 import { ToolsTab } from "./components/ToolsTab.js";
 import { NotificationsTab } from "./components/NotificationsTab.js";
 import { HistoryTab } from "./components/HistoryTab.js";
+import { RequestsTab } from "./components/RequestsTab.js";
 import { ToolTestModal } from "./components/ToolTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
 
@@ -55,7 +59,10 @@ type FocusArea =
   | "tabContentDetails"
   // Used only when activeTab === 'messages'
   | "messagesList"
-  | "messagesDetail";
+  | "messagesDetail"
+  // Used only when activeTab === 'requests'
+  | "requestsList"
+  | "requestsDetail";
 
 interface AppProps {
   configFile: string;
@@ -73,6 +80,7 @@ function App({ configFile }: AppProps) {
     prompts?: number;
     tools?: number;
     messages?: number;
+    requests?: number;
     logging?: number;
   }>({});
 
@@ -139,6 +147,7 @@ function App({ configFile }: AppProps) {
         newClients[serverName] = new InspectorClient(serverConfig, {
           maxMessages: 1000,
           maxStderrLogEvents: 1000,
+          maxFetchRequests: 1000,
           pipeStderr: true,
         });
       }
@@ -179,6 +188,7 @@ function App({ configFile }: AppProps) {
     status: inspectorStatus,
     messages: inspectorMessages,
     stderrLogs: inspectorStderrLogs,
+    fetchRequests: inspectorFetchRequests,
     tools: inspectorTools,
     resources: inspectorResources,
     prompts: inspectorPrompts,
@@ -352,6 +362,119 @@ function App({ configFile }: AppProps) {
     </>
   );
 
+  const renderRequestDetails = (request: FetchRequestEntry) => (
+    <>
+      <Box flexShrink={0}>
+        <Text bold>
+          {request.method} {request.url}
+        </Text>
+      </Box>
+      {request.responseStatus !== undefined ? (
+        <Box marginTop={1} flexShrink={0}>
+          <Text bold>
+            Status: {request.responseStatus} {request.responseStatusText || ""}
+          </Text>
+        </Box>
+      ) : request.error ? (
+        <Box marginTop={1} flexShrink={0}>
+          <Text bold color="red">
+            Error: {request.error}
+          </Text>
+        </Box>
+      ) : null}
+      {request.duration !== undefined && (
+        <Box marginTop={1} flexShrink={0}>
+          <Text dimColor>Duration: {request.duration}ms</Text>
+        </Box>
+      )}
+      <Box marginTop={1} flexShrink={0}>
+        <Text bold>Request Headers:</Text>
+        {Object.entries(request.requestHeaders).map(([key, value]) => (
+          <Box key={key} marginTop={0} paddingLeft={2} flexShrink={0}>
+            <Text dimColor>
+              {key}: {value}
+            </Text>
+          </Box>
+        ))}
+      </Box>
+      {request.requestBody && (
+        <>
+          <Box marginTop={1} flexShrink={0}>
+            <Text bold>Request Body:</Text>
+          </Box>
+          {(() => {
+            try {
+              const parsed = JSON.parse(request.requestBody);
+              return JSON.stringify(parsed, null, 2)
+                .split("\n")
+                .map((line: string, idx: number) => (
+                  <Box
+                    key={`req-body-${idx}`}
+                    marginTop={idx === 0 ? 1 : 0}
+                    paddingLeft={2}
+                    flexShrink={0}
+                  >
+                    <Text dimColor>{line}</Text>
+                  </Box>
+                ));
+            } catch {
+              return (
+                <Box marginTop={1} paddingLeft={2} flexShrink={0}>
+                  <Text dimColor>{request.requestBody}</Text>
+                </Box>
+              );
+            }
+          })()}
+        </>
+      )}
+      {request.responseHeaders &&
+        Object.keys(request.responseHeaders).length > 0 && (
+          <>
+            <Box marginTop={1} flexShrink={0}>
+              <Text bold>Response Headers:</Text>
+            </Box>
+            {Object.entries(request.responseHeaders).map(([key, value]) => (
+              <Box key={key} marginTop={0} paddingLeft={2} flexShrink={0}>
+                <Text dimColor>
+                  {key}: {value}
+                </Text>
+              </Box>
+            ))}
+          </>
+        )}
+      {request.responseBody && (
+        <>
+          <Box marginTop={1} flexShrink={0}>
+            <Text bold>Response Body:</Text>
+          </Box>
+          {(() => {
+            try {
+              const parsed = JSON.parse(request.responseBody);
+              return JSON.stringify(parsed, null, 2)
+                .split("\n")
+                .map((line: string, idx: number) => (
+                  <Box
+                    key={`resp-body-${idx}`}
+                    marginTop={idx === 0 ? 1 : 0}
+                    paddingLeft={2}
+                    flexShrink={0}
+                  >
+                    <Text dimColor>{line}</Text>
+                  </Box>
+                ));
+            } catch {
+              return (
+                <Box marginTop={1} paddingLeft={2} flexShrink={0}>
+                  <Text dimColor>{request.responseBody}</Text>
+                </Box>
+              );
+            }
+          })()}
+        </>
+      )}
+    </>
+  );
+
   const renderMessageDetails = (message: MessageEntry) => (
     <>
       <Box flexShrink={0}>
@@ -406,6 +529,7 @@ function App({ configFile }: AppProps) {
       prompts: inspectorPrompts.length || 0,
       tools: inspectorTools.length || 0,
       messages: inspectorMessages.length || 0,
+      requests: inspectorFetchRequests.length || 0,
       logging: inspectorStderrLogs.length || 0,
     });
   }, [
@@ -414,6 +538,7 @@ function App({ configFile }: AppProps) {
     inspectorPrompts,
     inspectorTools,
     inspectorMessages,
+    inspectorFetchRequests,
     inspectorStderrLogs,
   ]);
 
@@ -423,8 +548,17 @@ function App({ configFile }: AppProps) {
       if (focus === "tabContentList" || focus === "tabContentDetails") {
         setFocus("messagesList");
       }
+    } else if (activeTab === "requests") {
+      if (focus === "tabContentList" || focus === "tabContentDetails") {
+        setFocus("requestsList");
+      }
     } else {
-      if (focus === "messagesList" || focus === "messagesDetail") {
+      if (
+        focus === "messagesList" ||
+        focus === "messagesDetail" ||
+        focus === "requestsList" ||
+        focus === "requestsDetail"
+      ) {
         setFocus("tabContentList");
       }
     }
@@ -472,7 +606,9 @@ function App({ configFile }: AppProps) {
       const focusOrder: FocusArea[] =
         activeTab === "messages"
           ? ["serverList", "tabs", "messagesList", "messagesDetail"]
-          : ["serverList", "tabs", "tabContentList", "tabContentDetails"];
+          : activeTab === "requests"
+            ? ["serverList", "tabs", "requestsList", "requestsDetail"]
+            : ["serverList", "tabs", "tabContentList", "tabContentDetails"];
       const currentIndex = focusOrder.indexOf(focus);
       const nextIndex = (currentIndex + 1) % focusOrder.length;
       setFocus(focusOrder[nextIndex]);
@@ -481,7 +617,9 @@ function App({ configFile }: AppProps) {
       const focusOrder: FocusArea[] =
         activeTab === "messages"
           ? ["serverList", "tabs", "messagesList", "messagesDetail"]
-          : ["serverList", "tabs", "tabContentList", "tabContentDetails"];
+          : activeTab === "requests"
+            ? ["serverList", "tabs", "requestsList", "requestsDetail"]
+            : ["serverList", "tabs", "tabContentList", "tabContentDetails"];
       const currentIndex = focusOrder.indexOf(focus);
       const prevIndex =
         currentIndex > 0 ? currentIndex - 1 : focusOrder.length - 1;
@@ -521,6 +659,7 @@ function App({ configFile }: AppProps) {
         "prompts",
         "tools",
         "messages",
+        "requests",
         "logging",
       ];
       const currentIndex = tabs.indexOf(activeTab);
@@ -733,6 +872,17 @@ function App({ configFile }: AppProps) {
                 ? inspectorClients[selectedServer].getServerType() === "stdio"
                 : false
             }
+            showRequests={
+              selectedServer && inspectorClients[selectedServer]
+                ? (() => {
+                    const serverType =
+                      inspectorClients[selectedServer].getServerType();
+                    return (
+                      serverType === "sse" || serverType === "streamable-http"
+                    );
+                  })()
+                : false
+            }
           />
 
           {/* Tab Content */}
@@ -874,6 +1024,33 @@ function App({ configFile }: AppProps) {
                   setDetailsModal({
                     title: `Message: ${label}`,
                     content: renderMessageDetails(message),
+                  });
+                }}
+              />
+            ) : activeTab === "requests" &&
+              selectedInspectorClient &&
+              (inspectorStatus === "connected" ||
+                inspectorFetchRequests.length > 0) ? (
+              <RequestsTab
+                serverName={selectedServer}
+                requests={inspectorFetchRequests}
+                width={contentWidth}
+                height={contentHeight}
+                onCountChange={(count) =>
+                  setTabCounts((prev) => ({ ...prev, requests: count }))
+                }
+                focusedPane={
+                  focus === "requestsDetail"
+                    ? "details"
+                    : focus === "requestsList"
+                      ? "requests"
+                      : null
+                }
+                modalOpen={!!(toolTestModal || detailsModal)}
+                onViewDetails={(request) => {
+                  setDetailsModal({
+                    title: `Request: ${request.method} ${request.url}`,
+                    content: renderRequestDetails(request),
                   });
                 }}
               />

@@ -4,11 +4,13 @@ import type {
   SseServerConfig,
   StreamableHttpServerConfig,
   StderrLogEntry,
+  FetchRequestEntry,
 } from "./types.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { createFetchTracker } from "./fetchTracking.js";
 
 export type ServerType = "stdio" | "sse" | "streamable-http";
 
@@ -46,6 +48,11 @@ export interface CreateTransportOptions {
    * Whether to pipe stderr for stdio transports (default: true for TUI, false for CLI)
    */
   pipeStderr?: boolean;
+
+  /**
+   * Optional callback to track HTTP fetch requests (for SSE and streamable-http transports)
+   */
+  onFetchRequest?: (entry: import("./types.js").FetchRequestEntry) => void;
 }
 
 export interface CreateTransportResult {
@@ -60,7 +67,7 @@ export function createTransport(
   options: CreateTransportOptions = {},
 ): CreateTransportResult {
   const serverType = getServerType(config);
-  const { onStderr, pipeStderr = false } = options;
+  const { onStderr, pipeStderr = false, onFetchRequest } = options;
 
   if (serverType === "stdio") {
     const stdioConfig = config as StdioServerConfig;
@@ -96,6 +103,15 @@ export function createTransport(
       ...(sseConfig.headers && { headers: sseConfig.headers }),
     };
 
+    // Add fetch tracking if callback provided
+    if (onFetchRequest) {
+      const baseFetch =
+        (sseConfig.eventSourceInit?.fetch as typeof fetch) || globalThis.fetch;
+      eventSourceInit.fetch = createFetchTracker(baseFetch, {
+        trackRequest: onFetchRequest,
+      });
+    }
+
     const requestInit: RequestInit = {
       ...sseConfig.requestInit,
       ...(sseConfig.headers && { headers: sseConfig.headers }),
@@ -118,9 +134,22 @@ export function createTransport(
       ...(httpConfig.headers && { headers: httpConfig.headers }),
     };
 
-    const transport = new StreamableHTTPClientTransport(url, {
+    // Add fetch tracking if callback provided
+    const transportOptions: {
+      requestInit?: RequestInit;
+      fetch?: typeof fetch;
+    } = {
       requestInit,
-    });
+    };
+
+    if (onFetchRequest) {
+      const baseFetch = globalThis.fetch;
+      transportOptions.fetch = createFetchTracker(baseFetch, {
+        trackRequest: onFetchRequest,
+      });
+    }
+
+    const transport = new StreamableHTTPClientTransport(url, transportOptions);
 
     return { transport };
   }
