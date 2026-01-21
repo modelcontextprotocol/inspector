@@ -4,6 +4,7 @@ import type {
   StderrLogEntry,
   ConnectionStatus,
   MessageEntry,
+  FetchRequestEntry,
 } from "./types.js";
 import {
   createTransport,
@@ -49,6 +50,12 @@ export interface InspectorClientOptions {
   maxStderrLogEvents?: number;
 
   /**
+   * Maximum number of fetch requests to store (0 = unlimited, but not recommended)
+   * Only applies to HTTP-based transports (SSE, streamable-http)
+   */
+  maxFetchRequests?: number;
+
+  /**
    * Whether to pipe stderr for stdio transports (default: true for TUI, false for CLI)
    */
   pipeStderr?: boolean;
@@ -79,8 +86,10 @@ export class InspectorClient extends EventTarget {
   private baseTransport: any = null;
   private messages: MessageEntry[] = [];
   private stderrLogs: StderrLogEntry[] = [];
+  private fetchRequests: FetchRequestEntry[] = [];
   private maxMessages: number;
   private maxStderrLogEvents: number;
+  private maxFetchRequests: number;
   private autoFetchServerContents: boolean;
   private initialLoggingLevel?: LoggingLevel;
   private status: ConnectionStatus = "disconnected";
@@ -99,6 +108,7 @@ export class InspectorClient extends EventTarget {
     super();
     this.maxMessages = options.maxMessages ?? 1000;
     this.maxStderrLogEvents = options.maxStderrLogEvents ?? 1000;
+    this.maxFetchRequests = options.maxFetchRequests ?? 1000;
     this.autoFetchServerContents = options.autoFetchServerContents ?? true;
     this.initialLoggingLevel = options.initialLoggingLevel;
 
@@ -150,11 +160,14 @@ export class InspectorClient extends EventTarget {
       },
     };
 
-    // Create transport with stderr logging if needed
+    // Create transport with stderr logging and fetch tracking if needed
     const transportOptions: CreateTransportOptions = {
       pipeStderr: options.pipeStderr ?? false,
       onStderr: (entry: StderrLogEntry) => {
         this.addStderrLog(entry);
+      },
+      onFetchRequest: (entry: FetchRequestEntry) => {
+        this.addFetchRequest(entry);
       },
     };
 
@@ -754,5 +767,25 @@ export class InspectorClient extends EventTarget {
     this.stderrLogs.push(entry);
     this.dispatchEvent(new CustomEvent("stderrLog", { detail: entry }));
     this.dispatchEvent(new Event("stderrLogsChange"));
+  }
+
+  private addFetchRequest(entry: FetchRequestEntry): void {
+    if (
+      this.maxFetchRequests > 0 &&
+      this.fetchRequests.length >= this.maxFetchRequests
+    ) {
+      // Remove oldest fetch request
+      this.fetchRequests.shift();
+    }
+    this.fetchRequests.push(entry);
+    this.dispatchEvent(new CustomEvent("fetchRequest", { detail: entry }));
+    this.dispatchEvent(new Event("fetchRequestsChange"));
+  }
+
+  /**
+   * Get all fetch requests
+   */
+  getFetchRequests(): FetchRequestEntry[] {
+    return [...this.fetchRequests];
   }
 }

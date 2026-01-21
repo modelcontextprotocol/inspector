@@ -7,6 +7,7 @@ export type TabType =
   | "prompts"
   | "tools"
   | "messages"
+  | "requests"
   | "logging";
 
 interface TabsProps {
@@ -19,10 +20,12 @@ interface TabsProps {
     prompts?: number;
     tools?: number;
     messages?: number;
+    requests?: number;
     logging?: number;
   };
   focused?: boolean;
   showLogging?: boolean;
+  showRequests?: boolean;
 }
 
 export const tabs: { id: TabType; label: string; accelerator: string }[] = [
@@ -31,6 +34,7 @@ export const tabs: { id: TabType; label: string; accelerator: string }[] = [
   { id: "prompts", label: "Prompts", accelerator: "p" },
   { id: "tools", label: "Tools", accelerator: "t" },
   { id: "messages", label: "Messages", accelerator: "m" },
+  { id: "requests", label: "HTTP Requests", accelerator: "h" },
   { id: "logging", label: "Logging", accelerator: "l" },
 ];
 
@@ -41,10 +45,15 @@ export function Tabs({
   counts = {},
   focused = false,
   showLogging = true,
+  showRequests = false,
 }: TabsProps) {
-  const visibleTabs = showLogging
-    ? tabs
-    : tabs.filter((tab) => tab.id !== "logging");
+  let visibleTabs = tabs;
+  if (!showLogging) {
+    visibleTabs = visibleTabs.filter((tab) => tab.id !== "logging");
+  }
+  if (!showRequests) {
+    visibleTabs = visibleTabs.filter((tab) => tab.id !== "requests");
+  }
 
   return (
     <Box

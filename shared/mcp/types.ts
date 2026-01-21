@@ -66,6 +66,21 @@ export interface MessageEntry {
   duration?: number; // Time between request and response in ms
 }
 
+export interface FetchRequestEntry {
+  id: string;
+  timestamp: Date;
+  method: string;
+  url: string;
+  requestHeaders: Record<string, string>;
+  requestBody?: string;
+  responseStatus?: number;
+  responseStatusText?: string;
+  responseHeaders?: Record<string, string>;
+  responseBody?: string;
+  duration?: number; // Time between request and response in ms
+  error?: string;
+}
+
 export interface ServerState {
   status: ConnectionStatus;
   error: string | null;

@@ -4,6 +4,7 @@ import type {
   ConnectionStatus,
   StderrLogEntry,
   MessageEntry,
+  FetchRequestEntry,
 } from "../mcp/index.js";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type {
@@ -18,6 +19,7 @@ export interface UseInspectorClientResult {
   status: ConnectionStatus;
   messages: MessageEntry[];
   stderrLogs: StderrLogEntry[];
+  fetchRequests: FetchRequestEntry[];
   tools: any[];
   resources: any[];
   prompts: any[];
@@ -44,6 +46,9 @@ export function useInspectorClient(
   const [stderrLogs, setStderrLogs] = useState<StderrLogEntry[]>(
     inspectorClient?.getStderrLogs() ?? [],
   );
+  const [fetchRequests, setFetchRequests] = useState<FetchRequestEntry[]>(
+    inspectorClient?.getFetchRequests() ?? [],
+  );
   const [tools, setTools] = useState<any[]>(inspectorClient?.getTools() ?? []);
   const [resources, setResources] = useState<any[]>(
     inspectorClient?.getResources() ?? [],
@@ -67,6 +72,7 @@ export function useInspectorClient(
       setStatus("disconnected");
       setMessages([]);
       setStderrLogs([]);
+      setFetchRequests([]);
       setTools([]);
       setResources([]);
       setPrompts([]);
@@ -80,6 +86,7 @@ export function useInspectorClient(
     setStatus(inspectorClient.getStatus());
     setMessages(inspectorClient.getMessages());
     setStderrLogs(inspectorClient.getStderrLogs());
+    setFetchRequests(inspectorClient.getFetchRequests());
     setTools(inspectorClient.getTools());
     setResources(inspectorClient.getResources());
     setPrompts(inspectorClient.getPrompts());
@@ -103,6 +110,11 @@ export function useInspectorClient(
     const onStderrLogsChange = () => {
       // stderrLogsChange doesn't include payload, so we fetch
       setStderrLogs(inspectorClient.getStderrLogs());
+    };
+
+    const onFetchRequestsChange = () => {
+      // fetchRequestsChange doesn't include payload, so we fetch
+      setFetchRequests(inspectorClient.getFetchRequests());
     };
 
     const onToolsChange = (event: Event) => {
@@ -139,6 +151,10 @@ export function useInspectorClient(
     inspectorClient.addEventListener("statusChange", onStatusChange);
     inspectorClient.addEventListener("messagesChange", onMessagesChange);
     inspectorClient.addEventListener("stderrLogsChange", onStderrLogsChange);
+    inspectorClient.addEventListener(
+      "fetchRequestsChange",
+      onFetchRequestsChange,
+    );
     inspectorClient.addEventListener("toolsChange", onToolsChange);
     inspectorClient.addEventListener("resourcesChange", onResourcesChange);
     inspectorClient.addEventListener("promptsChange", onPromptsChange);
@@ -159,6 +175,10 @@ export function useInspectorClient(
       inspectorClient.removeEventListener(
         "stderrLogsChange",
         onStderrLogsChange,
+      );
+      inspectorClient.removeEventListener(
+        "fetchRequestsChange",
+        onFetchRequestsChange,
       );
       inspectorClient.removeEventListener("toolsChange", onToolsChange);
       inspectorClient.removeEventListener("resourcesChange", onResourcesChange);
@@ -192,6 +212,7 @@ export function useInspectorClient(
     status,
     messages,
     stderrLogs,
+    fetchRequests,
     tools,
     resources,
     prompts,

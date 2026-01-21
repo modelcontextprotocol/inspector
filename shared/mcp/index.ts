@@ -15,6 +15,7 @@ export type {
   ConnectionStatus,
   StderrLogEntry,
   MessageEntry,
+  FetchRequestEntry,
   ServerState,
 } from "./types.js";
 
