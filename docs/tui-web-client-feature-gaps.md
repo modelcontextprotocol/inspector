@@ -4,105 +4,46 @@
 
 This document details the feature gaps between the TUI (Terminal User Interface) and the web client. The goal is to identify all missing features in the TUI and create a plan to close these gaps by extending `InspectorClient` and implementing the features in the TUI.
 
-## Feature Comparison Matrix
+## Feature Comparison
 
-| Feature                           | Web Client | TUI | Gap Priority      |
-| --------------------------------- | ---------- | --- | ----------------- |
-| **Resources**                     |
-| List resources                    | ✅         | ✅  | -                 |
-| Read resource content             | ✅         | ✅  | -                 |
-| List resource templates           | ✅         | ✅  | -                 |
-| Read templated resources          | ✅         | ✅  | -                 |
-| Resource subscriptions            | ✅         | ❌  | Medium            |
-| **Prompts**                       |
-| List prompts                      | ✅         | ✅  | -                 |
-| Get prompt (no params)            | ✅         | ✅  | -                 |
-| Get prompt (with params)          | ✅         | ✅  | -                 |
-| **Tools**                         |
-| List tools                        | ✅         | ✅  | -                 |
-| Call tool                         | ✅         | ✅  | -                 |
-| **Authentication**                |
-| OAuth 2.1 flow                    | ✅         | ❌  | High              |
-| Custom headers                    | ✅         | ❌  | Medium            |
-| **Advanced Features**             |
-| Sampling requests                 | ✅         | ❌  | High              |
-| Elicitation requests              | ✅         | ❌  | High              |
-| Completions (resource templates)  | ✅         | ❌  | Medium            |
-| Completions (prompts with params) | ✅         | ❌  | Medium            |
-| **Other**                         |
-| HTTP request tracking             | ❌         | ✅  | - (TUI advantage) |
+**InspectorClient** is the shared client library that provides the core MCP functionality. Both the TUI and web client use `InspectorClient` under the hood. The gaps documented here are primarily **UI-level gaps** - features that `InspectorClient` supports but are not yet exposed in the TUI interface.
+
+| Feature                             | InspectorClient | Web Client UI | TUI | Gap Priority      |
+| ----------------------------------- | --------------- | ------------- | --- | ----------------- |
+| **Resources**                       |
+| List resources                      | ✅              | ✅            | ✅  | -                 |
+| Read resource content               | ✅              | ✅            | ✅  | -                 |
+| List resource templates             | ✅              | ✅            | ✅  | -                 |
+| Read templated resources            | ✅              | ✅            | ✅  | -                 |
+| Resource subscriptions              | ❌              | ✅            | ❌  | Medium            |
+| Resources listChanged notifications | ❌              | ✅            | ❌  | Medium            |
+| **Prompts**                         |
+| List prompts                        | ✅              | ✅            | ✅  | -                 |
+| Get prompt (no params)              | ✅              | ✅            | ✅  | -                 |
+| Get prompt (with params)            | ✅              | ✅            | ✅  | -                 |
+| Prompts listChanged notifications   | ❌              | ✅            | ❌  | Medium            |
+| **Tools**                           |
+| List tools                          | ✅              | ✅            | ✅  | -                 |
+| Call tool                           | ✅              | ✅            | ✅  | -                 |
+| Tools listChanged notifications     | ❌              | ✅            | ❌  | Medium            |
+| **Roots**                           |
+| List roots                          | ❌              | ✅            | ❌  | Medium            |
+| Set roots                           | ❌              | ✅            | ❌  | Medium            |
+| Roots listChanged notifications     | ❌              | ✅            | ❌  | Medium            |
+| **Authentication**                  |
+| OAuth 2.1 flow                      | ❌              | ✅            | ❌  | High              |
+| Custom headers                      | ✅ (config)     | ✅ (UI)       | ❌  | Medium            |
+| **Advanced Features**               |
+| Sampling requests                   | ✅              | ✅            | ❌  | High              |
+| Elicitation requests                | ✅              | ✅            | ❌  | High              |
+| Completions (resource templates)    | ✅              | ✅            | ❌  | Medium            |
+| Completions (prompts with params)   | ✅              | ✅            | ❌  | Medium            |
+| **Other**                           |
+| HTTP request tracking               | ✅              | ❌            | ✅  | - (TUI advantage) |
 
 ## Detailed Feature Gaps
 
-### 1. Reading and Displaying Resource Content
-
-**Web Client Support:**
-
-- Calls `resources/read` method to fetch actual resource content
-- `resources/read` returns `{ contents: [{ uri, mimeType, text, ... }] }` - the actual resource content (file text, data, etc.)
-- Displays resource content in `JsonView` component
-- Has "Refresh" button to re-read resource content
-- Stores read content in `resourceContent` state and `resourceContentMap` for caching
-
-**TUI Status:**
-
-- ✅ **Calls `readResource()`** when Enter is pressed on a resource
-- ✅ **Displays resource content** in the details pane as JSON
-- ✅ Shows "[Enter to Fetch Resource]" prompt in details pane
-- ✅ Fetches and displays actual resource contents
-
-**Implementation:**
-
-- Press Enter on a resource to call `inspectorClient.readResource(uri)`
-- Resource content is displayed in the details pane as JSON
-- Content is fetched on-demand when Enter is pressed
-- Loading state is shown while fetching
-
-**Code References:**
-
-- TUI: `tui/src/components/ResourcesTab.tsx` (lines 158-180) - `readResource()` call and content display
-- TUI: `tui/src/components/ResourcesTab.tsx` (lines 360, 423) - "[Enter to Fetch Resource]" prompts
-- `InspectorClient`: Has `readResource()` method (line 535-554)
-
-**Note:** ✅ **COMPLETED** - TUI can now fetch and display resource contents.
-
-### 2. Resource Templates
-
-**Web Client Support:**
-
-- Lists resource templates via `resources/templates/list`
-- Displays templates with URI template patterns (e.g., `file://{path}`)
-- Provides form UI for filling template variables
-- Uses URI template expansion (`UriTemplate.expand()`) to generate final URIs
-- Supports completion requests for template variable values
-- Reads resources from expanded template URIs
-
-**TUI Status:**
-
-- ✅ Support for listing resource templates (displayed in ResourcesTab)
-- ✅ Support for reading templated resources via modal form
-- ✅ URI template expansion using `UriTemplate.expand()`
-- ✅ Template variable input UI via `ResourceTestModal`
-- ❌ Completion support for template variable values (still needed)
-
-**Implementation:**
-
-- Resource templates are listed in ResourcesTab alongside regular resources
-- Press Enter on a template to open `ResourceTestModal`
-- Modal form collects template variable values
-- Expanded URI is used to read the resource
-- Resource content is displayed in the modal results
-
-**Code References:**
-
-- TUI: `tui/src/components/ResourcesTab.tsx` (lines 249-275) - Template listing and selection
-- TUI: `tui/src/components/ResourceTestModal.tsx` - Template form and resource reading
-- TUI: `tui/src/utils/uriTemplateToForm.ts` - Converts URI template to form structure
-- `InspectorClient`: Has `listResourceTemplates()` and `readResource()` methods
-
-**Note:** ✅ **COMPLETED** - TUI can now list and read templated resources. Completion support for template variables is still needed.
-
-### 3. Resource Subscriptions
+### 1. Resource Subscriptions
 
 **Web Client Support:**
 
@@ -130,7 +71,7 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 - Web client: `client/src/App.tsx` (lines 781-809)
 - Web client: `client/src/components/ResourcesTab.tsx` (lines 207-221)
 
-### 4. OAuth 2.1 Authentication
+### 2. OAuth 2.1 Authentication
 
 **Web Client Support:**
 
@@ -164,181 +105,298 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 
 **Note:** OAuth in TUI requires a browser-based flow with a localhost callback server, which is feasible but different from the web client's approach.
 
-### 5. Sampling Requests
+### 3. Sampling Requests
+
+**InspectorClient Support:**
+
+- ✅ Declares `sampling: {}` capability in client initialization (via `sample` option, default: `true`)
+- ✅ Sets up request handler for `sampling/createMessage` requests automatically
+- ✅ Tracks pending sampling requests via `getPendingSamples()`
+- ✅ Provides `SamplingCreateMessage` class with `respond()` and `reject()` methods
+- ✅ Dispatches `newPendingSample` and `pendingSamplesChange` events
+- ✅ Methods: `getPendingSamples()`, `removePendingSample(id)`
 
 **Web Client Support:**
 
-- Declares `sampling: {}` capability in client initialization
-- Sets up request handler for `sampling/createMessage` requests
 - UI tab (`SamplingTab`) displays pending sampling requests
 - `SamplingRequest` component shows request details and approval UI
-- Handles approve/reject actions
-- Tracks pending requests in state
+- Handles approve/reject actions via `SamplingCreateMessage.respond()`/`reject()`
+- Listens to `newPendingSample` events to update UI
 
 **TUI Status:**
 
-- ❌ No sampling support
-- ❌ No sampling request handler
 - ❌ No UI for sampling requests
+- ❌ No sampling request display or handling UI
 
 **Implementation Requirements:**
 
-- Add sampling capability declaration to `InspectorClient` client initialization
-- Add `setSamplingHandler()` method to `InspectorClient` (or use `getClient().setRequestHandler()`)
-- Add UI in TUI for displaying and handling sampling requests
+- Add UI in TUI for displaying pending sampling requests
+- Add UI for approve/reject actions (call `respond()` or `reject()` on `SamplingCreateMessage`)
+- Listen to `newPendingSample` and `pendingSamplesChange` events
 - Add sampling tab or integrate into existing tabs
 
 **Code References:**
 
-- Web client: `client/src/lib/hooks/useConnection.ts` (line 420)
+- `InspectorClient`: `shared/mcp/inspectorClient.ts` (lines 85-87, 225-226, 401-417, 573-600)
 - Web client: `client/src/components/SamplingTab.tsx`
 - Web client: `client/src/components/SamplingRequest.tsx`
 - Web client: `client/src/App.tsx` (lines 328-333, 637-652)
 
-### 6. Elicitation Requests
+### 4. Elicitation Requests
+
+**InspectorClient Support:**
+
+- ✅ Declares `elicitation: {}` capability in client initialization (via `elicit` option, default: `true`)
+- ✅ Sets up request handler for `elicitation/create` requests automatically
+- ✅ Tracks pending elicitation requests via `getPendingElicitations()`
+- ✅ Provides `ElicitationCreateMessage` class with `respond()` and `remove()` methods
+- ✅ Dispatches `newPendingElicitation` and `pendingElicitationsChange` events
+- ✅ Methods: `getPendingElicitations()`, `removePendingElicitation(id)`
 
 **Web Client Support:**
 
-- Declares `elicitation: {}` capability in client initialization
-- Sets up request handler for `elicitation/create` requests
 - UI tab (`ElicitationTab`) displays pending elicitation requests
 - `ElicitationRequest` component:
   - Shows request message and schema
   - Generates dynamic form from JSON schema
   - Validates form data against schema
-  - Handles accept/decline/cancel actions
-- Tracks pending requests in state
+  - Handles accept/decline/cancel actions via `ElicitationCreateMessage.respond()`
+- Listens to `newPendingElicitation` events to update UI
 
 **TUI Status:**
 
-- ❌ No elicitation support
-- ❌ No elicitation request handler
 - ❌ No UI for elicitation requests
+- ❌ No elicitation request display or handling UI
 
 **Implementation Requirements:**
 
-- Add elicitation capability declaration to `InspectorClient` client initialization
-- Add `setElicitationHandler()` method to `InspectorClient` (or use `getClient().setRequestHandler()`)
-- Add UI in TUI for displaying and handling elicitation requests
+- Add UI in TUI for displaying pending elicitation requests
 - Add form generation from JSON schema (similar to tool parameter forms)
+- Add UI for accept/decline/cancel actions (call `respond()` on `ElicitationCreateMessage`)
+- Listen to `newPendingElicitation` and `pendingElicitationsChange` events
 - Add elicitation tab or integrate into existing tabs
 
 **Code References:**
 
-- Web client: `client/src/lib/hooks/useConnection.ts` (line 421, 810-813)
+- `InspectorClient`: `shared/mcp/inspectorClient.ts` (lines 90-92, 227-228, 420-433, 606-639)
 - Web client: `client/src/components/ElicitationTab.tsx`
 - Web client: `client/src/components/ElicitationRequest.tsx`
 - Web client: `client/src/App.tsx` (lines 334-356, 653-669)
 - Web client: `client/src/utils/schemaUtils.ts` (schema resolution for elicitation)
 
-### 7. Completions
+### 5. Completions
+
+**InspectorClient Support:**
+
+- ✅ `getCompletions()` method sends `completion/complete` requests
+- ✅ Supports resource template completions: `{ type: "ref/resource", uri: string }`
+- ✅ Supports prompt argument completions: `{ type: "ref/prompt", name: string }`
+- ✅ Handles `MethodNotFound` errors gracefully (returns empty array if server doesn't support completions)
+- ✅ Completion requests include:
+  - `ref`: Resource template URI or prompt name
+  - `argument`: Field name and current (partial) value
+  - `context`: Optional context with other argument values
+- ✅ Returns `{ values: string[] }` with completion suggestions
 
 **Web Client Support:**
 
 - Detects completion capability via `serverCapabilities.completions`
-- `handleCompletion()` function sends `completion/complete` requests
+- `handleCompletion()` function calls `InspectorClient.getCompletions()`
 - Used in resource template forms for autocomplete
 - Used in prompt forms with parameters for autocomplete
-- `useCompletionState` hook manages completion state
-- Completion requests include:
-  - `ref`: Resource or prompt reference
-  - `argument`: Field name and current value
-  - `context`: Additional context (template values or prompt argument values)
+- `useCompletionState` hook manages completion state and debouncing
 
 **TUI Status:**
 
 - ✅ Prompt fetching with parameters - **COMPLETED** (modal form for collecting prompt arguments)
 - ❌ No completion support for resource template forms
 - ❌ No completion support for prompt parameter forms
-- ❌ No completion capability detection
-- ❌ No completion request handling
+- ❌ No completion capability detection in UI
+- ❌ No completion request handling in UI
 
 **Implementation Requirements:**
 
-- Add completion capability detection (already available via `getCapabilities()?.completions`)
-- Add `handleCompletion()` method to `InspectorClient` (or document access via `getClient()`)
-- Integrate completion support into TUI forms:
-  - **Resource template forms** - autocomplete for template variable values
-  - **Prompt parameter forms** - autocomplete for prompt argument values
-- Add completion state management
+- Add completion capability detection in TUI (via `InspectorClient.getCapabilities()?.completions`)
+- Integrate `InspectorClient.getCompletions()` into TUI forms:
+  - **Resource template forms** (`ResourceTestModal`) - autocomplete for template variable values
+  - **Prompt parameter forms** (`PromptTestModal`) - autocomplete for prompt argument values
+- Add completion state management (debouncing, loading states)
+- Trigger completions on input change with debouncing
 
 **Code References:**
 
+- `InspectorClient`: `shared/mcp/inspectorClient.ts` (lines 902-966) - `getCompletions()` method
 - Web client: `client/src/lib/hooks/useConnection.ts` (lines 309, 384-386)
 - Web client: `client/src/lib/hooks/useCompletionState.ts`
 - Web client: `client/src/components/ResourcesTab.tsx` (lines 88-101)
 - TUI: `tui/src/components/PromptTestModal.tsx` - Prompt form (needs completion integration)
 - TUI: `tui/src/components/ResourceTestModal.tsx` - Resource template form (needs completion integration)
 
-### 8. Custom Headers
+### 6. ListChanged Notifications
+
+**Use Case:**
+
+MCP servers can send `listChanged` notifications when the list of tools, resources, or prompts changes. This allows clients to automatically refresh their UI when the server's capabilities change, without requiring manual refresh actions.
 
 **Web Client Support:**
 
-- Custom header management (migration from legacy auth)
-- Header validation
-- OAuth token injection into headers
-- Special header processing (`x-custom-auth-headers`)
-- Headers passed to transport creation
+- **Capability Declaration**: Declares `roots: { listChanged: true }` in client capabilities
+- **Notification Handlers**: Sets up handlers for:
+  - `notifications/tools/list_changed`
+  - `notifications/resources/list_changed`
+  - `notifications/prompts/list_changed`
+- **Auto-refresh**: When a `listChanged` notification is received, the web client automatically calls the corresponding `list*()` method to refresh the UI
+- **Notification Processing**: All notifications are passed to `onNotification` callback, which stores them in state for display
+
+**InspectorClient Status:**
+
+- ❌ No notification handlers for `listChanged` notifications
+- ❌ No automatic list refresh on `listChanged` notifications
+- ❌ TODO comment in `fetchServerContents()` mentions adding support for `listChanged` notifications
 
 **TUI Status:**
 
-- ❌ No custom header support
-- ❌ No header configuration UI
+- ❌ No notification handlers for `listChanged` notifications
+- ❌ No automatic list refresh on `listChanged` notifications
 
 **Implementation Requirements:**
 
-- Add `headers` support to `MCPServerConfig` (already exists for SSE and StreamableHTTP)
-- Add header configuration in TUI server config
-- Pass headers to transport creation (already supported in `createTransport()`)
+- Add notification handlers in `InspectorClient.connect()` for `listChanged` notifications
+- When a `listChanged` notification is received, automatically call the corresponding `list*()` method
+- Dispatch events to notify UI of list changes
+- Add UI in TUI to handle and display these notifications (optional, but useful for debugging)
 
 **Code References:**
 
-- Web client: `client/src/lib/hooks/useConnection.ts` (lines 447-480)
-- `InspectorClient`: Headers already supported in `MCPServerConfig` types
+- Web client: `client/src/lib/hooks/useConnection.ts` (lines 422-424, 699-704) - Capability declaration and notification handlers
+- `InspectorClient`: `shared/mcp/inspectorClient.ts` (line 1004) - TODO comment about listChanged support
+
+### 7. Roots Support
+
+**Use Case:**
+
+Roots are file system paths (as `file://` URIs) that define which directories an MCP server can access. This is a security feature that allows servers to operate within a sandboxed set of directories. Clients can:
+
+- List the current roots configured on the server
+- Set/update the roots (if the server supports it)
+- Receive notifications when roots change
+
+**Web Client Support:**
+
+- **Capability Declaration**: Declares `roots: { listChanged: true }` in client capabilities
+- **UI Component**: `RootsTab` component allows users to:
+  - View current roots
+  - Add new roots (with URI and optional name)
+  - Remove roots
+  - Save changes (calls `listRoots` with updated roots)
+- **Roots Management**:
+  - `getRoots` callback passed to `useConnection` hook
+  - Roots are stored in component state
+  - When roots are changed, `handleRootsChange` is called to send updated roots to server
+- **Notification Support**: Handles `notifications/roots/list_changed` notifications (via fallback handler)
+
+**InspectorClient Status:**
+
+- ❌ No `listRoots()` method
+- ❌ No `setRoots(roots)` method
+- ❌ No notification handler for `notifications/roots/list_changed`
+- ❌ No `roots: { listChanged: true }` capability declaration
+
+**TUI Status:**
+
+- ❌ No roots management UI
+- ❌ No roots configuration support
+
+**Implementation Requirements:**
+
+- Add `listRoots()` method to `InspectorClient` (calls `roots/list` MCP method)
+- Add `setRoots(roots)` method to `InspectorClient` (calls `roots/set` MCP method, if supported)
+- Add notification handler for `notifications/roots/list_changed`
+- Add `roots: { listChanged: true }` capability declaration in `InspectorClient.connect()`
+- Add UI in TUI for managing roots (similar to web client's `RootsTab`)
+
+**Code References:**
+
+- Web client: `client/src/components/RootsTab.tsx` - Roots management UI
+- Web client: `client/src/lib/hooks/useConnection.ts` (lines 422-424, 357) - Capability declaration and `getRoots` callback
+- Web client: `client/src/App.tsx` (lines 1225-1229) - RootsTab usage
+
+### 8. Custom Headers
+
+**Use Case:**
+
+Custom headers are used to send additional HTTP headers when connecting to MCP servers over HTTP-based transports (SSE or streamable-http). Common use cases include:
+
+- **Authentication**: API keys, bearer tokens, or custom authentication schemes
+  - Example: `Authorization: Bearer <token>`
+  - Example: `X-API-Key: <api-key>`
+- **Multi-tenancy**: Tenant or organization identifiers
+  - Example: `X-Tenant-ID: acme-inc`
+- **Environment identification**: Staging vs production
+  - Example: `X-Environment: staging`
+- **Custom server requirements**: Any headers required by the MCP server
+
+**InspectorClient Support:**
+
+- ✅ `MCPServerConfig` supports `headers: Record<string, string>` for SSE and streamable-http transports
+- ✅ Headers are passed to the SDK transport during creation
+- ✅ Headers are included in all HTTP requests to the MCP server
+- ✅ Works with both SSE and streamable-http transports
+- ❌ Not supported for stdio transport (stdio doesn't use HTTP)
+
+**Web Client Support:**
+
+- **UI Component**: `CustomHeaders` component in the Sidebar's authentication section
+- **Features**:
+  - Add/remove headers with name/value pairs
+  - Enable/disable individual headers (toggle switch)
+  - Mask header values by default (password field with show/hide toggle)
+  - Form mode: Individual header inputs
+  - JSON mode: Edit all headers as a JSON object
+  - Validation: Only enabled headers with both name and value are sent
+- **Integration**:
+  - Headers are stored in component state
+  - Passed to `useConnection` hook
+  - Converted to `Record<string, string>` format for transport
+  - OAuth tokens can be automatically injected into `Authorization` header if no custom `Authorization` header exists
+  - Custom header names are tracked and sent to the proxy server via `x-custom-auth-headers` header
+
+**TUI Status:**
+
+- ❌ No header configuration UI
+- ❌ No way for users to specify custom headers in TUI server config
+- ✅ `InspectorClient` supports headers if provided in config (but TUI doesn't expose this)
+
+**Implementation Requirements:**
+
+- Add header configuration UI in TUI server configuration
+- Allow users to add/edit/remove headers similar to web client
+- Store headers in TUI server config
+- Pass headers to `InspectorClient` via `MCPServerConfig.headers`
+- Consider masking sensitive header values in the UI
+
+**Code References:**
+
+- Web client: `client/src/components/CustomHeaders.tsx` - Header management UI component
+- Web client: `client/src/lib/hooks/useConnection.ts` (lines 453-514) - Header processing and transport creation
+- `InspectorClient`: `shared/mcp/config.ts` (lines 118-129) - Headers in `MCPServerConfig`
+- `InspectorClient`: `shared/mcp/transport.ts` (lines 100-134) - Headers passed to SDK transports
 
 ## Implementation Priority
 
-### Critical Priority (Core Functionality)
-
-1. ✅ **Read Resource Content** - **COMPLETED** - TUI can now fetch and display resource contents
-2. ✅ **Resource Templates** - **COMPLETED** - TUI can list and read templated resources
-
 ### High Priority (Core MCP Features)
 
-3. **OAuth** - Required for many MCP servers, critical for production use
-4. **Sampling** - Core MCP capability, enables LLM sampling workflows
-5. **Elicitation** - Core MCP capability, enables interactive workflows
+1. **OAuth** - Required for many MCP servers, critical for production use
+2. **Sampling** - Core MCP capability, enables LLM sampling workflows
+3. **Elicitation** - Core MCP capability, enables interactive workflows
 
 ### Medium Priority (Enhanced Features)
 
-6. **Resource Subscriptions** - Useful for real-time resource updates
-7. **Completions** - Enhances UX for form filling
-8. **Custom Headers** - Useful for custom authentication schemes
-
-## Implementation Strategy
-
-### Phase 0: Critical Resource Reading (Immediate)
-
-1. ✅ **Implement resource content reading and display** - **COMPLETED** - Added ability to call `readResource()` and display content
-2. ✅ **Resource templates** - **COMPLETED** - Added listing and reading templated resources with form UI
-
-### Phase 1: Core Resource Features
-
-1. ✅ **Resource templates** - **COMPLETED** (listing, reading templated resources with form UI)
-2. ✅ **Prompt fetching with parameters** - **COMPLETED** (modal form for collecting prompt arguments)
-3. Add resource subscriptions support
-
-### Phase 2: Authentication
-
-1. Implement OAuth flow for TUI (browser-based with localhost callback)
-2. Add custom headers support
-
-### Phase 3: Advanced MCP Features
-
-1. Implement sampling request handling
-2. Implement elicitation request handling
-3. Add completion support for resource template forms
-4. Add completion support for prompt parameter forms
+4. **Resource Subscriptions** - Useful for real-time resource updates
+5. **Completions** - Enhances UX for form filling
+6. **Custom Headers** - Useful for custom authentication schemes
+7. **ListChanged Notifications** - Auto-refresh lists when server data changes
+8. **Roots Support** - Manage file system access for servers
 
 ## InspectorClient Extensions Needed
 
@@ -347,56 +405,61 @@ Based on this analysis, `InspectorClient` needs the following additions:
 1. **Resource Methods** (some already exist):
    - ✅ `readResource(uri, metadata?)` - Already exists
    - ✅ `listResourceTemplates()` - Already exists
+   - ✅ Resource template `list` callback support - Already exists (via `listResources()`)
    - ❌ `subscribeResource(uri)` - Needs to be added
    - ❌ `unsubscribeResource(uri)` - Needs to be added
 
-2. **Request Handlers**:
-   - ❌ `setSamplingHandler(handler)` - Or document using `getClient().setRequestHandler()`
-   - ❌ `setElicitationHandler(handler)` - Or document using `getClient().setRequestHandler()`
-   - ❌ `setPendingRequestHandler(handler)` - Or document using `getClient().setRequestHandler()`
+2. **Sampling Support**:
+   - ✅ `getPendingSamples()` - Already exists
+   - ✅ `removePendingSample(id)` - Already exists
+   - ✅ `SamplingCreateMessage.respond(result)` - Already exists
+   - ✅ `SamplingCreateMessage.reject(error)` - Already exists
+   - ✅ Automatic request handler setup - Already exists
+   - ✅ `sampling: {}` capability declaration - Already exists (via `sample` option)
 
-3. **Completion Support**:
-   - ❌ `handleCompletion(ref, argument, context?)` - Needs to be added or documented
-   - ❌ Integration into `ResourceTestModal` for template variable completion
-   - ❌ Integration into `PromptTestModal` for prompt argument completion
+3. **Elicitation Support**:
+   - ✅ `getPendingElicitations()` - Already exists
+   - ✅ `removePendingElicitation(id)` - Already exists
+   - ✅ `ElicitationCreateMessage.respond(result)` - Already exists
+   - ✅ Automatic request handler setup - Already exists
+   - ✅ `elicitation: {}` capability declaration - Already exists (via `elicit` option)
 
-4. **OAuth Support**:
+4. **Completion Support**:
+   - ✅ `getCompletions(ref, argumentName, argumentValue, context?, metadata?)` - Already exists
+   - ✅ Supports resource template completions - Already exists
+   - ✅ Supports prompt argument completions - Already exists
+   - ❌ Integration into TUI `ResourceTestModal` for template variable completion
+   - ❌ Integration into TUI `PromptTestModal` for prompt argument completion
+
+5. **OAuth Support**:
    - ❌ OAuth token management
    - ❌ OAuth flow initiation
    - ❌ Token injection into headers
 
-5. **Client Capabilities**:
-   - ❌ Declare `sampling: {}` capability in client initialization
-   - ❌ Declare `elicitation: {}` capability in client initialization
-   - ❌ Declare `roots: { listChanged: true }` capability in client initialization
+6. **ListChanged Notifications**:
+   - ❌ Notification handlers for `notifications/tools/list_changed` - Needs to be added
+   - ❌ Notification handlers for `notifications/resources/list_changed` - Needs to be added
+   - ❌ Notification handlers for `notifications/prompts/list_changed` - Needs to be added
+   - ❌ Auto-refresh lists when notifications received - Needs to be added
+
+7. **Roots Support**:
+   - ❌ `listRoots()` method - Needs to be added
+   - ❌ `setRoots(roots)` method - Needs to be added
+   - ❌ Notification handler for `notifications/roots/list_changed` - Needs to be added
+   - ❌ `roots: { listChanged: true }` capability declaration - Needs to be added
 
 ## Notes
 
-- **HTTP Request Tracking**: TUI has this feature, web client does not. This is a TUI advantage, not a gap.
-- **Resource Subscriptions**: Web client supports this, but TUI does not. This is a gap to address.
-- **OAuth**: Web client has full OAuth support. TUI needs browser-based OAuth flow with localhost callback server.
-- **Completions**: Web client uses completions for resource template forms and prompt parameter forms. TUI now has both resource template forms and prompt parameter forms, but completion support is still needed to provide autocomplete suggestions.
-- **Prompt Fetching**: TUI now supports fetching prompts with parameters via a modal form, matching web client functionality.
+- **HTTP Request Tracking**: `InspectorClient` tracks HTTP requests for SSE and streamable-http transports via `getFetchRequests()`. TUI displays these requests in a `RequestsTab`. Web client does not currently display HTTP request tracking, though the underlying `InspectorClient` supports it. This is a TUI advantage, not a gap.
+- **Resource Subscriptions**: Web client supports this, but TUI does not. `InspectorClient` does not yet support resource subscriptions.
+- **OAuth**: Web client has full OAuth support. TUI needs browser-based OAuth flow with localhost callback server. `InspectorClient` does not yet support OAuth.
+- **Completions**: `InspectorClient` has full completion support via `getCompletions()`. Web client uses this for resource template forms and prompt parameter forms. TUI has both resource template forms and prompt parameter forms, but completion support is still needed to provide autocomplete suggestions.
+- **Sampling**: `InspectorClient` has full sampling support. Web client UI displays and handles sampling requests. TUI needs UI to display and handle sampling requests.
+- **Elicitation**: `InspectorClient` has full elicitation support. Web client UI displays and handles elicitation requests. TUI needs UI to display and handle elicitation requests.
+- **ListChanged Notifications**: Web client handles `listChanged` notifications for tools, resources, and prompts, automatically refreshing lists when notifications are received. `InspectorClient` does not yet support these notifications. TUI also does not support them.
+- **Roots**: Web client has full roots support with a `RootsTab` for managing file system roots. `InspectorClient` does not yet support roots (no `listRoots()` or `setRoots()` methods). TUI also does not support roots.
 
 ## Related Documentation
 
 - [Shared Code Architecture](./shared-code-architecture.md) - Overall architecture and integration plan
 - [InspectorClient Details](./inspector-client-details.svg) - Visual diagram of InspectorClient responsibilities
-
-## In Work
-
-### Sampling
-
-Instead of a boolean, we could use a callback that accepts the params from a sampling message and returns the response to a sampling message (if the callback is present, advertise sampling and also handle sampling/createMessage messages using the callback). Maybe?
-
-The webux shows a dialog (in a pane) for the user to completed and approve/reject the completion. We should copy that.
-
-But it would also be nice to have this supported in the InspectorClient somehow
-
-- For exmple, we could have a test fixture tool that triggered sampling
-- And a sampling function that returned some result (via provided callback)
-- Then we could test the sampling support in the InspectorClient (call tool, check result to make sure it includes expected sampling data)
-
-Could a callback provided to the InspectorClient trigger a UX action (modal or other) and then on completion could we complete the sampling request?
-
-- Would we need to have a separate sampling completion entrypoint?
