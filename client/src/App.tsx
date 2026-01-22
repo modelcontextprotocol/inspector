@@ -300,6 +300,32 @@ const App = () => {
     currentTabRef.current = activeTab;
   }, [activeTab]);
 
+  const navigateToOriginatingTab = (originatingTab?: string) => {
+    if (!originatingTab) return;
+
+    const validTabs = [
+      ...(serverCapabilities?.resources ? ["resources"] : []),
+      ...(serverCapabilities?.prompts ? ["prompts"] : []),
+      ...(serverCapabilities?.tools ? ["tools"] : []),
+      ...(serverCapabilities?.tasks ? ["tasks"] : []),
+      "ping",
+      "sampling",
+      "elicitations",
+      "roots",
+      "auth",
+    ];
+
+    if (!validTabs.includes(originatingTab)) return;
+
+    setActiveTab(originatingTab);
+    window.location.hash = originatingTab;
+
+    setTimeout(() => {
+      setActiveTab(originatingTab);
+      window.location.hash = originatingTab;
+    }, 100);
+  };
+
   const { height: historyPaneHeight, handleDragStart } = useDraggablePane(300);
   const {
     width: sidebarWidth,
@@ -362,10 +388,20 @@ const App = () => {
       }
     },
     onPendingRequest: (request, resolve, reject) => {
+      const currentTab = lastToolCallOriginTabRef.current;
       setPendingSampleRequests((prev) => [
         ...prev,
-        { id: nextRequestId.current++, request, resolve, reject },
+        {
+          id: nextRequestId.current++,
+          request,
+          originatingTab: currentTab,
+          resolve,
+          reject,
+        },
       ]);
+
+      setActiveTab("sampling");
+      window.location.hash = "sampling";
     },
     onElicitationRequest: (request, resolve) => {
       const currentTab = lastToolCallOriginTabRef.current;
@@ -686,6 +722,9 @@ const App = () => {
     setPendingSampleRequests((prev) => {
       const request = prev.find((r) => r.id === id);
       request?.resolve(result);
+
+      navigateToOriginatingTab(request?.originatingTab);
+
       return prev.filter((r) => r.id !== id);
     });
   };
@@ -694,6 +733,9 @@ const App = () => {
     setPendingSampleRequests((prev) => {
       const request = prev.find((r) => r.id === id);
       request?.reject(new Error("Sampling request rejected"));
+
+      navigateToOriginatingTab(request?.originatingTab);
+
       return prev.filter((r) => r.id !== id);
     });
   };
