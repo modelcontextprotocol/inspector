@@ -7,7 +7,11 @@
 
 import * as z from "zod/v4";
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
-import { CreateMessageResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CreateMessageResultSchema,
+  ElicitRequestSchema,
+  ElicitResultSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import type {
   ToolDefinition,
   ResourceDefinition,
@@ -133,6 +137,62 @@ export function createCollectSampleTool(): ToolDefinition {
       } catch (error) {
         console.error(
           "[collectSample] Error sending/receiving sampling request:",
+          error,
+        );
+        throw error;
+      }
+    },
+  };
+}
+
+/**
+ * Create a "collectElicitation" tool that sends an elicitation request and returns the response
+ */
+export function createCollectElicitationTool(): ToolDefinition {
+  return {
+    name: "collectElicitation",
+    description:
+      "Send an elicitation request with the given message and schema and return the response",
+    inputSchema: {
+      message: z
+        .string()
+        .describe("Message to send in the elicitation request"),
+      schema: z.any().describe("JSON schema for the elicitation request"),
+    },
+    handler: async (
+      params: Record<string, any>,
+      server?: McpServer,
+    ): Promise<any> => {
+      if (!server) {
+        throw new Error("Server instance not available");
+      }
+
+      const message = params.message as string;
+      const schema = params.schema as any;
+
+      // Send an elicitation/create request to the client
+      // The server.request() method takes a request object (with method) and result schema
+      try {
+        const result = await server.server.request(
+          {
+            method: "elicitation/create",
+            params: {
+              message,
+              requestedSchema: schema,
+            },
+          },
+          ElicitResultSchema,
+        );
+
+        // Validate and return the result
+        const validatedResult = ElicitResultSchema.parse(result);
+
+        return {
+          message: `Elicitation response: ${JSON.stringify(validatedResult)}`,
+        };
+      } catch (error) {
+        console.error(
+          "[collectElicitation] Error sending/receiving elicitation request:",
           error,
         );
         throw error;
