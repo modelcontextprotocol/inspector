@@ -7,6 +7,7 @@ import express from "express";
 import { createServer as createHttpServer, Server as HttpServer } from "http";
 import { createServer as createNetServer } from "net";
 import * as z from "zod/v4";
+import * as crypto from "node:crypto";
 import type { ServerConfig } from "./test-server-fixtures.js";
 
 export interface RecordedRequest {
@@ -108,101 +109,141 @@ export class TestServerHttp {
     // Create HTTP server
     this.httpServer = createHttpServer(app);
 
-    // Create StreamableHTTP transport
-    this.transport = new StreamableHTTPServerTransport({});
+    // Store transports by sessionId - each transport instance manages ONE session
+    const transports: Map<string, StreamableHTTPServerTransport> = new Map();
 
     // Set up Express route to handle MCP requests
     app.post("/mcp", async (req: Request, res: Response) => {
       // Capture headers for this request
       this.currentRequestHeaders = extractHeaders(req);
 
-      try {
-        await (this.transport as StreamableHTTPServerTransport).handleRequest(
-          req,
-          res,
-          req.body,
-        );
-      } catch (error) {
-        res.status(500).json({
-          error: error instanceof Error ? error.message : String(error),
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+      if (sessionId) {
+        // Existing session - use the transport for this session
+        const transport = transports.get(sessionId);
+        if (!transport) {
+          res.status(404).json({ error: "Session not found" });
+          return;
+        }
+
+        try {
+          await transport.handleRequest(req, res, req.body);
+        } catch (error) {
+          res.status(500).json({
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } else {
+        // New session - create a new transport instance
+        const newTransport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => crypto.randomUUID(),
+          onsessioninitialized: (sessionId: string) => {
+            transports.set(sessionId, newTransport);
+          },
+          onsessionclosed: (sessionId: string) => {
+            transports.delete(sessionId);
+          },
         });
+
+        // Set up message interception for this transport
+        const originalOnMessage = newTransport.onmessage;
+        newTransport.onmessage = async (message) => {
+          const timestamp = Date.now();
+          const method =
+            "method" in message && typeof message.method === "string"
+              ? message.method
+              : "unknown";
+          const params = "params" in message ? message.params : undefined;
+
+          try {
+            // Extract metadata from params if present
+            const metadata =
+              params && typeof params === "object" && "_meta" in params
+                ? ((params as any)._meta as Record<string, string>)
+                : undefined;
+
+            // Let the server handle the message
+            if (originalOnMessage) {
+              await originalOnMessage.call(newTransport, message);
+            }
+
+            // Record successful request
+            this.recordedRequests.push({
+              method,
+              params,
+              headers: { ...this.currentRequestHeaders },
+              metadata: metadata ? { ...metadata } : undefined,
+              response: { processed: true },
+              timestamp,
+            });
+          } catch (error) {
+            // Extract metadata from params if present
+            const metadata =
+              params && typeof params === "object" && "_meta" in params
+                ? ((params as any)._meta as Record<string, string>)
+                : undefined;
+
+            // Record error
+            this.recordedRequests.push({
+              method,
+              params,
+              headers: { ...this.currentRequestHeaders },
+              metadata: metadata ? { ...metadata } : undefined,
+              response: {
+                error: error instanceof Error ? error.message : String(error),
+              },
+              timestamp,
+            });
+            throw error;
+          }
+        };
+
+        // Connect the MCP server to this transport
+        await this.mcpServer.connect(newTransport);
+
+        try {
+          await newTransport.handleRequest(req, res, req.body);
+        } catch (error) {
+          res.status(500).json({
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     });
 
     // Handle GET requests for SSE stream - this enables server-initiated messages
     app.get("/mcp", async (req: Request, res: Response) => {
-      // Capture headers for this request
-      this.currentRequestHeaders = extractHeaders(req);
-
-      try {
-        await (this.transport as StreamableHTTPServerTransport).handleRequest(
-          req,
-          res,
-        );
-      } catch (error) {
-        res.status(500).json({
-          error: error instanceof Error ? error.message : String(error),
+      // Get session ID from header - required for streamable-http
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
+      if (!sessionId) {
+        res.status(400).json({
+          error: "Bad Request: Mcp-Session-Id header is required",
         });
+        return;
+      }
+
+      // Look up the transport for this session
+      const transport = transports.get(sessionId);
+      if (!transport) {
+        res.status(404).json({
+          error: "Session not found",
+        });
+        return;
+      }
+
+      // Let the transport handle the GET request
+      this.currentRequestHeaders = extractHeaders(req);
+      try {
+        await transport.handleRequest(req, res);
+      } catch (error) {
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     });
-
-    // Intercept messages to record them
-    const originalOnMessage = this.transport.onmessage;
-    this.transport.onmessage = async (message) => {
-      const timestamp = Date.now();
-      const method =
-        "method" in message && typeof message.method === "string"
-          ? message.method
-          : "unknown";
-      const params = "params" in message ? message.params : undefined;
-
-      try {
-        // Extract metadata from params if present
-        const metadata =
-          params && typeof params === "object" && "_meta" in params
-            ? ((params as any)._meta as Record<string, string>)
-            : undefined;
-
-        // Let the server handle the message
-        if (originalOnMessage) {
-          await originalOnMessage.call(this.transport, message);
-        }
-
-        // Record successful request (response will be sent by transport)
-        // Note: We can't easily capture the response here, so we'll record
-        // that the request was processed
-        this.recordedRequests.push({
-          method,
-          params,
-          headers: { ...this.currentRequestHeaders },
-          metadata: metadata ? { ...metadata } : undefined,
-          response: { processed: true },
-          timestamp,
-        });
-      } catch (error) {
-        // Extract metadata from params if present
-        const metadata =
-          params && typeof params === "object" && "_meta" in params
-            ? ((params as any)._meta as Record<string, string>)
-            : undefined;
-
-        // Record error
-        this.recordedRequests.push({
-          method,
-          params,
-          headers: { ...this.currentRequestHeaders },
-          metadata: metadata ? { ...metadata } : undefined,
-          response: {
-            error: error instanceof Error ? error.message : String(error),
-          },
-          timestamp,
-        });
-        throw error;
-      }
-    };
-
-    // Connect transport to server
-    await this.mcpServer.connect(this.transport);
 
     // Start listening on localhost only to avoid macOS firewall prompts
     // Use port 0 to let the OS assign an available port if no port was specified
