@@ -1,10 +1,15 @@
 import { renderHook, act } from "@testing-library/react";
 import { useConnection } from "../useConnection";
-import { z } from "zod";
+import { z } from "zod/v3";
 import {
   ClientRequest,
+  CreateTaskResultSchema,
   JSONRPCMessage,
 } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  AnySchema,
+  SchemaOutput,
+} from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { DEFAULT_INSPECTOR_CONFIG, CLIENT_IDENTITY } from "../../constants";
 import {
   SSEClientTransportOptions,
@@ -128,7 +133,7 @@ const mockDiscoverScopes = discoverScopes as jest.MockedFunction<
 >;
 
 describe("useConnection", () => {
-  const defaultProps = {
+  const defaultProps: Parameters<typeof useConnection>[0] = {
     transportType: "sse" as const,
     command: "",
     args: "",
@@ -164,8 +169,10 @@ describe("useConnection", () => {
         test: z.string(),
       });
 
+      const mockSchemaAny: AnySchema = mockSchema as unknown as AnySchema;
+
       await act(async () => {
-        await result.current.makeRequest(mockRequest, mockSchema);
+        await result.current.makeRequest(mockRequest, mockSchemaAny);
       });
 
       expect(mockClient.request).toHaveBeenCalledWith(
@@ -204,8 +211,10 @@ describe("useConnection", () => {
         test: z.string(),
       });
 
+      const mockSchemaAny: AnySchema = mockSchema as unknown as AnySchema;
+
       await act(async () => {
-        await result.current.makeRequest(mockRequest, mockSchema, {
+        await result.current.makeRequest(mockRequest, mockSchemaAny, {
           timeout: 1000,
           maxTotalTimeout: 2000,
           resetTimeoutOnProgress: false,
@@ -224,8 +233,251 @@ describe("useConnection", () => {
     });
   });
 
+  describe("Receiver-side Tasks (task-augmented incoming requests)", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    test("declares tasks.requests.sampling.createMessage when onPendingRequest is provided", async () => {
+      const Client = jest.requireMock(
+        "@modelcontextprotocol/sdk/client/index.js",
+      ).Client;
+
+      const propsWithPending = {
+        ...defaultProps,
+        onPendingRequest: jest.fn(),
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithPending));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      expect(Client).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          capabilities: expect.objectContaining({
+            tasks: expect.objectContaining({
+              requests: expect.objectContaining({
+                sampling: expect.objectContaining({
+                  createMessage: {},
+                }),
+              }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    test("task-augmented sampling/createMessage returns { task } and tasks/result blocks until resolved", async () => {
+      let pendingResolve: ((value: unknown) => void) | undefined;
+      let pendingReject: ((reason?: unknown) => void) | undefined;
+
+      const mockOnPendingRequest = jest.fn((_request, resolve, reject) => {
+        pendingResolve = resolve;
+        pendingReject = reject;
+      });
+
+      const propsWithPending = {
+        ...defaultProps,
+        onPendingRequest: mockOnPendingRequest,
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithPending));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const samplingRequest = {
+        method: "sampling/createMessage",
+        params: {
+          task: { ttl: 0 },
+          messages: [
+            {
+              role: "user",
+              content: { type: "text", text: "hello" },
+            },
+          ],
+          maxTokens: 1,
+        },
+      };
+
+      // Locate the sampling/createMessage handler
+      const samplingHandlerCall = mockClient.setRequestHandler.mock.calls.find(
+        (call) => {
+          try {
+            const schema = call[0];
+            const parseResult =
+              schema.safeParse && schema.safeParse(samplingRequest);
+            return parseResult?.success;
+          } catch {
+            return false;
+          }
+        },
+      );
+
+      expect(samplingHandlerCall).toBeDefined();
+      const [, samplingHandler] = samplingHandlerCall;
+
+      // Invoke handler; should return a CreateTaskResult immediately
+      let createTaskResult: SchemaOutput<typeof CreateTaskResultSchema>;
+      await act(async () => {
+        createTaskResult = await samplingHandler(samplingRequest);
+      });
+
+      expect(createTaskResult).toHaveProperty("task");
+      expect(createTaskResult.task).toEqual(
+        expect.objectContaining({
+          taskId: expect.any(String),
+          status: "input_required",
+          ttl: 0,
+          createdAt: expect.any(String),
+          lastUpdatedAt: expect.any(String),
+        }),
+      );
+
+      expect(mockOnPendingRequest).toHaveBeenCalledTimes(1);
+      expect(pendingResolve).toBeDefined();
+      expect(pendingReject).toBeDefined();
+
+      const taskId = createTaskResult.task.taskId as string;
+
+      // Locate tasks/get and tasks/result handlers
+      const taskGetRequest = { method: "tasks/get", params: { taskId } };
+      const taskResultRequest = { method: "tasks/result", params: { taskId } };
+
+      const taskGetHandlerCall = mockClient.setRequestHandler.mock.calls.find(
+        (call) => {
+          try {
+            const schema = call[0];
+            const parseResult =
+              schema.safeParse && schema.safeParse(taskGetRequest);
+            return parseResult?.success;
+          } catch {
+            return false;
+          }
+        },
+      );
+      const taskResultHandlerCall =
+        mockClient.setRequestHandler.mock.calls.find((call) => {
+          try {
+            const schema = call[0];
+            const parseResult =
+              schema.safeParse && schema.safeParse(taskResultRequest);
+            return parseResult?.success;
+          } catch {
+            return false;
+          }
+        });
+
+      expect(taskGetHandlerCall).toBeDefined();
+      expect(taskResultHandlerCall).toBeDefined();
+
+      const [, taskGetHandler] = taskGetHandlerCall;
+      const [, taskResultHandler] = taskResultHandlerCall;
+
+      // Verify tasks/get sees the in-progress task
+      const getBefore = await taskGetHandler(taskGetRequest);
+      expect(getBefore.status).toBe("input_required");
+
+      // tasks/result should block until user flow resolves
+      const payloadPromise = taskResultHandler(taskResultRequest);
+      const race = await Promise.race([
+        payloadPromise.then(() => "resolved"),
+        new Promise((r) => setTimeout(() => r("timeout"), 10)),
+      ]);
+      expect(race).toBe("timeout");
+
+      const mockPayload = {
+        model: "test-model",
+        role: "assistant",
+        content: { type: "text", text: "ok" },
+      };
+
+      await act(async () => {
+        pendingResolve!(mockPayload);
+        // Let the background updater run
+        await new Promise((r) => setTimeout(r, 0));
+      });
+
+      await expect(payloadPromise).resolves.toEqual(mockPayload);
+
+      const getAfter = await taskGetHandler(taskGetRequest);
+      expect(getAfter.status).toBe("completed");
+    });
+
+    test("task-augmented elicitation/create returns { task } immediately", async () => {
+      const mockOnElicitationRequest = jest.fn();
+      const propsWithElicitation = {
+        ...defaultProps,
+        onElicitationRequest: mockOnElicitationRequest,
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithElicitation));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const elicitationRequest = {
+        method: "elicitation/create",
+        params: {
+          task: { ttl: 0 },
+          message: "Please provide your name",
+          requestedSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+            },
+            required: ["name"],
+          },
+        },
+      };
+
+      const elicitRequestHandlerCall =
+        mockClient.setRequestHandler.mock.calls.find((call) => {
+          try {
+            const schema = call[0];
+            const parseResult =
+              schema.safeParse && schema.safeParse(elicitationRequest);
+            return parseResult?.success;
+          } catch {
+            return false;
+          }
+        });
+
+      expect(elicitRequestHandlerCall).toBeDefined();
+      const [, handler] = elicitRequestHandlerCall;
+
+      mockOnElicitationRequest.mockImplementation((_request, resolve) => {
+        resolve({ action: "accept", content: { name: "test" } });
+      });
+
+      const resultValue = await handler(elicitationRequest);
+
+      expect(resultValue).toHaveProperty("task");
+      expect(resultValue.task).toEqual(
+        expect.objectContaining({
+          taskId: expect.any(String),
+          status: "input_required",
+          ttl: 0,
+        }),
+      );
+    });
+  });
+
   test("throws error when mcpClient is not connected", async () => {
-    const { result } = renderHook(() => useConnection(defaultProps));
+    const { result } = renderHook(() => {
+      const { makeRequest } = useConnection(defaultProps) as unknown as {
+        makeRequest: (
+          request: ClientRequest,
+          schema: AnySchema,
+        ) => Promise<unknown>;
+      };
+      return { makeRequest };
+    });
 
     const mockRequest: ClientRequest = {
       method: "ping",
@@ -236,8 +488,10 @@ describe("useConnection", () => {
       test: z.string(),
     });
 
+    const mockSchemaAny: AnySchema = mockSchema as unknown as AnySchema;
+
     await expect(
-      result.current.makeRequest(mockRequest, mockSchema),
+      result.current.makeRequest(mockRequest, mockSchemaAny),
     ).rejects.toThrow("MCP client not connected");
   });
 
