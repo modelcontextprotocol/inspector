@@ -22,10 +22,14 @@ import type {
   JSONRPCResultResponse,
   JSONRPCErrorResponse,
   ServerCapabilities,
+  ClientCapabilities,
   Implementation,
   LoggingLevel,
   Tool,
+  CreateMessageRequest,
+  CreateMessageResult,
 } from "@modelcontextprotocol/sdk/types.js";
+import { CreateMessageRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   type JsonValue,
   convertToolParameters,
@@ -71,6 +75,70 @@ export interface InspectorClientOptions {
    * If not provided, logging level will not be set automatically
    */
   initialLoggingLevel?: LoggingLevel;
+
+  /**
+   * Whether to advertise sampling capability (default: true)
+   */
+  sample?: boolean;
+}
+
+/**
+ * Represents a pending sampling request from the server
+ */
+export class SamplingCreateMessage {
+  public readonly id: string;
+  public readonly timestamp: Date;
+  public readonly request: CreateMessageRequest;
+  private resolvePromise?: (result: CreateMessageResult) => void;
+  private rejectPromise?: (error: Error) => void;
+
+  constructor(
+    request: CreateMessageRequest,
+    resolve: (result: CreateMessageResult) => void,
+    reject: (error: Error) => void,
+    private onRemove: (id: string) => void,
+  ) {
+    this.id = `sampling-${Date.now()}-${Math.random()}`;
+    this.timestamp = new Date();
+    this.request = request;
+    this.resolvePromise = resolve;
+    this.rejectPromise = reject;
+  }
+
+  /**
+   * Respond to the sampling request with a result
+   */
+  async respond(result: CreateMessageResult): Promise<void> {
+    if (!this.resolvePromise) {
+      throw new Error("Request already resolved or rejected");
+    }
+    this.resolvePromise(result);
+    this.resolvePromise = undefined;
+    this.rejectPromise = undefined;
+    // Remove from pending list after responding
+    this.remove();
+  }
+
+  /**
+   * Reject the sampling request with an error
+   */
+  async reject(error: Error): Promise<void> {
+    if (!this.rejectPromise) {
+      throw new Error("Request already resolved or rejected");
+    }
+    this.rejectPromise(error);
+    this.resolvePromise = undefined;
+    this.rejectPromise = undefined;
+    // Remove from pending list after rejecting
+    this.remove();
+  }
+
+  /**
+   * Remove this pending sample from the list
+   */
+  remove(): void {
+    this.onRemove(this.id);
+  }
 }
 
 /**
@@ -92,6 +160,7 @@ export class InspectorClient extends EventTarget {
   private maxFetchRequests: number;
   private autoFetchServerContents: boolean;
   private initialLoggingLevel?: LoggingLevel;
+  private sample: boolean;
   private status: ConnectionStatus = "disconnected";
   // Server data
   private tools: any[] = [];
@@ -101,6 +170,8 @@ export class InspectorClient extends EventTarget {
   private capabilities?: ServerCapabilities;
   private serverInfo?: Implementation;
   private instructions?: string;
+  // Sampling requests
+  private pendingSamples: SamplingCreateMessage[] = [];
 
   constructor(
     private transportConfig: MCPServerConfig,
@@ -112,6 +183,7 @@ export class InspectorClient extends EventTarget {
     this.maxFetchRequests = options.maxFetchRequests ?? 1000;
     this.autoFetchServerContents = options.autoFetchServerContents ?? true;
     this.initialLoggingLevel = options.initialLoggingLevel;
+    this.sample = options.sample ?? true;
 
     // Set up message tracking callbacks
     const messageTracking: MessageTrackingCallbacks = {
@@ -205,11 +277,20 @@ export class InspectorClient extends EventTarget {
       this.dispatchEvent(new CustomEvent("error", { detail: error }));
     };
 
+    // Build client capabilities
+    const clientOptions: { capabilities?: ClientCapabilities } = {};
+    if (this.sample) {
+      clientOptions.capabilities = {
+        sampling: {},
+      };
+    }
+
     this.client = new Client(
       options.clientIdentity ?? {
         name: "@modelcontextprotocol/inspector",
         version: "0.18.0",
       },
+      Object.keys(clientOptions).length > 0 ? clientOptions : undefined,
     );
   }
 
@@ -256,6 +337,25 @@ export class InspectorClient extends EventTarget {
       if (this.autoFetchServerContents) {
         await this.fetchServerContents();
       }
+
+      // Set up sampling request handler if sampling capability is enabled
+      if (this.sample && this.client) {
+        this.client.setRequestHandler(CreateMessageRequestSchema, (request) => {
+          return new Promise<CreateMessageResult>((resolve, reject) => {
+            const samplingRequest = new SamplingCreateMessage(
+              request,
+              (result) => {
+                resolve(result);
+              },
+              (error) => {
+                reject(error);
+              },
+              (id) => this.removePendingSample(id),
+            );
+            this.addPendingSample(samplingRequest);
+          });
+        });
+      }
     } catch (error) {
       this.status = "error";
       this.dispatchEvent(
@@ -293,12 +393,16 @@ export class InspectorClient extends EventTarget {
     this.resources = [];
     this.resourceTemplates = [];
     this.prompts = [];
+    this.pendingSamples = [];
     this.capabilities = undefined;
     this.serverInfo = undefined;
     this.instructions = undefined;
     this.dispatchEvent(new CustomEvent("toolsChange", { detail: this.tools }));
     this.dispatchEvent(
       new CustomEvent("resourcesChange", { detail: this.resources }),
+    );
+    this.dispatchEvent(
+      new CustomEvent("pendingSamplesChange", { detail: this.pendingSamples }),
     );
     this.dispatchEvent(
       new CustomEvent("promptsChange", { detail: this.prompts }),
@@ -386,6 +490,39 @@ export class InspectorClient extends EventTarget {
    */
   getPrompts(): any[] {
     return [...this.prompts];
+  }
+
+  /**
+   * Get all pending sampling requests
+   */
+  getPendingSamples(): SamplingCreateMessage[] {
+    return [...this.pendingSamples];
+  }
+
+  /**
+   * Add a pending sampling request
+   */
+  private addPendingSample(sample: SamplingCreateMessage): void {
+    this.pendingSamples.push(sample);
+    this.dispatchEvent(
+      new CustomEvent("pendingSamplesChange", { detail: this.pendingSamples }),
+    );
+    this.dispatchEvent(new CustomEvent("newPendingSample", { detail: sample }));
+  }
+
+  /**
+   * Remove a pending sampling request by ID
+   */
+  removePendingSample(id: string): void {
+    const index = this.pendingSamples.findIndex((s) => s.id === id);
+    if (index !== -1) {
+      this.pendingSamples.splice(index, 1);
+      this.dispatchEvent(
+        new CustomEvent("pendingSamplesChange", {
+          detail: this.pendingSamples,
+        }),
+      );
+    }
   }
 
   /**

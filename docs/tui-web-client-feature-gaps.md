@@ -382,3 +382,21 @@ Based on this analysis, `InspectorClient` needs the following additions:
 
 - [Shared Code Architecture](./shared-code-architecture.md) - Overall architecture and integration plan
 - [InspectorClient Details](./inspector-client-details.svg) - Visual diagram of InspectorClient responsibilities
+
+## In Work
+
+### Sampling
+
+Instead of a boolean, we could use a callback that accepts the params from a sampling message and returns the response to a sampling message (if the callback is present, advertise sampling and also handle sampling/createMessage messages using the callback). Maybe?
+
+The webux shows a dialog (in a pane) for the user to completed and approve/reject the completion. We should copy that.
+
+But it would also be nice to have this supported in the InspectorClient somehow
+
+- For exmple, we could have a test fixture tool that triggered sampling
+- And a sampling function that returned some result (via provided callback)
+- Then we could test the sampling support in the InspectorClient (call tool, check result to make sure it includes expected sampling data)
+
+Could a callback provided to the InspectorClient trigger a UX action (modal or other) and then on completion could we complete the sampling request?
+
+- Would we need to have a separate sampling completion entrypoint?

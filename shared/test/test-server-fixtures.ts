@@ -7,6 +7,7 @@
 
 import * as z from "zod/v4";
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
+import { CreateMessageResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import type {
   ToolDefinition,
   ResourceDefinition,
@@ -14,6 +15,7 @@ import type {
   ResourceTemplateDefinition,
   ServerConfig,
 } from "./composable-test-server.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // Re-export types and functions from composable-test-server for backward compatibility
 export type {
@@ -35,7 +37,7 @@ export function createEchoTool(): ToolDefinition {
     inputSchema: {
       message: z.string().describe("Message to echo back"),
     },
-    handler: async (params: Record<string, any>) => {
+    handler: async (params: Record<string, any>, _server?: any) => {
       return { message: `Echo: ${params.message as string}` };
     },
   };
@@ -52,7 +54,7 @@ export function createAddTool(): ToolDefinition {
       a: z.number().describe("First number"),
       b: z.number().describe("Second number"),
     },
-    handler: async (params: Record<string, any>) => {
+    handler: async (params: Record<string, any>, _server?: any) => {
       const a = params.a as number;
       const b = params.b as number;
       return { result: a + b };
@@ -71,10 +73,129 @@ export function createGetSumTool(): ToolDefinition {
       a: z.number().describe("First number"),
       b: z.number().describe("Second number"),
     },
-    handler: async (params: Record<string, any>) => {
+    handler: async (params: Record<string, any>, _server?: any) => {
       const a = params.a as number;
       const b = params.b as number;
       return { result: a + b };
+    },
+  };
+}
+
+/**
+ * Create a "collectSample" tool that sends a sampling request and returns the response
+ */
+export function createCollectSampleTool(): ToolDefinition {
+  return {
+    name: "collectSample",
+    description:
+      "Send a sampling request with the given text and return the response",
+    inputSchema: {
+      text: z.string().describe("Text to send in the sampling request"),
+    },
+    handler: async (
+      params: Record<string, any>,
+      server?: McpServer,
+    ): Promise<any> => {
+      if (!server) {
+        throw new Error("Server instance not available");
+      }
+
+      const text = params.text as string;
+
+      // Send a sampling/createMessage request to the client
+      // The server.request() method takes a request object (with method) and result schema
+      try {
+        const result = await server.server.request(
+          {
+            method: "sampling/createMessage",
+            params: {
+              messages: [
+                {
+                  role: "user" as const,
+                  content: {
+                    type: "text" as const,
+                    text: text,
+                  },
+                },
+              ],
+              maxTokens: 100, // Required parameter
+            },
+          },
+          CreateMessageResultSchema,
+        );
+
+        // Validate and return the result
+        const validatedResult = CreateMessageResultSchema.parse(result);
+
+        return {
+          message: `Sampling response: ${JSON.stringify(validatedResult)}`,
+        };
+      } catch (error) {
+        console.error(
+          "[collectSample] Error sending/receiving sampling request:",
+          error,
+        );
+        throw error;
+      }
+    },
+  };
+}
+
+/**
+ * Create a "sendNotification" tool that sends a notification message from the server
+ */
+export function createSendNotificationTool(): ToolDefinition {
+  return {
+    name: "sendNotification",
+    description: "Send a notification message from the server",
+    inputSchema: {
+      message: z.string().describe("Notification message to send"),
+      level: z
+        .enum([
+          "debug",
+          "info",
+          "notice",
+          "warning",
+          "error",
+          "critical",
+          "alert",
+          "emergency",
+        ])
+        .optional()
+        .describe("Log level for the notification"),
+    },
+    handler: async (
+      params: Record<string, any>,
+      server?: McpServer,
+    ): Promise<any> => {
+      if (!server) {
+        throw new Error("Server instance not available");
+      }
+
+      const message = params.message as string;
+      const level = (params.level as string) || "info";
+
+      // Send a notification from the server
+      // Notifications don't have an id and use the jsonrpc format
+      try {
+        await server.server.notification({
+          method: "notifications/message",
+          params: {
+            level,
+            logger: "test-server",
+            data: {
+              message,
+            },
+          },
+        });
+
+        return {
+          message: `Notification sent: ${message}`,
+        };
+      } catch (error) {
+        console.error("[sendNotification] Error sending notification:", error);
+        throw error;
+      }
     },
   };
 }
@@ -95,7 +216,7 @@ export function createGetAnnotatedMessageTool(): ToolDefinition {
         .optional()
         .describe("Whether to include an image"),
     },
-    handler: async (params: Record<string, any>) => {
+    handler: async (params: Record<string, any>, _server?: any) => {
       const messageType = params.messageType as string;
       const includeImage = params.includeImage as boolean | undefined;
       const message = `This is a ${messageType} message`;
@@ -303,6 +424,7 @@ export function getDefaultServerConfig(): ServerConfig {
       createEchoTool(),
       createGetSumTool(),
       createGetAnnotatedMessageTool(),
+      createSendNotificationTool(),
     ],
     prompts: [createSimplePrompt(), createArgsPrompt()],
     resources: [
@@ -315,5 +437,6 @@ export function getDefaultServerConfig(): ServerConfig {
       createFileResourceTemplate(),
       createUserResourceTemplate(),
     ],
+    logging: true, // Required for notifications/message
   };
 }

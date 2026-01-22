@@ -20,7 +20,7 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema?: ToolInputSchema;
-  handler: (params: Record<string, any>) => Promise<any>;
+  handler: (params: Record<string, any>, server?: McpServer) => Promise<any>;
 }
 
 export interface ResourceDefinition {
@@ -62,9 +62,7 @@ export interface ServerConfig {
   prompts?: PromptDefinition[]; // Prompts to register (optional, empty array means no prompts, but prompts capability is still advertised)
   logging?: boolean; // Whether to advertise logging capability (default: false)
   onLogLevelSet?: (level: string) => void; // Optional callback when log level is set (for testing)
-  onRegisterResource?: (
-    resource: ResourceDefinition,
-  ) =>
+  onRegisterResource?: (resource: ResourceDefinition) =>
     | (() => Promise<{
         contents: Array<{ uri: string; mimeType?: string; text: string }>;
       }>)
@@ -132,7 +130,10 @@ export function createMcpServer(config: ServerConfig): McpServer {
           inputSchema: tool.inputSchema,
         },
         async (args) => {
-          const result = await tool.handler(args as Record<string, any>);
+          const result = await tool.handler(
+            args as Record<string, any>,
+            mcpServer,
+          );
           // Handle different return types from tool handlers
           // If handler returns content array directly (like get-annotated-message), use it
           if (result && Array.isArray(result.content)) {

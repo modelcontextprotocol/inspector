@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { InspectorClient } from "../mcp/inspectorClient.js";
+import {
+  InspectorClient,
+  SamplingCreateMessage,
+} from "../mcp/inspectorClient.js";
 import { getTestMcpServerCommand } from "../test/test-server-stdio.js";
 import {
   createTestServerHttp,
@@ -9,8 +12,11 @@ import {
   createEchoTool,
   createTestServerInfo,
   createFileResourceTemplate,
+  createCollectSampleTool,
+  createSendNotificationTool,
 } from "../test/test-server-fixtures.js";
 import type { MessageEntry } from "../mcp/types.js";
+import type { CreateMessageResult } from "@modelcontextprotocol/sdk/types.js";
 
 describe("InspectorClient", () => {
   let client: InspectorClient;
@@ -812,6 +818,273 @@ describe("InspectorClient", () => {
       await client.connect();
       await client.disconnect();
       expect(disconnectFired).toBe(true);
+    });
+  });
+
+  describe("Sampling Requests", () => {
+    it("should handle sampling requests from server and respond", async () => {
+      // Create a test server with the collectSample tool
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createCollectSampleTool()],
+        serverType: "streamable-http",
+      });
+
+      await server.start();
+
+      // Create client with sampling enabled
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+          sample: true, // Enable sampling capability
+        },
+      );
+
+      await client.connect();
+
+      // Set up Promise to wait for sampling request event
+      const samplingRequestPromise = new Promise<SamplingCreateMessage>(
+        (resolve) => {
+          client.addEventListener(
+            "newPendingSample",
+            ((event: CustomEvent) => {
+              resolve(event.detail as SamplingCreateMessage);
+            }) as EventListener,
+            { once: true },
+          );
+        },
+      );
+
+      // Start the tool call (don't await yet - it will block until sampling is responded to)
+      const toolResultPromise = client.callTool("collectSample", {
+        text: "Hello, world!",
+      });
+
+      // Wait for the sampling request to arrive via event
+      const pendingSample = await samplingRequestPromise;
+
+      // Verify we received a sampling request
+      expect(pendingSample.request.method).toBe("sampling/createMessage");
+      const messages = pendingSample.request.params.messages;
+      expect(messages.length).toBeGreaterThan(0);
+      const firstMessage = messages[0];
+      expect(firstMessage).toBeDefined();
+      if (
+        firstMessage &&
+        firstMessage.content &&
+        typeof firstMessage.content === "object" &&
+        "text" in firstMessage.content
+      ) {
+        expect((firstMessage.content as { text: string }).text).toBe(
+          "Hello, world!",
+        );
+      }
+
+      // Respond to the sampling request
+      const samplingResponse: CreateMessageResult = {
+        model: "test-model",
+        role: "assistant",
+        stopReason: "endTurn",
+        content: {
+          type: "text",
+          text: "This is a test response",
+        },
+      };
+
+      await pendingSample.respond(samplingResponse);
+
+      // Now await the tool result (it should complete now that we've responded)
+      const toolResult = await toolResultPromise;
+
+      // Verify the tool result contains the sampling response
+      expect(toolResult).toBeDefined();
+      expect(toolResult.content).toBeDefined();
+      expect(Array.isArray(toolResult.content)).toBe(true);
+      const toolContent = toolResult.content as any[];
+      expect(toolContent.length).toBeGreaterThan(0);
+      const toolMessage = toolContent[0];
+      expect(toolMessage).toBeDefined();
+      expect(toolMessage.type).toBe("text");
+      if (toolMessage.type === "text") {
+        expect(toolMessage.text).toContain("Sampling response:");
+        expect(toolMessage.text).toContain("test-model");
+        expect(toolMessage.text).toContain("This is a test response");
+      }
+
+      // Verify the pending sample was removed
+      const pendingSamples = client.getPendingSamples();
+      expect(pendingSamples.length).toBe(0);
+    });
+  });
+
+  describe("Server-Initiated Notifications", () => {
+    it("should receive server-initiated notifications via stdio transport", async () => {
+      // Note: stdio test server uses getDefaultServerConfig which now includes sendNotification tool
+      // Create client with stdio transport
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Set up Promise to wait for notification
+      const notificationPromise = new Promise<MessageEntry>((resolve) => {
+        client.addEventListener("message", ((event: CustomEvent) => {
+          const entry = event.detail as MessageEntry;
+          if (entry.direction === "notification") {
+            resolve(entry);
+          }
+        }) as EventListener);
+      });
+
+      // Call the sendNotification tool
+      await client.callTool("sendNotification", {
+        message: "Test notification from stdio",
+        level: "info",
+      });
+
+      // Wait for the notification
+      const notificationEntry = await notificationPromise;
+
+      // Validate the notification
+      expect(notificationEntry).toBeDefined();
+      expect(notificationEntry.direction).toBe("notification");
+      if ("method" in notificationEntry.message) {
+        expect(notificationEntry.message.method).toBe("notifications/message");
+        if ("params" in notificationEntry.message) {
+          const params = notificationEntry.message.params as any;
+          expect(params.data.message).toBe("Test notification from stdio");
+          expect(params.level).toBe("info");
+          expect(params.logger).toBe("test-server");
+        }
+      }
+    });
+
+    it("should receive server-initiated notifications via SSE transport", async () => {
+      // Create a test server with the sendNotification tool and logging enabled
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createSendNotificationTool()],
+        serverType: "sse",
+        logging: true, // Required for notifications/message
+      });
+
+      await server.start();
+
+      // Create client with SSE transport
+      client = new InspectorClient(
+        {
+          type: "sse",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Set up Promise to wait for notification
+      const notificationPromise = new Promise<MessageEntry>((resolve) => {
+        client.addEventListener("message", ((event: CustomEvent) => {
+          const entry = event.detail as MessageEntry;
+          if (entry.direction === "notification") {
+            resolve(entry);
+          }
+        }) as EventListener);
+      });
+
+      // Call the sendNotification tool
+      await client.callTool("sendNotification", {
+        message: "Test notification from SSE",
+        level: "warning",
+      });
+
+      // Wait for the notification
+      const notificationEntry = await notificationPromise;
+
+      // Validate the notification
+      expect(notificationEntry).toBeDefined();
+      expect(notificationEntry.direction).toBe("notification");
+      if ("method" in notificationEntry.message) {
+        expect(notificationEntry.message.method).toBe("notifications/message");
+        if ("params" in notificationEntry.message) {
+          const params = notificationEntry.message.params as any;
+          expect(params.data.message).toBe("Test notification from SSE");
+          expect(params.level).toBe("warning");
+          expect(params.logger).toBe("test-server");
+        }
+      }
+    });
+
+    it("should receive server-initiated notifications via streamable-http transport", async () => {
+      // Create a test server with the sendNotification tool and logging enabled
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createSendNotificationTool()],
+        serverType: "streamable-http",
+        logging: true, // Required for notifications/message
+      });
+
+      await server.start();
+
+      // Create client with streamable-http transport
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Set up Promise to wait for notification
+      const notificationPromise = new Promise<MessageEntry>((resolve) => {
+        client.addEventListener("message", ((event: CustomEvent) => {
+          const entry = event.detail as MessageEntry;
+          if (entry.direction === "notification") {
+            resolve(entry);
+          }
+        }) as EventListener);
+      });
+
+      // Call the sendNotification tool
+      await client.callTool("sendNotification", {
+        message: "Test notification from streamable-http",
+        level: "error",
+      });
+
+      // Wait for the notification
+      const notificationEntry = await notificationPromise;
+
+      // Validate the notification
+      expect(notificationEntry).toBeDefined();
+      expect(notificationEntry.direction).toBe("notification");
+      if ("method" in notificationEntry.message) {
+        expect(notificationEntry.message.method).toBe("notifications/message");
+        if ("params" in notificationEntry.message) {
+          const params = notificationEntry.message.params as any;
+          expect(params.data.message).toBe(
+            "Test notification from streamable-http",
+          );
+          expect(params.level).toBe("error");
+          expect(params.logger).toBe("test-server");
+        }
+      }
     });
   });
 });
