@@ -28,8 +28,13 @@ import type {
   Tool,
   CreateMessageRequest,
   CreateMessageResult,
+  ElicitRequest,
+  ElicitResult,
 } from "@modelcontextprotocol/sdk/types.js";
-import { CreateMessageRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CreateMessageRequestSchema,
+  ElicitRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import {
   type JsonValue,
   convertToolParameters,
@@ -80,6 +85,11 @@ export interface InspectorClientOptions {
    * Whether to advertise sampling capability (default: true)
    */
   sample?: boolean;
+
+  /**
+   * Whether to advertise elicitation capability (default: true)
+   */
+  elicit?: boolean;
 }
 
 /**
@@ -142,6 +152,47 @@ export class SamplingCreateMessage {
 }
 
 /**
+ * Represents a pending elicitation request from the server
+ */
+export class ElicitationCreateMessage {
+  public readonly id: string;
+  public readonly timestamp: Date;
+  public readonly request: ElicitRequest;
+  private resolvePromise?: (result: ElicitResult) => void;
+
+  constructor(
+    request: ElicitRequest,
+    resolve: (result: ElicitResult) => void,
+    private onRemove: (id: string) => void,
+  ) {
+    this.id = `elicitation-${Date.now()}-${Math.random()}`;
+    this.timestamp = new Date();
+    this.request = request;
+    this.resolvePromise = resolve;
+  }
+
+  /**
+   * Respond to the elicitation request with a result
+   */
+  async respond(result: ElicitResult): Promise<void> {
+    if (!this.resolvePromise) {
+      throw new Error("Request already resolved");
+    }
+    this.resolvePromise(result);
+    this.resolvePromise = undefined;
+    // Remove from pending list after responding
+    this.remove();
+  }
+
+  /**
+   * Remove this pending elicitation from the list
+   */
+  remove(): void {
+    this.onRemove(this.id);
+  }
+}
+
+/**
  * InspectorClient wraps an MCP Client and provides:
  * - Message tracking and storage
  * - Stderr log tracking and storage (for stdio transports)
@@ -161,6 +212,7 @@ export class InspectorClient extends EventTarget {
   private autoFetchServerContents: boolean;
   private initialLoggingLevel?: LoggingLevel;
   private sample: boolean;
+  private elicit: boolean;
   private status: ConnectionStatus = "disconnected";
   // Server data
   private tools: any[] = [];
@@ -172,6 +224,8 @@ export class InspectorClient extends EventTarget {
   private instructions?: string;
   // Sampling requests
   private pendingSamples: SamplingCreateMessage[] = [];
+  // Elicitation requests
+  private pendingElicitations: ElicitationCreateMessage[] = [];
 
   constructor(
     private transportConfig: MCPServerConfig,
@@ -184,6 +238,7 @@ export class InspectorClient extends EventTarget {
     this.autoFetchServerContents = options.autoFetchServerContents ?? true;
     this.initialLoggingLevel = options.initialLoggingLevel;
     this.sample = options.sample ?? true;
+    this.elicit = options.elicit ?? true;
 
     // Set up message tracking callbacks
     const messageTracking: MessageTrackingCallbacks = {
@@ -279,10 +334,15 @@ export class InspectorClient extends EventTarget {
 
     // Build client capabilities
     const clientOptions: { capabilities?: ClientCapabilities } = {};
+    const capabilities: ClientCapabilities = {};
     if (this.sample) {
-      clientOptions.capabilities = {
-        sampling: {},
-      };
+      capabilities.sampling = {};
+    }
+    if (this.elicit) {
+      capabilities.elicitation = {};
+    }
+    if (Object.keys(capabilities).length > 0) {
+      clientOptions.capabilities = capabilities;
     }
 
     this.client = new Client(
@@ -356,6 +416,22 @@ export class InspectorClient extends EventTarget {
           });
         });
       }
+
+      // Set up elicitation request handler if elicitation capability is enabled
+      if (this.elicit && this.client) {
+        this.client.setRequestHandler(ElicitRequestSchema, (request) => {
+          return new Promise<ElicitResult>((resolve) => {
+            const elicitationRequest = new ElicitationCreateMessage(
+              request,
+              (result) => {
+                resolve(result);
+              },
+              (id) => this.removePendingElicitation(id),
+            );
+            this.addPendingElicitation(elicitationRequest);
+          });
+        });
+      }
     } catch (error) {
       this.status = "error";
       this.dispatchEvent(
@@ -394,6 +470,7 @@ export class InspectorClient extends EventTarget {
     this.resourceTemplates = [];
     this.prompts = [];
     this.pendingSamples = [];
+    this.pendingElicitations = [];
     this.capabilities = undefined;
     this.serverInfo = undefined;
     this.instructions = undefined;
@@ -520,6 +597,43 @@ export class InspectorClient extends EventTarget {
       this.dispatchEvent(
         new CustomEvent("pendingSamplesChange", {
           detail: this.pendingSamples,
+        }),
+      );
+    }
+  }
+
+  /**
+   * Get all pending elicitation requests
+   */
+  getPendingElicitations(): ElicitationCreateMessage[] {
+    return [...this.pendingElicitations];
+  }
+
+  /**
+   * Add a pending elicitation request
+   */
+  private addPendingElicitation(elicitation: ElicitationCreateMessage): void {
+    this.pendingElicitations.push(elicitation);
+    this.dispatchEvent(
+      new CustomEvent("pendingElicitationsChange", {
+        detail: this.pendingElicitations,
+      }),
+    );
+    this.dispatchEvent(
+      new CustomEvent("newPendingElicitation", { detail: elicitation }),
+    );
+  }
+
+  /**
+   * Remove a pending elicitation request by ID
+   */
+  removePendingElicitation(id: string): void {
+    const index = this.pendingElicitations.findIndex((e) => e.id === id);
+    if (index !== -1) {
+      this.pendingElicitations.splice(index, 1);
+      this.dispatchEvent(
+        new CustomEvent("pendingElicitationsChange", {
+          detail: this.pendingElicitations,
         }),
       );
     }

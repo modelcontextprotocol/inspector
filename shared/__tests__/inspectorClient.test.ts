@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   InspectorClient,
   SamplingCreateMessage,
+  ElicitationCreateMessage,
 } from "../mcp/inspectorClient.js";
 import { getTestMcpServerCommand } from "../test/test-server-stdio.js";
 import {
@@ -13,10 +14,14 @@ import {
   createTestServerInfo,
   createFileResourceTemplate,
   createCollectSampleTool,
+  createCollectElicitationTool,
   createSendNotificationTool,
 } from "../test/test-server-fixtures.js";
 import type { MessageEntry } from "../mcp/types.js";
-import type { CreateMessageResult } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CreateMessageResult,
+  ElicitResult,
+} from "@modelcontextprotocol/sdk/types.js";
 
 describe("InspectorClient", () => {
   let client: InspectorClient;
@@ -1085,6 +1090,108 @@ describe("InspectorClient", () => {
           expect(params.logger).toBe("test-server");
         }
       }
+    });
+  });
+
+  describe("Elicitation Requests", () => {
+    it("should handle elicitation requests from server and respond", async () => {
+      // Create a test server with the collectElicitation tool
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createCollectElicitationTool()],
+        serverType: "streamable-http",
+      });
+
+      await server.start();
+
+      // Create client with elicitation enabled
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+          elicit: true, // Enable elicitation capability
+        },
+      );
+
+      await client.connect();
+
+      // Set up Promise to wait for elicitation request event
+      const elicitationRequestPromise = new Promise<ElicitationCreateMessage>(
+        (resolve) => {
+          client.addEventListener(
+            "newPendingElicitation",
+            ((event: CustomEvent) => {
+              resolve(event.detail as ElicitationCreateMessage);
+            }) as EventListener,
+            { once: true },
+          );
+        },
+      );
+
+      // Start the tool call (don't await yet - it will block until elicitation is responded to)
+      const toolResultPromise = client.callTool("collectElicitation", {
+        message: "Please provide your name",
+        schema: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "Your name",
+            },
+          },
+          required: ["name"],
+        },
+      });
+
+      // Wait for the elicitation request to arrive via event
+      const pendingElicitation = await elicitationRequestPromise;
+
+      // Verify we received an elicitation request
+      expect(pendingElicitation.request.method).toBe("elicitation/create");
+      expect(pendingElicitation.request.params.message).toBe(
+        "Please provide your name",
+      );
+      if ("requestedSchema" in pendingElicitation.request.params) {
+        expect(pendingElicitation.request.params.requestedSchema).toBeDefined();
+        expect(pendingElicitation.request.params.requestedSchema.type).toBe(
+          "object",
+        );
+      }
+
+      // Respond to the elicitation request
+      const elicitationResponse: ElicitResult = {
+        action: "accept",
+        content: {
+          name: "Test User",
+        },
+      };
+
+      await pendingElicitation.respond(elicitationResponse);
+
+      // Now await the tool result (it should complete now that we've responded)
+      const toolResult = await toolResultPromise;
+
+      // Verify the tool result contains the elicitation response
+      expect(toolResult).toBeDefined();
+      expect(toolResult.content).toBeDefined();
+      expect(Array.isArray(toolResult.content)).toBe(true);
+      const toolContent = toolResult.content as any[];
+      expect(toolContent.length).toBeGreaterThan(0);
+      const toolMessage = toolContent[0];
+      expect(toolMessage).toBeDefined();
+      expect(toolMessage.type).toBe("text");
+      if (toolMessage.type === "text") {
+        expect(toolMessage.text).toContain("Elicitation response:");
+        expect(toolMessage.text).toContain("accept");
+        expect(toolMessage.text).toContain("Test User");
+      }
+
+      // Verify the pending elicitation was removed
+      const pendingElicitations = client.getPendingElicitations();
+      expect(pendingElicitations.length).toBe(0);
     });
   });
 });
