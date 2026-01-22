@@ -29,6 +29,7 @@ export function ToolsTab({
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollViewRef>(null);
+  const listScrollViewRef = useRef<ScrollViewRef>(null);
 
   const listWidth = Math.floor(width * 0.4);
   const detailWidth = width - listWidth;
@@ -97,6 +98,13 @@ export function ToolsTab({
     scrollViewRef.current?.scrollTo(0);
   }, [selectedIndex]);
 
+  // Auto-scroll list to show selected item
+  useEffect(() => {
+    if (listScrollViewRef.current && selectedIndex >= 0 && tools.length > 0) {
+      listScrollViewRef.current.scrollTo(selectedIndex);
+    }
+  }, [selectedIndex, tools.length]);
+
   // Reset selected index when tools array changes (different server)
   useEffect(() => {
     setSelectedIndex(0);
@@ -135,7 +143,7 @@ export function ToolsTab({
             <Text dimColor>No tools available</Text>
           </Box>
         ) : (
-          <Box flexDirection="column" flexGrow={1}>
+          <ScrollView ref={listScrollViewRef} height={height - 2}>
             {tools.map((tool, index) => {
               const isSelected = index === selectedIndex;
               return (
@@ -147,7 +155,7 @@ export function ToolsTab({
                 </Box>
               );
             })}
-          </Box>
+          </ScrollView>
         )}
       </Box>
 

@@ -1,47 +1,29 @@
 /**
- * Shared types and test fixtures for composable MCP test servers
+ * Shared test fixtures for composable MCP test servers
+ *
+ * This module provides helper functions for creating test tools, prompts, and resources.
+ * For the core composable server types and createMcpServer function, see composable-test-server.ts
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod/v4";
-import { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  ToolDefinition,
+  ResourceDefinition,
+  PromptDefinition,
+  ResourceTemplateDefinition,
+  ServerConfig,
+} from "./composable-test-server.js";
 
-type ToolInputSchema = ZodRawShapeCompat;
-
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema?: ToolInputSchema;
-  handler: (params: Record<string, any>) => Promise<any>;
-}
-
-export interface ResourceDefinition {
-  uri: string;
-  name: string;
-  description?: string;
-  mimeType?: string;
-  text?: string;
-}
-
-type PromptArgsSchema = ZodRawShapeCompat;
-
-export interface PromptDefinition {
-  name: string;
-  description?: string;
-  argsSchema?: PromptArgsSchema;
-}
-
-// This allows us to compose tests servers using the metadata and features we want in a given scenario
-export interface ServerConfig {
-  serverInfo: Implementation; // Server metadata (name, version, etc.) - required
-  tools?: ToolDefinition[]; // Tools to register (optional, empty array means no tools, but tools capability is still advertised)
-  resources?: ResourceDefinition[]; // Resources to register (optional, empty array means no resources, but resources capability is still advertised)
-  prompts?: PromptDefinition[]; // Prompts to register (optional, empty array means no prompts, but prompts capability is still advertised)
-  logging?: boolean; // Whether to advertise logging capability (default: false)
-  serverType?: "sse" | "streamable-http"; // Transport type (default: "streamable-http")
-  port?: number; // Port to use (optional, will find available port if not specified)
-}
+// Re-export types and functions from composable-test-server for backward compatibility
+export type {
+  ToolDefinition,
+  ResourceDefinition,
+  PromptDefinition,
+  ResourceTemplateDefinition,
+  ServerConfig,
+} from "./composable-test-server.js";
+export { createMcpServer } from "./composable-test-server.js";
 
 /**
  * Create an "echo" tool that echoes back the input message
@@ -147,6 +129,7 @@ export function createSimplePrompt(): PromptDefinition {
   return {
     name: "simple-prompt",
     description: "A simple prompt for testing",
+    promptString: "This is a simple prompt for testing purposes.",
   };
 }
 
@@ -157,6 +140,7 @@ export function createArgsPrompt(): PromptDefinition {
   return {
     name: "args-prompt",
     description: "A prompt that accepts arguments for testing",
+    promptString: "This is a prompt with arguments: city={city}, state={state}",
     argsSchema: {
       city: z.string().describe("City name"),
       state: z.string().describe("State name"),
@@ -248,6 +232,68 @@ export function createTestServerInfo(
 }
 
 /**
+ * Create a "file" resource template that reads files by path
+ */
+export function createFileResourceTemplate(): ResourceTemplateDefinition {
+  return {
+    name: "file",
+    uriTemplate: "file:///{path}",
+    description: "Read a file by path",
+    inputSchema: {
+      path: z.string().describe("File path to read"),
+    },
+    handler: async (uri: URL, params: Record<string, any>) => {
+      const path = params.path as string;
+      // For testing, return a mock file content
+      return {
+        contents: [
+          {
+            uri: uri.toString(),
+            mimeType: "text/plain",
+            text: `Mock file content for: ${path}\nThis is a test resource template.`,
+          },
+        ],
+      };
+    },
+  };
+}
+
+/**
+ * Create a "user" resource template that returns user data by ID
+ */
+export function createUserResourceTemplate(): ResourceTemplateDefinition {
+  return {
+    name: "user",
+    uriTemplate: "user://{userId}",
+    description: "Get user data by ID",
+    inputSchema: {
+      userId: z.string().describe("User ID"),
+    },
+    handler: async (uri: URL, params: Record<string, any>) => {
+      const userId = params.userId as string;
+      return {
+        contents: [
+          {
+            uri: uri.toString(),
+            mimeType: "application/json",
+            text: JSON.stringify(
+              {
+                id: userId,
+                name: `User ${userId}`,
+                email: `user${userId}@example.com`,
+                role: "test-user",
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    },
+  };
+}
+
+/**
  * Get default server config with common test tools, prompts, and resources
  */
 export function getDefaultServerConfig(): ServerConfig {
@@ -264,6 +310,10 @@ export function getDefaultServerConfig(): ServerConfig {
       createTestCwdResource(),
       createTestEnvResource(),
       createTestArgvResource(),
+    ],
+    resourceTemplates: [
+      createFileResourceTemplate(),
+      createUserResourceTemplate(),
     ],
   };
 }

@@ -1,36 +1,71 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 
 interface PromptsTabProps {
   prompts: any[];
-  client: Client | null;
+  client: any; // SDK Client (from inspectorClient.getClient())
+  inspectorClient: InspectorClient | null; // InspectorClient for getPrompt
   width: number;
   height: number;
   onCountChange?: (count: number) => void;
   focusedPane?: "list" | "details" | null;
   onViewDetails?: (prompt: any) => void;
+  onFetchPrompt?: (prompt: any) => void;
   modalOpen?: boolean;
 }
 
 export function PromptsTab({
   prompts,
   client,
+  inspectorClient,
   width,
   height,
   onCountChange,
   focusedPane = null,
   onViewDetails,
+  onFetchPrompt,
   modalOpen = false,
 }: PromptsTabProps) {
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollViewRef>(null);
+  const listScrollViewRef = useRef<ScrollViewRef>(null);
 
   // Handle arrow key navigation when focused
   useInput(
     (input: string, key: Key) => {
+      // Handle Enter key to fetch prompt (works from both list and details)
+      if (key.return && selectedPrompt && inspectorClient && onFetchPrompt) {
+        // If prompt has arguments, open modal to collect them
+        // Otherwise, fetch directly
+        if (selectedPrompt.arguments && selectedPrompt.arguments.length > 0) {
+          onFetchPrompt(selectedPrompt);
+        } else {
+          // No arguments, fetch directly
+          (async () => {
+            try {
+              const response = await inspectorClient.getPrompt(
+                selectedPrompt.name,
+              );
+              // Show result in details modal
+              if (onViewDetails) {
+                onViewDetails({
+                  ...selectedPrompt,
+                  result: response,
+                });
+              }
+            } catch (error) {
+              setError(
+                error instanceof Error ? error.message : "Failed to get prompt",
+              );
+            }
+          })();
+        }
+        return;
+      }
+
       if (focusedPane === "list") {
         // Navigate the list
         if (key.upArrow && selectedIndex > 0) {
@@ -75,6 +110,13 @@ export function PromptsTab({
     scrollViewRef.current?.scrollTo(0);
   }, [selectedIndex]);
 
+  // Auto-scroll list to show selected item
+  useEffect(() => {
+    if (listScrollViewRef.current && selectedIndex >= 0 && prompts.length > 0) {
+      listScrollViewRef.current.scrollTo(selectedIndex);
+    }
+  }, [selectedIndex, prompts.length]);
+
   // Reset selected index when prompts array changes (different server)
   useEffect(() => {
     setSelectedIndex(0);
@@ -116,7 +158,7 @@ export function PromptsTab({
             <Text dimColor>No prompts available</Text>
           </Box>
         ) : (
-          <Box flexDirection="column" flexGrow={1}>
+          <ScrollView ref={listScrollViewRef} height={height - 2}>
             {prompts.map((prompt, index) => {
               const isSelected = index === selectedIndex;
               return (
@@ -128,7 +170,7 @@ export function PromptsTab({
                 </Box>
               );
             })}
-          </Box>
+          </ScrollView>
         )}
       </Box>
 
@@ -196,6 +238,11 @@ export function PromptsTab({
                     ))}
                   </>
                 )}
+
+              {/* Enter to Get Prompt message */}
+              <Box marginTop={1} flexShrink={0}>
+                <Text dimColor>[Enter to Get Prompt]</Text>
+              </Box>
             </ScrollView>
 
             {/* Fixed footer - only show when details pane is focused */}

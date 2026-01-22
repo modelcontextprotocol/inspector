@@ -100,6 +100,7 @@ describe("Metadata Tests", () => {
           {
             name: "test-prompt",
             description: "A test prompt",
+            promptString: "test prompt",
           },
         ],
       });
@@ -185,6 +186,7 @@ describe("Metadata Tests", () => {
           {
             name: "test-prompt",
             description: "A test prompt",
+            promptString: "test prompt",
           },
         ],
       });
@@ -668,6 +670,7 @@ describe("Metadata Tests", () => {
           {
             name: "test-prompt",
             description: "A test prompt",
+            promptString: "test prompt",
           },
         ],
       });
