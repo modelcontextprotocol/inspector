@@ -937,7 +937,9 @@ const App = () => {
       // The server returns { task: { taskId, status, ... } } when a task is created
       const isTaskResult = (
         res: unknown,
-      ): res is { task: { taskId: string; status: string } } =>
+      ): res is {
+        task: { taskId: string; status: string; pollInterval: number };
+      } =>
         !!res &&
         typeof res === "object" &&
         "task" in res &&
@@ -947,6 +949,7 @@ const App = () => {
 
       if (runAsTask && isTaskResult(response)) {
         const taskId = response.task.taskId;
+        const pollInterval = response.task.pollInterval;
         // Set polling state BEFORE setting tool result for proper UI update
         setIsPollingTask(true);
         // Safely extract any _meta from the original response (if present)
@@ -974,7 +977,7 @@ const App = () => {
         while (!taskCompleted) {
           try {
             // Wait for 1 second before polling
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            await new Promise((resolve) => setTimeout(resolve, pollInterval));
 
             const taskStatus = await sendMCPRequest(
               {
@@ -1001,7 +1004,7 @@ const App = () => {
                     method: "tasks/result",
                     params: { taskId },
                   },
-                  z.any(),
+                  CompatibilityCallToolResultSchema,
                 );
                 console.log(`Result received for task ${taskId}:`, result);
                 setToolResult(result as CompatibilityCallToolResult);

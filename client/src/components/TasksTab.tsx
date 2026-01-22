@@ -119,6 +119,7 @@ const TasksTab = ({
                   <Button
                     variant="destructive"
                     size="sm"
+                    aria-label={`Cancel task ${displayedTask.taskId}`}
                     onClick={() => handleCancel(displayedTask.taskId)}
                     disabled={isCancelling === displayedTask.taskId}
                   >
@@ -178,7 +179,7 @@ const TasksTab = ({
                   <p className="mt-1 font-medium">
                     {displayedTask.ttl === null
                       ? "Infinite"
-                      : `${displayedTask.ttl}s`}
+                      : `${displayedTask.ttl}ms`}
                   </p>
                 </div>
               </div>
