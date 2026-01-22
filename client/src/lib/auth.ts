@@ -153,15 +153,22 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   get clientMetadata(): OAuthClientMetadata {
-    return {
+    const metadata: OAuthClientMetadata = {
       redirect_uris: this.redirect_uris,
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       client_name: "MCP Inspector",
       client_uri: "https://github.com/modelcontextprotocol/inspector",
-      scope: this.scope ?? "",
     };
+
+    // Only include scope if it's defined and non-empty
+    // Per OAuth spec, omit the scope field entirely if no scopes are requested
+    if (this.scope) {
+      metadata.scope = this.scope;
+    }
+
+    return metadata;
   }
 
   state(): string | Promise<string> {

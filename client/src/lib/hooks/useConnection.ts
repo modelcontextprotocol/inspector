@@ -416,11 +416,22 @@ export function useConnection({
       saveScopeToSessionStorage(sseUrl, scope);
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
-      const result = await auth(serverAuthProvider, {
-        serverUrl: sseUrl,
-        scope,
-      });
-      return result === "AUTHORIZED";
+      try {
+        const result = await auth(serverAuthProvider, {
+          serverUrl: sseUrl,
+          scope,
+        });
+        return result === "AUTHORIZED";
+      } catch (authError) {
+        // Show user-friendly error message for OAuth failures
+        toast({
+          title: "OAuth Authentication Failed",
+          description:
+            authError instanceof Error ? authError.message : String(authError),
+          variant: "destructive",
+        });
+        return false;
+      }
     }
 
     return false;
@@ -573,6 +584,7 @@ export function useConnection({
             requestHeaders["Accept"] = "text/event-stream";
             requestHeaders["content-type"] = "application/json";
             transportOptions = {
+              authProvider: serverAuthProvider,
               fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
@@ -594,6 +606,7 @@ export function useConnection({
 
           case "streamable-http":
             transportOptions = {
+              authProvider: serverAuthProvider,
               fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
@@ -682,6 +695,7 @@ export function useConnection({
               );
             }
             transportOptions = {
+              authProvider: serverAuthProvider,
               eventSourceInit: {
                 fetch: (
                   url: string | URL | globalThis.Request,
@@ -703,6 +717,7 @@ export function useConnection({
             mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
             mcpProxyServerUrl.searchParams.append("url", sseUrl);
             transportOptions = {
+              authProvider: serverAuthProvider,
               eventSourceInit: {
                 fetch: (
                   url: string | URL | globalThis.Request,
