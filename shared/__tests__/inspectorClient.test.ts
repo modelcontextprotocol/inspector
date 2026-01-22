@@ -8,6 +8,7 @@ import {
 import {
   createEchoTool,
   createTestServerInfo,
+  createFileResourceTemplate,
 } from "../test/test-server-fixtures.js";
 import type { MessageEntry } from "../mcp/types.js";
 
@@ -613,6 +614,66 @@ describe("InspectorClient", () => {
         const readResult = await client.readResource(uri);
         expect(readResult).toHaveProperty("contents");
       }
+    });
+  });
+
+  describe("Resource Template Methods", () => {
+    beforeEach(async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resourceTemplates: [createFileResourceTemplate()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+    });
+
+    it("should list resource templates", async () => {
+      const result = await client.listResourceTemplates();
+      expect(result).toHaveProperty("resourceTemplates");
+      const resourceTemplates = (result as any).resourceTemplates;
+      expect(Array.isArray(resourceTemplates)).toBe(true);
+      expect(resourceTemplates.length).toBeGreaterThan(0);
+
+      const templates = resourceTemplates as any[];
+      const fileTemplate = templates.find((t) => t.name === "file");
+      expect(fileTemplate).toBeDefined();
+      expect(fileTemplate?.uriTemplate).toBe("file:///{path}");
+    });
+
+    it("should read resource from template", async () => {
+      // First get the template
+      const listResult = await client.listResourceTemplates();
+      const templates = (listResult as any).resourceTemplates as any[];
+      const fileTemplate = templates.find((t) => t.name === "file");
+      expect(fileTemplate).toBeDefined();
+
+      // Use a URI that matches the template pattern file:///{path}
+      // The path variable will be "test.txt"
+      const expandedUri = "file:///test.txt";
+
+      // Read the resource using the expanded URI
+      const readResult = await client.readResource(expandedUri);
+      expect(readResult).toHaveProperty("contents");
+      const contents = (readResult as any).contents;
+      expect(Array.isArray(contents)).toBe(true);
+      expect(contents.length).toBeGreaterThan(0);
+
+      const content = contents[0];
+      expect(content).toHaveProperty("uri");
+      expect(content).toHaveProperty("text");
+      expect(content.text).toContain("Mock file content for: test.txt");
     });
   });
 

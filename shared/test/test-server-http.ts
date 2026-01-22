@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { createMcpServer } from "./test-server-fixtures.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { SetLevelRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Request, Response } from "express";
 import express from "express";
 import { createServer as createHttpServer, Server as HttpServer } from "http";
@@ -73,120 +73,14 @@ export class TestServerHttp {
 
   constructor(config: ServerConfig) {
     this.config = config;
-    const capabilities: {
-      tools?: {};
-      resources?: {};
-      prompts?: {};
-      logging?: {};
-    } = {};
-
-    // Only include capabilities for features that are present in config
-    if (config.tools !== undefined) {
-      capabilities.tools = {};
-    }
-    if (config.resources !== undefined) {
-      capabilities.resources = {};
-    }
-    if (config.prompts !== undefined) {
-      capabilities.prompts = {};
-    }
-    if (config.logging === true) {
-      capabilities.logging = {};
-    }
-
-    this.mcpServer = new McpServer(config.serverInfo, {
-      capabilities,
-    });
-
-    this.setupHandlers();
-    if (config.logging === true) {
-      this.setupLoggingHandler();
-    }
-  }
-
-  private setupHandlers() {
-    // Set up tools
-    if (this.config.tools && this.config.tools.length > 0) {
-      for (const tool of this.config.tools) {
-        this.mcpServer.registerTool(
-          tool.name,
-          {
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-          },
-          async (args) => {
-            const result = await tool.handler(args as Record<string, any>);
-            return {
-              content: [{ type: "text", text: JSON.stringify(result) }],
-            };
-          },
-        );
-      }
-    }
-
-    // Set up resources
-    if (this.config.resources && this.config.resources.length > 0) {
-      for (const resource of this.config.resources) {
-        this.mcpServer.registerResource(
-          resource.name,
-          resource.uri,
-          {
-            description: resource.description,
-            mimeType: resource.mimeType,
-          },
-          async () => {
-            return {
-              contents: [
-                {
-                  uri: resource.uri,
-                  mimeType: resource.mimeType || "text/plain",
-                  text: resource.text || "",
-                },
-              ],
-            };
-          },
-        );
-      }
-    }
-
-    // Set up prompts
-    if (this.config.prompts && this.config.prompts.length > 0) {
-      for (const prompt of this.config.prompts) {
-        this.mcpServer.registerPrompt(
-          prompt.name,
-          {
-            description: prompt.description,
-            argsSchema: prompt.argsSchema,
-          },
-          async (args) => {
-            // Return a simple prompt response
-            return {
-              messages: [
-                {
-                  role: "user",
-                  content: {
-                    type: "text",
-                    text: `Prompt: ${prompt.name}${args ? ` with args: ${JSON.stringify(args)}` : ""}`,
-                  },
-                },
-              ],
-            };
-          },
-        );
-      }
-    }
-  }
-
-  private setupLoggingHandler() {
-    // Intercept logging/setLevel requests to track the level
-    this.mcpServer.server.setRequestHandler(
-      SetLevelRequestSchema,
-      async (request) => {
-        this.currentLogLevel = request.params.level;
-        // Return empty result as per MCP spec
-        return {};
+    // Pass callback to track log level for testing
+    const configWithCallback: ServerConfig = {
+      ...config,
+      onLogLevelSet: (level: string) => {
+        this.currentLogLevel = level;
       },
-    );
+    };
+    this.mcpServer = createMcpServer(configWithCallback);
   }
 
   /**

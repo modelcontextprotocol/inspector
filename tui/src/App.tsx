@@ -19,6 +19,8 @@ import { NotificationsTab } from "./components/NotificationsTab.js";
 import { HistoryTab } from "./components/HistoryTab.js";
 import { RequestsTab } from "./components/RequestsTab.js";
 import { ToolTestModal } from "./components/ToolTestModal.js";
+import { ResourceTestModal } from "./components/ResourceTestModal.js";
+import { PromptTestModal } from "./components/PromptTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -87,6 +89,26 @@ function App({ configFile }: AppProps) {
   // Tool test modal state
   const [toolTestModal, setToolTestModal] = useState<{
     tool: any;
+    inspectorClient: InspectorClient | null;
+  } | null>(null);
+
+  // Resource test modal state
+  const [resourceTestModal, setResourceTestModal] = useState<{
+    template: {
+      name: string;
+      uriTemplate: string;
+      description?: string;
+    };
+    inspectorClient: InspectorClient | null;
+  } | null>(null);
+
+  // Prompt test modal state
+  const [promptTestModal, setPromptTestModal] = useState<{
+    prompt: {
+      name: string;
+      description?: string;
+      arguments?: any[];
+    };
     inspectorClient: InspectorClient | null;
   } | null>(null);
 
@@ -191,6 +213,7 @@ function App({ configFile }: AppProps) {
     fetchRequests: inspectorFetchRequests,
     tools: inspectorTools,
     resources: inspectorResources,
+    resourceTemplates: inspectorResourceTemplates,
     prompts: inspectorPrompts,
     capabilities: inspectorCapabilities,
     serverInfo: inspectorServerInfo,
@@ -206,7 +229,7 @@ function App({ configFile }: AppProps) {
 
     try {
       await connectInspector();
-      // InspectorClient automatically fetches server data (capabilities, tools, resources, prompts, etc.)
+      // InspectorClient automatically fetches server data (capabilities, tools, resources, resource templates, prompts, etc.)
       // on connect, so we don't need to do anything here
     } catch (error) {
       // Error handling is done by InspectorClient and will be reflected in status
@@ -230,6 +253,7 @@ function App({ configFile }: AppProps) {
       serverInfo: inspectorServerInfo,
       instructions: inspectorInstructions,
       resources: inspectorResources,
+      resourceTemplates: inspectorResourceTemplates,
       prompts: inspectorPrompts,
       tools: inspectorTools,
       stderrLogs: inspectorStderrLogs, // InspectorClient manages this
@@ -241,6 +265,7 @@ function App({ configFile }: AppProps) {
     inspectorServerInfo,
     inspectorInstructions,
     inspectorResources,
+    inspectorResourceTemplates,
     inspectorPrompts,
     inspectorTools,
     inspectorStderrLogs,
@@ -576,7 +601,7 @@ function App({ configFile }: AppProps) {
 
   useInput((input: string, key: Key) => {
     // Don't process input when modal is open
-    if (toolTestModal || detailsModal) {
+    if (toolTestModal || resourceTestModal || promptTestModal || detailsModal) {
       return;
     }
 
@@ -908,11 +933,12 @@ function App({ configFile }: AppProps) {
             )}
             {activeTab === "resources" &&
             currentServerState?.status === "connected" &&
-            inspectorClient ? (
+            selectedInspectorClient ? (
               <ResourcesTab
                 key={`resources-${selectedServer}`}
                 resources={currentServerState.resources}
-                client={inspectorClient}
+                resourceTemplates={currentServerState.resourceTemplates}
+                inspectorClient={selectedInspectorClient}
                 width={contentWidth}
                 height={contentHeight}
                 onCountChange={(count) =>
@@ -931,15 +957,28 @@ function App({ configFile }: AppProps) {
                     content: renderResourceDetails(resource),
                   })
                 }
-                modalOpen={!!(toolTestModal || detailsModal)}
+                onFetchResource={(resource) => {
+                  // Resource fetching is handled internally by ResourcesTab
+                  // This callback is just for triggering the fetch
+                }}
+                onFetchTemplate={(template) => {
+                  setResourceTestModal({
+                    template,
+                    inspectorClient: selectedInspectorClient,
+                  });
+                }}
+                modalOpen={
+                  !!(toolTestModal || resourceTestModal || detailsModal)
+                }
               />
             ) : activeTab === "prompts" &&
               currentServerState?.status === "connected" &&
-              inspectorClient ? (
+              selectedInspectorClient ? (
               <PromptsTab
                 key={`prompts-${selectedServer}`}
                 prompts={currentServerState.prompts}
                 client={inspectorClient}
+                inspectorClient={selectedInspectorClient}
                 width={contentWidth}
                 height={contentHeight}
                 onCountChange={(count) =>
@@ -958,7 +997,20 @@ function App({ configFile }: AppProps) {
                     content: renderPromptDetails(prompt),
                   })
                 }
-                modalOpen={!!(toolTestModal || detailsModal)}
+                onFetchPrompt={(prompt) => {
+                  setPromptTestModal({
+                    prompt,
+                    inspectorClient: selectedInspectorClient,
+                  });
+                }}
+                modalOpen={
+                  !!(
+                    toolTestModal ||
+                    resourceTestModal ||
+                    promptTestModal ||
+                    detailsModal
+                  )
+                }
               />
             ) : activeTab === "tools" &&
               currentServerState?.status === "connected" &&
@@ -1084,6 +1136,27 @@ function App({ configFile }: AppProps) {
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setToolTestModal(null)}
+        />
+      )}
+
+      {/* Resource Test Modal - rendered at App level for full screen overlay */}
+      {resourceTestModal && (
+        <ResourceTestModal
+          template={resourceTestModal.template}
+          inspectorClient={resourceTestModal.inspectorClient}
+          width={dimensions.width}
+          height={dimensions.height}
+          onClose={() => setResourceTestModal(null)}
+        />
+      )}
+
+      {promptTestModal && (
+        <PromptTestModal
+          prompt={promptTestModal.prompt}
+          inspectorClient={promptTestModal.inspectorClient}
+          width={dimensions.width}
+          height={dimensions.height}
+          onClose={() => setPromptTestModal(null)}
         />
       )}
 

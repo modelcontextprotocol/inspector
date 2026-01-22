@@ -96,6 +96,7 @@ export class InspectorClient extends EventTarget {
   // Server data
   private tools: any[] = [];
   private resources: any[] = [];
+  private resourceTemplates: any[] = [];
   private prompts: any[] = [];
   private capabilities?: ServerCapabilities;
   private serverInfo?: Implementation;
@@ -286,10 +287,11 @@ export class InspectorClient extends EventTarget {
       this.dispatchEvent(new Event("disconnect"));
     }
 
-    // Clear server state (tools, resources, prompts) on disconnect
+    // Clear server state (tools, resources, resource templates, prompts) on disconnect
     // These are only valid when connected
     this.tools = [];
     this.resources = [];
+    this.resourceTemplates = [];
     this.prompts = [];
     this.capabilities = undefined;
     this.serverInfo = undefined;
@@ -369,6 +371,14 @@ export class InspectorClient extends EventTarget {
    */
   getResources(): any[] {
     return [...this.resources];
+  }
+
+  /**
+   * Get resource templates
+   * @returns Array of resource templates
+   */
+  getResourceTemplates(): any[] {
+    return [...this.resourceTemplates];
   }
 
   /**
@@ -694,6 +704,25 @@ export class InspectorClient extends EventTarget {
           this.resources = [];
           this.dispatchEvent(
             new CustomEvent("resourcesChange", { detail: this.resources }),
+          );
+        }
+
+        // Also fetch resource templates
+        try {
+          const templatesResult = await this.client.listResourceTemplates();
+          this.resourceTemplates = templatesResult.resourceTemplates || [];
+          this.dispatchEvent(
+            new CustomEvent("resourceTemplatesChange", {
+              detail: this.resourceTemplates,
+            }),
+          );
+        } catch (err) {
+          // Ignore errors, just leave empty
+          this.resourceTemplates = [];
+          this.dispatchEvent(
+            new CustomEvent("resourceTemplatesChange", {
+              detail: this.resourceTemplates,
+            }),
           );
         }
       }

@@ -22,6 +22,7 @@ export interface UseInspectorClientResult {
   fetchRequests: FetchRequestEntry[];
   tools: any[];
   resources: any[];
+  resourceTemplates: any[];
   prompts: any[];
   capabilities?: ServerCapabilities;
   serverInfo?: Implementation;
@@ -53,6 +54,9 @@ export function useInspectorClient(
   const [resources, setResources] = useState<any[]>(
     inspectorClient?.getResources() ?? [],
   );
+  const [resourceTemplates, setResourceTemplates] = useState<any[]>(
+    inspectorClient?.getResourceTemplates() ?? [],
+  );
   const [prompts, setPrompts] = useState<any[]>(
     inspectorClient?.getPrompts() ?? [],
   );
@@ -75,6 +79,7 @@ export function useInspectorClient(
       setFetchRequests([]);
       setTools([]);
       setResources([]);
+      setResourceTemplates([]);
       setPrompts([]);
       setCapabilities(undefined);
       setServerInfo(undefined);
@@ -89,6 +94,7 @@ export function useInspectorClient(
     setFetchRequests(inspectorClient.getFetchRequests());
     setTools(inspectorClient.getTools());
     setResources(inspectorClient.getResources());
+    setResourceTemplates(inspectorClient.getResourceTemplates());
     setPrompts(inspectorClient.getPrompts());
     setCapabilities(inspectorClient.getCapabilities());
     setServerInfo(inspectorClient.getServerInfo());
@@ -127,6 +133,11 @@ export function useInspectorClient(
       setResources(customEvent.detail);
     };
 
+    const onResourceTemplatesChange = (event: Event) => {
+      const customEvent = event as CustomEvent<any[]>;
+      setResourceTemplates(customEvent.detail);
+    };
+
     const onPromptsChange = (event: Event) => {
       const customEvent = event as CustomEvent<PromptReference[]>;
       setPrompts(customEvent.detail);
@@ -157,6 +168,10 @@ export function useInspectorClient(
     );
     inspectorClient.addEventListener("toolsChange", onToolsChange);
     inspectorClient.addEventListener("resourcesChange", onResourcesChange);
+    inspectorClient.addEventListener(
+      "resourceTemplatesChange",
+      onResourceTemplatesChange,
+    );
     inspectorClient.addEventListener("promptsChange", onPromptsChange);
     inspectorClient.addEventListener(
       "capabilitiesChange",
@@ -182,6 +197,10 @@ export function useInspectorClient(
       );
       inspectorClient.removeEventListener("toolsChange", onToolsChange);
       inspectorClient.removeEventListener("resourcesChange", onResourcesChange);
+      inspectorClient.removeEventListener(
+        "resourceTemplatesChange",
+        onResourceTemplatesChange,
+      );
       inspectorClient.removeEventListener("promptsChange", onPromptsChange);
       inspectorClient.removeEventListener(
         "capabilitiesChange",
@@ -215,6 +234,7 @@ export function useInspectorClient(
     fetchRequests,
     tools,
     resources,
+    resourceTemplates,
     prompts,
     capabilities,
     serverInfo,
