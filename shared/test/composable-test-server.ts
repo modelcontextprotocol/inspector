@@ -9,9 +9,13 @@ import {
   McpServer,
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  Implementation,
+  ListResourcesResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { SetLevelRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import { completable } from "@modelcontextprotocol/sdk/server/completable.js";
 
 type ToolInputSchema = ZodRawShapeCompat;
 type PromptArgsSchema = ZodRawShapeCompat;
@@ -35,7 +39,16 @@ export interface PromptDefinition {
   name: string;
   description?: string;
   promptString: string; // The prompt text with optional {argName} placeholders
-  argsSchema?: PromptArgsSchema;
+  argsSchema?: PromptArgsSchema; // Can include completable() schemas
+  // Optional completion callbacks keyed by argument name
+  // This is a convenience - users can also use completable() directly in argsSchema
+  completions?: Record<
+    string,
+    (
+      argumentValue: string,
+      context?: Record<string, string>,
+    ) => Promise<string[]> | string[]
+  >;
 }
 
 export interface ResourceTemplateDefinition {
@@ -49,6 +62,28 @@ export interface ResourceTemplateDefinition {
   ) => Promise<{
     contents: Array<{ uri: string; mimeType?: string; text: string }>;
   }>;
+  // Optional callbacks for resource template operations
+  // list: Can return either:
+  //   - string[] (convenience - will be converted to ListResourcesResult with uri and name)
+  //   - ListResourcesResult (full control - includes uri, name, description, mimeType, etc.)
+  list?:
+    | (() => Promise<string[]> | string[])
+    | (() => Promise<ListResourcesResult> | ListResourcesResult);
+  // complete: Map of variable names to completion callbacks
+  // OR a single callback function that will be used for all variables
+  complete?:
+    | Record<
+        string,
+        (
+          value: string,
+          context?: Record<string, string>,
+        ) => Promise<string[]> | string[]
+      >
+    | ((
+        argumentName: string,
+        argumentValue: string,
+        context?: Record<string, string>,
+      ) => Promise<string[]> | string[]);
 }
 
 /**
@@ -199,9 +234,85 @@ export function createMcpServer(config: ServerConfig): McpServer {
   if (config.resourceTemplates && config.resourceTemplates.length > 0) {
     for (const template of config.resourceTemplates) {
       // ResourceTemplate is a class - create an instance with the URI template string and callbacks
+      // Convert list callback: SDK expects ListResourcesResult
+      // We support both string[] (convenience) and ListResourcesResult (full control)
+      const listCallback = template.list
+        ? async () => {
+            const result = template.list!();
+            const resolved = await result;
+            // Check if it's already a ListResourcesResult (has resources array)
+            if (
+              resolved &&
+              typeof resolved === "object" &&
+              "resources" in resolved
+            ) {
+              return resolved as ListResourcesResult;
+            }
+            // Otherwise, it's string[] - convert to ListResourcesResult
+            const uriArray = resolved as string[];
+            return {
+              resources: uriArray.map((uri) => ({
+                uri,
+                name: uri, // Use URI as name if not provided
+              })),
+            };
+          }
+        : undefined;
+
+      // Convert complete callback: SDK expects {[variable: string]: callback}
+      // We support either a map or a single function
+      let completeCallbacks:
+        | {
+            [variable: string]: (
+              value: string,
+              context?: { arguments?: Record<string, string> },
+            ) => Promise<string[]> | string[];
+          }
+        | undefined = undefined;
+
+      if (template.complete) {
+        if (typeof template.complete === "function") {
+          // Single function - extract variable names from URI template and use for all
+          // Parse URI template to find variables (e.g., {file} from "file://{file}")
+          const variableMatches = template.uriTemplate.match(/\{([^}]+)\}/g);
+          if (variableMatches) {
+            completeCallbacks = {};
+            const completeFn = template.complete;
+            for (const match of variableMatches) {
+              const variableName = match.slice(1, -1); // Remove { and }
+              completeCallbacks[variableName] = async (
+                value: string,
+                context?: { arguments?: Record<string, string> },
+              ) => {
+                const result = completeFn(
+                  variableName,
+                  value,
+                  context?.arguments,
+                );
+                return Array.isArray(result) ? result : await result;
+              };
+            }
+          }
+        } else {
+          // Map of variable names to callbacks
+          completeCallbacks = {};
+          for (const [variableName, callback] of Object.entries(
+            template.complete,
+          )) {
+            completeCallbacks[variableName] = async (
+              value: string,
+              context?: { arguments?: Record<string, string> },
+            ) => {
+              const result = callback(value, context?.arguments);
+              return Array.isArray(result) ? result : await result;
+            };
+          }
+        }
+      }
+
       const resourceTemplate = new ResourceTemplate(template.uriTemplate, {
-        list: undefined, // We don't support listing resources from templates
-        complete: undefined, // We don't support completion for template variables
+        list: listCallback,
+        complete: completeCallbacks,
       });
 
       mcpServer.registerResource(
@@ -221,11 +332,40 @@ export function createMcpServer(config: ServerConfig): McpServer {
   // Set up prompts
   if (config.prompts && config.prompts.length > 0) {
     for (const prompt of config.prompts) {
+      // Build argsSchema with completion support if provided
+      let argsSchema = prompt.argsSchema;
+
+      // If completions callbacks are provided, wrap the corresponding schemas
+      if (prompt.completions && argsSchema) {
+        const enhancedSchema: Record<string, any> = { ...argsSchema };
+        for (const [argName, completeCallback] of Object.entries(
+          prompt.completions,
+        )) {
+          if (enhancedSchema[argName]) {
+            // Wrap the existing schema with completable
+            enhancedSchema[argName] = completable(
+              enhancedSchema[argName],
+              async (
+                value: any,
+                context?: { arguments?: Record<string, string> },
+              ) => {
+                const result = completeCallback(
+                  String(value),
+                  context?.arguments,
+                );
+                return Array.isArray(result) ? result : await result;
+              },
+            );
+          }
+        }
+        argsSchema = enhancedSchema;
+      }
+
       mcpServer.registerPrompt(
         prompt.name,
         {
           description: prompt.description,
-          argsSchema: prompt.argsSchema,
+          argsSchema: argsSchema,
         },
         async (args) => {
           let text = prompt.promptString;

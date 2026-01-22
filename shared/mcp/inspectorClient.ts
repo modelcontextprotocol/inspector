@@ -899,6 +899,73 @@ export class InspectorClient extends EventTarget {
   }
 
   /**
+   * Request completions for a resource template variable or prompt argument
+   * @param ref Resource template reference or prompt reference
+   * @param argumentName Name of the argument/variable to complete
+   * @param argumentValue Current (partial) value of the argument
+   * @param context Optional context with other argument values
+   * @param metadata Optional metadata to include in the request
+   * @returns Completion result with values array
+   * @throws Error if client is not connected or request fails (except MethodNotFound)
+   */
+  async getCompletions(
+    ref:
+      | { type: "ref/resource"; uri: string }
+      | { type: "ref/prompt"; name: string },
+    argumentName: string,
+    argumentValue: string,
+    context?: Record<string, string>,
+    metadata?: Record<string, string>,
+  ): Promise<{ values: string[]; total?: number; hasMore?: boolean }> {
+    if (!this.client) {
+      return { values: [] };
+    }
+
+    try {
+      const params: any = {
+        ref,
+        argument: {
+          name: argumentName,
+          value: argumentValue,
+        },
+      };
+
+      if (context) {
+        params.context = {
+          arguments: context,
+        };
+      }
+
+      if (metadata && Object.keys(metadata).length > 0) {
+        params._meta = metadata;
+      }
+
+      const response = await this.client.complete(params);
+
+      return {
+        values: response.completion.values || [],
+        total: response.completion.total,
+        hasMore: response.completion.hasMore,
+      };
+    } catch (error: any) {
+      // Handle MethodNotFound gracefully (server doesn't support completions)
+      if (
+        error?.code === -32601 ||
+        (error instanceof Error &&
+          (error.message.includes("Method not found") ||
+            error.message.includes("does not support completions")))
+      ) {
+        return { values: [] };
+      }
+
+      // Re-throw other errors
+      throw new Error(
+        `Failed to get completions: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
    * Fetch server info (capabilities, serverInfo, instructions) from cached initialize response
    * This does not send any additional MCP requests - it just reads cached data
    * Always called on connect

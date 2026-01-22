@@ -317,7 +317,15 @@ export function createSimplePrompt(): PromptDefinition {
 /**
  * Create an "args-prompt" prompt that accepts arguments
  */
-export function createArgsPrompt(): PromptDefinition {
+export function createArgsPrompt(
+  completions?: Record<
+    string,
+    (
+      argumentValue: string,
+      context?: Record<string, string>,
+    ) => Promise<string[]> | string[]
+  >,
+): PromptDefinition {
   return {
     name: "args-prompt",
     description: "A prompt that accepts arguments for testing",
@@ -326,6 +334,7 @@ export function createArgsPrompt(): PromptDefinition {
       city: z.string().describe("City name"),
       state: z.string().describe("State name"),
     },
+    completions,
   };
 }
 
@@ -415,7 +424,14 @@ export function createTestServerInfo(
 /**
  * Create a "file" resource template that reads files by path
  */
-export function createFileResourceTemplate(): ResourceTemplateDefinition {
+export function createFileResourceTemplate(
+  completionCallback?: (
+    argumentName: string,
+    value: string,
+    context?: Record<string, string>,
+  ) => Promise<string[]> | string[],
+  listCallback?: () => Promise<string[]> | string[],
+): ResourceTemplateDefinition {
   return {
     name: "file",
     uriTemplate: "file:///{path}",
@@ -436,13 +452,22 @@ export function createFileResourceTemplate(): ResourceTemplateDefinition {
         ],
       };
     },
+    complete: completionCallback,
+    list: listCallback,
   };
 }
 
 /**
  * Create a "user" resource template that returns user data by ID
  */
-export function createUserResourceTemplate(): ResourceTemplateDefinition {
+export function createUserResourceTemplate(
+  completionCallback?: (
+    argumentName: string,
+    value: string,
+    context?: Record<string, string>,
+  ) => Promise<string[]> | string[],
+  listCallback?: () => Promise<string[]> | string[],
+): ResourceTemplateDefinition {
   return {
     name: "user",
     uriTemplate: "user://{userId}",
@@ -471,6 +496,8 @@ export function createUserResourceTemplate(): ResourceTemplateDefinition {
         ],
       };
     },
+    complete: completionCallback,
+    list: listCallback,
   };
 }
 

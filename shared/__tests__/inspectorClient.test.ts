@@ -16,6 +16,7 @@ import {
   createCollectSampleTool,
   createCollectElicitationTool,
   createSendNotificationTool,
+  createArgsPrompt,
 } from "../test/test-server-fixtures.js";
 import type { MessageEntry } from "../mcp/types.js";
 import type {
@@ -686,6 +687,51 @@ describe("InspectorClient", () => {
       expect(content).toHaveProperty("text");
       expect(content.text).toContain("Mock file content for: test.txt");
     });
+
+    it("should include resources from template list callback in listResources", async () => {
+      // Create a server with a resource template that has a list callback
+      const listCallback = async () => {
+        return ["file:///file1.txt", "file:///file2.txt", "file:///file3.txt"];
+      };
+
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resourceTemplates: [
+          createFileResourceTemplate(undefined, listCallback),
+        ],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Call listResources - this should include resources from the template's list callback
+      const result = await client.listResources();
+      expect(result).toHaveProperty("resources");
+      const resources = (result as any).resources as any[];
+      expect(Array.isArray(resources)).toBe(true);
+
+      // Verify that the resources from the list callback are included
+      const uris = resources.map((r) => r.uri);
+      expect(uris).toContain("file:///file1.txt");
+      expect(uris).toContain("file:///file2.txt");
+      expect(uris).toContain("file:///file3.txt");
+    });
   });
 
   describe("Prompt Methods", () => {
@@ -1192,6 +1238,239 @@ describe("InspectorClient", () => {
       // Verify the pending elicitation was removed
       const pendingElicitations = client.getPendingElicitations();
       expect(pendingElicitations.length).toBe(0);
+    });
+  });
+
+  describe("Completions", () => {
+    it("should get completions for resource template variable", async () => {
+      // Create a test server with a resource template that has completion support
+      const completionCallback = (argName: string, value: string): string[] => {
+        if (argName === "path") {
+          const files = ["file1.txt", "file2.txt", "file3.txt"];
+          return files.filter((f) => f.startsWith(value));
+        }
+        return [];
+      };
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resourceTemplates: [createFileResourceTemplate(completionCallback)],
+      });
+
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Request completions for "file" variable with partial value "file1"
+      const result = await client.getCompletions(
+        { type: "ref/resource", uri: "file:///{path}" },
+        "path",
+        "file1",
+      );
+
+      expect(result.values).toContain("file1.txt");
+      expect(result.values.length).toBeGreaterThan(0);
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should get completions for prompt argument", async () => {
+      // Create a test server with a prompt that has completion support
+      const cityCompletions = (
+        value: string,
+        _context?: Record<string, string>,
+      ): string[] => {
+        const cities = ["New York", "Los Angeles", "Chicago", "Houston"];
+        return cities.filter((c) =>
+          c.toLowerCase().startsWith(value.toLowerCase()),
+        );
+      };
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        prompts: [
+          createArgsPrompt({
+            city: cityCompletions,
+          }),
+        ],
+      });
+
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Request completions for "city" argument with partial value "New"
+      const result = await client.getCompletions(
+        { type: "ref/prompt", name: "args-prompt" },
+        "city",
+        "New",
+      );
+
+      expect(result.values).toContain("New York");
+      expect(result.values.length).toBeGreaterThan(0);
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should return empty array when server does not support completions", async () => {
+      // Create a test server without completion support
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resourceTemplates: [createFileResourceTemplate()], // No completion callback
+      });
+
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Request completions - should return empty array (MethodNotFound handled gracefully)
+      const result = await client.getCompletions(
+        { type: "ref/resource", uri: "file:///{path}" },
+        "path",
+        "file",
+      );
+
+      expect(result.values).toEqual([]);
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should get completions with context (other arguments)", async () => {
+      // Create a test server with a prompt that uses context
+      const stateCompletions = (
+        value: string,
+        context?: Record<string, string>,
+      ): string[] => {
+        const statesByCity: Record<string, string[]> = {
+          "New York": ["NY", "New York State"],
+          "Los Angeles": ["CA", "California"],
+        };
+
+        const city = context?.city;
+        if (city && statesByCity[city]) {
+          return statesByCity[city].filter((s) =>
+            s.toLowerCase().startsWith(value.toLowerCase()),
+          );
+        }
+        return ["NY", "CA", "TX", "FL"].filter((s) =>
+          s.toLowerCase().startsWith(value.toLowerCase()),
+        );
+      };
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        prompts: [
+          createArgsPrompt({
+            state: stateCompletions,
+          }),
+        ],
+      });
+
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Request completions for "state" with context (city="New York")
+      const result = await client.getCompletions(
+        { type: "ref/prompt", name: "args-prompt" },
+        "state",
+        "N",
+        { city: "New York" },
+      );
+
+      expect(result.values).toContain("NY");
+      expect(result.values).toContain("New York State");
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should handle async completion callbacks", async () => {
+      // Create a test server with async completion callback
+      const asyncCompletionCallback = async (
+        argName: string,
+        value: string,
+      ): Promise<string[]> => {
+        // Simulate async operation
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        const files = ["async1.txt", "async2.txt", "async3.txt"];
+        return files.filter((f) => f.startsWith(value));
+      };
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resourceTemplates: [
+          createFileResourceTemplate(asyncCompletionCallback),
+        ],
+      });
+
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      const result = await client.getCompletions(
+        { type: "ref/resource", uri: "file:///{path}" },
+        "path",
+        "async1",
+      );
+
+      expect(result.values).toContain("async1.txt");
+
+      await client.disconnect();
+      await server.stop();
     });
   });
 });
