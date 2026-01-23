@@ -1627,4 +1627,412 @@ describe("InspectorClient", () => {
       await server.stop();
     });
   });
+
+  describe("ContentCache integration", () => {
+    it("should expose cache property that returns null for all getters initially", async () => {
+      const client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      // Cache should be accessible
+      expect(client.cache).toBeDefined();
+
+      // All getters should return null initially
+      expect(client.cache.getResource("file:///test.txt")).toBeNull();
+      expect(client.cache.getResourceTemplate("file:///{path}")).toBeNull();
+      expect(client.cache.getPrompt("testPrompt")).toBeNull();
+      expect(client.cache.getToolCallResult("testTool")).toBeNull();
+
+      await client.disconnect();
+    });
+
+    it("should clear cache when disconnect() is called", async () => {
+      const client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          autoFetchServerContents: true,
+        },
+      );
+
+      await client.connect();
+
+      // Verify cache is accessible
+      expect(client.cache).toBeDefined();
+
+      // Populate cache by calling fetch methods
+      const resources = await client.listResources();
+      let resourceUri: string | undefined;
+      if (resources.length > 0 && resources[0]) {
+        resourceUri = resources[0].uri;
+        await client.readResource(resourceUri);
+        expect(client.cache.getResource(resourceUri)).not.toBeNull();
+      }
+
+      const tools = await client.listTools();
+      let toolName: string | undefined;
+      if (tools.length > 0 && tools[0]) {
+        toolName = tools[0].name;
+        await client.callTool(toolName, {});
+        expect(client.cache.getToolCallResult(toolName)).not.toBeNull();
+      }
+
+      const prompts = await client.listPrompts();
+      let promptName: string | undefined;
+      if (prompts.length > 0 && prompts[0]) {
+        promptName = prompts[0].name;
+        await client.getPrompt(promptName);
+        expect(client.cache.getPrompt(promptName)).not.toBeNull();
+      }
+
+      // Disconnect should clear cache
+      await client.disconnect();
+
+      // After disconnect, cache should be cleared
+      if (resourceUri) {
+        expect(client.cache.getResource(resourceUri)).toBeNull();
+      }
+      if (toolName) {
+        expect(client.cache.getToolCallResult(toolName)).toBeNull();
+      }
+      if (promptName) {
+        expect(client.cache.getPrompt(promptName)).toBeNull();
+      }
+    });
+
+    it("should not break existing API", async () => {
+      const client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      // Verify existing properties and methods still work
+      expect(client.getStatus()).toBe("disconnected");
+      expect(client.getTools()).toEqual([]);
+      expect(client.getResources()).toEqual([]);
+      expect(client.getPrompts()).toEqual([]);
+
+      await client.connect();
+      expect(client.getStatus()).toBe("connected");
+
+      await client.disconnect();
+      expect(client.getStatus()).toBe("disconnected");
+    });
+
+    it("should cache resource content and dispatch event when readResource is called", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+      await client.connect();
+
+      const uri = "file:///test.txt";
+      let eventReceived = false;
+      let eventDetail: any = null;
+
+      client.addEventListener(
+        "resourceContentChange",
+        ((event: CustomEvent) => {
+          eventReceived = true;
+          eventDetail = event.detail;
+        }) as EventListener,
+        { once: true },
+      );
+
+      const invocation = await client.readResource(uri);
+
+      // Verify cache
+      const cached = client.cache.getResource(uri);
+      expect(cached).not.toBeNull();
+      expect(cached).toBe(invocation); // Object identity preserved
+
+      // Verify event was dispatched
+      expect(eventReceived).toBe(true);
+      expect(eventDetail.uri).toBe(uri);
+      expect(eventDetail.content).toBe(invocation);
+      expect(eventDetail.timestamp).toBeInstanceOf(Date);
+
+      await client.disconnect();
+    });
+
+    it("should cache resource template content and dispatch event when readResourceFromTemplate is called", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          autoFetchServerContents: true, // Auto-fetch to populate templates
+        },
+      );
+      await client.connect();
+
+      const template = client.getResourceTemplates()[0];
+      if (!template) {
+        throw new Error("No resource templates available");
+      }
+
+      const params = { path: "test.txt" };
+      let eventReceived = false;
+      let eventDetail: any = null;
+
+      client.addEventListener(
+        "resourceTemplateContentChange",
+        ((event: CustomEvent) => {
+          eventReceived = true;
+          eventDetail = event.detail;
+        }) as EventListener,
+        { once: true },
+      );
+
+      const invocation = await client.readResourceFromTemplate(
+        template.uriTemplate,
+        params,
+      );
+
+      // Verify cache
+      const cached = client.cache.getResourceTemplate(template.uriTemplate);
+      expect(cached).not.toBeNull();
+      expect(cached).toBe(invocation); // Object identity preserved
+
+      // Verify event was dispatched
+      expect(eventReceived).toBe(true);
+      expect(eventDetail.uriTemplate).toBe(template.uriTemplate);
+      expect(eventDetail.content).toBe(invocation);
+      expect(eventDetail.params).toEqual(params);
+      expect(eventDetail.timestamp).toBeInstanceOf(Date);
+
+      await client.disconnect();
+    });
+
+    it("should cache prompt content and dispatch event when getPrompt is called", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          autoFetchServerContents: true, // Auto-fetch to populate prompts
+        },
+      );
+      await client.connect();
+
+      const prompt = client.getPrompts()[0];
+      if (!prompt) {
+        throw new Error("No prompts available");
+      }
+
+      let eventReceived = false;
+      let eventDetail: any = null;
+
+      client.addEventListener(
+        "promptContentChange",
+        ((event: CustomEvent) => {
+          eventReceived = true;
+          eventDetail = event.detail;
+        }) as EventListener,
+        { once: true },
+      );
+
+      const invocation = await client.getPrompt(prompt.name);
+
+      // Verify cache
+      const cached = client.cache.getPrompt(prompt.name);
+      expect(cached).not.toBeNull();
+      expect(cached).toBe(invocation); // Object identity preserved
+
+      // Verify event was dispatched
+      expect(eventReceived).toBe(true);
+      expect(eventDetail.name).toBe(prompt.name);
+      expect(eventDetail.content).toBe(invocation);
+      expect(eventDetail.timestamp).toBeInstanceOf(Date);
+
+      await client.disconnect();
+    });
+
+    it("should cache successful tool call result and dispatch event", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          autoFetchServerContents: true, // Auto-fetch to populate tools
+        },
+      );
+      await client.connect();
+
+      const tool = client.getTools().find((t) => t.name === "echo");
+      if (!tool) {
+        throw new Error("Echo tool not available");
+      }
+
+      let eventReceived = false;
+      let eventDetail: any = null;
+
+      client.addEventListener(
+        "toolCallResultChange",
+        ((event: CustomEvent) => {
+          eventReceived = true;
+          eventDetail = event.detail;
+        }) as EventListener,
+        { once: true },
+      );
+
+      const invocation = await client.callTool("echo", { message: "test" });
+
+      // Verify cache
+      const cached = client.cache.getToolCallResult("echo");
+      expect(cached).not.toBeNull();
+      expect(cached).toBe(invocation); // Object identity preserved
+      expect(cached?.success).toBe(true);
+
+      // Verify event was dispatched
+      expect(eventReceived).toBe(true);
+      expect(eventDetail.toolName).toBe("echo");
+      expect(eventDetail.success).toBe(true);
+      expect(eventDetail.result).not.toBeNull();
+      expect(eventDetail.timestamp).toBeInstanceOf(Date);
+
+      await client.disconnect();
+    });
+
+    it("should cache failed tool call result and dispatch event", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+      await client.connect();
+
+      let eventReceived = false;
+      let eventDetail: any = null;
+
+      client.addEventListener(
+        "toolCallResultChange",
+        ((event: CustomEvent) => {
+          eventReceived = true;
+          eventDetail = event.detail;
+        }) as EventListener,
+        { once: true },
+      );
+
+      const invocation = await client.callTool("nonexistent-tool", {});
+
+      // Verify cache
+      const cached = client.cache.getToolCallResult("nonexistent-tool");
+      expect(cached).not.toBeNull();
+      expect(cached).toBe(invocation); // Object identity preserved
+      // Note: The tool call might succeed if the server has a catch-all handler
+      // So we just verify the cache stores the result correctly
+      expect(cached?.toolName).toBe("nonexistent-tool");
+      expect(cached?.params).toEqual({});
+
+      // Verify event was dispatched
+      expect(eventReceived).toBe(true);
+      expect(eventDetail.toolName).toBe("nonexistent-tool");
+      expect(eventDetail.params).toEqual({});
+      expect(eventDetail.timestamp).toBeInstanceOf(Date);
+      // Note: success/error depends on server behavior
+
+      await client.disconnect();
+    });
+
+    it("should replace cache entry on subsequent calls", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+      await client.connect();
+
+      const uri = "file:///test.txt";
+
+      // First call
+      const invocation1 = await client.readResource(uri);
+      const cached1 = client.cache.getResource(uri);
+      expect(cached1).toBe(invocation1);
+
+      // Wait a bit to ensure different timestamp
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Second call should replace cache
+      const invocation2 = await client.readResource(uri);
+      const cached2 = client.cache.getResource(uri);
+      expect(cached2).toBe(invocation2);
+      expect(cached2).not.toBe(invocation1); // Different object
+      expect(cached2?.timestamp.getTime()).toBeGreaterThan(
+        invocation1.timestamp.getTime(),
+      );
+
+      await client.disconnect();
+    });
+
+    it("should persist cache across multiple calls", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+      await client.connect();
+
+      const uri = "file:///test.txt";
+
+      // First call
+      const invocation1 = await client.readResource(uri);
+      const cached1 = client.cache.getResource(uri);
+      expect(cached1).toBe(invocation1);
+
+      // Second call to same resource
+      const invocation2 = await client.readResource(uri);
+      const cached2 = client.cache.getResource(uri);
+      expect(cached2).toBe(invocation2);
+
+      // Cache should still be accessible
+      const cached3 = client.cache.getResource(uri);
+      expect(cached3).toBe(invocation2);
+
+      await client.disconnect();
+    });
+  });
 });

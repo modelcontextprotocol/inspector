@@ -54,6 +54,7 @@ import {
   convertPromptArguments,
 } from "../json/jsonUtils.js";
 import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
+import { ContentCache, type ReadOnlyContentCache } from "./contentCache.js";
 export interface InspectorClientOptions {
   /**
    * Client identity (name and version)
@@ -248,12 +249,18 @@ export class InspectorClient extends EventTarget {
   private pendingElicitations: ElicitationCreateMessage[] = [];
   // Roots (undefined means roots capability not enabled, empty array means enabled but no roots)
   private roots: Root[] | undefined;
+  // Content cache
+  private cacheInternal: ContentCache;
+  public readonly cache: ReadOnlyContentCache;
 
   constructor(
     private transportConfig: MCPServerConfig,
     options: InspectorClientOptions = {},
   ) {
     super();
+    // Initialize content cache
+    this.cacheInternal = new ContentCache();
+    this.cache = this.cacheInternal;
     this.maxMessages = options.maxMessages ?? 1000;
     this.maxStderrLogEvents = options.maxStderrLogEvents ?? 1000;
     this.maxFetchRequests = options.maxFetchRequests ?? 1000;
@@ -517,6 +524,8 @@ export class InspectorClient extends EventTarget {
     this.prompts = [];
     this.pendingSamples = [];
     this.pendingElicitations = [];
+    // Clear all cached content on disconnect
+    this.cacheInternal.clearAll();
     this.capabilities = undefined;
     this.serverInfo = undefined;
     this.instructions = undefined;
@@ -812,6 +821,22 @@ export class InspectorClient extends EventTarget {
         metadata,
       };
 
+      // Store in cache
+      this.cacheInternal.setToolCallResult(name, invocation);
+      // Dispatch event
+      this.dispatchEvent(
+        new CustomEvent("toolCallResultChange", {
+          detail: {
+            toolName: name,
+            params: args,
+            result: invocation.result,
+            timestamp,
+            success: true,
+            metadata,
+          },
+        }),
+      );
+
       return invocation;
     } catch (error) {
       // Merge general metadata with tool-specific metadata for error case
@@ -838,6 +863,23 @@ export class InspectorClient extends EventTarget {
         error: error instanceof Error ? error.message : String(error),
         metadata,
       };
+
+      // Store in cache (even on error)
+      this.cacheInternal.setToolCallResult(name, invocation);
+      // Dispatch event
+      this.dispatchEvent(
+        new CustomEvent("toolCallResultChange", {
+          detail: {
+            toolName: name,
+            params: args,
+            result: null,
+            timestamp,
+            success: false,
+            error: invocation.error,
+            metadata,
+          },
+        }),
+      );
 
       return invocation;
     }
@@ -889,6 +931,18 @@ export class InspectorClient extends EventTarget {
         uri,
         metadata,
       };
+      // Store in cache
+      this.cacheInternal.setResource(uri, invocation);
+      // Dispatch event
+      this.dispatchEvent(
+        new CustomEvent("resourceContentChange", {
+          detail: {
+            uri,
+            content: invocation,
+            timestamp: invocation.timestamp,
+          },
+        }),
+      );
       return invocation;
     } catch (error) {
       throw new Error(
@@ -957,6 +1011,21 @@ export class InspectorClient extends EventTarget {
       params,
       metadata,
     };
+
+    // Store in cache
+    this.cacheInternal.setResourceTemplate(uriTemplateString, invocation);
+    // Dispatch event
+    this.dispatchEvent(
+      new CustomEvent("resourceTemplateContentChange", {
+        detail: {
+          uriTemplate: uriTemplateString,
+          expandedUri,
+          content: invocation,
+          params,
+          timestamp: invocation.timestamp,
+        },
+      }),
+    );
 
     return invocation;
   }
@@ -1042,6 +1111,20 @@ export class InspectorClient extends EventTarget {
         params: Object.keys(stringArgs).length > 0 ? stringArgs : undefined,
         metadata,
       };
+
+      // Store in cache
+      this.cacheInternal.setPrompt(name, invocation);
+      // Dispatch event
+      this.dispatchEvent(
+        new CustomEvent("promptContentChange", {
+          detail: {
+            name,
+            content: invocation,
+            params: invocation.params,
+            timestamp: invocation.timestamp,
+          },
+        }),
+      );
 
       return invocation;
     } catch (error) {
