@@ -133,13 +133,13 @@ export function PromptTestModal({
 
     try {
       // Get the prompt using the provided arguments
-      const response = await inspectorClient.getPrompt(prompt.name, values);
+      const invocation = await inspectorClient.getPrompt(prompt.name, values);
 
       const duration = Date.now() - startTime;
 
       setResult({
         input: values,
-        output: response,
+        output: invocation.result,
         duration,
       });
       setState("results");

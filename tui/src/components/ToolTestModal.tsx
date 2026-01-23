@@ -117,24 +117,38 @@ export function ToolTestModal({
 
     try {
       // Use InspectorClient.callTool() which handles parameter conversion and metadata
-      const response = await inspectorClient.callTool(tool.name, values);
+      const invocation = await inspectorClient.callTool(tool.name, values);
 
       const duration = Date.now() - startTime;
 
-      // InspectorClient.callTool() returns Record<string, unknown>
-      // Check for error indicators in the response
-      const isError = "isError" in response && response.isError === true;
-      const output = isError
-        ? { error: true, content: response.content }
-        : response.structuredContent || response.content || response;
+      // InspectorClient.callTool() returns ToolCallInvocation
+      // Check if the call succeeded and extract the result
+      if (!invocation.success || invocation.result === null) {
+        // Error case: tool call failed
+        setResult({
+          input: values,
+          output: null,
+          error: invocation.error || "Tool call failed",
+          errorDetails: invocation,
+          duration,
+        });
+      } else {
+        // Success case: extract the result
+        const result = invocation.result;
+        // Check for error indicators in the result (SDK may return error in result)
+        const isError = "isError" in result && result.isError === true;
+        const output = isError
+          ? { error: true, content: result.content }
+          : result.structuredContent || result.content || result;
 
-      setResult({
-        input: values,
-        output: isError ? null : output,
-        error: isError ? "Tool returned an error" : undefined,
-        errorDetails: isError ? output : undefined,
-        duration,
-      });
+        setResult({
+          input: values,
+          output: isError ? null : output,
+          error: isError ? "Tool returned an error" : undefined,
+          errorDetails: isError ? output : undefined,
+          duration,
+        });
+      }
       setState("results");
     } catch (error) {
       const duration = Date.now() - startTime;

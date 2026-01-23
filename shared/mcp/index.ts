@@ -17,6 +17,11 @@ export type {
   MessageEntry,
   FetchRequestEntry,
   ServerState,
+  // Invocation types (returned from InspectorClient methods)
+  ResourceReadInvocation,
+  ResourceTemplateReadInvocation,
+  PromptGetInvocation,
+  ToolCallInvocation,
 } from "./types.js";
 
 // Re-export JSON utilities

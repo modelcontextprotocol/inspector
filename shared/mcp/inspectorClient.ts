@@ -5,6 +5,10 @@ import type {
   ConnectionStatus,
   MessageEntry,
   FetchRequestEntry,
+  ResourceReadInvocation,
+  ResourceTemplateReadInvocation,
+  PromptGetInvocation,
+  ToolCallInvocation,
 } from "./types.js";
 import {
   createTransport,
@@ -751,7 +755,7 @@ export class InspectorClient extends EventTarget {
     args: Record<string, JsonValue>,
     generalMetadata?: Record<string, string>,
     toolSpecificMetadata?: Record<string, string>,
-  ): Promise<CallToolResult> {
+  ): Promise<ToolCallInvocation> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -787,19 +791,55 @@ export class InspectorClient extends EventTarget {
         };
       }
 
-      const response = await this.client.callTool({
+      const timestamp = new Date();
+      const metadata =
+        mergedMetadata && Object.keys(mergedMetadata).length > 0
+          ? mergedMetadata
+          : undefined;
+
+      const result = await this.client.callTool({
         name: name,
         arguments: convertedArgs,
-        _meta:
-          mergedMetadata && Object.keys(mergedMetadata).length > 0
-            ? mergedMetadata
-            : undefined,
+        _meta: metadata,
       });
-      return response as CallToolResult;
+
+      const invocation: ToolCallInvocation = {
+        toolName: name,
+        params: args,
+        result: result as CallToolResult,
+        timestamp,
+        success: true,
+        metadata,
+      };
+
+      return invocation;
     } catch (error) {
-      throw new Error(
-        `Failed to call tool ${name}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      // Merge general metadata with tool-specific metadata for error case
+      let mergedMetadata: Record<string, string> | undefined;
+      if (generalMetadata || toolSpecificMetadata) {
+        mergedMetadata = {
+          ...(generalMetadata || {}),
+          ...(toolSpecificMetadata || {}),
+        };
+      }
+
+      const timestamp = new Date();
+      const metadata =
+        mergedMetadata && Object.keys(mergedMetadata).length > 0
+          ? mergedMetadata
+          : undefined;
+
+      const invocation: ToolCallInvocation = {
+        toolName: name,
+        params: args,
+        result: null,
+        timestamp,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        metadata,
+      };
+
+      return invocation;
     }
   }
 
@@ -833,7 +873,7 @@ export class InspectorClient extends EventTarget {
   async readResource(
     uri: string,
     metadata?: Record<string, string>,
-  ): Promise<ReadResourceResult> {
+  ): Promise<ResourceReadInvocation> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -842,8 +882,14 @@ export class InspectorClient extends EventTarget {
       if (metadata && Object.keys(metadata).length > 0) {
         params._meta = metadata;
       }
-      const response = await this.client.readResource(params);
-      return response;
+      const result = await this.client.readResource(params);
+      const invocation: ResourceReadInvocation = {
+        result,
+        timestamp: new Date(),
+        uri,
+        metadata,
+      };
+      return invocation;
     } catch (error) {
       throw new Error(
         `Failed to read resource ${uri}: ${error instanceof Error ? error.message : String(error)}`,
@@ -865,11 +911,7 @@ export class InspectorClient extends EventTarget {
     uriTemplate: string,
     params: Record<string, string>,
     metadata?: Record<string, string>,
-  ): Promise<{
-    contents: Array<{ uri: string; mimeType?: string; text: string }>;
-    uri: string; // The expanded URI
-    uriTemplate: string; // The uriTemplate for reference
-  }> {
+  ): Promise<ResourceTemplateReadInvocation> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -904,24 +946,19 @@ export class InspectorClient extends EventTarget {
     }
 
     // Always fetch fresh content: Call readResource with expanded URI
-    const response = await this.readResource(expandedUri, metadata);
+    const readInvocation = await this.readResource(expandedUri, metadata);
 
-    // Extract contents from response (response.contents is the standard format)
-    const contents =
-      (response.contents as Array<{
-        uri: string;
-        mimeType?: string;
-        text: string;
-      }>) || [];
-
-    // Return the response in the expected format
-    // Include the full response for backward compatibility, plus the expanded URI and uriTemplate
-    return {
-      ...response,
-      contents,
-      uri: expandedUri,
-      uriTemplate,
+    // Create the template invocation object
+    const invocation: ResourceTemplateReadInvocation = {
+      uriTemplate: uriTemplateString,
+      expandedUri,
+      result: readInvocation.result,
+      timestamp: readInvocation.timestamp,
+      params,
+      metadata,
     };
+
+    return invocation;
   }
 
   /**
@@ -979,7 +1016,7 @@ export class InspectorClient extends EventTarget {
     name: string,
     args?: Record<string, JsonValue>,
     metadata?: Record<string, string>,
-  ): Promise<GetPromptResult> {
+  ): Promise<PromptGetInvocation> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -996,9 +1033,17 @@ export class InspectorClient extends EventTarget {
         params._meta = metadata;
       }
 
-      const response = await this.client.getPrompt(params);
+      const result = await this.client.getPrompt(params);
 
-      return response;
+      const invocation: PromptGetInvocation = {
+        result,
+        timestamp: new Date(),
+        name,
+        params: Object.keys(stringArgs).length > 0 ? stringArgs : undefined,
+        metadata,
+      };
+
+      return invocation;
     } catch (error) {
       throw new Error(
         `Failed to get prompt: ${error instanceof Error ? error.message : String(error)}`,
