@@ -85,6 +85,66 @@ export class TestServerHttp {
   }
 
   /**
+   * Set up message interception for a transport to record incoming messages
+   * This wraps the transport's onmessage handler to record requests/notifications
+   */
+  private setupMessageInterception(
+    transport: StreamableHTTPServerTransport | SSEServerTransport,
+  ): void {
+    const originalOnMessage = transport.onmessage;
+    transport.onmessage = async (message) => {
+      const timestamp = Date.now();
+      const method =
+        "method" in message && typeof message.method === "string"
+          ? message.method
+          : "unknown";
+      const params = "params" in message ? message.params : undefined;
+
+      try {
+        // Extract metadata from params if present
+        const metadata =
+          params && typeof params === "object" && "_meta" in params
+            ? ((params as any)._meta as Record<string, string>)
+            : undefined;
+
+        // Let the server handle the message
+        if (originalOnMessage) {
+          await originalOnMessage.call(transport, message);
+        }
+
+        // Record successful request/notification
+        this.recordedRequests.push({
+          method,
+          params,
+          headers: { ...this.currentRequestHeaders },
+          metadata: metadata ? { ...metadata } : undefined,
+          response: { processed: true },
+          timestamp,
+        });
+      } catch (error) {
+        // Extract metadata from params if present
+        const metadata =
+          params && typeof params === "object" && "_meta" in params
+            ? ((params as any)._meta as Record<string, string>)
+            : undefined;
+
+        // Record error
+        this.recordedRequests.push({
+          method,
+          params,
+          headers: { ...this.currentRequestHeaders },
+          metadata: metadata ? { ...metadata } : undefined,
+          response: {
+            error: error instanceof Error ? error.message : String(error),
+          },
+          timestamp,
+        });
+        throw error;
+      }
+    };
+  }
+
+  /**
    * Start the server using the configuration from ServerConfig
    */
   async start(): Promise<number> {
@@ -147,57 +207,7 @@ export class TestServerHttp {
         });
 
         // Set up message interception for this transport
-        const originalOnMessage = newTransport.onmessage;
-        newTransport.onmessage = async (message) => {
-          const timestamp = Date.now();
-          const method =
-            "method" in message && typeof message.method === "string"
-              ? message.method
-              : "unknown";
-          const params = "params" in message ? message.params : undefined;
-
-          try {
-            // Extract metadata from params if present
-            const metadata =
-              params && typeof params === "object" && "_meta" in params
-                ? ((params as any)._meta as Record<string, string>)
-                : undefined;
-
-            // Let the server handle the message
-            if (originalOnMessage) {
-              await originalOnMessage.call(newTransport, message);
-            }
-
-            // Record successful request
-            this.recordedRequests.push({
-              method,
-              params,
-              headers: { ...this.currentRequestHeaders },
-              metadata: metadata ? { ...metadata } : undefined,
-              response: { processed: true },
-              timestamp,
-            });
-          } catch (error) {
-            // Extract metadata from params if present
-            const metadata =
-              params && typeof params === "object" && "_meta" in params
-                ? ((params as any)._meta as Record<string, string>)
-                : undefined;
-
-            // Record error
-            this.recordedRequests.push({
-              method,
-              params,
-              headers: { ...this.currentRequestHeaders },
-              metadata: metadata ? { ...metadata } : undefined,
-              response: {
-                error: error instanceof Error ? error.message : String(error),
-              },
-              timestamp,
-            });
-            throw error;
-          }
-        };
+        this.setupMessageInterception(newTransport);
 
         // Connect the MCP server to this transport
         await this.mcpServer.connect(newTransport);
@@ -283,54 +293,7 @@ export class TestServerHttp {
       });
 
       // Intercept messages
-      const originalOnMessage = sseTransport.onmessage;
-      sseTransport.onmessage = async (message) => {
-        const timestamp = Date.now();
-        const method =
-          "method" in message && typeof message.method === "string"
-            ? message.method
-            : "unknown";
-        const params = "params" in message ? message.params : undefined;
-
-        try {
-          // Extract metadata from params if present
-          const metadata =
-            params && typeof params === "object" && "_meta" in params
-              ? ((params as any)._meta as Record<string, string>)
-              : undefined;
-
-          if (originalOnMessage) {
-            originalOnMessage.call(sseTransport, message);
-          }
-
-          this.recordedRequests.push({
-            method,
-            params,
-            headers: { ...this.currentRequestHeaders },
-            metadata: metadata ? { ...metadata } : undefined,
-            response: { processed: true },
-            timestamp,
-          });
-        } catch (error) {
-          // Extract metadata from params if present
-          const metadata =
-            params && typeof params === "object" && "_meta" in params
-              ? ((params as any)._meta as Record<string, string>)
-              : undefined;
-
-          this.recordedRequests.push({
-            method,
-            params,
-            headers: { ...this.currentRequestHeaders },
-            metadata: metadata ? { ...metadata } : undefined,
-            response: {
-              error: error instanceof Error ? error.message : String(error),
-            },
-            timestamp,
-          });
-          throw error;
-        }
-      };
+      this.setupMessageInterception(sseTransport);
 
       // Connect server to transport (this automatically calls start())
       await this.mcpServer.connect(sseTransport);

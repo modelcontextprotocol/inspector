@@ -9,8 +9,8 @@ import * as z from "zod/v4";
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import {
   CreateMessageResultSchema,
-  ElicitRequestSchema,
   ElicitResultSchema,
+  ListRootsResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
   ToolDefinition,
@@ -140,6 +140,45 @@ export function createCollectSampleTool(): ToolDefinition {
           error,
         );
         throw error;
+      }
+    },
+  };
+}
+
+/**
+ * Create a "listRoots" tool that calls roots/list and returns the roots
+ */
+export function createListRootsTool(): ToolDefinition {
+  return {
+    name: "listRoots",
+    description: "List the current roots configured on the client",
+    inputSchema: {},
+    handler: async (
+      _params: Record<string, any>,
+      server?: McpServer,
+    ): Promise<any> => {
+      if (!server) {
+        throw new Error("Server instance not available");
+      }
+
+      try {
+        // Call roots/list on the client
+        const result = await server.server.request(
+          {
+            method: "roots/list",
+          },
+          ListRootsResultSchema,
+        );
+
+        return {
+          message: `Roots: ${JSON.stringify(result.roots, null, 2)}`,
+          roots: result.roots,
+        };
+      } catch (error) {
+        return {
+          message: `Error listing roots: ${error instanceof Error ? error.message : String(error)}`,
+          error: true,
+        };
       }
     },
   };
