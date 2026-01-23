@@ -6,6 +6,13 @@ export type { InspectorClientOptions } from "./inspectorClient.js";
 
 export { loadMcpServersConfig, argsToMcpServerConfig } from "./config.js";
 
+// Re-export ContentCache
+export {
+  ContentCache,
+  type ReadOnlyContentCache,
+  type ReadWriteContentCache,
+} from "./contentCache.js";
+
 // Re-export types used by consumers
 export type {
   // Config types

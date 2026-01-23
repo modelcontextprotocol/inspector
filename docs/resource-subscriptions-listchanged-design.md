@@ -300,27 +300,25 @@ supportsResourceSubscriptions(): boolean;
 **Behavior:**
 
 1. Check if the resource URI is in `this.subscribedResources`
-2. If subscribed AND content is cached (checked via `client.cache.getResource(uri)` for regular resources):
-   - Reload the resource content via `readResource()` (which will fetch fresh and update `this.cache.resourceContentCache`)
-   - Dispatch `resourceContentChange` event with updated content
-3. If subscribed but not cached:
-   - Optionally reload (or wait for user to view it)
-   - Dispatch `resourceUpdated` event (descriptor-only update)
+2. If subscribed:
+   - Clear the resource from cache using `this.cacheInternal.clearResourceAndResourceTemplate(uri)`
+   - This method clears both regular resources cached by URI and resource templates with matching `expandedUri`
+   - Dispatch `resourceUpdated` event to notify UI that the resource has changed
+3. If not subscribed:
+   - Ignore the notification (no action needed)
 
 **Event:**
 
 ```typescript
 // New event type
-interface ResourceContentChangeEvent extends CustomEvent {
+interface ResourceUpdatedEvent extends CustomEvent {
   detail: {
     uri: string;
-    content: {
-      contents: Array<{ uri: string; mimeType?: string; text: string }>;
-      timestamp: Date;
-    };
   };
 }
 ```
+
+**Note:** The cache's `clearResourceAndResourceTemplate()` method handles clearing both regular resources and resource templates that match the URI, so the handler doesn't need to check multiple cache types.
 
 ### 6. Cache API Design
 
@@ -351,6 +349,7 @@ client.cache.getToolCallResult(toolName);
 
 // Clear methods (remove cached content)
 client.cache.clearResource(uri);
+client.cache.clearResourceAndResourceTemplate(uri); // Clears both regular resources and resource templates with matching expandedUri
 client.cache.clearResourceTemplate(uriTemplate);
 client.cache.clearPrompt(name);
 client.cache.clearToolCallResult(toolName);
@@ -384,70 +383,28 @@ class InspectorClient {
   private tools: Tool[] = [];
 
   // Single integrated cache object
-  public readonly cache: ContentCache;
+  private cacheInternal: ContentCache; // Full access for InspectorClient
+  public readonly cache: ReadOnlyContentCache; // Read-only access for users
 
   constructor(...) {
     // Create integrated cache object
-    this.cache = new ContentCache();
+    this.cacheInternal = new ContentCache();
+    this.cache = this.cacheInternal; // Expose read-only interface
   }
-}
-
-class ContentCache {
-  // Internal storage - all cached content managed by this single object
-  private resourceContentCache: Map<string, ResourceReadInvocation> = new Map(); // Keyed by URI
-  private resourceTemplateContentCache: Map<string, ResourceTemplateReadInvocation> = new Map(); // Keyed by uriTemplate
-  private promptContentCache: Map<string, PromptGetInvocation> = new Map();
-  private toolCallResultCache: Map<string, ToolCallInvocation> = new Map();
-
-  getResource(uri: string): ResourceReadInvocation | null {
-    return this.resourceContentCache.get(uri) ?? null;
-  }
-
-  getResourceTemplate(uriTemplate: string): ResourceTemplateReadInvocation | null {
-    // Look up by uriTemplate (the unique ID of the template)
-    return this.resourceTemplateContentCache.get(uriTemplate) ?? null;
-  }
-
-  getPrompt(name: string): PromptGetInvocation | null {
-    return this.promptContentCache.get(name) ?? null;
-  }
-
-  getToolCallResult(toolName: string): ToolCallInvocation | null {
-    return this.toolCallResultCache.get(toolName) ?? null;
-  }
-
-  clearResource(uri: string): void {
-    this.resourceContentCache.delete(uri);
-  }
-
-  clearPrompt(name: string): void {
-    this.promptContentCache.delete(name);
-  }
-
-  clearToolCallResult(toolName: string): void {
-    this.toolCallResultCache.delete(toolName);
-  }
-
-  clearAll(): void {
-    this.resourceContentCache.clear();
-    this.promptContentCache.clear();
-    this.toolCallResultCache.clear();
-  }
-
-  // Future: getStats(), configure(), etc.
 }
 ```
 
+**Note:** The `ContentCache` class is already implemented in `shared/mcp/contentCache.ts` with all getter, setter, and clear methods for resources, resource templates, prompts, and tool call results.
+
 **Cache Storage:**
 
-- Cache content is **automatically stored** when fetch methods are called:
-  - `readResource(uri)` → stores in `this.cache.resourceContentCache.set(uri, {...})`
-  - `readResourceFromTemplate(uriTemplate, params)` → stores in `this.cache.resourceTemplateContentCache.set(uriTemplate, {...})`
-  - `getPrompt(name, args)` → stores in `this.cache.promptContentCache.set(name, {...})`
-  - `callTool(name, args)` → stores in `this.cache.toolCallResultCache.set(name, {...})`
-- There are **no explicit setter methods** on the cache object - content is set automatically by InspectorClient methods
+- Cache content is **automatically stored** when fetch methods are called (in Phase 2):
+  - `readResource(uri)` → stores via `this.cacheInternal.setResource(uri, invocation)`
+  - `readResourceFromTemplate(uriTemplate, params)` → stores via `this.cacheInternal.setResourceTemplate(uriTemplate, invocation)`
+  - `getPrompt(name, args)` → stores via `this.cacheInternal.setPrompt(name, invocation)`
+  - `callTool(name, args)` → stores via `this.cacheInternal.setToolCallResult(name, invocation)`
 - The cache object provides **read-only access** via getter methods and **clear methods** for cache management
-- InspectorClient methods directly access the cache's internal maps to store content (the cache object owns the maps)
+- InspectorClient uses `cacheInternal` (full access) to store content, and exposes `cache` (read-only) to users
 
 **Usage Pattern:**
 
@@ -517,11 +474,9 @@ async readResourceFromTemplate(
      - Use SDK's `UriTemplate` class: `new UriTemplate(uriTemplate).expand(params)`
   4. Always fetch fresh content: Call `this.readResource(expandedUri, metadata)` (InspectorClient method) → returns `ResourceReadInvocation`
   5. Create invocation object: `const invocation: ResourceTemplateReadInvocation = { uriTemplate, expandedUri, result: readInvocation.result, timestamp: readInvocation.timestamp, params, metadata }`
-  6. Store in cache: `this.cacheInternal.setResourceTemplate(uriTemplate, invocation)` (TODO: add in Phase 3)
-  7. Dispatch `resourceTemplateContentChange` event (TODO: add in Phase 3)
+  6. Store in cache: `this.cacheInternal.setResourceTemplate(uriTemplate, invocation)` (TODO: add in Phase 2)
+  7. Dispatch `resourceTemplateContentChange` event (TODO: add in Phase 2)
   8. Return the invocation object (same object that's in the cache)
-
-  **Note:** ✅ Steps 1-5 and 8 are already implemented. Steps 6 and 7 will be added in Phase 3 when the cache is integrated.
 
 **Resource Matching Logic:**
 
@@ -593,11 +548,9 @@ clearAllPromptContent(): void;
   1. Convert args to strings (using existing `convertPromptArguments()`)
   2. Always fetch fresh content: Call `client.getPrompt(name, stringArgs, metadata)` (SDK method) → returns `GetPromptResult`
   3. Create invocation object: `const invocation: PromptGetInvocation = { result, timestamp: new Date(), name, params: stringArgs, metadata }`
-  4. Store in cache: `this.cacheInternal.setPrompt(name, invocation)` (TODO: add in Phase 3)
-  5. Dispatch `promptContentChange` event (TODO: add in Phase 3)
+  4. Store in cache: `this.cacheInternal.setPrompt(name, invocation)` (TODO: add in Phase 2)
+  5. Dispatch `promptContentChange` event (TODO: add in Phase 2)
   6. Return the invocation object (same object that's in the cache)
-
-  **Note:** ✅ Steps 1-3 and 6 are already implemented. Steps 4 and 5 will be added in Phase 3 when the cache is integrated. This method now returns `PromptGetInvocation` instead of `GetPromptResult`. Access the SDK result via `invocation.result`.
 
 - `client.cache.getPrompt(name)` (ContentCache method):
   - Accesses `this.promptContentCache` map (owned by ContentCache) by prompt name
@@ -699,62 +652,9 @@ async callTool(
 
 ## Implementation Plan
 
-### Phase 1: ContentCache Module (Standalone)
+### Phase 1: Integrate ContentCache into InspectorClient (Infrastructure Only)
 
-**Goal:** Create and test the ContentCache module independently before integration.
-
-**Deliverables:**
-
-1. ✅ **COMPLETED** - Invocation type interfaces defined in `shared/mcp/types.ts`:
-   - `ResourceReadInvocation` - wraps `ReadResourceResult` with `uri`, `timestamp`, `metadata`
-   - `ResourceTemplateReadInvocation` - wraps `ReadResourceResult` with `uriTemplate`, `expandedUri`, `params`, `timestamp`, `metadata`
-   - `PromptGetInvocation` - wraps `GetPromptResult` with `name`, `params`, `timestamp`, `metadata`
-   - `ToolCallInvocation` - wraps `CallToolResult` (or `null` on error) with `toolName`, `params`, `success`, `error`, `timestamp`, `metadata`
-   - ✅ **COMPLETED** - `InspectorClient` methods now return invocation types:
-     - `readResource()` → `Promise<ResourceReadInvocation>`
-     - `readResourceFromTemplate()` → `Promise<ResourceTemplateReadInvocation>`
-     - `getPrompt()` → `Promise<PromptGetInvocation>`
-     - `callTool()` → `Promise<ToolCallInvocation>`
-   - ✅ **COMPLETED** - Types exported from `shared/mcp/index.ts`
-   - ✅ **COMPLETED** - Tests updated to handle invocation types
-   - ✅ **COMPLETED** - CLI updated to extract `.result` from invocation objects
-2. Create new module `shared/mcp/contentCache.ts`
-3. Import invocation types from `./types.js` in `contentCache.ts`
-4. Define `ReadOnlyContentCache` interface (getters and clear methods)
-5. Define `ReadWriteContentCache` interface (extends ReadOnlyContentCache, adds setters)
-6. Implement `ContentCache` class that implements `ReadWriteContentCache`:
-   - Internal Maps for each cache type
-   - Getter methods (return `null` if not cached)
-   - Clear methods (individual and `clearAll()`)
-   - Setter methods (for internal use)
-
-**Testing:**
-
-- Unit tests for ContentCache class in `shared/__tests__/contentCache.test.ts`
-- Test get/set/clear operations for each cache type
-- Test that ReadOnlyContentCache interface prevents setter access
-- Test edge cases (clearing non-existent entries, multiple operations)
-
-**Acceptance Criteria:**
-
-- ✅ Invocation types are defined in `shared/mcp/types.ts` and exported
-- ✅ `InspectorClient` methods return invocation types
-- ✅ Tests updated to handle invocation types
-- ✅ CLI updated to extract results from invocation objects
-- ContentCache can be instantiated
-- All getter methods return `null` for non-existent entries
-- All setter methods store entries correctly
-- Clear methods work for individual entries and all entries
-- Type safety is maintained (no `any` types)
-- All tests pass
-
-**Rationale:** Testing the cache module standalone ensures it works correctly before integrating it into InspectorClient, making debugging easier and reducing risk.
-
-**Note:** Invocation types have already been implemented and integrated into `InspectorClient`. The remaining work for Phase 1 is to create the `ContentCache` module itself.
-
----
-
-### Phase 2: Integrate ContentCache into InspectorClient (Infrastructure Only)
+**Note:** The `ContentCache` module has been implemented and tested. It provides `ReadOnlyContentCache` and `ReadWriteContentCache` interfaces, and the `ContentCache` class with get/set/clear methods for all cache types.
 
 **Goal:** Add ContentCache to InspectorClient without changing existing behavior.
 
@@ -785,7 +685,7 @@ async callTool(
 
 ---
 
-### Phase 3: Implement All Caching Types
+### Phase 2: Implement All Caching Types
 
 **Goal:** Add caching to all fetch methods (resources, templates, prompts, tool results) simultaneously.
 
@@ -796,15 +696,12 @@ async callTool(
    - Store in cache: `this.cacheInternal.setResource(uri, { result, timestamp })`
    - Dispatch `resourceContentChange` event
 2. Modify `readResourceFromTemplate()` to:
-   - **Already implemented** - Method already returns `ResourceTemplateReadInvocation` and creates invocation objects
-   - Store in cache: `this.cacheInternal.setResourceTemplate(uriTemplate, invocation)` (invocation object already created)
+   - Store in cache: `this.cacheInternal.setResourceTemplate(uriTemplate, invocation)`
    - Dispatch `resourceTemplateContentChange` event
 3. Modify `getPrompt()` to:
-   - **Already implemented** - Method already returns `PromptGetInvocation` and creates invocation objects
-   - Store in cache: `this.cacheInternal.setPrompt(name, invocation)` (invocation object already created)
+   - Store in cache: `this.cacheInternal.setPrompt(name, invocation)`
    - Dispatch `promptContentChange` event
 4. Modify `callTool()` to:
-   - **Already implemented** - Method already returns `ToolCallInvocation` and creates invocation objects
    - On success: Store in cache: `this.cacheInternal.setToolCallResult(name, invocation)` (invocation with `success: true`)
    - On error: Store in cache: `this.cacheInternal.setToolCallResult(name, invocation)` (invocation with `success: false` and error)
    - Dispatch `toolCallResultChange` event
@@ -826,7 +723,6 @@ async callTool(
 **Acceptance Criteria:**
 
 - All fetch methods continue to work as before (no breaking changes)
-- ✅ Methods already return invocation types (completed in previous work)
 - Content is stored in cache after each fetch operation
 - Cache getters return cached content correctly
 - Events are dispatched with correct detail structure
@@ -834,11 +730,9 @@ async callTool(
 
 **Rationale:** Implementing all cache types together is efficient since they follow the same pattern. The cache module is already tested, so this phase focuses on integration.
 
-**Note:** The invocation type implementation is complete. This phase focuses on adding caching behavior to the existing methods (storing invocation objects in the cache and dispatching events).
-
 ---
 
-### Phase 4: Configuration and Subscription Infrastructure
+### Phase 3: Configuration and Subscription Infrastructure
 
 **Goal:** Add configuration options and subscription state management (no handlers yet).
 
@@ -871,7 +765,7 @@ async callTool(
 
 ---
 
-### Phase 5: ListChanged Notification Handlers
+### Phase 4: ListChanged Notification Handlers
 
 **Goal:** Add handlers for listChanged notifications that reload lists and preserve cache.
 
@@ -958,11 +852,11 @@ async callTool(
 - Events are dispatched correctly
 - Configuration controls handler setup
 
-**Rationale:** This phase depends on Phase 3 (caching) to test cache preservation behavior. The cache infrastructure is already in place, so this focuses on notification handling.
+**Rationale:** This phase depends on Phase 2 (caching) to test cache preservation behavior. The cache infrastructure is already in place, so this focuses on notification handling.
 
 ---
 
-### Phase 6: Resource Subscriptions
+### Phase 5: Resource Subscriptions
 
 **Goal:** Add subscribe/unsubscribe methods and handle resource updated notifications.
 
@@ -980,9 +874,8 @@ async callTool(
 3. Set up `notifications/resources/updated` handler in `connect()` (only if server supports subscriptions)
 4. Handler logic:
    - Check if resource is subscribed
-   - If subscribed AND cached: Reload content via `readResource()` (which updates cache)
-   - If subscribed but not cached: Dispatch `resourceUpdated` event (descriptor-only)
-   - Dispatch `resourceContentChange` event if content was reloaded
+   - If subscribed: Clear cache using `this.cacheInternal.clearResourceAndResourceTemplate(uri)` (clears both regular resources and resource templates with matching expandedUri)
+   - Dispatch `resourceUpdated` event to notify UI
 5. Add event types:
    - `resourceSubscriptionsChange`
    - `resourceUpdated`
@@ -994,8 +887,8 @@ async callTool(
 - Test that subscription state is tracked correctly
 - Test that `resourceSubscriptionsChange` event is dispatched
 - Test that handler only processes subscribed resources
-- Test that cached resources are reloaded automatically
-- Test that non-cached resources trigger `resourceUpdated` event
+- Test that cached resources are cleared from cache (both regular resources and resource templates with matching expandedUri)
+- Test that `resourceUpdated` event is dispatched when resource is cleared
 - Test that subscription fails gracefully if server doesn't support it
 - Test with test server that supports subscriptions and sends resource updated notifications
 
@@ -1004,23 +897,23 @@ async callTool(
 - Subscribe/unsubscribe methods work correctly
 - Subscription state is tracked
 - Resource updated notifications are handled correctly
-- Cached resources are auto-reloaded
+- Cached resources are cleared from cache (both regular resources and resource templates)
 - Events are dispatched correctly
 - Graceful handling of unsupported servers
 - No breaking changes to existing API
 
-**Rationale:** This phase depends on Phase 3 (resource caching) for the auto-reload functionality. The subscription infrastructure from Phase 4 is already in place.
+**Rationale:** This phase depends on Phase 2 (resource caching) for cache clearing functionality. The subscription infrastructure from Phase 3 is already in place.
 
 ---
 
-### Phase 7: Integration Testing and Documentation
+### Phase 6: Integration Testing and Documentation
 
 **Goal:** Comprehensive testing, edge case handling, and documentation updates.
 
 **Deliverables:**
 
 1. Integration tests covering:
-   - Full workflow: subscribe → receive update → content reloaded
+   - Full workflow: subscribe → receive update → cache cleared
    - ListChanged notifications for all types
    - Cache persistence across list reloads
    - Cache clearing on disconnect
