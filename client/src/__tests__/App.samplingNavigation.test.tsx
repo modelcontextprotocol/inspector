@@ -229,7 +229,7 @@ describe("App - Sampling auto-navigation", () => {
       expect(screen.getByTestId("sampling-request")).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByText("Reject"));
+    fireEvent.click(screen.getByRole("button", { name: /Reject/i }));
 
     await waitFor(() => {
       expect(reject).toHaveBeenCalled();
