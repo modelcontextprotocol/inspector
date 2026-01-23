@@ -27,9 +27,9 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 | Call tool                           | ✅              | ✅            | ✅  | -                 |
 | Tools listChanged notifications     | ❌              | ✅            | ❌  | Medium            |
 | **Roots**                           |
-| List roots                          | ❌              | ✅            | ❌  | Medium            |
-| Set roots                           | ❌              | ✅            | ❌  | Medium            |
-| Roots listChanged notifications     | ❌              | ✅            | ❌  | Medium            |
+| List roots                          | ✅              | ✅            | ❌  | Medium            |
+| Set roots                           | ✅              | ✅            | ❌  | Medium            |
+| Roots listChanged notifications     | ✅              | ✅            | ❌  | Medium            |
 | **Authentication**                  |
 | OAuth 2.1 flow                      | ❌              | ✅            | ❌  | High              |
 | Custom headers                      | ✅ (config)     | ✅ (UI)       | ❌  | Medium            |
@@ -295,12 +295,15 @@ Roots are file system paths (as `file://` URIs) that define which directories an
   - When roots are changed, `handleRootsChange` is called to send updated roots to server
 - **Notification Support**: Handles `notifications/roots/list_changed` notifications (via fallback handler)
 
-**InspectorClient Status:**
+**InspectorClient Support:**
 
-- ❌ No `listRoots()` method
-- ❌ No `setRoots(roots)` method
-- ❌ No notification handler for `notifications/roots/list_changed`
-- ❌ No `roots: { listChanged: true }` capability declaration
+- ✅ `getRoots()` method - Returns current roots
+- ✅ `setRoots(roots)` method - Updates roots and sends notification to server if supported
+- ✅ Handler for `roots/list` requests from server (returns current roots)
+- ✅ Notification handler for `notifications/roots/list_changed` from server
+- ✅ `roots: { listChanged: true }` capability declaration (when `roots` option is provided)
+- ✅ `rootsChange` event dispatched when roots are updated
+- ✅ Roots configured via `roots` option in `InspectorClientOptions` (even empty array enables capability)
 
 **TUI Status:**
 
@@ -309,14 +312,15 @@ Roots are file system paths (as `file://` URIs) that define which directories an
 
 **Implementation Requirements:**
 
-- Add `listRoots()` method to `InspectorClient` (calls `roots/list` MCP method)
-- Add `setRoots(roots)` method to `InspectorClient` (calls `roots/set` MCP method, if supported)
-- Add notification handler for `notifications/roots/list_changed`
-- Add `roots: { listChanged: true }` capability declaration in `InspectorClient.connect()`
-- Add UI in TUI for managing roots (similar to web client's `RootsTab`)
+- ✅ `getRoots()` and `setRoots()` methods - **COMPLETED** in `InspectorClient`
+- ✅ Handler for `roots/list` requests - **COMPLETED** in `InspectorClient`
+- ✅ Notification handler for `notifications/roots/list_changed` - **COMPLETED** in `InspectorClient`
+- ✅ `roots: { listChanged: true }` capability declaration - **COMPLETED** in `InspectorClient`
+- ❌ Add UI in TUI for managing roots (similar to web client's `RootsTab`)
 
 **Code References:**
 
+- `InspectorClient`: `shared/mcp/inspectorClient.ts` - `getRoots()`, `setRoots()`, roots/list handler, and notification support
 - Web client: `client/src/components/RootsTab.tsx` - Roots management UI
 - Web client: `client/src/lib/hooks/useConnection.ts` (lines 422-424, 357) - Capability declaration and `getRoots` callback
 - Web client: `client/src/App.tsx` (lines 1225-1229) - RootsTab usage
@@ -443,10 +447,12 @@ Based on this analysis, `InspectorClient` needs the following additions:
    - ❌ Auto-refresh lists when notifications received - Needs to be added
 
 7. **Roots Support**:
-   - ❌ `listRoots()` method - Needs to be added
-   - ❌ `setRoots(roots)` method - Needs to be added
-   - ❌ Notification handler for `notifications/roots/list_changed` - Needs to be added
-   - ❌ `roots: { listChanged: true }` capability declaration - Needs to be added
+   - ✅ `getRoots()` method - Already exists
+   - ✅ `setRoots(roots)` method - Already exists
+   - ✅ Handler for `roots/list` requests - Already exists
+   - ✅ Notification handler for `notifications/roots/list_changed` - Already exists
+   - ✅ `roots: { listChanged: true }` capability declaration - Already exists (when `roots` option provided)
+   - ❌ Integration into TUI for managing roots
 
 ## Notes
 
@@ -457,7 +463,7 @@ Based on this analysis, `InspectorClient` needs the following additions:
 - **Sampling**: `InspectorClient` has full sampling support. Web client UI displays and handles sampling requests. TUI needs UI to display and handle sampling requests.
 - **Elicitation**: `InspectorClient` has full elicitation support. Web client UI displays and handles elicitation requests. TUI needs UI to display and handle elicitation requests.
 - **ListChanged Notifications**: Web client handles `listChanged` notifications for tools, resources, and prompts, automatically refreshing lists when notifications are received. `InspectorClient` does not yet support these notifications. TUI also does not support them.
-- **Roots**: Web client has full roots support with a `RootsTab` for managing file system roots. `InspectorClient` does not yet support roots (no `listRoots()` or `setRoots()` methods). TUI also does not support roots.
+- **Roots**: `InspectorClient` has full roots support with `getRoots()` and `setRoots()` methods, handler for `roots/list` requests, and notification support. Web client has a `RootsTab` UI for managing roots. TUI does not yet have UI for managing roots.
 
 ## Related Documentation
 

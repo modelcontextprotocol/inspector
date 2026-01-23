@@ -16,6 +16,7 @@ import {
   createCollectSampleTool,
   createCollectElicitationTool,
   createSendNotificationTool,
+  createListRootsTool,
   createArgsPrompt,
 } from "../test/test-server-fixtures.js";
 import type { MessageEntry } from "../mcp/types.js";
@@ -1238,6 +1239,153 @@ describe("InspectorClient", () => {
       // Verify the pending elicitation was removed
       const pendingElicitations = client.getPendingElicitations();
       expect(pendingElicitations.length).toBe(0);
+    });
+  });
+
+  describe("Roots Support", () => {
+    it("should handle roots/list request from server and return roots", async () => {
+      // Create a test server with the listRoots tool
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createListRootsTool()],
+        serverType: "streamable-http",
+      });
+
+      await server.start();
+
+      // Create client with roots enabled
+      const initialRoots = [
+        { uri: "file:///test1", name: "Test Root 1" },
+        { uri: "file:///test2", name: "Test Root 2" },
+      ];
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+          roots: initialRoots, // Enable roots capability
+        },
+      );
+
+      await client.connect();
+
+      // Call the listRoots tool - it will call roots/list on the client
+      const toolResult = await client.callTool("listRoots", {});
+
+      // Verify the tool result contains the roots
+      expect(toolResult).toBeDefined();
+      expect(toolResult.content).toBeDefined();
+      expect(Array.isArray(toolResult.content)).toBe(true);
+      const toolContent = toolResult.content as any[];
+      expect(toolContent.length).toBeGreaterThan(0);
+      const toolMessage = toolContent[0];
+      expect(toolMessage).toBeDefined();
+      expect(toolMessage.type).toBe("text");
+      if (toolMessage.type === "text") {
+        expect(toolMessage.text).toContain("Roots:");
+        expect(toolMessage.text).toContain("file:///test1");
+        expect(toolMessage.text).toContain("file:///test2");
+      }
+
+      // Verify getRoots() returns the roots
+      const roots = client.getRoots();
+      expect(roots).toEqual(initialRoots);
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should send roots/list_changed notification when roots are updated", async () => {
+      // Create a test server - clients can send roots/list_changed notifications to any server
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        serverType: "streamable-http",
+      });
+
+      await server.start();
+
+      // Create client with roots enabled
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+          roots: [], // Enable roots capability with empty array
+        },
+      );
+
+      await client.connect();
+
+      // Clear any recorded requests from connection
+      server.clearRecordings();
+
+      // Update roots
+      const newRoots = [
+        { uri: "file:///new1", name: "New Root 1" },
+        { uri: "file:///new2", name: "New Root 2" },
+      ];
+      await client.setRoots(newRoots);
+
+      // Wait for the notification to be recorded by the server
+      // The notification is sent asynchronously, so we need to wait for it to appear in recordedRequests
+      let rootsChangedNotification;
+      for (let i = 0; i < 50; i++) {
+        const recordedRequests = server.getRecordedRequests();
+        rootsChangedNotification = recordedRequests.find(
+          (req) => req.method === "notifications/roots/list_changed",
+        );
+        if (rootsChangedNotification) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+
+      // Verify the notification was sent to the server
+      expect(rootsChangedNotification).toBeDefined();
+      if (rootsChangedNotification) {
+        expect(rootsChangedNotification.method).toBe(
+          "notifications/roots/list_changed",
+        );
+      }
+
+      // Verify getRoots() returns the new roots
+      const roots = client.getRoots();
+      expect(roots).toEqual(newRoots);
+
+      // Verify rootsChange event was dispatched
+      const rootsChangePromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "rootsChange",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      // Update roots again to trigger event
+      await client.setRoots([{ uri: "file:///updated", name: "Updated" }]);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const rootsChangeEvent = await rootsChangePromise;
+      expect(rootsChangeEvent.detail).toEqual([
+        { uri: "file:///updated", name: "Updated" },
+      ]);
+
+      // Verify another notification was sent
+      const updatedRequests = server.getRecordedRequests();
+      const secondNotification = updatedRequests.filter(
+        (req) => req.method === "notifications/roots/list_changed",
+      );
+      expect(secondNotification.length).toBeGreaterThanOrEqual(1);
+
+      await client.disconnect();
+      await server.stop();
     });
   });
 

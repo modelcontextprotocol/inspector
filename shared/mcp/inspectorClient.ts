@@ -34,6 +34,9 @@ import type {
 import {
   CreateMessageRequestSchema,
   ElicitRequestSchema,
+  ListRootsRequestSchema,
+  RootsListChangedNotificationSchema,
+  type Root,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   type JsonValue,
@@ -90,6 +93,12 @@ export interface InspectorClientOptions {
    * Whether to advertise elicitation capability (default: true)
    */
   elicit?: boolean;
+
+  /**
+   * Initial roots to configure. If provided (even if empty array), the client will
+   * advertise roots capability and handle roots/list requests from the server.
+   */
+  roots?: Root[];
 }
 
 /**
@@ -226,6 +235,8 @@ export class InspectorClient extends EventTarget {
   private pendingSamples: SamplingCreateMessage[] = [];
   // Elicitation requests
   private pendingElicitations: ElicitationCreateMessage[] = [];
+  // Roots (undefined means roots capability not enabled, empty array means enabled but no roots)
+  private roots: Root[] | undefined;
 
   constructor(
     private transportConfig: MCPServerConfig,
@@ -239,6 +250,8 @@ export class InspectorClient extends EventTarget {
     this.initialLoggingLevel = options.initialLoggingLevel;
     this.sample = options.sample ?? true;
     this.elicit = options.elicit ?? true;
+    // Only set roots if explicitly provided (even if empty array) - this enables roots capability
+    this.roots = options.roots;
 
     // Set up message tracking callbacks
     const messageTracking: MessageTrackingCallbacks = {
@@ -341,6 +354,10 @@ export class InspectorClient extends EventTarget {
     if (this.elicit) {
       capabilities.elicitation = {};
     }
+    // Advertise roots capability if roots option was provided (even if empty array)
+    if (this.roots !== undefined) {
+      capabilities.roots = { listChanged: true };
+    }
     if (Object.keys(capabilities).length > 0) {
       clientOptions.capabilities = capabilities;
     }
@@ -431,6 +448,24 @@ export class InspectorClient extends EventTarget {
             this.addPendingElicitation(elicitationRequest);
           });
         });
+      }
+
+      // Set up roots/list request handler if roots capability is enabled
+      if (this.roots !== undefined && this.client) {
+        this.client.setRequestHandler(ListRootsRequestSchema, async () => {
+          return { roots: this.roots ?? [] };
+        });
+      }
+
+      // Set up notification handler for roots/list_changed from server
+      if (this.client) {
+        this.client.setNotificationHandler(
+          RootsListChangedNotificationSchema,
+          async () => {
+            // Dispatch event to notify UI that server's roots may have changed
+            this.dispatchEvent(new Event("rootsChange"));
+          },
+        );
       }
     } catch (error) {
       this.status = "error";
@@ -1134,5 +1169,40 @@ export class InspectorClient extends EventTarget {
    */
   getFetchRequests(): FetchRequestEntry[] {
     return [...this.fetchRequests];
+  }
+
+  /**
+   * Get current roots
+   */
+  getRoots(): Root[] {
+    return this.roots !== undefined ? [...this.roots] : [];
+  }
+
+  /**
+   * Set roots and notify server if it supports roots/listChanged
+   * Note: This will enable roots capability if it wasn't already enabled
+   */
+  async setRoots(roots: Root[]): Promise<void> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+
+    // Enable roots capability if not already enabled
+    if (this.roots === undefined) {
+      this.roots = [];
+    }
+    this.roots = [...roots];
+    this.dispatchEvent(new CustomEvent("rootsChange", { detail: this.roots }));
+
+    // Send notification to server - clients can send this notification to any server
+    // The server doesn't need to advertise support for it
+    try {
+      await this.client.notification({
+        method: "notifications/roots/list_changed",
+      });
+    } catch (error) {
+      // Log but don't throw - roots were updated locally even if notification failed
+      console.error("Failed to send roots/list_changed notification:", error);
+    }
   }
 }
