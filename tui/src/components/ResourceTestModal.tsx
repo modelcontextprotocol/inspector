@@ -3,7 +3,6 @@ import { Box, Text, useInput, type Key } from "ink";
 import { Form } from "ink-form";
 import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { uriTemplateToForm } from "../utils/uriTemplateToForm.js";
-import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 
 // Helper to extract error message from various error types
@@ -134,12 +133,11 @@ export function ResourceTestModal({
     const startTime = Date.now();
 
     try {
-      // Expand the URI template with the provided values
-      const uriTemplate = new UriTemplate(template.uriTemplate);
-      const uri = uriTemplate.expand(values);
-
-      // Read the resource using the expanded URI
-      const response = await inspectorClient.readResource(uri);
+      // Use InspectorClient's readResourceFromTemplate method which encapsulates template expansion and resource reading
+      const response = await inspectorClient.readResourceFromTemplate(
+        template.uriTemplate,
+        values,
+      );
 
       const duration = Date.now() - startTime;
 
@@ -147,20 +145,18 @@ export function ResourceTestModal({
         input: values,
         output: response,
         duration,
-        uri,
+        uri: response.uri,
       });
       setState("results");
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMessage = getErrorMessage(error);
 
-      // Try to expand URI even on error for display
+      // Try to get expanded URI from error if available, otherwise use template
       let uri = template.uriTemplate;
-      try {
-        const uriTemplate = new UriTemplate(template.uriTemplate);
-        uri = uriTemplate.expand(values);
-      } catch {
-        // If expansion fails, use original template
+      // If the error response contains uri, use it
+      if (error && typeof error === "object" && "uri" in error) {
+        uri = (error as any).uri;
       }
 
       // Extract detailed error information

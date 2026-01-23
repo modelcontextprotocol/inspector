@@ -542,9 +542,7 @@ describe("InspectorClient", () => {
     });
 
     it("should list tools", async () => {
-      const result = await client.listTools();
-      expect(result).toHaveProperty("tools");
-      const tools = result.tools as any[];
+      const tools = await client.listTools();
       expect(Array.isArray(tools)).toBe(true);
       expect(tools.length).toBeGreaterThan(0);
     });
@@ -613,17 +611,15 @@ describe("InspectorClient", () => {
     });
 
     it("should list resources", async () => {
-      const result = await client.listResources();
-      expect(result).toHaveProperty("resources");
-      expect(Array.isArray(result.resources)).toBe(true);
+      const resources = await client.listResources();
+      expect(Array.isArray(resources)).toBe(true);
     });
 
     it("should read resource", async () => {
       // First get list of resources
-      const listResult = await client.listResources();
-      const resources = listResult.resources as any[];
-      if (resources && resources.length > 0) {
-        const uri = resources[0].uri;
+      const resources = await client.listResources();
+      if (resources.length > 0) {
+        const uri = resources[0]!.uri;
         const readResult = await client.readResource(uri);
         expect(readResult).toHaveProperty("contents");
       }
@@ -653,13 +649,11 @@ describe("InspectorClient", () => {
     });
 
     it("should list resource templates", async () => {
-      const result = await client.listResourceTemplates();
-      expect(result).toHaveProperty("resourceTemplates");
-      const resourceTemplates = (result as any).resourceTemplates;
+      const resourceTemplates = await client.listResourceTemplates();
       expect(Array.isArray(resourceTemplates)).toBe(true);
       expect(resourceTemplates.length).toBeGreaterThan(0);
 
-      const templates = resourceTemplates as any[];
+      const templates = resourceTemplates;
       const fileTemplate = templates.find((t) => t.name === "file");
       expect(fileTemplate).toBeDefined();
       expect(fileTemplate?.uriTemplate).toBe("file:///{path}");
@@ -667,8 +661,7 @@ describe("InspectorClient", () => {
 
     it("should read resource from template", async () => {
       // First get the template
-      const listResult = await client.listResourceTemplates();
-      const templates = (listResult as any).resourceTemplates as any[];
+      const templates = await client.listResourceTemplates();
       const fileTemplate = templates.find((t) => t.name === "file");
       expect(fileTemplate).toBeDefined();
 
@@ -722,9 +715,7 @@ describe("InspectorClient", () => {
       await client.connect();
 
       // Call listResources - this should include resources from the template's list callback
-      const result = await client.listResources();
-      expect(result).toHaveProperty("resources");
-      const resources = (result as any).resources as any[];
+      const resources = await client.listResources();
       expect(Array.isArray(resources)).toBe(true);
 
       // Verify that the resources from the list callback are included
@@ -751,9 +742,8 @@ describe("InspectorClient", () => {
     });
 
     it("should list prompts", async () => {
-      const result = await client.listPrompts();
-      expect(result).toHaveProperty("prompts");
-      expect(Array.isArray(result.prompts)).toBe(true);
+      const prompts = await client.listPrompts();
+      expect(Array.isArray(prompts)).toBe(true);
     });
   });
 
