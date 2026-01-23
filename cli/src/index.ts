@@ -191,12 +191,28 @@ async function callMethod(args: Args): Promise<void> {
         );
       }
 
-      result = await inspectorClient.callTool(
+      const invocation = await inspectorClient.callTool(
         args.toolName,
         args.toolArg || {},
         args.metadata,
         args.toolMeta,
       );
+      // Extract the result from the invocation object for CLI compatibility
+      if (invocation.result !== null) {
+        // Success case: result is a valid CallToolResult
+        result = invocation.result;
+      } else {
+        // Error case: construct an error response matching CallToolResult structure
+        result = {
+          content: [
+            {
+              type: "text" as const,
+              text: invocation.error || "Tool call failed",
+            },
+          ],
+          isError: true,
+        };
+      }
     }
     // Resources methods
     else if (args.method === "resources/list") {
@@ -210,7 +226,12 @@ async function callMethod(args: Args): Promise<void> {
         );
       }
 
-      result = await inspectorClient.readResource(args.uri, args.metadata);
+      const invocation = await inspectorClient.readResource(
+        args.uri,
+        args.metadata,
+      );
+      // Extract the result from the invocation object for CLI compatibility
+      result = invocation.result;
     } else if (args.method === "resources/templates/list") {
       result = {
         resourceTemplates: await inspectorClient.listResourceTemplates(
@@ -228,11 +249,13 @@ async function callMethod(args: Args): Promise<void> {
         );
       }
 
-      result = await inspectorClient.getPrompt(
+      const invocation = await inspectorClient.getPrompt(
         args.promptName,
         args.promptArgs || {},
         args.metadata,
       );
+      // Extract the result from the invocation object for CLI compatibility
+      result = invocation.result;
     }
     // Logging methods
     else if (args.method === "logging/setLevel") {

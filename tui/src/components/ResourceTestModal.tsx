@@ -134,7 +134,7 @@ export function ResourceTestModal({
 
     try {
       // Use InspectorClient's readResourceFromTemplate method which encapsulates template expansion and resource reading
-      const response = await inspectorClient.readResourceFromTemplate(
+      const invocation = await inspectorClient.readResourceFromTemplate(
         template.uriTemplate,
         values,
       );
@@ -143,9 +143,9 @@ export function ResourceTestModal({
 
       setResult({
         input: values,
-        output: response,
+        output: invocation.result, // Extract the SDK result from the invocation
         duration,
-        uri: response.uri,
+        uri: invocation.expandedUri, // Use expandedUri instead of uri
       });
       setState("results");
     } catch (error) {

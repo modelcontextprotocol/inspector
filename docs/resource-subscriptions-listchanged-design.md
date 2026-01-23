@@ -62,25 +62,60 @@ export interface InspectorClientOptions {
 - Maintain `resources: Resource[]` for server-provided descriptors
 - Add separate cache structure for loaded content
 
-**Cache Structures:**
+**Invocation Types (defined in `shared/mcp/types.ts`, returned from methods and cached):**
 
 ```typescript
 // For regular resources (cached by URI)
-interface ResourceContentCache {
-  contents: Array<{ uri: string; mimeType?: string; text: string }>;
-  timestamp: Date; // When content was loaded
+interface ResourceReadInvocation {
+  result: ReadResourceResult; // The full SDK response object
+  timestamp: Date; // When the call was made
+  uri: string; // The URI that was read (request parameter)
+  metadata?: Record<string, string>; // Optional metadata that was passed
 }
 
 // For resource templates (cached by uriTemplate - the unique ID of the template)
-interface ResourceTemplateContentCache {
+interface ResourceTemplateReadInvocation {
   uriTemplate: string; // The URI template string (unique ID)
-  expandedUri: string; // The expanded URI
-  contents: Array<{ uri: string; mimeType?: string; text: string }>;
-  timestamp: Date; // When content was loaded
-  templateName: string; // The name/ID of the template
-  params: Record<string, string>; // The parameters used to expand the template
+  expandedUri: string; // The expanded URI after template expansion
+  result: ReadResourceResult; // The full SDK response object
+  timestamp: Date; // When the call was made
+  params: Record<string, string>; // The parameters used to expand the template (request parameters)
+  metadata?: Record<string, string>; // Optional metadata that was passed
+}
+
+// For prompts (cached by prompt name)
+interface PromptGetInvocation {
+  result: GetPromptResult; // The full SDK response object
+  timestamp: Date; // When the call was made
+  name: string; // The prompt name (request parameter)
+  params?: Record<string, string>; // The parameters used when fetching the prompt (request parameters)
+  metadata?: Record<string, string>; // Optional metadata that was passed
+}
+
+// For tool calls (cached by tool name)
+interface ToolCallInvocation {
+  toolName: string; // The tool that was called (request parameter)
+  params: Record<string, JsonValue>; // The arguments passed to the tool (request parameters)
+  result: CallToolResult | null; // The full SDK response object (null on error)
+  timestamp: Date; // When the call was made
+  success: boolean; // true if call succeeded, false if it threw
+  error?: string; // Error message if success === false
+  metadata?: Record<string, string>; // Optional metadata that was passed
 }
 ```
+
+**Rationale:**
+
+- **Invocation objects** represent the complete call: request parameters + response + metadata
+- These objects are **returned from InspectorClient methods** (e.g., `readResource()` returns `ResourceReadInvocation`)
+- The **same object** is stored in the cache and returned from cache getters
+- Keep SDK response objects intact (`ReadResourceResult`, `GetPromptResult`, `CallToolResult`) rather than breaking them apart
+- Add our metadata fields (`timestamp`, request params, `uriTemplate`, `expandedUri`, `success`, `error`) alongside the SDK result
+- Preserves all SDK fields and makes it easier to maintain if SDK types change
+- Clear separation between SDK data and our cache metadata
+- For tool calls, `result` is `null` on error to distinguish from successful calls with empty results
+- **Consistency**: The object returned from `client.readResource(uri)` is the same object you'd get from `client.cache.getResource(uri)` (if cached)
+- **Type Location**: These types are defined in `shared/mcp/types.ts` since they're shared between `InspectorClient` and `ContentCache` (following the established pattern where shared MCP types live in `types.ts`)
 
 **Storage:**
 
@@ -124,12 +159,20 @@ interface ResourceTemplateContentCache {
 **Cache Structure:**
 
 ```typescript
-interface PromptContentCache {
-  messages: Array<{ role: string; content: any }>;
-  timestamp: Date; // When content was loaded
-  params?: Record<string, string>; // The parameters used when fetching the prompt
+interface PromptGetInvocation {
+  result: GetPromptResult; // The full SDK response object
+  timestamp: Date; // When the call was made
+  name: string; // The prompt name (request parameter)
+  params?: Record<string, string>; // The parameters used when fetching the prompt (request parameters)
+  metadata?: Record<string, string>; // Optional metadata that was passed
 }
 ```
+
+**Rationale:**
+
+- Keep SDK response object intact (`GetPromptResult`) rather than extracting `messages`
+- Add our metadata fields (`timestamp`, `params`) alongside the SDK result
+- Preserves all SDK fields including optional `description` and `_meta`
 
 **Storage:**
 
@@ -157,7 +200,7 @@ interface PromptContentCache {
 **Handlers needed:**
 
 - `notifications/tools/list_changed` → reload tools list
-- `notifications/resources/list_changed` → reload resources list (preserve cached content for existing resources)
+- `notifications/resources/list_changed` → reload resources list and resource templates list (preserve cached content for existing items)
 - `notifications/prompts/list_changed` → reload prompts list
 
 **Code structure:**
@@ -351,25 +394,25 @@ class InspectorClient {
 
 class ContentCache {
   // Internal storage - all cached content managed by this single object
-  private resourceContentCache: Map<string, ResourceContentCache> = new Map(); // Keyed by URI
-  private resourceTemplateContentCache: Map<string, ResourceTemplateContentCache> = new Map(); // Keyed by uriTemplate
-  private promptContentCache: Map<string, PromptContentCache> = new Map();
-  private toolCallResultCache: Map<string, ToolCallResult> = new Map();
+  private resourceContentCache: Map<string, ResourceReadInvocation> = new Map(); // Keyed by URI
+  private resourceTemplateContentCache: Map<string, ResourceTemplateReadInvocation> = new Map(); // Keyed by uriTemplate
+  private promptContentCache: Map<string, PromptGetInvocation> = new Map();
+  private toolCallResultCache: Map<string, ToolCallInvocation> = new Map();
 
-  getResource(uri: string): ResourceContentCache | null {
+  getResource(uri: string): ResourceReadInvocation | null {
     return this.resourceContentCache.get(uri) ?? null;
   }
 
-  getResourceTemplate(uriTemplate: string): ResourceTemplateContentCache | null {
+  getResourceTemplate(uriTemplate: string): ResourceTemplateReadInvocation | null {
     // Look up by uriTemplate (the unique ID of the template)
     return this.resourceTemplateContentCache.get(uriTemplate) ?? null;
   }
 
-  getPrompt(name: string): PromptContentCache | null {
+  getPrompt(name: string): PromptGetInvocation | null {
     return this.promptContentCache.get(name) ?? null;
   }
 
-  getToolCallResult(toolName: string): ToolCallResult | null {
+  getToolCallResult(toolName: string): ToolCallInvocation | null {
     return this.toolCallResultCache.get(toolName) ?? null;
   }
 
@@ -412,11 +455,15 @@ class ContentCache {
 // Check cache first
 const cached = client.cache.getResource(uri);
 if (cached) {
-  // Use cached content
+  // Use cached content - cached is a ResourceReadInvocation
+  // Access content via cached.result.contents
+  // Same object that would be returned from readResource()
 } else {
   // Fetch fresh - automatically caches the result
-  const content = await client.readResource(uri);
-  // Content is now cached automatically (no need to call a setter)
+  const invocation = await client.readResource(uri);
+  // invocation is a ResourceReadInvocation (same object now in cache)
+  // Access content via invocation.result.contents
+  // client.cache.getResource(uri) would now return the same invocation object
 }
 ```
 
@@ -429,12 +476,12 @@ if (cached) {
  * Read a resource and cache its content
  * @param uri - The URI of the resource to read
  * @param metadata - Optional metadata to include in the request
- * @returns The resource content
+ * @returns Resource read invocation (includes result, timestamp, request params)
  */
 async readResource(
   uri: string,
   metadata?: Record<string, string>,
-): Promise<ReadResourceResult>;
+): Promise<ResourceReadInvocation>;
 
 /**
  * Read a resource from a template by expanding the template URI with parameters
@@ -450,30 +497,31 @@ async readResourceFromTemplate(
   uriTemplate: string,
   params: Record<string, string>,
   metadata?: Record<string, string>,
-): Promise<{
-  contents: Array<{ uri: string; mimeType?: string; text: string }>;
-  uri: string; // The expanded URI
-  uriTemplate: string; // The URI template for reference
-}>;
+): Promise<ResourceTemplateReadInvocation>;
 
 ```
 
 **Implementation:**
 
 - `readResource()`:
-  1. Always fetch fresh content: Call `client.readResource(uri, metadata)` (SDK method)
-  2. Store in cache using setter: `this.cache.setResource(uri, { contents, timestamp: new Date() })`
-  3. Dispatch `resourceContentChange` event
-  4. Return fresh content
+  1. Always fetch fresh content: Call `client.readResource(uri, metadata)` (SDK method) → returns `ReadResourceResult`
+  2. Create invocation object: `const invocation: ResourceReadInvocation = { result, timestamp: new Date(), uri, metadata }`
+  3. Store in cache: `this.cacheInternal.setResource(uri, invocation)`
+  4. Dispatch `resourceContentChange` event
+  5. Return the invocation object (same object that's in the cache)
 
 - `readResourceFromTemplate()`:
   1. Look up template in `resourceTemplates` by `uriTemplate` (the unique identifier)
   2. If not found, throw error
   3. Expand the template's `uriTemplate` using the provided params
      - Use SDK's `UriTemplate` class: `new UriTemplate(uriTemplate).expand(params)`
-  4. Always fetch fresh content: Call `this.readResource(expandedUri, metadata)` (InspectorClient method)
-  5. Return response with expanded URI and uriTemplate (includes full response for backward compatibility)
-  6. Note: Caching will be added in Phase 2 - for now, this method just encapsulates template expansion logic
+  4. Always fetch fresh content: Call `this.readResource(expandedUri, metadata)` (InspectorClient method) → returns `ResourceReadInvocation`
+  5. Create invocation object: `const invocation: ResourceTemplateReadInvocation = { uriTemplate, expandedUri, result: readInvocation.result, timestamp: readInvocation.timestamp, params, metadata }`
+  6. Store in cache: `this.cacheInternal.setResourceTemplate(uriTemplate, invocation)` (TODO: add in Phase 3)
+  7. Dispatch `resourceTemplateContentChange` event (TODO: add in Phase 3)
+  8. Return the invocation object (same object that's in the cache)
+
+  **Note:** ✅ Steps 1-5 and 8 are already implemented. Steps 6 and 7 will be added in Phase 3 when the cache is integrated.
 
 **Resource Matching Logic:**
 
@@ -495,13 +543,18 @@ async readResourceFromTemplate(
 
 - `client.cache.getResource(uri)` (ContentCache method):
   - Accesses `this.resourceContentCache` map by URI
-  - Returns cached content if present, `null` if not cached
+  - Returns cached `ResourceReadInvocation` object (same type as returned from `readResource()`), `null` if not cached
   - Caller should check for `null` and call `client.readResource()` if fresh content is needed
+  - Access resource contents via `cached.result.contents`
+  - **Note**: The returned object is the same object that was returned from `readResource()` (object identity preserved)
 
 - `client.cache.getResourceTemplate(uriTemplate)` (ContentCache method):
   - Looks up directly in `this.resourceTemplateContentCache` (owned by ContentCache) by uriTemplate
+  - Returns cached `ResourceTemplateReadInvocation` object (same type as returned from `readResourceFromTemplate()`), `null` if not cached
+  - Access resource contents via `cached.result.contents`
   - Returns cached template content with params if found, `null` if not cached
   - Note: Only one cached result per uriTemplate (most recent params combination replaces previous)
+  - **Note**: The returned object is the same object that was returned from `readResourceFromTemplate()` (object identity preserved)
 
 ### 7. Prompt Content Management
 
@@ -513,13 +566,13 @@ async readResourceFromTemplate(
  * @param name - Prompt name
  * @param args - Optional prompt arguments
  * @param metadata - Optional metadata to include in the request
- * @returns Prompt content
+ * @returns Prompt get invocation (includes result, timestamp, request params)
  */
 async getPrompt(
   name: string,
   args?: Record<string, JsonValue>,
   metadata?: Record<string, string>,
-): Promise<GetPromptResult>;
+): Promise<PromptGetInvocation>;
 
 
 /**
@@ -538,16 +591,21 @@ clearAllPromptContent(): void;
 
 - `getPrompt()`:
   1. Convert args to strings (using existing `convertPromptArguments()`)
-  2. Always fetch fresh content: Call `client.getPrompt(name, stringArgs, metadata)` (SDK method)
-  3. Store in cache using setter: `this.cache.setPrompt(name, { messages, timestamp: new Date(), params: stringArgs })`
-  4. Dispatch `promptContentChange` event
-  5. Return fresh content
+  2. Always fetch fresh content: Call `client.getPrompt(name, stringArgs, metadata)` (SDK method) → returns `GetPromptResult`
+  3. Create invocation object: `const invocation: PromptGetInvocation = { result, timestamp: new Date(), name, params: stringArgs, metadata }`
+  4. Store in cache: `this.cacheInternal.setPrompt(name, invocation)` (TODO: add in Phase 3)
+  5. Dispatch `promptContentChange` event (TODO: add in Phase 3)
+  6. Return the invocation object (same object that's in the cache)
+
+  **Note:** ✅ Steps 1-3 and 6 are already implemented. Steps 4 and 5 will be added in Phase 3 when the cache is integrated. This method now returns `PromptGetInvocation` instead of `GetPromptResult`. Access the SDK result via `invocation.result`.
 
 - `client.cache.getPrompt(name)` (ContentCache method):
   - Accesses `this.promptContentCache` map (owned by ContentCache) by prompt name
-  - Returns cached content with stored `params` if present, `null` if not cached
+  - Returns cached `PromptGetInvocation` object (same type as returned from `getPrompt()`), `null` if not cached
   - Returns the most recent params combination that was used (only one cached per prompt)
   - Caller should check for `null` and call `client.getPrompt()` if fresh content is needed
+  - Access prompt messages via `cached.result.messages`, description via `cached.result.description`
+  - **Note**: The returned object is the same object that was returned from `getPrompt()` (object identity preserved)
 
 **Prompt Matching Logic:**
 
@@ -570,17 +628,17 @@ clearAllPromptContent(): void;
  * @param name - Tool name
  * @param args - Tool arguments
  * @param metadata - Optional metadata to include in the request
- * @returns Tool call response
+ * @returns Tool call invocation (includes result, timestamp, request params, success/error)
  */
 async callTool(
   name: string,
   args: Record<string, JsonValue>,
   generalMetadata?: Record<string, string>,
   toolSpecificMetadata?: Record<string, string>,
-): Promise<CallToolResult>;
+): Promise<ToolCallInvocation>;
 
 // Cache access via client.cache object:
-// client.cache.getToolCallResult(toolName) - Returns ToolCallResult | null
+// client.cache.getToolCallResult(toolName) - Returns ToolCallInvocation | null (same object as returned from callTool())
 // client.cache.clearToolCallResult(toolName) - Clears cached result for a tool
 // client.cache.clearAll() - Clears all cached content
 ```
@@ -588,19 +646,24 @@ async callTool(
 **Implementation:**
 
 - `callTool()`:
-  1. Call `client.callTool(name, args, metadata)` (existing implementation)
+  1. Call `client.callTool(name, args, metadata)` (SDK method) → returns `CallToolResult` on success, throws on error
   2. On success:
-     - Store result using setter: `this.cacheInternal.setToolCallResult(name, { toolName: name, params: args, result, timestamp: new Date(), success: true })`
+     - Create invocation object: `const invocation: ToolCallInvocation = { toolName: name, params: args, result, timestamp: new Date(), success: true, metadata }`
+     - Store in cache: `this.cacheInternal.setToolCallResult(name, invocation)`
      - Dispatch `toolCallResultChange` event
+     - Return the invocation object (same object that's in the cache)
   3. On error:
-     - Store error result using setter: `this.cacheInternal.setToolCallResult(name, { toolName: name, params: args, result: {}, timestamp: new Date(), success: false, error: error.message })`
+     - Create invocation object: `const invocation: ToolCallInvocation = { toolName: name, params: args, result: null, timestamp: new Date(), success: false, error: error.message, metadata }`
+     - Store in cache: `this.cacheInternal.setToolCallResult(name, invocation)`
      - Dispatch `toolCallResultChange` event
-  4. Return result (existing behavior)
+     - Return the invocation object (same object that's in the cache)
 
 - `client.cache.getToolCallResult(toolName)`:
   - Look up in `toolCallResultCache` map by tool name
-  - Return cached result if present, `null` if not cached
+  - Return cached `ToolCallInvocation` object (same type as returned from `callTool()`), `null` if not cached
   - Caller should check for `null` and call `client.callTool()` if fresh result is needed
+  - Access tool result content via `cached.result?.content` (if `success === true`)
+  - **Note**: The returned object is the same object that was returned from `callTool()` (object identity preserved)
 
 **Tool Call Result Matching:**
 
@@ -615,8 +678,10 @@ async callTool(
 
 **New Events:**
 
-- `resourceContentChange` - Fired when resource content is loaded or updated
+- `resourceContentChange` - Fired when regular resource content is loaded or updated
   - Detail: `{ uri: string, content: {...}, timestamp: Date }`
+- `resourceTemplateContentChange` - Fired when resource template content is loaded or updated
+  - Detail: `{ uriTemplate: string, expandedUri: string, content: {...}, params: Record<string, string>, timestamp: Date }`
 - `resourceUpdated` - Fired when a subscribed resource is updated (but not yet reloaded)
   - Detail: `{ uri: string }`
 - `resourceSubscriptionsChange` - Fired when subscription set changes
@@ -634,64 +699,361 @@ async callTool(
 
 ## Implementation Plan
 
-### Phase 1: Configuration and Infrastructure
+### Phase 1: ContentCache Module (Standalone)
 
-1. Add `listChangedNotifications` options to `InspectorClientOptions` (tools, resources, prompts)
-2. Add `subscribedResources: Set<string>` to class state
-3. Update constructor to initialize new options
-4. Add helper methods: `getSubscribedResources()`, `isSubscribedToResource()`, `supportsResourceSubscriptions()`
+**Goal:** Create and test the ContentCache module independently before integration.
 
-### Phase 2: Resource, Prompt, and Tool Call Result Caching
+**Deliverables:**
 
-1. Create new module `shared/mcp/contentCache.ts`
-2. Define type interfaces: `ResourceContentCache`, `ResourceTemplateContentCache`, `PromptContentCache`, `ToolCallResult`
-3. Define `ReadOnlyContentCache` interface (getters and clear methods)
-4. Define `ReadWriteContentCache` interface (extends ReadOnlyContentCache, adds setters)
-5. Implement `ContentCache` class that implements `ReadWriteContentCache`
-6. Update `InspectorClient` to:
-   - Import `ContentCache` and `ReadOnlyContentCache` from `./contentCache`
-   - Create `private cache: ContentCache` instance (full access)
-   - Expose `public readonly cache: ReadOnlyContentCache` (read-only access)
-7. Modify `readResource()` to use `this.cache.setResource()` after fetching
-8. Add `readResourceFromTemplate()` helper method (expands template, reads resource, uses `this.cache.setResourceTemplate()`)
-9. `getResources()` continues to return descriptors only (no changes needed)
-10. Add `resourceContentChange` event
-11. Modify `getPrompt()` to use `this.cacheInternal.setPrompt()` after fetching
-12. `getPrompts()` continues to return descriptors only (no changes needed)
-13. Add `promptContentChange` event
-14. Modify `callTool()` to use `this.cacheInternal.setToolCallResult()` after each call
-15. Add `toolCallResultChange` event
+1. ✅ **COMPLETED** - Invocation type interfaces defined in `shared/mcp/types.ts`:
+   - `ResourceReadInvocation` - wraps `ReadResourceResult` with `uri`, `timestamp`, `metadata`
+   - `ResourceTemplateReadInvocation` - wraps `ReadResourceResult` with `uriTemplate`, `expandedUri`, `params`, `timestamp`, `metadata`
+   - `PromptGetInvocation` - wraps `GetPromptResult` with `name`, `params`, `timestamp`, `metadata`
+   - `ToolCallInvocation` - wraps `CallToolResult` (or `null` on error) with `toolName`, `params`, `success`, `error`, `timestamp`, `metadata`
+   - ✅ **COMPLETED** - `InspectorClient` methods now return invocation types:
+     - `readResource()` → `Promise<ResourceReadInvocation>`
+     - `readResourceFromTemplate()` → `Promise<ResourceTemplateReadInvocation>`
+     - `getPrompt()` → `Promise<PromptGetInvocation>`
+     - `callTool()` → `Promise<ToolCallInvocation>`
+   - ✅ **COMPLETED** - Types exported from `shared/mcp/index.ts`
+   - ✅ **COMPLETED** - Tests updated to handle invocation types
+   - ✅ **COMPLETED** - CLI updated to extract `.result` from invocation objects
+2. Create new module `shared/mcp/contentCache.ts`
+3. Import invocation types from `./types.js` in `contentCache.ts`
+4. Define `ReadOnlyContentCache` interface (getters and clear methods)
+5. Define `ReadWriteContentCache` interface (extends ReadOnlyContentCache, adds setters)
+6. Implement `ContentCache` class that implements `ReadWriteContentCache`:
+   - Internal Maps for each cache type
+   - Getter methods (return `null` if not cached)
+   - Clear methods (individual and `clearAll()`)
+   - Setter methods (for internal use)
 
-### Phase 3: ListChanged Notifications
+**Testing:**
 
-1. Add `reloadToolsList()`, `reloadResourcesList()`, `reloadPromptsList()` helper methods
-2. `reloadResourcesList()` should:
-   - Reload resource descriptors from server
-   - Preserve cached content in `resourceContentCache` for resources that still exist
-   - Remove cached content for resources that no longer exist (cache cleanup)
-3. `reloadPromptsList()` should:
-   - Reload prompt descriptors from server
-   - Preserve cached content in `promptContentCache` for prompts that still exist
-   - Remove cached content for prompts that no longer exist (cache cleanup)
-4. Set up notification handlers in `connect()` based on config
-5. Test each handler independently
+- Unit tests for ContentCache class in `shared/__tests__/contentCache.test.ts`
+- Test get/set/clear operations for each cache type
+- Test that ReadOnlyContentCache interface prevents setter access
+- Test edge cases (clearing non-existent entries, multiple operations)
 
-### Phase 4: Resource Subscriptions
+**Acceptance Criteria:**
 
-1. Implement `subscribeToResource()` and `unsubscribeFromResource()` methods (check server capability)
-2. Set up `notifications/resources/updated` handler (only if server supports subscriptions)
-3. Implement auto-reload logic for subscribed resources (updates `resourceContentCache`)
-4. Add `resourceSubscriptionsChange` event
-5. Clear subscriptions and all cache maps (`resourceContentCache`, `promptContentCache`, `toolCallResultCache`) on disconnect
+- ✅ Invocation types are defined in `shared/mcp/types.ts` and exported
+- ✅ `InspectorClient` methods return invocation types
+- ✅ Tests updated to handle invocation types
+- ✅ CLI updated to extract results from invocation objects
+- ContentCache can be instantiated
+- All getter methods return `null` for non-existent entries
+- All setter methods store entries correctly
+- Clear methods work for individual entries and all entries
+- Type safety is maintained (no `any` types)
+- All tests pass
 
-### Phase 5: Testing
+**Rationale:** Testing the cache module standalone ensures it works correctly before integrating it into InspectorClient, making debugging easier and reducing risk.
 
-1. Add tests for listChanged notifications (tools, resources, prompts)
-2. Add tests for resource subscriptions (subscribe, unsubscribe, notifications)
-3. Add tests for resource content caching (regular resources and template-based resources as separate types)
-4. Add tests for prompt content caching (including params matching)
-5. Add tests for tool call result caching (including success and error cases)
-6. Add tests for resource updated notifications
+**Note:** Invocation types have already been implemented and integrated into `InspectorClient`. The remaining work for Phase 1 is to create the `ContentCache` module itself.
+
+---
+
+### Phase 2: Integrate ContentCache into InspectorClient (Infrastructure Only)
+
+**Goal:** Add ContentCache to InspectorClient without changing existing behavior.
+
+**Deliverables:**
+
+1. Import `ContentCache` and `ReadOnlyContentCache` from `./contentCache.js` in `InspectorClient`
+2. Import invocation types (`ResourceReadInvocation`, `ResourceTemplateReadInvocation`, `PromptGetInvocation`, `ToolCallInvocation`) from `./types.js` in `InspectorClient`
+3. Add `private cacheInternal: ContentCache` property
+4. Add `public readonly cache: ReadOnlyContentCache` property
+5. Initialize cache in constructor
+6. Clear all cache maps on disconnect (in `disconnect()` method)
+
+**Testing:**
+
+- Verify `client.cache` is accessible and returns `null` for all getters initially
+- Verify cache is cleared when `disconnect()` is called
+- Verify no breaking changes to existing API
+- All existing tests pass (no regressions)
+
+**Acceptance Criteria:**
+
+- `client.cache` is accessible and functional
+- Cache is cleared on disconnect
+- No breaking changes to existing API
+- All existing tests pass
+
+**Rationale:** Separating infrastructure from functionality allows validation that the integration doesn't break anything before adding caching behavior.
+
+---
+
+### Phase 3: Implement All Caching Types
+
+**Goal:** Add caching to all fetch methods (resources, templates, prompts, tool results) simultaneously.
+
+**Deliverables:**
+
+1. Modify `readResource()` to:
+   - Keep existing behavior (always fetch fresh)
+   - Store in cache: `this.cacheInternal.setResource(uri, { result, timestamp })`
+   - Dispatch `resourceContentChange` event
+2. Modify `readResourceFromTemplate()` to:
+   - **Already implemented** - Method already returns `ResourceTemplateReadInvocation` and creates invocation objects
+   - Store in cache: `this.cacheInternal.setResourceTemplate(uriTemplate, invocation)` (invocation object already created)
+   - Dispatch `resourceTemplateContentChange` event
+3. Modify `getPrompt()` to:
+   - **Already implemented** - Method already returns `PromptGetInvocation` and creates invocation objects
+   - Store in cache: `this.cacheInternal.setPrompt(name, invocation)` (invocation object already created)
+   - Dispatch `promptContentChange` event
+4. Modify `callTool()` to:
+   - **Already implemented** - Method already returns `ToolCallInvocation` and creates invocation objects
+   - On success: Store in cache: `this.cacheInternal.setToolCallResult(name, invocation)` (invocation with `success: true`)
+   - On error: Store in cache: `this.cacheInternal.setToolCallResult(name, invocation)` (invocation with `success: false` and error)
+   - Dispatch `toolCallResultChange` event
+5. Add new event types:
+   - `resourceContentChange`
+   - `resourceTemplateContentChange`
+   - `promptContentChange`
+   - `toolCallResultChange`
+
+**Testing:**
+
+- Test that each fetch method stores content in cache
+- Test that `client.cache.get*()` methods return cached content
+- Test that events are dispatched with correct detail structure
+- Test that cache persists across multiple calls
+- Test that subsequent calls replace cache entries
+- Test error handling (tool call failures)
+
+**Acceptance Criteria:**
+
+- All fetch methods continue to work as before (no breaking changes)
+- ✅ Methods already return invocation types (completed in previous work)
+- Content is stored in cache after each fetch operation
+- Cache getters return cached content correctly
+- Events are dispatched with correct detail structure
+- All existing tests pass
+
+**Rationale:** Implementing all cache types together is efficient since they follow the same pattern. The cache module is already tested, so this phase focuses on integration.
+
+**Note:** The invocation type implementation is complete. This phase focuses on adding caching behavior to the existing methods (storing invocation objects in the cache and dispatching events).
+
+---
+
+### Phase 4: Configuration and Subscription Infrastructure
+
+**Goal:** Add configuration options and subscription state management (no handlers yet).
+
+**Deliverables:**
+
+1. Add `listChangedNotifications` option to `InspectorClientOptions` (tools, resources, prompts)
+2. Add `private subscribedResources: Set<string>` to InspectorClient
+3. Add helper methods:
+   - `getSubscribedResources(): string[]`
+   - `isSubscribedToResource(uri: string): boolean`
+   - `supportsResourceSubscriptions(): boolean`
+4. Initialize options in constructor
+5. Clear subscriptions on disconnect
+
+**Testing:**
+
+- Test that `listChangedNotifications` options are initialized correctly
+- Test that subscription helper methods work
+- Test that subscriptions are cleared on disconnect
+- Test that `supportsResourceSubscriptions()` checks server capability
+
+**Acceptance Criteria:**
+
+- Configuration options are accessible and initialized correctly
+- Subscription state is managed correctly
+- Helper methods return correct values
+- No breaking changes to existing API
+
+**Rationale:** Setting up infrastructure before implementing features allows for cleaner separation of concerns and easier testing.
+
+---
+
+### Phase 5: ListChanged Notification Handlers
+
+**Goal:** Add handlers for listChanged notifications that reload lists and preserve cache.
+
+**Deliverables:**
+
+1. Modify existing `list*()` methods to:
+   - Update internal state (`this.tools`, `this.resources`, `this.resourceTemplates`, `this.prompts`)
+   - Clean up cache entries for items no longer in the list
+   - Dispatch change events (`toolsChange`, `resourcesChange`, `resourceTemplatesChange`, `promptsChange`)
+   - Return the fetched arrays (maintain existing API)
+2. Set up notification handlers in `connect()` based on config:
+   - `notifications/tools/list_changed` → Call `await this.listTools()` (which handles state update, cache cleanup, and event dispatch)
+   - `notifications/resources/list_changed` → Call both `await this.listResources()` and `await this.listResourceTemplates()` (both handle state update, cache cleanup, and event dispatch)
+   - `notifications/prompts/list_changed` → Call `await this.listPrompts()` (which handles state update, cache cleanup, and event dispatch)
+   - Note: Resource templates are part of the resources capability, so `notifications/resources/list_changed` should reload both resources and resource templates
+3. Import notification schemas from SDK:
+   - `ToolListChangedNotificationSchema`
+   - `ResourceListChangedNotificationSchema`
+   - `PromptListChangedNotificationSchema`
+
+**Implementation Details:**
+
+- Modify `listResources()` to:
+  1. Fetch from server: `const newResources = await this.client.listResources(params)`
+  2. Compare `newResources` with `this.resources` to find removed URIs
+  3. For each removed URI, call `this.cacheInternal.clearResource(uri)` (cache cleanup)
+  4. Update `this.resources = newResources`
+  5. Dispatch `resourcesChange` event
+  6. Return `newResources` (maintain existing API)
+  7. Note: Cached content for existing resources is automatically preserved (cache is not cleared unless explicitly removed)
+- Modify `listPrompts()` to:
+  1. Fetch from server: `const newPrompts = await this.client.listPrompts(params)`
+  2. Compare `newPrompts` with `this.prompts` to find removed prompt names
+  3. For each removed prompt name, call `this.cacheInternal.clearPrompt(name)` (cache cleanup)
+  4. Update `this.prompts = newPrompts`
+  5. Dispatch `promptsChange` event
+  6. Return `newPrompts` (maintain existing API)
+  7. Note: Cached content for existing prompts is automatically preserved
+- Modify `listResourceTemplates()` to:
+  1. Fetch from server: `const newTemplates = await this.client.listResourceTemplates(params)`
+  2. Compare `newTemplates` with `this.resourceTemplates` to find removed `uriTemplate` values
+  3. For each removed `uriTemplate`, call `this.cacheInternal.clearResourceTemplate(uriTemplate)` (cache cleanup)
+  4. Update `this.resourceTemplates = newTemplates`
+  5. Dispatch `resourceTemplatesChange` event
+  6. Return `newTemplates` (maintain existing API)
+  7. Note: Cached content for existing templates is automatically preserved (cache is not cleared unless explicitly removed)
+- Modify `listTools()` to:
+  1. Fetch from server: `const newTools = await this.client.listTools(params)`
+  2. Update `this.tools = newTools`
+  3. Dispatch `toolsChange` event
+  4. Return `newTools` (maintain existing API)
+  5. Note: Tool call result cache is not cleaned up (results persist even if tool is removed)
+- Notification handlers are thin wrappers that just call the `list*()` methods
+- Update `fetchServerContents()` to remove duplicate state update and event dispatch logic:
+  - Change `this.resources = await this.listResources(); this.dispatchEvent(...)` to just `await this.listResources()`
+  - Change `this.resourceTemplates = await this.listResourceTemplates(); this.dispatchEvent(...)` to just `await this.listResourceTemplates()`
+  - Change `this.prompts = await this.listPrompts(); this.dispatchEvent(...)` to just `await this.listPrompts()`
+  - Change `this.tools = await this.listTools(); this.dispatchEvent(...)` to just `await this.listTools()`
+  - The list methods now handle state updates and event dispatching internally
+
+**Testing:**
+
+- Test that `listResources()` updates `this.resources` and dispatches `resourcesChange` event
+- Test that `listResources()` cleans up cache for removed resources
+- Test that `listResources()` preserves cache for existing resources
+- Test that `listResourceTemplates()` updates `this.resourceTemplates` and dispatches `resourceTemplatesChange` event
+- Test that `listResourceTemplates()` cleans up cache for removed templates (by `uriTemplate`)
+- Test that `listResourceTemplates()` preserves cache for existing templates
+- Test that `listPrompts()` updates `this.prompts` and dispatches `promptsChange` event
+- Test that `listPrompts()` cleans up cache for removed prompts
+- Test that `listPrompts()` preserves cache for existing prompts
+- Test that `listTools()` updates `this.tools` and dispatches `toolsChange` event
+- Test that notification handlers call the correct `list*()` methods
+- Test that handlers respect configuration (can be disabled)
+- Test that `list*()` methods still return arrays (backward compatibility)
+- Test with test server that sends listChanged notifications
+
+**Acceptance Criteria:**
+
+- All three notification types are handled
+- Lists are reloaded when notifications are received
+- Cached content is preserved for existing items
+- Cached content is cleared for removed items
+- Events are dispatched correctly
+- Configuration controls handler setup
+
+**Rationale:** This phase depends on Phase 3 (caching) to test cache preservation behavior. The cache infrastructure is already in place, so this focuses on notification handling.
+
+---
+
+### Phase 6: Resource Subscriptions
+
+**Goal:** Add subscribe/unsubscribe methods and handle resource updated notifications.
+
+**Deliverables:**
+
+1. Implement `subscribeToResource(uri: string)`:
+   - Check server capability: `this.capabilities?.resources?.subscribe === true`
+   - Call `client.request({ method: "resources/subscribe", params: { uri } })`
+   - Add to `subscribedResources` Set
+   - Dispatch `resourceSubscriptionsChange` event
+2. Implement `unsubscribeFromResource(uri: string)`:
+   - Call `client.request({ method: "resources/unsubscribe", params: { uri } })`
+   - Remove from `subscribedResources` Set
+   - Dispatch `resourceSubscriptionsChange` event
+3. Set up `notifications/resources/updated` handler in `connect()` (only if server supports subscriptions)
+4. Handler logic:
+   - Check if resource is subscribed
+   - If subscribed AND cached: Reload content via `readResource()` (which updates cache)
+   - If subscribed but not cached: Dispatch `resourceUpdated` event (descriptor-only)
+   - Dispatch `resourceContentChange` event if content was reloaded
+5. Add event types:
+   - `resourceSubscriptionsChange`
+   - `resourceUpdated`
+
+**Testing:**
+
+- Test that `subscribeToResource()` calls SDK method correctly
+- Test that `unsubscribeFromResource()` calls SDK method correctly
+- Test that subscription state is tracked correctly
+- Test that `resourceSubscriptionsChange` event is dispatched
+- Test that handler only processes subscribed resources
+- Test that cached resources are reloaded automatically
+- Test that non-cached resources trigger `resourceUpdated` event
+- Test that subscription fails gracefully if server doesn't support it
+- Test with test server that supports subscriptions and sends resource updated notifications
+
+**Acceptance Criteria:**
+
+- Subscribe/unsubscribe methods work correctly
+- Subscription state is tracked
+- Resource updated notifications are handled correctly
+- Cached resources are auto-reloaded
+- Events are dispatched correctly
+- Graceful handling of unsupported servers
+- No breaking changes to existing API
+
+**Rationale:** This phase depends on Phase 3 (resource caching) for the auto-reload functionality. The subscription infrastructure from Phase 4 is already in place.
+
+---
+
+### Phase 7: Integration Testing and Documentation
+
+**Goal:** Comprehensive testing, edge case handling, and documentation updates.
+
+**Deliverables:**
+
+1. Integration tests covering:
+   - Full workflow: subscribe → receive update → content reloaded
+   - ListChanged notifications for all types
+   - Cache persistence across list reloads
+   - Cache clearing on disconnect
+   - Multiple resource subscriptions
+   - Error scenarios (subscription failures, cache failures)
+2. Edge case testing:
+   - Empty lists
+   - Rapid notifications
+   - Disconnect during operations
+   - Server capability changes
+3. Update documentation:
+   - API documentation for new methods
+   - Event documentation for new events
+   - Usage examples
+   - Update feature gaps document
+4. Code review and cleanup
+
+**Testing:**
+
+- Run full test suite
+- Test with real MCP servers (if available)
+- Test edge cases
+- Performance testing (if applicable)
+
+**Acceptance Criteria:**
+
+- All tests pass
+- Documentation is complete and accurate
+- No regressions in existing functionality
+- Code is ready for review
+- Edge cases are handled gracefully
+
+**Rationale:** Final validation phase ensures everything works together correctly and documentation is complete.
 
 ## Questions and Considerations
 

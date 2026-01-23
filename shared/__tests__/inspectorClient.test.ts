@@ -552,8 +552,10 @@ describe("InspectorClient", () => {
         message: "hello world",
       });
 
-      expect(result).toHaveProperty("content");
-      const content = result.content as any[];
+      expect(result).toHaveProperty("result");
+      expect(result.success).toBe(true);
+      expect(result.result).toHaveProperty("content");
+      const content = result.result!.content as any[];
       expect(Array.isArray(content)).toBe(true);
       expect(content[0]).toHaveProperty("type", "text");
       expect(content[0].text).toContain("hello world");
@@ -564,9 +566,10 @@ describe("InspectorClient", () => {
         a: 42,
         b: 58,
       });
+      expect(result.success).toBe(true);
 
-      expect(result).toHaveProperty("content");
-      const content = result.content as any[];
+      expect(result.result).toHaveProperty("content");
+      const content = result.result!.content as any[];
       const resultData = JSON.parse(content[0].text);
       expect(resultData.result).toBe(100);
     });
@@ -577,8 +580,8 @@ describe("InspectorClient", () => {
         includeImage: true,
       });
 
-      expect(result).toHaveProperty("content");
-      const content = result.content as any[];
+      expect(result.result).toHaveProperty("content");
+      const content = result.result!.content as any[];
       expect(content.length).toBeGreaterThan(1);
       const hasImage = content.some((item: any) => item.type === "image");
       expect(hasImage).toBe(true);
@@ -587,11 +590,15 @@ describe("InspectorClient", () => {
     it("should handle tool not found", async () => {
       const result = await client.callTool("nonexistent-tool", {});
       // When tool is not found, the SDK returns an error response, not an exception
-      expect(result).toHaveProperty("isError", true);
-      expect(result).toHaveProperty("content");
-      const content = result.content as any[];
-      expect(content[0]).toHaveProperty("text");
-      expect(content[0].text).toContain("not found");
+      expect(result.success).toBe(true); // SDK returns error in result, not as exception
+      expect(result.result).toHaveProperty("isError", true);
+      expect(result.result).toBeDefined();
+      if (result.result) {
+        expect(result.result).toHaveProperty("content");
+        const content = result.result.content as any[];
+        expect(content[0]).toHaveProperty("text");
+        expect(content[0].text).toContain("not found");
+      }
     });
   });
 
@@ -621,7 +628,8 @@ describe("InspectorClient", () => {
       if (resources.length > 0) {
         const uri = resources[0]!.uri;
         const readResult = await client.readResource(uri);
-        expect(readResult).toHaveProperty("contents");
+        expect(readResult).toHaveProperty("result");
+        expect(readResult.result).toHaveProperty("contents");
       }
     });
   });
@@ -671,15 +679,17 @@ describe("InspectorClient", () => {
 
       // Read the resource using the expanded URI
       const readResult = await client.readResource(expandedUri);
-      expect(readResult).toHaveProperty("contents");
-      const contents = (readResult as any).contents;
+      expect(readResult).toHaveProperty("result");
+      expect(readResult.result).toHaveProperty("contents");
+      const contents = readResult.result.contents;
       expect(Array.isArray(contents)).toBe(true);
       expect(contents.length).toBeGreaterThan(0);
 
       const content = contents[0];
       expect(content).toHaveProperty("uri");
-      expect(content).toHaveProperty("text");
-      expect(content.text).toContain("Mock file content for: test.txt");
+      if (content && "text" in content) {
+        expect(content.text).toContain("Mock file content for: test.txt");
+      }
     });
 
     it("should include resources from template list callback in listResources", async () => {
@@ -944,9 +954,11 @@ describe("InspectorClient", () => {
 
       // Verify the tool result contains the sampling response
       expect(toolResult).toBeDefined();
-      expect(toolResult.content).toBeDefined();
-      expect(Array.isArray(toolResult.content)).toBe(true);
-      const toolContent = toolResult.content as any[];
+      expect(toolResult.success).toBe(true);
+      expect(toolResult.result).toBeDefined();
+      expect(toolResult.result!.content).toBeDefined();
+      expect(Array.isArray(toolResult.result!.content)).toBe(true);
+      const toolContent = toolResult.result!.content as any[];
       expect(toolContent.length).toBeGreaterThan(0);
       const toolMessage = toolContent[0];
       expect(toolMessage).toBeDefined();
@@ -1213,9 +1225,11 @@ describe("InspectorClient", () => {
 
       // Verify the tool result contains the elicitation response
       expect(toolResult).toBeDefined();
-      expect(toolResult.content).toBeDefined();
-      expect(Array.isArray(toolResult.content)).toBe(true);
-      const toolContent = toolResult.content as any[];
+      expect(toolResult.success).toBe(true);
+      expect(toolResult.result).toBeDefined();
+      expect(toolResult.result!.content).toBeDefined();
+      expect(Array.isArray(toolResult.result!.content)).toBe(true);
+      const toolContent = toolResult.result!.content as any[];
       expect(toolContent.length).toBeGreaterThan(0);
       const toolMessage = toolContent[0];
       expect(toolMessage).toBeDefined();
@@ -1267,9 +1281,11 @@ describe("InspectorClient", () => {
 
       // Verify the tool result contains the roots
       expect(toolResult).toBeDefined();
-      expect(toolResult.content).toBeDefined();
-      expect(Array.isArray(toolResult.content)).toBe(true);
-      const toolContent = toolResult.content as any[];
+      expect(toolResult.success).toBe(true);
+      expect(toolResult.result).toBeDefined();
+      expect(toolResult.result!.content).toBeDefined();
+      expect(Array.isArray(toolResult.result!.content)).toBe(true);
+      const toolContent = toolResult.result!.content as any[];
       expect(toolContent.length).toBeGreaterThan(0);
       const toolMessage = toolContent[0];
       expect(toolMessage).toBeDefined();

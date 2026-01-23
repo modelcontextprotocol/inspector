@@ -165,9 +165,9 @@ export function ResourcesTab({
       setLoading(true);
       setError(null);
       try {
-        const response =
+        const invocation =
           await inspectorClient.readResource(shouldFetchResource);
-        setResourceContent(response);
+        setResourceContent(invocation.result);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to read resource",

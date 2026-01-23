@@ -46,14 +46,14 @@ export function PromptsTab({
           // No arguments, fetch directly
           (async () => {
             try {
-              const response = await inspectorClient.getPrompt(
+              const invocation = await inspectorClient.getPrompt(
                 selectedPrompt.name,
               );
               // Show result in details modal
               if (onViewDetails) {
                 onViewDetails({
                   ...selectedPrompt,
-                  result: response,
+                  result: invocation.result,
                 });
               }
             } catch (error) {

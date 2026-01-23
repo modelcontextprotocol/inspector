@@ -92,3 +92,64 @@ export interface ServerState {
   tools: any[];
   stderrLogs: StderrLogEntry[];
 }
+
+import type {
+  ReadResourceResult,
+  GetPromptResult,
+  CallToolResult,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { JsonValue } from "../json/jsonUtils.js";
+
+/**
+ * Represents a complete resource read invocation, including request parameters,
+ * response, and metadata. This object is returned from InspectorClient.readResource()
+ * and cached for later retrieval.
+ */
+export interface ResourceReadInvocation {
+  result: ReadResourceResult; // The full SDK response object
+  timestamp: Date; // When the call was made
+  uri: string; // The URI that was read (request parameter)
+  metadata?: Record<string, string>; // Optional metadata that was passed
+}
+
+/**
+ * Represents a complete resource template read invocation, including request parameters,
+ * response, and metadata. This object is returned from InspectorClient.readResourceFromTemplate()
+ * and cached for later retrieval.
+ */
+export interface ResourceTemplateReadInvocation {
+  uriTemplate: string; // The URI template string (unique ID)
+  expandedUri: string; // The expanded URI after template expansion
+  result: ReadResourceResult; // The full SDK response object
+  timestamp: Date; // When the call was made
+  params: Record<string, string>; // The parameters used to expand the template (request parameters)
+  metadata?: Record<string, string>; // Optional metadata that was passed
+}
+
+/**
+ * Represents a complete prompt get invocation, including request parameters,
+ * response, and metadata. This object is returned from InspectorClient.getPrompt()
+ * and cached for later retrieval.
+ */
+export interface PromptGetInvocation {
+  result: GetPromptResult; // The full SDK response object
+  timestamp: Date; // When the call was made
+  name: string; // The prompt name (request parameter)
+  params?: Record<string, string>; // The parameters used when fetching the prompt (request parameters)
+  metadata?: Record<string, string>; // Optional metadata that was passed
+}
+
+/**
+ * Represents a complete tool call invocation, including request parameters,
+ * response, and metadata. This object is returned from InspectorClient.callTool()
+ * and cached for later retrieval.
+ */
+export interface ToolCallInvocation {
+  toolName: string; // The tool that was called (request parameter)
+  params: Record<string, JsonValue>; // The arguments passed to the tool (request parameters)
+  result: CallToolResult | null; // The full SDK response object (null on error)
+  timestamp: Date; // When the call was made
+  success: boolean; // true if call succeeded, false if it threw
+  error?: string; // Error message if success === false
+  metadata?: Record<string, string>; // Optional metadata that was passed
+}
