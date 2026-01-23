@@ -398,7 +398,7 @@ class InspectorClient {
 
 **Cache Storage:**
 
-- Cache content is **automatically stored** when fetch methods are called (in Phase 2):
+- Cache content is **automatically stored** when fetch methods are called:
   - `readResource(uri)` → stores via `this.cacheInternal.setResource(uri, invocation)`
   - `readResourceFromTemplate(uriTemplate, params)` → stores via `this.cacheInternal.setResourceTemplate(uriTemplate, invocation)`
   - `getPrompt(name, args)` → stores via `this.cacheInternal.setPrompt(name, invocation)`
@@ -474,8 +474,8 @@ async readResourceFromTemplate(
      - Use SDK's `UriTemplate` class: `new UriTemplate(uriTemplate).expand(params)`
   4. Always fetch fresh content: Call `this.readResource(expandedUri, metadata)` (InspectorClient method) → returns `ResourceReadInvocation`
   5. Create invocation object: `const invocation: ResourceTemplateReadInvocation = { uriTemplate, expandedUri, result: readInvocation.result, timestamp: readInvocation.timestamp, params, metadata }`
-  6. Store in cache: `this.cacheInternal.setResourceTemplate(uriTemplate, invocation)` (TODO: add in Phase 2)
-  7. Dispatch `resourceTemplateContentChange` event (TODO: add in Phase 2)
+  6. Store in cache: `this.cacheInternal.setResourceTemplate(uriTemplate, invocation)`
+  7. Dispatch `resourceTemplateContentChange` event
   8. Return the invocation object (same object that's in the cache)
 
 **Resource Matching Logic:**
@@ -548,8 +548,8 @@ clearAllPromptContent(): void;
   1. Convert args to strings (using existing `convertPromptArguments()`)
   2. Always fetch fresh content: Call `client.getPrompt(name, stringArgs, metadata)` (SDK method) → returns `GetPromptResult`
   3. Create invocation object: `const invocation: PromptGetInvocation = { result, timestamp: new Date(), name, params: stringArgs, metadata }`
-  4. Store in cache: `this.cacheInternal.setPrompt(name, invocation)` (TODO: add in Phase 2)
-  5. Dispatch `promptContentChange` event (TODO: add in Phase 2)
+  4. Store in cache: `this.cacheInternal.setPrompt(name, invocation)`
+  5. Dispatch `promptContentChange` event
   6. Return the invocation object (same object that's in the cache)
 
 - `client.cache.getPrompt(name)` (ContentCache method):
@@ -652,87 +652,12 @@ async callTool(
 
 ## Implementation Plan
 
-### Phase 1: Integrate ContentCache into InspectorClient (Infrastructure Only)
+**Note:** Phases 1 and 2 are complete:
 
-**Note:** The `ContentCache` module has been implemented and tested. It provides `ReadOnlyContentCache` and `ReadWriteContentCache` interfaces, and the `ContentCache` class with get/set/clear methods for all cache types.
+- **Phase 1:** ContentCache integrated into InspectorClient (infrastructure only)
+- **Phase 2:** All caching types implemented (resources, templates, prompts, tool results) with event dispatching
 
-**Goal:** Add ContentCache to InspectorClient without changing existing behavior.
-
-**Deliverables:**
-
-1. Import `ContentCache` and `ReadOnlyContentCache` from `./contentCache.js` in `InspectorClient`
-2. Import invocation types (`ResourceReadInvocation`, `ResourceTemplateReadInvocation`, `PromptGetInvocation`, `ToolCallInvocation`) from `./types.js` in `InspectorClient`
-3. Add `private cacheInternal: ContentCache` property
-4. Add `public readonly cache: ReadOnlyContentCache` property
-5. Initialize cache in constructor
-6. Clear all cache maps on disconnect (in `disconnect()` method)
-
-**Testing:**
-
-- Verify `client.cache` is accessible and returns `null` for all getters initially
-- Verify cache is cleared when `disconnect()` is called
-- Verify no breaking changes to existing API
-- All existing tests pass (no regressions)
-
-**Acceptance Criteria:**
-
-- `client.cache` is accessible and functional
-- Cache is cleared on disconnect
-- No breaking changes to existing API
-- All existing tests pass
-
-**Rationale:** Separating infrastructure from functionality allows validation that the integration doesn't break anything before adding caching behavior.
-
----
-
-### Phase 2: Implement All Caching Types
-
-**Goal:** Add caching to all fetch methods (resources, templates, prompts, tool results) simultaneously.
-
-**Deliverables:**
-
-1. Modify `readResource()` to:
-   - Keep existing behavior (always fetch fresh)
-   - Store in cache: `this.cacheInternal.setResource(uri, { result, timestamp })`
-   - Dispatch `resourceContentChange` event
-2. Modify `readResourceFromTemplate()` to:
-   - Store in cache: `this.cacheInternal.setResourceTemplate(uriTemplate, invocation)`
-   - Dispatch `resourceTemplateContentChange` event
-3. Modify `getPrompt()` to:
-   - Store in cache: `this.cacheInternal.setPrompt(name, invocation)`
-   - Dispatch `promptContentChange` event
-4. Modify `callTool()` to:
-   - On success: Store in cache: `this.cacheInternal.setToolCallResult(name, invocation)` (invocation with `success: true`)
-   - On error: Store in cache: `this.cacheInternal.setToolCallResult(name, invocation)` (invocation with `success: false` and error)
-   - Dispatch `toolCallResultChange` event
-5. Add new event types:
-   - `resourceContentChange`
-   - `resourceTemplateContentChange`
-   - `promptContentChange`
-   - `toolCallResultChange`
-
-**Testing:**
-
-- Test that each fetch method stores content in cache
-- Test that `client.cache.get*()` methods return cached content
-- Test that events are dispatched with correct detail structure
-- Test that cache persists across multiple calls
-- Test that subsequent calls replace cache entries
-- Test error handling (tool call failures)
-
-**Acceptance Criteria:**
-
-- All fetch methods continue to work as before (no breaking changes)
-- Content is stored in cache after each fetch operation
-- Cache getters return cached content correctly
-- Events are dispatched with correct detail structure
-- All existing tests pass
-
-**Rationale:** Implementing all cache types together is efficient since they follow the same pattern. The cache module is already tested, so this phase focuses on integration.
-
----
-
-### Phase 3: Configuration and Subscription Infrastructure
+### Phase 1: Configuration and Subscription Infrastructure
 
 **Goal:** Add configuration options and subscription state management (no handlers yet).
 
@@ -765,7 +690,7 @@ async callTool(
 
 ---
 
-### Phase 4: ListChanged Notification Handlers
+### Phase 2: ListChanged Notification Handlers
 
 **Goal:** Add handlers for listChanged notifications that reload lists and preserve cache.
 
@@ -852,11 +777,11 @@ async callTool(
 - Events are dispatched correctly
 - Configuration controls handler setup
 
-**Rationale:** This phase depends on Phase 2 (caching) to test cache preservation behavior. The cache infrastructure is already in place, so this focuses on notification handling.
+**Rationale:** This phase depends on the completed caching implementation to test cache preservation behavior. The cache infrastructure is already in place, so this focuses on notification handling.
 
 ---
 
-### Phase 5: Resource Subscriptions
+### Phase 3: Resource Subscriptions
 
 **Goal:** Add subscribe/unsubscribe methods and handle resource updated notifications.
 
@@ -902,11 +827,11 @@ async callTool(
 - Graceful handling of unsupported servers
 - No breaking changes to existing API
 
-**Rationale:** This phase depends on Phase 2 (resource caching) for cache clearing functionality. The subscription infrastructure from Phase 3 is already in place.
+**Rationale:** This phase depends on the completed resource caching implementation for cache clearing functionality. The subscription infrastructure from Phase 1 is already in place.
 
 ---
 
-### Phase 6: Integration Testing and Documentation
+### Phase 4: Integration Testing and Documentation
 
 **Goal:** Comprehensive testing, edge case handling, and documentation updates.
 
