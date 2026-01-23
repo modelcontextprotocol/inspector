@@ -26,10 +26,16 @@ import type {
   Implementation,
   LoggingLevel,
   Tool,
+  Resource,
+  ResourceTemplate,
+  Prompt,
   CreateMessageRequest,
   CreateMessageResult,
   ElicitRequest,
   ElicitResult,
+  ReadResourceResult,
+  GetPromptResult,
+  CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   CreateMessageRequestSchema,
@@ -43,6 +49,7 @@ import {
   convertToolParameters,
   convertPromptArguments,
 } from "../json/jsonUtils.js";
+import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 export interface InspectorClientOptions {
   /**
    * Client identity (name and version)
@@ -224,10 +231,10 @@ export class InspectorClient extends EventTarget {
   private elicit: boolean;
   private status: ConnectionStatus = "disconnected";
   // Server data
-  private tools: any[] = [];
-  private resources: any[] = [];
-  private resourceTemplates: any[] = [];
-  private prompts: any[] = [];
+  private tools: Tool[] = [];
+  private resources: Resource[] = [];
+  private resourceTemplates: ResourceTemplate[] = [];
+  private prompts: Prompt[] = [];
   private capabilities?: ServerCapabilities;
   private serverInfo?: Implementation;
   private instructions?: string;
@@ -578,14 +585,14 @@ export class InspectorClient extends EventTarget {
   /**
    * Get all tools
    */
-  getTools(): any[] {
+  getTools(): Tool[] {
     return [...this.tools];
   }
 
   /**
    * Get all resources
    */
-  getResources(): any[] {
+  getResources(): Resource[] {
     return [...this.resources];
   }
 
@@ -593,14 +600,14 @@ export class InspectorClient extends EventTarget {
    * Get resource templates
    * @returns Array of resource templates
    */
-  getResourceTemplates(): any[] {
+  getResourceTemplates(): ResourceTemplate[] {
     return [...this.resourceTemplates];
   }
 
   /**
    * Get all prompts
    */
-  getPrompts(): any[] {
+  getPrompts(): Prompt[] {
     return [...this.prompts];
   }
 
@@ -713,11 +720,9 @@ export class InspectorClient extends EventTarget {
   /**
    * List available tools
    * @param metadata Optional metadata to include in the request
-   * @returns Response containing tools array
+   * @returns Array of tools
    */
-  async listTools(
-    metadata?: Record<string, string>,
-  ): Promise<Record<string, unknown>> {
+  async listTools(metadata?: Record<string, string>): Promise<Tool[]> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -725,7 +730,7 @@ export class InspectorClient extends EventTarget {
       const params =
         metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
       const response = await this.client.listTools(params);
-      return response;
+      return response.tools || [];
     } catch (error) {
       throw new Error(
         `Failed to list tools: ${error instanceof Error ? error.message : String(error)}`,
@@ -746,13 +751,12 @@ export class InspectorClient extends EventTarget {
     args: Record<string, JsonValue>,
     generalMetadata?: Record<string, string>,
     toolSpecificMetadata?: Record<string, string>,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<CallToolResult> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
     try {
-      const toolsResponse = await this.listTools(generalMetadata);
-      const tools = (toolsResponse.tools as Tool[]) || [];
+      const tools = await this.listTools(generalMetadata);
       const tool = tools.find((t) => t.name === name);
 
       let convertedArgs: Record<string, JsonValue> = args;
@@ -791,7 +795,7 @@ export class InspectorClient extends EventTarget {
             ? mergedMetadata
             : undefined,
       });
-      return response;
+      return response as CallToolResult;
     } catch (error) {
       throw new Error(
         `Failed to call tool ${name}: ${error instanceof Error ? error.message : String(error)}`,
@@ -802,11 +806,9 @@ export class InspectorClient extends EventTarget {
   /**
    * List available resources
    * @param metadata Optional metadata to include in the request
-   * @returns Response containing resources array
+   * @returns Array of resources
    */
-  async listResources(
-    metadata?: Record<string, string>,
-  ): Promise<Record<string, unknown>> {
+  async listResources(metadata?: Record<string, string>): Promise<Resource[]> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -814,7 +816,7 @@ export class InspectorClient extends EventTarget {
       const params =
         metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
       const response = await this.client.listResources(params);
-      return response;
+      return response.resources || [];
     } catch (error) {
       throw new Error(
         `Failed to list resources: ${error instanceof Error ? error.message : String(error)}`,
@@ -831,7 +833,7 @@ export class InspectorClient extends EventTarget {
   async readResource(
     uri: string,
     metadata?: Record<string, string>,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<ReadResourceResult> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -850,13 +852,86 @@ export class InspectorClient extends EventTarget {
   }
 
   /**
+   * Read a resource from a template by expanding the template URI with parameters
+   * This encapsulates the business logic of template expansion and associates the
+   * loaded resource with its template in InspectorClient state
+   * @param templateName The name/ID of the resource template
+   * @param params Parameters to fill in the template variables
+   * @param metadata Optional metadata to include in the request
+   * @returns The resource content along with expanded URI and template name
+   * @throws Error if template is not found or URI expansion fails
+   */
+  async readResourceFromTemplate(
+    uriTemplate: string,
+    params: Record<string, string>,
+    metadata?: Record<string, string>,
+  ): Promise<{
+    contents: Array<{ uri: string; mimeType?: string; text: string }>;
+    uri: string; // The expanded URI
+    uriTemplate: string; // The uriTemplate for reference
+  }> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+
+    // Look up template in resourceTemplates by uriTemplate (the unique identifier)
+    const template = this.resourceTemplates.find(
+      (t) => t.uriTemplate === uriTemplate,
+    );
+
+    if (!template) {
+      throw new Error(
+        `Resource template with uriTemplate "${uriTemplate}" not found`,
+      );
+    }
+
+    if (!template.uriTemplate) {
+      throw new Error(`Resource template does not have a uriTemplate property`);
+    }
+
+    // Get the uriTemplate string (the unique ID of the template)
+    const uriTemplateString = template.uriTemplate;
+
+    // Expand the template's uriTemplate using the provided params
+    let expandedUri: string;
+    try {
+      const uriTemplate = new UriTemplate(uriTemplateString);
+      expandedUri = uriTemplate.expand(params);
+    } catch (error) {
+      throw new Error(
+        `Failed to expand URI template "${uriTemplate}": ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    // Always fetch fresh content: Call readResource with expanded URI
+    const response = await this.readResource(expandedUri, metadata);
+
+    // Extract contents from response (response.contents is the standard format)
+    const contents =
+      (response.contents as Array<{
+        uri: string;
+        mimeType?: string;
+        text: string;
+      }>) || [];
+
+    // Return the response in the expected format
+    // Include the full response for backward compatibility, plus the expanded URI and uriTemplate
+    return {
+      ...response,
+      contents,
+      uri: expandedUri,
+      uriTemplate,
+    };
+  }
+
+  /**
    * List resource templates
    * @param metadata Optional metadata to include in the request
-   * @returns Response containing resource templates array
+   * @returns Array of resource templates
    */
   async listResourceTemplates(
     metadata?: Record<string, string>,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<ResourceTemplate[]> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -864,7 +939,7 @@ export class InspectorClient extends EventTarget {
       const params =
         metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
       const response = await this.client.listResourceTemplates(params);
-      return response;
+      return response.resourceTemplates || [];
     } catch (error) {
       throw new Error(
         `Failed to list resource templates: ${error instanceof Error ? error.message : String(error)}`,
@@ -875,11 +950,9 @@ export class InspectorClient extends EventTarget {
   /**
    * List available prompts
    * @param metadata Optional metadata to include in the request
-   * @returns Response containing prompts array
+   * @returns Array of prompts
    */
-  async listPrompts(
-    metadata?: Record<string, string>,
-  ): Promise<Record<string, unknown>> {
+  async listPrompts(metadata?: Record<string, string>): Promise<Prompt[]> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -887,7 +960,7 @@ export class InspectorClient extends EventTarget {
       const params =
         metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
       const response = await this.client.listPrompts(params);
-      return response;
+      return response.prompts || [];
     } catch (error) {
       throw new Error(
         `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`,
@@ -906,7 +979,7 @@ export class InspectorClient extends EventTarget {
     name: string,
     args?: Record<string, JsonValue>,
     metadata?: Record<string, string>,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<GetPromptResult> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -1047,8 +1120,7 @@ export class InspectorClient extends EventTarget {
       // Query resources, prompts, and tools based on capabilities
       if (this.capabilities?.resources) {
         try {
-          const result = await this.client.listResources();
-          this.resources = result.resources || [];
+          this.resources = await this.listResources();
           this.dispatchEvent(
             new CustomEvent("resourcesChange", { detail: this.resources }),
           );
@@ -1062,8 +1134,7 @@ export class InspectorClient extends EventTarget {
 
         // Also fetch resource templates
         try {
-          const templatesResult = await this.client.listResourceTemplates();
-          this.resourceTemplates = templatesResult.resourceTemplates || [];
+          this.resourceTemplates = await this.listResourceTemplates();
           this.dispatchEvent(
             new CustomEvent("resourceTemplatesChange", {
               detail: this.resourceTemplates,
@@ -1082,8 +1153,7 @@ export class InspectorClient extends EventTarget {
 
       if (this.capabilities?.prompts) {
         try {
-          const result = await this.client.listPrompts();
-          this.prompts = result.prompts || [];
+          this.prompts = await this.listPrompts();
           this.dispatchEvent(
             new CustomEvent("promptsChange", { detail: this.prompts }),
           );
@@ -1098,8 +1168,7 @@ export class InspectorClient extends EventTarget {
 
       if (this.capabilities?.tools) {
         try {
-          const result = await this.client.listTools();
-          this.tools = result.tools || [];
+          this.tools = await this.listTools();
           this.dispatchEvent(
             new CustomEvent("toolsChange", { detail: this.tools }),
           );
