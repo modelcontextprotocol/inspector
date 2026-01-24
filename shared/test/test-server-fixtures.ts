@@ -33,6 +33,94 @@ export type {
 export { createMcpServer } from "./composable-test-server.js";
 
 /**
+ * Create multiple numbered tools for pagination testing
+ * @param count Number of tools to create
+ * @returns Array of tool definitions
+ */
+export function createNumberedTools(count: number): ToolDefinition[] {
+  const tools: ToolDefinition[] = [];
+  for (let i = 1; i <= count; i++) {
+    tools.push({
+      name: `tool-${i}`,
+      description: `Test tool number ${i}`,
+      inputSchema: {
+        message: z.string().describe(`Message for tool ${i}`),
+      },
+      handler: async (params: Record<string, any>) => {
+        return { message: `Tool ${i}: ${params.message as string}` };
+      },
+    });
+  }
+  return tools;
+}
+
+/**
+ * Create multiple numbered resources for pagination testing
+ * @param count Number of resources to create
+ * @returns Array of resource definitions
+ */
+export function createNumberedResources(count: number): ResourceDefinition[] {
+  const resources: ResourceDefinition[] = [];
+  for (let i = 1; i <= count; i++) {
+    resources.push({
+      name: `resource-${i}`,
+      uri: `test://resource-${i}`,
+      description: `Test resource number ${i}`,
+      mimeType: "text/plain",
+      text: `Content for resource ${i}`,
+    });
+  }
+  return resources;
+}
+
+/**
+ * Create multiple numbered resource templates for pagination testing
+ * @param count Number of resource templates to create
+ * @returns Array of resource template definitions
+ */
+export function createNumberedResourceTemplates(
+  count: number,
+): ResourceTemplateDefinition[] {
+  const templates: ResourceTemplateDefinition[] = [];
+  for (let i = 1; i <= count; i++) {
+    templates.push({
+      name: `template-${i}`,
+      uriTemplate: `test://template-${i}/{param}`,
+      description: `Test resource template number ${i}`,
+      handler: async (uri: URL, variables: Record<string, any>) => {
+        return {
+          contents: [
+            {
+              uri: uri.toString(),
+              mimeType: "text/plain",
+              text: `Content for template ${i} with param ${variables.param}`,
+            },
+          ],
+        };
+      },
+    });
+  }
+  return templates;
+}
+
+/**
+ * Create multiple numbered prompts for pagination testing
+ * @param count Number of prompts to create
+ * @returns Array of prompt definitions
+ */
+export function createNumberedPrompts(count: number): PromptDefinition[] {
+  const prompts: PromptDefinition[] = [];
+  for (let i = 1; i <= count; i++) {
+    prompts.push({
+      name: `prompt-${i}`,
+      description: `Test prompt number ${i}`,
+      promptString: `This is prompt ${i}`,
+    });
+  }
+  return prompts;
+}
+
+/**
  * Create an "echo" tool that echoes back the input message
  */
 export function createEchoTool(): ToolDefinition {
