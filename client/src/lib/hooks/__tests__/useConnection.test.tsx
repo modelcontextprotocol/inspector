@@ -139,6 +139,7 @@ describe("useConnection", () => {
     args: "",
     sseUrl: "http://localhost:8080",
     env: {},
+    workingDir: "",
     config: DEFAULT_INSPECTOR_CONFIG,
   };
 
@@ -1640,6 +1641,52 @@ describe("useConnection", () => {
       expect(
         mockSSETransport.url?.searchParams.get("proxyFullAddress"),
       ).toBeNull();
+    });
+
+    test("sends working directory query parameter for stdio transport when provided", async () => {
+      const propsWithWorkingDir = {
+        ...defaultProps,
+        transportType: "stdio" as const,
+        command: "test-command",
+        args: "test-args",
+        env: {},
+        workingDir: "/path/to/project",
+        config: DEFAULT_INSPECTOR_CONFIG,
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithWorkingDir));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Check that the URL contains the working directory parameter
+      expect(mockSSETransport.url?.searchParams.get("workingDir")).toBe(
+        "/path/to/project",
+      );
+    });
+
+    test("does not send working directory parameter when not provided", async () => {
+      const propsWithoutWorkingDir = {
+        ...defaultProps,
+        transportType: "stdio" as const,
+        command: "test-command",
+        args: "test-args",
+        env: {},
+        workingDir: "",
+        config: DEFAULT_INSPECTOR_CONFIG,
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithoutWorkingDir),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // Check that the URL does not contain the working directory parameter
+      expect(mockSSETransport.url?.searchParams.get("workingDir")).toBeNull();
     });
 
     test("does not send proxyFullAddress parameter for streamable-http transport", async () => {
