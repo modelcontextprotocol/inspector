@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { InspectorClient } from "../mcp/index.js";
+import type { TypedEvent } from "../mcp/inspectorClientEventTarget.js";
 import type {
   ConnectionStatus,
   StderrLogEntry,
@@ -100,62 +101,54 @@ export function useInspectorClient(
     setServerInfo(inspectorClient.getServerInfo());
     setInstructions(inspectorClient.getInstructions());
 
-    // Event handlers
-    // Note: We use event payloads when available for efficiency, with explicit type casting
-    // since EventTarget doesn't provide compile-time type safety
-    const onStatusChange = (event: Event) => {
-      const customEvent = event as CustomEvent<ConnectionStatus>;
-      setStatus(customEvent.detail);
+    // Event handlers - using type-safe event listeners
+    const onStatusChange = (event: TypedEvent<"statusChange">) => {
+      setStatus(event.detail);
     };
 
     const onMessagesChange = () => {
-      // messagesChange doesn't include payload, so we fetch
+      // messagesChange is a void event, so we fetch
       setMessages(inspectorClient.getMessages());
     };
 
     const onStderrLogsChange = () => {
-      // stderrLogsChange doesn't include payload, so we fetch
+      // stderrLogsChange is a void event, so we fetch
       setStderrLogs(inspectorClient.getStderrLogs());
     };
 
     const onFetchRequestsChange = () => {
-      // fetchRequestsChange doesn't include payload, so we fetch
+      // fetchRequestsChange is a void event, so we fetch
       setFetchRequests(inspectorClient.getFetchRequests());
     };
 
-    const onToolsChange = (event: Event) => {
-      const customEvent = event as CustomEvent<Tool[]>;
-      setTools(customEvent.detail);
+    const onToolsChange = (event: TypedEvent<"toolsChange">) => {
+      setTools(event.detail);
     };
 
-    const onResourcesChange = (event: Event) => {
-      const customEvent = event as CustomEvent<ResourceReference[]>;
-      setResources(customEvent.detail);
+    const onResourcesChange = (event: TypedEvent<"resourcesChange">) => {
+      setResources(event.detail);
     };
 
-    const onResourceTemplatesChange = (event: Event) => {
-      const customEvent = event as CustomEvent<any[]>;
-      setResourceTemplates(customEvent.detail);
+    const onResourceTemplatesChange = (
+      event: TypedEvent<"resourceTemplatesChange">,
+    ) => {
+      setResourceTemplates(event.detail);
     };
 
-    const onPromptsChange = (event: Event) => {
-      const customEvent = event as CustomEvent<PromptReference[]>;
-      setPrompts(customEvent.detail);
+    const onPromptsChange = (event: TypedEvent<"promptsChange">) => {
+      setPrompts(event.detail);
     };
 
-    const onCapabilitiesChange = (event: Event) => {
-      const customEvent = event as CustomEvent<ServerCapabilities | undefined>;
-      setCapabilities(customEvent.detail);
+    const onCapabilitiesChange = (event: TypedEvent<"capabilitiesChange">) => {
+      setCapabilities(event.detail);
     };
 
-    const onServerInfoChange = (event: Event) => {
-      const customEvent = event as CustomEvent<Implementation | undefined>;
-      setServerInfo(customEvent.detail);
+    const onServerInfoChange = (event: TypedEvent<"serverInfoChange">) => {
+      setServerInfo(event.detail);
     };
 
-    const onInstructionsChange = (event: Event) => {
-      const customEvent = event as CustomEvent<string | undefined>;
-      setInstructions(customEvent.detail);
+    const onInstructionsChange = (event: TypedEvent<"instructionsChange">) => {
+      setInstructions(event.detail);
     };
 
     // Subscribe to events

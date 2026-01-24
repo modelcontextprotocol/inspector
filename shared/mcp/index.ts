@@ -1,8 +1,11 @@
 // Main MCP client module
 // Re-exports the primary API for MCP client/server interaction
 
-export { InspectorClient, SamplingCreateMessage } from "./inspectorClient.js";
+export { InspectorClient } from "./inspectorClient.js";
 export type { InspectorClientOptions } from "./inspectorClient.js";
+
+// Re-export type-safe event target types for consumers
+export type { InspectorClientEventMap } from "./inspectorClientEventTarget.js";
 
 export { loadMcpServersConfig, argsToMcpServerConfig } from "./config.js";
 

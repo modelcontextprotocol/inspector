@@ -58,6 +58,9 @@ import {
 } from "../json/jsonUtils.js";
 import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 import { ContentCache, type ReadOnlyContentCache } from "./contentCache.js";
+import { InspectorClientEventTarget } from "./inspectorClientEventTarget.js";
+import { SamplingCreateMessage } from "./samplingCreateMessage.js";
+import { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 export interface InspectorClientOptions {
   /**
    * Client identity (name and version)
@@ -133,106 +136,6 @@ export interface InspectorClientOptions {
 }
 
 /**
- * Represents a pending sampling request from the server
- */
-export class SamplingCreateMessage {
-  public readonly id: string;
-  public readonly timestamp: Date;
-  public readonly request: CreateMessageRequest;
-  private resolvePromise?: (result: CreateMessageResult) => void;
-  private rejectPromise?: (error: Error) => void;
-
-  constructor(
-    request: CreateMessageRequest,
-    resolve: (result: CreateMessageResult) => void,
-    reject: (error: Error) => void,
-    private onRemove: (id: string) => void,
-  ) {
-    this.id = `sampling-${Date.now()}-${Math.random()}`;
-    this.timestamp = new Date();
-    this.request = request;
-    this.resolvePromise = resolve;
-    this.rejectPromise = reject;
-  }
-
-  /**
-   * Respond to the sampling request with a result
-   */
-  async respond(result: CreateMessageResult): Promise<void> {
-    if (!this.resolvePromise) {
-      throw new Error("Request already resolved or rejected");
-    }
-    this.resolvePromise(result);
-    this.resolvePromise = undefined;
-    this.rejectPromise = undefined;
-    // Remove from pending list after responding
-    this.remove();
-  }
-
-  /**
-   * Reject the sampling request with an error
-   */
-  async reject(error: Error): Promise<void> {
-    if (!this.rejectPromise) {
-      throw new Error("Request already resolved or rejected");
-    }
-    this.rejectPromise(error);
-    this.resolvePromise = undefined;
-    this.rejectPromise = undefined;
-    // Remove from pending list after rejecting
-    this.remove();
-  }
-
-  /**
-   * Remove this pending sample from the list
-   */
-  remove(): void {
-    this.onRemove(this.id);
-  }
-}
-
-/**
- * Represents a pending elicitation request from the server
- */
-export class ElicitationCreateMessage {
-  public readonly id: string;
-  public readonly timestamp: Date;
-  public readonly request: ElicitRequest;
-  private resolvePromise?: (result: ElicitResult) => void;
-
-  constructor(
-    request: ElicitRequest,
-    resolve: (result: ElicitResult) => void,
-    private onRemove: (id: string) => void,
-  ) {
-    this.id = `elicitation-${Date.now()}-${Math.random()}`;
-    this.timestamp = new Date();
-    this.request = request;
-    this.resolvePromise = resolve;
-  }
-
-  /**
-   * Respond to the elicitation request with a result
-   */
-  async respond(result: ElicitResult): Promise<void> {
-    if (!this.resolvePromise) {
-      throw new Error("Request already resolved");
-    }
-    this.resolvePromise(result);
-    this.resolvePromise = undefined;
-    // Remove from pending list after responding
-    this.remove();
-  }
-
-  /**
-   * Remove this pending elicitation from the list
-   */
-  remove(): void {
-    this.onRemove(this.id);
-  }
-}
-
-/**
  * InspectorClient wraps an MCP Client and provides:
  * - Message tracking and storage
  * - Stderr log tracking and storage (for stdio transports)
@@ -242,7 +145,7 @@ export class ElicitationCreateMessage {
 // Maximum number of pages to fetch when paginating through lists
 const MAX_PAGES = 100;
 
-export class InspectorClient extends EventTarget {
+export class InspectorClient extends InspectorClientEventTarget {
   private client: Client | null = null;
   private transport: any = null;
   private baseTransport: any = null;
@@ -386,19 +289,15 @@ export class InspectorClient extends EventTarget {
     this.baseTransport.onclose = () => {
       if (this.status !== "disconnected") {
         this.status = "disconnected";
-        this.dispatchEvent(
-          new CustomEvent("statusChange", { detail: this.status }),
-        );
-        this.dispatchEvent(new Event("disconnect"));
+        this.dispatchTypedEvent("statusChange", this.status);
+        this.dispatchTypedEvent("disconnect");
       }
     };
 
     this.baseTransport.onerror = (error: Error) => {
       this.status = "error";
-      this.dispatchEvent(
-        new CustomEvent("statusChange", { detail: this.status }),
-      );
-      this.dispatchEvent(new CustomEvent("error", { detail: error }));
+      this.dispatchTypedEvent("statusChange", this.status);
+      this.dispatchTypedEvent("error", error);
     };
 
     // Build client capabilities
@@ -442,21 +341,17 @@ export class InspectorClient extends EventTarget {
 
     try {
       this.status = "connecting";
-      this.dispatchEvent(
-        new CustomEvent("statusChange", { detail: this.status }),
-      );
+      this.dispatchTypedEvent("statusChange", this.status);
 
       // Clear message history on connect (start fresh for new session)
       // Don't clear stderrLogs - they persist across reconnects
       this.messages = [];
-      this.dispatchEvent(new Event("messagesChange"));
+      this.dispatchTypedEvent("messagesChange");
 
       await this.client.connect(this.transport);
       this.status = "connected";
-      this.dispatchEvent(
-        new CustomEvent("statusChange", { detail: this.status }),
-      );
-      this.dispatchEvent(new Event("connect"));
+      this.dispatchTypedEvent("statusChange", this.status);
+      this.dispatchTypedEvent("connect");
 
       // Always fetch server info (capabilities, serverInfo, instructions) - this is just cached data from initialize
       await this.fetchServerInfo();
@@ -519,7 +414,10 @@ export class InspectorClient extends EventTarget {
           RootsListChangedNotificationSchema,
           async () => {
             // Dispatch event to notify UI that server's roots may have changed
-            this.dispatchEvent(new Event("rootsChange"));
+            // Note: rootsChange is a CustomEvent with Root[] payload, not a signal event
+            // We'll reload roots when the UI requests them, so we don't need to pass data here
+            // For now, we'll just dispatch an empty array as a signal to reload
+            this.dispatchTypedEvent("rootsChange", this.roots || []);
           },
         );
       }
@@ -581,11 +479,7 @@ export class InspectorClient extends EventTarget {
                 // Clear cache for this resource (handles both regular resources and resource templates)
                 this.cacheInternal.clearResourceAndResourceTemplate(uri);
                 // Dispatch event to notify UI
-                this.dispatchEvent(
-                  new CustomEvent("resourceUpdated", {
-                    detail: { uri },
-                  }),
-                );
+                this.dispatchTypedEvent("resourceUpdated", { uri });
               }
             },
           );
@@ -597,10 +491,9 @@ export class InspectorClient extends EventTarget {
             ProgressNotificationSchema,
             async (notification) => {
               // Dispatch event with full progress notification params
-              this.dispatchEvent(
-                new CustomEvent("progressNotification", {
-                  detail: notification.params,
-                }),
+              this.dispatchTypedEvent(
+                "progressNotification",
+                notification.params,
               );
             },
           );
@@ -608,10 +501,11 @@ export class InspectorClient extends EventTarget {
       }
     } catch (error) {
       this.status = "error";
-      this.dispatchEvent(
-        new CustomEvent("statusChange", { detail: this.status }),
+      this.dispatchTypedEvent("statusChange", this.status);
+      this.dispatchTypedEvent(
+        "error",
+        error instanceof Error ? error : new Error(String(error)),
       );
-      this.dispatchEvent(new CustomEvent("error", { detail: error }));
       throw error;
     }
   }
@@ -631,10 +525,8 @@ export class InspectorClient extends EventTarget {
     // But we also do it here in case disconnect() is called directly
     if (this.status !== "disconnected") {
       this.status = "disconnected";
-      this.dispatchEvent(
-        new CustomEvent("statusChange", { detail: this.status }),
-      );
-      this.dispatchEvent(new Event("disconnect"));
+      this.dispatchTypedEvent("statusChange", this.status);
+      this.dispatchTypedEvent("disconnect");
     }
 
     // Clear server state (tools, resources, resource templates, prompts) on disconnect
@@ -652,25 +544,13 @@ export class InspectorClient extends EventTarget {
     this.capabilities = undefined;
     this.serverInfo = undefined;
     this.instructions = undefined;
-    this.dispatchEvent(new CustomEvent("toolsChange", { detail: this.tools }));
-    this.dispatchEvent(
-      new CustomEvent("resourcesChange", { detail: this.resources }),
-    );
-    this.dispatchEvent(
-      new CustomEvent("pendingSamplesChange", { detail: this.pendingSamples }),
-    );
-    this.dispatchEvent(
-      new CustomEvent("promptsChange", { detail: this.prompts }),
-    );
-    this.dispatchEvent(
-      new CustomEvent("capabilitiesChange", { detail: this.capabilities }),
-    );
-    this.dispatchEvent(
-      new CustomEvent("serverInfoChange", { detail: this.serverInfo }),
-    );
-    this.dispatchEvent(
-      new CustomEvent("instructionsChange", { detail: this.instructions }),
-    );
+    this.dispatchTypedEvent("toolsChange", this.tools);
+    this.dispatchTypedEvent("resourcesChange", this.resources);
+    this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
+    this.dispatchTypedEvent("promptsChange", this.prompts);
+    this.dispatchTypedEvent("capabilitiesChange", this.capabilities);
+    this.dispatchTypedEvent("serverInfoChange", this.serverInfo);
+    this.dispatchTypedEvent("instructionsChange", this.instructions);
   }
 
   /**
@@ -759,10 +639,8 @@ export class InspectorClient extends EventTarget {
    */
   private addPendingSample(sample: SamplingCreateMessage): void {
     this.pendingSamples.push(sample);
-    this.dispatchEvent(
-      new CustomEvent("pendingSamplesChange", { detail: this.pendingSamples }),
-    );
-    this.dispatchEvent(new CustomEvent("newPendingSample", { detail: sample }));
+    this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
+    this.dispatchTypedEvent("newPendingSample", sample);
   }
 
   /**
@@ -772,11 +650,7 @@ export class InspectorClient extends EventTarget {
     const index = this.pendingSamples.findIndex((s) => s.id === id);
     if (index !== -1) {
       this.pendingSamples.splice(index, 1);
-      this.dispatchEvent(
-        new CustomEvent("pendingSamplesChange", {
-          detail: this.pendingSamples,
-        }),
-      );
+      this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
     }
   }
 
@@ -792,14 +666,11 @@ export class InspectorClient extends EventTarget {
    */
   private addPendingElicitation(elicitation: ElicitationCreateMessage): void {
     this.pendingElicitations.push(elicitation);
-    this.dispatchEvent(
-      new CustomEvent("pendingElicitationsChange", {
-        detail: this.pendingElicitations,
-      }),
+    this.dispatchTypedEvent(
+      "pendingElicitationsChange",
+      this.pendingElicitations,
     );
-    this.dispatchEvent(
-      new CustomEvent("newPendingElicitation", { detail: elicitation }),
-    );
+    this.dispatchTypedEvent("newPendingElicitation", elicitation);
   }
 
   /**
@@ -809,10 +680,9 @@ export class InspectorClient extends EventTarget {
     const index = this.pendingElicitations.findIndex((e) => e.id === id);
     if (index !== -1) {
       this.pendingElicitations.splice(index, 1);
-      this.dispatchEvent(
-        new CustomEvent("pendingElicitationsChange", {
-          detail: this.pendingElicitations,
-        }),
+      this.dispatchTypedEvent(
+        "pendingElicitationsChange",
+        this.pendingElicitations,
       );
     }
   }
@@ -945,9 +815,7 @@ export class InspectorClient extends EventTarget {
       // Update internal state
       this.tools = allTools;
       // Dispatch change event
-      this.dispatchEvent(
-        new CustomEvent("toolsChange", { detail: this.tools }),
-      );
+      this.dispatchTypedEvent("toolsChange", this.tools);
       return allTools;
     } catch (error) {
       throw new Error(
@@ -1029,18 +897,14 @@ export class InspectorClient extends EventTarget {
       // Store in cache
       this.cacheInternal.setToolCallResult(name, invocation);
       // Dispatch event
-      this.dispatchEvent(
-        new CustomEvent("toolCallResultChange", {
-          detail: {
-            toolName: name,
-            params: args,
-            result: invocation.result,
-            timestamp,
-            success: true,
-            metadata,
-          },
-        }),
-      );
+      this.dispatchTypedEvent("toolCallResultChange", {
+        toolName: name,
+        params: args,
+        result: invocation.result,
+        timestamp,
+        success: true,
+        metadata,
+      });
 
       return invocation;
     } catch (error) {
@@ -1072,19 +936,15 @@ export class InspectorClient extends EventTarget {
       // Store in cache (even on error)
       this.cacheInternal.setToolCallResult(name, invocation);
       // Dispatch event
-      this.dispatchEvent(
-        new CustomEvent("toolCallResultChange", {
-          detail: {
-            toolName: name,
-            params: args,
-            result: null,
-            timestamp,
-            success: false,
-            error: invocation.error,
-            metadata,
-          },
-        }),
-      );
+      this.dispatchTypedEvent("toolCallResultChange", {
+        toolName: name,
+        params: args,
+        result: null,
+        timestamp,
+        success: false,
+        error: invocation.error,
+        metadata,
+      });
 
       return invocation;
     }
@@ -1161,9 +1021,7 @@ export class InspectorClient extends EventTarget {
       // Update internal state
       this.resources = allResources;
       // Dispatch change event
-      this.dispatchEvent(
-        new CustomEvent("resourcesChange", { detail: this.resources }),
-      );
+      this.dispatchTypedEvent("resourcesChange", this.resources);
       // Note: Cached content for existing resources is automatically preserved
       return allResources;
     } catch (error) {
@@ -1201,15 +1059,11 @@ export class InspectorClient extends EventTarget {
       // Store in cache
       this.cacheInternal.setResource(uri, invocation);
       // Dispatch event
-      this.dispatchEvent(
-        new CustomEvent("resourceContentChange", {
-          detail: {
-            uri,
-            content: invocation,
-            timestamp: invocation.timestamp,
-          },
-        }),
-      );
+      this.dispatchTypedEvent("resourceContentChange", {
+        uri,
+        content: invocation,
+        timestamp: invocation.timestamp,
+      });
       return invocation;
     } catch (error) {
       throw new Error(
@@ -1282,17 +1136,12 @@ export class InspectorClient extends EventTarget {
     // Store in cache
     this.cacheInternal.setResourceTemplate(uriTemplateString, invocation);
     // Dispatch event
-    this.dispatchEvent(
-      new CustomEvent("resourceTemplateContentChange", {
-        detail: {
-          uriTemplate: uriTemplateString,
-          expandedUri,
-          content: invocation,
-          params,
-          timestamp: invocation.timestamp,
-        },
-      }),
-    );
+    this.dispatchTypedEvent("resourceTemplateContentChange", {
+      uriTemplate: uriTemplateString,
+      content: invocation,
+      params,
+      timestamp: invocation.timestamp,
+    });
 
     return invocation;
   }
@@ -1370,10 +1219,9 @@ export class InspectorClient extends EventTarget {
       // Update internal state
       this.resourceTemplates = allTemplates;
       // Dispatch change event
-      this.dispatchEvent(
-        new CustomEvent("resourceTemplatesChange", {
-          detail: this.resourceTemplates,
-        }),
+      this.dispatchTypedEvent(
+        "resourceTemplatesChange",
+        this.resourceTemplates,
       );
       // Note: Cached content for existing templates is automatically preserved
       return allTemplates;
@@ -1453,9 +1301,7 @@ export class InspectorClient extends EventTarget {
       // Update internal state
       this.prompts = allPrompts;
       // Dispatch change event
-      this.dispatchEvent(
-        new CustomEvent("promptsChange", { detail: this.prompts }),
-      );
+      this.dispatchTypedEvent("promptsChange", this.prompts);
       // Note: Cached content for existing prompts is automatically preserved
       return allPrompts;
     } catch (error) {
@@ -1506,16 +1352,11 @@ export class InspectorClient extends EventTarget {
       // Store in cache
       this.cacheInternal.setPrompt(name, invocation);
       // Dispatch event
-      this.dispatchEvent(
-        new CustomEvent("promptContentChange", {
-          detail: {
-            name,
-            content: invocation,
-            params: invocation.params,
-            timestamp: invocation.timestamp,
-          },
-        }),
-      );
+      this.dispatchTypedEvent("promptContentChange", {
+        name,
+        content: invocation,
+        timestamp: invocation.timestamp,
+      });
 
       return invocation;
     } catch (error) {
@@ -1605,20 +1446,14 @@ export class InspectorClient extends EventTarget {
     try {
       // Get server capabilities (cached from initialize response)
       this.capabilities = this.client.getServerCapabilities();
-      this.dispatchEvent(
-        new CustomEvent("capabilitiesChange", { detail: this.capabilities }),
-      );
+      this.dispatchTypedEvent("capabilitiesChange", this.capabilities);
 
       // Get server info (name, version) and instructions (cached from initialize response)
       this.serverInfo = this.client.getServerVersion();
       this.instructions = this.client.getInstructions();
-      this.dispatchEvent(
-        new CustomEvent("serverInfoChange", { detail: this.serverInfo }),
-      );
+      this.dispatchTypedEvent("serverInfoChange", this.serverInfo);
       if (this.instructions !== undefined) {
-        this.dispatchEvent(
-          new CustomEvent("instructionsChange", { detail: this.instructions }),
-        );
+        this.dispatchTypedEvent("instructionsChange", this.instructions);
       }
     } catch (error) {
       // Ignore errors in fetching server info
@@ -1644,9 +1479,7 @@ export class InspectorClient extends EventTarget {
         } catch (err) {
           // Ignore errors, just leave empty
           this.resources = [];
-          this.dispatchEvent(
-            new CustomEvent("resourcesChange", { detail: this.resources }),
-          );
+          this.dispatchTypedEvent("resourcesChange", this.resources);
         }
 
         // Also fetch resource templates
@@ -1655,10 +1488,9 @@ export class InspectorClient extends EventTarget {
         } catch (err) {
           // Ignore errors, just leave empty
           this.resourceTemplates = [];
-          this.dispatchEvent(
-            new CustomEvent("resourceTemplatesChange", {
-              detail: this.resourceTemplates,
-            }),
+          this.dispatchTypedEvent(
+            "resourceTemplatesChange",
+            this.resourceTemplates,
           );
         }
       }
@@ -1669,9 +1501,7 @@ export class InspectorClient extends EventTarget {
         } catch (err) {
           // Ignore errors, just leave empty
           this.prompts = [];
-          this.dispatchEvent(
-            new CustomEvent("promptsChange", { detail: this.prompts }),
-          );
+          this.dispatchTypedEvent("promptsChange", this.prompts);
         }
       }
 
@@ -1681,9 +1511,7 @@ export class InspectorClient extends EventTarget {
         } catch (err) {
           // Ignore errors, just leave empty
           this.tools = [];
-          this.dispatchEvent(
-            new CustomEvent("toolsChange", { detail: this.tools }),
-          );
+          this.dispatchTypedEvent("toolsChange", this.tools);
         }
       }
     } catch (error) {
@@ -1697,8 +1525,8 @@ export class InspectorClient extends EventTarget {
       this.messages.shift();
     }
     this.messages.push(entry);
-    this.dispatchEvent(new CustomEvent("message", { detail: entry }));
-    this.dispatchEvent(new Event("messagesChange"));
+    this.dispatchTypedEvent("message", entry);
+    this.dispatchTypedEvent("messagesChange");
   }
 
   private updateMessageResponse(
@@ -1709,8 +1537,8 @@ export class InspectorClient extends EventTarget {
     // Update the entry in place (mutate the object directly)
     requestEntry.response = response;
     requestEntry.duration = duration;
-    this.dispatchEvent(new CustomEvent("message", { detail: requestEntry }));
-    this.dispatchEvent(new Event("messagesChange"));
+    this.dispatchTypedEvent("message", requestEntry);
+    this.dispatchTypedEvent("messagesChange");
   }
 
   private addStderrLog(entry: StderrLogEntry): void {
@@ -1722,8 +1550,8 @@ export class InspectorClient extends EventTarget {
       this.stderrLogs.shift();
     }
     this.stderrLogs.push(entry);
-    this.dispatchEvent(new CustomEvent("stderrLog", { detail: entry }));
-    this.dispatchEvent(new Event("stderrLogsChange"));
+    this.dispatchTypedEvent("stderrLog", entry);
+    this.dispatchTypedEvent("stderrLogsChange");
   }
 
   private addFetchRequest(entry: FetchRequestEntry): void {
@@ -1735,8 +1563,8 @@ export class InspectorClient extends EventTarget {
       this.fetchRequests.shift();
     }
     this.fetchRequests.push(entry);
-    this.dispatchEvent(new CustomEvent("fetchRequest", { detail: entry }));
-    this.dispatchEvent(new Event("fetchRequestsChange"));
+    this.dispatchTypedEvent("fetchRequest", entry);
+    this.dispatchTypedEvent("fetchRequestsChange");
   }
 
   /**
@@ -1767,7 +1595,7 @@ export class InspectorClient extends EventTarget {
       this.roots = [];
     }
     this.roots = [...roots];
-    this.dispatchEvent(new CustomEvent("rootsChange", { detail: this.roots }));
+    this.dispatchTypedEvent("rootsChange", this.roots);
 
     // Send notification to server - clients can send this notification to any server
     // The server doesn't need to advertise support for it
@@ -1817,10 +1645,9 @@ export class InspectorClient extends EventTarget {
     try {
       await this.client.subscribeResource({ uri });
       this.subscribedResources.add(uri);
-      this.dispatchEvent(
-        new CustomEvent("resourceSubscriptionsChange", {
-          detail: Array.from(this.subscribedResources),
-        }),
+      this.dispatchTypedEvent(
+        "resourceSubscriptionsChange",
+        Array.from(this.subscribedResources),
       );
     } catch (error) {
       throw new Error(
@@ -1841,10 +1668,9 @@ export class InspectorClient extends EventTarget {
     try {
       await this.client.unsubscribeResource({ uri });
       this.subscribedResources.delete(uri);
-      this.dispatchEvent(
-        new CustomEvent("resourceSubscriptionsChange", {
-          detail: Array.from(this.subscribedResources),
-        }),
+      this.dispatchTypedEvent(
+        "resourceSubscriptionsChange",
+        Array.from(this.subscribedResources),
       );
     } catch (error) {
       throw new Error(

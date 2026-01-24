@@ -1,9 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  InspectorClient,
-  SamplingCreateMessage,
-  ElicitationCreateMessage,
-} from "../mcp/inspectorClient.js";
+import { InspectorClient } from "../mcp/inspectorClient.js";
+import { SamplingCreateMessage } from "../mcp/samplingCreateMessage.js";
+import { ElicitationCreateMessage } from "../mcp/elicitationCreateMessage.js";
 import { getTestMcpServerCommand } from "../test/test-server-stdio.js";
 import {
   createTestServerHttp,
@@ -27,7 +25,8 @@ import {
   createNumberedResourceTemplates,
   createNumberedPrompts,
 } from "../test/test-server-fixtures.js";
-import type { MessageEntry } from "../mcp/types.js";
+import type { MessageEntry, ConnectionStatus } from "../mcp/types.js";
+import type { TypedEvent } from "../mcp/inspectorClientEventTarget.js";
 import type {
   CreateMessageResult,
   ElicitResult,
@@ -257,8 +256,7 @@ describe("InspectorClient", () => {
 
       const messageEvents: MessageEntry[] = [];
       client.addEventListener("message", (event) => {
-        const customEvent = event as CustomEvent<MessageEntry>;
-        messageEvents.push(customEvent.detail);
+        messageEvents.push(event.detail);
       });
 
       await client.connect();
@@ -433,8 +431,7 @@ describe("InspectorClient", () => {
 
       const fetchRequestEvents: any[] = [];
       client.addEventListener("fetchRequest", (event) => {
-        const customEvent = event as CustomEvent<any>;
-        fetchRequestEvents.push(customEvent.detail);
+        fetchRequestEvents.push(event.detail);
       });
 
       await client.connect();
@@ -523,8 +520,7 @@ describe("InspectorClient", () => {
 
       const toolsEvents: any[][] = [];
       client.addEventListener("toolsChange", (event) => {
-        const customEvent = event as CustomEvent<any[]>;
-        toolsEvents.push(customEvent.detail);
+        toolsEvents.push(event.detail);
       });
 
       await client.connect();
@@ -1071,9 +1067,8 @@ describe("InspectorClient", () => {
       await client.connect();
 
       const progressEvents: any[] = [];
-      const progressListener = (event: Event) => {
-        const customEvent = event as CustomEvent;
-        progressEvents.push(customEvent.detail);
+      const progressListener = (event: TypedEvent<"progressNotification">) => {
+        progressEvents.push(event.detail);
       };
       client.addEventListener("progressNotification", progressListener);
 
@@ -1155,9 +1150,8 @@ describe("InspectorClient", () => {
       await client.connect();
 
       const progressEvents: any[] = [];
-      const progressListener = (event: Event) => {
-        const customEvent = event as CustomEvent;
-        progressEvents.push(customEvent.detail);
+      const progressListener = (event: TypedEvent<"progressNotification">) => {
+        progressEvents.push(event.detail);
       };
       client.addEventListener("progressNotification", progressListener);
 
@@ -1212,9 +1206,8 @@ describe("InspectorClient", () => {
       await client.connect();
 
       const progressEvents: any[] = [];
-      const progressListener = (event: Event) => {
-        const customEvent = event as CustomEvent;
-        progressEvents.push(customEvent.detail);
+      const progressListener = (event: TypedEvent<"progressNotification">) => {
+        progressEvents.push(event.detail);
       };
       client.addEventListener("progressNotification", progressListener);
 
@@ -1319,10 +1312,9 @@ describe("InspectorClient", () => {
         },
       );
 
-      const statuses: string[] = [];
+      const statuses: ConnectionStatus[] = [];
       client.addEventListener("statusChange", (event) => {
-        const customEvent = event as CustomEvent<string>;
-        statuses.push(customEvent.detail);
+        statuses.push(event.detail);
       });
 
       await client.connect();
@@ -1407,9 +1399,9 @@ describe("InspectorClient", () => {
         (resolve) => {
           client.addEventListener(
             "newPendingSample",
-            ((event: CustomEvent) => {
-              resolve(event.detail as SamplingCreateMessage);
-            }) as EventListener,
+            (event) => {
+              resolve(event.detail);
+            },
             { once: true },
           );
         },
@@ -1498,12 +1490,12 @@ describe("InspectorClient", () => {
 
       // Set up Promise to wait for notification
       const notificationPromise = new Promise<MessageEntry>((resolve) => {
-        client.addEventListener("message", ((event: CustomEvent) => {
-          const entry = event.detail as MessageEntry;
+        client.addEventListener("message", (event) => {
+          const entry = event.detail;
           if (entry.direction === "notification") {
             resolve(entry);
           }
-        }) as EventListener);
+        });
       });
 
       // Call the sendNotification tool
@@ -1555,12 +1547,12 @@ describe("InspectorClient", () => {
 
       // Set up Promise to wait for notification
       const notificationPromise = new Promise<MessageEntry>((resolve) => {
-        client.addEventListener("message", ((event: CustomEvent) => {
-          const entry = event.detail as MessageEntry;
+        client.addEventListener("message", (event) => {
+          const entry = event.detail;
           if (entry.direction === "notification") {
             resolve(entry);
           }
-        }) as EventListener);
+        });
       });
 
       // Call the sendNotification tool
@@ -1612,12 +1604,12 @@ describe("InspectorClient", () => {
 
       // Set up Promise to wait for notification
       const notificationPromise = new Promise<MessageEntry>((resolve) => {
-        client.addEventListener("message", ((event: CustomEvent) => {
-          const entry = event.detail as MessageEntry;
+        client.addEventListener("message", (event) => {
+          const entry = event.detail;
           if (entry.direction === "notification") {
             resolve(entry);
           }
-        }) as EventListener);
+        });
       });
 
       // Call the sendNotification tool
@@ -1676,9 +1668,9 @@ describe("InspectorClient", () => {
         (resolve) => {
           client.addEventListener(
             "newPendingElicitation",
-            ((event: CustomEvent) => {
-              resolve(event.detail as ElicitationCreateMessage);
-            }) as EventListener,
+            (event) => {
+              resolve(event.detail);
+            },
             { once: true },
           );
         },
@@ -1871,9 +1863,9 @@ describe("InspectorClient", () => {
       const rootsChangePromise = new Promise<CustomEvent>((resolve) => {
         client.addEventListener(
           "rootsChange",
-          ((event: CustomEvent) => {
+          (event) => {
             resolve(event);
-          }) as EventListener,
+          },
           { once: true },
         );
       });
@@ -2258,10 +2250,10 @@ describe("InspectorClient", () => {
 
       client.addEventListener(
         "resourceContentChange",
-        ((event: CustomEvent) => {
+        (event) => {
           eventReceived = true;
           eventDetail = event.detail;
-        }) as EventListener,
+        },
         { once: true },
       );
 
@@ -2305,10 +2297,10 @@ describe("InspectorClient", () => {
 
       client.addEventListener(
         "resourceTemplateContentChange",
-        ((event: CustomEvent) => {
+        (event) => {
           eventReceived = true;
           eventDetail = event.detail;
-        }) as EventListener,
+        },
         { once: true },
       );
 
@@ -2355,10 +2347,10 @@ describe("InspectorClient", () => {
 
       client.addEventListener(
         "promptContentChange",
-        ((event: CustomEvent) => {
+        (event) => {
           eventReceived = true;
           eventDetail = event.detail;
-        }) as EventListener,
+        },
         { once: true },
       );
 
@@ -2401,10 +2393,10 @@ describe("InspectorClient", () => {
 
       client.addEventListener(
         "toolCallResultChange",
-        ((event: CustomEvent) => {
+        (event) => {
           eventReceived = true;
           eventDetail = event.detail;
-        }) as EventListener,
+        },
         { once: true },
       );
 
@@ -2444,10 +2436,10 @@ describe("InspectorClient", () => {
 
       client.addEventListener(
         "toolCallResultChange",
-        ((event: CustomEvent) => {
+        (event) => {
           eventReceived = true;
           eventDetail = event.detail;
-        }) as EventListener,
+        },
         { once: true },
       );
 
@@ -2734,9 +2726,9 @@ describe("InspectorClient", () => {
       const toolsChangePromise = new Promise<CustomEvent>((resolve) => {
         client.addEventListener(
           "toolsChange",
-          ((event: CustomEvent) => {
+          (event) => {
             resolve(event);
-          }) as EventListener,
+          },
           { once: true },
         );
       });
@@ -2783,9 +2775,9 @@ describe("InspectorClient", () => {
       const resourcesChangePromise = new Promise<CustomEvent>((resolve) => {
         client.addEventListener(
           "resourcesChange",
-          ((event: CustomEvent) => {
+          (event) => {
             resolve(event);
-          }) as EventListener,
+          },
           { once: true },
         );
       });
@@ -2903,9 +2895,9 @@ describe("InspectorClient", () => {
         (resolve) => {
           client.addEventListener(
             "resourceTemplatesChange",
-            ((event: CustomEvent) => {
+            (event) => {
               resolve(event);
-            }) as EventListener,
+            },
             { once: true },
           );
         },
@@ -2955,9 +2947,9 @@ describe("InspectorClient", () => {
       const promptsChangePromise = new Promise<CustomEvent>((resolve) => {
         client.addEventListener(
           "promptsChange",
-          ((event: CustomEvent) => {
+          (event) => {
             resolve(event);
-          }) as EventListener,
+          },
           { once: true },
         );
       });
@@ -3005,9 +2997,9 @@ describe("InspectorClient", () => {
       const toolsChangePromise = new Promise<CustomEvent>((resolve) => {
         client.addEventListener(
           "toolsChange",
-          ((event: CustomEvent) => {
+          (event) => {
             resolve(event);
-          }) as EventListener,
+          },
           { once: true },
         );
       });
@@ -3067,9 +3059,9 @@ describe("InspectorClient", () => {
       const resourcesChangePromise = new Promise<CustomEvent>((resolve) => {
         client.addEventListener(
           "resourcesChange",
-          ((event: CustomEvent) => {
+          (event) => {
             resolve(event);
-          }) as EventListener,
+          },
           { once: true },
         );
       });
@@ -3078,9 +3070,9 @@ describe("InspectorClient", () => {
         (resolve) => {
           client.addEventListener(
             "resourceTemplatesChange",
-            ((event: CustomEvent) => {
+            (event) => {
               resolve(event);
-            }) as EventListener,
+            },
             { once: true },
           );
         },
@@ -3138,9 +3130,9 @@ describe("InspectorClient", () => {
       const promptsChangePromise = new Promise<CustomEvent>((resolve) => {
         client.addEventListener(
           "promptsChange",
-          ((event: CustomEvent) => {
+          (event) => {
             resolve(event);
-          }) as EventListener,
+          },
           { once: true },
         );
       });
@@ -3302,9 +3294,9 @@ describe("InspectorClient", () => {
       const toolsChangePromise = new Promise<CustomEvent>((resolve) => {
         client.addEventListener(
           "toolsChange",
-          ((event: CustomEvent) => {
+          (event) => {
             resolve(event);
-          }) as EventListener,
+          },
           { once: true },
         );
       });
@@ -3358,9 +3350,9 @@ describe("InspectorClient", () => {
       const resourcesChangePromise = new Promise<CustomEvent>((resolve) => {
         client.addEventListener(
           "resourcesChange",
-          ((event: CustomEvent) => {
+          (event) => {
             resolve(event);
-          }) as EventListener,
+          },
           { once: true },
         );
       });
@@ -3414,9 +3406,9 @@ describe("InspectorClient", () => {
       const promptsChangePromise = new Promise<CustomEvent>((resolve) => {
         client.addEventListener(
           "promptsChange",
-          ((event: CustomEvent) => {
+          (event) => {
             resolve(event);
-          }) as EventListener,
+          },
           { once: true },
         );
       });
@@ -3645,9 +3637,9 @@ describe("InspectorClient", () => {
       const eventPromise = new Promise<CustomEvent>((resolve) => {
         client.addEventListener(
           "resourceSubscriptionsChange",
-          ((event: CustomEvent) => {
+          (event) => {
             resolve(event);
-          }) as EventListener,
+          },
           { once: true },
         );
       });
@@ -3695,9 +3687,9 @@ describe("InspectorClient", () => {
       const eventPromise = new Promise<CustomEvent>((resolve) => {
         client.addEventListener(
           "resourceSubscriptionsChange",
-          ((event: CustomEvent) => {
+          (event) => {
             resolve(event);
-          }) as EventListener,
+          },
           { once: true },
         );
       });
