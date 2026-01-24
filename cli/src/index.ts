@@ -183,7 +183,7 @@ async function callMethod(args: Args): Promise<void> {
 
     // Tools methods
     if (args.method === "tools/list") {
-      result = { tools: await inspectorClient.listTools(args.metadata) };
+      result = { tools: await inspectorClient.listAllTools(args.metadata) };
     } else if (args.method === "tools/call") {
       if (!args.toolName) {
         throw new Error(
@@ -217,7 +217,7 @@ async function callMethod(args: Args): Promise<void> {
     // Resources methods
     else if (args.method === "resources/list") {
       result = {
-        resources: await inspectorClient.listResources(args.metadata),
+        resources: await inspectorClient.listAllResources(args.metadata),
       };
     } else if (args.method === "resources/read") {
       if (!args.uri) {
@@ -234,14 +234,14 @@ async function callMethod(args: Args): Promise<void> {
       result = invocation.result;
     } else if (args.method === "resources/templates/list") {
       result = {
-        resourceTemplates: await inspectorClient.listResourceTemplates(
+        resourceTemplates: await inspectorClient.listAllResourceTemplates(
           args.metadata,
         ),
       };
     }
     // Prompts methods
     else if (args.method === "prompts/list") {
-      result = { prompts: await inspectorClient.listPrompts(args.metadata) };
+      result = { prompts: await inspectorClient.listAllPrompts(args.metadata) };
     } else if (args.method === "prompts/get") {
       if (!args.promptName) {
         throw new Error(

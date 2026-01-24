@@ -22,6 +22,10 @@ import {
   createTestCwdResource,
   createSimplePrompt,
   createUserResourceTemplate,
+  createNumberedTools,
+  createNumberedResources,
+  createNumberedResourceTemplates,
+  createNumberedPrompts,
 } from "../test/test-server-fixtures.js";
 import type { MessageEntry } from "../mcp/types.js";
 import type {
@@ -141,7 +145,7 @@ describe("InspectorClient", () => {
 
       await client.connect();
       // Make a request to generate messages
-      await client.listTools();
+      await client.listAllTools();
       const firstConnectMessages = client.getMessages();
       expect(firstConnectMessages.length).toBeGreaterThan(0);
 
@@ -181,7 +185,7 @@ describe("InspectorClient", () => {
       );
 
       await client.connect();
-      await client.listTools();
+      await client.listAllTools();
 
       const messages = client.getMessages();
       expect(messages.length).toBeGreaterThan(0);
@@ -205,7 +209,7 @@ describe("InspectorClient", () => {
       );
 
       await client.connect();
-      await client.listTools();
+      await client.listAllTools();
 
       const messages = client.getMessages();
       const request = messages.find((m) => m.direction === "request");
@@ -233,7 +237,7 @@ describe("InspectorClient", () => {
 
       // Make multiple requests to exceed the limit
       for (let i = 0; i < 10; i++) {
-        await client.listTools();
+        await client.listAllTools();
       }
 
       expect(client.getMessages().length).toBeLessThanOrEqual(5);
@@ -258,7 +262,7 @@ describe("InspectorClient", () => {
       });
 
       await client.connect();
-      await client.listTools();
+      await client.listAllTools();
 
       expect(messageEvents.length).toBeGreaterThan(0);
     });
@@ -281,7 +285,7 @@ describe("InspectorClient", () => {
       });
 
       await client.connect();
-      await client.listTools();
+      await client.listAllTools();
 
       expect(changeCount).toBeGreaterThan(0);
     });
@@ -307,7 +311,7 @@ describe("InspectorClient", () => {
       );
 
       await client.connect();
-      await client.listTools();
+      await client.listAllTools();
 
       const fetchRequests = client.getFetchRequests();
       expect(fetchRequests.length).toBeGreaterThan(0);
@@ -337,7 +341,7 @@ describe("InspectorClient", () => {
       );
 
       await client.connect();
-      await client.listTools();
+      await client.listAllTools();
 
       const fetchRequests = client.getFetchRequests();
       expect(fetchRequests.length).toBeGreaterThan(0);
@@ -367,7 +371,7 @@ describe("InspectorClient", () => {
       );
 
       await client.connect();
-      await client.listTools();
+      await client.listAllTools();
 
       const fetchRequests = client.getFetchRequests();
       expect(fetchRequests.length).toBeGreaterThan(0);
@@ -404,7 +408,7 @@ describe("InspectorClient", () => {
 
       // Make multiple requests to exceed the limit
       for (let i = 0; i < 10; i++) {
-        await client.listTools();
+        await client.listAllTools();
       }
 
       expect(client.getFetchRequests().length).toBeLessThanOrEqual(3);
@@ -434,7 +438,7 @@ describe("InspectorClient", () => {
       });
 
       await client.connect();
-      await client.listTools();
+      await client.listAllTools();
 
       expect(fetchRequestEvents.length).toBeGreaterThan(0);
     });
@@ -462,7 +466,7 @@ describe("InspectorClient", () => {
       });
 
       await client.connect();
-      await client.listTools();
+      await client.listAllTools();
 
       expect(changeFired).toBe(true);
     });
@@ -546,7 +550,7 @@ describe("InspectorClient", () => {
     });
 
     it("should list tools", async () => {
-      const tools = await client.listTools();
+      const tools = await client.listAllTools();
       expect(Array.isArray(tools)).toBe(true);
       expect(tools.length).toBeGreaterThan(0);
     });
@@ -604,6 +608,71 @@ describe("InspectorClient", () => {
         expect(content[0].text).toContain("not found");
       }
     });
+
+    it("should paginate tools when maxPageSize is set", async () => {
+      // Disconnect and create a new server with pagination
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      // Create server with 10 tools and page size of 3
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: createNumberedTools(10),
+        maxPageSize: {
+          tools: 3,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // First page should have 3 tools
+      const page1 = await client.listTools();
+      expect(page1.tools.length).toBe(3);
+      expect(page1.nextCursor).toBeDefined();
+      expect(page1.tools[0]?.name).toBe("tool-1");
+      expect(page1.tools[1]?.name).toBe("tool-2");
+      expect(page1.tools[2]?.name).toBe("tool-3");
+
+      // Second page should have 3 more tools
+      const page2 = await client.listTools(page1.nextCursor);
+      expect(page2.tools.length).toBe(3);
+      expect(page2.nextCursor).toBeDefined();
+      expect(page2.tools[0]?.name).toBe("tool-4");
+      expect(page2.tools[1]?.name).toBe("tool-5");
+      expect(page2.tools[2]?.name).toBe("tool-6");
+
+      // Third page should have 3 more tools
+      const page3 = await client.listTools(page2.nextCursor);
+      expect(page3.tools.length).toBe(3);
+      expect(page3.nextCursor).toBeDefined();
+      expect(page3.tools[0]?.name).toBe("tool-7");
+      expect(page3.tools[1]?.name).toBe("tool-8");
+      expect(page3.tools[2]?.name).toBe("tool-9");
+
+      // Fourth page should have 1 tool and no next cursor
+      const page4 = await client.listTools(page3.nextCursor);
+      expect(page4.tools.length).toBe(1);
+      expect(page4.nextCursor).toBeUndefined();
+      expect(page4.tools[0]?.name).toBe("tool-10");
+
+      // listAllTools should get all 10 tools
+      const allTools = await client.listAllTools();
+      expect(allTools.length).toBe(10);
+    });
   });
 
   describe("Resource Methods", () => {
@@ -622,19 +691,84 @@ describe("InspectorClient", () => {
     });
 
     it("should list resources", async () => {
-      const resources = await client.listResources();
+      const resources = await client.listAllResources();
       expect(Array.isArray(resources)).toBe(true);
     });
 
     it("should read resource", async () => {
       // First get list of resources
-      const resources = await client.listResources();
+      const resources = await client.listAllResources();
       if (resources.length > 0) {
         const uri = resources[0]!.uri;
         const readResult = await client.readResource(uri);
         expect(readResult).toHaveProperty("result");
         expect(readResult.result).toHaveProperty("contents");
       }
+    });
+
+    it("should paginate resources when maxPageSize is set", async () => {
+      // Disconnect and create a new server with pagination
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      // Create server with 10 resources and page size of 3
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: createNumberedResources(10),
+        maxPageSize: {
+          resources: 3,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // First page should have 3 resources
+      const page1 = await client.listResources();
+      expect(page1.resources.length).toBe(3);
+      expect(page1.nextCursor).toBeDefined();
+      expect(page1.resources[0]?.uri).toBe("test://resource-1");
+      expect(page1.resources[1]?.uri).toBe("test://resource-2");
+      expect(page1.resources[2]?.uri).toBe("test://resource-3");
+
+      // Second page should have 3 more resources
+      const page2 = await client.listResources(page1.nextCursor);
+      expect(page2.resources.length).toBe(3);
+      expect(page2.nextCursor).toBeDefined();
+      expect(page2.resources[0]?.uri).toBe("test://resource-4");
+      expect(page2.resources[1]?.uri).toBe("test://resource-5");
+      expect(page2.resources[2]?.uri).toBe("test://resource-6");
+
+      // Third page should have 3 more resources
+      const page3 = await client.listResources(page2.nextCursor);
+      expect(page3.resources.length).toBe(3);
+      expect(page3.nextCursor).toBeDefined();
+      expect(page3.resources[0]?.uri).toBe("test://resource-7");
+      expect(page3.resources[1]?.uri).toBe("test://resource-8");
+      expect(page3.resources[2]?.uri).toBe("test://resource-9");
+
+      // Fourth page should have 1 resource and no next cursor
+      const page4 = await client.listResources(page3.nextCursor);
+      expect(page4.resources.length).toBe(1);
+      expect(page4.nextCursor).toBeUndefined();
+      expect(page4.resources[0]?.uri).toBe("test://resource-10");
+
+      // listAllResources should get all 10 resources
+      const allResources = await client.listAllResources();
+      expect(allResources.length).toBe(10);
     });
   });
 
@@ -661,7 +795,7 @@ describe("InspectorClient", () => {
     });
 
     it("should list resource templates", async () => {
-      const resourceTemplates = await client.listResourceTemplates();
+      const resourceTemplates = await client.listAllResourceTemplates();
       expect(Array.isArray(resourceTemplates)).toBe(true);
       expect(resourceTemplates.length).toBeGreaterThan(0);
 
@@ -673,7 +807,7 @@ describe("InspectorClient", () => {
 
     it("should read resource from template", async () => {
       // First get the template
-      const templates = await client.listResourceTemplates();
+      const templates = await client.listAllResourceTemplates();
       const fileTemplate = templates.find((t) => t.name === "file");
       expect(fileTemplate).toBeDefined();
 
@@ -729,7 +863,7 @@ describe("InspectorClient", () => {
       await client.connect();
 
       // Call listResources - this should include resources from the template's list callback
-      const resources = await client.listResources();
+      const resources = await client.listAllResources();
       expect(Array.isArray(resources)).toBe(true);
 
       // Verify that the resources from the list callback are included
@@ -737,6 +871,91 @@ describe("InspectorClient", () => {
       expect(uris).toContain("file:///file1.txt");
       expect(uris).toContain("file:///file2.txt");
       expect(uris).toContain("file:///file3.txt");
+    });
+
+    it("should paginate resource templates when maxPageSize is set", async () => {
+      // Disconnect and create a new server with pagination
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      // Create server with 10 resource templates and page size of 3
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resourceTemplates: createNumberedResourceTemplates(10),
+        maxPageSize: {
+          resourceTemplates: 3,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // First page should have 3 templates
+      const page1 = await client.listResourceTemplates();
+      expect(page1.resourceTemplates.length).toBe(3);
+      expect(page1.nextCursor).toBeDefined();
+      expect(page1.resourceTemplates[0]?.uriTemplate).toBe(
+        "test://template-1/{param}",
+      );
+      expect(page1.resourceTemplates[1]?.uriTemplate).toBe(
+        "test://template-2/{param}",
+      );
+      expect(page1.resourceTemplates[2]?.uriTemplate).toBe(
+        "test://template-3/{param}",
+      );
+
+      // Second page should have 3 more templates
+      const page2 = await client.listResourceTemplates(page1.nextCursor);
+      expect(page2.resourceTemplates.length).toBe(3);
+      expect(page2.nextCursor).toBeDefined();
+      expect(page2.resourceTemplates[0]?.uriTemplate).toBe(
+        "test://template-4/{param}",
+      );
+      expect(page2.resourceTemplates[1]?.uriTemplate).toBe(
+        "test://template-5/{param}",
+      );
+      expect(page2.resourceTemplates[2]?.uriTemplate).toBe(
+        "test://template-6/{param}",
+      );
+
+      // Third page should have 3 more templates
+      const page3 = await client.listResourceTemplates(page2.nextCursor);
+      expect(page3.resourceTemplates.length).toBe(3);
+      expect(page3.nextCursor).toBeDefined();
+      expect(page3.resourceTemplates[0]?.uriTemplate).toBe(
+        "test://template-7/{param}",
+      );
+      expect(page3.resourceTemplates[1]?.uriTemplate).toBe(
+        "test://template-8/{param}",
+      );
+      expect(page3.resourceTemplates[2]?.uriTemplate).toBe(
+        "test://template-9/{param}",
+      );
+
+      // Fourth page should have 1 template and no next cursor
+      const page4 = await client.listResourceTemplates(page3.nextCursor);
+      expect(page4.resourceTemplates.length).toBe(1);
+      expect(page4.nextCursor).toBeUndefined();
+      expect(page4.resourceTemplates[0]?.uriTemplate).toBe(
+        "test://template-10/{param}",
+      );
+
+      // listAllResourceTemplates should get all 10 templates
+      const allTemplates = await client.listAllResourceTemplates();
+      expect(allTemplates.length).toBe(10);
     });
   });
 
@@ -756,8 +975,73 @@ describe("InspectorClient", () => {
     });
 
     it("should list prompts", async () => {
-      const prompts = await client.listPrompts();
+      const prompts = await client.listAllPrompts();
       expect(Array.isArray(prompts)).toBe(true);
+    });
+
+    it("should paginate prompts when maxPageSize is set", async () => {
+      // Disconnect and create a new server with pagination
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      // Create server with 10 prompts and page size of 3
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        prompts: createNumberedPrompts(10),
+        maxPageSize: {
+          prompts: 3,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // First page should have 3 prompts
+      const page1 = await client.listPrompts();
+      expect(page1.prompts.length).toBe(3);
+      expect(page1.nextCursor).toBeDefined();
+      expect(page1.prompts[0]?.name).toBe("prompt-1");
+      expect(page1.prompts[1]?.name).toBe("prompt-2");
+      expect(page1.prompts[2]?.name).toBe("prompt-3");
+
+      // Second page should have 3 more prompts
+      const page2 = await client.listPrompts(page1.nextCursor);
+      expect(page2.prompts.length).toBe(3);
+      expect(page2.nextCursor).toBeDefined();
+      expect(page2.prompts[0]?.name).toBe("prompt-4");
+      expect(page2.prompts[1]?.name).toBe("prompt-5");
+      expect(page2.prompts[2]?.name).toBe("prompt-6");
+
+      // Third page should have 3 more prompts
+      const page3 = await client.listPrompts(page2.nextCursor);
+      expect(page3.prompts.length).toBe(3);
+      expect(page3.nextCursor).toBeDefined();
+      expect(page3.prompts[0]?.name).toBe("prompt-7");
+      expect(page3.prompts[1]?.name).toBe("prompt-8");
+      expect(page3.prompts[2]?.name).toBe("prompt-9");
+
+      // Fourth page should have 1 prompt and no next cursor
+      const page4 = await client.listPrompts(page3.nextCursor);
+      expect(page4.prompts.length).toBe(1);
+      expect(page4.nextCursor).toBeUndefined();
+      expect(page4.prompts[0]?.name).toBe("prompt-10");
+
+      // listAllPrompts should get all 10 prompts
+      const allPrompts = await client.listAllPrompts();
+      expect(allPrompts.length).toBe(10);
     });
   });
 
@@ -1675,7 +1959,7 @@ describe("InspectorClient", () => {
       expect(client.cache).toBeDefined();
 
       // Populate cache by calling fetch methods
-      const resources = await client.listResources();
+      const resources = await client.listAllResources();
       let resourceUri: string | undefined;
       if (resources.length > 0 && resources[0]) {
         resourceUri = resources[0].uri;
@@ -1683,7 +1967,7 @@ describe("InspectorClient", () => {
         expect(client.cache.getResource(resourceUri)).not.toBeNull();
       }
 
-      const tools = await client.listTools();
+      const tools = await client.listAllTools();
       let toolName: string | undefined;
       if (tools.length > 0 && tools[0]) {
         toolName = tools[0].name;
@@ -1691,7 +1975,7 @@ describe("InspectorClient", () => {
         expect(client.cache.getToolCallResult(toolName)).not.toBeNull();
       }
 
-      const prompts = await client.listPrompts();
+      const prompts = await client.listAllPrompts();
       let promptName: string | undefined;
       if (prompts.length > 0 && prompts[0]) {
         promptName = prompts[0].name;
@@ -2208,7 +2492,7 @@ describe("InspectorClient", () => {
       await server.stop();
     });
 
-    it("should update state and dispatch event when listTools() is called", async () => {
+    it("should update state and dispatch event when listAllTools() is called", async () => {
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
@@ -2241,7 +2525,7 @@ describe("InspectorClient", () => {
         );
       });
 
-      const tools = await client.listTools();
+      const tools = await client.listAllTools();
       const event = await toolsChangePromise;
 
       expect(tools.length).toBeGreaterThan(0);
@@ -2290,7 +2574,7 @@ describe("InspectorClient", () => {
         );
       });
 
-      const resources = await client.listResources();
+      const resources = await client.listAllResources();
       const event = await resourcesChangePromise;
 
       expect(resources.length).toBeGreaterThan(0);
@@ -2371,7 +2655,7 @@ describe("InspectorClient", () => {
       await server.stop();
     });
 
-    it("should update state, clean cache, and dispatch event when listResourceTemplates() is called", async () => {
+    it("should update state, clean cache, and dispatch event when listAllResourceTemplates() is called", async () => {
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         resourceTemplates: [createFileResourceTemplate()],
@@ -2391,7 +2675,7 @@ describe("InspectorClient", () => {
       await client.connect();
 
       // First list resource templates to populate the list
-      await client.listResourceTemplates();
+      await client.listAllResourceTemplates();
 
       // Load a resource template to populate cache
       const uriTemplate = "file:///{path}";
@@ -2411,7 +2695,7 @@ describe("InspectorClient", () => {
         },
       );
 
-      const templates = await client.listResourceTemplates();
+      const templates = await client.listAllResourceTemplates();
       const event = await resourceTemplatesChangePromise;
 
       expect(templates.length).toBeGreaterThan(0);
@@ -2424,7 +2708,7 @@ describe("InspectorClient", () => {
       await server.stop();
     });
 
-    it("should update state, clean cache, and dispatch event when listPrompts() is called", async () => {
+    it("should update state, clean cache, and dispatch event when listAllPrompts() is called", async () => {
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         prompts: [createSimplePrompt()],
@@ -2444,7 +2728,7 @@ describe("InspectorClient", () => {
       await client.connect();
 
       // First list prompts to populate the list
-      await client.listPrompts();
+      await client.listAllPrompts();
 
       // Load a prompt to populate cache
       const promptName = "simple-prompt";
@@ -2462,7 +2746,7 @@ describe("InspectorClient", () => {
         );
       });
 
-      const prompts = await client.listPrompts();
+      const prompts = await client.listAllPrompts();
       const event = await promptsChangePromise;
 
       expect(prompts.length).toBeGreaterThan(0);
@@ -2730,9 +3014,9 @@ describe("InspectorClient", () => {
       expect(finalTools.length).toBe(initialToolCount);
       expect(finalTools).toEqual(initialTools);
 
-      // Verify the tool was actually added to the server by manually calling listTools()
+      // Verify the tool was actually added to the server by manually calling listAllTools()
       // This proves the server received the addTool call and the notification was sent
-      const serverTools = await client.listTools();
+      const serverTools = await client.listAllTools();
       expect(serverTools.length).toBeGreaterThan(initialToolCount);
       expect(serverTools.find((t) => t.name === "testTool")).toBeDefined();
 
@@ -2960,7 +3244,7 @@ describe("InspectorClient", () => {
       await client.connect();
 
       // First list resource templates to populate the list
-      await client.listResourceTemplates();
+      await client.listAllResourceTemplates();
 
       // Load both templates to populate cache
       const uriTemplate1 = "file:///{path}";
@@ -2992,13 +3276,13 @@ describe("InspectorClient", () => {
       await client.connect();
 
       // First list resource templates to populate the list
-      await client.listResourceTemplates();
+      await client.listAllResourceTemplates();
 
       // Load uriTemplate1 again to populate cache
       await client.readResourceFromTemplate(uriTemplate1, { path: "test.txt" });
 
       // List resource templates (should only have uriTemplate1 now)
-      await client.listResourceTemplates();
+      await client.listAllResourceTemplates();
 
       // Cache for uriTemplate1 should be preserved, uriTemplate2 should be cleared
       expect(client.cache.getResourceTemplate(uriTemplate1)).not.toBeNull();
@@ -3028,7 +3312,7 @@ describe("InspectorClient", () => {
       await client.connect();
 
       // First list prompts to populate the list
-      await client.listPrompts();
+      await client.listAllPrompts();
 
       // Load both prompts to populate cache
       const promptName1 = "simple-prompt";
@@ -3060,13 +3344,13 @@ describe("InspectorClient", () => {
       await client.connect();
 
       // First list prompts to populate the list
-      await client.listPrompts();
+      await client.listAllPrompts();
 
       // Load promptName1 again to populate cache
       await client.getPrompt(promptName1);
 
       // List prompts (should only have promptName1 now)
-      await client.listPrompts();
+      await client.listAllPrompts();
 
       // Cache for promptName1 should be preserved, promptName2 should be cleared
       expect(client.cache.getPrompt(promptName1)).not.toBeNull();

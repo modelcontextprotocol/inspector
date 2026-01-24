@@ -17,20 +17,20 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 | Read templated resources            | ✅              | ✅            | ✅  | -                 |
 | Resource subscriptions              | ✅              | ✅            | ❌  | Medium            |
 | Resources listChanged notifications | ✅              | ✅            | ❌  | Medium            |
-| Pagination (resources)              | ❌              | ✅            | ❌  | Low               |
-| Pagination (resource templates)     | ❌              | ✅            | ❌  | Low               |
+| Pagination (resources)              | ✅              | ✅            | ✅  | -                 |
+| Pagination (resource templates)     | ✅              | ✅            | ✅  | -                 |
 | **Prompts**                         |
 | List prompts                        | ✅              | ✅            | ✅  | -                 |
 | Get prompt (no params)              | ✅              | ✅            | ✅  | -                 |
 | Get prompt (with params)            | ✅              | ✅            | ✅  | -                 |
 | Prompts listChanged notifications   | ✅              | ✅            | ❌  | Medium            |
-| Pagination (prompts)                | ❌              | ✅            | ❌  | Low               |
+| Pagination (prompts)                | ✅              | ✅            | ✅  | -                 |
 | **Tools**                           |
 | List tools                          | ✅              | ✅            | ✅  | -                 |
 | Call tool                           | ✅              | ✅            | ✅  | -                 |
 | Tools listChanged notifications     | ✅              | ✅            | ❌  | Medium            |
 | Tool call progress tracking         | ❌              | ✅            | ❌  | Medium            |
-| Pagination (tools)                  | ❌              | ✅            | ❌  | Low               |
+| Pagination (tools)                  | ✅              | ✅            | ✅  | -                 |
 | **Roots**                           |
 | List roots                          | ✅              | ✅            | ❌  | Medium            |
 | Set roots                           | ✅              | ✅            | ❌  | Medium            |
@@ -283,14 +283,37 @@ MCP servers can send `listChanged` notifications when the list of tools, resourc
 
 **TUI Status:**
 
-- ❌ No UI handling for `listChanged` notifications (though InspectorClient handles them automatically)
-- ❌ No UI indication when lists are auto-refreshed
+- ✅ `listChanged` notifications automatically handled by `InspectorClient` - **COMPLETED**
+- ✅ Lists automatically reload when notifications are received - **COMPLETED**
+- ✅ Events dispatched (`toolsChange`, `resourcesChange`, `promptsChange`) - **COMPLETED**
+- ✅ TUI automatically reflects changes when events are received - **COMPLETED** (if TUI listens to these events)
+- ❌ No UI indication when lists are auto-refreshed (optional, but useful for debugging)
+
+**Note on TUI Support:**
+
+The TUI automatically supports `listChanged` notifications through `InspectorClient`. The implementation works as follows:
+
+1. **Server Capability**: The MCP server must advertise `listChanged` capability in its server capabilities (e.g., `tools: { listChanged: true }`, `resources: { listChanged: true }`, `prompts: { listChanged: true }`)
+
+2. **Automatic Handler Registration**: When `InspectorClient` connects, it checks if the server advertises `listChanged` capability. If it does, `InspectorClient` automatically registers notification handlers for:
+   - `notifications/tools/list_changed`
+   - `notifications/resources/list_changed`
+   - `notifications/prompts/list_changed`
+
+3. **Automatic List Reload**: When a `listChanged` notification is received, `InspectorClient` automatically calls the corresponding `listAll*()` method to reload the list
+
+4. **Event Dispatching**: `InspectorClient` dispatches events (`toolsChange`, `resourcesChange`, `resourceTemplatesChange`, `promptsChange`) that the TUI can listen to
+
+5. **TUI Auto-Refresh**: The TUI will automatically reflect changes if it listens to these events (which it should, as it uses `InspectorClient`)
+
+**Important**: The client does NOT need to advertise `listChanged` capability - it only needs to check if the server supports it. The handlers are registered automatically based on server capabilities.
 
 **Implementation Requirements:**
 
 - ✅ Add notification handlers in `InspectorClient.connect()` for `listChanged` notifications - **COMPLETED**
 - ✅ When a `listChanged` notification is received, automatically call the corresponding `list*()` method - **COMPLETED**
 - ✅ Dispatch events to notify UI of list changes - **COMPLETED**
+- ✅ TUI inherits support automatically through `InspectorClient` - **COMPLETED**
 - ❌ Add UI in TUI to handle and display these notifications (optional, but useful for debugging)
 
 **Code References:**
@@ -413,70 +436,7 @@ Custom headers are used to send additional HTTP headers when connecting to MCP s
 - `InspectorClient`: `shared/mcp/config.ts` (lines 118-129) - Headers in `MCPServerConfig`
 - `InspectorClient`: `shared/mcp/transport.ts` (lines 100-134) - Headers passed to SDK transports
 
-### 9. Pagination Support
-
-**Use Case:**
-
-MCP servers can return large lists of items (tools, resources, resource templates, prompts) that need to be paginated. The MCP protocol uses cursor-based pagination where:
-
-- Clients can pass an optional `cursor` parameter to request the next page
-- Servers return a `nextCursor` in the response if more results are available
-- Clients can make multiple requests to fetch all items
-
-**Web Client Support:**
-
-- **Cursor Management**: Tracks `nextCursor` state for each list type:
-  - `nextResourceCursor` for resources
-  - `nextResourceTemplateCursor` for resource templates
-  - `nextPromptCursor` for prompts
-  - `nextToolCursor` for tools
-- **Pagination Requests**: Passes `cursor` parameter in list requests:
-  - `listResources()`: `params: nextResourceCursor ? { cursor: nextResourceCursor } : {}`
-  - `listResourceTemplates()`: `params: nextResourceTemplateCursor ? { cursor: nextResourceTemplateCursor } : {}`
-  - `listPrompts()`: `params: nextPromptCursor ? { cursor: nextPromptCursor } : {}`
-  - `listTools()`: `params: nextToolCursor ? { cursor: nextToolCursor } : {}`
-- **Accumulation**: Appends new results to existing arrays: `setResources(resources.concat(response.resources ?? []))`
-- **Cursor Updates**: Updates cursor state after each request: `setNextResourceCursor(response.nextCursor)`
-
-**InspectorClient Status:**
-
-- ❌ `listResources()` - Returns `Resource[]` directly, doesn't expose `nextCursor`
-- ❌ `listResourceTemplates()` - Returns `ResourceTemplate[]` directly, doesn't expose `nextCursor`
-- ❌ `listPrompts()` - Returns `Prompt[]` directly, doesn't expose `nextCursor`
-- ❌ `listTools()` - Returns `Tool[]` directly, doesn't expose `nextCursor`
-- ❌ No cursor parameter support in list methods
-- ❌ No pagination helper methods
-
-**TUI Status:**
-
-- ❌ No pagination support
-- ❌ No cursor tracking
-- ❌ No "Load More" UI or automatic pagination
-
-**Implementation Requirements:**
-
-- Add cursor parameter support to `InspectorClient` list methods:
-  - `listResources(cursor?, metadata?)` - Accept optional cursor, return `{ resources: Resource[], nextCursor?: string }`
-  - `listResourceTemplates(cursor?, metadata?)` - Accept optional cursor, return `{ resourceTemplates: ResourceTemplate[], nextCursor?: string }`
-  - `listPrompts(cursor?, metadata?)` - Accept optional cursor, return `{ prompts: Prompt[], nextCursor?: string }`
-  - `listTools(cursor?, metadata?)` - Accept optional cursor, return `{ tools: Tool[], nextCursor?: string }`
-- Add pagination helper methods (optional):
-  - `listAllResources()` - Automatically fetches all pages
-  - `listAllResourceTemplates()` - Automatically fetches all pages
-  - `listAllPrompts()` - Automatically fetches all pages
-  - `listAllTools()` - Automatically fetches all pages
-- Add UI in TUI for pagination:
-  - "Load More" buttons when `nextCursor` is present
-  - Or automatic pagination (fetch all pages on initial load)
-  - Display pagination status (e.g., "Showing 50 of 200 items")
-
-**Code References:**
-
-- Web client: `client/src/App.tsx` (lines 718-838) - Cursor state management and pagination requests
-- SDK types: `ListResourcesResult`, `ListResourceTemplatesResult`, `ListPromptsResult`, `ListToolsResult` all extend `PaginatedResult` with `nextCursor?: Cursor`
-- SDK types: `PaginatedRequestParams` includes `cursor?: Cursor`
-
-### 10. Tool Call Progress Tracking
+### 9. Tool Call Progress Tracking
 
 **Use Case:**
 
@@ -631,12 +591,12 @@ Based on this analysis, `InspectorClient` needs the following additions:
    - ❌ Integration into TUI for managing roots
 
 8. **Pagination Support**:
-   - ❌ Cursor parameter support in `listResources()` - Needs to be added
-   - ❌ Cursor parameter support in `listResourceTemplates()` - Needs to be added
-   - ❌ Cursor parameter support in `listPrompts()` - Needs to be added
-   - ❌ Cursor parameter support in `listTools()` - Needs to be added
-   - ❌ Return `nextCursor` from list methods - Needs to be added
-   - ❌ Optional pagination helper methods (`listAll*()`) - Needs to be added
+   - ✅ Cursor parameter support in `listResources()` - **COMPLETED**
+   - ✅ Cursor parameter support in `listResourceTemplates()` - **COMPLETED**
+   - ✅ Cursor parameter support in `listPrompts()` - **COMPLETED**
+   - ✅ Cursor parameter support in `listTools()` - **COMPLETED**
+   - ✅ Return `nextCursor` from list methods - **COMPLETED**
+   - ✅ Pagination helper methods (`listAll*()`) - **COMPLETED**
 
 9. **Tool Call Progress Tracking**:
    - ❌ Progress token generation - Needs to be added
@@ -654,7 +614,7 @@ Based on this analysis, `InspectorClient` needs the following additions:
 - **Elicitation**: `InspectorClient` has full elicitation support. Web client UI displays and handles elicitation requests. TUI needs UI to display and handle elicitation requests.
 - **ListChanged Notifications**: Web client handles `listChanged` notifications for tools, resources, and prompts, automatically refreshing lists when notifications are received. `InspectorClient` now fully supports these notifications with automatic list refresh, cache preservation/cleanup, and configurable handlers. TUI automatically benefits from this functionality but doesn't have UI to display notification events.
 - **Roots**: `InspectorClient` has full roots support with `getRoots()` and `setRoots()` methods, handler for `roots/list` requests, and notification support. Web client has a `RootsTab` UI for managing roots. TUI does not yet have UI for managing roots.
-- **Pagination**: Web client supports cursor-based pagination for all list methods (tools, resources, resource templates, prompts), tracking `nextCursor` state and making multiple requests to fetch all items. `InspectorClient` currently returns arrays directly without exposing pagination. TUI does not support pagination.
+- **Pagination**: Web client supports cursor-based pagination for all list methods (tools, resources, resource templates, prompts), tracking `nextCursor` state and making multiple requests to fetch all items. `InspectorClient` now fully supports pagination with cursor parameters in all list methods and `listAll*()` helper methods that automatically fetch all pages. TUI inherits this pagination support from `InspectorClient`.
 - **Progress Tracking**: Web client supports progress tracking for tool calls by generating `progressToken` values, setting up `onprogress` callbacks, and displaying progress notifications. `InspectorClient` does not yet support progress tracking. TUI does not support progress tracking.
 
 ## Related Documentation

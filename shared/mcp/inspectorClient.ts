@@ -232,6 +232,9 @@ export class ElicitationCreateMessage {
  * - EventTarget interface for React hooks (cross-platform: works in browser and Node.js)
  * - Access to client functionality (prompts, resources, tools)
  */
+// Maximum number of pages to fetch when paginating through lists
+const MAX_PAGES = 100;
+
 export class InspectorClient extends EventTarget {
   private client: Client | null = null;
   private transport: any = null;
@@ -523,7 +526,7 @@ export class InspectorClient extends EventTarget {
           this.client.setNotificationHandler(
             ToolListChangedNotificationSchema,
             async () => {
-              await this.listTools();
+              await this.listAllTools();
             },
           );
         }
@@ -539,8 +542,8 @@ export class InspectorClient extends EventTarget {
             ResourceListChangedNotificationSchema,
             async () => {
               // Resource templates are part of the resources capability
-              await this.listResources();
-              await this.listResourceTemplates();
+              await this.listAllResources();
+              await this.listAllResourceTemplates();
             },
           );
         }
@@ -553,7 +556,7 @@ export class InspectorClient extends EventTarget {
           this.client.setNotificationHandler(
             PromptListChangedNotificationSchema,
             async () => {
-              await this.listPrompts();
+              await this.listAllPrompts();
             },
           );
         }
@@ -832,17 +835,30 @@ export class InspectorClient extends EventTarget {
    * @param metadata Optional metadata to include in the request
    * @returns Array of tools
    */
-  private async listToolsInternal(
+  private async listAllToolsInternal(
     metadata?: Record<string, string>,
   ): Promise<Tool[]> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
     try {
-      const params =
-        metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
-      const response = await this.client.listTools(params);
-      return response.tools || [];
+      const allTools: Tool[] = [];
+      let cursor: string | undefined;
+      let pageCount = 0;
+
+      do {
+        const result = await this.listTools(cursor, metadata);
+        allTools.push(...result.tools);
+        cursor = result.nextCursor;
+        pageCount++;
+        if (pageCount >= MAX_PAGES) {
+          throw new Error(
+            `Maximum pagination limit (${MAX_PAGES} pages) reached while listing tools`,
+          );
+        }
+      } while (cursor);
+
+      return allTools;
     } catch (error) {
       throw new Error(
         `Failed to list tools: ${error instanceof Error ? error.message : String(error)}`,
@@ -851,19 +867,51 @@ export class InspectorClient extends EventTarget {
   }
 
   /**
-   * List available tools
+   * List available tools with pagination support
+   * @param cursor Optional cursor for pagination
    * @param metadata Optional metadata to include in the request
-   * @returns Array of tools
+   * @returns Object containing tools array and optional nextCursor
    */
-  async listTools(metadata?: Record<string, string>): Promise<Tool[]> {
+  async listTools(
+    cursor?: string,
+    metadata?: Record<string, string>,
+  ): Promise<{ tools: Tool[]; nextCursor?: string }> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
     try {
-      const newTools = await this.listToolsInternal(metadata);
+      const params: any =
+        metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
+      if (cursor) {
+        params.cursor = cursor;
+      }
+      const response = await this.client.listTools(params);
+      return {
+        tools: response.tools || [],
+        nextCursor: response.nextCursor,
+      };
+    } catch (error) {
+      throw new Error(
+        `Failed to list tools: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * List all available tools (fetches all pages)
+   * @param metadata Optional metadata to include in the request
+   * @returns Array of all tools
+   */
+  async listAllTools(metadata?: Record<string, string>): Promise<Tool[]> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      const allTools = await this.listAllToolsInternal(metadata);
+
       // Find removed tool names by comparing with current tools
       const currentNames = new Set(this.tools.map((t) => t.name));
-      const newNames = new Set(newTools.map((t) => t.name));
+      const newNames = new Set(allTools.map((t) => t.name));
       // Clear cache for removed tools
       for (const name of currentNames) {
         if (!newNames.has(name)) {
@@ -871,15 +919,15 @@ export class InspectorClient extends EventTarget {
         }
       }
       // Update internal state
-      this.tools = newTools;
+      this.tools = allTools;
       // Dispatch change event
       this.dispatchEvent(
         new CustomEvent("toolsChange", { detail: this.tools }),
       );
-      return newTools;
+      return allTools;
     } catch (error) {
       throw new Error(
-        `Failed to list tools: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to list all tools: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -902,7 +950,7 @@ export class InspectorClient extends EventTarget {
       throw new Error("Client is not connected");
     }
     try {
-      const tools = await this.listToolsInternal(generalMetadata);
+      const tools = await this.listAllToolsInternal(generalMetadata);
       const tool = tools.find((t) => t.name === name);
 
       let convertedArgs: Record<string, JsonValue> = args;
@@ -1019,22 +1067,67 @@ export class InspectorClient extends EventTarget {
   }
 
   /**
-   * List available resources
+   * List available resources with pagination support
+   * @param cursor Optional cursor for pagination
    * @param metadata Optional metadata to include in the request
-   * @returns Array of resources
+   * @returns Object containing resources array and optional nextCursor
    */
-  async listResources(metadata?: Record<string, string>): Promise<Resource[]> {
+  async listResources(
+    cursor?: string,
+    metadata?: Record<string, string>,
+  ): Promise<{ resources: Resource[]; nextCursor?: string }> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
     try {
-      const params =
+      const params: any =
         metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
+      if (cursor) {
+        params.cursor = cursor;
+      }
       const response = await this.client.listResources(params);
-      const newResources = response.resources || [];
+      return {
+        resources: response.resources || [],
+        nextCursor: response.nextCursor,
+      };
+    } catch (error) {
+      throw new Error(
+        `Failed to list resources: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * List all available resources (fetches all pages)
+   * @param metadata Optional metadata to include in the request
+   * @returns Array of all resources
+   */
+  async listAllResources(
+    metadata?: Record<string, string>,
+  ): Promise<Resource[]> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      const allResources: Resource[] = [];
+      let cursor: string | undefined;
+      let pageCount = 0;
+
+      do {
+        const result = await this.listResources(cursor, metadata);
+        allResources.push(...result.resources);
+        cursor = result.nextCursor;
+        pageCount++;
+        if (pageCount >= MAX_PAGES) {
+          throw new Error(
+            `Maximum pagination limit (${MAX_PAGES} pages) reached while listing resources`,
+          );
+        }
+      } while (cursor);
+
       // Find removed URIs by comparing with current resources
       const currentUris = new Set(this.resources.map((r) => r.uri));
-      const newUris = new Set(newResources.map((r) => r.uri));
+      const newUris = new Set(allResources.map((r) => r.uri));
       // Clear cache for removed resources
       for (const uri of currentUris) {
         if (!newUris.has(uri)) {
@@ -1042,16 +1135,16 @@ export class InspectorClient extends EventTarget {
         }
       }
       // Update internal state
-      this.resources = newResources;
+      this.resources = allResources;
       // Dispatch change event
       this.dispatchEvent(
         new CustomEvent("resourcesChange", { detail: this.resources }),
       );
       // Note: Cached content for existing resources is automatically preserved
-      return newResources;
+      return allResources;
     } catch (error) {
       throw new Error(
-        `Failed to list resources: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to list all resources: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -1181,42 +1274,29 @@ export class InspectorClient extends EventTarget {
   }
 
   /**
-   * List resource templates
+   * List resource templates with pagination support
+   * @param cursor Optional cursor for pagination
    * @param metadata Optional metadata to include in the request
-   * @returns Array of resource templates
+   * @returns Object containing resourceTemplates array and optional nextCursor
    */
   async listResourceTemplates(
+    cursor?: string,
     metadata?: Record<string, string>,
-  ): Promise<ResourceTemplate[]> {
+  ): Promise<{ resourceTemplates: ResourceTemplate[]; nextCursor?: string }> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
     try {
-      const params =
+      const params: any =
         metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
-      const response = await this.client.listResourceTemplates(params);
-      const newTemplates = response.resourceTemplates || [];
-      // Find removed uriTemplates by comparing with current templates
-      const currentUriTemplates = new Set(
-        this.resourceTemplates.map((t) => t.uriTemplate),
-      );
-      const newUriTemplates = new Set(newTemplates.map((t) => t.uriTemplate));
-      // Clear cache for removed templates
-      for (const uriTemplate of currentUriTemplates) {
-        if (!newUriTemplates.has(uriTemplate)) {
-          this.cacheInternal.clearResourceTemplate(uriTemplate);
-        }
+      if (cursor) {
+        params.cursor = cursor;
       }
-      // Update internal state
-      this.resourceTemplates = newTemplates;
-      // Dispatch change event
-      this.dispatchEvent(
-        new CustomEvent("resourceTemplatesChange", {
-          detail: this.resourceTemplates,
-        }),
-      );
-      // Note: Cached content for existing templates is automatically preserved
-      return newTemplates;
+      const response = await this.client.listResourceTemplates(params);
+      return {
+        resourceTemplates: response.resourceTemplates || [],
+        nextCursor: response.nextCursor,
+      };
     } catch (error) {
       throw new Error(
         `Failed to list resource templates: ${error instanceof Error ? error.message : String(error)}`,
@@ -1225,22 +1305,121 @@ export class InspectorClient extends EventTarget {
   }
 
   /**
-   * List available prompts
+   * List all resource templates (fetches all pages)
    * @param metadata Optional metadata to include in the request
-   * @returns Array of prompts
+   * @returns Array of all resource templates
    */
-  async listPrompts(metadata?: Record<string, string>): Promise<Prompt[]> {
+  async listAllResourceTemplates(
+    metadata?: Record<string, string>,
+  ): Promise<ResourceTemplate[]> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
     try {
-      const params =
+      const allTemplates: ResourceTemplate[] = [];
+      let cursor: string | undefined;
+      let pageCount = 0;
+
+      do {
+        const result = await this.listResourceTemplates(cursor, metadata);
+        allTemplates.push(...result.resourceTemplates);
+        cursor = result.nextCursor;
+        pageCount++;
+        if (pageCount >= MAX_PAGES) {
+          throw new Error(
+            `Maximum pagination limit (${MAX_PAGES} pages) reached while listing resource templates`,
+          );
+        }
+      } while (cursor);
+
+      // Find removed uriTemplates by comparing with current templates
+      const currentUriTemplates = new Set(
+        this.resourceTemplates.map((t) => t.uriTemplate),
+      );
+      const newUriTemplates = new Set(allTemplates.map((t) => t.uriTemplate));
+      // Clear cache for removed templates
+      for (const uriTemplate of currentUriTemplates) {
+        if (!newUriTemplates.has(uriTemplate)) {
+          this.cacheInternal.clearResourceTemplate(uriTemplate);
+        }
+      }
+      // Update internal state
+      this.resourceTemplates = allTemplates;
+      // Dispatch change event
+      this.dispatchEvent(
+        new CustomEvent("resourceTemplatesChange", {
+          detail: this.resourceTemplates,
+        }),
+      );
+      // Note: Cached content for existing templates is automatically preserved
+      return allTemplates;
+    } catch (error) {
+      throw new Error(
+        `Failed to list all resource templates: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * List available prompts with pagination support
+   * @param cursor Optional cursor for pagination
+   * @param metadata Optional metadata to include in the request
+   * @returns Object containing prompts array and optional nextCursor
+   */
+  async listPrompts(
+    cursor?: string,
+    metadata?: Record<string, string>,
+  ): Promise<{ prompts: Prompt[]; nextCursor?: string }> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      const params: any =
         metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
+      if (cursor) {
+        params.cursor = cursor;
+      }
       const response = await this.client.listPrompts(params);
-      const newPrompts = response.prompts || [];
+      return {
+        prompts: response.prompts || [],
+        nextCursor: response.nextCursor,
+      };
+    } catch (error) {
+      throw new Error(
+        `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * List all available prompts (fetches all pages)
+   * @param metadata Optional metadata to include in the request
+   * @returns Array of all prompts
+   */
+  async listAllPrompts(metadata?: Record<string, string>): Promise<Prompt[]> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      const allPrompts: Prompt[] = [];
+      let cursor: string | undefined;
+      let pageCount = 0;
+
+      do {
+        const result = await this.listPrompts(cursor, metadata);
+        allPrompts.push(...result.prompts);
+        cursor = result.nextCursor;
+        pageCount++;
+        if (pageCount >= MAX_PAGES) {
+          throw new Error(
+            `Maximum pagination limit (${MAX_PAGES} pages) reached while listing prompts`,
+          );
+        }
+      } while (cursor);
+
       // Find removed prompt names by comparing with current prompts
       const currentNames = new Set(this.prompts.map((p) => p.name));
-      const newNames = new Set(newPrompts.map((p) => p.name));
+      const newNames = new Set(allPrompts.map((p) => p.name));
       // Clear cache for removed prompts
       for (const name of currentNames) {
         if (!newNames.has(name)) {
@@ -1248,16 +1427,16 @@ export class InspectorClient extends EventTarget {
         }
       }
       // Update internal state
-      this.prompts = newPrompts;
+      this.prompts = allPrompts;
       // Dispatch change event
       this.dispatchEvent(
         new CustomEvent("promptsChange", { detail: this.prompts }),
       );
       // Note: Cached content for existing prompts is automatically preserved
-      return newPrompts;
+      return allPrompts;
     } catch (error) {
       throw new Error(
-        `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to list all prompts: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -1437,7 +1616,7 @@ export class InspectorClient extends EventTarget {
       // The list*() methods now handle state updates and event dispatching internally
       if (this.capabilities?.resources) {
         try {
-          await this.listResources();
+          await this.listAllResources();
         } catch (err) {
           // Ignore errors, just leave empty
           this.resources = [];
@@ -1448,7 +1627,7 @@ export class InspectorClient extends EventTarget {
 
         // Also fetch resource templates
         try {
-          await this.listResourceTemplates();
+          await this.listAllResourceTemplates();
         } catch (err) {
           // Ignore errors, just leave empty
           this.resourceTemplates = [];
@@ -1462,7 +1641,7 @@ export class InspectorClient extends EventTarget {
 
       if (this.capabilities?.prompts) {
         try {
-          await this.listPrompts();
+          await this.listAllPrompts();
         } catch (err) {
           // Ignore errors, just leave empty
           this.prompts = [];
@@ -1474,7 +1653,7 @@ export class InspectorClient extends EventTarget {
 
       if (this.capabilities?.tools) {
         try {
-          await this.listTools();
+          await this.listAllTools();
         } catch (err) {
           // Ignore errors, just leave empty
           this.tools = [];

@@ -7,11 +7,14 @@
 
 import {
   McpServer,
-  ResourceTemplate,
+  ResourceTemplate as SdkResourceTemplate,
 } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type {
   Implementation,
-  ListResourcesResult,
+  Tool,
+  Resource,
+  ResourceTemplate,
+  Prompt,
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
   RegisteredTool,
@@ -23,9 +26,31 @@ import {
   SetLevelRequestSchema,
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
+  ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
+  ListPromptsRequestSchema,
+  type ListToolsResult,
+  type ListResourcesResult,
+  type ListResourceTemplatesResult,
+  type ListPromptsResult,
 } from "@modelcontextprotocol/sdk/types.js";
-import { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import {
+  ZodRawShapeCompat,
+  getObjectShape,
+  getSchemaDescription,
+  isSchemaOptional,
+  normalizeObjectSchema,
+} from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
 import { completable } from "@modelcontextprotocol/sdk/server/completable.js";
+import type { PromptArgument } from "@modelcontextprotocol/sdk/types.js";
+
+// Empty object JSON schema constant (from SDK's mcp.js)
+const EMPTY_OBJECT_JSON_SCHEMA = {
+  type: "object",
+  properties: {},
+} as const;
 
 type ToolInputSchema = ZodRawShapeCompat;
 type PromptArgsSchema = ZodRawShapeCompat;
@@ -152,6 +177,16 @@ export interface ServerConfig {
    * If enabled, server will advertise resources.subscribe capability
    */
   subscriptions?: boolean; // default: false
+  /**
+   * Maximum page size for pagination (optional, undefined means no pagination)
+   * When set, custom list handlers will paginate results using this page size
+   */
+  maxPageSize?: {
+    tools?: number;
+    resources?: number;
+    resourceTemplates?: number;
+    prompts?: number;
+  };
 }
 
 /**
@@ -403,7 +438,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
         }
       }
 
-      const resourceTemplate = new ResourceTemplate(template.uriTemplate, {
+      const resourceTemplate = new SdkResourceTemplate(template.uriTemplate, {
         list: listCallback,
         complete: completeCallbacks,
       });
@@ -491,6 +526,238 @@ export function createMcpServer(config: ServerConfig): McpServer {
       );
       state.registeredPrompts.set(prompt.name, registered);
     }
+  }
+
+  // Set up pagination handlers if maxPageSize is configured
+  const maxPageSize = config.maxPageSize || {};
+
+  // Tools pagination
+  if (capabilities.tools && maxPageSize.tools !== undefined) {
+    mcpServer.server.setRequestHandler(
+      ListToolsRequestSchema,
+      async (request) => {
+        const cursor = request.params?.cursor;
+        const pageSize = maxPageSize.tools!;
+
+        // Convert registered tools to Tool format using the same logic as the SDK (mcp.js lines 67-95)
+        const allTools: Tool[] = [];
+        for (const [name, registered] of state.registeredTools.entries()) {
+          if (registered.enabled) {
+            // Match SDK's approach exactly (mcp.js lines 71-95)
+            const toolDefinition: any = {
+              name,
+              title: registered.title,
+              description: registered.description,
+              inputSchema: (() => {
+                const obj = normalizeObjectSchema(registered.inputSchema);
+                return obj
+                  ? toJsonSchemaCompat(obj, {
+                      strictUnions: true,
+                      pipeStrategy: "input",
+                    })
+                  : EMPTY_OBJECT_JSON_SCHEMA;
+              })(),
+              annotations: registered.annotations,
+              execution: registered.execution,
+              _meta: registered._meta,
+            };
+
+            if (registered.outputSchema) {
+              const obj = normalizeObjectSchema(registered.outputSchema);
+              if (obj) {
+                toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
+                  strictUnions: true,
+                  pipeStrategy: "output",
+                });
+              }
+            }
+
+            allTools.push(toolDefinition as Tool);
+          }
+        }
+
+        const startIndex = cursor ? parseInt(cursor, 10) : 0;
+        const endIndex = startIndex + pageSize;
+        const page = allTools.slice(startIndex, endIndex);
+        const nextCursor =
+          endIndex < allTools.length ? endIndex.toString() : undefined;
+
+        return {
+          tools: page,
+          nextCursor,
+        } as ListToolsResult;
+      },
+    );
+  }
+
+  // Resources pagination
+  if (capabilities.resources && maxPageSize.resources !== undefined) {
+    mcpServer.server.setRequestHandler(
+      ListResourcesRequestSchema,
+      async (request, extra) => {
+        const cursor = request.params?.cursor;
+        const pageSize = maxPageSize.resources!;
+
+        // Collect all resources (static + from templates)
+        const allResources: Resource[] = [];
+
+        // Add static resources from registered resources
+        for (const [uri, registered] of state.registeredResources.entries()) {
+          if (registered.enabled) {
+            allResources.push({
+              uri,
+              name: registered.name,
+              title: registered.title,
+              description: registered.metadata?.description,
+              mimeType: registered.metadata?.mimeType,
+              icons: registered.metadata?.icons,
+            } as Resource);
+          }
+        }
+
+        // Add resources from templates (if list callback exists)
+        for (const template of state.registeredResourceTemplates.values()) {
+          if (template.enabled && template.resourceTemplate.listCallback) {
+            try {
+              const result =
+                await template.resourceTemplate.listCallback(extra);
+              for (const resource of result.resources) {
+                allResources.push({
+                  ...resource,
+                  // Merge template metadata if resource doesn't have it
+                  name: resource.name,
+                  description:
+                    resource.description || template.metadata?.description,
+                  mimeType: resource.mimeType || template.metadata?.mimeType,
+                  icons: resource.icons || template.metadata?.icons,
+                } as Resource);
+              }
+            } catch (error) {
+              // Ignore errors from list callbacks
+            }
+          }
+        }
+
+        const startIndex = cursor ? parseInt(cursor, 10) : 0;
+        const endIndex = startIndex + pageSize;
+        const page = allResources.slice(startIndex, endIndex);
+        const nextCursor =
+          endIndex < allResources.length ? endIndex.toString() : undefined;
+
+        return {
+          resources: page,
+          nextCursor,
+        } as ListResourcesResult;
+      },
+    );
+  }
+
+  // Resource templates pagination
+  if (capabilities.resources && maxPageSize.resourceTemplates !== undefined) {
+    mcpServer.server.setRequestHandler(
+      ListResourceTemplatesRequestSchema,
+      async (request) => {
+        const cursor = request.params?.cursor;
+        const pageSize = maxPageSize.resourceTemplates!;
+
+        // Convert registered resource templates to ResourceTemplate format
+        const allTemplates: Array<{
+          uriTemplate: string;
+          name: string;
+          description?: string;
+          mimeType?: string;
+          icons?: Array<{
+            src: string;
+            mimeType?: string;
+            sizes?: string[];
+            theme?: "light" | "dark";
+          }>;
+          title?: string;
+        }> = [];
+        for (const [
+          uriTemplate,
+          registered,
+        ] of state.registeredResourceTemplates.entries()) {
+          if (registered.enabled) {
+            // Find the name from config by matching uriTemplate
+            const templateDef = config.resourceTemplates?.find(
+              (t) => t.uriTemplate === uriTemplate,
+            );
+            allTemplates.push({
+              uriTemplate: registered.resourceTemplate.uriTemplate.toString(),
+              name: templateDef?.name || uriTemplate, // Fallback to uriTemplate if name not found
+              title: registered.title,
+              description:
+                registered.metadata?.description || templateDef?.description,
+              mimeType: registered.metadata?.mimeType,
+              icons: registered.metadata?.icons,
+            });
+          }
+        }
+
+        const startIndex = cursor ? parseInt(cursor, 10) : 0;
+        const endIndex = startIndex + pageSize;
+        const page = allTemplates.slice(startIndex, endIndex);
+        const nextCursor =
+          endIndex < allTemplates.length ? endIndex.toString() : undefined;
+
+        return {
+          resourceTemplates: page as ResourceTemplate[],
+          nextCursor,
+        } as ListResourceTemplatesResult;
+      },
+    );
+  }
+
+  // Prompts pagination
+  if (capabilities.prompts && maxPageSize.prompts !== undefined) {
+    mcpServer.server.setRequestHandler(
+      ListPromptsRequestSchema,
+      async (request) => {
+        const cursor = request.params?.cursor;
+        const pageSize = maxPageSize.prompts!;
+
+        // Convert registered prompts to Prompt format using the same logic as the SDK
+        const allPrompts: Prompt[] = [];
+        for (const [name, prompt] of state.registeredPrompts.entries()) {
+          if (prompt.enabled) {
+            // Use the same conversion logic the SDK uses (from mcp.js line 408-419)
+            const shape = prompt.argsSchema
+              ? getObjectShape(prompt.argsSchema)
+              : undefined;
+            const arguments_ = shape
+              ? Object.entries(shape).map(([argName, field]) => {
+                  const description = getSchemaDescription(field);
+                  const isOptional = isSchemaOptional(field);
+                  return {
+                    name: argName,
+                    description,
+                    required: !isOptional,
+                  } as PromptArgument;
+                })
+              : undefined;
+
+            allPrompts.push({
+              name,
+              title: prompt.title,
+              description: prompt.description,
+              arguments: arguments_,
+            } as Prompt);
+          }
+        }
+
+        const startIndex = cursor ? parseInt(cursor, 10) : 0;
+        const endIndex = startIndex + pageSize;
+        const page = allPrompts.slice(startIndex, endIndex);
+        const nextCursor =
+          endIndex < allPrompts.length ? endIndex.toString() : undefined;
+
+        return {
+          prompts: page,
+          nextCursor,
+        } as ListPromptsResult;
+      },
+    );
   }
 
   return mcpServer;
