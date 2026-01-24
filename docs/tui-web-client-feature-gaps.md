@@ -8,43 +8,44 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 
 **InspectorClient** is the shared client library that provides the core MCP functionality. Both the TUI and web client use `InspectorClient` under the hood. The gaps documented here are primarily **UI-level gaps** - features that `InspectorClient` supports but are not yet exposed in the TUI interface.
 
-| Feature                             | InspectorClient | Web Client UI | TUI | Gap Priority      |
-| ----------------------------------- | --------------- | ------------- | --- | ----------------- |
+| Feature                             | InspectorClient | Web Client v1 | TUI | Gap Priority |
+| ----------------------------------- | --------------- | ------------- | --- | ------------ |
 | **Resources**                       |
-| List resources                      | ✅              | ✅            | ✅  | -                 |
-| Read resource content               | ✅              | ✅            | ✅  | -                 |
-| List resource templates             | ✅              | ✅            | ✅  | -                 |
-| Read templated resources            | ✅              | ✅            | ✅  | -                 |
-| Resource subscriptions              | ✅              | ✅            | ❌  | Medium            |
-| Resources listChanged notifications | ✅              | ✅            | ❌  | Medium            |
-| Pagination (resources)              | ✅              | ✅            | ✅  | -                 |
-| Pagination (resource templates)     | ✅              | ✅            | ✅  | -                 |
+| List resources                      | ✅              | ✅            | ✅  | -            |
+| Read resource content               | ✅              | ✅            | ✅  | -            |
+| List resource templates             | ✅              | ✅            | ✅  | -            |
+| Read templated resources            | ✅              | ✅            | ✅  | -            |
+| Resource subscriptions              | ✅              | ✅            | ❌  | Medium       |
+| Resources listChanged notifications | ✅              | ✅            | ❌  | Medium       |
+| Pagination (resources)              | ✅              | ✅            | ✅  | -            |
+| Pagination (resource templates)     | ✅              | ✅            | ✅  | -            |
 | **Prompts**                         |
-| List prompts                        | ✅              | ✅            | ✅  | -                 |
-| Get prompt (no params)              | ✅              | ✅            | ✅  | -                 |
-| Get prompt (with params)            | ✅              | ✅            | ✅  | -                 |
-| Prompts listChanged notifications   | ✅              | ✅            | ❌  | Medium            |
-| Pagination (prompts)                | ✅              | ✅            | ✅  | -                 |
+| List prompts                        | ✅              | ✅            | ✅  | -            |
+| Get prompt (no params)              | ✅              | ✅            | ✅  | -            |
+| Get prompt (with params)            | ✅              | ✅            | ✅  | -            |
+| Prompts listChanged notifications   | ✅              | ✅            | ❌  | Medium       |
+| Pagination (prompts)                | ✅              | ✅            | ✅  | -            |
 | **Tools**                           |
-| List tools                          | ✅              | ✅            | ✅  | -                 |
-| Call tool                           | ✅              | ✅            | ✅  | -                 |
-| Tools listChanged notifications     | ✅              | ✅            | ❌  | Medium            |
-| Pagination (tools)                  | ✅              | ✅            | ✅  | -                 |
+| List tools                          | ✅              | ✅            | ✅  | -            |
+| Call tool                           | ✅              | ✅            | ✅  | -            |
+| Tools listChanged notifications     | ✅              | ✅            | ❌  | Medium       |
+| Pagination (tools)                  | ✅              | ✅            | ✅  | -            |
 | **Roots**                           |
-| List roots                          | ✅              | ✅            | ❌  | Medium            |
-| Set roots                           | ✅              | ✅            | ❌  | Medium            |
-| Roots listChanged notifications     | ✅              | ✅            | ❌  | Medium            |
+| List roots                          | ✅              | ✅            | ❌  | Medium       |
+| Set roots                           | ✅              | ✅            | ❌  | Medium       |
+| Roots listChanged notifications     | ✅              | ✅            | ❌  | Medium       |
 | **Authentication**                  |
-| OAuth 2.1 flow                      | ❌              | ✅            | ❌  | High              |
-| Custom headers                      | ✅ (config)     | ✅ (UI)       | ❌  | Medium            |
+| OAuth 2.1 flow                      | ❌              | ✅            | ❌  | High         |
+| Custom headers                      | ✅ (config)     | ✅ (UI)       | ❌  | Medium       |
 | **Advanced Features**               |
-| Sampling requests                   | ✅              | ✅            | ❌  | High              |
-| Elicitation requests                | ✅              | ✅            | ❌  | High              |
-| Completions (resource templates)    | ✅              | ✅            | ❌  | Medium            |
-| Completions (prompts with params)   | ✅              | ✅            | ❌  | Medium            |
-| Progress tracking                   | ✅              | ✅            | ❌  | Medium            |
+| Sampling requests                   | ✅              | ✅            | ❌  | High         |
+| Elicitation requests                | ✅              | ✅            | ❌  | High         |
+| Tasks (long-running operations)     | ❌              | ✅            | ❌  | High         |
+| Completions (resource templates)    | ✅              | ✅            | ❌  | Medium       |
+| Completions (prompts with params)   | ✅              | ✅            | ❌  | Medium       |
+| Progress tracking                   | ✅              | ✅            | ❌  | Medium       |
 | **Other**                           |
-| HTTP request tracking               | ✅              | ❌            | ✅  | - (TUI advantage) |
+| HTTP request tracking               | ✅              | ❌            | ✅  |              |
 
 ## Detailed Feature Gaps
 
@@ -206,7 +207,23 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 - Web client: `client/src/App.tsx` (lines 334-356, 653-669)
 - Web client: `client/src/utils/schemaUtils.ts` (schema resolution for elicitation)
 
-### 5. Completions
+### 5. Tasks (Long-Running Operations)
+
+**Status:**
+
+- ❌ Not yet implemented in InspectorClient
+- ✅ Implemented in web client (as of recent release)
+- ❌ Not yet implemented in TUI
+
+**Overview:**
+Tasks (SEP-1686) were introduced in MCP version 2025-11-25 to support long-running operations through a "call-now, fetch-later" pattern. Tasks enable servers to return a taskId immediately and allow clients to poll for status and retrieve results later, avoiding connection timeouts.
+
+**Implementation Requirements:**
+
+- See [Task Support Design](./task-support-design.md) for detailed design and implementation plan
+- InspectorClient needs task support to enable TUI task functionality
+
+### 6. Completions
 
 **InspectorClient Support:**
 
@@ -516,16 +533,17 @@ Custom headers are used to send additional HTTP headers when connecting to MCP s
 1. **OAuth** - Required for many MCP servers, critical for production use
 2. **Sampling** - Core MCP capability, enables LLM sampling workflows
 3. **Elicitation** - Core MCP capability, enables interactive workflows
+4. **Tasks** - Core MCP capability (v2025-11-25), enables long-running operations without timeouts
 
 ### Medium Priority (Enhanced Features)
 
-4. **Resource Subscriptions** - Useful for real-time resource updates
-5. **Completions** - Enhances UX for form filling
-6. **Custom Headers** - Useful for custom authentication schemes
-7. **ListChanged Notifications** - Auto-refresh lists when server data changes
-8. **Roots Support** - Manage file system access for servers
-9. **Progress Tracking** - User feedback during long-running operations
-10. **Pagination Support** - Handle large lists efficiently (COMPLETED)
+5. **Resource Subscriptions** - Useful for real-time resource updates
+6. **Completions** - Enhances UX for form filling
+7. **Custom Headers** - Useful for custom authentication schemes
+8. **ListChanged Notifications** - Auto-refresh lists when server data changes
+9. **Roots Support** - Manage file system access for servers
+10. **Progress Tracking** - User feedback during long-running operations
+11. **Pagination Support** - Handle large lists efficiently (COMPLETED)
 
 ## InspectorClient Extensions Needed
 
@@ -614,8 +632,11 @@ Based on this analysis, `InspectorClient` needs the following additions:
 - **Roots**: `InspectorClient` has full roots support with `getRoots()` and `setRoots()` methods, handler for `roots/list` requests, and notification support. Web client has a `RootsTab` UI for managing roots. TUI does not yet have UI for managing roots.
 - **Pagination**: Web client supports cursor-based pagination for all list methods (tools, resources, resource templates, prompts), tracking `nextCursor` state and making multiple requests to fetch all items. `InspectorClient` now fully supports pagination with cursor parameters in all list methods and `listAll*()` helper methods that automatically fetch all pages. TUI inherits this pagination support from `InspectorClient`.
 - **Progress Tracking**: Web client supports progress tracking for long-running operations by generating `progressToken` values, setting up `onprogress` callbacks, and displaying progress notifications. `InspectorClient` now supports progress notification handling (dispatches `progressNotification` events) and accepts `progressToken` in metadata. Clients can generate their own tokens and listen for events. The only missing feature is timeout reset on progress (`resetTimeoutOnProgress` option). TUI does not yet have UI support for displaying progress notifications.
+- **Tasks**: Tasks (SEP-1686) were introduced in MCP version 2025-11-25 to support long-running operations through a standardized "call-now, fetch-later" pattern. Web client now supports tasks (as of recent release). InspectorClient and TUI do not yet support tasks. See [Task Support Design](./task-support-design.md) for the implementation plan.
 
 ## Related Documentation
 
 - [Shared Code Architecture](./shared-code-architecture.md) - Overall architecture and integration plan
 - [InspectorClient Details](./inspector-client-details.svg) - Visual diagram of InspectorClient responsibilities
+- [Task Support Design](./task-support-design.md) - Design and implementation plan for Task support
+- [MCP Clients Feature Support](https://modelcontextprotocol.info/docs/clients/) - High-level overview of MCP feature support across different clients
