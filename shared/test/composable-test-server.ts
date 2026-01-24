@@ -13,18 +13,52 @@ import type {
   Implementation,
   ListResourcesResult,
 } from "@modelcontextprotocol/sdk/types.js";
-import { SetLevelRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  RegisteredTool,
+  RegisteredResource,
+  RegisteredPrompt,
+  RegisteredResourceTemplate,
+} from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  SetLevelRequestSchema,
+  SubscribeRequestSchema,
+  UnsubscribeRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { completable } from "@modelcontextprotocol/sdk/server/completable.js";
 
 type ToolInputSchema = ZodRawShapeCompat;
 type PromptArgsSchema = ZodRawShapeCompat;
 
+interface ServerState {
+  registeredTools: Map<string, RegisteredTool>; // Keyed by name
+  registeredResources: Map<string, RegisteredResource>; // Keyed by URI
+  registeredPrompts: Map<string, RegisteredPrompt>; // Keyed by name
+  registeredResourceTemplates: Map<string, RegisteredResourceTemplate>; // Keyed by uriTemplate
+  listChangedConfig: {
+    tools?: boolean;
+    resources?: boolean;
+    prompts?: boolean;
+  };
+  resourceSubscriptions: Set<string>; // Set of subscribed resource URIs
+}
+
+/**
+ * Context object passed to tool handlers containing both server and state
+ */
+export interface TestServerContext {
+  server: McpServer;
+  state: ServerState;
+}
+
 export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema?: ToolInputSchema;
-  handler: (params: Record<string, any>, server?: McpServer) => Promise<any>;
+  handler: (
+    params: Record<string, any>,
+    context?: TestServerContext,
+  ) => Promise<any>;
 }
 
 export interface ResourceDefinition {
@@ -104,6 +138,20 @@ export interface ServerConfig {
     | undefined; // Optional callback to customize resource handler during registration
   serverType?: "sse" | "streamable-http"; // Transport type (default: "streamable-http")
   port?: number; // Port to use (optional, will find available port if not specified)
+  /**
+   * Whether to advertise listChanged capability for each list type
+   * If enabled, modification tools will send list_changed notifications
+   */
+  listChanged?: {
+    tools?: boolean; // default: false
+    resources?: boolean; // default: false
+    prompts?: boolean; // default: false
+  };
+  /**
+   * Whether to advertise resource subscriptions capability
+   * If enabled, server will advertise resources.subscribe capability
+   */
+  subscriptions?: boolean; // default: false
 }
 
 /**
@@ -114,7 +162,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
   // Build capabilities based on config
   const capabilities: {
     tools?: {};
-    resources?: {};
+    resources?: { subscribe?: boolean };
     prompts?: {};
     logging?: {};
   } = {};
@@ -127,6 +175,10 @@ export function createMcpServer(config: ServerConfig): McpServer {
     config.resourceTemplates !== undefined
   ) {
     capabilities.resources = {};
+    // Add subscribe capability if subscriptions are enabled
+    if (config.subscriptions === true) {
+      capabilities.resources.subscribe = true;
+    }
   }
   if (config.prompts !== undefined) {
     capabilities.prompts = {};
@@ -139,6 +191,22 @@ export function createMcpServer(config: ServerConfig): McpServer {
   const mcpServer = new McpServer(config.serverInfo, {
     capabilities,
   });
+
+  // Create state (this is really session state, which is what we'll call it if we implement sessions at some point)
+  const state: ServerState = {
+    registeredTools: new Map(), // Keyed by name
+    registeredResources: new Map(), // Keyed by URI
+    registeredPrompts: new Map(), // Keyed by name
+    registeredResourceTemplates: new Map(), // Keyed by uriTemplate
+    listChangedConfig: config.listChanged || {},
+    resourceSubscriptions: new Set<string>(), // Track subscribed resource URIs
+  };
+
+  // Create context object
+  const context: TestServerContext = {
+    server: mcpServer,
+    state,
+  };
 
   // Set up logging handler if logging is enabled
   if (config.logging === true) {
@@ -155,10 +223,33 @@ export function createMcpServer(config: ServerConfig): McpServer {
     );
   }
 
+  // Set up resource subscription handlers if subscriptions are enabled
+  if (config.subscriptions === true) {
+    mcpServer.server.setRequestHandler(
+      SubscribeRequestSchema,
+      async (request) => {
+        // Track subscription in state (accessible via closure)
+        const uri = request.params.uri;
+        state.resourceSubscriptions.add(uri);
+        return {};
+      },
+    );
+
+    mcpServer.server.setRequestHandler(
+      UnsubscribeRequestSchema,
+      async (request) => {
+        // Remove subscription from state (accessible via closure)
+        const uri = request.params.uri;
+        state.resourceSubscriptions.delete(uri);
+        return {};
+      },
+    );
+  }
+
   // Set up tools
   if (config.tools && config.tools.length > 0) {
     for (const tool of config.tools) {
-      mcpServer.registerTool(
+      const registered = mcpServer.registerTool(
         tool.name,
         {
           description: tool.description,
@@ -167,7 +258,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
         async (args) => {
           const result = await tool.handler(
             args as Record<string, any>,
-            mcpServer,
+            context, // Pass context instead of mcpServer
           );
           // Handle different return types from tool handlers
           // If handler returns content array directly (like get-annotated-message), use it
@@ -196,6 +287,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
           };
         },
       );
+      state.registeredTools.set(tool.name, registered);
     }
   }
 
@@ -207,7 +299,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
         ? config.onRegisterResource(resource)
         : undefined;
 
-      mcpServer.registerResource(
+      const registered = mcpServer.registerResource(
         resource.name,
         resource.uri,
         {
@@ -227,6 +319,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
             };
           }),
       );
+      state.registeredResources.set(resource.uri, registered);
     }
   }
 
@@ -315,7 +408,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
         complete: completeCallbacks,
       });
 
-      mcpServer.registerResource(
+      const registered = mcpServer.registerResource(
         template.name,
         resourceTemplate,
         {
@@ -326,6 +419,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
           return result;
         },
       );
+      state.registeredResourceTemplates.set(template.uriTemplate, registered);
     }
   }
 
@@ -361,7 +455,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
         argsSchema = enhancedSchema;
       }
 
-      mcpServer.registerPrompt(
+      const registered = mcpServer.registerPrompt(
         prompt.name,
         {
           description: prompt.description,
@@ -395,6 +489,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
           };
         },
       );
+      state.registeredPrompts.set(prompt.name, registered);
     }
   }
 

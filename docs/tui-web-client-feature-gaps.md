@@ -15,20 +15,20 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 | Read resource content               | ✅              | ✅            | ✅  | -                 |
 | List resource templates             | ✅              | ✅            | ✅  | -                 |
 | Read templated resources            | ✅              | ✅            | ✅  | -                 |
-| Resource subscriptions              | ❌              | ✅            | ❌  | Medium            |
-| Resources listChanged notifications | ❌              | ✅            | ❌  | Medium            |
+| Resource subscriptions              | ✅              | ✅            | ❌  | Medium            |
+| Resources listChanged notifications | ✅              | ✅            | ❌  | Medium            |
 | Pagination (resources)              | ❌              | ✅            | ❌  | Low               |
 | Pagination (resource templates)     | ❌              | ✅            | ❌  | Low               |
 | **Prompts**                         |
 | List prompts                        | ✅              | ✅            | ✅  | -                 |
 | Get prompt (no params)              | ✅              | ✅            | ✅  | -                 |
 | Get prompt (with params)            | ✅              | ✅            | ✅  | -                 |
-| Prompts listChanged notifications   | ❌              | ✅            | ❌  | Medium            |
+| Prompts listChanged notifications   | ✅              | ✅            | ❌  | Medium            |
 | Pagination (prompts)                | ❌              | ✅            | ❌  | Low               |
 | **Tools**                           |
 | List tools                          | ✅              | ✅            | ✅  | -                 |
 | Call tool                           | ✅              | ✅            | ✅  | -                 |
-| Tools listChanged notifications     | ❌              | ✅            | ❌  | Medium            |
+| Tools listChanged notifications     | ✅              | ✅            | ❌  | Medium            |
 | Tool call progress tracking         | ❌              | ✅            | ❌  | Medium            |
 | Pagination (tools)                  | ❌              | ✅            | ❌  | Low               |
 | **Roots**                           |
@@ -64,12 +64,29 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 - ❌ No subscription state management
 - ❌ No UI for subscribe/unsubscribe actions
 
+**InspectorClient Status:**
+
+- ✅ `subscribeToResource(uri)` method - **COMPLETED**
+- ✅ `unsubscribeFromResource(uri)` method - **COMPLETED**
+- ✅ Subscription state tracking - **COMPLETED** (`getSubscribedResources()`, `isSubscribedToResource()`)
+- ✅ Handler for `notifications/resources/updated` - **COMPLETED**
+- ✅ `resourceSubscriptionsChange` event - **COMPLETED**
+- ✅ `resourceUpdated` event - **COMPLETED**
+- ✅ Cache clearing on resource updates - **COMPLETED** (clears both regular resources and resource templates with matching expandedUri)
+
+**TUI Status:**
+
+- ❌ No UI for resource subscriptions
+- ❌ No subscription state management in UI
+- ❌ No UI for subscribe/unsubscribe actions
+- ❌ No handling of resource update notifications in UI
+
 **Implementation Requirements:**
 
-- Add `subscribeResource(uri)` and `unsubscribeResource(uri)` methods to `InspectorClient`
-- Add subscription state tracking in `InspectorClient`
-- Add UI in TUI `ResourcesTab` for subscribe/unsubscribe actions
-- Handle resource update notifications for subscribed resources
+- ✅ Add `subscribeToResource(uri)` and `unsubscribeFromResource(uri)` methods to `InspectorClient` - **COMPLETED**
+- ✅ Add subscription state tracking in `InspectorClient` - **COMPLETED**
+- ❌ Add UI in TUI `ResourcesTab` for subscribe/unsubscribe actions
+- ✅ Handle resource update notifications for subscribed resources - **COMPLETED** (in InspectorClient)
 
 **Code References:**
 
@@ -255,21 +272,26 @@ MCP servers can send `listChanged` notifications when the list of tools, resourc
 
 **InspectorClient Status:**
 
-- ❌ No notification handlers for `listChanged` notifications
-- ❌ No automatic list refresh on `listChanged` notifications
-- ❌ TODO comment in `fetchServerContents()` mentions adding support for `listChanged` notifications
+- ✅ Notification handlers for `notifications/tools/list_changed` - **COMPLETED**
+- ✅ Notification handlers for `notifications/resources/list_changed` - **COMPLETED** (reloads both resources and resource templates)
+- ✅ Notification handlers for `notifications/prompts/list_changed` - **COMPLETED**
+- ✅ Automatic list refresh on `listChanged` notifications - **COMPLETED**
+- ✅ Configurable via `listChangedNotifications` option - **COMPLETED** (tools, resources, prompts)
+- ✅ Cache preservation for existing items - **COMPLETED**
+- ✅ Cache cleanup for removed items - **COMPLETED**
+- ✅ Event dispatching (`toolsChange`, `resourcesChange`, `resourceTemplatesChange`, `promptsChange`) - **COMPLETED**
 
 **TUI Status:**
 
-- ❌ No notification handlers for `listChanged` notifications
-- ❌ No automatic list refresh on `listChanged` notifications
+- ❌ No UI handling for `listChanged` notifications (though InspectorClient handles them automatically)
+- ❌ No UI indication when lists are auto-refreshed
 
 **Implementation Requirements:**
 
-- Add notification handlers in `InspectorClient.connect()` for `listChanged` notifications
-- When a `listChanged` notification is received, automatically call the corresponding `list*()` method
-- Dispatch events to notify UI of list changes
-- Add UI in TUI to handle and display these notifications (optional, but useful for debugging)
+- ✅ Add notification handlers in `InspectorClient.connect()` for `listChanged` notifications - **COMPLETED**
+- ✅ When a `listChanged` notification is received, automatically call the corresponding `list*()` method - **COMPLETED**
+- ✅ Dispatch events to notify UI of list changes - **COMPLETED**
+- ❌ Add UI in TUI to handle and display these notifications (optional, but useful for debugging)
 
 **Code References:**
 
@@ -555,8 +577,15 @@ Based on this analysis, `InspectorClient` needs the following additions:
    - ✅ `readResource(uri, metadata?)` - Already exists
    - ✅ `listResourceTemplates()` - Already exists
    - ✅ Resource template `list` callback support - Already exists (via `listResources()`)
-   - ❌ `subscribeResource(uri)` - Needs to be added
-   - ❌ `unsubscribeResource(uri)` - Needs to be added
+   - ✅ `subscribeToResource(uri)` - **COMPLETED**
+   - ✅ `unsubscribeFromResource(uri)` - **COMPLETED**
+   - ✅ `getSubscribedResources()` - **COMPLETED**
+   - ✅ `isSubscribedToResource(uri)` - **COMPLETED**
+   - ✅ `supportsResourceSubscriptions()` - **COMPLETED**
+   - ✅ Resource content caching - **COMPLETED** (via `client.cache.getResource()`)
+   - ✅ Resource template content caching - **COMPLETED** (via `client.cache.getResourceTemplate()`)
+   - ✅ Prompt content caching - **COMPLETED** (via `client.cache.getPrompt()`)
+   - ✅ Tool call result caching - **COMPLETED** (via `client.cache.getToolCallResult()`)
 
 2. **Sampling Support**:
    - ✅ `getPendingSamples()` - Already exists
@@ -586,10 +615,12 @@ Based on this analysis, `InspectorClient` needs the following additions:
    - ❌ Token injection into headers
 
 6. **ListChanged Notifications**:
-   - ❌ Notification handlers for `notifications/tools/list_changed` - Needs to be added
-   - ❌ Notification handlers for `notifications/resources/list_changed` - Needs to be added
-   - ❌ Notification handlers for `notifications/prompts/list_changed` - Needs to be added
-   - ❌ Auto-refresh lists when notifications received - Needs to be added
+   - ✅ Notification handlers for `notifications/tools/list_changed` - **COMPLETED**
+   - ✅ Notification handlers for `notifications/resources/list_changed` - **COMPLETED**
+   - ✅ Notification handlers for `notifications/prompts/list_changed` - **COMPLETED**
+   - ✅ Auto-refresh lists when notifications received - **COMPLETED**
+   - ✅ Configurable via `listChangedNotifications` option - **COMPLETED**
+   - ✅ Cache preservation and cleanup - **COMPLETED**
 
 7. **Roots Support**:
    - ✅ `getRoots()` method - Already exists
@@ -616,12 +647,12 @@ Based on this analysis, `InspectorClient` needs the following additions:
 ## Notes
 
 - **HTTP Request Tracking**: `InspectorClient` tracks HTTP requests for SSE and streamable-http transports via `getFetchRequests()`. TUI displays these requests in a `RequestsTab`. Web client does not currently display HTTP request tracking, though the underlying `InspectorClient` supports it. This is a TUI advantage, not a gap.
-- **Resource Subscriptions**: Web client supports this, but TUI does not. `InspectorClient` does not yet support resource subscriptions.
+- **Resource Subscriptions**: Web client supports this, but TUI does not. `InspectorClient` now fully supports resource subscriptions with `subscribeToResource()`, `unsubscribeFromResource()`, and automatic handling of `notifications/resources/updated` notifications.
 - **OAuth**: Web client has full OAuth support. TUI needs browser-based OAuth flow with localhost callback server. `InspectorClient` does not yet support OAuth.
 - **Completions**: `InspectorClient` has full completion support via `getCompletions()`. Web client uses this for resource template forms and prompt parameter forms. TUI has both resource template forms and prompt parameter forms, but completion support is still needed to provide autocomplete suggestions.
 - **Sampling**: `InspectorClient` has full sampling support. Web client UI displays and handles sampling requests. TUI needs UI to display and handle sampling requests.
 - **Elicitation**: `InspectorClient` has full elicitation support. Web client UI displays and handles elicitation requests. TUI needs UI to display and handle elicitation requests.
-- **ListChanged Notifications**: Web client handles `listChanged` notifications for tools, resources, and prompts, automatically refreshing lists when notifications are received. `InspectorClient` does not yet support these notifications. TUI also does not support them.
+- **ListChanged Notifications**: Web client handles `listChanged` notifications for tools, resources, and prompts, automatically refreshing lists when notifications are received. `InspectorClient` now fully supports these notifications with automatic list refresh, cache preservation/cleanup, and configurable handlers. TUI automatically benefits from this functionality but doesn't have UI to display notification events.
 - **Roots**: `InspectorClient` has full roots support with `getRoots()` and `setRoots()` methods, handler for `roots/list` requests, and notification support. Web client has a `RootsTab` UI for managing roots. TUI does not yet have UI for managing roots.
 - **Pagination**: Web client supports cursor-based pagination for all list methods (tools, resources, resource templates, prompts), tracking `nextCursor` state and making multiple requests to fetch all items. `InspectorClient` currently returns arrays directly without exposing pagination. TUI does not support pagination.
 - **Progress Tracking**: Web client supports progress tracking for tool calls by generating `progressToken` values, setting up `onprogress` callbacks, and displaying progress notifications. `InspectorClient` does not yet support progress tracking. TUI does not support progress tracking.

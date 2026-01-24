@@ -18,6 +18,7 @@ import type {
   PromptDefinition,
   ResourceTemplateDefinition,
   ServerConfig,
+  TestServerContext,
 } from "./composable-test-server.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
@@ -98,11 +99,12 @@ export function createCollectSampleTool(): ToolDefinition {
     },
     handler: async (
       params: Record<string, any>,
-      server?: McpServer,
+      context?: TestServerContext,
     ): Promise<any> => {
-      if (!server) {
-        throw new Error("Server instance not available");
+      if (!context) {
+        throw new Error("Server context not available");
       }
+      const server = context.server;
 
       const text = params.text as string;
 
@@ -155,11 +157,12 @@ export function createListRootsTool(): ToolDefinition {
     inputSchema: {},
     handler: async (
       _params: Record<string, any>,
-      server?: McpServer,
+      context?: TestServerContext,
     ): Promise<any> => {
-      if (!server) {
-        throw new Error("Server instance not available");
+      if (!context) {
+        throw new Error("Server context not available");
       }
+      const server = context.server;
 
       try {
         // Call roots/list on the client
@@ -200,11 +203,12 @@ export function createCollectElicitationTool(): ToolDefinition {
     },
     handler: async (
       params: Record<string, any>,
-      server?: McpServer,
+      context?: TestServerContext,
     ): Promise<any> => {
-      if (!server) {
-        throw new Error("Server instance not available");
+      if (!context) {
+        throw new Error("Server context not available");
       }
+      const server = context.server;
 
       const message = params.message as string;
       const schema = params.schema as any;
@@ -265,11 +269,12 @@ export function createSendNotificationTool(): ToolDefinition {
     },
     handler: async (
       params: Record<string, any>,
-      server?: McpServer,
+      context?: TestServerContext,
     ): Promise<any> => {
-      if (!server) {
-        throw new Error("Server instance not available");
+      if (!context) {
+        throw new Error("Server context not available");
       }
+      const server = context.server;
 
       const message = params.message as string;
       const level = (params.level as string) || "info";
@@ -537,6 +542,396 @@ export function createUserResourceTemplate(
     },
     complete: completionCallback,
     list: listCallback,
+  };
+}
+
+/**
+ * Create a tool that adds a resource to the server and sends list_changed notification
+ */
+export function createAddResourceTool(): ToolDefinition {
+  return {
+    name: "addResource",
+    description:
+      "Add a resource to the server and send list_changed notification",
+    inputSchema: {
+      uri: z.string().describe("Resource URI"),
+      name: z.string().describe("Resource name"),
+      description: z.string().optional().describe("Resource description"),
+      mimeType: z.string().optional().describe("Resource MIME type"),
+      text: z.string().optional().describe("Resource text content"),
+    },
+    handler: async (
+      params: Record<string, any>,
+      context?: TestServerContext,
+    ) => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+
+      const { server, state } = context;
+
+      // Register with SDK (returns RegisteredResource)
+      const registered = server.registerResource(
+        params.name as string,
+        params.uri as string,
+        {
+          description: params.description as string | undefined,
+          mimeType: params.mimeType as string | undefined,
+        },
+        async () => {
+          return {
+            contents: params.text
+              ? [
+                  {
+                    uri: params.uri as string,
+                    mimeType: params.mimeType as string | undefined,
+                    text: params.text as string,
+                  },
+                ]
+              : [],
+          };
+        },
+      );
+
+      // Track in state (keyed by URI)
+      state.registeredResources.set(params.uri as string, registered);
+
+      // Send notification if capability enabled
+      if (state.listChangedConfig.resources) {
+        server.sendResourceListChanged();
+      }
+
+      return {
+        message: `Resource ${params.uri} added`,
+        uri: params.uri,
+      };
+    },
+  };
+}
+
+/**
+ * Create a tool that removes a resource from the server by URI and sends list_changed notification
+ */
+export function createRemoveResourceTool(): ToolDefinition {
+  return {
+    name: "removeResource",
+    description:
+      "Remove a resource from the server by URI and send list_changed notification",
+    inputSchema: {
+      uri: z.string().describe("Resource URI to remove"),
+    },
+    handler: async (
+      params: Record<string, any>,
+      context?: TestServerContext,
+    ) => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+
+      const { server, state } = context;
+
+      // Find registered resource by URI
+      const resource = state.registeredResources.get(params.uri as string);
+      if (!resource) {
+        throw new Error(`Resource with URI ${params.uri} not found`);
+      }
+
+      // Remove from SDK registry
+      resource.remove();
+
+      // Remove from tracking
+      state.registeredResources.delete(params.uri as string);
+
+      // Send notification if capability enabled
+      if (state.listChangedConfig.resources) {
+        server.sendResourceListChanged();
+      }
+
+      return {
+        message: `Resource ${params.uri} removed`,
+        uri: params.uri,
+      };
+    },
+  };
+}
+
+/**
+ * Create a tool that adds a tool to the server and sends list_changed notification
+ */
+export function createAddToolTool(): ToolDefinition {
+  return {
+    name: "addTool",
+    description: "Add a tool to the server and send list_changed notification",
+    inputSchema: {
+      name: z.string().describe("Tool name"),
+      description: z.string().describe("Tool description"),
+      inputSchema: z.any().optional().describe("Tool input schema"),
+    },
+    handler: async (
+      params: Record<string, any>,
+      context?: TestServerContext,
+    ) => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+
+      const { server, state } = context;
+
+      // Register with SDK (returns RegisteredTool)
+      const registered = server.registerTool(
+        params.name as string,
+        {
+          description: params.description as string,
+          inputSchema: params.inputSchema,
+        },
+        async () => {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Tool ${params.name} executed`,
+              },
+            ],
+          };
+        },
+      );
+
+      // Track in state (keyed by name)
+      state.registeredTools.set(params.name as string, registered);
+
+      // Send notification if capability enabled
+      // Note: sendToolListChanged() is synchronous on McpServer but internally calls async Server method
+      // We don't await it, but the tool should be registered before sending the notification
+      if (state.listChangedConfig.tools) {
+        // Small delay to ensure tool is fully registered in SDK's internal state
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        server.sendToolListChanged();
+      }
+
+      return {
+        message: `Tool ${params.name} added`,
+        name: params.name,
+      };
+    },
+  };
+}
+
+/**
+ * Create a tool that removes a tool from the server by name and sends list_changed notification
+ */
+export function createRemoveToolTool(): ToolDefinition {
+  return {
+    name: "removeTool",
+    description:
+      "Remove a tool from the server by name and send list_changed notification",
+    inputSchema: {
+      name: z.string().describe("Tool name to remove"),
+    },
+    handler: async (
+      params: Record<string, any>,
+      context?: TestServerContext,
+    ) => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+
+      const { server, state } = context;
+
+      // Find registered tool by name
+      const tool = state.registeredTools.get(params.name as string);
+      if (!tool) {
+        throw new Error(`Tool ${params.name} not found`);
+      }
+
+      // Remove from SDK registry
+      tool.remove();
+
+      // Remove from tracking
+      state.registeredTools.delete(params.name as string);
+
+      // Send notification if capability enabled
+      if (state.listChangedConfig.tools) {
+        server.sendToolListChanged();
+      }
+
+      return {
+        message: `Tool ${params.name} removed`,
+        name: params.name,
+      };
+    },
+  };
+}
+
+/**
+ * Create a tool that adds a prompt to the server and sends list_changed notification
+ */
+export function createAddPromptTool(): ToolDefinition {
+  return {
+    name: "addPrompt",
+    description:
+      "Add a prompt to the server and send list_changed notification",
+    inputSchema: {
+      name: z.string().describe("Prompt name"),
+      description: z.string().optional().describe("Prompt description"),
+      promptString: z.string().describe("Prompt text"),
+      argsSchema: z.any().optional().describe("Prompt arguments schema"),
+    },
+    handler: async (
+      params: Record<string, any>,
+      context?: TestServerContext,
+    ) => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+
+      const { server, state } = context;
+
+      // Register with SDK (returns RegisteredPrompt)
+      const registered = server.registerPrompt(
+        params.name as string,
+        {
+          description: params.description as string | undefined,
+          argsSchema: params.argsSchema,
+        },
+        async () => {
+          return {
+            messages: [
+              {
+                role: "user" as const,
+                content: {
+                  type: "text" as const,
+                  text: params.promptString as string,
+                },
+              },
+            ],
+          };
+        },
+      );
+
+      // Track in state (keyed by name)
+      state.registeredPrompts.set(params.name as string, registered);
+
+      // Send notification if capability enabled
+      if (state.listChangedConfig.prompts) {
+        server.sendPromptListChanged();
+      }
+
+      return {
+        message: `Prompt ${params.name} added`,
+        name: params.name,
+      };
+    },
+  };
+}
+
+/**
+ * Create a tool that updates an existing resource's content and sends resource updated notification
+ */
+export function createUpdateResourceTool(): ToolDefinition {
+  return {
+    name: "updateResource",
+    description:
+      "Update an existing resource's content and send resource updated notification",
+    inputSchema: {
+      uri: z.string().describe("Resource URI to update"),
+      text: z.string().describe("New resource text content"),
+    },
+    handler: async (
+      params: Record<string, any>,
+      context?: TestServerContext,
+    ) => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+
+      const { server, state } = context;
+
+      // Find registered resource by URI
+      const resource = state.registeredResources.get(params.uri as string);
+      if (!resource) {
+        throw new Error(`Resource with URI ${params.uri} not found`);
+      }
+
+      // Get the current resource metadata to preserve mimeType
+      const currentResource = state.registeredResources.get(
+        params.uri as string,
+      );
+      const mimeType = currentResource?.metadata?.mimeType || "text/plain";
+
+      // Update the resource's callback to return new content
+      resource.update({
+        callback: async () => {
+          return {
+            contents: [
+              {
+                uri: params.uri as string,
+                mimeType,
+                text: params.text as string,
+              },
+            ],
+          };
+        },
+      });
+
+      // Send resource updated notification only if subscribed
+      const uri = params.uri as string;
+      if (state.resourceSubscriptions.has(uri)) {
+        await server.server.sendResourceUpdated({
+          uri,
+        });
+      }
+
+      return {
+        message: `Resource ${params.uri} updated`,
+        uri: params.uri,
+      };
+    },
+  };
+}
+
+/**
+ * Create a tool that removes a prompt from the server by name and sends list_changed notification
+ */
+export function createRemovePromptTool(): ToolDefinition {
+  return {
+    name: "removePrompt",
+    description:
+      "Remove a prompt from the server by name and send list_changed notification",
+    inputSchema: {
+      name: z.string().describe("Prompt name to remove"),
+    },
+    handler: async (
+      params: Record<string, any>,
+      context?: TestServerContext,
+    ) => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+
+      const { server, state } = context;
+
+      // Find registered prompt by name
+      const prompt = state.registeredPrompts.get(params.name as string);
+      if (!prompt) {
+        throw new Error(`Prompt ${params.name} not found`);
+      }
+
+      // Remove from SDK registry
+      prompt.remove();
+
+      // Remove from tracking
+      state.registeredPrompts.delete(params.name as string);
+
+      // Send notification if capability enabled
+      if (state.listChangedConfig.prompts) {
+        server.sendPromptListChanged();
+      }
+
+      return {
+        message: `Prompt ${params.name} removed`,
+        name: params.name,
+      };
+    },
   };
 }
 
