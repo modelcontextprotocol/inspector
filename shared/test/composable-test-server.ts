@@ -22,6 +22,11 @@ import type {
   RegisteredPrompt,
   RegisteredResourceTemplate,
 } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type {
+  ServerRequest,
+  ServerNotification,
+} from "@modelcontextprotocol/sdk/types.js";
 import {
   SetLevelRequestSchema,
   SubscribeRequestSchema,
@@ -83,6 +88,7 @@ export interface ToolDefinition {
   handler: (
     params: Record<string, any>,
     context?: TestServerContext,
+    extra?: RequestHandlerExtra<ServerRequest, ServerNotification>,
   ) => Promise<any>;
 }
 
@@ -118,6 +124,8 @@ export interface ResourceTemplateDefinition {
   handler: (
     uri: URL,
     params: Record<string, any>,
+    context?: TestServerContext,
+    extra?: RequestHandlerExtra<ServerRequest, ServerNotification>,
   ) => Promise<{
     contents: Array<{ uri: string; mimeType?: string; text: string }>;
   }>;
@@ -290,10 +298,11 @@ export function createMcpServer(config: ServerConfig): McpServer {
           description: tool.description,
           inputSchema: tool.inputSchema,
         },
-        async (args) => {
+        async (args, extra) => {
           const result = await tool.handler(
             args as Record<string, any>,
-            context, // Pass context instead of mcpServer
+            context,
+            extra,
           );
           // Handle different return types from tool handlers
           // If handler returns content array directly (like get-annotated-message), use it
@@ -449,8 +458,8 @@ export function createMcpServer(config: ServerConfig): McpServer {
         {
           description: template.description,
         },
-        async (uri: URL, variables: Record<string, any>, extra?: any) => {
-          const result = await template.handler(uri, variables);
+        async (uri: URL, variables: Record<string, any>, extra) => {
+          const result = await template.handler(uri, variables, context, extra);
           return result;
         },
       );

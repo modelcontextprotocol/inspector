@@ -978,8 +978,106 @@ export function createUpdateResourceTool(): ToolDefinition {
 }
 
 /**
- * Create a tool that removes a prompt from the server by name and sends list_changed notification
+ * Create a tool that sends progress notifications during execution
+ * @param name Tool name (default: "sendProgress")
+ * @returns Tool definition
  */
+export function createSendProgressTool(
+  name: string = "sendProgress",
+): ToolDefinition {
+  return {
+    name,
+    description:
+      "Send progress notifications during tool execution, then return a result",
+    inputSchema: {
+      units: z
+        .number()
+        .int()
+        .positive()
+        .describe("Number of progress units to send"),
+      delayMs: z
+        .number()
+        .int()
+        .nonnegative()
+        .default(100)
+        .describe("Delay in milliseconds between progress notifications"),
+      total: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Total number of units (for percentage calculation)"),
+      message: z
+        .string()
+        .optional()
+        .describe("Progress message to include in notifications"),
+    },
+    handler: async (
+      params: Record<string, any>,
+      context?: TestServerContext,
+      extra?: any,
+    ): Promise<any> => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+      const server = context.server;
+
+      const units = params.units as number;
+      const delayMs = (params.delayMs as number) || 100;
+      const total = params.total as number | undefined;
+      const message = (params.message as string) || "Processing...";
+
+      // Extract progressToken from metadata
+      const progressToken = extra?._meta?.progressToken;
+
+      // Send progress notifications
+      for (let i = 1; i <= units; i++) {
+        // Wait before sending notification (except for the first one)
+        if (i > 1 && delayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+
+        if (progressToken !== undefined) {
+          const progressParams: {
+            progress: number;
+            total?: number;
+            message?: string;
+            progressToken: string | number;
+          } = {
+            progress: i,
+            message: `${message} (${i}/${units})`,
+            progressToken,
+          };
+          if (total !== undefined) {
+            progressParams.total = total;
+          }
+
+          try {
+            await server.server.notification(
+              {
+                method: "notifications/progress",
+                params: progressParams,
+              },
+              { relatedRequestId: extra?.requestId },
+            );
+          } catch (error) {
+            console.error(
+              "[sendProgress] Error sending progress notification:",
+              error,
+            );
+          }
+        }
+      }
+
+      return {
+        message: `Completed ${units} progress notifications`,
+        units,
+        total: total || units,
+      };
+    },
+  };
+}
+
 export function createRemovePromptTool(): ToolDefinition {
   return {
     name: "removePrompt",

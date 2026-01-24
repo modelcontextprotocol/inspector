@@ -29,7 +29,6 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 | List tools                          | ✅              | ✅            | ✅  | -                 |
 | Call tool                           | ✅              | ✅            | ✅  | -                 |
 | Tools listChanged notifications     | ✅              | ✅            | ❌  | Medium            |
-| Tool call progress tracking         | ❌              | ✅            | ❌  | Medium            |
 | Pagination (tools)                  | ✅              | ✅            | ✅  | -                 |
 | **Roots**                           |
 | List roots                          | ✅              | ✅            | ❌  | Medium            |
@@ -43,6 +42,7 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 | Elicitation requests                | ✅              | ✅            | ❌  | High              |
 | Completions (resource templates)    | ✅              | ✅            | ❌  | Medium            |
 | Completions (prompts with params)   | ✅              | ✅            | ❌  | Medium            |
+| Progress tracking                   | ✅              | ✅            | ❌  | Medium            |
 | **Other**                           |
 | HTTP request tracking               | ✅              | ❌            | ✅  | - (TUI advantage) |
 
@@ -254,7 +254,80 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 - TUI: `tui/src/components/PromptTestModal.tsx` - Prompt form (needs completion integration)
 - TUI: `tui/src/components/ResourceTestModal.tsx` - Resource template form (needs completion integration)
 
-### 6. ListChanged Notifications
+### 6. Progress Tracking
+
+**Use Case:**
+
+Long-running operations (tool calls, resource reads, prompt invocations, etc.) can send progress notifications (`notifications/progress`) to keep clients informed of execution status. This is useful for:
+
+- Showing progress bars or status updates
+- Resetting request timeouts on progress notifications
+- Providing user feedback during long operations
+
+**Web Client Support:**
+
+- **Progress Token**: Generates and includes `progressToken` in request metadata:
+  ```typescript
+  const mergedMetadata = {
+    ...metadata,
+    progressToken: progressTokenRef.current++,
+    ...toolMetadata,
+  };
+  ```
+- **Progress Callback**: Sets up `onprogress` callback in `useConnection`:
+  ```typescript
+  if (mcpRequestOptions.resetTimeoutOnProgress) {
+    mcpRequestOptions.onprogress = (params: Progress) => {
+      if (onNotification) {
+        onNotification({
+          method: "notifications/progress",
+          params,
+        });
+      }
+    };
+  }
+  ```
+- **Progress Display**: Progress notifications are displayed in the "Server Notifications" window
+- **Timeout Reset**: `resetTimeoutOnProgress` option resets request timeout when progress notifications are received
+
+**InspectorClient Status:**
+
+- ✅ Progress notification handling - Registers handler for `notifications/progress` and dispatches `progressNotification` events
+- ✅ Progress token support - Accepts `progressToken` in metadata via `callTool` (and other methods)
+- ✅ Event-based approach - Uses `progressNotification` events instead of `onprogress` callbacks (clients can listen for events)
+- ✅ Token management - Clients can generate and manage their own `progressToken` values as needed
+- ❌ No timeout reset on progress - `resetTimeoutOnProgress` option not yet implemented
+
+**TUI Status:**
+
+- ❌ No progress tracking support
+- ❌ No progress notification display
+- ❌ No progress token management
+
+**Implementation Requirements:**
+
+- ✅ **Completed in InspectorClient:**
+  - Progress notification handler registration (when `progress: true` option is set)
+  - `progressNotification` event dispatching with full progress params (includes `progressToken`, `progress`, `total`, `message`)
+  - Support for `progressToken` in request metadata (via `callTool`, `getPrompt`, etc.)
+  - Event-based API - Clients listen for `progressNotification` events instead of using callbacks
+- ❌ **Still Needed:**
+  - Timeout reset on progress - `resetTimeoutOnProgress` option not yet implemented
+- ❌ **TUI UI Support Needed:**
+  - Show progress notifications during long-running operations
+  - Display progress status in results view
+  - Optional: Progress bars or percentage indicators
+
+**Code References:**
+
+- InspectorClient: `shared/mcp/inspectorClient.ts` (lines 598-606) - Progress notification handler registration and event dispatching
+- InspectorClient: `shared/mcp/inspectorClient.ts` (lines 1018-1021) - Progress token support via metadata in `callTool`
+- Web client: `client/src/App.tsx` (lines 840-892) - Progress token generation and tool call
+- Web client: `client/src/lib/hooks/useConnection.ts` (lines 214-226) - Progress callback setup
+- SDK types: `RequestOptions` includes `onprogress?: (params: Progress) => void` and `resetTimeoutOnProgress?: boolean`
+- SDK types: `Progress` notification type for progress updates
+
+### 7. ListChanged Notifications
 
 **Use Case:**
 
@@ -321,7 +394,7 @@ The TUI automatically supports `listChanged` notifications through `InspectorCli
 - Web client: `client/src/lib/hooks/useConnection.ts` (lines 422-424, 699-704) - Capability declaration and notification handlers
 - `InspectorClient`: `shared/mcp/inspectorClient.ts` (line 1004) - TODO comment about listChanged support
 
-### 7. Roots Support
+### 8. Roots Support
 
 **Use Case:**
 
@@ -375,7 +448,7 @@ Roots are file system paths (as `file://` URIs) that define which directories an
 - Web client: `client/src/lib/hooks/useConnection.ts` (lines 422-424, 357) - Capability declaration and `getRoots` callback
 - Web client: `client/src/App.tsx` (lines 1225-1229) - RootsTab usage
 
-### 8. Custom Headers
+### 9. Custom Headers
 
 **Use Case:**
 
@@ -436,81 +509,6 @@ Custom headers are used to send additional HTTP headers when connecting to MCP s
 - `InspectorClient`: `shared/mcp/config.ts` (lines 118-129) - Headers in `MCPServerConfig`
 - `InspectorClient`: `shared/mcp/transport.ts` (lines 100-134) - Headers passed to SDK transports
 
-### 9. Tool Call Progress Tracking
-
-**Use Case:**
-
-Long-running tool calls can send progress notifications (`notifications/progress`) to keep clients informed of execution status. This is useful for:
-
-- Showing progress bars or status updates
-- Resetting request timeouts on progress notifications
-- Providing user feedback during long operations
-
-**Web Client Support:**
-
-- **Progress Token**: Generates and includes `progressToken` in tool call metadata:
-  ```typescript
-  const mergedMetadata = {
-    ...metadata,
-    progressToken: progressTokenRef.current++,
-    ...toolMetadata,
-  };
-  ```
-- **Progress Callback**: Sets up `onprogress` callback in `useConnection`:
-  ```typescript
-  if (mcpRequestOptions.resetTimeoutOnProgress) {
-    mcpRequestOptions.onprogress = (params: Progress) => {
-      if (onNotification) {
-        onNotification({
-          method: "notifications/progress",
-          params,
-        });
-      }
-    };
-  }
-  ```
-- **Progress Display**: Progress notifications are displayed in the "Server Notifications" window
-- **Timeout Reset**: `resetTimeoutOnProgress` option resets request timeout when progress notifications are received
-
-**InspectorClient Status:**
-
-- ❌ No `progressToken` generation or management
-- ❌ No `onprogress` callback support in `callTool()`
-- ❌ No progress notification handling
-- ❌ No timeout reset on progress
-
-**TUI Status:**
-
-- ❌ No progress tracking support
-- ❌ No progress notification display
-- ❌ No progress token management
-
-**Implementation Requirements:**
-
-- Add progress token generation to `InspectorClient`:
-  - Private counter for generating unique progress tokens
-  - Option to include `progressToken` in tool call metadata
-- Add `onprogress` callback support to `callTool()`:
-  - Accept optional `onprogress` callback parameter
-  - Pass callback to SDK's `callTool()` via `RequestOptions`
-- Add progress notification handling:
-  - Set up notification handler for `notifications/progress`
-  - Dispatch progress events for UI consumption
-- Add timeout reset support:
-  - Option to reset timeout on progress notifications
-  - Pass `resetTimeoutOnProgress` to SDK request options
-- Add UI in TUI for progress display:
-  - Show progress notifications during tool execution
-  - Display progress status in tool results view
-  - Optional: Progress bars or percentage indicators
-
-**Code References:**
-
-- Web client: `client/src/App.tsx` (lines 840-892) - Progress token generation and tool call
-- Web client: `client/src/lib/hooks/useConnection.ts` (lines 214-226) - Progress callback setup
-- SDK types: `RequestOptions` includes `onprogress?: (params: Progress) => void` and `resetTimeoutOnProgress?: boolean`
-- SDK types: `Progress` notification type for progress updates
-
 ## Implementation Priority
 
 ### High Priority (Core MCP Features)
@@ -526,8 +524,8 @@ Long-running tool calls can send progress notifications (`notifications/progress
 6. **Custom Headers** - Useful for custom authentication schemes
 7. **ListChanged Notifications** - Auto-refresh lists when server data changes
 8. **Roots Support** - Manage file system access for servers
-9. **Tool Call Progress Tracking** - User feedback during long-running operations
-10. **Pagination Support** - Handle large lists efficiently
+9. **Progress Tracking** - User feedback during long-running operations
+10. **Pagination Support** - Handle large lists efficiently (COMPLETED)
 
 ## InspectorClient Extensions Needed
 
@@ -598,11 +596,11 @@ Based on this analysis, `InspectorClient` needs the following additions:
    - ✅ Return `nextCursor` from list methods - **COMPLETED**
    - ✅ Pagination helper methods (`listAll*()`) - **COMPLETED**
 
-9. **Tool Call Progress Tracking**:
-   - ❌ Progress token generation - Needs to be added
-   - ❌ `onprogress` callback support in `callTool()` - Needs to be added
-   - ❌ Progress notification handling - Needs to be added
-   - ❌ Timeout reset on progress - Needs to be added
+9. **Progress Tracking**:
+   - ✅ Progress notification handling - Implemented (dispatches `progressNotification` events)
+   - ✅ Progress token support - Implemented (accepts `progressToken` in metadata)
+   - ✅ Event-based API - Clients listen for `progressNotification` events (no callbacks needed)
+   - ❌ Timeout reset on progress - Not yet implemented (`resetTimeoutOnProgress` option)
 
 ## Notes
 
@@ -615,7 +613,7 @@ Based on this analysis, `InspectorClient` needs the following additions:
 - **ListChanged Notifications**: Web client handles `listChanged` notifications for tools, resources, and prompts, automatically refreshing lists when notifications are received. `InspectorClient` now fully supports these notifications with automatic list refresh, cache preservation/cleanup, and configurable handlers. TUI automatically benefits from this functionality but doesn't have UI to display notification events.
 - **Roots**: `InspectorClient` has full roots support with `getRoots()` and `setRoots()` methods, handler for `roots/list` requests, and notification support. Web client has a `RootsTab` UI for managing roots. TUI does not yet have UI for managing roots.
 - **Pagination**: Web client supports cursor-based pagination for all list methods (tools, resources, resource templates, prompts), tracking `nextCursor` state and making multiple requests to fetch all items. `InspectorClient` now fully supports pagination with cursor parameters in all list methods and `listAll*()` helper methods that automatically fetch all pages. TUI inherits this pagination support from `InspectorClient`.
-- **Progress Tracking**: Web client supports progress tracking for tool calls by generating `progressToken` values, setting up `onprogress` callbacks, and displaying progress notifications. `InspectorClient` does not yet support progress tracking. TUI does not support progress tracking.
+- **Progress Tracking**: Web client supports progress tracking for long-running operations by generating `progressToken` values, setting up `onprogress` callbacks, and displaying progress notifications. `InspectorClient` now supports progress notification handling (dispatches `progressNotification` events) and accepts `progressToken` in metadata. Clients can generate their own tokens and listen for events. The only missing feature is timeout reset on progress (`resetTimeoutOnProgress` option). TUI does not yet have UI support for displaying progress notifications.
 
 ## Related Documentation
 
