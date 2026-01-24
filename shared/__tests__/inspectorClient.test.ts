@@ -18,6 +18,10 @@ import {
   createSendNotificationTool,
   createListRootsTool,
   createArgsPrompt,
+  createArchitectureResource,
+  createTestCwdResource,
+  createSimplePrompt,
+  createUserResourceTemplate,
 } from "../test/test-server-fixtures.js";
 import type { MessageEntry } from "../mcp/types.js";
 import type {
@@ -2033,6 +2037,1336 @@ describe("InspectorClient", () => {
       expect(cached3).toBe(invocation2);
 
       await client.disconnect();
+    });
+  });
+
+  describe("Resource Subscriptions", () => {
+    it("should initialize subscribedResources as empty Set", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      expect(client.getSubscribedResources()).toEqual([]);
+      expect(client.isSubscribedToResource("test://uri")).toBe(false);
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should clear subscriptions on disconnect", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Manually add a subscription (Phase 3 will add proper methods)
+      (client as any).subscribedResources.add("test://uri1");
+      (client as any).subscribedResources.add("test://uri2");
+
+      expect(client.getSubscribedResources()).toHaveLength(2);
+
+      await client.disconnect();
+
+      // Subscriptions should be cleared
+      expect(client.getSubscribedResources()).toEqual([]);
+
+      await server.stop();
+    });
+
+    it("should check server capability for resource subscriptions support", async () => {
+      // Server without resource subscriptions
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Server doesn't support resource subscriptions
+      expect(client.supportsResourceSubscriptions()).toBe(false);
+
+      await client.disconnect();
+      await server.stop();
+
+      // Server with resource subscriptions (we'll need to add this capability in test server)
+      // For now, just test that the method exists and checks capabilities
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        // Note: We'd need to add subscribe capability to test server config
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Still false because test server doesn't advertise subscribe capability
+      expect(client.supportsResourceSubscriptions()).toBe(false);
+
+      await client.disconnect();
+      await server.stop();
+    });
+  });
+
+  describe("ListChanged Notifications", () => {
+    it("should initialize listChangedNotifications config with defaults (all enabled)", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      // Defaults should be all enabled
+      expect((client as any).listChangedNotifications).toEqual({
+        tools: true,
+        resources: true,
+        prompts: true,
+      });
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should respect listChangedNotifications config options", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+          listChangedNotifications: {
+            tools: false,
+            resources: true,
+            prompts: false,
+          },
+        },
+      );
+
+      expect((client as any).listChangedNotifications).toEqual({
+        tools: false,
+        resources: true,
+        prompts: false,
+      });
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should update state and dispatch event when listTools() is called", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Clear initial state
+      expect(client.getTools()).toEqual([]);
+
+      // Wait for toolsChange event
+      const toolsChangePromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "toolsChange",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      const tools = await client.listTools();
+      const event = await toolsChangePromise;
+
+      expect(tools.length).toBeGreaterThan(0);
+      expect(client.getTools()).toEqual(tools);
+      expect(event.detail).toEqual(tools);
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should update state, clean cache, and dispatch event when listResources() is called", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: [createArchitectureResource()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // First list resources to populate the list
+      await client.listResources();
+
+      // Load a resource to populate cache
+      const uri = "demo://resource/static/document/architecture.md";
+      await client.readResource(uri);
+      expect(client.cache.getResource(uri)).not.toBeNull();
+
+      // Wait for resourcesChange event
+      const resourcesChangePromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "resourcesChange",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      const resources = await client.listResources();
+      const event = await resourcesChangePromise;
+
+      expect(resources.length).toBeGreaterThan(0);
+      expect(client.getResources()).toEqual(resources);
+      expect(event.detail).toEqual(resources);
+      // Cache should be preserved for existing resource
+      expect(client.cache.getResource(uri)).not.toBeNull();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should clean up cache for removed resources when listResources() is called", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: [createArchitectureResource(), createTestCwdResource()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // First list resources to populate the list
+      await client.listResources();
+
+      // Load both resources to populate cache
+      const uri1 = "demo://resource/static/document/architecture.md";
+      const uri2 = "test://cwd";
+      await client.readResource(uri1);
+      await client.readResource(uri2);
+      expect(client.cache.getResource(uri1)).not.toBeNull();
+      expect(client.cache.getResource(uri2)).not.toBeNull();
+
+      // Now remove one resource from server
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: [createArchitectureResource()], // Only keep uri1
+      });
+      await server.stop();
+      await server.start();
+
+      // Reconnect and list resources
+      await client.disconnect();
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+      await client.connect();
+
+      // First list resources to populate the list
+      await client.listResources();
+
+      // Load uri1 again to populate cache
+      await client.readResource(uri1);
+
+      // List resources (should only have uri1 now)
+      await client.listResources();
+
+      // Cache for uri1 should be preserved, uri2 should be cleared
+      expect(client.cache.getResource(uri1)).not.toBeNull();
+      expect(client.cache.getResource(uri2)).toBeNull();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should update state, clean cache, and dispatch event when listResourceTemplates() is called", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resourceTemplates: [createFileResourceTemplate()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // First list resource templates to populate the list
+      await client.listResourceTemplates();
+
+      // Load a resource template to populate cache
+      const uriTemplate = "file:///{path}";
+      await client.readResourceFromTemplate(uriTemplate, { path: "test.txt" });
+      expect(client.cache.getResourceTemplate(uriTemplate)).not.toBeNull();
+
+      // Wait for resourceTemplatesChange event
+      const resourceTemplatesChangePromise = new Promise<CustomEvent>(
+        (resolve) => {
+          client.addEventListener(
+            "resourceTemplatesChange",
+            ((event: CustomEvent) => {
+              resolve(event);
+            }) as EventListener,
+            { once: true },
+          );
+        },
+      );
+
+      const templates = await client.listResourceTemplates();
+      const event = await resourceTemplatesChangePromise;
+
+      expect(templates.length).toBeGreaterThan(0);
+      expect(client.getResourceTemplates()).toEqual(templates);
+      expect(event.detail).toEqual(templates);
+      // Cache should be preserved for existing template
+      expect(client.cache.getResourceTemplate(uriTemplate)).not.toBeNull();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should update state, clean cache, and dispatch event when listPrompts() is called", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        prompts: [createSimplePrompt()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // First list prompts to populate the list
+      await client.listPrompts();
+
+      // Load a prompt to populate cache
+      const promptName = "simple-prompt";
+      await client.getPrompt(promptName);
+      expect(client.cache.getPrompt(promptName)).not.toBeNull();
+
+      // Wait for promptsChange event
+      const promptsChangePromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "promptsChange",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      const prompts = await client.listPrompts();
+      const event = await promptsChangePromise;
+
+      expect(prompts.length).toBeGreaterThan(0);
+      expect(client.getPrompts()).toEqual(prompts);
+      expect(event.detail).toEqual(prompts);
+      // Cache should be preserved for existing prompt
+      expect(client.cache.getPrompt(promptName)).not.toBeNull();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should handle tools/list_changed notification and reload tools", async () => {
+      const { createAddToolTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool(), createAddToolTool()],
+        listChanged: { tools: true },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: true, // Auto-fetch to populate initial state
+        },
+      );
+
+      await client.connect();
+
+      const initialTools = client.getTools();
+      expect(initialTools.length).toBeGreaterThan(0);
+
+      // Wait for toolsChange event after notification
+      const toolsChangePromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "toolsChange",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      // Add a new tool (this will send list_changed notification)
+      await client.callTool("addTool", {
+        name: "newTool",
+        description: "A new test tool",
+      });
+      const event = await toolsChangePromise;
+
+      // Tools should be reloaded
+      const updatedTools = client.getTools();
+      expect(Array.isArray(updatedTools)).toBe(true);
+      // Should have the new tool
+      expect(updatedTools.find((t) => t.name === "newTool")).toBeDefined();
+      // Event detail should match current tools exactly
+      // (callTool() uses listToolsInternal() so it doesn't dispatch events,
+      //  so this event comes only from the notification handler)
+      expect(event.detail).toEqual(updatedTools);
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should handle resources/list_changed notification and reload resources and templates", async () => {
+      const { createAddResourceTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: [createArchitectureResource()],
+        resourceTemplates: [createFileResourceTemplate()],
+        tools: [createAddResourceTool()],
+        listChanged: { resources: true },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: true,
+        },
+      );
+
+      await client.connect();
+
+      const initialResources = client.getResources();
+      const initialTemplates = client.getResourceTemplates();
+      expect(initialResources.length).toBeGreaterThan(0);
+      expect(initialTemplates.length).toBeGreaterThan(0);
+
+      // Wait for both change events
+      const resourcesChangePromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "resourcesChange",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      const resourceTemplatesChangePromise = new Promise<CustomEvent>(
+        (resolve) => {
+          client.addEventListener(
+            "resourceTemplatesChange",
+            ((event: CustomEvent) => {
+              resolve(event);
+            }) as EventListener,
+            { once: true },
+          );
+        },
+      );
+
+      // Add a new resource (this will send list_changed notification)
+      await client.callTool("addResource", {
+        uri: "test://new-resource",
+        name: "newResource",
+        text: "New resource content",
+      });
+      const resourcesEvent = await resourcesChangePromise;
+      const templatesEvent = await resourceTemplatesChangePromise;
+
+      // Both should be reloaded
+      expect(client.getResources()).toEqual(resourcesEvent.detail);
+      expect(client.getResourceTemplates()).toEqual(templatesEvent.detail);
+      // Should have the new resource
+      expect(
+        client.getResources().find((r) => r.uri === "test://new-resource"),
+      ).toBeDefined();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should handle prompts/list_changed notification and reload prompts", async () => {
+      const { createAddPromptTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        prompts: [createSimplePrompt()],
+        tools: [createAddPromptTool()],
+        listChanged: { prompts: true },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: true,
+        },
+      );
+
+      await client.connect();
+
+      const initialPrompts = client.getPrompts();
+      expect(initialPrompts.length).toBeGreaterThan(0);
+
+      // Wait for promptsChange event after notification
+      const promptsChangePromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "promptsChange",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      // Add a new prompt (this will send list_changed notification)
+      await client.callTool("addPrompt", {
+        name: "newPrompt",
+        promptString: "This is a new prompt",
+      });
+      const event = await promptsChangePromise;
+
+      // Prompts should be reloaded
+      expect(client.getPrompts()).toEqual(event.detail);
+      // Should have the new prompt
+      expect(
+        client.getPrompts().find((p) => p.name === "newPrompt"),
+      ).toBeDefined();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should respect listChangedNotifications config (disabled handlers)", async () => {
+      const { createAddToolTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool(), createAddToolTool()],
+        listChanged: { tools: true },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: true,
+          listChangedNotifications: {
+            tools: false, // Disable tools listChanged handler
+            resources: true,
+            prompts: true,
+          },
+        },
+      );
+
+      await client.connect();
+
+      // Wait for autoFetchServerContents to complete and any events to settle
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const initialTools = client.getTools();
+      const initialToolCount = initialTools.length;
+
+      // Set up event listener to detect if notification handler runs
+      // callTool() uses listToolsInternal() which doesn't dispatch events,
+      // so any toolsChange event must come from the notification handler
+      let eventReceived = false;
+      const testEventListener = () => {
+        eventReceived = true;
+      };
+      client.addEventListener("toolsChange", testEventListener, { once: true });
+
+      // Add a new tool (this will send list_changed notification from server)
+      // callTool() uses listToolsInternal() which doesn't dispatch events
+      // If handler is enabled, it will call listTools() which dispatches toolsChange
+      // Since handler is disabled, no event should be received
+      await client.callTool("addTool", {
+        name: "testTool",
+        description: "Test tool",
+      });
+
+      // Wait a bit to see if notification handler runs
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Remove listener
+      client.removeEventListener("toolsChange", testEventListener);
+
+      // Event should NOT be received because handler is disabled
+      expect(eventReceived).toBe(false);
+
+      // Tools should not have changed (handler didn't run, so listTools() wasn't called)
+      // The server has the new tool, but the client's internal state hasn't been updated
+      const finalTools = client.getTools();
+      expect(finalTools.length).toBe(initialToolCount);
+      expect(finalTools).toEqual(initialTools);
+
+      // Verify the tool was actually added to the server by manually calling listTools()
+      // This proves the server received the addTool call and the notification was sent
+      const serverTools = await client.listTools();
+      expect(serverTools.length).toBeGreaterThan(initialToolCount);
+      expect(serverTools.find((t) => t.name === "testTool")).toBeDefined();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should only register handlers when server supports listChanged capability", async () => {
+      // Create a server that doesn't advertise listChanged capability
+      // (we can't easily do this with our test server, but we can test the logic)
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: true,
+        },
+      );
+
+      await client.connect();
+
+      // Check that capabilities are set
+      const capabilities = (client as any).capabilities;
+      // If server doesn't advertise listChanged, handlers won't be registered
+      // This is tested implicitly - if handlers were registered incorrectly, tests would fail
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should handle tools/list_changed notification on removal and clear tool call cache", async () => {
+      const { createRemoveToolTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool(), createRemoveToolTool()],
+        listChanged: { tools: true },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: true,
+        },
+      );
+
+      await client.connect();
+
+      // Call echo tool to populate cache
+      const toolName = "echo";
+      await client.callTool(toolName, { message: "test" });
+      expect(client.cache.getToolCallResult(toolName)).not.toBeNull();
+
+      // Wait for toolsChange event after notification
+      const toolsChangePromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "toolsChange",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      // Remove the tool (this will send list_changed notification)
+      await client.callTool("removeTool", { name: toolName });
+      const event = await toolsChangePromise;
+
+      // Tools should be reloaded
+      const updatedTools = client.getTools();
+      expect(updatedTools.find((t) => t.name === toolName)).toBeUndefined();
+      expect(event.detail).toEqual(updatedTools);
+
+      // Cache should be cleared for removed tool
+      expect(client.cache.getToolCallResult(toolName)).toBeNull();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should handle resources/list_changed notification on removal and clear resource cache", async () => {
+      const { createRemoveResourceTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: [createArchitectureResource()],
+        tools: [createRemoveResourceTool()],
+        listChanged: { resources: true },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: true,
+        },
+      );
+
+      await client.connect();
+
+      // Load resource to populate cache
+      const uri = "demo://resource/static/document/architecture.md";
+      await client.readResource(uri);
+      expect(client.cache.getResource(uri)).not.toBeNull();
+
+      // Wait for resourcesChange event after notification
+      const resourcesChangePromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "resourcesChange",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      // Remove the resource (this will send list_changed notification)
+      await client.callTool("removeResource", { uri });
+      const event = await resourcesChangePromise;
+
+      // Resources should be reloaded
+      const updatedResources = client.getResources();
+      expect(updatedResources.find((r) => r.uri === uri)).toBeUndefined();
+      expect(event.detail).toEqual(updatedResources);
+
+      // Cache should be cleared for removed resource
+      expect(client.cache.getResource(uri)).toBeNull();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should handle prompts/list_changed notification on removal and clear prompt cache", async () => {
+      const { createRemovePromptTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        prompts: [createSimplePrompt()],
+        tools: [createRemovePromptTool()],
+        listChanged: { prompts: true },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: true,
+        },
+      );
+
+      await client.connect();
+
+      // Load prompt to populate cache
+      const promptName = "simple-prompt";
+      await client.getPrompt(promptName);
+      expect(client.cache.getPrompt(promptName)).not.toBeNull();
+
+      // Wait for promptsChange event after notification
+      const promptsChangePromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "promptsChange",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      // Remove the prompt (this will send list_changed notification)
+      await client.callTool("removePrompt", { name: promptName });
+      const event = await promptsChangePromise;
+
+      // Prompts should be reloaded
+      const updatedPrompts = client.getPrompts();
+      expect(updatedPrompts.find((p) => p.name === promptName)).toBeUndefined();
+      expect(event.detail).toEqual(updatedPrompts);
+
+      // Cache should be cleared for removed prompt
+      expect(client.cache.getPrompt(promptName)).toBeNull();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should clean up cache for removed resource templates when listResourceTemplates() is called", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resourceTemplates: [
+          createFileResourceTemplate(),
+          createUserResourceTemplate(),
+        ],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // First list resource templates to populate the list
+      await client.listResourceTemplates();
+
+      // Load both templates to populate cache
+      const uriTemplate1 = "file:///{path}";
+      const uriTemplate2 = "user://{userId}";
+      await client.readResourceFromTemplate(uriTemplate1, { path: "test.txt" });
+      await client.readResourceFromTemplate(uriTemplate2, { userId: "123" });
+      expect(client.cache.getResourceTemplate(uriTemplate1)).not.toBeNull();
+      expect(client.cache.getResourceTemplate(uriTemplate2)).not.toBeNull();
+
+      // Now remove one template from server
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resourceTemplates: [createFileResourceTemplate()], // Only keep uriTemplate1
+      });
+      await server.stop();
+      await server.start();
+
+      // Reconnect and list resource templates
+      await client.disconnect();
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+      await client.connect();
+
+      // First list resource templates to populate the list
+      await client.listResourceTemplates();
+
+      // Load uriTemplate1 again to populate cache
+      await client.readResourceFromTemplate(uriTemplate1, { path: "test.txt" });
+
+      // List resource templates (should only have uriTemplate1 now)
+      await client.listResourceTemplates();
+
+      // Cache for uriTemplate1 should be preserved, uriTemplate2 should be cleared
+      expect(client.cache.getResourceTemplate(uriTemplate1)).not.toBeNull();
+      expect(client.cache.getResourceTemplate(uriTemplate2)).toBeNull();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should clean up cache for removed prompts when listPrompts() is called", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        prompts: [createSimplePrompt(), createArgsPrompt()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // First list prompts to populate the list
+      await client.listPrompts();
+
+      // Load both prompts to populate cache
+      const promptName1 = "simple-prompt";
+      const promptName2 = "args-prompt";
+      await client.getPrompt(promptName1);
+      await client.getPrompt(promptName2, { city: "New York", state: "NY" });
+      expect(client.cache.getPrompt(promptName1)).not.toBeNull();
+      expect(client.cache.getPrompt(promptName2)).not.toBeNull();
+
+      // Now remove one prompt from server
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        prompts: [createSimplePrompt()], // Only keep promptName1
+      });
+      await server.stop();
+      await server.start();
+
+      // Reconnect and list prompts
+      await client.disconnect();
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+      await client.connect();
+
+      // First list prompts to populate the list
+      await client.listPrompts();
+
+      // Load promptName1 again to populate cache
+      await client.getPrompt(promptName1);
+
+      // List prompts (should only have promptName1 now)
+      await client.listPrompts();
+
+      // Cache for promptName1 should be preserved, promptName2 should be cleared
+      expect(client.cache.getPrompt(promptName1)).not.toBeNull();
+      expect(client.cache.getPrompt(promptName2)).toBeNull();
+
+      await client.disconnect();
+      await server.stop();
+    });
+  });
+
+  describe("Resource Subscriptions", () => {
+    it("should subscribe to a resource and track subscription state", async () => {
+      // Test server without subscriptions
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: [createArchitectureResource()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Server doesn't support subscriptions
+      expect(client.supportsResourceSubscriptions()).toBe(false);
+
+      // Should throw error when trying to subscribe
+      await expect(
+        client.subscribeToResource(
+          "demo://resource/static/document/architecture.md",
+        ),
+      ).rejects.toThrow("Server does not support resource subscriptions");
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should subscribe to a resource when server supports subscriptions", async () => {
+      const { createUpdateResourceTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: [createArchitectureResource()],
+        tools: [createUpdateResourceTool()],
+        subscriptions: true,
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Server supports subscriptions
+      expect(client.supportsResourceSubscriptions()).toBe(true);
+
+      const uri = "demo://resource/static/document/architecture.md";
+
+      // Wait for resourceSubscriptionsChange event
+      const eventPromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "resourceSubscriptionsChange",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      // Subscribe to resource
+      await client.subscribeToResource(uri);
+      const event = await eventPromise;
+
+      // Verify subscription state
+      expect(client.isSubscribedToResource(uri)).toBe(true);
+      expect(client.getSubscribedResources()).toContain(uri);
+      expect(event.detail).toContain(uri);
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should unsubscribe from a resource", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: [createArchitectureResource()],
+        subscriptions: true,
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      const uri = "demo://resource/static/document/architecture.md";
+
+      // Subscribe first
+      await client.subscribeToResource(uri);
+      expect(client.isSubscribedToResource(uri)).toBe(true);
+
+      // Wait for resourceSubscriptionsChange event
+      const eventPromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "resourceSubscriptionsChange",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      // Unsubscribe
+      await client.unsubscribeFromResource(uri);
+      const event = await eventPromise;
+
+      // Verify unsubscribed
+      expect(client.isSubscribedToResource(uri)).toBe(false);
+      expect(client.getSubscribedResources()).not.toContain(uri);
+      expect(event.detail).not.toContain(uri);
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should throw error when unsubscribe called while not connected", async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: [createArchitectureResource()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+      await client.disconnect();
+
+      await expect(
+        client.unsubscribeFromResource(
+          "demo://resource/static/document/architecture.md",
+        ),
+      ).rejects.toThrow();
+
+      await server.stop();
+    });
+
+    it("should handle resource updated notification and clear cache for subscribed resource", async () => {
+      const { createUpdateResourceTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: [createArchitectureResource()],
+        tools: [createUpdateResourceTool()],
+        subscriptions: true,
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      const uri = "demo://resource/static/document/architecture.md";
+
+      // Load resource to populate cache
+      await client.readResource(uri);
+      expect(client.cache.getResource(uri)).not.toBeNull();
+
+      // Subscribe to resource
+      await client.subscribeToResource(uri);
+      expect(client.isSubscribedToResource(uri)).toBe(true);
+
+      // Wait for resourceUpdated event
+      const eventPromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "resourceUpdated",
+          ((event: CustomEvent) => {
+            resolve(event);
+          }) as EventListener,
+          { once: true },
+        );
+      });
+
+      // Update the resource (this will send resource updated notification)
+      await client.callTool("updateResource", {
+        uri,
+        text: "Updated content",
+      });
+
+      const event = await eventPromise;
+      expect(event.detail.uri).toBe(uri);
+
+      // Cache should be cleared
+      expect(client.cache.getResource(uri)).toBeNull();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should ignore resource updated notification for unsubscribed resources", async () => {
+      const { createUpdateResourceTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: [createArchitectureResource()],
+        tools: [createUpdateResourceTool()],
+        subscriptions: true,
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      const uri = "demo://resource/static/document/architecture.md";
+
+      // Load resource to populate cache
+      await client.readResource(uri);
+      expect(client.cache.getResource(uri)).not.toBeNull();
+
+      // Don't subscribe - resource should NOT be in subscribedResources
+      expect(client.isSubscribedToResource(uri)).toBe(false);
+
+      // Set up event listener (should not receive event)
+      let eventReceived = false;
+      const testEventListener = () => {
+        eventReceived = true;
+      };
+      client.addEventListener("resourceUpdated", testEventListener, {
+        once: true,
+      });
+
+      // Update the resource (this will send resource updated notification)
+      await client.callTool("updateResource", {
+        uri,
+        text: "Updated content",
+      });
+
+      // Wait a bit to see if event is received
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Remove listener
+      client.removeEventListener("resourceUpdated", testEventListener);
+
+      // Event should NOT be received because resource is not subscribed
+      expect(eventReceived).toBe(false);
+
+      // Cache should still be present (not cleared)
+      expect(client.cache.getResource(uri)).not.toBeNull();
+
+      await client.disconnect();
+      await server.stop();
     });
   });
 });

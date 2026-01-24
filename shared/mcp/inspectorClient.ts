@@ -37,8 +37,6 @@ import type {
   CreateMessageResult,
   ElicitRequest,
   ElicitResult,
-  ReadResourceResult,
-  GetPromptResult,
   CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -46,6 +44,10 @@ import {
   ElicitRequestSchema,
   ListRootsRequestSchema,
   RootsListChangedNotificationSchema,
+  ToolListChangedNotificationSchema,
+  ResourceListChangedNotificationSchema,
+  PromptListChangedNotificationSchema,
+  ResourceUpdatedNotificationSchema,
   type Root,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -111,6 +113,16 @@ export interface InspectorClientOptions {
    * advertise roots capability and handle roots/list requests from the server.
    */
   roots?: Root[];
+
+  /**
+   * Whether to enable listChanged notification handlers (default: true)
+   * If enabled, InspectorClient will automatically reload lists when notifications are received
+   */
+  listChangedNotifications?: {
+    tools?: boolean; // default: true
+    resources?: boolean; // default: true
+    prompts?: boolean; // default: true
+  };
 }
 
 /**
@@ -252,6 +264,14 @@ export class InspectorClient extends EventTarget {
   // Content cache
   private cacheInternal: ContentCache;
   public readonly cache: ReadOnlyContentCache;
+  // ListChanged notification configuration
+  private listChangedNotifications: {
+    tools: boolean;
+    resources: boolean;
+    prompts: boolean;
+  };
+  // Resource subscriptions
+  private subscribedResources: Set<string> = new Set();
 
   constructor(
     private transportConfig: MCPServerConfig,
@@ -270,6 +290,12 @@ export class InspectorClient extends EventTarget {
     this.elicit = options.elicit ?? true;
     // Only set roots if explicitly provided (even if empty array) - this enables roots capability
     this.roots = options.roots;
+    // Initialize listChangedNotifications config (default: all enabled)
+    this.listChangedNotifications = {
+      tools: options.listChangedNotifications?.tools ?? true,
+      resources: options.listChangedNotifications?.resources ?? true,
+      prompts: options.listChangedNotifications?.prompts ?? true,
+    };
 
     // Set up message tracking callbacks
     const messageTracking: MessageTrackingCallbacks = {
@@ -485,6 +511,74 @@ export class InspectorClient extends EventTarget {
           },
         );
       }
+
+      // Set up listChanged notification handlers based on config
+      if (this.client) {
+        // Tools listChanged handler
+        // Only register if both client config and server capability are enabled
+        if (
+          this.listChangedNotifications.tools &&
+          this.capabilities?.tools?.listChanged
+        ) {
+          this.client.setNotificationHandler(
+            ToolListChangedNotificationSchema,
+            async () => {
+              await this.listTools();
+            },
+          );
+        }
+        // Note: If handler should not be registered, we don't set it
+        // The SDK client will ignore notifications for which no handler is registered
+
+        // Resources listChanged handler (reloads both resources and resource templates)
+        if (
+          this.listChangedNotifications.resources &&
+          this.capabilities?.resources?.listChanged
+        ) {
+          this.client.setNotificationHandler(
+            ResourceListChangedNotificationSchema,
+            async () => {
+              // Resource templates are part of the resources capability
+              await this.listResources();
+              await this.listResourceTemplates();
+            },
+          );
+        }
+
+        // Prompts listChanged handler
+        if (
+          this.listChangedNotifications.prompts &&
+          this.capabilities?.prompts?.listChanged
+        ) {
+          this.client.setNotificationHandler(
+            PromptListChangedNotificationSchema,
+            async () => {
+              await this.listPrompts();
+            },
+          );
+        }
+
+        // Resource updated notification handler (only if server supports subscriptions)
+        if (this.capabilities?.resources?.subscribe === true) {
+          this.client.setNotificationHandler(
+            ResourceUpdatedNotificationSchema,
+            async (notification) => {
+              const uri = notification.params.uri;
+              // Only process if we're subscribed to this resource
+              if (this.subscribedResources.has(uri)) {
+                // Clear cache for this resource (handles both regular resources and resource templates)
+                this.cacheInternal.clearResourceAndResourceTemplate(uri);
+                // Dispatch event to notify UI
+                this.dispatchEvent(
+                  new CustomEvent("resourceUpdated", {
+                    detail: { uri },
+                  }),
+                );
+              }
+            },
+          );
+        }
+      }
     } catch (error) {
       this.status = "error";
       this.dispatchEvent(
@@ -526,6 +620,8 @@ export class InspectorClient extends EventTarget {
     this.pendingElicitations = [];
     // Clear all cached content on disconnect
     this.cacheInternal.clearAll();
+    // Clear resource subscriptions on disconnect
+    this.subscribedResources.clear();
     this.capabilities = undefined;
     this.serverInfo = undefined;
     this.instructions = undefined;
@@ -731,6 +827,30 @@ export class InspectorClient extends EventTarget {
   }
 
   /**
+   * Internal method to list tools without updating state or dispatching events
+   * Used by callTool() to find tools without triggering state changes
+   * @param metadata Optional metadata to include in the request
+   * @returns Array of tools
+   */
+  private async listToolsInternal(
+    metadata?: Record<string, string>,
+  ): Promise<Tool[]> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      const params =
+        metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
+      const response = await this.client.listTools(params);
+      return response.tools || [];
+    } catch (error) {
+      throw new Error(
+        `Failed to list tools: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
    * List available tools
    * @param metadata Optional metadata to include in the request
    * @returns Array of tools
@@ -740,10 +860,23 @@ export class InspectorClient extends EventTarget {
       throw new Error("Client is not connected");
     }
     try {
-      const params =
-        metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
-      const response = await this.client.listTools(params);
-      return response.tools || [];
+      const newTools = await this.listToolsInternal(metadata);
+      // Find removed tool names by comparing with current tools
+      const currentNames = new Set(this.tools.map((t) => t.name));
+      const newNames = new Set(newTools.map((t) => t.name));
+      // Clear cache for removed tools
+      for (const name of currentNames) {
+        if (!newNames.has(name)) {
+          this.cacheInternal.clearToolCallResult(name);
+        }
+      }
+      // Update internal state
+      this.tools = newTools;
+      // Dispatch change event
+      this.dispatchEvent(
+        new CustomEvent("toolsChange", { detail: this.tools }),
+      );
+      return newTools;
     } catch (error) {
       throw new Error(
         `Failed to list tools: ${error instanceof Error ? error.message : String(error)}`,
@@ -769,7 +902,7 @@ export class InspectorClient extends EventTarget {
       throw new Error("Client is not connected");
     }
     try {
-      const tools = await this.listTools(generalMetadata);
+      const tools = await this.listToolsInternal(generalMetadata);
       const tool = tools.find((t) => t.name === name);
 
       let convertedArgs: Record<string, JsonValue> = args;
@@ -898,7 +1031,24 @@ export class InspectorClient extends EventTarget {
       const params =
         metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
       const response = await this.client.listResources(params);
-      return response.resources || [];
+      const newResources = response.resources || [];
+      // Find removed URIs by comparing with current resources
+      const currentUris = new Set(this.resources.map((r) => r.uri));
+      const newUris = new Set(newResources.map((r) => r.uri));
+      // Clear cache for removed resources
+      for (const uri of currentUris) {
+        if (!newUris.has(uri)) {
+          this.cacheInternal.clearResource(uri);
+        }
+      }
+      // Update internal state
+      this.resources = newResources;
+      // Dispatch change event
+      this.dispatchEvent(
+        new CustomEvent("resourcesChange", { detail: this.resources }),
+      );
+      // Note: Cached content for existing resources is automatically preserved
+      return newResources;
     } catch (error) {
       throw new Error(
         `Failed to list resources: ${error instanceof Error ? error.message : String(error)}`,
@@ -1045,7 +1195,28 @@ export class InspectorClient extends EventTarget {
       const params =
         metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
       const response = await this.client.listResourceTemplates(params);
-      return response.resourceTemplates || [];
+      const newTemplates = response.resourceTemplates || [];
+      // Find removed uriTemplates by comparing with current templates
+      const currentUriTemplates = new Set(
+        this.resourceTemplates.map((t) => t.uriTemplate),
+      );
+      const newUriTemplates = new Set(newTemplates.map((t) => t.uriTemplate));
+      // Clear cache for removed templates
+      for (const uriTemplate of currentUriTemplates) {
+        if (!newUriTemplates.has(uriTemplate)) {
+          this.cacheInternal.clearResourceTemplate(uriTemplate);
+        }
+      }
+      // Update internal state
+      this.resourceTemplates = newTemplates;
+      // Dispatch change event
+      this.dispatchEvent(
+        new CustomEvent("resourceTemplatesChange", {
+          detail: this.resourceTemplates,
+        }),
+      );
+      // Note: Cached content for existing templates is automatically preserved
+      return newTemplates;
     } catch (error) {
       throw new Error(
         `Failed to list resource templates: ${error instanceof Error ? error.message : String(error)}`,
@@ -1066,7 +1237,24 @@ export class InspectorClient extends EventTarget {
       const params =
         metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
       const response = await this.client.listPrompts(params);
-      return response.prompts || [];
+      const newPrompts = response.prompts || [];
+      // Find removed prompt names by comparing with current prompts
+      const currentNames = new Set(this.prompts.map((p) => p.name));
+      const newNames = new Set(newPrompts.map((p) => p.name));
+      // Clear cache for removed prompts
+      for (const name of currentNames) {
+        if (!newNames.has(name)) {
+          this.cacheInternal.clearPrompt(name);
+        }
+      }
+      // Update internal state
+      this.prompts = newPrompts;
+      // Dispatch change event
+      this.dispatchEvent(
+        new CustomEvent("promptsChange", { detail: this.prompts }),
+      );
+      // Note: Cached content for existing prompts is automatically preserved
+      return newPrompts;
     } catch (error) {
       throw new Error(
         `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`,
@@ -1246,12 +1434,10 @@ export class InspectorClient extends EventTarget {
 
     try {
       // Query resources, prompts, and tools based on capabilities
+      // The list*() methods now handle state updates and event dispatching internally
       if (this.capabilities?.resources) {
         try {
-          this.resources = await this.listResources();
-          this.dispatchEvent(
-            new CustomEvent("resourcesChange", { detail: this.resources }),
-          );
+          await this.listResources();
         } catch (err) {
           // Ignore errors, just leave empty
           this.resources = [];
@@ -1262,12 +1448,7 @@ export class InspectorClient extends EventTarget {
 
         // Also fetch resource templates
         try {
-          this.resourceTemplates = await this.listResourceTemplates();
-          this.dispatchEvent(
-            new CustomEvent("resourceTemplatesChange", {
-              detail: this.resourceTemplates,
-            }),
-          );
+          await this.listResourceTemplates();
         } catch (err) {
           // Ignore errors, just leave empty
           this.resourceTemplates = [];
@@ -1281,10 +1462,7 @@ export class InspectorClient extends EventTarget {
 
       if (this.capabilities?.prompts) {
         try {
-          this.prompts = await this.listPrompts();
-          this.dispatchEvent(
-            new CustomEvent("promptsChange", { detail: this.prompts }),
-          );
+          await this.listPrompts();
         } catch (err) {
           // Ignore errors, just leave empty
           this.prompts = [];
@@ -1296,10 +1474,7 @@ export class InspectorClient extends EventTarget {
 
       if (this.capabilities?.tools) {
         try {
-          this.tools = await this.listTools();
-          this.dispatchEvent(
-            new CustomEvent("toolsChange", { detail: this.tools }),
-          );
+          await this.listTools();
         } catch (err) {
           // Ignore errors, just leave empty
           this.tools = [];
@@ -1400,6 +1575,78 @@ export class InspectorClient extends EventTarget {
     } catch (error) {
       // Log but don't throw - roots were updated locally even if notification failed
       console.error("Failed to send roots/list_changed notification:", error);
+    }
+  }
+
+  /**
+   * Get list of currently subscribed resource URIs
+   */
+  getSubscribedResources(): string[] {
+    return Array.from(this.subscribedResources);
+  }
+
+  /**
+   * Check if a resource is currently subscribed
+   */
+  isSubscribedToResource(uri: string): boolean {
+    return this.subscribedResources.has(uri);
+  }
+
+  /**
+   * Check if the server supports resource subscriptions
+   */
+  supportsResourceSubscriptions(): boolean {
+    return this.capabilities?.resources?.subscribe === true;
+  }
+
+  /**
+   * Subscribe to a resource to receive update notifications
+   * @param uri - The URI of the resource to subscribe to
+   * @throws Error if client is not connected or server doesn't support subscriptions
+   */
+  async subscribeToResource(uri: string): Promise<void> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    if (!this.supportsResourceSubscriptions()) {
+      throw new Error("Server does not support resource subscriptions");
+    }
+    try {
+      await this.client.subscribeResource({ uri });
+      this.subscribedResources.add(uri);
+      this.dispatchEvent(
+        new CustomEvent("resourceSubscriptionsChange", {
+          detail: Array.from(this.subscribedResources),
+        }),
+      );
+    } catch (error) {
+      throw new Error(
+        `Failed to subscribe to resource: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Unsubscribe from a resource
+   * @param uri - The URI of the resource to unsubscribe from
+   * @throws Error if client is not connected
+   */
+  async unsubscribeFromResource(uri: string): Promise<void> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      await this.client.unsubscribeResource({ uri });
+      this.subscribedResources.delete(uri);
+      this.dispatchEvent(
+        new CustomEvent("resourceSubscriptionsChange", {
+          detail: Array.from(this.subscribedResources),
+        }),
+      );
+    } catch (error) {
+      throw new Error(
+        `Failed to unsubscribe from resource: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 }

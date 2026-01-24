@@ -13,8 +13,6 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 import type {
   ServerConfig,
-  ToolDefinition,
-  PromptDefinition,
   ResourceDefinition,
 } from "./test-server-fixtures.js";
 import {
