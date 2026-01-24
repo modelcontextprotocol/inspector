@@ -1045,6 +1045,222 @@ describe("InspectorClient", () => {
     });
   });
 
+  describe("Progress Tracking", () => {
+    it("should dispatch progressNotification events when progress notifications are received", async () => {
+      const { createSendProgressTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createSendProgressTool()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+          progress: true,
+        },
+      );
+
+      await client.connect();
+
+      const progressEvents: any[] = [];
+      const progressListener = (event: Event) => {
+        const customEvent = event as CustomEvent;
+        progressEvents.push(customEvent.detail);
+      };
+      client.addEventListener("progressNotification", progressListener);
+
+      // Generate a progress token
+      const progressToken = 12345;
+
+      // Call the tool with progressToken in metadata
+      await client.callTool(
+        "sendProgress",
+        {
+          units: 3,
+          delayMs: 50,
+          total: 3,
+          message: "Test progress",
+        },
+        undefined, // generalMetadata
+        { progressToken: progressToken.toString() }, // toolSpecificMetadata
+      );
+
+      // Wait a bit for all progress notifications to be received
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Remove listener
+      client.removeEventListener("progressNotification", progressListener);
+
+      // Verify we received progress events
+      expect(progressEvents.length).toBe(3);
+
+      // Verify first progress event
+      expect(progressEvents[0]).toMatchObject({
+        progress: 1,
+        total: 3,
+        message: "Test progress (1/3)",
+        progressToken: progressToken.toString(),
+      });
+
+      // Verify second progress event
+      expect(progressEvents[1]).toMatchObject({
+        progress: 2,
+        total: 3,
+        message: "Test progress (2/3)",
+        progressToken: progressToken.toString(),
+      });
+
+      // Verify third progress event
+      expect(progressEvents[2]).toMatchObject({
+        progress: 3,
+        total: 3,
+        message: "Test progress (3/3)",
+        progressToken: progressToken.toString(),
+      });
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should not dispatch progressNotification events when progress is disabled", async () => {
+      const { createSendProgressTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createSendProgressTool()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+          progress: false, // Disable progress
+        },
+      );
+
+      await client.connect();
+
+      const progressEvents: any[] = [];
+      const progressListener = (event: Event) => {
+        const customEvent = event as CustomEvent;
+        progressEvents.push(customEvent.detail);
+      };
+      client.addEventListener("progressNotification", progressListener);
+
+      const progressToken = 12345;
+
+      // Call the tool with progressToken in metadata
+      await client.callTool(
+        "sendProgress",
+        {
+          units: 2,
+          delayMs: 50,
+        },
+        undefined, // generalMetadata
+        { progressToken: progressToken.toString() }, // toolSpecificMetadata
+      );
+
+      // Wait a bit for notifications
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Remove listener
+      client.removeEventListener("progressNotification", progressListener);
+
+      // Verify no progress events were received
+      expect(progressEvents.length).toBe(0);
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should handle progress notifications without total", async () => {
+      const { createSendProgressTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createSendProgressTool()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+          progress: true,
+        },
+      );
+
+      await client.connect();
+
+      const progressEvents: any[] = [];
+      const progressListener = (event: Event) => {
+        const customEvent = event as CustomEvent;
+        progressEvents.push(customEvent.detail);
+      };
+      client.addEventListener("progressNotification", progressListener);
+
+      const progressToken = 67890;
+
+      // Call the tool without total, with progressToken in metadata
+      await client.callTool(
+        "sendProgress",
+        {
+          units: 2,
+          delayMs: 50,
+          message: "Indeterminate progress",
+        },
+        undefined, // generalMetadata
+        { progressToken: progressToken.toString() }, // toolSpecificMetadata
+      );
+
+      // Wait a bit for notifications
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Remove listener
+      client.removeEventListener("progressNotification", progressListener);
+
+      // Verify we received progress events
+      expect(progressEvents.length).toBe(2);
+
+      // Verify events don't have total
+      expect(progressEvents[0]).toMatchObject({
+        progress: 1,
+        message: "Indeterminate progress (1/2)",
+        progressToken: progressToken.toString(),
+      });
+      expect(progressEvents[0].total).toBeUndefined();
+
+      expect(progressEvents[1]).toMatchObject({
+        progress: 2,
+        message: "Indeterminate progress (2/2)",
+        progressToken: progressToken.toString(),
+      });
+      expect(progressEvents[1].total).toBeUndefined();
+
+      await client.disconnect();
+      await server.stop();
+    });
+  });
+
   describe("Logging", () => {
     it("should set logging level when server supports it", async () => {
       client = new InspectorClient(

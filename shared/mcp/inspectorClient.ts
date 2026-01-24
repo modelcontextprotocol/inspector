@@ -48,6 +48,7 @@ import {
   ResourceListChangedNotificationSchema,
   PromptListChangedNotificationSchema,
   ResourceUpdatedNotificationSchema,
+  ProgressNotificationSchema,
   type Root,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -123,6 +124,12 @@ export interface InspectorClientOptions {
     resources?: boolean; // default: true
     prompts?: boolean; // default: true
   };
+
+  /**
+   * Whether to enable progress notification handling (default: true)
+   * If enabled, InspectorClient will register a handler for progress notifications and dispatch progressNotification events
+   */
+  progress?: boolean; // default: true
 }
 
 /**
@@ -249,6 +256,7 @@ export class InspectorClient extends EventTarget {
   private initialLoggingLevel?: LoggingLevel;
   private sample: boolean;
   private elicit: boolean;
+  private progress: boolean;
   private status: ConnectionStatus = "disconnected";
   // Server data
   private tools: Tool[] = [];
@@ -291,6 +299,7 @@ export class InspectorClient extends EventTarget {
     this.initialLoggingLevel = options.initialLoggingLevel;
     this.sample = options.sample ?? true;
     this.elicit = options.elicit ?? true;
+    this.progress = options.progress ?? true;
     // Only set roots if explicitly provided (even if empty array) - this enables roots capability
     this.roots = options.roots;
     // Initialize listChangedNotifications config (default: all enabled)
@@ -578,6 +587,21 @@ export class InspectorClient extends EventTarget {
                   }),
                 );
               }
+            },
+          );
+        }
+
+        // Progress notification handler
+        if (this.progress) {
+          this.client.setNotificationHandler(
+            ProgressNotificationSchema,
+            async (notification) => {
+              // Dispatch event with full progress notification params
+              this.dispatchEvent(
+                new CustomEvent("progressNotification", {
+                  detail: notification.params,
+                }),
+              );
             },
           );
         }
