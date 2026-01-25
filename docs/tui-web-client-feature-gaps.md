@@ -40,7 +40,7 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 | **Advanced Features**               |
 | Sampling requests                   | ✅              | ✅            | ❌  | High         |
 | Elicitation requests                | ✅              | ✅            | ❌  | High         |
-| Tasks (long-running operations)     | ❌              | ✅            | ❌  | High         |
+| Tasks (long-running operations)     | ✅              | ✅            | ❌  | Medium       |
 | Completions (resource templates)    | ✅              | ✅            | ❌  | Medium       |
 | Completions (prompts with params)   | ✅              | ✅            | ❌  | Medium       |
 | Progress tracking                   | ✅              | ✅            | ❌  | Medium       |
@@ -211,17 +211,74 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 
 **Status:**
 
-- ❌ Not yet implemented in InspectorClient
+- ✅ **COMPLETED** - Fully implemented in InspectorClient
 - ✅ Implemented in web client (as of recent release)
 - ❌ Not yet implemented in TUI
 
 **Overview:**
 Tasks (SEP-1686) were introduced in MCP version 2025-11-25 to support long-running operations through a "call-now, fetch-later" pattern. Tasks enable servers to return a taskId immediately and allow clients to poll for status and retrieve results later, avoiding connection timeouts.
 
+**InspectorClient Support:**
+
+- ✅ `callToolStream()` method - Calls tools with task support, returns streaming updates
+- ✅ `getTask(taskId)` method - Retrieves task status by taskId
+- ✅ `getTaskResult(taskId)` method - Retrieves task result once completed
+- ✅ `cancelTask(taskId)` method - Cancels a running task
+- ✅ `listTasks(cursor?)` method - Lists all active tasks with pagination support
+- ✅ `getClientTasks()` method - Returns array of currently tracked tasks
+- ✅ Task state tracking - Maintains cache of active tasks with automatic updates
+- ✅ Task lifecycle events - Dispatches `taskCreated`, `taskStatusChange`, `taskCompleted`, `taskFailed`, `taskCancelled`, `tasksChange` events
+- ✅ Elicitation integration - Links elicitation requests to tasks via `related-task` metadata
+- ✅ Sampling integration - Links sampling requests to tasks via `related-task` metadata
+- ✅ Progress notifications - Links progress notifications to tasks via `related-task` metadata
+- ✅ Capability detection - `getTaskCapabilities()` checks server task support
+- ✅ `callTool()` validation - Throws error if attempting to call tool with `taskSupport: "required"` using `callTool()`
+- ✅ Task cleanup - Clears task cache on disconnect
+
+**Web Client Support:**
+
+- UI displays active tasks with status indicators
+- Task status updates in real-time via event listeners
+- Task cancellation UI (cancel button for running tasks)
+- Task result display when tasks complete
+- Integration with tool calls - shows task creation from `callToolStream()`
+- Links tasks to elicitation/sampling requests when task is `input_required`
+
+**TUI Status:**
+
+- ❌ No UI for displaying active tasks
+- ❌ No task status display or monitoring
+- ❌ No task cancellation UI
+- ❌ No task result display
+- ❌ No integration with tool calls (tasks created via `callToolStream()` are not visible)
+- ❌ No indication when tool requires task support (`taskSupport: "required"`)
+- ❌ No linking of tasks to elicitation/sampling requests in UI
+- ❌ No task lifecycle event handling in UI
+
 **Implementation Requirements:**
 
-- See [Task Support Design](./task-support-design.md) for detailed design and implementation plan
-- InspectorClient needs task support to enable TUI task functionality
+- ✅ InspectorClient task support - **COMPLETED** (see [Task Support Design](./task-support-design.md))
+- ❌ Add TUI UI for task management:
+  - Display list of active tasks with status (`working`, `input_required`, `completed`, `failed`, `cancelled`)
+  - Show task details (taskId, status, statusMessage, createdAt, lastUpdatedAt)
+  - Display task results when completed
+  - Cancel button for running tasks (call `cancelTask()`)
+  - Real-time status updates via `taskStatusChange` event listener
+  - Task lifecycle event handling (`taskCreated`, `taskCompleted`, `taskFailed`, `taskCancelled`)
+- ❌ Integrate tasks with tool calls:
+  - Use `callToolStream()` for tools with `taskSupport: "required"` (instead of `callTool()`)
+  - Show task creation when tool call creates a task
+  - Link tool call results to tasks
+- ❌ Integrate tasks with elicitation/sampling:
+  - Display which task is waiting for input when elicitation/sampling request has `taskId`
+  - Show task status as `input_required` while waiting for user response
+  - Link elicitation/sampling UI to associated task
+- ❌ Add task capability detection:
+  - Check `getTaskCapabilities()` to determine if server supports tasks
+  - Only show task UI if server supports tasks
+- ❌ Handle task-related errors:
+  - Show error when attempting to call `taskSupport: "required"` tool with `callTool()`
+  - Display task failure messages from `taskFailed` events
 
 ### 6. Completions
 
@@ -533,7 +590,7 @@ Custom headers are used to send additional HTTP headers when connecting to MCP s
 1. **OAuth** - Required for many MCP servers, critical for production use
 2. **Sampling** - Core MCP capability, enables LLM sampling workflows
 3. **Elicitation** - Core MCP capability, enables interactive workflows
-4. **Tasks** - Core MCP capability (v2025-11-25), enables long-running operations without timeouts
+4. **Tasks** - Core MCP capability (v2025-11-25), enables long-running operations without timeouts - ✅ **COMPLETED** in InspectorClient
 
 ### Medium Priority (Enhanced Features)
 
@@ -632,7 +689,7 @@ Based on this analysis, `InspectorClient` needs the following additions:
 - **Roots**: `InspectorClient` has full roots support with `getRoots()` and `setRoots()` methods, handler for `roots/list` requests, and notification support. Web client has a `RootsTab` UI for managing roots. TUI does not yet have UI for managing roots.
 - **Pagination**: Web client supports cursor-based pagination for all list methods (tools, resources, resource templates, prompts), tracking `nextCursor` state and making multiple requests to fetch all items. `InspectorClient` now fully supports pagination with cursor parameters in all list methods and `listAll*()` helper methods that automatically fetch all pages. TUI inherits this pagination support from `InspectorClient`.
 - **Progress Tracking**: Web client supports progress tracking for long-running operations by generating `progressToken` values, setting up `onprogress` callbacks, and displaying progress notifications. `InspectorClient` now supports progress notification handling (dispatches `progressNotification` events) and accepts `progressToken` in metadata. Clients can generate their own tokens and listen for events. The only missing feature is timeout reset on progress (`resetTimeoutOnProgress` option). TUI does not yet have UI support for displaying progress notifications.
-- **Tasks**: Tasks (SEP-1686) were introduced in MCP version 2025-11-25 to support long-running operations through a standardized "call-now, fetch-later" pattern. Web client now supports tasks (as of recent release). InspectorClient and TUI do not yet support tasks. See [Task Support Design](./task-support-design.md) for the implementation plan.
+- **Tasks**: Tasks (SEP-1686) were introduced in MCP version 2025-11-25 to support long-running operations through a standardized "call-now, fetch-later" pattern. Web client supports tasks (as of recent release). InspectorClient now fully supports tasks with `callToolStream()`, task management methods, event-driven API, and integration with elicitation/sampling/progress. TUI does not yet have UI for task management. See [Task Support Design](./task-support-design.md) for implementation details.
 
 ## Related Documentation
 

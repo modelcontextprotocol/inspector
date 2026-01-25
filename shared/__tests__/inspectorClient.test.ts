@@ -24,13 +24,21 @@ import {
   createNumberedResources,
   createNumberedResourceTemplates,
   createNumberedPrompts,
+  getTaskServerConfig,
+  createElicitationTaskTool,
+  createSamplingTaskTool,
+  createProgressTaskTool,
+  createFlexibleTaskTool,
 } from "../test/test-server-fixtures.js";
 import type { MessageEntry, ConnectionStatus } from "../mcp/types.js";
 import type { TypedEvent } from "../mcp/inspectorClientEventTarget.js";
 import type {
   CreateMessageResult,
   ElicitResult,
+  CallToolResult,
+  Task,
 } from "@modelcontextprotocol/sdk/types.js";
+import { RELATED_TASK_META_KEY } from "@modelcontextprotocol/sdk/types.js";
 
 describe("InspectorClient", () => {
   let client: InspectorClient;
@@ -3859,6 +3867,785 @@ describe("InspectorClient", () => {
 
       await client.disconnect();
       await server.stop();
+    });
+  });
+
+  describe("Task Support", () => {
+    beforeEach(async () => {
+      // Create server with task support
+      const taskConfig = {
+        ...getTaskServerConfig(),
+        serverType: "sse" as const,
+      };
+      server = createTestServerHttp(taskConfig);
+      await server.start();
+      client = new InspectorClient(
+        {
+          type: "sse",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+      await client.connect();
+    });
+
+    it("should detect task capabilities", () => {
+      const capabilities = client.getTaskCapabilities();
+      expect(capabilities).toBeDefined();
+      expect(capabilities?.list).toBe(true);
+      expect(capabilities?.cancel).toBe(true);
+    });
+
+    it("should list tasks (empty initially)", async () => {
+      const result = await client.listTasks();
+      expect(result).toHaveProperty("tasks");
+      expect(Array.isArray(result.tasks)).toBe(true);
+    });
+
+    it("should call tool with task support using callToolStream", async () => {
+      const taskCreatedEvents: Array<{ taskId: string; task: Task }> = [];
+      const taskStatusEvents: Array<{ taskId: string; task: Task }> = [];
+      const taskCompletedEvents: Array<{
+        taskId: string;
+        result: CallToolResult;
+      }> = [];
+      const toolCallResultEvents: Array<{
+        toolName: string;
+        params: Record<string, any>;
+        result: any;
+        timestamp: Date;
+        success: boolean;
+        error?: string;
+        metadata?: Record<string, string>;
+      }> = [];
+
+      client.addEventListener(
+        "taskCreated",
+        (event: TypedEvent<"taskCreated">) => {
+          taskCreatedEvents.push(event.detail);
+        },
+      );
+      client.addEventListener(
+        "taskStatusChange",
+        (event: TypedEvent<"taskStatusChange">) => {
+          taskStatusEvents.push(event.detail);
+        },
+      );
+      client.addEventListener(
+        "taskCompleted",
+        (event: TypedEvent<"taskCompleted">) => {
+          taskCompletedEvents.push(event.detail);
+        },
+      );
+      client.addEventListener(
+        "toolCallResultChange",
+        (event: TypedEvent<"toolCallResultChange">) => {
+          toolCallResultEvents.push(event.detail);
+        },
+      );
+
+      const result = await client.callToolStream("simpleTask", {
+        message: "test task",
+      });
+
+      // Validate final result
+      expect(result.success).toBe(true);
+      expect(result.result).toBeDefined();
+      expect(result.result).not.toBeNull();
+      expect(result.result).toHaveProperty("content");
+
+      // Validate result content structure
+      const toolResult = result.result!;
+      expect(toolResult.content).toBeDefined();
+      expect(Array.isArray(toolResult.content)).toBe(true);
+      expect(toolResult.content.length).toBe(1);
+
+      const firstContent = toolResult.content[0];
+      expect(firstContent).toBeDefined();
+      expect(firstContent).not.toBeUndefined();
+      expect(firstContent!.type).toBe("text");
+
+      // Validate result content value
+      if (firstContent && firstContent.type === "text") {
+        expect(firstContent.text).toBeDefined();
+        const resultText = JSON.parse(firstContent.text);
+        expect(resultText.message).toBe("Task completed: test task");
+        expect(resultText.taskId).toBeDefined();
+        expect(typeof resultText.taskId).toBe("string");
+      } else {
+        expect(firstContent?.type).toBe("text");
+      }
+
+      // Validate taskCreated event
+      expect(taskCreatedEvents.length).toBe(1);
+      const createdEvent = taskCreatedEvents[0]!;
+      expect(createdEvent.taskId).toBeDefined();
+      expect(typeof createdEvent.taskId).toBe("string");
+      expect(createdEvent.task).toBeDefined();
+      expect(createdEvent.task.taskId).toBe(createdEvent.taskId);
+      expect(createdEvent.task.status).toBe("working");
+      expect(createdEvent.task).toHaveProperty("ttl");
+      expect(createdEvent.task).toHaveProperty("lastUpdatedAt");
+
+      const taskId = createdEvent.taskId;
+
+      // Validate taskStatusChange events - simpleTask flow:
+      // The SDK may send multiple status updates. For simpleTask, we expect:
+      // 1. taskCreated (status: "working") - from SDK when task is created
+      // 2. taskStatusChange events - SDK may send status updates during execution
+      //    - At minimum: one with status "completed" when task finishes
+      //    - May also include: one with status "working" (initial status update)
+      // 3. taskCompleted - when result is available
+
+      // Verify we got at least one status change
+      expect(taskStatusEvents.length).toBeGreaterThanOrEqual(1);
+
+      // Verify all status events are for the same task and have valid structure
+      const statuses = taskStatusEvents.map((event) => {
+        expect(event.taskId).toBe(taskId);
+        expect(event.task.taskId).toBe(taskId);
+        expect(event.task).toHaveProperty("status");
+        expect(event.task).toHaveProperty("ttl");
+        expect(event.task).toHaveProperty("lastUpdatedAt");
+        // Verify lastUpdatedAt is a valid ISO string if present
+        if (event.task.lastUpdatedAt) {
+          expect(typeof event.task.lastUpdatedAt).toBe("string");
+          expect(() => new Date(event.task.lastUpdatedAt!)).not.toThrow();
+        }
+        return event.task.status;
+      });
+
+      // The last status change must be "completed"
+      expect(statuses[statuses.length - 1]).toBe("completed");
+
+      // All statuses should be either "working" or "completed" (no input_required, failed, cancelled)
+      statuses.forEach((status) => {
+        expect(["working", "completed"]).toContain(status);
+      });
+
+      // If we have multiple events, they should be in order: working -> completed
+      if (taskStatusEvents.length > 1) {
+        // First status should be "working"
+        expect(statuses[0]).toBe("working");
+        // Last status should be "completed"
+        expect(statuses[statuses.length - 1]).toBe("completed");
+      } else {
+        // If only one event, it must be "completed"
+        expect(statuses[0]).toBe("completed");
+      }
+
+      // Validate taskCompleted event
+      expect(taskCompletedEvents.length).toBe(1);
+      const completedEvent = taskCompletedEvents[0]!;
+      expect(completedEvent.taskId).toBe(taskId);
+      expect(completedEvent.result).toBeDefined();
+      expect(completedEvent.result).toEqual(toolResult);
+
+      // Validate toolCallResultChange event
+      expect(toolCallResultEvents.length).toBe(1);
+      const toolCallEvent = toolCallResultEvents[0]!;
+      expect(toolCallEvent.toolName).toBe("simpleTask");
+      expect(toolCallEvent.params).toEqual({ message: "test task" });
+      expect(toolCallEvent.success).toBe(true);
+      expect(toolCallEvent.result).toEqual(toolResult);
+      expect(toolCallEvent.timestamp).toBeInstanceOf(Date);
+
+      // Validate task in clientTasks
+      const clientTasks = client.getClientTasks();
+      const cachedTask = clientTasks.find((t) => t.taskId === taskId);
+      expect(cachedTask).toBeDefined();
+      expect(cachedTask!.taskId).toBe(taskId);
+      expect(cachedTask!.status).toBe("completed");
+      expect(cachedTask!).toHaveProperty("ttl");
+      expect(cachedTask!).toHaveProperty("lastUpdatedAt");
+
+      // Validate consistency: taskId from all sources matches
+      expect(createdEvent.taskId).toBe(taskId);
+      expect(completedEvent.taskId).toBe(taskId);
+      expect(cachedTask!.taskId).toBe(taskId);
+      if (firstContent && firstContent.type === "text") {
+        const resultText = JSON.parse(firstContent.text);
+        expect(resultText.taskId).toBe(taskId);
+      }
+    });
+
+    it("should get task by taskId", async () => {
+      // First create a task
+      const result = await client.callToolStream("simpleTask", {
+        message: "test",
+      });
+      expect(result.success).toBe(true);
+
+      // Get the taskId from active tasks
+      const activeTasks = client.getClientTasks();
+      expect(activeTasks.length).toBeGreaterThan(0);
+      const activeTask = activeTasks[0];
+      expect(activeTask).toBeDefined();
+      const taskId = activeTask!.taskId;
+
+      // Get the task
+      const task = await client.getTask(taskId);
+      expect(task).toBeDefined();
+      expect(task.taskId).toBe(taskId);
+      expect(task.status).toBe("completed");
+    });
+
+    it("should get task result", async () => {
+      // First create a task
+      const result = await client.callToolStream("simpleTask", {
+        message: "test result",
+      });
+      expect(result.success).toBe(true);
+      expect(result.result).toBeDefined();
+      expect(result.result).not.toBeNull();
+
+      // Get the taskId from client tasks
+      const clientTasks = client.getClientTasks();
+      expect(clientTasks.length).toBeGreaterThan(0);
+      const task = clientTasks.find((t) => t.status === "completed");
+      expect(task).toBeDefined();
+      const taskId = task!.taskId;
+
+      // Get the task result
+      const taskResult = await client.getTaskResult(taskId);
+
+      // Validate result structure
+      expect(taskResult).toBeDefined();
+      expect(taskResult).toHaveProperty("content");
+      expect(Array.isArray(taskResult.content)).toBe(true);
+      expect(taskResult.content.length).toBe(1);
+
+      // Validate content structure
+      const firstContent = taskResult.content[0];
+      expect(firstContent).toBeDefined();
+      expect(firstContent).not.toBeUndefined();
+      expect(firstContent!.type).toBe("text");
+
+      // Validate content value
+      if (firstContent && firstContent.type === "text") {
+        expect(firstContent.text).toBeDefined();
+        const resultText = JSON.parse(firstContent.text);
+        expect(resultText.message).toBe("Task completed: test result");
+        expect(resultText.taskId).toBe(taskId);
+      } else {
+        expect(firstContent?.type).toBe("text");
+      }
+
+      // Validate that getTaskResult returns the same result as callToolStream
+      expect(taskResult).toEqual(result.result);
+    });
+
+    it("should throw error when calling callTool on task-required tool", async () => {
+      await expect(
+        client.callTool("simpleTask", { message: "test" }),
+      ).rejects.toThrow("requires task support");
+    });
+
+    it("should clear tasks on disconnect", async () => {
+      // Create a task
+      await client.callToolStream("simpleTask", { message: "test" });
+      expect(client.getClientTasks().length).toBeGreaterThan(0);
+
+      // Disconnect
+      await client.disconnect();
+
+      // Tasks should be cleared
+      expect(client.getClientTasks().length).toBe(0);
+    });
+
+    it("should call tool with taskSupport: forbidden (immediate result, no task)", async () => {
+      // forbiddenTask should return immediately without creating a task
+      const result = await client.callToolStream("forbiddenTask", {
+        message: "test",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.result).toHaveProperty("content");
+      // No task should be created
+      expect(client.getClientTasks().length).toBe(0);
+    });
+
+    it("should call tool with taskSupport: optional (may or may not create task)", async () => {
+      // optionalTask may create a task or return immediately
+      const result = await client.callToolStream("optionalTask", {
+        message: "test",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.result).toHaveProperty("content");
+      // Task may or may not be created - both are valid
+    });
+
+    it("should handle task failure and dispatch taskFailed event", async () => {
+      await client.disconnect();
+      await server?.stop();
+
+      const taskFailedEvents: any[] = [];
+
+      // Create a task tool that will fail after a short delay
+      const failingTask = createFlexibleTaskTool({
+        name: "failingTask",
+        taskSupport: "required",
+        delayMs: 100,
+        failAfterDelay: 50, // Fail after 50ms
+      });
+
+      const taskConfig = getTaskServerConfig();
+      const failConfig = {
+        ...taskConfig,
+        serverType: "sse" as const,
+        tools: [failingTask, ...(taskConfig.tools || [])],
+      };
+      server = createTestServerHttp(failConfig);
+      await server.start();
+      client = new InspectorClient(
+        {
+          type: "sse",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+      await client.connect();
+
+      client.addEventListener(
+        "taskFailed",
+        (event: TypedEvent<"taskFailed">) => {
+          taskFailedEvents.push(event.detail);
+        },
+      );
+
+      // Call the failing task
+      await expect(
+        client.callToolStream("failingTask", { message: "test" }),
+      ).rejects.toThrow();
+
+      // Wait a bit for the event
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Verify taskFailed event was dispatched
+      expect(taskFailedEvents.length).toBeGreaterThan(0);
+      expect(taskFailedEvents[0].taskId).toBeDefined();
+      expect(taskFailedEvents[0].error).toBeDefined();
+    });
+
+    it("should cancel a running task", async () => {
+      await client.disconnect();
+      await server?.stop();
+
+      // Create a longer-running task tool
+      const longRunningTask = createFlexibleTaskTool({
+        name: "longRunningTask",
+        taskSupport: "required",
+        delayMs: 2000, // 2 seconds
+      });
+
+      const taskConfig = getTaskServerConfig();
+      const cancelConfig = {
+        ...taskConfig,
+        serverType: "sse" as const,
+        tools: [longRunningTask, ...(taskConfig.tools || [])],
+      };
+      server = createTestServerHttp(cancelConfig);
+      await server.start();
+      client = new InspectorClient(
+        {
+          type: "sse",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+        },
+      );
+      await client.connect();
+
+      const cancelledEvents: any[] = [];
+      client.addEventListener(
+        "taskCancelled",
+        (event: TypedEvent<"taskCancelled">) => {
+          cancelledEvents.push(event.detail);
+        },
+      );
+
+      // Start a long-running task
+      const taskPromise = client.callToolStream("longRunningTask", {
+        message: "test",
+      });
+
+      // Wait for task to be created
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const activeTasks = client.getClientTasks();
+      expect(activeTasks.length).toBeGreaterThan(0);
+      const activeTask = activeTasks[0];
+      expect(activeTask).toBeDefined();
+      const taskId = activeTask!.taskId;
+
+      // Cancel the task
+      await client.cancelTask(taskId);
+
+      // Wait for cancellation to complete
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Verify task is cancelled
+      const task = await client.getTask(taskId);
+      expect(task.status).toBe("cancelled");
+
+      // Verify cancelled event was dispatched
+      expect(cancelledEvents.length).toBeGreaterThan(0);
+      expect(cancelledEvents[0].taskId).toBe(taskId);
+
+      // Wait for the original promise (it should error or complete with cancellation)
+      try {
+        await taskPromise;
+      } catch {
+        // Expected if task was cancelled
+      }
+    });
+
+    it("should handle elicitation with task (input_required flow)", async () => {
+      await client.disconnect();
+      await server?.stop();
+
+      const elicitationConfig = {
+        ...getTaskServerConfig(),
+        serverType: "sse" as const,
+        tools: [
+          createElicitationTaskTool("taskWithElicitation"),
+          ...(getTaskServerConfig().tools || []),
+        ],
+      };
+      server = createTestServerHttp(elicitationConfig);
+      await server.start();
+      client = new InspectorClient(
+        {
+          type: "sse",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+          elicit: true,
+        },
+      );
+      await client.connect();
+
+      // Set up promise to wait for elicitation
+      const elicitationPromise = new Promise<ElicitationCreateMessage>(
+        (resolve) => {
+          const listener = (event: TypedEvent<"newPendingElicitation">) => {
+            resolve(event.detail);
+            client.removeEventListener("newPendingElicitation", listener);
+          };
+          client.addEventListener("newPendingElicitation", listener);
+        },
+      );
+
+      // Start the task
+      const taskPromise = client.callToolStream("taskWithElicitation", {
+        message: "test",
+      });
+
+      // Wait for elicitation request (with timeout)
+      const elicitation = await Promise.race([
+        elicitationPromise,
+        new Promise<ElicitationCreateMessage>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Timeout waiting for elicitation")),
+            2000,
+          ),
+        ),
+      ]);
+
+      // Verify elicitation was received
+      expect(elicitation).toBeDefined();
+
+      // Verify task status is input_required (if taskId was extracted)
+      if (elicitation.taskId) {
+        const activeTasks = client.getClientTasks();
+        const task = activeTasks.find((t) => t.taskId === elicitation.taskId);
+        if (task) {
+          expect(task.status).toBe("input_required");
+        }
+      }
+
+      // Respond to elicitation with correct format
+      await elicitation.respond({
+        action: "accept",
+        content: {
+          input: "test input",
+        },
+      });
+
+      // Wait for task to complete
+      const result = await taskPromise;
+      expect(result.success).toBe(true);
+    });
+
+    it("should handle sampling with task (input_required flow)", async () => {
+      await client.disconnect();
+      await server?.stop();
+
+      const samplingConfig = {
+        ...getTaskServerConfig(),
+        serverType: "sse" as const,
+        tools: [
+          createSamplingTaskTool("taskWithSampling"),
+          ...(getTaskServerConfig().tools || []),
+        ],
+      };
+      server = createTestServerHttp(samplingConfig);
+      await server.start();
+      client = new InspectorClient(
+        {
+          type: "sse",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+          sample: true,
+        },
+      );
+      await client.connect();
+
+      // Set up promise to wait for sampling
+      const samplingPromise = new Promise<SamplingCreateMessage>((resolve) => {
+        const listener = (event: TypedEvent<"newPendingSample">) => {
+          resolve(event.detail);
+          client.removeEventListener("newPendingSample", listener);
+        };
+        client.addEventListener("newPendingSample", listener);
+      });
+
+      // Start the task
+      const taskPromise = client.callToolStream("taskWithSampling", {
+        message: "test",
+      });
+
+      // Wait for sampling request (with longer timeout)
+      const sample = await Promise.race([
+        samplingPromise,
+        new Promise<SamplingCreateMessage>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Timeout waiting for sampling")),
+            3000,
+          ),
+        ),
+      ]);
+
+      // Verify sampling was received
+      expect(sample).toBeDefined();
+
+      // Wait a bit for task to be created
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Verify task was created and is in input_required status
+      const activeTasks = client.getClientTasks();
+      expect(activeTasks.length).toBeGreaterThan(0);
+
+      // Find the task that triggered this sampling
+      // If taskId was extracted from metadata, use it; otherwise use the most recent task
+      const task = sample.taskId
+        ? activeTasks.find((t) => t.taskId === sample.taskId)
+        : activeTasks[activeTasks.length - 1];
+
+      expect(task).toBeDefined();
+      expect(task!.status).toBe("input_required");
+
+      // Respond to sampling with correct format
+      await sample.respond({
+        model: "test-model",
+        role: "assistant",
+        stopReason: "endTurn",
+        content: {
+          type: "text",
+          text: "Sampling response",
+        },
+      });
+
+      // Wait for task to complete
+      const result = await taskPromise;
+      expect(result.success).toBe(true);
+    });
+
+    it("should handle progress notifications linked to tasks", async () => {
+      await client.disconnect();
+      await server?.stop();
+
+      // createProgressTaskTool defaults to 5 progress units with 2000ms delay
+      // Progress notifications are sent at delayMs / progressUnits intervals (400ms each)
+      const progressConfig = {
+        ...getTaskServerConfig(),
+        serverType: "sse" as const,
+        tools: [
+          createProgressTaskTool("taskWithProgress", 2000, 5),
+          ...(getTaskServerConfig().tools || []),
+        ],
+      };
+      server = createTestServerHttp(progressConfig);
+      await server.start();
+      client = new InspectorClient(
+        {
+          type: "sse",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+          progress: true,
+        },
+      );
+      await client.connect();
+
+      const progressEvents: any[] = [];
+      const taskCreatedEvents: any[] = [];
+      const taskCompletedEvents: any[] = [];
+
+      client.addEventListener(
+        "progressNotification",
+        (event: TypedEvent<"progressNotification">) => {
+          progressEvents.push(event.detail);
+        },
+      );
+      client.addEventListener(
+        "taskCreated",
+        (event: TypedEvent<"taskCreated">) => {
+          taskCreatedEvents.push(event.detail);
+        },
+      );
+      client.addEventListener(
+        "taskCompleted",
+        (event: TypedEvent<"taskCompleted">) => {
+          taskCompletedEvents.push(event.detail);
+        },
+      );
+
+      // Generate a progress token
+      const progressToken = Math.random().toString();
+
+      // Call the tool with progress token
+      const resultPromise = client.callToolStream(
+        "taskWithProgress",
+        {
+          message: "test",
+        },
+        undefined,
+        { progressToken },
+      );
+
+      // Wait for task to be created
+      await new Promise((resolve) => {
+        if (taskCreatedEvents.length > 0) {
+          resolve(undefined);
+        } else {
+          const listener = (event: TypedEvent<"taskCreated">) => {
+            client.removeEventListener("taskCreated", listener);
+            resolve(undefined);
+          };
+          client.addEventListener("taskCreated", listener);
+        }
+      });
+
+      expect(taskCreatedEvents.length).toBe(1);
+      const taskId = taskCreatedEvents[0].taskId;
+
+      // Wait for all progress notifications to be sent
+      // Progress notifications are sent at ~400ms intervals (2000ms / 5 units)
+      // Wait for delayMs + buffer (2000ms + 500ms buffer = 2500ms)
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+
+      // Wait for task to complete
+      const result = await resultPromise;
+
+      // Verify task completed successfully
+      expect(result.success).toBe(true);
+      expect(result.result).toBeDefined();
+      expect(result.result).not.toBeNull();
+      expect(result.result).toHaveProperty("content");
+
+      // Validate the actual tool call response content
+      const toolResult = result.result!;
+      expect(toolResult.content).toBeDefined();
+      expect(Array.isArray(toolResult.content)).toBe(true);
+      expect(toolResult.content.length).toBe(1);
+
+      const firstContent = toolResult.content[0];
+      expect(firstContent).toBeDefined();
+      expect(firstContent).not.toBeUndefined();
+      expect(firstContent!.type).toBe("text");
+
+      // Assert it's a text content block (for TypeScript narrowing)
+      expect(firstContent!.type === "text").toBe(true);
+
+      // TypeScript type narrowing - we've already asserted it's text
+      if (firstContent && firstContent.type === "text") {
+        expect(firstContent.text).toBeDefined();
+        // Parse and validate the JSON text content
+        const resultText = JSON.parse(firstContent.text);
+        expect(resultText.message).toBe("Task completed: test");
+        expect(resultText.taskId).toBe(taskId);
+      } else {
+        // This should never happen due to the assertion above, but TypeScript needs it
+        expect(firstContent?.type).toBe("text");
+      }
+
+      // Verify taskCompleted event was dispatched
+      expect(taskCompletedEvents.length).toBe(1);
+      expect(taskCompletedEvents[0].taskId).toBe(taskId);
+      expect(taskCompletedEvents[0].result).toBeDefined();
+      // Verify the taskCompleted event result matches the tool call result
+      expect(taskCompletedEvents[0].result).toEqual(toolResult);
+
+      // Verify all 5 progress events were received
+      expect(progressEvents.length).toBe(5);
+
+      // Verify each progress event
+      progressEvents.forEach((event, index) => {
+        // Verify progress token matches
+        expect(event.progressToken).toBe(progressToken);
+
+        // Verify progress values are sequential (1, 2, 3, 4, 5)
+        expect(event.progress).toBe(index + 1);
+        expect(event.total).toBe(5);
+
+        // Verify progress message format
+        expect(event.message).toBe(`Processing... ${index + 1}/5`);
+
+        // Verify progress events are linked to the task via _meta
+        expect(event._meta).toBeDefined();
+        expect(event._meta?.[RELATED_TASK_META_KEY]).toBeDefined();
+        const relatedTask = event._meta?.[RELATED_TASK_META_KEY] as {
+          taskId: string;
+        };
+        expect(relatedTask.taskId).toBe(taskId);
+      });
+
+      // Verify task is in completed state
+      const activeTasks = client.getClientTasks();
+      const completedTask = activeTasks.find((t) => t.taskId === taskId);
+      expect(completedTask).toBeDefined();
+      expect(completedTask!.status).toBe("completed");
+    });
+
+    it("should handle listTasks pagination", async () => {
+      // Create multiple tasks
+      await client.callToolStream("simpleTask", { message: "task1" });
+      await client.callToolStream("simpleTask", { message: "task2" });
+      await client.callToolStream("simpleTask", { message: "task3" });
+
+      // Wait for tasks to complete
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // List tasks
+      const result = await client.listTasks();
+      expect(result.tasks.length).toBeGreaterThan(0);
+
+      // If there's a nextCursor, test pagination
+      if (result.nextCursor) {
+        const nextPage = await client.listTasks(result.nextCursor);
+        expect(nextPage.tasks).toBeDefined();
+        expect(Array.isArray(nextPage.tasks)).toBe(true);
+      }
     });
   });
 });

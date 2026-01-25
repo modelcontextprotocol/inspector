@@ -23,8 +23,10 @@ import type {
   ServerCapabilities,
   Implementation,
   Root,
-  Progress,
-  ReadResourceResult,
+  ProgressNotificationParams,
+  Task,
+  CallToolResult,
+  McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
@@ -46,7 +48,7 @@ export interface InspectorClientEventMap {
   fetchRequest: FetchRequestEntry;
   error: Error;
   resourceUpdated: { uri: string };
-  progressNotification: Progress;
+  progressNotification: ProgressNotificationParams;
   toolCallResultChange: {
     toolName: string;
     params: Record<string, any>;
@@ -78,6 +80,13 @@ export interface InspectorClientEventMap {
   newPendingElicitation: ElicitationCreateMessage;
   rootsChange: Root[];
   resourceSubscriptionsChange: string[];
+  // Task events
+  taskCreated: { taskId: string; task: Task };
+  taskStatusChange: { taskId: string; task: Task };
+  taskCompleted: { taskId: string; result: CallToolResult };
+  taskFailed: { taskId: string; error: McpError };
+  taskCancelled: { taskId: string };
+  tasksChange: Task[];
   // Signal events (no payload)
   connect: void;
   disconnect: void;
