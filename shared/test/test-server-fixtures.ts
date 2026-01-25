@@ -14,17 +14,32 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
   ToolDefinition,
+  TaskToolDefinition,
   ResourceDefinition,
   PromptDefinition,
   ResourceTemplateDefinition,
   ServerConfig,
   TestServerContext,
 } from "./composable-test-server.js";
+import type { ElicitRequestFormParams } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type {
+  ToolTaskHandler,
+  TaskRequestHandlerExtra,
+  CreateTaskRequestHandlerExtra,
+} from "@modelcontextprotocol/sdk/experimental/tasks/interfaces.js";
+import { RELATED_TASK_META_KEY } from "@modelcontextprotocol/sdk/types.js";
+import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
+import type { ShapeOutput } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import type {
+  GetTaskResult,
+  CallToolResult,
+} from "@modelcontextprotocol/sdk/types.js";
 
 // Re-export types and functions from composable-test-server for backward compatibility
 export type {
   ToolDefinition,
+  TaskToolDefinition,
   ResourceDefinition,
   PromptDefinition,
   ResourceTemplateDefinition,
@@ -298,8 +313,9 @@ export function createCollectElicitationTool(): ToolDefinition {
       }
       const server = context.server;
 
+      // TODO: The fact that param attributes are "any" is not ideal
       const message = params.message as string;
-      const schema = params.schema as any;
+      const schema = params.schema as any; // TODO: This is also not ideal
 
       // Send an elicitation/create request to the client
       // The server.request() method takes a request object (with method) and result schema
@@ -1118,6 +1134,442 @@ export function createRemovePromptTool(): ToolDefinition {
         name: params.name,
       };
     },
+  };
+}
+
+/**
+ * Options for creating a flexible task tool fixture
+ */
+export interface FlexibleTaskToolOptions {
+  name?: string; // default: "flexibleTask"
+  taskSupport?: "required" | "optional" | "forbidden"; // default: "required"
+  immediateReturn?: boolean; // If true, tool returns immediately, no task created
+  delayMs?: number; // default: 1000 (time before task completes)
+  progressUnits?: number; // If provided, send progress notifications (default: 5 if progress enabled)
+  elicitationSchema?: z.ZodTypeAny; // If provided, require elicitation with this schema
+  samplingText?: string; // If provided, require sampling with this text
+  failAfterDelay?: number; // If set, task fails after this delay (ms)
+  cancelAfterDelay?: number; // If set, task cancels itself after this delay (ms)
+}
+
+/**
+ * Create a flexible task tool that can be configured for various task scenarios
+ * Returns ToolDefinition if taskSupport is "forbidden" or immediateReturn is true
+ * Returns TaskToolDefinition otherwise
+ */
+export function createFlexibleTaskTool(
+  options: FlexibleTaskToolOptions = {},
+): ToolDefinition | TaskToolDefinition {
+  const {
+    name = "flexibleTask",
+    taskSupport = "required",
+    immediateReturn = false,
+    delayMs = 1000,
+    progressUnits,
+    elicitationSchema,
+    samplingText,
+    failAfterDelay,
+    cancelAfterDelay,
+  } = options;
+
+  // If taskSupport is "forbidden" or immediateReturn is true, return a regular tool
+  if (taskSupport === "forbidden" || immediateReturn) {
+    return {
+      name,
+      description: `A flexible task tool (${taskSupport === "forbidden" ? "forbidden" : "immediate return"} mode)`,
+      inputSchema: {
+        message: z.string().optional().describe("Optional message parameter"),
+      },
+      handler: async (
+        params: Record<string, any>,
+        context?: TestServerContext,
+      ): Promise<any> => {
+        // Simulate some work
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        return {
+          message: `Task completed immediately: ${params.message || "no message"}`,
+        };
+      },
+    };
+  }
+
+  // Otherwise, return a task tool
+  // Note: inputSchema is for createTask handler only - getTask and getTaskResult don't use it
+  const taskTool: TaskToolDefinition = {
+    name,
+    description: `A flexible task tool supporting progress, elicitation, and sampling`,
+    inputSchema: {
+      message: z.string().optional().describe("Optional message parameter"),
+    },
+    execution: {
+      taskSupport: taskSupport as "required" | "optional",
+    },
+    handler: {
+      createTask: async (args, extra) => {
+        const message = (args as Record<string, any>)?.message as
+          | string
+          | undefined;
+        const progressToken = extra._meta?.progressToken;
+
+        // Create the task
+        const task = await extra.taskStore.createTask({});
+
+        // Start async task execution
+        (async () => {
+          try {
+            // Handle elicitation if schema provided
+            if (elicitationSchema) {
+              // Update task status to input_required
+              await extra.taskStore.updateTaskStatus(
+                task.taskId,
+                "input_required",
+              );
+
+              // Send elicitation request with related-task metadata
+              try {
+                // Convert Zod schema to JSON schema
+                const jsonSchema = toJsonSchemaCompat(
+                  elicitationSchema,
+                ) as ElicitRequestFormParams["requestedSchema"];
+                await extra.sendRequest(
+                  {
+                    method: "elicitation/create",
+                    params: {
+                      message: `Please provide input for task ${task.taskId}`,
+                      requestedSchema: jsonSchema,
+                      _meta: {
+                        [RELATED_TASK_META_KEY]: {
+                          taskId: task.taskId,
+                        },
+                      },
+                    },
+                  },
+                  ElicitResultSchema,
+                );
+                // Once response received, continue task
+                await extra.taskStore.updateTaskStatus(task.taskId, "working");
+              } catch (error) {
+                console.error("[flexibleTask] Elicitation error:", error);
+                await extra.taskStore.updateTaskStatus(
+                  task.taskId,
+                  "failed",
+                  error instanceof Error ? error.message : String(error),
+                );
+                return;
+              }
+            }
+
+            // Handle sampling if text provided
+            if (samplingText) {
+              // Update task status to input_required
+              await extra.taskStore.updateTaskStatus(
+                task.taskId,
+                "input_required",
+              );
+
+              // Send sampling request with related-task metadata
+              try {
+                await extra.sendRequest(
+                  {
+                    method: "sampling/createMessage",
+                    params: {
+                      messages: [
+                        {
+                          role: "user",
+                          content: {
+                            type: "text",
+                            text: samplingText,
+                          },
+                        },
+                      ],
+                      maxTokens: 100,
+                      _meta: {
+                        [RELATED_TASK_META_KEY]: {
+                          taskId: task.taskId,
+                        },
+                      },
+                    },
+                  },
+                  CreateMessageResultSchema,
+                );
+                // Once response received, continue task
+                await extra.taskStore.updateTaskStatus(task.taskId, "working");
+              } catch (error) {
+                console.error("[flexibleTask] Sampling error:", error);
+                await extra.taskStore.updateTaskStatus(
+                  task.taskId,
+                  "failed",
+                  error instanceof Error ? error.message : String(error),
+                );
+                return;
+              }
+            }
+
+            // Send progress notifications if enabled
+            if (progressUnits !== undefined && progressUnits > 0) {
+              const units = progressUnits;
+              if (progressToken !== undefined) {
+                for (let i = 1; i <= units; i++) {
+                  await new Promise((resolve) =>
+                    setTimeout(resolve, delayMs / units),
+                  );
+                  try {
+                    await extra.sendNotification({
+                      method: "notifications/progress",
+                      params: {
+                        progress: i,
+                        total: units,
+                        message: `Processing... ${i}/${units}`,
+                        progressToken,
+                        _meta: {
+                          [RELATED_TASK_META_KEY]: {
+                            taskId: task.taskId,
+                          },
+                        },
+                      },
+                    });
+                  } catch (error) {
+                    console.error(
+                      "[flexibleTask] Progress notification error:",
+                      error,
+                    );
+                  }
+                }
+              }
+            } else {
+              // Wait for delay if no progress
+              await new Promise((resolve) => setTimeout(resolve, delayMs));
+            }
+
+            // Check for failure
+            if (failAfterDelay !== undefined) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, failAfterDelay),
+              );
+              await extra.taskStore.updateTaskStatus(
+                task.taskId,
+                "failed",
+                "Task failed as configured",
+              );
+              return;
+            }
+
+            // Check for cancellation
+            if (cancelAfterDelay !== undefined) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, cancelAfterDelay),
+              );
+              await extra.taskStore.updateTaskStatus(task.taskId, "cancelled");
+              return;
+            }
+
+            // Complete the task
+            // Store result BEFORE updating status to ensure it's available when SDK fetches it
+            const result = {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    message: `Task completed: ${message || "no message"}`,
+                    taskId: task.taskId,
+                  }),
+                },
+              ],
+            };
+            await extra.taskStore.storeTaskResult(
+              task.taskId,
+              "completed",
+              result,
+            );
+            await extra.taskStore.updateTaskStatus(task.taskId, "completed");
+          } catch (error) {
+            // Only update status if task is not already in a terminal state
+            try {
+              const currentTask = await extra.taskStore.getTask(task.taskId);
+              if (
+                currentTask &&
+                currentTask.status !== "completed" &&
+                currentTask.status !== "failed" &&
+                currentTask.status !== "cancelled"
+              ) {
+                await extra.taskStore.updateTaskStatus(
+                  task.taskId,
+                  "failed",
+                  error instanceof Error ? error.message : String(error),
+                );
+              }
+            } catch (statusError) {
+              // Ignore errors when checking/updating status
+              console.error(
+                "[flexibleTask] Error checking/updating task status:",
+                statusError,
+              );
+            }
+          }
+        })();
+
+        return {
+          task,
+        };
+      },
+      getTask: async (
+        _args: ShapeOutput<{ message?: z.ZodString }>,
+        extra: TaskRequestHandlerExtra,
+      ): Promise<GetTaskResult> => {
+        // taskId is already in extra for TaskRequestHandlerExtra
+        // SDK extracts taskId from request and provides it in extra.taskId
+        // args parameter is present due to inputSchema but not used here
+        // GetTaskResult is the task object itself, not a wrapper
+        const task = await extra.taskStore.getTask(extra.taskId);
+        return task as GetTaskResult;
+      },
+      getTaskResult: async (
+        _args: ShapeOutput<{ message?: z.ZodString }>,
+        extra: TaskRequestHandlerExtra,
+      ): Promise<CallToolResult> => {
+        // taskId is already in extra for TaskRequestHandlerExtra
+        // SDK extracts taskId from request and provides it in extra.taskId
+        // args parameter is present due to inputSchema but not used here
+        // getTaskResult returns Result, but handler must return CallToolResult
+        const result = await extra.taskStore.getTaskResult(extra.taskId);
+        // Ensure result has content field (CallToolResult requirement)
+        if (!result.content) {
+          throw new Error("Task result does not have content field");
+        }
+        return result as CallToolResult;
+      },
+    },
+  };
+
+  return taskTool;
+}
+
+/**
+ * Create a simple task tool that completes after a delay
+ */
+export function createSimpleTaskTool(
+  name: string = "simpleTask",
+  delayMs: number = 1000,
+): TaskToolDefinition {
+  return createFlexibleTaskTool({
+    name,
+    taskSupport: "required",
+    delayMs,
+  }) as TaskToolDefinition;
+}
+
+/**
+ * Create a task tool that sends progress notifications
+ */
+export function createProgressTaskTool(
+  name: string = "progressTask",
+  delayMs: number = 2000,
+  progressUnits: number = 5,
+): TaskToolDefinition {
+  return createFlexibleTaskTool({
+    name,
+    taskSupport: "required",
+    delayMs,
+    progressUnits,
+  }) as TaskToolDefinition;
+}
+
+/**
+ * Create a task tool that requires elicitation input
+ */
+export function createElicitationTaskTool(
+  name: string = "elicitationTask",
+  elicitationSchema?: z.ZodTypeAny,
+): TaskToolDefinition {
+  return createFlexibleTaskTool({
+    name,
+    taskSupport: "required",
+    elicitationSchema:
+      elicitationSchema ||
+      z.object({
+        input: z.string().describe("User input required for task"),
+      }),
+  }) as TaskToolDefinition;
+}
+
+/**
+ * Create a task tool that requires sampling input
+ */
+export function createSamplingTaskTool(
+  name: string = "samplingTask",
+  samplingText?: string,
+): TaskToolDefinition {
+  return createFlexibleTaskTool({
+    name,
+    taskSupport: "required",
+    samplingText: samplingText || "Please provide a response for this task",
+  }) as TaskToolDefinition;
+}
+
+/**
+ * Create a task tool with optional task support
+ */
+export function createOptionalTaskTool(
+  name: string = "optionalTask",
+  delayMs: number = 500,
+): TaskToolDefinition {
+  return createFlexibleTaskTool({
+    name,
+    taskSupport: "optional",
+    delayMs,
+  }) as TaskToolDefinition;
+}
+
+/**
+ * Create a task tool that is forbidden from using tasks (returns immediately)
+ */
+export function createForbiddenTaskTool(
+  name: string = "forbiddenTask",
+  delayMs: number = 100,
+): ToolDefinition {
+  return createFlexibleTaskTool({
+    name,
+    taskSupport: "forbidden",
+    delayMs,
+  }) as ToolDefinition;
+}
+
+/**
+ * Create a task tool that returns immediately even if taskSupport is required
+ * (for testing callTool() with task-supporting tools)
+ */
+export function createImmediateReturnTaskTool(
+  name: string = "immediateReturnTask",
+  delayMs: number = 100,
+): ToolDefinition {
+  return createFlexibleTaskTool({
+    name,
+    taskSupport: "required",
+    immediateReturn: true,
+    delayMs,
+  }) as ToolDefinition;
+}
+
+/**
+ * Get a server config with task support and task tools for testing
+ */
+export function getTaskServerConfig(): ServerConfig {
+  return {
+    serverInfo: createTestServerInfo("test-task-server", "1.0.0"),
+    tasks: {
+      list: true,
+      cancel: true,
+    },
+    tools: [
+      createSimpleTaskTool(),
+      createProgressTaskTool(),
+      createElicitationTaskTool(),
+      createSamplingTaskTool(),
+      createOptionalTaskTool(),
+      createForbiddenTaskTool(),
+      createImmediateReturnTaskTool(),
+    ],
+    logging: true, // Required for notifications/message and progress
   };
 }
 

@@ -1,219 +1,222 @@
-# Task Support Design and Implementation Plan
+# Task Support Design
 
 ## Overview
 
 Tasks (SEP-1686) were introduced in the MCP November 2025 release (version 2025-11-25) to move MCP beyond simple "wait-and-response" tool calls. They provide a standardized "call-now, fetch-later" pattern for long-running operations like document analysis, database indexing, or complex agentic reasoning.
 
-This document outlines the design and implementation plan for adding Task support to InspectorClient and the TUI.
+This document describes the task support implementation in `InspectorClient`.
 
-### Scope: Tools First, Resources and Prompts Later
+### Scope: Tools First
 
-**Current Focus**: This implementation focuses on task support for **tools** (`tools/call`), as the SDK provides first-class support via `client.experimental.tasks.callToolStream()`.
+**Current Implementation**: Task support is implemented for **tools** (`tools/call`), leveraging the SDK's first-class support via `client.experimental.tasks.callToolStream()`.
 
-**Future Support**: At the protocol level, tasks could be supported for:
+**Future Support**: At the protocol level, tasks could be supported for resources (`resources/read`) and prompts (`prompts/get`), but the SDK does not currently provide built-in support for these operations. The design is structured to allow adding support for these operations later if/when the SDK adds first-class support.
 
-- **Resources** (`resources/read`) - for long-running resource processing
-- **Prompts** (`prompts/get`) - for prompt generation that requires processing
+**Design Principle**: InspectorClient's task support wraps SDK methods rather than implementing protocol-level task handling directly. This ensures we leverage SDK features and maintain compatibility with SDK updates.
 
-However, the SDK does not currently provide built-in support for task-augmented resource or prompt requests. The design is structured to allow adding support for these operations later if/when the SDK adds first-class support (e.g., `client.experimental.tasks.readResourceStream()` or similar methods).
+## Architecture
 
-**Design Principle**: InspectorClient's task support will wrap SDK methods rather than implementing protocol-level task handling directly. This ensures we leverage SDK features and maintain compatibility with SDK updates.
+### SDK Integration
 
-## SDK API Overview
+InspectorClient wraps the MCP TypeScript SDK's `client.experimental.tasks` API:
 
-The MCP TypeScript SDK provides task support through `client.experimental.tasks`:
+- **Streaming API**: `callToolStream()` uses the SDK's async generator pattern to receive real-time task updates
+- **Task Management**: All task operations (`getTask`, `getTaskResult`, `cancelTask`, `listTasks`) delegate to SDK methods
+- **State Management**: InspectorClient maintains a local cache of active tasks for UI display and event dispatching, but authoritative state always comes from the server via the SDK
 
-### Key Methods
+### Event-Based API
 
-- **`callToolStream(params, resultSchema?, options?)`**: Calls a tool and returns an `AsyncGenerator<ResponseMessage>` that yields:
-  - `taskCreated` - when a task is created (contains `task: Task`)
-  - `taskStatus` - status updates (contains `task: Task`)
-  - `result` - final result when task completes
-  - `error` - error if task fails
-- **`getTask(taskId, options?)`**: Gets current task status (`GetTaskResult`)
-- **`getTaskResult(taskId, resultSchema?, options?)`**: Retrieves result of completed task
-- **`listTasks(cursor?, options?)`**: Lists tasks with pagination
-- **`cancelTask(taskId, options?)`**: Cancels a running task
+InspectorClient uses an event-driven architecture for task lifecycle notifications:
 
-### ResponseMessage Types
+- **Task Lifecycle Events**: `taskCreated`, `taskStatusChange`, `taskCompleted`, `taskFailed`, `taskCancelled`
+- **Task List Events**: `tasksChange` (dispatched when `listTasks()` is called)
+- **Tool Call Events**: `toolCallResultChange` (includes task results)
+
+This pattern is consistent with InspectorClient's existing event system and works well for UI state management.
+
+### Task State Tracking
+
+InspectorClient maintains a `Map<taskId, Task>` cache of active tasks:
+
+- **Cache Updates**: Tasks are added/updated when:
+  - Task is created (from `callToolStream` `taskCreated` message)
+  - Task status changes (from `callToolStream` `taskStatus` messages or `getTask()` calls)
+  - Task completes/fails (from `callToolStream` `result`/`error` messages)
+  - Tasks are listed (from `listTasks()` calls)
+- **Cache Lifecycle**: Tasks are cleared on disconnect
+- **Purpose**: The cache is for convenience and performance - authoritative state is always from the server via SDK
+
+## API Reference
+
+### Task-Aware Tool Execution
+
+#### `callToolStream(name, args, generalMetadata?, toolSpecificMetadata?)`
+
+Calls a tool using the task-capable streaming API. This method can be used on any tool, regardless of `execution.taskSupport`:
+
+- **`taskSupport: "forbidden"`** → Returns immediate result (no task created)
+- **`taskSupport: "optional"`** → Server decides: may create task or return immediately
+- **`taskSupport: "required"`** → Will create a task (or fail if server doesn't support tasks)
+
+**Message Flow**:
+
+- **Task created**: Yields `taskCreated` → `taskStatus` updates → `result` (when complete)
+- **Immediate result**: Yields `result` directly (no task created, but still uses streaming API)
+
+**Returns**: `Promise<ToolCallInvocation>` with the final result
+
+**Events Dispatched**:
+
+- `taskCreated` - when a task is created
+- `taskStatusChange` - on each status update
+- `taskCompleted` - when task completes successfully
+- `taskFailed` - when task fails
+- `toolCallResultChange` - when tool call completes (with result or error)
+
+#### `callTool(name, args, generalMetadata?, toolSpecificMetadata?)`
+
+Calls a tool for immediate execution only. This method:
+
+- **Fails** if tool has `execution.taskSupport: "required"` (must use `callToolStream()`)
+- **Works** for tools with `taskSupport: "forbidden"` or `"optional"` (but won't create tasks)
+
+**Rationale**: Provides explicit choice between immediate execution and task-capable execution.
+
+### Task Management Methods
+
+#### `getTask(taskId: string): Promise<Task>`
+
+Retrieves the current status of a task by taskId.
+
+**Events Dispatched**: `taskStatusChange`
+
+#### `getTaskResult(taskId: string): Promise<CallToolResult>`
+
+Retrieves the result of a completed task. The task must be in a terminal state (`completed`, `failed`, or `cancelled`).
+
+**Note**: No event is dispatched - the task is already completed.
+
+#### `cancelTask(taskId: string): Promise<void>`
+
+Cancels a running task. The task must be in a non-terminal state.
+
+**Events Dispatched**: `taskCancelled`
+
+#### `listTasks(cursor?: string): Promise<{ tasks: Task[]; nextCursor?: string }>`
+
+Lists all active tasks with optional pagination support.
+
+**Events Dispatched**: `tasksChange` (with all tasks from the result)
+
+### Task State Access
+
+#### `getClientTasks(): Task[]`
+
+Returns an array of all currently tracked tasks from the local cache. This is useful for UI display without constantly calling `listTasks()`.
+
+**Note**: This returns cached tasks. For authoritative state, use `getTask()` or `listTasks()`.
+
+### Capability Detection
+
+#### `getTaskCapabilities(): { list: boolean; cancel: boolean } | undefined`
+
+Returns the server's task capabilities, or `undefined` if tasks are not supported.
+
+**Capabilities**:
+
+- `list: true` - Server supports `tasks/list` method
+- `cancel: true` - Server supports `tasks/cancel` method
+
+## Task Lifecycle Events
+
+All task events are dispatched via InspectorClient's event system:
 
 ```typescript
-type ResponseMessage<T extends Result> =
-  | TaskCreatedMessage // { type: 'taskCreated', task: Task }
-  | TaskStatusMessage // { type: 'taskStatus', task: Task }
-  | ResultMessage<T> // { type: 'result', result: T }
-  | ErrorMessage; // { type: 'error', error: McpError }
-```
-
-The SDK handles all low-level protocol details (JSON-RPC, polling, state management).
-
-## Implementation Plan
-
-### Phase 1: InspectorClient Core Support
-
-#### 1.1 SDK Integration
-
-**Goal**: Wrap SDK's `client.experimental.tasks` API with InspectorClient's event-based pattern.
-
-**Implementation**:
-
-- Access SDK tasks via `this.client.experimental.tasks` (already available after `connect()`)
-- Wrap SDK methods to dispatch InspectorClient events
-- Track active tasks in a `Map<taskId, Task>` for event dispatching
-
-#### 1.2 Task-Aware Tool Calls
-
-**Goal**: Add explicit method for task-based tool execution, separate from immediate execution.
-
-**Implementation**:
-
-- Keep existing `callTool(name, args, metadata?, options?)` for immediate execution (wraps SDK's `client.callTool()`)
-  - Fails if tool has `execution.taskSupport: "required"` (must use `callToolStream()`)
-  - Works for tools with `taskSupport: "forbidden"` or `"optional"` (but won't create tasks)
-- Add new `callToolStream(name, args, metadata?, options?)` method for task-based execution that:
-  - Calls `client.experimental.tasks.callToolStream()`
-  - Iterates the async generator
-  - Dispatches events for each message type
-  - Returns the final result or throws on error
-  - **Can be used on any tool**, regardless of `taskSupport`:
-    - `taskSupport: "forbidden"` → Returns immediate result (no task created)
-    - `taskSupport: "optional"` → Server decides: may create task or return immediately
-    - `taskSupport: "required"` → Will create a task (or fail if server doesn't support tasks)
-  - Message flow:
-    - **Task created**: Yields `taskCreated` → `taskStatus` updates → `result` (when complete)
-    - **Immediate result**: Yields `result` directly (no task created, but still uses streaming API)
-- **Explicit choice**: Users must choose between:
-  - `callTool()` - immediate execution only (fails if tool requires tasks)
-  - `callToolStream()` - task-capable execution (handles all cases via streaming API)
-
-**Event Flow**:
-
-```typescript
-// When taskCreated message received:
-dispatchTypedEvent("taskCreated", { taskId, task });
-
-// When taskStatus message received:
-dispatchTypedEvent("taskStatusChange", { taskId, task });
-
-// When result message received:
-dispatchTypedEvent("taskCompleted", { taskId, result });
-
-// When error message received:
-dispatchTypedEvent("taskFailed", { taskId, error });
-```
-
-#### 1.3 Task Management Methods
-
-**Goal**: Expose SDK task methods through InspectorClient.
-
-**Implementation**:
-
-- `getTask(taskId)`: Wraps `client.experimental.tasks.getTask()`, dispatches `taskStatusChange` event
-- `getTaskResult(taskId)`: Wraps `client.experimental.tasks.getTaskResult()`
-- `cancelTask(taskId)`: Wraps `client.experimental.tasks.cancelTask()`, dispatches `taskCancelled` event
-- `listTasks(cursor?)`: Wraps `client.experimental.tasks.listTasks()`, dispatches `tasksChange` event
-
-#### 1.4 Event System Integration
-
-**Goal**: Dispatch events for task lifecycle changes.
-
-**Implementation**:
-Add to `InspectorClientEventMap`:
-
-```typescript
+// Task created
 taskCreated: { taskId: string; task: Task }
+
+// Task status changed
 taskStatusChange: { taskId: string; task: Task }
+
+// Task completed successfully
 taskCompleted: { taskId: string; result: CallToolResult }
+
+// Task failed
 taskFailed: { taskId: string; error: McpError }
+
+// Task cancelled
 taskCancelled: { taskId: string }
-tasksChange: Task[] // All tasks from listTasks()
+
+// Task list changed (from listTasks())
+tasksChange: Task[]
 ```
 
-#### 1.5 Task State Tracking
+**Usage Example**:
 
-**Goal**: Track active tasks for UI display and event dispatching.
+```typescript
+client.addEventListener("taskCreated", (event) => {
+  console.log("Task created:", event.detail.taskId);
+});
 
-**Implementation**:
+client.addEventListener("taskStatusChange", (event) => {
+  console.log("Task status:", event.detail.task.status);
+});
 
-- Add `private activeTasks: Map<string, Task>` to InspectorClient
-- Update map when:
-  - Task created (from `callToolStream`)
-  - Task status changes (from `taskStatus` messages or `getTask`)
-  - Task completed/failed/cancelled
-- Clear tasks on disconnect
-- Optionally: Use `listTasks()` on reconnect to recover tasks (if server supports it)
+client.addEventListener("taskCompleted", (event) => {
+  console.log("Task completed:", event.detail.result);
+});
+```
 
-#### 1.6 Elicitation and Sampling Integration
+## Elicitation and Sampling Integration
 
-**Goal**: Link elicitation and sampling requests to tasks when task enters `input_required` state.
+Tasks can require user input through elicitation or sampling requests. When a task needs input:
 
-**How it works**:
+1. Server updates task status to `input_required`
+2. Server sends an elicitation request (`elicitation/create`) or sampling request (`sampling/createMessage`) to the client
+3. Server includes `related-task` metadata (`io.modelcontextprotocol/related-task: { taskId }`) in the request
+4. When the client responds, the server:
+   - Receives the response
+   - Updates task status back to `working`
+   - Continues task execution
 
-- When a task needs user input, the server:
-  1. Updates task status to `input_required`
-  2. Sends an elicitation request (`elicitation/create`) or sampling request (`sampling/createMessage`) to the client
-  3. Includes `related-task` metadata (`io.modelcontextprotocol/related-task: { taskId }`) in the request
-- When the client responds to the elicitation/sampling request, the server:
-  1. Receives the response
-  2. Updates task status back to `working`
-  3. Continues task execution
+### Implementation Details
 
-**Implementation**:
+**ElicitationCreateMessage** and **SamplingCreateMessage** both include an optional `taskId` field that is automatically extracted from the request metadata when present:
 
-- When task status becomes `input_required`, check for related elicitation or sampling request via `related-task` metadata
-- Link elicitation/sampling to task in `ElicitationCreateMessage`/`SamplingCreateMessage`
-- When elicitation/sampling is responded to, task automatically resumes (handled by server)
-- Track relationship: `taskId -> elicitationId` or `taskId -> samplingId` mapping
+```typescript
+// ElicitationCreateMessage
+public readonly taskId?: string; // Extracted from request.params._meta[RELATED_TASK_META_KEY]?.taskId
 
-#### 1.7 Capability Detection
+// SamplingCreateMessage
+public readonly taskId?: string; // Extracted from request.params._meta[RELATED_TASK_META_KEY]?.taskId
+```
 
-**Goal**: Detect task support capabilities.
+This allows UI clients to:
 
-**Implementation**:
+- Display which task is waiting for input
+- Link elicitation/sampling UI to the associated task
+- Show task status as `input_required` while waiting for user response
 
-- Check `serverCapabilities.tasks` for `{ list: true, cancel: true }` to determine if server supports tasks
-- Tool definitions already include `execution.taskSupport` hint (`required`, `optional`, `forbidden`) - no separate lookup method needed
-- Users can check `tool.execution?.taskSupport` directly from tool definitions returned by `listTools()` or `listAllTools()`
+**Usage Example**:
 
-### Phase 2: TUI Support
+```typescript
+client.addEventListener("newPendingElicitation", (event) => {
+  const elicitation = event.detail;
+  if (elicitation.taskId) {
+    // This elicitation is linked to a task
+    const task = client
+      .getClientTasks()
+      .find((t) => t.taskId === elicitation.taskId);
+    console.log("Task waiting for input:", task?.status); // "input_required"
+  }
+});
+```
 
-#### 2.1 Task Display
+## Progress Notifications
 
-**Goal**: Show active tasks in TUI.
+Progress notifications can be linked to tasks via `related-task` metadata. When a server sends a progress notification with `related-task` metadata, the notification is associated with the specified task.
 
-**Tasks**:
-
-- Add "Tasks" tab or section to TUI
-- Display task list with:
-  - Task ID
-  - Status (with visual indicators)
-  - Created/updated timestamps
-  - Related tool call (if available)
-- Show task details in modal or expandable view
-- Display task results when completed
-- Show error messages when failed
-
-#### 2.2 Task Actions
-
-**Goal**: Allow users to interact with tasks in TUI.
-
-**Tasks**:
-
-- Cancel task action (calls `cancelTask()`)
-- View task result (calls `getTaskResult()`)
-- Handle `input_required` state (link to elicitation UI)
-- Auto-refresh task status (poll via `getTask()` or listen to events)
-
-#### 2.3 Tool Call Integration
-
-**Goal**: Update TUI tool call flow to support tasks.
-
-**Tasks**:
-
-- Detect task-supporting tools (via `execution.taskSupport` hint)
-- Show option to "Call as Task" for supported tools
-- When tool call returns a task (via `callToolStream`), show task status instead of immediate result
-- Link tool calls to tasks in history
+**Implementation**: Progress notifications are dispatched via the `progressNotification` event. The event includes metadata that may contain `related-task` information, allowing UI clients to link progress updates to specific tasks.
 
 ## Design Decisions
 
@@ -228,12 +231,6 @@ tasksChange: Task[] // All tasks from listTasks()
 - Ensures compatibility with SDK updates
 - Reduces maintenance burden
 
-**Implementation**:
-
-- All task operations go through `client.experimental.tasks`
-- InspectorClient wraps SDK calls and dispatches events
-- No custom TaskHandle class needed - SDK's streaming API is sufficient
-
 ### 2. Event-Based API
 
 **Decision**: Use event-based API (consistent with existing InspectorClient patterns).
@@ -241,15 +238,9 @@ tasksChange: Task[] // All tasks from listTasks()
 **Rationale**:
 
 - InspectorClient already uses EventTarget pattern
-- Events work well for TUI state management
+- Events work well for UI state management (web client, TUI, etc.)
 - Allows multiple listeners for the same task
 - Consistent with existing patterns (sampling, elicitation)
-
-**Implementation**:
-
-- Dispatch events for all task lifecycle changes
-- TUI listens to events to update UI
-- No callback-based API needed
 
 ### 3. Task State Tracking
 
@@ -257,23 +248,11 @@ tasksChange: Task[] // All tasks from listTasks()
 
 **Rationale**:
 
-- SDK does not maintain an in-memory cache of tasks - you must call `getTask()` or `listTasks()` to get task state
+- SDK does not maintain an in-memory cache of tasks
 - We receive task status updates through `callToolStream()` messages - we should cache these for event dispatching
 - UI needs to display tasks without constantly calling `listTasks()`
 - Tasks created through our API should be tracked to link them to tool calls and dispatch events
 - For tasks created outside our API (e.g., by other clients), we can use `listTasks()` when needed
-
-**Implementation**:
-
-- Use `Map<taskId, Task>` in InspectorClient to track tasks we've seen
-- Update map when:
-  - Task created (from `callToolStream` `taskCreated` message)
-  - Task status changes (from `callToolStream` `taskStatus` messages)
-  - Task completed/failed (from `callToolStream` `result`/`error` messages)
-  - Task status fetched via `getTask()` (update cache)
-- Clear tasks on disconnect
-- Use `listTasks()` to discover tasks created outside our API (e.g., on reconnect)
-- Cache is for convenience/performance - authoritative state is always from server via SDK
 
 ### 4. Streaming vs. Polling
 
@@ -286,12 +265,6 @@ tasksChange: Task[] // All tasks from listTasks()
 - SDK handles all the complexity
 - Polling methods (`getTask`) available for manual refresh
 
-**Implementation**:
-
-- `callToolStream()` is the primary method for task-based tool calls
-- `getTask()` available for manual status checks
-- TUI can use either approach (streaming for new calls, polling for refresh)
-
 ### 5. Elicitation and Sampling Integration
 
 **Decision**: Link elicitations and sampling requests to tasks via `related-task` metadata when task is `input_required`.
@@ -303,36 +276,29 @@ tasksChange: Task[] // All tasks from listTasks()
 - Server handles task resumption after input provided
 - Both elicitation and sampling work the same way: server sets task to `input_required`, sends request with `related-task` metadata, then resumes when client responds
 
-**Implementation**:
+## Tool Support Hints
 
-- When task status becomes `input_required`, check for related elicitation or sampling request via `related-task` metadata
-- Link elicitation/sampling to task in `ElicitationCreateMessage`/`SamplingCreateMessage`
-- Track relationship for UI display (`taskId -> elicitationId` or `taskId -> samplingId`)
+Tools can declare their task support requirements via `execution.taskSupport`:
 
-## Testing Strategy
+- **`"required"`**: Tool must be called via `callToolStream()` - will always create a task
+- **`"optional"`**: Tool may be called via `callTool()` or `callToolStream()` - server decides whether to create a task
+- **`"forbidden"`**: Tool must be called via `callTool()` - will never create a task (immediate return)
 
-### Unit Tests
+**Access**: Tool definitions returned by `listTools()` or `listAllTools()` include `execution?.taskSupport`.
 
-- [ ] Test `callToolStream()` with task creation
-- [ ] Test event dispatching for task lifecycle
-- [ ] Test `getTask()`, `getTaskResult()`, `cancelTask()`, `listTasks()`
-- [ ] Test elicitation integration
-- [ ] Test capability detection
+**Example**:
 
-### Integration Tests
-
-- [ ] Test with mock MCP server that supports tasks
-- [ ] Test task creation from tool calls
-- [ ] Test streaming updates
-- [ ] Test cancellation
-- [ ] Test `input_required` → elicitation → resume flow
-
-### TUI Tests
-
-- [ ] Test task display in TUI
-- [ ] Test task actions (cancel, view result)
-- [ ] Test tool call integration
-- [ ] Test elicitation integration
+```typescript
+const tools = await client.listAllTools();
+const tool = tools.find((t) => t.name === "myTool");
+if (tool?.execution?.taskSupport === "required") {
+  // Must use callToolStream()
+  const result = await client.callToolStream("myTool", {});
+} else {
+  // Can use callTool() for immediate execution
+  const result = await client.callTool("myTool", {});
+}
+```
 
 ## References
 
@@ -340,11 +306,5 @@ tasksChange: Task[] // All tasks from listTasks()
 - MCP SDK TypeScript: `@modelcontextprotocol/sdk/experimental/tasks`
 - SDK Client API: `client.experimental.tasks`
 - ResponseMessage Types: `@modelcontextprotocol/sdk/shared/responseMessage`
-
-## Next Steps
-
-1. **Implement Phase 1.1-1.4**: SDK integration and basic task methods
-2. **Test**: Verify with mock task-supporting server
-3. **Implement Phase 1.5-1.7**: State tracking, elicitation, capabilities
-4. **Implement Phase 2**: TUI support
-5. **Documentation**: Update user documentation and examples
+- SDK Task Types: `@modelcontextprotocol/sdk/experimental/tasks/types`
+- Related Task Metadata: `io.modelcontextprotocol/related-task` (from spec types)

@@ -33,11 +33,11 @@ import type {
   Resource,
   ResourceTemplate,
   Prompt,
-  CreateMessageRequest,
+  Root,
   CreateMessageResult,
-  ElicitRequest,
   ElicitResult,
   CallToolResult,
+  Task,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   CreateMessageRequestSchema,
@@ -49,7 +49,8 @@ import {
   PromptListChangedNotificationSchema,
   ResourceUpdatedNotificationSchema,
   ProgressNotificationSchema,
-  type Root,
+  McpError,
+  ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   type JsonValue,
@@ -186,6 +187,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   };
   // Resource subscriptions
   private subscribedResources: Set<string> = new Set();
+  // Task tracking
+  private clientTasks: Map<string, Task> = new Map();
 
   constructor(
     private transportConfig: MCPServerConfig,
@@ -541,6 +544,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.cacheInternal.clearAll();
     // Clear resource subscriptions on disconnect
     this.subscribedResources.clear();
+    // Clear active tasks on disconnect
+    this.clientTasks.clear();
     this.capabilities = undefined;
     this.serverInfo = undefined;
     this.instructions = undefined;
@@ -625,6 +630,118 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   getPrompts(): Prompt[] {
     return [...this.prompts];
+  }
+
+  /**
+   * Get all active tasks
+   */
+  getClientTasks(): Task[] {
+    return Array.from(this.clientTasks.values());
+  }
+
+  /**
+   * Get task capabilities from server
+   * @returns Task capabilities or undefined if not supported
+   */
+  getTaskCapabilities(): { list: boolean; cancel: boolean } | undefined {
+    if (!this.capabilities?.tasks) {
+      return undefined;
+    }
+    return {
+      list: !!this.capabilities.tasks.list,
+      cancel: !!this.capabilities.tasks.cancel,
+    };
+  }
+
+  /**
+   * Update task cache (internal helper)
+   */
+  private updateClientTask(task: Task): void {
+    this.clientTasks.set(task.taskId, task);
+  }
+
+  /**
+   * Get task status by taskId
+   * @param taskId Task identifier
+   * @returns Task status (GetTaskResult is the task itself)
+   */
+  async getTask(taskId: string): Promise<Task> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const result = await this.client.experimental.tasks.getTask(taskId);
+    // GetTaskResult is the task itself (taskId, status, ttl, etc.)
+    // Update task cache with result
+    this.updateClientTask(result);
+    // Dispatch event
+    this.dispatchTypedEvent("taskStatusChange", {
+      taskId: result.taskId,
+      task: result,
+    });
+    return result;
+  }
+
+  /**
+   * Get task result by taskId
+   * @param taskId Task identifier
+   * @returns Task result
+   */
+  async getTaskResult(taskId: string): Promise<CallToolResult> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    // Use CallToolResultSchema for validation
+    const { CallToolResultSchema } =
+      await import("@modelcontextprotocol/sdk/types.js");
+    return await this.client.experimental.tasks.getTaskResult(
+      taskId,
+      CallToolResultSchema,
+    );
+  }
+
+  /**
+   * Cancel a running task
+   * @param taskId Task identifier
+   * @returns Cancel result
+   */
+  async cancelTask(taskId: string): Promise<void> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    await this.client.experimental.tasks.cancelTask(taskId);
+    // Update task cache if we have it
+    const task = this.clientTasks.get(taskId);
+    if (task) {
+      const cancelledTask: Task = {
+        ...task,
+        status: "cancelled",
+        lastUpdatedAt: new Date().toISOString(),
+      };
+      this.updateClientTask(cancelledTask);
+    }
+    // Dispatch event
+    this.dispatchTypedEvent("taskCancelled", { taskId });
+  }
+
+  /**
+   * List all tasks with optional pagination
+   * @param cursor Optional pagination cursor
+   * @returns List of tasks with optional next cursor
+   */
+  async listTasks(
+    cursor?: string,
+  ): Promise<{ tasks: Task[]; nextCursor?: string }> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const result = await this.client.experimental.tasks.listTasks(cursor);
+    // Update task cache with all returned tasks
+    for (const task of result.tasks) {
+      this.updateClientTask(task);
+    }
+    // Dispatch event with all tasks
+    this.dispatchTypedEvent("tasksChange", result.tasks);
+    return result;
   }
 
   /**
@@ -841,10 +958,18 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    try {
-      const tools = await this.listAllToolsInternal(generalMetadata);
-      const tool = tools.find((t) => t.name === name);
 
+    // Check if tool requires task support BEFORE try block
+    // This ensures the error is thrown and not caught
+    const tools = await this.listAllToolsInternal(generalMetadata);
+    const tool = tools.find((t) => t.name === name);
+    if (tool?.execution?.taskSupport === "required") {
+      throw new Error(
+        `Tool "${name}" requires task support. Use callToolStream() instead of callTool().`,
+      );
+    }
+
+    try {
       let convertedArgs: Record<string, JsonValue> = args;
 
       if (tool) {
@@ -947,6 +1072,237 @@ export class InspectorClient extends InspectorClientEventTarget {
       });
 
       return invocation;
+    }
+  }
+
+  /**
+   * Call a tool with task support (streaming)
+   * This method supports tools with taskSupport: "required", "optional", or "forbidden"
+   * @param name Tool name
+   * @param args Tool arguments
+   * @param generalMetadata Optional general metadata
+   * @param toolSpecificMetadata Optional tool-specific metadata (takes precedence over general)
+   * @returns Tool call response
+   */
+  async callToolStream(
+    name: string,
+    args: Record<string, JsonValue>,
+    generalMetadata?: Record<string, string>,
+    toolSpecificMetadata?: Record<string, string>,
+  ): Promise<ToolCallInvocation> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    try {
+      const tools = await this.listAllToolsInternal(generalMetadata);
+      const tool = tools.find((t) => t.name === name);
+
+      let convertedArgs: Record<string, JsonValue> = args;
+
+      if (tool) {
+        // Convert parameters based on the tool's schema, but only for string values
+        const stringArgs: Record<string, string> = {};
+        for (const [key, value] of Object.entries(args)) {
+          if (typeof value === "string") {
+            stringArgs[key] = value;
+          }
+        }
+
+        if (Object.keys(stringArgs).length > 0) {
+          const convertedStringArgs = convertToolParameters(tool, stringArgs);
+          convertedArgs = { ...args, ...convertedStringArgs };
+        }
+      }
+
+      // Merge general metadata with tool-specific metadata
+      let mergedMetadata: Record<string, string> | undefined;
+      if (generalMetadata || toolSpecificMetadata) {
+        mergedMetadata = {
+          ...(generalMetadata || {}),
+          ...(toolSpecificMetadata || {}),
+        };
+      }
+
+      const timestamp = new Date();
+      const metadata =
+        mergedMetadata && Object.keys(mergedMetadata).length > 0
+          ? mergedMetadata
+          : undefined;
+
+      // Call the streaming API
+      // Metadata should be in the params, not in options
+      const streamParams: any = {
+        name: name,
+        arguments: convertedArgs,
+      };
+      if (metadata) {
+        streamParams._meta = metadata;
+      }
+      const stream = this.client.experimental.tasks.callToolStream(
+        streamParams,
+        undefined, // Use default CallToolResultSchema
+      );
+
+      let finalResult: CallToolResult | undefined;
+      let taskId: string | undefined;
+      let error: Error | undefined;
+
+      // Iterate through the async generator
+      for await (const message of stream) {
+        switch (message.type) {
+          case "taskCreated":
+            // Task was created - update cache and dispatch event
+            this.updateClientTask(message.task);
+            taskId = message.task.taskId;
+            this.dispatchTypedEvent("taskCreated", {
+              taskId: message.task.taskId,
+              task: message.task,
+            });
+            break;
+
+          case "taskStatus":
+            // Task status updated - update cache and dispatch event
+            this.updateClientTask(message.task);
+            if (!taskId) {
+              taskId = message.task.taskId;
+            }
+            this.dispatchTypedEvent("taskStatusChange", {
+              taskId: message.task.taskId,
+              task: message.task,
+            });
+            break;
+
+          case "result":
+            // Task completed - update cache, dispatch event, and store result
+            // message.result is already CallToolResult from the stream
+            finalResult = message.result as CallToolResult;
+            if (taskId) {
+              // Update task status to completed if we have the task
+              const task = this.clientTasks.get(taskId);
+              if (task) {
+                const completedTask: Task = {
+                  ...task,
+                  status: "completed",
+                  lastUpdatedAt: new Date().toISOString(),
+                };
+                this.updateClientTask(completedTask);
+                this.dispatchTypedEvent("taskCompleted", {
+                  taskId,
+                  result: finalResult,
+                });
+              }
+            }
+            break;
+
+          case "error":
+            // Task failed - dispatch event and store error
+            error = new Error(message.error.message || "Task execution failed");
+            if (taskId) {
+              // Update task status to failed if we have the task
+              const task = this.clientTasks.get(taskId);
+              if (task) {
+                const failedTask: Task = {
+                  ...task,
+                  status: "failed",
+                  lastUpdatedAt: new Date().toISOString(),
+                  statusMessage: message.error.message,
+                };
+                this.updateClientTask(failedTask);
+                this.dispatchTypedEvent("taskFailed", {
+                  taskId,
+                  error: message.error,
+                });
+              }
+            }
+            break;
+        }
+      }
+
+      // If we got an error, throw it
+      if (error) {
+        throw error;
+      }
+
+      // If we didn't get a result, something went wrong
+      // This can happen if the task completed but result wasn't in the stream
+      // Try to get it from the task result endpoint
+      if (!finalResult && taskId) {
+        try {
+          finalResult =
+            await this.client.experimental.tasks.getTaskResult(taskId);
+        } catch (resultError) {
+          throw new Error(
+            `Tool call did not return a result: ${resultError instanceof Error ? resultError.message : String(resultError)}`,
+          );
+        }
+      }
+      if (!finalResult) {
+        throw new Error("Tool call did not return a result");
+      }
+
+      const invocation: ToolCallInvocation = {
+        toolName: name,
+        params: args,
+        result: finalResult,
+        timestamp,
+        success: true,
+        metadata,
+      };
+
+      // Store in cache
+      this.cacheInternal.setToolCallResult(name, invocation);
+      // Dispatch event
+      this.dispatchTypedEvent("toolCallResultChange", {
+        toolName: name,
+        params: args,
+        result: invocation.result,
+        timestamp,
+        success: true,
+        metadata,
+      });
+
+      return invocation;
+    } catch (error) {
+      // Merge general metadata with tool-specific metadata for error case
+      let mergedMetadata: Record<string, string> | undefined;
+      if (generalMetadata || toolSpecificMetadata) {
+        mergedMetadata = {
+          ...(generalMetadata || {}),
+          ...(toolSpecificMetadata || {}),
+        };
+      }
+
+      const timestamp = new Date();
+      const metadata =
+        mergedMetadata && Object.keys(mergedMetadata).length > 0
+          ? mergedMetadata
+          : undefined;
+
+      const invocation: ToolCallInvocation = {
+        toolName: name,
+        params: args,
+        result: null,
+        timestamp,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        metadata,
+      };
+
+      // Store in cache
+      this.cacheInternal.setToolCallResult(name, invocation);
+      // Dispatch event
+      this.dispatchTypedEvent("toolCallResultChange", {
+        toolName: name,
+        params: args,
+        result: null,
+        timestamp,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        metadata,
+      });
+
+      // Re-throw error
+      throw error;
     }
   }
 
@@ -1415,10 +1771,11 @@ export class InspectorClient extends InspectorClientEventTarget {
         total: response.completion.total,
         hasMore: response.completion.hasMore,
       };
-    } catch (error: any) {
+    } catch (error) {
       // Handle MethodNotFound gracefully (server doesn't support completions)
       if (
-        error?.code === -32601 ||
+        (error instanceof McpError &&
+          error.code === ErrorCode.MethodNotFound) ||
         (error instanceof Error &&
           (error.message.includes("Method not found") ||
             error.message.includes("does not support completions")))

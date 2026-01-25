@@ -16,6 +16,15 @@ import type {
   ResourceTemplate,
   Prompt,
 } from "@modelcontextprotocol/sdk/types.js";
+import {
+  InMemoryTaskStore,
+  InMemoryTaskMessageQueue,
+} from "@modelcontextprotocol/sdk/experimental/tasks/stores/in-memory.js";
+import type {
+  TaskStore,
+  TaskMessageQueue,
+  ToolTaskHandler,
+} from "@modelcontextprotocol/sdk/experimental/tasks/interfaces.js";
 import type {
   RegisteredTool,
   RegisteredResource,
@@ -92,6 +101,14 @@ export interface ToolDefinition {
   ) => Promise<any>;
 }
 
+export interface TaskToolDefinition {
+  name: string;
+  description: string;
+  inputSchema?: ToolInputSchema;
+  execution?: { taskSupport: "required" | "optional" };
+  handler: ToolTaskHandler<ToolInputSchema | undefined>;
+}
+
 export interface ResourceDefinition {
   uri: string;
   name: string;
@@ -158,7 +175,7 @@ export interface ResourceTemplateDefinition {
  */
 export interface ServerConfig {
   serverInfo: Implementation; // Server metadata (name, version, etc.) - required
-  tools?: ToolDefinition[]; // Tools to register (optional, empty array means no tools, but tools capability is still advertised)
+  tools?: (ToolDefinition | TaskToolDefinition)[]; // Tools to register (optional, empty array means no tools, but tools capability is still advertised)
   resources?: ResourceDefinition[]; // Resources to register (optional, empty array means no resources, but resources capability is still advertised)
   resourceTemplates?: ResourceTemplateDefinition[]; // Resource templates to register (optional, empty array means no templates, but resources capability is still advertised)
   prompts?: PromptDefinition[]; // Prompts to register (optional, empty array means no prompts, but prompts capability is still advertised)
@@ -195,6 +212,24 @@ export interface ServerConfig {
     resourceTemplates?: number;
     prompts?: number;
   };
+  /**
+   * Whether to advertise tasks capability
+   * If enabled, server will advertise tasks capability with list and cancel support
+   */
+  tasks?: {
+    list?: boolean; // default: true
+    cancel?: boolean; // default: true
+  };
+  /**
+   * Task store implementation (optional, defaults to InMemoryTaskStore)
+   * Only used if tasks capability is enabled
+   */
+  taskStore?: TaskStore;
+  /**
+   * Task message queue implementation (optional, defaults to InMemoryTaskMessageQueue)
+   * Only used if tasks capability is enabled
+   */
+  taskMessageQueue?: TaskMessageQueue;
 }
 
 /**
@@ -208,6 +243,11 @@ export function createMcpServer(config: ServerConfig): McpServer {
     resources?: { subscribe?: boolean };
     prompts?: {};
     logging?: {};
+    tasks?: {
+      list?: {};
+      cancel?: {};
+      requests?: { tools?: { call?: {} } };
+    };
   } = {};
 
   if (config.tools !== undefined) {
@@ -229,10 +269,36 @@ export function createMcpServer(config: ServerConfig): McpServer {
   if (config.logging === true) {
     capabilities.logging = {};
   }
+  if (config.tasks !== undefined) {
+    capabilities.tasks = {
+      list: config.tasks.list !== false ? {} : undefined,
+      cancel: config.tasks.cancel !== false ? {} : undefined,
+      requests: { tools: { call: {} } },
+    };
+    // Remove undefined values
+    if (capabilities.tasks.list === undefined) {
+      delete capabilities.tasks.list;
+    }
+    if (capabilities.tasks.cancel === undefined) {
+      delete capabilities.tasks.cancel;
+    }
+  }
 
-  // Create the server with capabilities
+  // Create task store and message queue if tasks are enabled
+  const taskStore =
+    config.tasks !== undefined
+      ? config.taskStore || new InMemoryTaskStore()
+      : undefined;
+  const taskMessageQueue =
+    config.tasks !== undefined
+      ? config.taskMessageQueue || new InMemoryTaskMessageQueue()
+      : undefined;
+
+  // Create the server with capabilities and task stores
   const mcpServer = new McpServer(config.serverInfo, {
     capabilities,
+    taskStore,
+    taskMessageQueue,
   });
 
   // Create state (this is really session state, which is what we'll call it if we implement sessions at some point)
@@ -289,49 +355,86 @@ export function createMcpServer(config: ServerConfig): McpServer {
     );
   }
 
+  // Type guard to check if a tool is a task tool
+  function isTaskTool(
+    tool: ToolDefinition | TaskToolDefinition,
+  ): tool is TaskToolDefinition {
+    return (
+      "handler" in tool &&
+      typeof tool.handler === "object" &&
+      tool.handler !== null &&
+      "createTask" in tool.handler
+    );
+  }
+
   // Set up tools
   if (config.tools && config.tools.length > 0) {
     for (const tool of config.tools) {
-      const registered = mcpServer.registerTool(
-        tool.name,
-        {
-          description: tool.description,
-          inputSchema: tool.inputSchema,
-        },
-        async (args, extra) => {
-          const result = await tool.handler(
-            args as Record<string, any>,
-            context,
-            extra,
-          );
-          // Handle different return types from tool handlers
-          // If handler returns content array directly (like get-annotated-message), use it
-          if (result && Array.isArray(result.content)) {
-            return { content: result.content };
-          }
-          // If handler returns message (like echo), format it
-          if (result && typeof result.message === "string") {
+      if (isTaskTool(tool)) {
+        // Register task-based tool
+        // registerToolTask has two overloads: one with inputSchema (required) and one without
+        const registered = tool.inputSchema
+          ? mcpServer.experimental.tasks.registerToolTask(
+              tool.name,
+              {
+                description: tool.description,
+                inputSchema: tool.inputSchema,
+                execution: tool.execution,
+              },
+              tool.handler,
+            )
+          : mcpServer.experimental.tasks.registerToolTask(
+              tool.name,
+              {
+                description: tool.description,
+                execution: tool.execution,
+              },
+              tool.handler,
+            );
+        state.registeredTools.set(tool.name, registered);
+      } else {
+        // Register regular tool
+        const registered = mcpServer.registerTool(
+          tool.name,
+          {
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+          },
+          async (args, extra) => {
+            const result = await tool.handler(
+              args as Record<string, any>,
+              context,
+              extra,
+            );
+            // Handle different return types from tool handlers
+            // If handler returns content array directly (like get-annotated-message), use it
+            if (result && Array.isArray(result.content)) {
+              return { content: result.content };
+            }
+            // If handler returns message (like echo), format it
+            if (result && typeof result.message === "string") {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: result.message,
+                  },
+                ],
+              };
+            }
+            // Otherwise, stringify the result
             return {
               content: [
                 {
                   type: "text",
-                  text: result.message,
+                  text: JSON.stringify(result),
                 },
               ],
             };
-          }
-          // Otherwise, stringify the result
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(result),
-              },
-            ],
-          };
-        },
-      );
-      state.registeredTools.set(tool.name, registered);
+          },
+        );
+        state.registeredTools.set(tool.name, registered);
+      }
     }
   }
 

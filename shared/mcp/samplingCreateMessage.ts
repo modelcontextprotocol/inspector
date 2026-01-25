@@ -2,6 +2,7 @@ import type {
   CreateMessageRequest,
   CreateMessageResult,
 } from "@modelcontextprotocol/sdk/types.js";
+import { RELATED_TASK_META_KEY } from "@modelcontextprotocol/sdk/types.js";
 
 /**
  * Represents a pending sampling request from the server
@@ -10,6 +11,7 @@ export class SamplingCreateMessage {
   public readonly id: string;
   public readonly timestamp: Date;
   public readonly request: CreateMessageRequest;
+  public readonly taskId?: string;
   private resolvePromise?: (result: CreateMessageResult) => void;
   private rejectPromise?: (error: Error) => void;
 
@@ -22,6 +24,9 @@ export class SamplingCreateMessage {
     this.id = `sampling-${Date.now()}-${Math.random()}`;
     this.timestamp = new Date();
     this.request = request;
+    // Extract taskId from request params metadata if present
+    const relatedTask = request.params?._meta?.[RELATED_TASK_META_KEY];
+    this.taskId = relatedTask?.taskId;
     this.resolvePromise = resolve;
     this.rejectPromise = reject;
   }
