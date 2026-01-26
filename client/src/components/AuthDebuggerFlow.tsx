@@ -150,10 +150,12 @@ export function AuthDebuggerFlow({
       provider.setAuthCodeHandler(handleAwaitAuthCode);
 
       try {
-        // Step 1: Initialize to get 401
-        let initResponse: Response;
+        // Step 1: Try to initialize to get 401 with WWW-Authenticate header
+        let resourceMetadataUrl: URL | undefined;
+        let scope: string | undefined;
+
         try {
-          initResponse = await debugFetch(serverUrl, {
+          const initResponse = await debugFetch(serverUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -167,38 +169,73 @@ export function AuthDebuggerFlow({
               id: 1,
             }),
           });
-        } catch (fetchError) {
-          // Network errors (CORS, connection refused, etc.)
-          const message =
-            fetchError instanceof TypeError
-              ? `Network error connecting to ${serverUrl}. This could be a CORS issue or the server may not be reachable.`
-              : fetchError instanceof Error
-                ? fetchError.message
-                : String(fetchError);
-          onError(new Error(message));
-          return;
-        }
 
-        if (initResponse.status !== 401) {
-          // Server may not require auth, or something else happened
-          if (initResponse.ok) {
+          if (initResponse.status === 401) {
+            const params = extractWWWAuthenticateParams(initResponse);
+            resourceMetadataUrl = params.resourceMetadataUrl;
+            scope = params.scope;
+          } else if (initResponse.ok) {
             onError(
               new Error(
                 `Server returned ${initResponse.status} - authentication may not be required`,
               ),
             );
-          } else {
-            onError(
-              new Error(
-                `Expected 401, got ${initResponse.status} ${initResponse.statusText}`,
-              ),
-            );
+            return;
           }
-          return;
-        }
+          // For other non-401 errors, we'll continue without the metadata
+        } catch (fetchError) {
+          // Network errors (CORS preflight failure, connection refused, etc.)
+          // Record this as a failed step but continue with discovery
+          const errorMessage =
+            fetchError instanceof TypeError
+              ? "CORS preflight failed - server may not allow cross-origin requests"
+              : fetchError instanceof Error
+                ? fetchError.message
+                : String(fetchError);
 
-        const { resourceMetadataUrl, scope } =
-          extractWWWAuthenticateParams(initResponse);
+          // Add a "failed" step to show what happened
+          const failedEntry: DebugRequestResponse = {
+            id: crypto.randomUUID(),
+            label: `POST ${new URL(serverUrl).pathname || "/"}`,
+            request: {
+              method: "POST",
+              url: serverUrl,
+              headers: { "Content-Type": "application/json" },
+              body: {
+                jsonrpc: "2.0",
+                method: "initialize",
+                params: {
+                  protocolVersion: "2025-03-26",
+                  capabilities: {},
+                  clientInfo: { name: "mcp-inspector", version: "1.0.0" },
+                },
+                id: 1,
+              },
+            },
+            response: {
+              status: 0,
+              statusText: "Failed",
+              headers: {},
+              body: {
+                error: errorMessage,
+                note: "Continuing with OAuth discovery without WWW-Authenticate metadata",
+              },
+            },
+          };
+
+          if (quickMode) {
+            setCompletedSteps((prev) => [...prev, failedEntry]);
+          } else {
+            setCompletedSteps((prev) => [...prev, failedEntry]);
+            setCurrentStep(failedEntry);
+            setFlowState("waiting_continue");
+            await new Promise<void>((resolve) => {
+              continueResolverRef.current = resolve;
+            });
+            setCurrentStep(null);
+            setFlowState("running");
+          }
+        }
 
         // Step 2: Run auth() for discovery, registration, and authorization start
         // The debugFetch wrapper captures auth server metadata for later use
