@@ -12,7 +12,8 @@ import {
   createTestServerInfo,
   createFileResourceTemplate,
   createCollectSampleTool,
-  createCollectElicitationTool,
+  createCollectFormElicitationTool,
+  createCollectUrlElicitationTool,
   createSendNotificationTool,
   createListRootsTool,
   createArgsPrompt,
@@ -1647,11 +1648,11 @@ describe("InspectorClient", () => {
   });
 
   describe("Elicitation Requests", () => {
-    it("should handle elicitation requests from server and respond", async () => {
+    it("should handle form-based elicitation requests from server and respond", async () => {
       // Create a test server with the collectElicitation tool
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
-        tools: [createCollectElicitationTool()],
+        tools: [createCollectFormElicitationTool()],
         serverType: "streamable-http",
       });
 
@@ -1742,6 +1743,103 @@ describe("InspectorClient", () => {
         expect(toolMessage.text).toContain("Elicitation response:");
         expect(toolMessage.text).toContain("accept");
         expect(toolMessage.text).toContain("Test User");
+      }
+
+      // Verify the pending elicitation was removed
+      const pendingElicitations = client.getPendingElicitations();
+      expect(pendingElicitations.length).toBe(0);
+    });
+
+    it("should handle URL-based elicitation requests from server and respond", async () => {
+      // Create a test server with the collectUrlElicitation tool
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createCollectUrlElicitationTool()],
+        serverType: "streamable-http",
+      });
+
+      await server.start();
+
+      // Create client with elicitation enabled
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          autoFetchServerContents: false,
+          elicit: { url: true }, // Enable elicitation capability
+        },
+      );
+
+      await client.connect();
+
+      // Set up Promise to wait for elicitation request event
+      const elicitationRequestPromise = new Promise<ElicitationCreateMessage>(
+        (resolve) => {
+          client.addEventListener(
+            "newPendingElicitation",
+            (event) => {
+              resolve(event.detail);
+            },
+            { once: true },
+          );
+        },
+      );
+
+      // Start the tool call (don't await yet - it will block until elicitation is responded to)
+      const toolResultPromise = client.callTool("collectUrlElicitation", {
+        message: "Please visit the URL to complete authentication",
+        url: "https://example.com/auth",
+        elicitationId: "test-url-elicitation-123",
+      });
+
+      // Wait for the elicitation request to arrive via event
+      const pendingElicitation = await elicitationRequestPromise;
+
+      // Verify we received a URL-based elicitation request
+      expect(pendingElicitation.request.method).toBe("elicitation/create");
+      expect(pendingElicitation.request.params.message).toBe(
+        "Please visit the URL to complete authentication",
+      );
+      expect(pendingElicitation.request.params.mode).toBe("url");
+      if (pendingElicitation.request.params.mode === "url") {
+        expect(pendingElicitation.request.params.url).toBe(
+          "https://example.com/auth",
+        );
+        expect(pendingElicitation.request.params.elicitationId).toBe(
+          "test-url-elicitation-123",
+        );
+      }
+
+      // Respond to the URL-based elicitation request
+      const elicitationResponse: ElicitResult = {
+        action: "accept",
+        content: {
+          // URL-based elicitation typically doesn't have form data, but we can include metadata
+          completed: true,
+        },
+      };
+
+      await pendingElicitation.respond(elicitationResponse);
+
+      // Now await the tool result (it should complete now that we've responded)
+      const toolResult = await toolResultPromise;
+
+      // Verify the tool result contains the elicitation response
+      expect(toolResult).toBeDefined();
+      expect(toolResult.success).toBe(true);
+      expect(toolResult.result).toBeDefined();
+      expect(toolResult.result!.content).toBeDefined();
+      expect(Array.isArray(toolResult.result!.content)).toBe(true);
+      const toolContent = toolResult.result!.content as any[];
+      expect(toolContent.length).toBeGreaterThan(0);
+      const toolMessage = toolContent[0];
+      expect(toolMessage).toBeDefined();
+      expect(toolMessage.type).toBe("text");
+      if (toolMessage.type === "text") {
+        expect(toolMessage.text).toContain("URL elicitation response:");
+        expect(toolMessage.text).toContain("accept");
       }
 
       // Verify the pending elicitation was removed

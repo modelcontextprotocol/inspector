@@ -39,7 +39,8 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 | Custom headers                      | ✅ (config)     | ✅ (UI)       | ❌  | Medium       |
 | **Advanced Features**               |
 | Sampling requests                   | ✅              | ✅            | ❌  | High         |
-| Elicitation requests                | ✅              | ✅            | ❌  | High         |
+| Elicitation requests (form)         | ✅              | ✅            | ❌  | High         |
+| Elicitation requests (url)          | ✅              | ❌            | ❌  | High         |
 | Tasks (long-running operations)     | ✅              | ✅            | ❌  | Medium       |
 | Completions (resource templates)    | ✅              | ✅            | ❌  | Medium       |
 | Completions (prompts with params)   | ✅              | ✅            | ❌  | Medium       |
@@ -175,37 +176,76 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 - ✅ Provides `ElicitationCreateMessage` class with `respond()` and `remove()` methods
 - ✅ Dispatches `newPendingElicitation` and `pendingElicitationsChange` events
 - ✅ Methods: `getPendingElicitations()`, `removePendingElicitation(id)`
+- ✅ Supports both form-based (user-input) and URL-based elicitation modes
+
+#### 4a. Form-Based Elicitation (User-Input)
+
+**InspectorClient Support:**
+
+- ✅ Handles `ElicitRequest` with `requestedSchema` (form-based mode)
+- ✅ Extracts `taskId` from `related-task` metadata when present
+- ✅ Test fixtures: `createCollectElicitationTool()` for testing form-based elicitation
 
 **Web Client Support:**
 
-- UI tab (`ElicitationTab`) displays pending elicitation requests
-- `ElicitationRequest` component:
+- ✅ UI tab (`ElicitationTab`) displays pending form-based elicitation requests
+- ✅ `ElicitationRequest` component:
   - Shows request message and schema
   - Generates dynamic form from JSON schema
   - Validates form data against schema
   - Handles accept/decline/cancel actions via `ElicitationCreateMessage.respond()`
-- Listens to `newPendingElicitation` events to update UI
+- ✅ Listens to `newPendingElicitation` events to update UI
 
 **TUI Status:**
 
-- ❌ No UI for elicitation requests
-- ❌ No elicitation request display or handling UI
+- ❌ No UI for form-based elicitation requests
+- ❌ No form generation from JSON schema
+- ❌ No UI for accept/decline/cancel actions
 
 **Implementation Requirements:**
 
-- Add UI in TUI for displaying pending elicitation requests
+- Add UI in TUI for displaying pending form-based elicitation requests
 - Add form generation from JSON schema (similar to tool parameter forms)
 - Add UI for accept/decline/cancel actions (call `respond()` on `ElicitationCreateMessage`)
+- Listen to `newPendingElicitation` and `pendingElicitationsChange` events
+- Add elicitation tab or integrate into existing tabs
+
+#### 4b. URL-Based Elicitation
+
+**InspectorClient Support:**
+
+- ✅ Handles `ElicitRequest` with `mode: "url"` and `url` parameter
+- ✅ Extracts `taskId` from `related-task` metadata when present
+- ✅ Test fixtures: `createCollectUrlElicitationTool()` for testing URL-based elicitation
+
+**Web Client Support:**
+
+- ❌ No UI for URL-based elicitation requests
+- ❌ No handling for URL-based elicitation mode
+
+**TUI Status:**
+
+- ❌ No UI for URL-based elicitation requests
+- ❌ No handling for URL-based elicitation mode
+
+**Implementation Requirements:**
+
+- Add UI in TUI for displaying pending URL-based elicitation requests
+- Add UI to display URL and message to user
+- Add UI for accept/decline/cancel actions (call `respond()` on `ElicitationCreateMessage`)
+- Optionally: Open URL in browser or provide copy-to-clipboard functionality
 - Listen to `newPendingElicitation` and `pendingElicitationsChange` events
 - Add elicitation tab or integrate into existing tabs
 
 **Code References:**
 
 - `InspectorClient`: `shared/mcp/inspectorClient.ts` (lines 90-92, 227-228, 420-433, 606-639)
+- `ElicitationCreateMessage`: `shared/mcp/elicitationCreateMessage.ts`
+- Test fixtures: `shared/test/test-server-fixtures.ts` (`createCollectElicitationTool`, `createCollectUrlElicitationTool`)
 - Web client: `client/src/components/ElicitationTab.tsx`
-- Web client: `client/src/components/ElicitationRequest.tsx`
+- Web client: `client/src/components/ElicitationRequest.tsx` (form-based only)
 - Web client: `client/src/App.tsx` (lines 334-356, 653-669)
-- Web client: `client/src/utils/schemaUtils.ts` (schema resolution for elicitation)
+- Web client: `client/src/utils/schemaUtils.ts` (schema resolution for form-based elicitation)
 
 ### 5. Tasks (Long-Running Operations)
 
