@@ -35,7 +35,12 @@ interface AuthDebuggerFlowProps {
   onError: (error: Error) => void;
 }
 
-type FlowState = "running" | "waiting_continue" | "waiting_code" | "complete";
+type FlowState =
+  | "running"
+  | "waiting_continue"
+  | "waiting_code"
+  | "complete"
+  | "error";
 
 export function AuthDebuggerFlow({
   serverUrl,
@@ -137,24 +142,7 @@ export function AuthDebuggerFlow({
     if (flowStartedRef.current) return;
     flowStartedRef.current = true;
 
-    // Helper to create info/warning steps
-    function createInfoStep(
-      label: string,
-      message: React.ReactNode,
-    ): DebugRequestResponse {
-      return {
-        id: crypto.randomUUID(),
-        label,
-        request: { method: "INFO", url: "", headers: {} },
-        response: {
-          status: 0,
-          statusText: "Info",
-          headers: {},
-          body: { message },
-        },
-      };
-    }
-
+    // Helper to create warning/error steps
     function createWarningStep(
       label: string,
       message: React.ReactNode,
@@ -166,6 +154,23 @@ export function AuthDebuggerFlow({
         response: {
           status: 0,
           statusText: "Warning",
+          headers: {},
+          body: { message },
+        },
+      };
+    }
+
+    function createErrorStep(
+      label: string,
+      message: React.ReactNode,
+    ): DebugRequestResponse {
+      return {
+        id: crypto.randomUUID(),
+        label,
+        request: { method: "ERROR", url: "", headers: {} },
+        response: {
+          status: 0,
+          statusText: "Error",
           headers: {},
           body: { message },
         },
@@ -187,15 +192,15 @@ export function AuthDebuggerFlow({
           discoveryStateRef.current.prmFailed &&
           !discoveryStateRef.current.shownPrmWarning
         ) {
-          const infoEntry = createInfoStep(
-            "Info: No PRM Found",
+          const errorEntry = createErrorStep(
+            "Error: No PRM Found",
             <>
               Server does not have Protected Resource Metadata. Falling back to{" "}
               <a
                 href="https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#authorization-base-url"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="underline text-blue-600 hover:text-blue-800"
+                className="underline text-red-600 hover:text-red-800"
               >
                 2025-03-26 spec
               </a>{" "}
@@ -203,7 +208,7 @@ export function AuthDebuggerFlow({
               correct.
             </>,
           );
-          await handleRequestComplete(infoEntry);
+          await handleRequestComplete(errorEntry);
           discoveryStateRef.current.shownPrmWarning = true;
         }
 
@@ -427,28 +432,21 @@ export function AuthDebuggerFlow({
         // Show the final error as a step instead of dismissing the flow
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        const errorEntry: DebugRequestResponse = {
-          id: crypto.randomUUID(),
-          label: "Flow Error",
-          request: {
-            method: "N/A",
-            url: serverUrl,
-            headers: {},
-          },
-          response: {
-            status: 0,
-            statusText: "Error",
-            headers: {},
-            body: {
-              error: errorMessage,
-              note: "The OAuth flow could not complete. This may be due to CORS restrictions or server configuration.",
-            },
-          },
-        };
+        const errorEntry = createErrorStep(
+          "Flow Error",
+          <>
+            {errorMessage}
+            <br />
+            <span className="text-red-600/80 text-xs mt-1 block">
+              The OAuth flow could not complete. This may be due to CORS
+              restrictions or server configuration.
+            </span>
+          </>,
+        );
 
         if (quickMode) {
           setCompletedSteps((prev) => [...prev, errorEntry]);
-          setFlowState("complete");
+          setFlowState("error");
         } else {
           setCurrentStep(errorEntry);
           setFlowState("waiting_continue");
@@ -457,7 +455,7 @@ export function AuthDebuggerFlow({
           });
           setCompletedSteps((prev) => [...prev, errorEntry]);
           setCurrentStep(null);
-          setFlowState("complete");
+          setFlowState("error");
         }
       }
     }
@@ -631,6 +629,16 @@ export function AuthDebuggerFlow({
             </span>
           </div>
         )}
+
+        {/* Error indicator */}
+        {flowState === "error" && (
+          <div className="flex items-center gap-2 p-3 rounded-md bg-red-50 border border-red-200 text-red-700">
+            <AlertTriangle className="h-5 w-5" />
+            <span className="text-sm font-medium">
+              Authentication flow failed
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -678,9 +686,10 @@ function StepDisplay({
         <span className={`${isCurrent ? "font-medium" : ""}`}>
           {stepNumber}. {step.label}
         </span>
-        {/* Hide status for info/warning steps, show for HTTP requests */}
+        {/* Hide status for info/warning/error steps, show for HTTP requests */}
         {step.request.method !== "INFO" &&
-          step.request.method !== "WARNING" && (
+          step.request.method !== "WARNING" &&
+          step.request.method !== "ERROR" && (
             <span className="ml-auto text-xs text-muted-foreground">
               {step.response.status} {step.response.statusText}
             </span>
@@ -689,14 +698,17 @@ function StepDisplay({
 
       {expanded && (
         <div className="ml-7 mt-2 space-y-3">
-          {/* Info/Warning steps: show message directly */}
+          {/* Info/Warning/Error steps: show message directly */}
           {(step.request.method === "INFO" ||
-            step.request.method === "WARNING") && (
+            step.request.method === "WARNING" ||
+            step.request.method === "ERROR") && (
             <div
               className={`text-sm p-3 rounded-md ${
                 step.request.method === "INFO"
                   ? "bg-blue-50 text-blue-800 border border-blue-200"
-                  : "bg-yellow-50 text-yellow-800 border border-yellow-200"
+                  : step.request.method === "WARNING"
+                    ? "bg-yellow-50 text-yellow-800 border border-yellow-200"
+                    : "bg-red-50 text-red-800 border border-red-200"
               }`}
             >
               {typeof step.response.body === "object" &&
@@ -709,7 +721,8 @@ function StepDisplay({
 
           {/* Regular HTTP requests: show Request/Response details */}
           {step.request.method !== "INFO" &&
-            step.request.method !== "WARNING" && (
+            step.request.method !== "WARNING" &&
+            step.request.method !== "ERROR" && (
               <>
                 {/* Request details */}
                 <details className="text-xs">
