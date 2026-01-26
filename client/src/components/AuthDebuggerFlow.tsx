@@ -10,9 +10,13 @@ import { createDebugFetch, DebugRequestResponse } from "@/lib/debug-middleware";
 import { DebugOAuthProvider } from "@/lib/DebugOAuthProvider";
 import {
   auth,
+  exchangeAuthorization,
   extractWWWAuthenticateParams,
 } from "@modelcontextprotocol/sdk/client/auth.js";
-import { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import {
+  OAuthTokens,
+  OAuthMetadata,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 import { validateRedirectUrl } from "@/utils/urlValidation";
 import { useToast } from "@/lib/hooks/useToast";
 
@@ -46,6 +50,16 @@ export function AuthDebuggerFlow({
   const continueResolverRef = useRef<(() => void) | null>(null);
   const authCodeResolverRef = useRef<((code: string) => void) | null>(null);
   const flowStartedRef = useRef(false);
+
+  // Cache discovered metadata to avoid re-fetching during token exchange
+  // TODO: The SDK's auth() function should accept pre-fetched metadata to avoid
+  // redundant discovery requests. For now, we capture it from responses and use
+  // exchangeAuthorization() directly for the token exchange step.
+  const cachedMetadataRef = useRef<{
+    authServerMetadata?: OAuthMetadata;
+    authServerUrl?: string;
+    resource?: URL;
+  }>({});
 
   // Handler for middleware callback - pauses until Continue clicked
   const handleRequestComplete = useCallback(
@@ -94,7 +108,33 @@ export function AuthDebuggerFlow({
     flowStartedRef.current = true;
 
     async function runDebugFlow() {
-      const debugFetch = createDebugFetch(handleRequestComplete);
+      const baseDebugFetch = createDebugFetch(handleRequestComplete);
+
+      // Wrap debugFetch to capture auth server metadata from responses
+      const debugFetch: typeof fetch = async (input, init) => {
+        const response = await baseDebugFetch(input, init);
+        const url = typeof input === "string" ? input : input.toString();
+
+        // Capture auth server metadata when we see it
+        if (
+          url.includes(".well-known/oauth-authorization-server") ||
+          url.includes(".well-known/openid-configuration")
+        ) {
+          try {
+            const cloned = response.clone();
+            const metadata = await cloned.json();
+            cachedMetadataRef.current.authServerMetadata = metadata;
+            // Extract auth server URL from the request URL
+            const authServerUrl = new URL(url);
+            cachedMetadataRef.current.authServerUrl = authServerUrl.origin;
+          } catch {
+            // Ignore parse errors
+          }
+        }
+
+        return response;
+      };
+
       const provider = new DebugOAuthProvider(serverUrl);
       provider.setAuthCodeHandler(handleAwaitAuthCode);
 
@@ -149,15 +189,17 @@ export function AuthDebuggerFlow({
         const { resourceMetadataUrl, scope } =
           extractWWWAuthenticateParams(initResponse);
 
-        // Step 2: Run auth() - middleware captures all requests
-        let result = await auth(provider, {
+        // Step 2: Run auth() for discovery, registration, and authorization start
+        // The debugFetch wrapper captures auth server metadata for later use
+        const result = await auth(provider, {
           serverUrl,
           resourceMetadataUrl,
           scope,
           fetchFn: debugFetch,
         });
 
-        // Step 3: If REDIRECT, we've already gotten the code via handleAwaitAuthCode
+        // Step 3: If REDIRECT, use exchangeAuthorization directly with cached metadata
+        // This avoids the redundant metadata discovery that auth() would do
         if (result === "REDIRECT") {
           const authorizationCode = provider.getPendingAuthCode();
           if (!authorizationCode) {
@@ -167,13 +209,36 @@ export function AuthDebuggerFlow({
 
           provider.clearPendingAuthCode();
 
-          result = await auth(provider, {
-            serverUrl,
-            resourceMetadataUrl,
-            scope,
+          const clientInfo = await provider.clientInformation();
+          if (!clientInfo) {
+            onError(new Error("No client information available"));
+            return;
+          }
+
+          const codeVerifier = provider.codeVerifier();
+          const { authServerMetadata, authServerUrl } =
+            cachedMetadataRef.current;
+
+          if (!authServerUrl) {
+            onError(new Error("No auth server URL cached"));
+            return;
+          }
+
+          // Use exchangeAuthorization directly instead of auth()
+          const tokens = await exchangeAuthorization(authServerUrl, {
+            metadata: authServerMetadata,
+            clientInformation: clientInfo,
             authorizationCode,
+            codeVerifier,
+            redirectUri: provider.redirectUrl,
+            resource: cachedMetadataRef.current.resource,
             fetchFn: debugFetch,
           });
+
+          provider.saveTokens(tokens);
+          setFlowState("complete");
+          onComplete(tokens);
+          return;
         }
 
         if (result === "AUTHORIZED") {
