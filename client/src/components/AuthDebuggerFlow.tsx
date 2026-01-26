@@ -226,7 +226,16 @@ export function AuthDebuggerFlow({
         }
 
         // Make the actual request
-        const response = await baseDebugFetch(input, init);
+        let response: Response;
+        try {
+          response = await baseDebugFetch(input, init);
+        } catch (error) {
+          // Track failures even when fetch throws (CORS, network errors)
+          if (url.includes(".well-known/oauth-protected-resource")) {
+            discoveryStateRef.current.prmFailed = true;
+          }
+          throw error;
+        }
 
         // Track PRM discovery
         if (url.includes(".well-known/oauth-protected-resource")) {
