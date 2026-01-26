@@ -111,14 +111,19 @@ describe("AuthDebugger", () => {
       expect(onBack).toHaveBeenCalled();
     });
 
-    it("should show Start Debug Flow button when no tokens exist", async () => {
+    it("should show Debug Flow and Quick Flow buttons when no tokens exist", async () => {
       await act(async () => {
         renderAuthDebugger();
       });
-      expect(screen.getByText("Start Debug Flow")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Debug Flow" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Quick Flow" }),
+      ).toBeInTheDocument();
     });
 
-    it("should show Refresh Token button when tokens exist", async () => {
+    it("should show Debug Flow and Quick Flow buttons when tokens exist", async () => {
       await act(async () => {
         renderAuthDebugger({
           authState: {
@@ -127,7 +132,12 @@ describe("AuthDebugger", () => {
           },
         });
       });
-      expect(screen.getByText("Refresh Token")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Debug Flow" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Quick Flow" }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -139,7 +149,7 @@ describe("AuthDebugger", () => {
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByText("Start Debug Flow"));
+        fireEvent.click(screen.getByRole("button", { name: "Debug Flow" }));
       });
 
       expect(updateAuthState).toHaveBeenCalledWith({
@@ -157,7 +167,7 @@ describe("AuthDebugger", () => {
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByText("Start Debug Flow"));
+        fireEvent.click(screen.getByRole("button", { name: "Debug Flow" }));
       });
 
       expect(screen.getByTestId("mock-auth-debugger-flow")).toBeInTheDocument();
@@ -170,7 +180,7 @@ describe("AuthDebugger", () => {
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByText("Start Debug Flow"));
+        fireEvent.click(screen.getByRole("button", { name: "Debug Flow" }));
       });
 
       await act(async () => {
@@ -180,10 +190,6 @@ describe("AuthDebugger", () => {
       expect(updateAuthState).toHaveBeenCalledWith({
         oauthTokens: mockOAuthTokens,
         oauthStep: "complete",
-        statusMessage: {
-          type: "success",
-          message: "Authentication completed successfully",
-        },
       });
     });
 
@@ -194,7 +200,7 @@ describe("AuthDebugger", () => {
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByText("Start Debug Flow"));
+        fireEvent.click(screen.getByRole("button", { name: "Debug Flow" }));
       });
 
       await act(async () => {
@@ -216,7 +222,7 @@ describe("AuthDebugger", () => {
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByText("Start Debug Flow"));
+        fireEvent.click(screen.getByRole("button", { name: "Debug Flow" }));
       });
 
       await act(async () => {

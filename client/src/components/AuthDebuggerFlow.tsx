@@ -22,6 +22,7 @@ import { useToast } from "@/lib/hooks/useToast";
 
 interface AuthDebuggerFlowProps {
   serverUrl: string;
+  quickMode?: boolean;
   onComplete: (tokens: OAuthTokens) => void;
   onCancel: () => void;
   onError: (error: Error) => void;
@@ -31,6 +32,7 @@ type FlowState = "running" | "waiting_continue" | "waiting_code" | "complete";
 
 export function AuthDebuggerFlow({
   serverUrl,
+  quickMode = false,
   onComplete,
   onCancel,
   onError,
@@ -50,6 +52,7 @@ export function AuthDebuggerFlow({
   const continueResolverRef = useRef<(() => void) | null>(null);
   const authCodeResolverRef = useRef<((code: string) => void) | null>(null);
   const flowStartedRef = useRef(false);
+  const popupRef = useRef<Window | null>(null);
 
   // Cache discovered metadata to avoid re-fetching during token exchange
   // TODO: The SDK's auth() function should accept pre-fetched metadata to avoid
@@ -61,19 +64,27 @@ export function AuthDebuggerFlow({
     resource?: URL;
   }>({});
 
-  // Handler for middleware callback - pauses until Continue clicked
+  // Handler for middleware callback - pauses until Continue clicked (unless quickMode)
   const handleRequestComplete = useCallback(
     async (entry: DebugRequestResponse) => {
+      // Always add to completed steps
+      setCompletedSteps((prev) => [...prev, entry]);
+
+      if (quickMode) {
+        // Quick mode: don't pause, just continue
+        return;
+      }
+
+      // Debug mode: pause and wait for Continue
       setCurrentStep(entry);
       setFlowState("waiting_continue");
       await new Promise<void>((resolve) => {
         continueResolverRef.current = resolve;
       });
-      setCompletedSteps((prev) => [...prev, entry]);
       setCurrentStep(null);
       setFlowState("running");
     },
-    [],
+    [quickMode],
   );
 
   // Handler for auth URL - pauses until code entered
@@ -265,11 +276,40 @@ export function AuthDebuggerFlow({
     onError,
   ]);
 
+  // Listen for postMessage from popup (opener pattern)
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // Only accept messages from same origin
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === "oauth-callback" && event.data?.code) {
+        // Auto-fill the auth code from popup
+        if (authCodeResolverRef.current) {
+          authCodeResolverRef.current(event.data.code);
+          authCodeResolverRef.current = null;
+          setAuthUrl(null);
+          setAuthCode("");
+          setFlowState("running");
+        }
+        // Close popup if we opened it
+        popupRef.current?.close();
+        popupRef.current = null;
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
   const handleOpenAuthUrl = () => {
     if (authUrl) {
       try {
         validateRedirectUrl(authUrl.href);
-        window.open(authUrl.href, "_blank", "noopener noreferrer");
+        // Open as popup and keep reference for message receiving
+        popupRef.current = window.open(
+          authUrl.href,
+          "oauth-popup",
+          "width=600,height=700",
+        );
       } catch (error) {
         toast({
           title: "Invalid URL",
@@ -383,6 +423,16 @@ export function AuthDebuggerFlow({
               {completedSteps.length === 0
                 ? "Connecting to server..."
                 : "Processing..."}
+            </span>
+          </div>
+        )}
+
+        {/* Complete indicator */}
+        {flowState === "complete" && (
+          <div className="flex items-center gap-2 p-3 rounded-md bg-green-50 border border-green-200 text-green-700">
+            <CheckCircle2 className="h-5 w-5" />
+            <span className="text-sm font-medium">
+              Authentication completed successfully
             </span>
           </div>
         )}

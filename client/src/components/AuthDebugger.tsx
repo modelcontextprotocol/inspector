@@ -61,7 +61,8 @@ const AuthDebugger = ({
   authState,
   updateAuthState,
 }: AuthDebuggerProps) => {
-  const [showDebugFlow, setShowDebugFlow] = useState(false);
+  const [flowMode, setFlowMode] = useState<"debug" | "quick" | null>(null);
+  const [flowComplete, setFlowComplete] = useState(false);
 
   // Check for existing tokens on mount
   useEffect(() => {
@@ -84,42 +85,47 @@ const AuthDebugger = ({
     }
   }, [serverUrl, updateAuthState, authState.oauthTokens]);
 
-  const startDebugFlow = useCallback(() => {
-    if (!serverUrl) {
-      updateAuthState({
-        statusMessage: {
-          type: "error",
-          message:
-            "Please enter a server URL in the sidebar before authenticating",
-        },
-      });
-      return;
-    }
+  const startFlow = useCallback(
+    (mode: "debug" | "quick") => {
+      if (!serverUrl) {
+        updateAuthState({
+          statusMessage: {
+            type: "error",
+            message:
+              "Please enter a server URL in the sidebar before authenticating",
+          },
+        });
+        return;
+      }
 
-    updateAuthState({
-      statusMessage: null,
-      latestError: null,
-    });
-    setShowDebugFlow(true);
-  }, [serverUrl, updateAuthState]);
+      updateAuthState({
+        statusMessage: null,
+        latestError: null,
+      });
+      setFlowComplete(false);
+      setFlowMode(mode);
+    },
+    [serverUrl, updateAuthState],
+  );
+
+  const startDebugFlow = useCallback(() => startFlow("debug"), [startFlow]);
+  const startQuickFlow = useCallback(() => startFlow("quick"), [startFlow]);
 
   const handleFlowComplete = useCallback(
     (tokens: OAuthTokens) => {
       updateAuthState({
         oauthTokens: tokens,
         oauthStep: "complete",
-        statusMessage: {
-          type: "success",
-          message: "Authentication completed successfully",
-        },
       });
-      setShowDebugFlow(false);
+      // Keep the flow visible but mark as complete
+      setFlowComplete(true);
     },
     [updateAuthState],
   );
 
   const handleFlowCancel = useCallback(() => {
-    setShowDebugFlow(false);
+    setFlowMode(null);
+    setFlowComplete(false);
     updateAuthState({
       statusMessage: {
         type: "info",
@@ -130,7 +136,8 @@ const AuthDebugger = ({
 
   const handleFlowError = useCallback(
     (error: Error) => {
-      setShowDebugFlow(false);
+      setFlowMode(null);
+      setFlowComplete(false);
       updateAuthState({
         latestError: error,
         statusMessage: {
@@ -155,7 +162,8 @@ const AuthDebugger = ({
           message: "OAuth tokens cleared successfully",
         },
       });
-      setShowDebugFlow(false);
+      setFlowMode(null);
+      setFlowComplete(false);
 
       // Clear success message after 3 seconds
       setTimeout(() => {
@@ -163,6 +171,11 @@ const AuthDebugger = ({
       }, 3000);
     }
   }, [serverUrl, updateAuthState]);
+
+  const handleNewFlow = useCallback(() => {
+    setFlowMode(null);
+    setFlowComplete(false);
+  }, []);
 
   return (
     <div className="w-full p-4">
@@ -200,28 +213,45 @@ const AuthDebugger = ({
                   </div>
                 )}
 
-                <div className="flex gap-4">
-                  <Button onClick={startDebugFlow} disabled={showDebugFlow}>
-                    {authState.oauthTokens
-                      ? "Refresh Token"
-                      : "Start Debug Flow"}
+                <div className="flex gap-4 flex-wrap">
+                  <Button
+                    onClick={startDebugFlow}
+                    disabled={flowMode !== null && !flowComplete}
+                  >
+                    {flowComplete ? "Restart Debug Flow" : "Debug Flow"}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={startQuickFlow}
+                    disabled={flowMode !== null && !flowComplete}
+                  >
+                    {flowComplete ? "Restart Quick Flow" : "Quick Flow"}
                   </Button>
 
                   <Button variant="outline" onClick={handleClearOAuth}>
                     Clear OAuth State
                   </Button>
+
+                  {flowComplete && (
+                    <Button variant="ghost" onClick={handleNewFlow}>
+                      Close
+                    </Button>
+                  )}
                 </div>
 
                 <p className="text-xs text-muted-foreground">
-                  The debug flow lets you step through each OAuth request one at
-                  a time, inspecting headers and responses.
+                  <strong>Debug Flow</strong>: Step through each OAuth request
+                  one at a time. <strong>Quick Flow</strong>: Run the entire
+                  flow automatically.
                 </p>
               </div>
             </div>
 
-            {showDebugFlow && (
+            {flowMode && (
               <AuthDebuggerFlow
                 serverUrl={serverUrl}
+                quickMode={flowMode === "quick"}
                 onComplete={handleFlowComplete}
                 onCancel={handleFlowCancel}
                 onError={handleFlowError}
