@@ -26,6 +26,7 @@ jest.mock("@modelcontextprotocol/ext-apps/app-bridge", () => {
   }
 
   class MockPostMessageTransport {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     constructor(_source: Window | null, _target: Window | null) {
       // Mock constructor
     }
