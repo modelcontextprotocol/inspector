@@ -30,6 +30,23 @@ const OAuthDebugCallback = ({ onConnect }: OAuthCallbackProps) => {
       isProcessed = true;
 
       const params = parseOAuthCallbackParams(window.location.search);
+
+      // Check if we're in a popup opened by the auth debugger
+      // If so, send the code via postMessage and close
+      if (window.opener && params.successful && "code" in params) {
+        try {
+          window.opener.postMessage(
+            { type: "oauth-callback", code: params.code },
+            window.location.origin,
+          );
+          // Close the popup after sending the message
+          window.close();
+          return;
+        } catch {
+          // Fall through to normal handling if postMessage fails
+        }
+      }
+
       if (!params.successful) {
         const errorMsg = generateOAuthErrorDescription(params);
         onConnect({ errorMsg });
