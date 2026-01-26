@@ -100,20 +100,33 @@ export function AuthDebuggerFlow({
 
       try {
         // Step 1: Initialize to get 401
-        const initResponse = await debugFetch(serverUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            method: "initialize",
-            params: {
-              protocolVersion: "2025-03-26",
-              capabilities: {},
-              clientInfo: { name: "mcp-inspector", version: "1.0.0" },
-            },
-            id: 1,
-          }),
-        });
+        let initResponse: Response;
+        try {
+          initResponse = await debugFetch(serverUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-03-26",
+                capabilities: {},
+                clientInfo: { name: "mcp-inspector", version: "1.0.0" },
+              },
+              id: 1,
+            }),
+          });
+        } catch (fetchError) {
+          // Network errors (CORS, connection refused, etc.)
+          const message =
+            fetchError instanceof TypeError
+              ? `Network error connecting to ${serverUrl}. This could be a CORS issue or the server may not be reachable.`
+              : fetchError instanceof Error
+                ? fetchError.message
+                : String(fetchError);
+          onError(new Error(message));
+          return;
+        }
 
         if (initResponse.status !== 401) {
           // Server may not require auth, or something else happened
@@ -297,15 +310,17 @@ export function AuthDebuggerFlow({
           </div>
         )}
 
-        {/* Running indicator */}
-        {flowState === "running" &&
-          !currentStep &&
-          completedSteps.length > 0 && (
-            <div className="flex items-center gap-2 p-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Processing...</span>
-            </div>
-          )}
+        {/* Running indicator - show when running and no current step to display */}
+        {flowState === "running" && !currentStep && (
+          <div className="flex items-center gap-2 p-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-sm">
+              {completedSteps.length === 0
+                ? "Connecting to server..."
+                : "Processing..."}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
