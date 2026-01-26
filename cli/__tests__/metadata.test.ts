@@ -11,7 +11,7 @@ import {
   createAddTool,
   createTestServerInfo,
 } from "./helpers/test-fixtures.js";
-import { NO_SERVER_SENTINEL } from "./helpers/fixtures.js";
+import { NO_SERVER_SENTINEL, TEST_URI_RESOURCE } from "./helpers/fixtures.js";
 
 describe("Metadata Tests", () => {
   describe("General Metadata", () => {
@@ -57,7 +57,7 @@ describe("Metadata Tests", () => {
         serverInfo: createTestServerInfo(),
         resources: [
           {
-            uri: "test://resource",
+            uri: TEST_URI_RESOURCE,
             name: "test-resource",
             text: "test content",
           },
@@ -146,7 +146,7 @@ describe("Metadata Tests", () => {
         serverInfo: createTestServerInfo(),
         resources: [
           {
-            uri: "test://resource",
+            uri: TEST_URI_RESOURCE,
             name: "test-resource",
             text: "test content",
           },
@@ -163,7 +163,7 @@ describe("Metadata Tests", () => {
           "--method",
           "resources/read",
           "--uri",
-          "test://resource",
+          TEST_URI_RESOURCE,
           "--metadata",
           "client=test-client",
           "--transport",
@@ -653,7 +653,7 @@ describe("Metadata Tests", () => {
         serverInfo: createTestServerInfo(),
         resources: [
           {
-            uri: "test://resource",
+            uri: TEST_URI_RESOURCE,
             name: "test-resource",
             text: "test content",
           },

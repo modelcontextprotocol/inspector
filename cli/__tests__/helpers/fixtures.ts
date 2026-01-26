@@ -11,6 +11,12 @@ import { getTestMcpServerCommand } from "./test-server-stdio.js";
 export const NO_SERVER_SENTINEL = "invalid-command-that-does-not-exist";
 
 /**
+ * Test resource URIs used across test files
+ */
+export const TEST_URI_ENV = "test://env";
+export const TEST_URI_RESOURCE = "test://resource";
+
+/**
  * Create a sample test config with test-stdio and test-http servers
  * Returns a temporary config file path that should be cleaned up with deleteConfigFile()
  * @param httpUrl - Optional full URL (including /mcp path) for test-http server.

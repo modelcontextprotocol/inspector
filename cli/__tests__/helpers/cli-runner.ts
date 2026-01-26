@@ -50,9 +50,9 @@ export async function runCli(
         try {
           if (process.platform === "win32") {
             child.kill("SIGTERM");
-          } else {
+          } else if (child.pid) {
             // On Unix, kill the process group
-            process.kill(-child.pid!, "SIGTERM");
+            process.kill(-child.pid, "SIGTERM");
           }
         } catch (e) {
           // Process might already be dead, try direct kill

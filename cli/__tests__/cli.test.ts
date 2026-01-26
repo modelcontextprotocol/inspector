@@ -7,6 +7,7 @@ import {
 } from "./helpers/assertions.js";
 import {
   NO_SERVER_SENTINEL,
+  TEST_URI_ENV,
   createSampleTestConfig,
   createTestConfig,
   createInvalidConfig,
@@ -75,7 +76,7 @@ describe("CLI Tests", () => {
         "--method",
         "resources/read",
         "--uri",
-        "test://env",
+        TEST_URI_ENV,
       ]);
 
       expectCliSuccess(result);
@@ -114,7 +115,7 @@ describe("CLI Tests", () => {
         "--method",
         "resources/read",
         "--uri",
-        "test://env",
+        TEST_URI_ENV,
       ]);
 
       expectCliSuccess(result);
@@ -134,7 +135,7 @@ describe("CLI Tests", () => {
         "--method",
         "resources/read",
         "--uri",
-        "test://env",
+        TEST_URI_ENV,
       ]);
 
       expectCliSuccess(result);
@@ -427,7 +428,7 @@ describe("CLI Tests", () => {
           "--method",
           "resources/read",
           "--uri",
-          "test://env",
+          TEST_URI_ENV,
         ]);
 
         expectCliSuccess(result);
@@ -522,7 +523,7 @@ describe("CLI Tests", () => {
           "--method",
           "resources/read",
           "--uri",
-          "test://env",
+          TEST_URI_ENV,
         ]);
 
         expectCliSuccess(envResult);
@@ -630,7 +631,7 @@ describe("CLI Tests", () => {
           "--method",
           "resources/read",
           "--uri",
-          "test://env",
+          TEST_URI_ENV,
         ]);
 
         expectCliSuccess(envResult);
