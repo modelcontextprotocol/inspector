@@ -39,8 +39,46 @@ export function createDebugFetch(
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method || "GET";
 
-    // Make the actual request
-    const response = await fetch(input, init);
+    // Parse request body if present (do this first so we can show it even on failure)
+    let requestBody: unknown = undefined;
+    if (init?.body) {
+      requestBody = parseBody(init.body);
+    }
+
+    let response: Response;
+    try {
+      // Make the actual request
+      response = await fetch(input, init);
+    } catch (fetchError) {
+      // Request failed (CORS, network error, etc.)
+      // Show this as a failed step before re-throwing
+      const errorMessage =
+        fetchError instanceof TypeError
+          ? "Network error (CORS or connection failed)"
+          : fetchError instanceof Error
+            ? fetchError.message
+            : String(fetchError);
+
+      const failedEntry: DebugRequestResponse = {
+        id: crypto.randomUUID(),
+        label: inferLabel(url, method),
+        request: {
+          method,
+          url,
+          headers: headersToObject(init?.headers),
+          body: requestBody,
+        },
+        response: {
+          status: 0,
+          statusText: "Failed",
+          headers: {},
+          body: { error: errorMessage },
+        },
+      };
+
+      await onComplete(failedEntry);
+      throw fetchError; // Re-throw so SDK can handle it
+    }
 
     // Clone to read body without consuming
     const clonedResponse = response.clone();
@@ -53,12 +91,6 @@ export function createDebugFetch(
       } catch {
         responseBody = null;
       }
-    }
-
-    // Parse request body if present
-    let requestBody: unknown = undefined;
-    if (init?.body) {
-      requestBody = parseBody(init.body);
     }
 
     // Build entry and wait for user to continue

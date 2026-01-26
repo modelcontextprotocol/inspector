@@ -307,7 +307,42 @@ export function AuthDebuggerFlow({
         }
       } catch (error) {
         console.error("OAuth debug flow error:", error);
-        onError(error instanceof Error ? error : new Error(String(error)));
+
+        // Show the final error as a step instead of dismissing the flow
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        const errorEntry: DebugRequestResponse = {
+          id: crypto.randomUUID(),
+          label: "Flow Error",
+          request: {
+            method: "N/A",
+            url: serverUrl,
+            headers: {},
+          },
+          response: {
+            status: 0,
+            statusText: "Error",
+            headers: {},
+            body: {
+              error: errorMessage,
+              note: "The OAuth flow could not complete. This may be due to CORS restrictions or server configuration.",
+            },
+          },
+        };
+
+        if (quickMode) {
+          setCompletedSteps((prev) => [...prev, errorEntry]);
+          setFlowState("complete");
+        } else {
+          setCurrentStep(errorEntry);
+          setFlowState("waiting_continue");
+          await new Promise<void>((resolve) => {
+            continueResolverRef.current = resolve;
+          });
+          setCompletedSteps((prev) => [...prev, errorEntry]);
+          setCurrentStep(null);
+          setFlowState("complete");
+        }
       }
     }
 
