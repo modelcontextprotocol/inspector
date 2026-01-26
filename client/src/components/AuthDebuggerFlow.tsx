@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Circle,
   ExternalLink,
+  Info,
   Loader2,
 } from "lucide-react";
 import { createDebugFetch, DebugRequestResponse } from "@/lib/debug-middleware";
@@ -70,6 +71,19 @@ export function AuthDebuggerFlow({
     resource?: URL;
   }>({});
 
+  // Track discovery state to inject informational warnings
+  const discoveryStateRef = useRef<{
+    prmFailed: boolean;
+    shownPrmWarning: boolean;
+    oauthMetadataSuccess: boolean;
+    shownNoMetadataWarning: boolean;
+  }>({
+    prmFailed: false,
+    shownPrmWarning: false,
+    oauthMetadataSuccess: false,
+    shownNoMetadataWarning: false,
+  });
+
   // Handler for middleware callback - pauses until Continue clicked (unless quickMode)
   const handleRequestComplete = useCallback(
     async (entry: DebugRequestResponse) => {
@@ -123,28 +137,109 @@ export function AuthDebuggerFlow({
     if (flowStartedRef.current) return;
     flowStartedRef.current = true;
 
+    // Helper to create info/warning steps
+    function createInfoStep(
+      label: string,
+      message: string,
+    ): DebugRequestResponse {
+      return {
+        id: crypto.randomUUID(),
+        label,
+        request: { method: "INFO", url: "", headers: {} },
+        response: {
+          status: 0,
+          statusText: "Info",
+          headers: {},
+          body: { message },
+        },
+      };
+    }
+
+    function createWarningStep(
+      label: string,
+      message: string,
+    ): DebugRequestResponse {
+      return {
+        id: crypto.randomUUID(),
+        label,
+        request: { method: "WARNING", url: "", headers: {} },
+        response: {
+          status: 0,
+          statusText: "Warning",
+          headers: {},
+          body: { message },
+        },
+      };
+    }
+
     async function runDebugFlow() {
       const baseDebugFetch = createDebugFetch(handleRequestComplete);
 
-      // Wrap debugFetch to capture auth server metadata from responses
+      // Wrap debugFetch to capture metadata and inject info/warning steps
       const debugFetch: typeof fetch = async (input, init) => {
-        const response = await baseDebugFetch(input, init);
         const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method || "GET";
 
-        // Capture auth server metadata when we see it
+        // Before OAuth metadata request - inject PRM warning if needed
+        if (
+          (url.includes(".well-known/oauth-authorization-server") ||
+            url.includes(".well-known/openid-configuration")) &&
+          discoveryStateRef.current.prmFailed &&
+          !discoveryStateRef.current.shownPrmWarning
+        ) {
+          const infoEntry = createInfoStep(
+            "Info: No PRM Found",
+            "Server does not have Protected Resource Metadata. " +
+              "Attempting discovery using 2025-03-26 auth spec. " +
+              "Double-check the server URL is correct.",
+          );
+          await handleRequestComplete(infoEntry);
+          discoveryStateRef.current.shownPrmWarning = true;
+        }
+
+        // Before POST /register - inject warning if no metadata found
+        if (
+          method === "POST" &&
+          url.includes("/register") &&
+          !discoveryStateRef.current.oauthMetadataSuccess &&
+          !discoveryStateRef.current.shownNoMetadataWarning
+        ) {
+          const warningEntry = createWarningStep(
+            "Warning: No Metadata Found",
+            "Failed to discover OAuth authorization server metadata. " +
+              "Attempting to register at 2025-03-26 default route (/register). " +
+              "This is unlikely to work - if it fails, the URL is probably wrong or metadata is missing.",
+          );
+          await handleRequestComplete(warningEntry);
+          discoveryStateRef.current.shownNoMetadataWarning = true;
+        }
+
+        // Make the actual request
+        const response = await baseDebugFetch(input, init);
+
+        // Track PRM discovery
+        if (url.includes(".well-known/oauth-protected-resource")) {
+          if (!response.ok) {
+            discoveryStateRef.current.prmFailed = true;
+          }
+        }
+
+        // Capture and track OAuth metadata
         if (
           url.includes(".well-known/oauth-authorization-server") ||
           url.includes(".well-known/openid-configuration")
         ) {
-          try {
-            const cloned = response.clone();
-            const metadata = await cloned.json();
-            cachedMetadataRef.current.authServerMetadata = metadata;
-            // Extract auth server URL from the request URL
-            const authServerUrl = new URL(url);
-            cachedMetadataRef.current.authServerUrl = authServerUrl.origin;
-          } catch {
-            // Ignore parse errors
+          if (response.ok) {
+            discoveryStateRef.current.oauthMetadataSuccess = true;
+            try {
+              const cloned = response.clone();
+              const metadata = await cloned.json();
+              cachedMetadataRef.current.authServerMetadata = metadata;
+              const authServerUrl = new URL(url);
+              cachedMetadataRef.current.authServerUrl = authServerUrl.origin;
+            } catch {
+              // Ignore parse errors
+            }
           }
         }
 
@@ -542,7 +637,16 @@ function StepDisplay({
         onClick={() => setExpanded(!expanded)}
       >
         {isComplete ? (
-          step.response.status === 0 || step.response.status >= 400 ? (
+          step.response.status === 0 ? (
+            // Status 0 = special step (info, warning, or error)
+            step.response.statusText === "Info" ? (
+              <Info className="h-5 w-5 text-blue-500 mr-2 shrink-0" />
+            ) : step.response.statusText === "Warning" ? (
+              <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2 shrink-0" />
+            ) : (
+              <AlertTriangle className="h-5 w-5 text-red-500 mr-2 shrink-0" />
+            )
+          ) : step.response.status >= 400 ? (
             <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2 shrink-0" />
           ) : (
             <CheckCircle2 className="h-5 w-5 text-green-500 mr-2 shrink-0" />
@@ -553,78 +657,106 @@ function StepDisplay({
         <span className={`${isCurrent ? "font-medium" : ""}`}>
           {stepNumber}. {step.label}
         </span>
-        <span className="ml-auto text-xs text-muted-foreground">
-          {step.response.status} {step.response.statusText}
-        </span>
+        {/* Hide status for info/warning steps, show for HTTP requests */}
+        {step.request.method !== "INFO" &&
+          step.request.method !== "WARNING" && (
+            <span className="ml-auto text-xs text-muted-foreground">
+              {step.response.status} {step.response.statusText}
+            </span>
+          )}
       </div>
 
       {expanded && (
         <div className="ml-7 mt-2 space-y-3">
-          {/* Request details */}
-          <details className="text-xs">
-            <summary className="cursor-pointer text-muted-foreground font-medium">
-              Request
-            </summary>
-            <div className="mt-2 p-2 bg-muted rounded-md space-y-2">
-              <div>
-                <span className="font-medium">{step.request.method}</span>{" "}
-                <span className="break-all">{step.request.url}</span>
-              </div>
-              {Object.keys(step.request.headers).length > 0 && (
-                <div>
-                  <p className="font-medium mb-1">Headers:</p>
-                  <pre className="overflow-auto max-h-[100px] text-[10px]">
-                    {JSON.stringify(step.request.headers, null, 2)}
-                  </pre>
-                </div>
-              )}
-              {step.request.body !== undefined && (
-                <div>
-                  <p className="font-medium mb-1">Body:</p>
-                  <pre className="overflow-auto max-h-[150px] text-[10px]">
-                    {typeof step.request.body === "string"
-                      ? step.request.body
-                      : JSON.stringify(step.request.body, null, 2)}
-                  </pre>
-                </div>
-              )}
+          {/* Info/Warning steps: show message directly */}
+          {(step.request.method === "INFO" ||
+            step.request.method === "WARNING") && (
+            <div
+              className={`text-sm p-3 rounded-md ${
+                step.request.method === "INFO"
+                  ? "bg-blue-50 text-blue-800 border border-blue-200"
+                  : "bg-yellow-50 text-yellow-800 border border-yellow-200"
+              }`}
+            >
+              {typeof step.response.body === "object" &&
+              step.response.body !== null &&
+              "message" in step.response.body
+                ? (step.response.body as { message: string }).message
+                : JSON.stringify(step.response.body)}
             </div>
-          </details>
+          )}
 
-          {/* Response details */}
-          <details className="text-xs" open={isCurrent}>
-            <summary className="cursor-pointer text-muted-foreground font-medium">
-              Response
-            </summary>
-            <div className="mt-2 p-2 bg-muted rounded-md space-y-2">
-              <div>
-                <span
-                  className={`font-medium ${step.response.status >= 400 ? "text-red-600" : "text-green-600"}`}
-                >
-                  {step.response.status}
-                </span>{" "}
-                {step.response.statusText}
-              </div>
-              {Object.keys(step.response.headers).length > 0 && (
-                <div>
-                  <p className="font-medium mb-1">Headers:</p>
-                  <pre className="overflow-auto max-h-[100px] text-[10px]">
-                    {JSON.stringify(step.response.headers, null, 2)}
-                  </pre>
-                </div>
-              )}
-              {step.response.body !== undefined && (
-                <div>
-                  <p className="font-medium mb-1">Body:</p>
-                  <pre className="overflow-auto max-h-[200px] text-[10px]">
-                    {typeof step.response.body === "string"
-                      ? step.response.body
-                      : JSON.stringify(step.response.body, null, 2)}
-                  </pre>
-                </div>
-              )}
-            </div>
-          </details>
+          {/* Regular HTTP requests: show Request/Response details */}
+          {step.request.method !== "INFO" &&
+            step.request.method !== "WARNING" && (
+              <>
+                {/* Request details */}
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-muted-foreground font-medium">
+                    Request
+                  </summary>
+                  <div className="mt-2 p-2 bg-muted rounded-md space-y-2">
+                    <div>
+                      <span className="font-medium">{step.request.method}</span>{" "}
+                      <span className="break-all">{step.request.url}</span>
+                    </div>
+                    {Object.keys(step.request.headers).length > 0 && (
+                      <div>
+                        <p className="font-medium mb-1">Headers:</p>
+                        <pre className="overflow-auto max-h-[100px] text-[10px]">
+                          {JSON.stringify(step.request.headers, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                    {step.request.body !== undefined && (
+                      <div>
+                        <p className="font-medium mb-1">Body:</p>
+                        <pre className="overflow-auto max-h-[150px] text-[10px]">
+                          {typeof step.request.body === "string"
+                            ? step.request.body
+                            : JSON.stringify(step.request.body, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </details>
+
+                {/* Response details */}
+                <details className="text-xs" open={isCurrent}>
+                  <summary className="cursor-pointer text-muted-foreground font-medium">
+                    Response
+                  </summary>
+                  <div className="mt-2 p-2 bg-muted rounded-md space-y-2">
+                    <div>
+                      <span
+                        className={`font-medium ${step.response.status >= 400 ? "text-red-600" : "text-green-600"}`}
+                      >
+                        {step.response.status}
+                      </span>{" "}
+                      {step.response.statusText}
+                    </div>
+                    {Object.keys(step.response.headers).length > 0 && (
+                      <div>
+                        <p className="font-medium mb-1">Headers:</p>
+                        <pre className="overflow-auto max-h-[100px] text-[10px]">
+                          {JSON.stringify(step.response.headers, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                    {step.response.body !== undefined && (
+                      <div>
+                        <p className="font-medium mb-1">Body:</p>
+                        <pre className="overflow-auto max-h-[200px] text-[10px]">
+                          {typeof step.response.body === "string"
+                            ? step.response.body
+                            : JSON.stringify(step.response.body, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              </>
+            )}
         </div>
       )}
     </div>
