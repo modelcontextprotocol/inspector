@@ -142,24 +142,7 @@ export function AuthDebuggerFlow({
     if (flowStartedRef.current) return;
     flowStartedRef.current = true;
 
-    // Helper to create warning/error steps
-    function createWarningStep(
-      label: string,
-      message: React.ReactNode,
-    ): DebugRequestResponse {
-      return {
-        id: crypto.randomUUID(),
-        label,
-        request: { method: "WARNING", url: "", headers: {} },
-        response: {
-          status: 0,
-          statusText: "Warning",
-          headers: {},
-          body: { message },
-        },
-      };
-    }
-
+    // Helper to create error steps
     function createErrorStep(
       label: string,
       message: React.ReactNode,
@@ -204,8 +187,9 @@ export function AuthDebuggerFlow({
               >
                 2025-03-26 spec
               </a>{" "}
-              authorization base URL discovery. Double-check the server URL is
-              correct.
+              authorization base URL discovery. This often is due to an
+              incorrect server URL preventing PRM discovery. Please double-check
+              the server URL is correct.
             </>,
           );
           await handleRequestComplete(errorEntry);
@@ -219,8 +203,8 @@ export function AuthDebuggerFlow({
           !discoveryStateRef.current.oauthMetadataSuccess &&
           !discoveryStateRef.current.shownNoMetadataWarning
         ) {
-          const warningEntry = createWarningStep(
-            "Warning: No Metadata Found",
+          const errorEntry = createErrorStep(
+            "Error: No Metadata Found",
             <>
               Failed to discover OAuth authorization server metadata. Falling
               back to{" "}
@@ -228,15 +212,16 @@ export function AuthDebuggerFlow({
                 href="https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#fallbacks-for-servers-without-metadata-discovery"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="underline text-yellow-700 hover:text-yellow-900"
+                className="underline text-red-600 hover:text-red-800"
               >
                 2025-03-26 spec
               </a>{" "}
-              server-without-metadata mode. You most likely don't want this —
-              please check the MCP URL you entered is correct.
+              server-without-metadata mode. This is unlikely to work, and is
+              often due to an incorrect server URL. Please check the MCP URL you
+              entered is correct.
             </>,
           );
-          await handleRequestComplete(warningEntry);
+          await handleRequestComplete(errorEntry);
           discoveryStateRef.current.shownNoMetadataWarning = true;
         }
 
@@ -657,7 +642,12 @@ function StepDisplay({
   isComplete,
   isCurrent,
 }: StepDisplayProps) {
-  const [expanded, setExpanded] = useState(isCurrent);
+  // Expand by default for current step, warnings, and errors
+  const [expanded, setExpanded] = useState(
+    isCurrent ||
+      step.request.method === "WARNING" ||
+      step.request.method === "ERROR",
+  );
 
   return (
     <div>
