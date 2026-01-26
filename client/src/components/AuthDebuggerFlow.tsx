@@ -140,7 +140,7 @@ export function AuthDebuggerFlow({
     // Helper to create info/warning steps
     function createInfoStep(
       label: string,
-      message: string,
+      message: React.ReactNode,
     ): DebugRequestResponse {
       return {
         id: crypto.randomUUID(),
@@ -157,7 +157,7 @@ export function AuthDebuggerFlow({
 
     function createWarningStep(
       label: string,
-      message: string,
+      message: React.ReactNode,
     ): DebugRequestResponse {
       return {
         id: crypto.randomUUID(),
@@ -189,9 +189,19 @@ export function AuthDebuggerFlow({
         ) {
           const infoEntry = createInfoStep(
             "Info: No PRM Found",
-            "Server does not have Protected Resource Metadata. " +
-              "Attempting discovery using 2025-03-26 auth spec. " +
-              "Double-check the server URL is correct.",
+            <>
+              Server does not have Protected Resource Metadata. Falling back to{" "}
+              <a
+                href="https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#authorization-base-url"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-blue-600 hover:text-blue-800"
+              >
+                2025-03-26 spec
+              </a>{" "}
+              authorization base URL discovery. Double-check the server URL is
+              correct.
+            </>,
           );
           await handleRequestComplete(infoEntry);
           discoveryStateRef.current.shownPrmWarning = true;
@@ -206,9 +216,20 @@ export function AuthDebuggerFlow({
         ) {
           const warningEntry = createWarningStep(
             "Warning: No Metadata Found",
-            "Failed to discover OAuth authorization server metadata. " +
-              "Attempting to register at 2025-03-26 default route (/register). " +
-              "This is unlikely to work - if it fails, the URL is probably wrong or metadata is missing.",
+            <>
+              Failed to discover OAuth authorization server metadata. Falling
+              back to{" "}
+              <a
+                href="https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#fallbacks-for-servers-without-metadata-discovery"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-yellow-700 hover:text-yellow-900"
+              >
+                2025-03-26 spec
+              </a>{" "}
+              server-without-metadata mode. You most likely don't want this —
+              please check the MCP URL you entered is correct.
+            </>,
           );
           await handleRequestComplete(warningEntry);
           discoveryStateRef.current.shownNoMetadataWarning = true;
@@ -681,7 +702,7 @@ function StepDisplay({
               {typeof step.response.body === "object" &&
               step.response.body !== null &&
               "message" in step.response.body
-                ? (step.response.body as { message: string }).message
+                ? (step.response.body as { message: React.ReactNode }).message
                 : JSON.stringify(step.response.body)}
             </div>
           )}
