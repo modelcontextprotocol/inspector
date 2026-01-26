@@ -32,10 +32,6 @@ jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
   auth: jest.fn(),
 }));
 
-jest.mock("../lib/oauth-state-machine", () => ({
-  OAuthStateMachine: jest.fn(),
-}));
-
 jest.mock("../lib/auth", () => ({
   InspectorOAuthClientProvider: jest.fn().mockImplementation(() => ({
     tokens: jest.fn().mockResolvedValue(null),

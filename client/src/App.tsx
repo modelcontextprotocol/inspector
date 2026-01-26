@@ -31,7 +31,6 @@ import {
   isReservedMetaKey,
 } from "@/utils/metaUtils";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
-import { OAuthStateMachine } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
 import { cleanParams } from "./utils/paramUtils";
 import type { JsonSchemaType } from "./utils/jsonUtils";
@@ -552,10 +551,9 @@ const App = () => {
   );
 
   const onOAuthDebugConnect = useCallback(
-    async ({
+    ({
       authorizationCode,
       errorMsg,
-      restoredState,
     }: {
       authorizationCode?: string;
       errorMsg?: string;
@@ -566,62 +564,26 @@ const App = () => {
       if (errorMsg) {
         updateAuthState({
           latestError: new Error(errorMsg),
+          statusMessage: {
+            type: "error",
+            message: errorMsg,
+          },
         });
         return;
       }
 
-      if (restoredState && authorizationCode) {
-        let currentState: AuthDebuggerState = {
-          ...restoredState,
-          authorizationCode,
-          oauthStep: "token_request",
-          isInitiatingAuth: true,
-          statusMessage: null,
-          latestError: null,
-        };
-
-        try {
-          const stateMachine = new OAuthStateMachine(sseUrl, (updates) => {
-            currentState = { ...currentState, ...updates };
-          });
-
-          while (
-            currentState.oauthStep !== "complete" &&
-            currentState.oauthStep !== "authorization_code"
-          ) {
-            await stateMachine.executeStep(currentState);
-          }
-
-          if (currentState.oauthStep === "complete") {
-            updateAuthState({
-              ...currentState,
-              statusMessage: {
-                type: "success",
-                message: "Authentication completed successfully",
-              },
-              isInitiatingAuth: false,
-            });
-          }
-        } catch (error) {
-          console.error("OAuth continuation error:", error);
-          updateAuthState({
-            latestError:
-              error instanceof Error ? error : new Error(String(error)),
-            statusMessage: {
-              type: "error",
-              message: `Failed to complete OAuth flow: ${error instanceof Error ? error.message : String(error)}`,
-            },
-            isInitiatingAuth: false,
-          });
-        }
-      } else if (authorizationCode) {
+      if (authorizationCode) {
+        // Show info message - the user should use the debug flow to complete
         updateAuthState({
-          authorizationCode,
-          oauthStep: "token_request",
+          statusMessage: {
+            type: "info",
+            message:
+              "Authorization code received. Use the debug flow to complete authentication.",
+          },
         });
       }
     },
-    [sseUrl],
+    [],
   );
 
   useEffect(() => {
