@@ -109,9 +109,19 @@ export interface InspectorClientOptions {
   sample?: boolean;
 
   /**
-   * Whether to advertise elicitation capability (default: true)
+   * Elicitation capability configuration
+   * - `true` - support form-based elicitation only (default, for backward compatibility)
+   * - `{ form: true }` - support form-based elicitation only
+   * - `{ url: true }` - support URL-based elicitation only
+   * - `{ form: true, url: true }` - support both form and URL-based elicitation
+   * - `false` or `undefined` - no elicitation support
    */
-  elicit?: boolean;
+  elicit?:
+    | boolean
+    | {
+        form?: boolean;
+        url?: boolean;
+      };
 
   /**
    * Initial roots to configure. If provided (even if empty array), the client will
@@ -159,7 +169,7 @@ export class InspectorClient extends InspectorClientEventTarget {
   private autoFetchServerContents: boolean;
   private initialLoggingLevel?: LoggingLevel;
   private sample: boolean;
-  private elicit: boolean;
+  private elicit: boolean | { form?: boolean; url?: boolean };
   private progress: boolean;
   private status: ConnectionStatus = "disconnected";
   // Server data
@@ -309,8 +319,27 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (this.sample) {
       capabilities.sampling = {};
     }
+    // Handle elicitation capability with mode support
     if (this.elicit) {
-      capabilities.elicitation = {};
+      const elicitationCap: NonNullable<ClientCapabilities["elicitation"]> = {};
+
+      if (this.elicit === true) {
+        // Backward compatibility: `elicit: true` means form support only
+        elicitationCap.form = {};
+      } else {
+        // Explicit mode configuration
+        if (this.elicit.form) {
+          elicitationCap.form = {};
+        }
+        if (this.elicit.url) {
+          elicitationCap.url = {};
+        }
+      }
+
+      // Only add elicitation capability if at least one mode is enabled
+      if (Object.keys(elicitationCap).length > 0) {
+        capabilities.elicitation = elicitationCap;
+      }
     }
     // Advertise roots capability if roots option was provided (even if empty array)
     if (this.roots !== undefined) {

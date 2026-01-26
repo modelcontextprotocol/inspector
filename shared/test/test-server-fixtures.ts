@@ -21,7 +21,10 @@ import type {
   ServerConfig,
   TestServerContext,
 } from "./composable-test-server.js";
-import type { ElicitRequestFormParams } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  ElicitRequestFormParams,
+  ElicitRequestURLParams,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type {
   ToolTaskHandler,
@@ -293,7 +296,7 @@ export function createListRootsTool(): ToolDefinition {
 /**
  * Create a "collectElicitation" tool that sends an elicitation request and returns the response
  */
-export function createCollectElicitationTool(): ToolDefinition {
+export function createCollectFormElicitationTool(): ToolDefinition {
   return {
     name: "collectElicitation",
     description:
@@ -317,29 +320,80 @@ export function createCollectElicitationTool(): ToolDefinition {
       const message = params.message as string;
       const schema = params.schema as any; // TODO: This is also not ideal
 
-      // Send an elicitation/create request to the client
-      // The server.request() method takes a request object (with method) and result schema
+      // Send a form-based elicitation request using the SDK's elicitInput method
       try {
-        const result = await server.server.request(
-          {
-            method: "elicitation/create",
-            params: {
-              message,
-              requestedSchema: schema,
-            },
-          },
-          ElicitResultSchema,
-        );
+        const elicitationParams: ElicitRequestFormParams = {
+          message,
+          requestedSchema: schema,
+        };
 
-        // Validate and return the result
-        const validatedResult = ElicitResultSchema.parse(result);
+        const result = await server.server.elicitInput(elicitationParams);
 
         return {
-          message: `Elicitation response: ${JSON.stringify(validatedResult)}`,
+          message: `Elicitation response: ${JSON.stringify(result)}`,
         };
       } catch (error) {
         console.error(
           "[collectElicitation] Error sending/receiving elicitation request:",
+          error,
+        );
+        throw error;
+      }
+    },
+  };
+}
+
+/**
+ * Create a "collectUrlElicitation" tool that sends a URL-based elicitation request
+ * to the client and returns the response
+ */
+export function createCollectUrlElicitationTool(): ToolDefinition {
+  return {
+    name: "collectUrlElicitation",
+    description:
+      "Send a URL-based elicitation request with the given message and URL and return the response",
+    inputSchema: {
+      message: z
+        .string()
+        .describe("Message to send in the elicitation request"),
+      url: z.string().url().describe("URL for the user to navigate to"),
+      elicitationId: z
+        .string()
+        .optional()
+        .describe("Optional elicitation ID (generated if not provided)"),
+    },
+    handler: async (
+      params: Record<string, any>,
+      context?: TestServerContext,
+    ): Promise<any> => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+      const server = context.server;
+
+      const message = params.message as string;
+      const url = params.url as string;
+      const elicitationId =
+        (params.elicitationId as string) ||
+        `url-elicitation-${Date.now()}-${Math.random()}`;
+
+      // Send a URL-based elicitation request using the SDK's elicitInput method
+      try {
+        const elicitationParams: ElicitRequestURLParams = {
+          mode: "url",
+          message,
+          elicitationId,
+          url,
+        };
+
+        const result = await server.server.elicitInput(elicitationParams);
+
+        return {
+          message: `URL elicitation response: ${JSON.stringify(result)}`,
+        };
+      } catch (error) {
+        console.error(
+          "[collectUrlElicitation] Error sending/receiving URL elicitation request:",
           error,
         );
         throw error;
@@ -1226,23 +1280,27 @@ export function createFlexibleTaskTool(
               );
 
               // Send elicitation request with related-task metadata
+              // Note: We use extra.sendRequest() here because task handlers don't have
+              // direct access to the server instance with elicitInput(). However, we
+              // construct properly typed params for consistency with elicitInput() usage.
               try {
                 // Convert Zod schema to JSON schema
                 const jsonSchema = toJsonSchemaCompat(
                   elicitationSchema,
                 ) as ElicitRequestFormParams["requestedSchema"];
+                const elicitationParams: ElicitRequestFormParams = {
+                  message: `Please provide input for task ${task.taskId}`,
+                  requestedSchema: jsonSchema,
+                  _meta: {
+                    [RELATED_TASK_META_KEY]: {
+                      taskId: task.taskId,
+                    },
+                  },
+                };
                 await extra.sendRequest(
                   {
                     method: "elicitation/create",
-                    params: {
-                      message: `Please provide input for task ${task.taskId}`,
-                      requestedSchema: jsonSchema,
-                      _meta: {
-                        [RELATED_TASK_META_KEY]: {
-                          taskId: task.taskId,
-                        },
-                      },
-                    },
+                    params: elicitationParams,
                   },
                   ElicitResultSchema,
                 );
