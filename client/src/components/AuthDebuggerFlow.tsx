@@ -73,20 +73,19 @@ export function AuthDebuggerFlow({
   // Handler for middleware callback - pauses until Continue clicked (unless quickMode)
   const handleRequestComplete = useCallback(
     async (entry: DebugRequestResponse) => {
-      // Always add to completed steps
-      setCompletedSteps((prev) => [...prev, entry]);
-
       if (quickMode) {
-        // Quick mode: don't pause, just continue
+        // Quick mode: add directly to completed, don't pause
+        setCompletedSteps((prev) => [...prev, entry]);
         return;
       }
 
-      // Debug mode: pause and wait for Continue
+      // Debug mode: show as current step, wait for Continue, then add to completed
       setCurrentStep(entry);
       setFlowState("waiting_continue");
       await new Promise<void>((resolve) => {
         continueResolverRef.current = resolve;
       });
+      setCompletedSteps((prev) => [...prev, entry]);
       setCurrentStep(null);
       setFlowState("running");
     },
