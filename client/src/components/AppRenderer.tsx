@@ -101,9 +101,8 @@ const AppRenderer = ({
 
         // Set up event handlers
         bridge.oninitialized = () => {
-          console.log("MCP App initialized");
+          console.log("[AppRenderer] MCP App initialized successfully");
           setInitialized(true);
-          setLoading(false);
         };
 
         bridge.onerror = (error: Error) => {
@@ -152,6 +151,11 @@ const AppRenderer = ({
         iframeDoc.write(htmlContent);
         iframeDoc.close();
         console.log("[AppRenderer] HTML written to iframe");
+
+        // Clear loading state so iframe becomes visible
+        // This is required for PostMessage communication to work
+        setLoading(false);
+        console.log("[AppRenderer] Iframe now visible, ready for PostMessage");
 
         // Wait for iframe to load
         await new Promise<void>((resolve) => {
