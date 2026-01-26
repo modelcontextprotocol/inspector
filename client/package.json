@@ -25,6 +25,7 @@
     "cleanup:e2e": "node e2e/global-teardown.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.0.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@radix-ui/react-checkbox": "^1.1.4",
     "@radix-ui/react-dialog": "^1.1.3",
