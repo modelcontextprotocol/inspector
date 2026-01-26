@@ -5,7 +5,13 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, Circle, ExternalLink, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  ExternalLink,
+  Loader2,
+} from "lucide-react";
 import { createDebugFetch, DebugRequestResponse } from "@/lib/debug-middleware";
 import { DebugOAuthProvider } from "@/lib/DebugOAuthProvider";
 import {
@@ -224,14 +230,16 @@ export function AuthDebuggerFlow({
           };
 
           if (quickMode) {
+            // Quick mode: add directly to completed
             setCompletedSteps((prev) => [...prev, failedEntry]);
           } else {
-            setCompletedSteps((prev) => [...prev, failedEntry]);
+            // Debug mode: show as current step, wait for continue, then add to completed
             setCurrentStep(failedEntry);
             setFlowState("waiting_continue");
             await new Promise<void>((resolve) => {
               continueResolverRef.current = resolve;
             });
+            setCompletedSteps((prev) => [...prev, failedEntry]);
             setCurrentStep(null);
             setFlowState("running");
           }
@@ -500,7 +508,11 @@ function StepDisplay({
         onClick={() => setExpanded(!expanded)}
       >
         {isComplete ? (
-          <CheckCircle2 className="h-5 w-5 text-green-500 mr-2 shrink-0" />
+          step.response.status === 0 || step.response.status >= 400 ? (
+            <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2 shrink-0" />
+          ) : (
+            <CheckCircle2 className="h-5 w-5 text-green-500 mr-2 shrink-0" />
+          )
         ) : (
           <Circle className="h-5 w-5 text-blue-500 mr-2 shrink-0" />
         )}
