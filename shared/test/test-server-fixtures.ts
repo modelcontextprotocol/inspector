@@ -214,33 +214,23 @@ export function createCollectSampleTool(): ToolDefinition {
 
       const text = params.text as string;
 
-      // Send a sampling/createMessage request to the client
-      // The server.request() method takes a request object (with method) and result schema
+      // Send a sampling/createMessage request to the client using the SDK's createMessage method
       try {
-        const result = await server.server.request(
-          {
-            method: "sampling/createMessage",
-            params: {
-              messages: [
-                {
-                  role: "user" as const,
-                  content: {
-                    type: "text" as const,
-                    text: text,
-                  },
-                },
-              ],
-              maxTokens: 100, // Required parameter
+        const result = await server.server.createMessage({
+          messages: [
+            {
+              role: "user" as const,
+              content: {
+                type: "text" as const,
+                text: text,
+              },
             },
-          },
-          CreateMessageResultSchema,
-        );
-
-        // Validate and return the result
-        const validatedResult = CreateMessageResultSchema.parse(result);
+          ],
+          maxTokens: 100, // Required parameter
+        });
 
         return {
-          message: `Sampling response: ${JSON.stringify(validatedResult)}`,
+          message: `Sampling response: ${JSON.stringify(result)}`,
         };
       } catch (error) {
         console.error(
@@ -271,13 +261,8 @@ export function createListRootsTool(): ToolDefinition {
       const server = context.server;
 
       try {
-        // Call roots/list on the client
-        const result = await server.server.request(
-          {
-            method: "roots/list",
-          },
-          ListRootsResultSchema,
-        );
+        // Call roots/list on the client using the SDK's listRoots method
+        const result = await server.server.listRoots();
 
         return {
           message: `Roots: ${JSON.stringify(result.roots, null, 2)}`,
