@@ -108,8 +108,8 @@ const AuthDebugger = ({
     [serverUrl, updateAuthState],
   );
 
-  const startDebugFlow = useCallback(() => startFlow("debug"), [startFlow]);
-  const startQuickFlow = useCallback(() => startFlow("quick"), [startFlow]);
+  const startRunFlow = useCallback(() => startFlow("quick"), [startFlow]);
+  const startSlowFlow = useCallback(() => startFlow("debug"), [startFlow]);
 
   const handleFlowComplete = useCallback(
     (tokens: OAuthTokens) => {
@@ -215,18 +215,18 @@ const AuthDebugger = ({
 
                 <div className="flex gap-4 flex-wrap">
                   <Button
-                    onClick={startDebugFlow}
+                    onClick={startRunFlow}
                     disabled={flowMode !== null && !flowComplete}
                   >
-                    {flowComplete ? "Restart Debug Flow" : "Debug Flow"}
+                    {flowComplete ? "Run Again" : "Run Flow"}
                   </Button>
 
                   <Button
                     variant="outline"
-                    onClick={startQuickFlow}
+                    onClick={startSlowFlow}
                     disabled={flowMode !== null && !flowComplete}
                   >
-                    {flowComplete ? "Restart Quick Flow" : "Quick Flow"}
+                    Slow Mo
                   </Button>
 
                   <Button variant="outline" onClick={handleClearOAuth}>
@@ -241,9 +241,9 @@ const AuthDebugger = ({
                 </div>
 
                 <p className="text-xs text-muted-foreground">
-                  <strong>Debug Flow</strong>: Step through each OAuth request
-                  one at a time. <strong>Quick Flow</strong>: Run the entire
-                  flow automatically.
+                  <strong>Run Flow</strong>: Run the entire OAuth flow
+                  automatically. <strong>Slow Mo</strong>: Step through each
+                  request one at a time.
                 </p>
               </div>
             </div>

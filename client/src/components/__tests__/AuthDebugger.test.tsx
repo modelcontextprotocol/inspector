@@ -111,19 +111,19 @@ describe("AuthDebugger", () => {
       expect(onBack).toHaveBeenCalled();
     });
 
-    it("should show Debug Flow and Quick Flow buttons when no tokens exist", async () => {
+    it("should show Run Flow and Slow Mo buttons when no tokens exist", async () => {
       await act(async () => {
         renderAuthDebugger();
       });
       expect(
-        screen.getByRole("button", { name: "Debug Flow" }),
+        screen.getByRole("button", { name: "Run Flow" }),
       ).toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: "Quick Flow" }),
+        screen.getByRole("button", { name: "Slow Mo" }),
       ).toBeInTheDocument();
     });
 
-    it("should show Debug Flow and Quick Flow buttons when tokens exist", async () => {
+    it("should show Run Flow and Slow Mo buttons when tokens exist", async () => {
       await act(async () => {
         renderAuthDebugger({
           authState: {
@@ -133,15 +133,15 @@ describe("AuthDebugger", () => {
         });
       });
       expect(
-        screen.getByRole("button", { name: "Debug Flow" }),
+        screen.getByRole("button", { name: "Run Flow" }),
       ).toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: "Quick Flow" }),
+        screen.getByRole("button", { name: "Slow Mo" }),
       ).toBeInTheDocument();
     });
   });
 
-  describe("Debug Flow", () => {
+  describe("Run Flow", () => {
     it("should show error when debug flow is started without serverUrl", async () => {
       const updateAuthState = jest.fn();
       await act(async () => {
@@ -149,7 +149,7 @@ describe("AuthDebugger", () => {
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Debug Flow" }));
+        fireEvent.click(screen.getByRole("button", { name: "Run Flow" }));
       });
 
       expect(updateAuthState).toHaveBeenCalledWith({
@@ -167,7 +167,7 @@ describe("AuthDebugger", () => {
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Debug Flow" }));
+        fireEvent.click(screen.getByRole("button", { name: "Run Flow" }));
       });
 
       expect(screen.getByTestId("mock-auth-debugger-flow")).toBeInTheDocument();
@@ -180,7 +180,7 @@ describe("AuthDebugger", () => {
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Debug Flow" }));
+        fireEvent.click(screen.getByRole("button", { name: "Run Flow" }));
       });
 
       await act(async () => {
@@ -200,7 +200,7 @@ describe("AuthDebugger", () => {
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Debug Flow" }));
+        fireEvent.click(screen.getByRole("button", { name: "Run Flow" }));
       });
 
       await act(async () => {
@@ -222,7 +222,7 @@ describe("AuthDebugger", () => {
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Debug Flow" }));
+        fireEvent.click(screen.getByRole("button", { name: "Run Flow" }));
       });
 
       await act(async () => {
