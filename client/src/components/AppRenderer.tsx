@@ -128,16 +128,23 @@ const AppRenderer = ({
             contentsLength: parsed.contents?.length,
           });
           if (parsed.contents && Array.isArray(parsed.contents)) {
-            // MCP resource response format
+            // MCP resource response format: TextResourceContents has uri, mimeType?, and text
             const textContent = parsed.contents.find(
-              (c: { type: string; text?: string }) =>
-                c.type === "text" && c.text,
+              (c: { uri?: string; mimeType?: string; text?: string }) =>
+                c.text !== undefined,
             );
             if (textContent?.text) {
               htmlContent = textContent.text;
               console.log(
                 "[AppRenderer] Extracted HTML from contents, length:",
                 htmlContent.length,
+                "mimeType:",
+                textContent.mimeType,
+              );
+            } else {
+              console.warn(
+                "[AppRenderer] No text content found in contents array:",
+                parsed.contents,
               );
             }
           }
