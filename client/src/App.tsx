@@ -38,6 +38,7 @@ import React, {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -1139,15 +1140,21 @@ const App = () => {
     setLogLevel(level);
   };
 
-  const AuthDebuggerWrapper = () => (
-    <TabsContent value="auth">
-      <AuthDebugger
-        serverUrl={sseUrl}
-        onBack={() => setIsAuthDebuggerVisible(false)}
-        authState={authState}
-        updateAuthState={updateAuthState}
-      />
-    </TabsContent>
+  // Memoize the AuthDebugger to prevent re-mounting when App re-renders
+  // This is important because AuthDebugger has local state (showDebugFlow)
+  // that would be lost if the component was re-mounted.
+  const authDebuggerElement = useMemo(
+    () => (
+      <TabsContent value="auth">
+        <AuthDebugger
+          serverUrl={sseUrl}
+          onBack={() => setIsAuthDebuggerVisible(false)}
+          authState={authState}
+          updateAuthState={updateAuthState}
+        />
+      </TabsContent>
+    ),
+    [sseUrl, authState, updateAuthState],
   );
 
   if (window.location.pathname === "/oauth/callback") {
@@ -1484,7 +1491,7 @@ const App = () => {
                       setRoots={setRoots}
                       onRootsChange={handleRootsChange}
                     />
-                    <AuthDebuggerWrapper />
+                    {authDebuggerElement}
                     <MetadataTab
                       metadata={metadata}
                       onMetadataChange={handleMetadataChange}
@@ -1499,7 +1506,7 @@ const App = () => {
               className="w-full p-4"
               onValueChange={(value) => (window.location.hash = value)}
             >
-              <AuthDebuggerWrapper />
+              {authDebuggerElement}
             </Tabs>
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-4">
