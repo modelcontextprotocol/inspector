@@ -86,24 +86,9 @@ export function createDebugFetch(
 }
 
 /**
- * Infers a human-readable label for an OAuth-related request based on URL patterns.
+ * Creates a raw label showing the HTTP method and path.
  */
 function inferLabel(url: string, method: string): string {
-  if (url.includes(".well-known/oauth-protected-resource")) {
-    return "Resource Metadata";
-  }
-  if (
-    url.includes(".well-known/oauth-authorization-server") ||
-    url.includes(".well-known/openid-configuration")
-  ) {
-    return "Auth Server Metadata";
-  }
-  if (url.includes("/register")) {
-    return "Client Registration";
-  }
-  if (url.includes("/token")) {
-    return "Token Exchange";
-  }
   try {
     const parsed = new URL(url);
     return `${method} ${parsed.pathname}`;
