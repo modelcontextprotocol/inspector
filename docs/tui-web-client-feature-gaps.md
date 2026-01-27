@@ -8,45 +8,48 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 
 **InspectorClient** is the shared client library that provides the core MCP functionality. Both the TUI and web client use `InspectorClient` under the hood. The gaps documented here are primarily **UI-level gaps** - features that `InspectorClient` supports but are not yet exposed in the TUI interface.
 
-| Feature                             | InspectorClient | Web Client v1 | TUI | Gap Priority |
-| ----------------------------------- | --------------- | ------------- | --- | ------------ |
-| **Resources**                       |
-| List resources                      | ✅              | ✅            | ✅  | -            |
-| Read resource content               | ✅              | ✅            | ✅  | -            |
-| List resource templates             | ✅              | ✅            | ✅  | -            |
-| Read templated resources            | ✅              | ✅            | ✅  | -            |
-| Resource subscriptions              | ✅              | ✅            | ❌  | Medium       |
-| Resources listChanged notifications | ✅              | ✅            | ❌  | Medium       |
-| Pagination (resources)              | ✅              | ✅            | ✅  | -            |
-| Pagination (resource templates)     | ✅              | ✅            | ✅  | -            |
-| **Prompts**                         |
-| List prompts                        | ✅              | ✅            | ✅  | -            |
-| Get prompt (no params)              | ✅              | ✅            | ✅  | -            |
-| Get prompt (with params)            | ✅              | ✅            | ✅  | -            |
-| Prompts listChanged notifications   | ✅              | ✅            | ❌  | Medium       |
-| Pagination (prompts)                | ✅              | ✅            | ✅  | -            |
-| **Tools**                           |
-| List tools                          | ✅              | ✅            | ✅  | -            |
-| Call tool                           | ✅              | ✅            | ✅  | -            |
-| Tools listChanged notifications     | ✅              | ✅            | ❌  | Medium       |
-| Pagination (tools)                  | ✅              | ✅            | ✅  | -            |
-| **Roots**                           |
-| List roots                          | ✅              | ✅            | ❌  | Medium       |
-| Set roots                           | ✅              | ✅            | ❌  | Medium       |
-| Roots listChanged notifications     | ✅              | ✅            | ❌  | Medium       |
-| **Authentication**                  |
-| OAuth 2.1 flow                      | ❌              | ✅            | ❌  | High         |
-| Custom headers                      | ✅ (config)     | ✅ (UI)       | ❌  | Medium       |
-| **Advanced Features**               |
-| Sampling requests                   | ✅              | ✅            | ❌  | High         |
-| Elicitation requests (form)         | ✅              | ✅            | ❌  | High         |
-| Elicitation requests (url)          | ✅              | ❌            | ❌  | High         |
-| Tasks (long-running operations)     | ✅              | ✅            | ❌  | Medium       |
-| Completions (resource templates)    | ✅              | ✅            | ❌  | Medium       |
-| Completions (prompts with params)   | ✅              | ✅            | ❌  | Medium       |
-| Progress tracking                   | ✅              | ✅            | ❌  | Medium       |
-| **Other**                           |
-| HTTP request tracking               | ✅              | ❌            | ✅  |              |
+| Feature                                    | InspectorClient | Web Client v1 | TUI | Gap Priority |
+| ------------------------------------------ | --------------- | ------------- | --- | ------------ |
+| **Resources**                              |
+| List resources                             | ✅              | ✅            | ✅  | -            |
+| Read resource content                      | ✅              | ✅            | ✅  | -            |
+| List resource templates                    | ✅              | ✅            | ✅  | -            |
+| Read templated resources                   | ✅              | ✅            | ✅  | -            |
+| Resource subscriptions                     | ✅              | ✅            | ❌  | Medium       |
+| Resources listChanged notifications        | ✅              | ✅            | ❌  | Medium       |
+| Pagination (resources)                     | ✅              | ✅            | ✅  | -            |
+| Pagination (resource templates)            | ✅              | ✅            | ✅  | -            |
+| **Prompts**                                |
+| List prompts                               | ✅              | ✅            | ✅  | -            |
+| Get prompt (no params)                     | ✅              | ✅            | ✅  | -            |
+| Get prompt (with params)                   | ✅              | ✅            | ✅  | -            |
+| Prompts listChanged notifications          | ✅              | ✅            | ❌  | Medium       |
+| Pagination (prompts)                       | ✅              | ✅            | ✅  | -            |
+| **Tools**                                  |
+| List tools                                 | ✅              | ✅            | ✅  | -            |
+| Call tool                                  | ✅              | ✅            | ✅  | -            |
+| Tools listChanged notifications            | ✅              | ✅            | ❌  | Medium       |
+| Pagination (tools)                         | ✅              | ✅            | ✅  | -            |
+| **Roots**                                  |
+| List roots                                 | ✅              | ✅            | ❌  | Medium       |
+| Set roots                                  | ✅              | ✅            | ❌  | Medium       |
+| Roots listChanged notifications            | ✅              | ✅            | ❌  | Medium       |
+| **Authentication**                         |
+| OAuth 2.1 flow                             | ❌              | ✅            | ❌  | High         |
+| OAuth: Static/Preregistered clients        | ❌              | ✅            | ❌  | High         |
+| OAuth: DCR (Dynamic Client Registration)   | ❌              | ✅            | ❌  | High         |
+| OAuth: CIMD (Client ID Metadata Documents) | ❌              | ❌            | ❌  | Medium       |
+| Custom headers                             | ✅ (config)     | ✅ (UI)       | ❌  | Medium       |
+| **Advanced Features**                      |
+| Sampling requests                          | ✅              | ✅            | ❌  | High         |
+| Elicitation requests (form)                | ✅              | ✅            | ❌  | High         |
+| Elicitation requests (url)                 | ✅              | ❌            | ❌  | High         |
+| Tasks (long-running operations)            | ✅              | ✅            | ❌  | Medium       |
+| Completions (resource templates)           | ✅              | ✅            | ❌  | Medium       |
+| Completions (prompts with params)          | ✅              | ✅            | ❌  | Medium       |
+| Progress tracking                          | ✅              | ✅            | ❌  | Medium       |
+| **Other**                                  |
+| HTTP request tracking                      | ✅              | ❌            | ✅  |              |
 
 ## Detailed Feature Gaps
 
@@ -100,7 +103,9 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 **Web Client Support:**
 
 - Full browser-based OAuth 2.1 flow:
-  - Dynamic Client Registration (DCR)
+  - **Static/Preregistered Clients**: ✅ Supported - User provides client ID and secret via UI
+  - **DCR (Dynamic Client Registration)**: ✅ Supported - Falls back to DCR if no static client available
+  - **CIMD (Client ID Metadata Documents)**: ❌ Not Supported - Inspector does not set `clientMetadataUrl`, so URL-based client IDs are not used
   - Authorization code flow with PKCE
   - Token exchange
   - Token refresh
