@@ -294,6 +294,27 @@ describe("ToolsTab", () => {
       expect(screen.getByText(/Validation Error:/)).toBeInTheDocument();
     });
 
+    it("should skip output schema validation when tool result is an error", () => {
+      const errorResult = {
+        content: [{ type: "text", text: "error" }],
+        structuredContent: {
+          // Missing required field on purpose
+        },
+        isError: true,
+      };
+
+      renderToolsTab({
+        tools: [toolWithOutputSchema],
+        selectedTool: toolWithOutputSchema,
+        toolResult: errorResult,
+      });
+
+      expect(screen.queryByText(/Validation Error:/)).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/Valid according to output schema/),
+      ).not.toBeInTheDocument();
+    });
+
     it("should show error when tool with output schema doesn't return structured content", () => {
       const resultWithoutStructured = {
         content: [{ type: "text", text: "some result" }],

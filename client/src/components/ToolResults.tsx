@@ -93,7 +93,7 @@ const ToolResults = ({
     const toolHasOutputSchema =
       selectedTool && hasOutputSchema(selectedTool.name);
 
-    if (toolHasOutputSchema) {
+    if (toolHasOutputSchema && !isError) {
       if (!structuredResult.structuredContent && !isError) {
         validationResult = {
           isValid: false,
@@ -110,6 +110,7 @@ const ToolResults = ({
 
     let compatibilityResult = null;
     if (
+      !isError &&
       structuredResult.structuredContent &&
       structuredResult.content.length > 0 &&
       selectedTool &&
