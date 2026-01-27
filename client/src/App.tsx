@@ -16,9 +16,20 @@ import {
   ServerNotification,
   Tool,
   LoggingLevel,
+  Task,
+  GetTaskResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type {
+  AnySchema,
+  SchemaOutput,
+} from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
+import {
+  hasValidMetaName,
+  hasValidMetaPrefix,
+  isReservedMetaKey,
+} from "@/utils/metaUtils";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
 import { OAuthStateMachine } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
@@ -46,7 +57,9 @@ import {
   Hammer,
   Hash,
   Key,
+  ListTodo,
   MessageSquare,
+  Settings,
 } from "lucide-react";
 
 import { z } from "zod";
@@ -61,6 +74,7 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import TasksTab from "./components/TasksTab";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
   getMCPProxyAddress,
@@ -71,6 +85,7 @@ import {
   getInitialArgs,
   initializeInspectorConfig,
   saveInspectorConfig,
+  getMCPTaskTtl,
 } from "./utils/configUtils";
 import ElicitationTab, {
   PendingElicitationRequest,
@@ -80,8 +95,27 @@ import {
   CustomHeaders,
   migrateFromLegacyAuth,
 } from "./lib/types/customHeaders";
+import MetadataTab from "./components/MetadataTab";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
+
+const filterReservedMetadata = (
+  metadata: Record<string, string>,
+): Record<string, string> => {
+  return Object.entries(metadata).reduce<Record<string, string>>(
+    (acc, [key, value]) => {
+      if (
+        !isReservedMetaKey(key) &&
+        hasValidMetaPrefix(key) &&
+        hasValidMetaName(key)
+      ) {
+        acc[key] = value;
+      }
+      return acc;
+    },
+    {},
+  );
+};
 
 const App = () => {
   const [resources, setResources] = useState<Resource[]>([]);
@@ -95,12 +129,14 @@ const App = () => {
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
   const [tools, setTools] = useState<Tool[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [toolResult, setToolResult] =
     useState<CompatibilityCallToolResult | null>(null);
   const [errors, setErrors] = useState<Record<string, string | null>>({
     resources: null,
     prompts: null,
     tools: null,
+    tasks: null,
   });
   const [command, setCommand] = useState<string>(getInitialCommand);
   const [args, setArgs] = useState<string>(getInitialArgs);
@@ -139,6 +175,10 @@ const App = () => {
 
   const [oauthScope, setOauthScope] = useState<string>(() => {
     return localStorage.getItem("lastOauthScope") || "";
+  });
+
+  const [oauthClientSecret, setOauthClientSecret] = useState<string>(() => {
+    return localStorage.getItem("lastOauthClientSecret") || "";
   });
 
   // Custom headers state with migration from legacy auth
@@ -195,8 +235,30 @@ const App = () => {
   const [authState, setAuthState] =
     useState<AuthDebuggerState>(EMPTY_DEBUGGER_STATE);
 
+  // Metadata state - persisted in localStorage
+  const [metadata, setMetadata] = useState<Record<string, string>>(() => {
+    const savedMetadata = localStorage.getItem("lastMetadata");
+    if (savedMetadata) {
+      try {
+        const parsed = JSON.parse(savedMetadata);
+        if (parsed && typeof parsed === "object") {
+          return filterReservedMetadata(parsed);
+        }
+      } catch (error) {
+        console.warn("Failed to parse saved metadata:", error);
+      }
+    }
+    return {};
+  });
+
   const updateAuthState = (updates: Partial<AuthDebuggerState>) => {
     setAuthState((prev) => ({ ...prev, ...updates }));
+  };
+
+  const handleMetadataChange = (newMetadata: Record<string, string>) => {
+    const sanitizedMetadata = filterReservedMetadata(newMetadata);
+    setMetadata(sanitizedMetadata);
+    localStorage.setItem("lastMetadata", JSON.stringify(sanitizedMetadata));
   };
   const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
@@ -210,6 +272,8 @@ const App = () => {
 
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isPollingTask, setIsPollingTask] = useState(false);
   const [nextResourceCursor, setNextResourceCursor] = useState<
     string | undefined
   >();
@@ -220,6 +284,7 @@ const App = () => {
     string | undefined
   >();
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
+  const [nextTaskCursor, setNextTaskCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
 
   const [activeTab, setActiveTab] = useState<string>(() => {
@@ -235,6 +300,32 @@ const App = () => {
     currentTabRef.current = activeTab;
   }, [activeTab]);
 
+  const navigateToOriginatingTab = (originatingTab?: string) => {
+    if (!originatingTab) return;
+
+    const validTabs = [
+      ...(serverCapabilities?.resources ? ["resources"] : []),
+      ...(serverCapabilities?.prompts ? ["prompts"] : []),
+      ...(serverCapabilities?.tools ? ["tools"] : []),
+      ...(serverCapabilities?.tasks ? ["tasks"] : []),
+      "ping",
+      "sampling",
+      "elicitations",
+      "roots",
+      "auth",
+    ];
+
+    if (!validTabs.includes(originatingTab)) return;
+
+    setActiveTab(originatingTab);
+    window.location.hash = originatingTab;
+
+    setTimeout(() => {
+      setActiveTab(originatingTab);
+      window.location.hash = originatingTab;
+    }, 100);
+  };
+
   const { height: historyPaneHeight, handleDragStart } = useDraggablePane(300);
   const {
     width: sidebarWidth,
@@ -242,13 +333,21 @@ const App = () => {
     handleDragStart: handleSidebarDragStart,
   } = useDraggableSidebar(320);
 
+  const selectedTaskRef = useRef<Task | null>(null);
+  useEffect(() => {
+    selectedTaskRef.current = selectedTask;
+  }, [selectedTask]);
+
   const {
     connectionStatus,
     serverCapabilities,
+    serverImplementation,
     mcpClient,
     requestHistory,
     clearRequestHistory,
     makeRequest,
+    cancelTask: cancelMcpTask,
+    listTasks: listMcpTasks,
     sendNotification,
     handleCompletion,
     completionsSupported,
@@ -262,17 +361,47 @@ const App = () => {
     env,
     customHeaders,
     oauthClientId,
+    oauthClientSecret,
     oauthScope,
     config,
     connectionType,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
+
+      if (notification.method === "notifications/tasks/list_changed") {
+        void listTasks();
+      }
+
+      if (notification.method === "notifications/tasks/status") {
+        const task = notification.params as unknown as Task;
+        setTasks((prev) => {
+          const exists = prev.some((t) => t.taskId === task.taskId);
+          if (exists) {
+            return prev.map((t) => (t.taskId === task.taskId ? task : t));
+          } else {
+            return [task, ...prev];
+          }
+        });
+        if (selectedTaskRef.current?.taskId === task.taskId) {
+          setSelectedTask(task);
+        }
+      }
     },
     onPendingRequest: (request, resolve, reject) => {
+      const currentTab = lastToolCallOriginTabRef.current;
       setPendingSampleRequests((prev) => [
         ...prev,
-        { id: nextRequestId.current++, request, resolve, reject },
+        {
+          id: nextRequestId.current++,
+          request,
+          originatingTab: currentTab,
+          resolve,
+          reject,
+        },
       ]);
+
+      setActiveTab("sampling");
+      window.location.hash = "sampling";
     },
     onElicitationRequest: (request, resolve) => {
       const currentTab = lastToolCallOriginTabRef.current;
@@ -299,6 +428,7 @@ const App = () => {
     },
     getRoots: () => rootsRef.current,
     defaultLoggingLevel: logLevel,
+    metadata,
   });
 
   useEffect(() => {
@@ -309,6 +439,7 @@ const App = () => {
         ...(serverCapabilities?.resources ? ["resources"] : []),
         ...(serverCapabilities?.prompts ? ["prompts"] : []),
         ...(serverCapabilities?.tools ? ["tools"] : []),
+        ...(serverCapabilities?.tasks ? ["tasks"] : []),
         "ping",
         "sampling",
         "elicitations",
@@ -325,13 +456,22 @@ const App = () => {
             ? "prompts"
             : serverCapabilities?.tools
               ? "tools"
-              : "ping";
+              : serverCapabilities?.tasks
+                ? "tasks"
+                : "ping";
 
         setActiveTab(defaultTab);
         window.location.hash = defaultTab;
       }
     }
   }, [serverCapabilities]);
+
+  useEffect(() => {
+    if (mcpClient && activeTab === "tasks") {
+      void listTasks();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mcpClient, activeTab]);
 
   useEffect(() => {
     localStorage.setItem("lastCommand", command);
@@ -393,6 +533,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastOauthScope", oauthScope);
   }, [oauthScope]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthClientSecret", oauthClientSecret);
+  }, [oauthClientSecret]);
 
   useEffect(() => {
     saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
@@ -548,7 +692,9 @@ const App = () => {
           ? "prompts"
           : serverCapabilities?.tools
             ? "tools"
-            : "ping";
+            : serverCapabilities?.tasks
+              ? "tasks"
+              : "ping";
       window.location.hash = defaultTab;
     } else if (!mcpClient && window.location.hash) {
       // Clear hash when disconnected - completely remove the fragment
@@ -576,6 +722,9 @@ const App = () => {
     setPendingSampleRequests((prev) => {
       const request = prev.find((r) => r.id === id);
       request?.resolve(result);
+
+      navigateToOriginatingTab(request?.originatingTab);
+
       return prev.filter((r) => r.id !== id);
     });
   };
@@ -584,6 +733,9 @@ const App = () => {
     setPendingSampleRequests((prev) => {
       const request = prev.find((r) => r.id === id);
       request?.reject(new Error("Sampling request rejected"));
+
+      navigateToOriginatingTab(request?.originatingTab);
+
       return prev.filter((r) => r.id !== id);
     });
   };
@@ -604,6 +756,7 @@ const App = () => {
             ...(serverCapabilities?.resources ? ["resources"] : []),
             ...(serverCapabilities?.prompts ? ["prompts"] : []),
             ...(serverCapabilities?.tools ? ["tools"] : []),
+            ...(serverCapabilities?.tasks ? ["tasks"] : []),
             "ping",
             "sampling",
             "elicitations",
@@ -630,11 +783,11 @@ const App = () => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
   };
 
-  const sendMCPRequest = async <T extends z.ZodType>(
+  const sendMCPRequest = async <T extends AnySchema>(
     request: ClientRequest,
     schema: T,
     tabKey?: keyof typeof errors,
-  ) => {
+  ): Promise<SchemaOutput<T>> => {
     try {
       const response = await makeRequest(request, schema);
       if (tabKey !== undefined) {
@@ -775,7 +928,12 @@ const App = () => {
     cacheToolOutputSchemas(response.tools);
   };
 
-  const callTool = async (name: string, params: Record<string, unknown>) => {
+  const callTool = async (
+    name: string,
+    params: Record<string, unknown>,
+    toolMetadata?: Record<string, unknown>,
+    runAsTask?: boolean,
+  ) => {
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
     try {
@@ -785,22 +943,172 @@ const App = () => {
         ? cleanParams(params, tool.inputSchema as JsonSchemaType)
         : params;
 
-      const response = await sendMCPRequest(
-        {
-          method: "tools/call" as const,
-          params: {
-            name,
-            arguments: cleanedParams,
-            _meta: {
-              progressToken: progressTokenRef.current++,
-            },
-          },
+      // Merge general metadata with tool-specific metadata
+      // Tool-specific metadata takes precedence over general metadata
+      const mergedMetadata = {
+        ...metadata, // General metadata
+        progressToken: progressTokenRef.current++,
+        ...toolMetadata, // Tool-specific metadata
+      };
+
+      const request: ClientRequest = {
+        method: "tools/call" as const,
+        params: {
+          name,
+          arguments: cleanedParams,
+          _meta: mergedMetadata,
         },
+      };
+
+      if (runAsTask) {
+        request.params = {
+          ...request.params,
+          task: {
+            ttl: getMCPTaskTtl(config),
+          },
+        };
+      }
+
+      const response = await sendMCPRequest(
+        request,
         CompatibilityCallToolResultSchema,
         "tools",
       );
 
-      setToolResult(response);
+      // Check if this was a task-augmented request that returned a task reference
+      // The server returns { task: { taskId, status, ... } } when a task is created
+      const isTaskResult = (
+        res: unknown,
+      ): res is {
+        task: { taskId: string; status: string; pollInterval: number };
+      } =>
+        !!res &&
+        typeof res === "object" &&
+        "task" in res &&
+        !!res.task &&
+        typeof res.task === "object" &&
+        "taskId" in res.task;
+
+      if (runAsTask && isTaskResult(response)) {
+        const taskId = response.task.taskId;
+        const pollInterval = response.task.pollInterval;
+        // Set polling state BEFORE setting tool result for proper UI update
+        setIsPollingTask(true);
+        // Safely extract any _meta from the original response (if present)
+        const initialResponseMeta =
+          response &&
+          typeof response === "object" &&
+          "_meta" in (response as Record<string, unknown>)
+            ? ((response as { _meta?: Record<string, unknown> })._meta ?? {})
+            : undefined;
+        setToolResult({
+          content: [
+            {
+              type: "text",
+              text: `Task created: ${taskId}. Polling for status...`,
+            },
+          ],
+          _meta: {
+            ...(initialResponseMeta || {}),
+            "io.modelcontextprotocol/related-task": { taskId },
+          },
+        } as CompatibilityCallToolResult);
+
+        // Polling loop
+        let taskCompleted = false;
+        while (!taskCompleted) {
+          try {
+            // Wait for 1 second before polling
+            await new Promise((resolve) => setTimeout(resolve, pollInterval));
+
+            const taskStatus = await sendMCPRequest(
+              {
+                method: "tasks/get",
+                params: { taskId },
+              },
+              GetTaskResultSchema,
+            );
+
+            if (
+              taskStatus.status === "completed" ||
+              taskStatus.status === "failed" ||
+              taskStatus.status === "cancelled"
+            ) {
+              taskCompleted = true;
+              console.log(
+                `Polling complete for task ${taskId}: ${taskStatus.status}`,
+              );
+
+              if (taskStatus.status === "completed") {
+                console.log(`Fetching result for task ${taskId}`);
+                const result = await sendMCPRequest(
+                  {
+                    method: "tasks/result",
+                    params: { taskId },
+                  },
+                  CompatibilityCallToolResultSchema,
+                );
+                console.log(`Result received for task ${taskId}:`, result);
+                setToolResult(result as CompatibilityCallToolResult);
+
+                // Refresh tasks list to show completed state
+                void listTasks();
+              } else {
+                setToolResult({
+                  content: [
+                    {
+                      type: "text",
+                      text: `Task ${taskStatus.status}: ${taskStatus.statusMessage || "No additional information"}`,
+                    },
+                  ],
+                  isError: true,
+                });
+                // Refresh tasks list to show failed/cancelled state
+                void listTasks();
+              }
+            } else {
+              // Update status message while polling
+              // Safely extract any _meta from the original response (if present)
+              const pollingResponseMeta =
+                response &&
+                typeof response === "object" &&
+                "_meta" in (response as Record<string, unknown>)
+                  ? ((response as { _meta?: Record<string, unknown> })._meta ??
+                    {})
+                  : undefined;
+              setToolResult({
+                content: [
+                  {
+                    type: "text",
+                    text: `Task status: ${taskStatus.status}${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Polling...`,
+                  },
+                ],
+                _meta: {
+                  ...(pollingResponseMeta || {}),
+                  "io.modelcontextprotocol/related-task": { taskId },
+                },
+              } as CompatibilityCallToolResult);
+              // Refresh tasks list to show progress
+              void listTasks();
+            }
+          } catch (pollingError) {
+            console.error("Error polling task status:", pollingError);
+            setToolResult({
+              content: [
+                {
+                  type: "text",
+                  text: `Error polling task status: ${pollingError instanceof Error ? pollingError.message : String(pollingError)}`,
+                },
+              ],
+              isError: true,
+            });
+            taskCompleted = true;
+          }
+        }
+        setIsPollingTask(false);
+      } else {
+        setToolResult(response as CompatibilityCallToolResult);
+      }
       // Clear any validation errors since tool execution completed
       setErrors((prev) => ({ ...prev, tools: null }));
     } catch (e) {
@@ -816,6 +1124,37 @@ const App = () => {
       setToolResult(toolResult);
       // Clear validation errors - tool execution errors are shown in ToolResults
       setErrors((prev) => ({ ...prev, tools: null }));
+    }
+  };
+
+  const listTasks = useCallback(async () => {
+    try {
+      const response = await listMcpTasks(nextTaskCursor);
+      setTasks(response.tasks);
+      setNextTaskCursor(response.nextCursor);
+      // Inline error clear to avoid extra dependency on clearError
+      setErrors((prev) => ({ ...prev, tasks: null }));
+    } catch (e) {
+      setErrors((prev) => ({
+        ...prev,
+        tasks: (e as Error).message ?? String(e),
+      }));
+    }
+  }, [listMcpTasks, nextTaskCursor]);
+
+  const cancelTask = async (taskId: string) => {
+    try {
+      const response = await cancelMcpTask(taskId);
+      setTasks((prev) => prev.map((t) => (t.taskId === taskId ? response : t)));
+      if (selectedTask?.taskId === taskId) {
+        setSelectedTask(response);
+      }
+      clearError("tasks");
+    } catch (e) {
+      setErrors((prev) => ({
+        ...prev,
+        tasks: (e as Error).message ?? String(e),
+      }));
     }
   };
 
@@ -900,6 +1239,8 @@ const App = () => {
           setCustomHeaders={setCustomHeaders}
           oauthClientId={oauthClientId}
           setOauthClientId={setOauthClientId}
+          oauthClientSecret={oauthClientSecret}
+          setOauthClientSecret={setOauthClientSecret}
           oauthScope={oauthScope}
           setOauthScope={setOauthScope}
           onConnect={connectMcpServer}
@@ -909,6 +1250,7 @@ const App = () => {
           loggingSupported={!!serverCapabilities?.logging || false}
           connectionType={connectionType}
           setConnectionType={setConnectionType}
+          serverImplementation={serverImplementation}
         />
         <div
           onMouseDown={handleSidebarDragStart}
@@ -959,6 +1301,13 @@ const App = () => {
                   <Hammer className="w-4 h-4 mr-2" />
                   Tools
                 </TabsTrigger>
+                <TabsTrigger
+                  value="tasks"
+                  disabled={!serverCapabilities?.tasks}
+                >
+                  <ListTodo className="w-4 h-4 mr-2" />
+                  Tasks
+                </TabsTrigger>
                 <TabsTrigger value="ping">
                   <Bell className="w-4 h-4 mr-2" />
                   Ping
@@ -988,6 +1337,10 @@ const App = () => {
                 <TabsTrigger value="auth">
                   <Key className="w-4 h-4 mr-2" />
                   Auth
+                </TabsTrigger>
+                <TabsTrigger value="metadata">
+                  <Settings className="w-4 h-4 mr-2" />
+                  Metadata
                 </TabsTrigger>
               </TabsList>
 
@@ -1099,10 +1452,15 @@ const App = () => {
                         setNextToolCursor(undefined);
                         cacheToolOutputSchemas([]);
                       }}
-                      callTool={async (name, params) => {
+                      callTool={async (
+                        name: string,
+                        params: Record<string, unknown>,
+                        metadata?: Record<string, unknown>,
+                        runAsTask?: boolean,
+                      ) => {
                         clearError("tools");
                         setToolResult(null);
-                        await callTool(name, params);
+                        await callTool(name, params, metadata, runAsTask);
                       }}
                       selectedTool={selectedTool}
                       setSelectedTool={(tool) => {
@@ -1111,6 +1469,7 @@ const App = () => {
                         setToolResult(null);
                       }}
                       toolResult={toolResult}
+                      isPollingTask={isPollingTask}
                       nextCursor={nextToolCursor}
                       error={errors.tools}
                       resourceContent={resourceContentMap}
@@ -1118,6 +1477,25 @@ const App = () => {
                         clearError("resources");
                         readResource(uri);
                       }}
+                    />
+                    <TasksTab
+                      tasks={tasks}
+                      listTasks={() => {
+                        clearError("tasks");
+                        listTasks();
+                      }}
+                      clearTasks={() => {
+                        setTasks([]);
+                        setNextTaskCursor(undefined);
+                      }}
+                      cancelTask={cancelTask}
+                      selectedTask={selectedTask}
+                      setSelectedTask={(task) => {
+                        clearError("tasks");
+                        setSelectedTask(task);
+                      }}
+                      error={errors.tasks}
+                      nextCursor={nextTaskCursor}
                     />
                     <ConsoleTab />
                     <PingTab
@@ -1145,6 +1523,10 @@ const App = () => {
                       onRootsChange={handleRootsChange}
                     />
                     <AuthDebuggerWrapper />
+                    <MetadataTab
+                      metadata={metadata}
+                      onMetadataChange={handleMetadataChange}
+                    />
                   </>
                 )}
               </div>

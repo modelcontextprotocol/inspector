@@ -21,7 +21,7 @@ function useCopy({ timeout = 500 }: UseCopyProps = {}) {
         clearTimeout(timeoutId);
       }
     };
-  }, [copied]);
+  }, [copied, timeout]);
 
   return { copied, setCopied };
 }

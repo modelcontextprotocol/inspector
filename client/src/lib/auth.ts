@@ -102,16 +102,40 @@ export const clearClientInformationFromSessionStorage = ({
   sessionStorage.removeItem(key);
 };
 
+export const getScopeFromSessionStorage = (
+  serverUrl: string,
+): string | undefined => {
+  const key = getServerSpecificKey(SESSION_KEYS.SCOPE, serverUrl);
+  const value = sessionStorage.getItem(key);
+  return value || undefined;
+};
+
+export const saveScopeToSessionStorage = (
+  serverUrl: string,
+  scope: string | undefined,
+) => {
+  const key = getServerSpecificKey(SESSION_KEYS.SCOPE, serverUrl);
+  if (scope) {
+    sessionStorage.setItem(key, scope);
+  } else {
+    sessionStorage.removeItem(key);
+  }
+};
+
+export const clearScopeFromSessionStorage = (serverUrl: string) => {
+  const key = getServerSpecificKey(SESSION_KEYS.SCOPE, serverUrl);
+  sessionStorage.removeItem(key);
+};
+
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
-  constructor(
-    protected serverUrl: string,
-    scope?: string,
-  ) {
-    this.scope = scope;
+  constructor(protected serverUrl: string) {
     // Save the server URL to session storage
     sessionStorage.setItem(SESSION_KEYS.SERVER_URL, serverUrl);
   }
-  scope: string | undefined;
+
+  get scope(): string | undefined {
+    return getScopeFromSessionStorage(this.serverUrl);
+  }
 
   get redirectUrl() {
     return window.location.origin + "/oauth/callback";
@@ -121,17 +145,30 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
     return window.location.origin + "/oauth/callback/debug";
   }
 
+  get redirect_uris() {
+    // Normally register both redirect URIs to support both normal and debug flows
+    // In debug subclass, redirectUrl may be the same as debugRedirectUrl, so remove duplicates
+    // See: https://github.com/modelcontextprotocol/inspector/issues/825
+    return [...new Set([this.redirectUrl, this.debugRedirectUrl])];
+  }
+
   get clientMetadata(): OAuthClientMetadata {
-    // Register both redirect URIs to support both normal and debug flows
-    return {
-      redirect_uris: [this.redirectUrl, this.debugRedirectUrl],
+    const metadata: OAuthClientMetadata = {
+      redirect_uris: this.redirect_uris,
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       client_name: "MCP Inspector",
       client_uri: "https://github.com/modelcontextprotocol/inspector",
-      scope: this.scope ?? "",
     };
+
+    // Only include scope if it's defined and non-empty
+    // Per OAuth spec, omit the scope field entirely if no scopes are requested
+    if (this.scope) {
+      metadata.scope = this.scope;
+    }
+
+    return metadata;
   }
 
   state(): string | Promise<string> {

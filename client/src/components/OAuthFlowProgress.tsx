@@ -181,8 +181,8 @@ export const OAuthFlowProgress = ({
                   </p>
                   <p className="text-xs text-blue-600 mt-1">
                     Resource metadata was added in the{" "}
-                    <a href="https://modelcontextprotocol.io/specification/draft/basic/authorization#2-3-1-authorization-server-location">
-                      2025-DRAFT-v2 specification update
+                    <a href="https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization#authorization-server-location">
+                      2025-06-18 specification update
                     </a>
                     <br />
                     {authState.resourceMetadataError.message}

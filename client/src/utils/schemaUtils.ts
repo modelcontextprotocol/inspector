@@ -1,7 +1,8 @@
 import type { JsonValue, JsonSchemaType, JsonObject } from "./jsonUtils";
 import Ajv from "ajv";
 import type { ValidateFunction } from "ajv";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool, JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
 
 const ajv = new Ajv();
 
@@ -99,6 +100,7 @@ export function generateDefaultValue(
     propertyName && parentSchema
       ? isPropertyRequired(propertyName, parentSchema)
       : false;
+  const isRootSchema = propertyName === undefined && parentSchema === undefined;
 
   switch (schema.type) {
     case "string":
@@ -111,19 +113,27 @@ export function generateDefaultValue(
     case "array":
       return isRequired ? [] : undefined;
     case "object": {
-      if (!schema.properties) return isRequired ? {} : undefined;
+      if (!schema.properties) {
+        return isRequired || isRootSchema ? {} : undefined;
+      }
 
       const obj: JsonObject = {};
-      // Only include properties that are required according to the schema's required array
+      // Include required properties OR optional properties that declare a default
       Object.entries(schema.properties).forEach(([key, prop]) => {
-        if (isPropertyRequired(key, schema)) {
+        const hasExplicitDefault =
+          "default" in prop && (prop as JsonSchemaType).default !== undefined;
+        if (isPropertyRequired(key, schema) || hasExplicitDefault) {
           const value = generateDefaultValue(prop, key, schema);
           if (value !== undefined) {
             obj[key] = value;
           }
         }
       });
-      return isRequired ? obj : Object.keys(obj).length > 0 ? obj : undefined;
+
+      if (Object.keys(obj).length === 0) {
+        return isRequired || isRootSchema ? {} : undefined;
+      }
+      return obj;
     }
     case "null":
       return null;
@@ -146,6 +156,50 @@ export function isPropertyRequired(
 }
 
 /**
+ * Resolves $ref references in JSON schema
+ * @param schema The schema that may contain $ref
+ * @param rootSchema The root schema to resolve references against
+ * @returns The resolved schema without $ref
+ */
+export function resolveRef(
+  schema: JsonSchemaType,
+  rootSchema: JsonSchemaType,
+): JsonSchemaType {
+  if (!("$ref" in schema) || !schema.$ref) {
+    return schema;
+  }
+
+  const ref = schema.$ref;
+
+  // Handle simple #/properties/name references
+  if (ref.startsWith("#/")) {
+    const path = ref.substring(2).split("/");
+    let current: unknown = rootSchema;
+
+    for (const segment of path) {
+      if (
+        current &&
+        typeof current === "object" &&
+        current !== null &&
+        segment in current
+      ) {
+        current = (current as Record<string, unknown>)[segment];
+      } else {
+        // If reference cannot be resolved, return the original schema
+        console.warn(`Could not resolve $ref: ${ref}`);
+        return schema;
+      }
+    }
+
+    return current as JsonSchemaType;
+  }
+
+  // For other types of references, return the original schema
+  console.warn(`Unsupported $ref format: ${ref}`);
+  return schema;
+}
+
+/**
  * Normalizes union types (like string|null from FastMCP) to simple types for form rendering
  * @param schema The JSON schema to normalize
  * @returns A normalized schema or the original schema
@@ -158,7 +212,7 @@ export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
     schema.anyOf.some((t) => (t as JsonSchemaType).type === "string") &&
     schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
   ) {
-    return { ...schema, type: "string", anyOf: undefined };
+    return { ...schema, type: "string", anyOf: undefined, nullable: true };
   }
 
   // Handle anyOf with exactly boolean and null (FastMCP pattern)
@@ -168,7 +222,7 @@ export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
     schema.anyOf.some((t) => (t as JsonSchemaType).type === "boolean") &&
     schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
   ) {
-    return { ...schema, type: "boolean", anyOf: undefined };
+    return { ...schema, type: "boolean", anyOf: undefined, nullable: true };
   }
 
   // Handle anyOf with exactly number and null (FastMCP pattern)
@@ -178,7 +232,7 @@ export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
     schema.anyOf.some((t) => (t as JsonSchemaType).type === "number") &&
     schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
   ) {
-    return { ...schema, type: "number", anyOf: undefined };
+    return { ...schema, type: "number", anyOf: undefined, nullable: true };
   }
 
   // Handle anyOf with exactly integer and null (FastMCP pattern)
@@ -188,7 +242,17 @@ export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
     schema.anyOf.some((t) => (t as JsonSchemaType).type === "integer") &&
     schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
   ) {
-    return { ...schema, type: "integer", anyOf: undefined };
+    return { ...schema, type: "integer", anyOf: undefined, nullable: true };
+  }
+
+  // Handle anyOf with exactly array and null (FastMCP pattern)
+  if (
+    schema.anyOf &&
+    schema.anyOf.length === 2 &&
+    schema.anyOf.some((t) => (t as JsonSchemaType).type === "array") &&
+    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
+  ) {
+    return { ...schema, type: "array", anyOf: undefined, nullable: true };
   }
 
   // Handle array type with exactly string and null
@@ -198,7 +262,7 @@ export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
     schema.type.includes("string") &&
     schema.type.includes("null")
   ) {
-    return { ...schema, type: "string" };
+    return { ...schema, type: "string", nullable: true };
   }
 
   // Handle array type with exactly boolean and null
@@ -208,7 +272,7 @@ export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
     schema.type.includes("boolean") &&
     schema.type.includes("null")
   ) {
-    return { ...schema, type: "boolean" };
+    return { ...schema, type: "boolean", nullable: true };
   }
 
   // Handle array type with exactly number and null
@@ -218,7 +282,7 @@ export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
     schema.type.includes("number") &&
     schema.type.includes("null")
   ) {
-    return { ...schema, type: "number" };
+    return { ...schema, type: "number", nullable: true };
   }
 
   // Handle array type with exactly integer and null
@@ -228,7 +292,7 @@ export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
     schema.type.includes("integer") &&
     schema.type.includes("null")
   ) {
-    return { ...schema, type: "integer" };
+    return { ...schema, type: "integer", nullable: true };
   }
 
   return schema;
@@ -244,4 +308,42 @@ export function formatFieldLabel(key: string): string {
     .replace(/([A-Z])/g, " $1") // Insert space before capital letters
     .replace(/_/g, " ") // Replace underscores with spaces
     .replace(/^\w/, (c) => c.toUpperCase()); // Capitalize first letter
+}
+
+/**
+ * Resolves `$ref` references in a JSON-RPC "elicitation/create" message's `requestedSchema` field
+ * @param message The JSON-RPC message that may contain $ref references
+ * @returns A new message with resolved $ref references, or the original message if no resolution is needed
+ */
+export function resolveRefsInMessage(message: JSONRPCMessage): JSONRPCMessage {
+  if (!isJSONRPCRequest(message) || !message.params?.requestedSchema) {
+    return message;
+  }
+
+  const requestedSchema = message.params.requestedSchema as JsonSchemaType;
+
+  if (!requestedSchema?.properties) {
+    return message;
+  }
+
+  const resolvedMessage = {
+    ...message,
+    params: {
+      ...message.params,
+      requestedSchema: {
+        ...requestedSchema,
+        properties: Object.fromEntries(
+          Object.entries(requestedSchema.properties).map(
+            ([key, propSchema]) => {
+              const resolved = resolveRef(propSchema, requestedSchema);
+              const normalized = normalizeUnionType(resolved);
+              return [key, normalized];
+            },
+          ),
+        ),
+      },
+    },
+  };
+
+  return resolvedMessage;
 }

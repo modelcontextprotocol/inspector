@@ -34,7 +34,12 @@ The server will start up and the UI will be accessible at `http://localhost:6274
 You can also start it in a Docker container with the following command:
 
 ```bash
-docker run --rm --network host -p 6274:6274 -p 6277:6277 ghcr.io/modelcontextprotocol/inspector:latest
+docker run --rm \
+  -p 127.0.0.1:6274:6274 \
+  -p 127.0.0.1:6277:6277 \
+  -e HOST=0.0.0.0 \
+  -e MCP_AUTO_OPEN_ENABLED=false \
+  ghcr.io/modelcontextprotocol/inspector:latest
 ```
 
 ### From an MCP server repository
@@ -236,13 +241,15 @@ ALLOWED_ORIGINS=http://localhost:6274,http://localhost:8000 npm start
 
 The MCP Inspector supports the following configuration settings. To change them, click on the `Configuration` button in the MCP Inspector UI:
 
-| Setting                                 | Description                                                                                                                                       | Default |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `MCP_SERVER_REQUEST_TIMEOUT`            | Timeout for requests to the MCP server (ms)                                                                                                       | 10000   |
-| `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                                                           | true    |
-| `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)                                                  | 60000   |
-| `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577                                      | ""      |
-| `MCP_AUTO_OPEN_ENABLED`                 | Enable automatic browser opening when inspector starts (works with authentication enabled). Only as environment var, not configurable in browser. | true    |
+| Setting                                 | Description                                                                                                                                         | Default |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `MCP_SERVER_REQUEST_TIMEOUT`            | Client-side timeout (ms) - Inspector will cancel the request if no response is received within this time. Note: servers may have their own timeouts | 300000  |
+| `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                                                             | true    |
+| `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)                                                    | 60000   |
+| `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577                                        | ""      |
+| `MCP_AUTO_OPEN_ENABLED`                 | Enable automatic browser opening when inspector starts (works with authentication enabled). Only as environment var, not configurable in browser.   | true    |
+
+**Note on Timeouts:** The timeout settings above control when the Inspector (as an MCP client) will cancel requests. These are independent of any server-side timeouts. For example, if a server tool has a 10-minute timeout but the Inspector's timeout is set to 30 seconds, the Inspector will cancel the request after 30 seconds. Conversely, if the Inspector's timeout is 10 minutes but the server times out after 30 seconds, you'll receive the server's timeout error. For tools that require user interaction (like elicitation) or long-running operations, ensure the Inspector's timeout is set appropriately.
 
 These settings can be adjusted in real-time through the UI and will persist across sessions.
 
@@ -361,7 +368,7 @@ http://localhost:6274/?transport=stdio&serverCommand=npx&serverArgs=arg1%20arg2
 You can also set initial config settings via query params, for example:
 
 ```
-http://localhost:6274/?MCP_SERVER_REQUEST_TIMEOUT=10000&MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS=false&MCP_PROXY_FULL_ADDRESS=http://10.1.1.22:5577
+http://localhost:6274/?MCP_SERVER_REQUEST_TIMEOUT=60000&MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS=false&MCP_PROXY_FULL_ADDRESS=http://10.1.1.22:5577
 ```
 
 Note that if both the query param and the corresponding localStorage item are set, the query param will take precedence.
@@ -455,6 +462,17 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --me
 | **Debugging**            | Request history, visualized errors, and real-time notifications           | Direct JSON output for log analysis and integration with other tools                                                                                 |
 | **Automation**           | N/A                                                                       | Ideal for CI/CD pipelines, batch processing, and integration with coding assistants                                                                  |
 | **Learning MCP**         | Rich visual interface helps new users understand server capabilities      | Simplified commands for focused learning of specific endpoints                                                                                       |
+
+## Tool Input Validation Guidelines
+
+When implementing or modifying tool input parameter handling in the Inspector:
+
+- **Omit optional fields with empty values** - When processing form inputs, omit empty strings or null values for optional parameters, UNLESS the field has an explicit default value in the schema that matches the current value
+- **Preserve explicit default values** - If a field schema contains an explicit default (e.g., `default: null`), and the current value matches that default, include it in the request. This is a meaningful value the tool expects
+- **Always include required fields** - Preserve required field values even when empty, allowing the MCP server to validate and return appropriate error messages
+- **Defer deep validation to the server** - Implement basic field presence checking in the Inspector client, but rely on the MCP server for parameter validation according to its schema
+
+These guidelines maintain clean parameter passing and proper separation of concerns between the Inspector client and MCP servers.
 
 ## License
 

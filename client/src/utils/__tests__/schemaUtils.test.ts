@@ -43,8 +43,38 @@ describe("generateDefaultValue", () => {
     expect(generateDefaultValue({ type: "array" })).toBe(undefined);
   });
 
-  test("generates undefined for optional object", () => {
-    expect(generateDefaultValue({ type: "object" })).toBe(undefined);
+  test("generates empty object for optional root object", () => {
+    expect(generateDefaultValue({ type: "object" })).toEqual({});
+  });
+
+  test("generates undefined for nested optional object", () => {
+    // When called WITH propertyName and parentSchema, and the property is NOT required,
+    // nested optional objects should return undefined
+    const parentSchema = {
+      type: "object" as const,
+      required: ["otherField"],
+      properties: {
+        optionalObject: { type: "object" as const },
+        otherField: { type: "string" as const },
+      },
+    };
+    expect(
+      generateDefaultValue({ type: "object" }, "optionalObject", parentSchema),
+    ).toBe(undefined);
+  });
+
+  test("generates empty object for root-level object with all optional properties", () => {
+    // Root-level schema with properties but no required array
+    // This is the exact scenario from PR #926 - elicitation with all optional fields
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        optionalField1: { type: "string" },
+        optionalField2: { type: "number" },
+      },
+      // No required array - all fields are optional
+    };
+    expect(generateDefaultValue(schema)).toEqual({});
   });
 
   test("generates default null for unknown types", () => {
@@ -188,6 +218,7 @@ describe("normalizeUnionType", () => {
     expect(normalized.type).toBe("boolean");
     expect(normalized.anyOf).toBeUndefined();
     expect(normalized.description).toBe("Optional boolean parameter");
+    expect(normalized.nullable).toBeTruthy();
   });
 
   test("normalizes array type with string and null to string type", () => {
@@ -200,6 +231,7 @@ describe("normalizeUnionType", () => {
 
     expect(normalized.type).toBe("string");
     expect(normalized.description).toBe("Optional string parameter");
+    expect(normalized.nullable).toBeTruthy();
   });
 
   test("normalizes array type with boolean and null to boolean type", () => {
@@ -212,6 +244,7 @@ describe("normalizeUnionType", () => {
 
     expect(normalized.type).toBe("boolean");
     expect(normalized.description).toBe("Optional boolean parameter");
+    expect(normalized.nullable).toBeTruthy();
   });
 
   test("normalizes anyOf with number and null to number type", () => {
@@ -225,6 +258,7 @@ describe("normalizeUnionType", () => {
     expect(normalized.type).toBe("number");
     expect(normalized.anyOf).toBeUndefined();
     expect(normalized.description).toBe("Optional number parameter");
+    expect(normalized.nullable).toBeTruthy();
   });
 
   test("normalizes anyOf with integer and null to integer type", () => {
@@ -238,6 +272,7 @@ describe("normalizeUnionType", () => {
     expect(normalized.type).toBe("integer");
     expect(normalized.anyOf).toBeUndefined();
     expect(normalized.description).toBe("Optional integer parameter");
+    expect(normalized.nullable).toBeTruthy();
   });
 
   test("normalizes array type with number and null to number type", () => {
@@ -250,6 +285,7 @@ describe("normalizeUnionType", () => {
 
     expect(normalized.type).toBe("number");
     expect(normalized.description).toBe("Optional number parameter");
+    expect(normalized.nullable).toBeTruthy();
   });
 
   test("normalizes array type with integer and null to integer type", () => {
@@ -262,6 +298,7 @@ describe("normalizeUnionType", () => {
 
     expect(normalized.type).toBe("integer");
     expect(normalized.description).toBe("Optional integer parameter");
+    expect(normalized.nullable).toBeTruthy();
   });
 
   test("handles anyOf with reversed order (null first)", () => {
@@ -273,6 +310,7 @@ describe("normalizeUnionType", () => {
 
     expect(normalized.type).toBe("string");
     expect(normalized.anyOf).toBeUndefined();
+    expect(normalized.nullable).toBeTruthy();
   });
 
   test("leaves non-union schemas unchanged", () => {
@@ -294,6 +332,7 @@ describe("normalizeUnionType", () => {
     const normalized = normalizeUnionType(schema);
 
     expect(normalized).toEqual(schema);
+    expect(normalized.nullable).toBeFalsy();
   });
 
   test("leaves anyOf with more than two types unchanged", () => {
@@ -343,6 +382,7 @@ describe("normalizeUnionType", () => {
     expect(normalized.minLength).toBe(1);
     expect(normalized.maxLength).toBe(100);
     expect(normalized.pattern).toBe("^[a-z]+$");
+    expect(normalized.nullable).toBeTruthy();
   });
 });
 

@@ -27,14 +27,48 @@ jobs:
       id-token: write
       actions: read
     steps:
-      - name: Checkout repository
+      - name: Get PR details
+        if: |
+          (github.event_name == 'issue_comment' && github.event.issue.pull_request) ||
+          github.event_name == 'pull_request_review_comment' ||
+          github.event_name == 'pull_request_review'
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let prNumber;
+            if (context.eventName === 'issue_comment') {
+              prNumber = context.issue.number;
+            } else {
+              prNumber = context.payload.pull_request.number;
+            }
+
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            core.setOutput('sha', pr.data.head.sha);
+            core.setOutput('repo', pr.data.head.repo.full_name);
+
+      - name: Checkout PR branch
+        if: steps.pr.outcome == 'success'
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          ref: ${{ steps.pr.outputs.sha }}
+          repository: ${{ steps.pr.outputs.repo }}
+          fetch-depth: 0
+
+      - name: Checkout repository
+        if: steps.pr.outcome != 'success'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
@@ -45,9 +79,7 @@ jobs:
           # Trigger when assigned to an issue
           assignee_trigger: "claude"
 
-          # Allow Claude to run bash
-          # This should be safe given the repo is already public
-          allowed_tools: "Bash"
-
-          custom_instructions: |
-            If posting a comment to GitHub, give a concise summary of the comment at the top and put all the details in a <details> block.
+          claude_args: |
+            --mcp-config .mcp.json
+            --allowedTools "Bash,mcp__mcp-docs"
+            --append-system-prompt "If posting a comment to GitHub, give a concise summary of the comment at the top and put all the details in a <details> block. When working on MCP-related code or reviewing MCP-related changes, use the mcp-docs MCP server to look up the latest protocol documentation. For schema details, reference https://github.com/modelcontextprotocol/modelcontextprotocol/tree/main/schema which contains versioned schemas in JSON (schema.json) and TypeScript (schema.ts) formats."
