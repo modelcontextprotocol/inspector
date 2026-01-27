@@ -483,7 +483,7 @@ describe("ToolsTab", () => {
       ).toBeInTheDocument();
     });
 
-    it("should show unstructured content title when both structured and unstructured exist", () => {
+    it("should prefer structured content when both structured and unstructured exist", () => {
       const resultWithBoth = {
         content: [{ type: "text", text: '{"temperature": 25}' }],
         structuredContent: { temperature: 25 },
@@ -496,7 +496,10 @@ describe("ToolsTab", () => {
       });
 
       expect(screen.getByText("Structured Content:")).toBeInTheDocument();
-      expect(screen.getByText("Unstructured Content:")).toBeInTheDocument();
+      // Should not show unstructured content when structured content is present
+      expect(
+        screen.queryByText("Unstructured Content:"),
+      ).not.toBeInTheDocument();
     });
 
     it("should not show unstructured content title when only unstructured exists", () => {
@@ -514,7 +517,7 @@ describe("ToolsTab", () => {
       ).not.toBeInTheDocument();
     });
 
-    it("should show compatibility check when tool has output schema", () => {
+    it("should show only structured content when tool has output schema", () => {
       const compatibleResult = {
         content: [{ type: "text", text: '{"temperature": 25}' }],
         structuredContent: { temperature: 25 },
@@ -526,13 +529,14 @@ describe("ToolsTab", () => {
         toolResult: compatibleResult,
       });
 
-      // Should show compatibility result
+      // Should show structured content and not show unstructured content
+      expect(screen.getByText("Structured Content:")).toBeInTheDocument();
       expect(
-        screen.getByText(/structured content matches/i),
-      ).toBeInTheDocument();
+        screen.queryByText(/structured content matches/i),
+      ).not.toBeInTheDocument();
     });
 
-    it("should accept multiple content blocks with structured output", () => {
+    it("should prefer structured content over multiple content blocks", () => {
       const multipleBlocksResult = {
         content: [
           { type: "text", text: "Here is the weather data:" },
@@ -548,10 +552,11 @@ describe("ToolsTab", () => {
         toolResult: multipleBlocksResult,
       });
 
-      // Should show compatible result with multiple blocks
+      // Should show structured content and hide unstructured content blocks
+      expect(screen.getByText("Structured Content:")).toBeInTheDocument();
       expect(
-        screen.getByText(/structured content matches.*multiple/i),
-      ).toBeInTheDocument();
+        screen.queryByText("Here is the weather data:"),
+      ).not.toBeInTheDocument();
     });
 
     it("should accept mixed content types with structured output", () => {
