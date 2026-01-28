@@ -1,4 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { SseError } from "@modelcontextprotocol/sdk/client/sse.js";
 import type {
   MCPServerConfig,
   StderrLogEntry,
@@ -62,6 +64,25 @@ import { ContentCache, type ReadOnlyContentCache } from "./contentCache.js";
 import { InspectorClientEventTarget } from "./inspectorClientEventTarget.js";
 import { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
+import type {
+  BaseOAuthClientProvider,
+  RedirectUrlProvider,
+  OAuthNavigation,
+} from "../auth/providers.js";
+import {
+  NodeOAuthClientProvider,
+  GuidedNodeOAuthClientProvider,
+  LocalServerRedirectUrlProvider,
+  ManualRedirectUrlProvider,
+  ConsoleNavigation,
+} from "../auth/providers.js";
+import { NodeOAuthStorage } from "../auth/storage-node.js";
+import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
+import { EMPTY_GUIDED_STATE } from "../auth/types.js";
+import { OAuthStateMachine } from "../auth/state-machine.js";
+import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
 export interface InspectorClientOptions {
   /**
    * Client identity (name and version)
@@ -144,6 +165,46 @@ export interface InspectorClientOptions {
    * If enabled, InspectorClient will register a handler for progress notifications and dispatch progressNotification events
    */
   progress?: boolean; // default: true
+
+  /**
+   * OAuth configuration
+   */
+  oauth?: {
+    /**
+     * Preregistered client ID (optional, will use DCR if not provided)
+     * If clientMetadataUrl is provided, this is ignored (CIMD mode)
+     */
+    clientId?: string;
+
+    /**
+     * Preregistered client secret (optional, only if client requires secret)
+     * If clientMetadataUrl is provided, this is ignored (CIMD mode)
+     */
+    clientSecret?: string;
+
+    /**
+     * Client metadata URL for CIMD (Client ID Metadata Documents) mode
+     * If provided, enables URL-based client IDs (SEP-991)
+     * The URL becomes the client_id, and the authorization server fetches it to discover client metadata
+     */
+    clientMetadataUrl?: string;
+
+    /**
+     * OAuth scope (optional, will be discovered if not provided)
+     */
+    scope?: string;
+
+    /**
+     * Redirect URL for OAuth callback (required for OAuth flow)
+     * For CLI/TUI, this should be a local server URL or manual callback URL
+     */
+    redirectUrl?: string;
+
+    /**
+     * Storage path for OAuth data (default: ~/.mcp-inspector/oauth/)
+     */
+    storagePath?: string;
+  };
 }
 
 /**
@@ -199,6 +260,16 @@ export class InspectorClient extends InspectorClientEventTarget {
   private subscribedResources: Set<string> = new Set();
   // Task tracking
   private clientTasks: Map<string, Task> = new Map();
+  // OAuth support
+  private oauthConfig?: InspectorClientOptions["oauth"];
+  private oauthStateMachine: OAuthStateMachine | null = null;
+  private oauthState: AuthGuidedState | null = null;
+  private pendingOAuthRequest: {
+    method: string;
+    params?: any;
+    resolve: () => Promise<any>;
+    reject: (error: Error) => void;
+  } | null = null;
 
   constructor(
     private transportConfig: MCPServerConfig,
@@ -224,6 +295,8 @@ export class InspectorClient extends InspectorClientEventTarget {
       resources: options.listChangedNotifications?.resources ?? true,
       prompts: options.listChangedNotifications?.prompts ?? true,
     };
+    // Initialize OAuth config
+    this.oauthConfig = options.oauth;
 
     // Set up message tracking callbacks
     const messageTracking: MessageTrackingCallbacks = {
@@ -281,6 +354,11 @@ export class InspectorClient extends InspectorClientEventTarget {
       },
       onFetchRequest: (entry: FetchRequestEntry) => {
         this.addFetchRequest(entry);
+      },
+      // Add OAuth token getter for HTTP transports
+      getOAuthToken: async () => {
+        const tokens = await this.getOAuthTokens();
+        return tokens?.access_token;
       },
     };
 
@@ -532,6 +610,177 @@ export class InspectorClient extends InspectorClientEventTarget {
         }
       }
     } catch (error) {
+      // Handle 401 errors by initiating OAuth flow
+      // The SDK's streamable-http transport throws an error when it receives a 401 HTTP response
+      if (this.is401Error(error) && this.oauthConfig) {
+        try {
+          const authUrl = await this.authenticate();
+          // Store pending connect for retry after OAuth completes
+          // Return a Promise that resolves when OAuth completes and connection succeeds
+          return new Promise<void>((resolve, reject) => {
+            this.pendingOAuthRequest = {
+              method: "connect",
+              resolve: async () => {
+                try {
+                  // Retry connect after OAuth completes
+                  // The transport may already be started from the initial connect attempt
+                  // Just call the internal connection logic without the full connect() method
+                  if (this.status === "connected") {
+                    // Already connected, just resolve
+                    resolve();
+                    return;
+                  }
+
+                  // Try to connect - handle "already started" error gracefully
+                  if (!this.client) {
+                    throw new Error("Client not initialized");
+                  }
+                  if (!this.transport) {
+                    throw new Error("Transport not initialized");
+                  }
+                  // Close the old transport if it exists (SSE EventSource can't be restarted)
+                  // The transport's getOAuthToken callback will automatically use the token we just saved
+                  if (this.baseTransport) {
+                    try {
+                      await this.baseTransport.close();
+                    } catch {
+                      // Ignore errors closing old transport
+                    }
+                  }
+
+                  // Create a new transport instance (same config, but now getOAuthToken will return the token)
+                  // The getOAuthToken callback is already set up in the constructor to call this.getOAuthTokens()
+                  const { createTransport } = await import("./transport.js");
+                  const transportOptions: CreateTransportOptions = {
+                    pipeStderr: false,
+                    onStderr: (entry: StderrLogEntry) => {
+                      this.addStderrLog(entry);
+                    },
+                    onFetchRequest: (entry: FetchRequestEntry) => {
+                      this.addFetchRequest(entry);
+                    },
+                    getOAuthToken: async () => {
+                      const tokens = await this.getOAuthTokens();
+                      return tokens?.access_token;
+                    },
+                  };
+                  const transportResult = createTransport(
+                    this.transportConfig,
+                    transportOptions,
+                  );
+
+                  // Update base transport
+                  this.baseTransport = transportResult.transport;
+
+                  // Re-wrap with MessageTrackingTransport if needed
+                  if (this.maxMessages > 0) {
+                    const { MessageTrackingTransport } =
+                      await import("./messageTrackingTransport.js");
+                    const messageTracking: MessageTrackingCallbacks = {
+                      trackRequest: (message: JSONRPCRequest) => {
+                        const entry: MessageEntry = {
+                          id: `${Date.now()}-${Math.random()}`,
+                          timestamp: new Date(),
+                          direction: "request",
+                          message,
+                        };
+                        this.addMessage(entry);
+                      },
+                      trackResponse: (
+                        message: JSONRPCResultResponse | JSONRPCErrorResponse,
+                      ) => {
+                        const messageId = message.id;
+                        const requestEntry = this.messages.find(
+                          (e) =>
+                            e.direction === "request" &&
+                            "id" in e.message &&
+                            e.message.id === messageId,
+                        );
+                        if (requestEntry) {
+                          this.updateMessageResponse(requestEntry, message);
+                        } else {
+                          const entry: MessageEntry = {
+                            id: `${Date.now()}-${Math.random()}`,
+                            timestamp: new Date(),
+                            direction: "response",
+                            message,
+                          };
+                          this.addMessage(entry);
+                        }
+                      },
+                      trackNotification: (message: JSONRPCNotification) => {
+                        const entry: MessageEntry = {
+                          id: `${Date.now()}-${Math.random()}`,
+                          timestamp: new Date(),
+                          direction: "notification",
+                          message,
+                        };
+                        this.addMessage(entry);
+                      },
+                    };
+                    this.transport = new MessageTrackingTransport(
+                      this.baseTransport,
+                      messageTracking,
+                    );
+                  } else {
+                    this.transport = this.baseTransport;
+                  }
+
+                  // Set up transport event listeners on new base transport
+                  this.baseTransport.onclose = () => {
+                    if (this.status !== "disconnected") {
+                      this.status = "disconnected";
+                      this.dispatchTypedEvent("statusChange", this.status);
+                      this.dispatchTypedEvent("disconnect");
+                    }
+                  };
+                  this.baseTransport.onerror = (error: Error) => {
+                    this.status = "error";
+                    this.dispatchTypedEvent("statusChange", this.status);
+                    this.dispatchTypedEvent("error", error);
+                  };
+
+                  // Now connect with the new transport (which will use the OAuth token via getOAuthToken callback)
+                  await this.client.connect(this.transport);
+
+                  this.status = "connected";
+                  this.dispatchTypedEvent("statusChange", this.status);
+                  this.dispatchTypedEvent("connect");
+
+                  // Always fetch server info (capabilities, serverInfo, instructions)
+                  await this.fetchServerInfo();
+
+                  // Set initial logging level if configured and server supports it
+                  if (this.initialLoggingLevel && this.capabilities?.logging) {
+                    await this.setLoggingLevel(this.initialLoggingLevel);
+                  }
+
+                  resolve();
+                } catch (retryError) {
+                  const err =
+                    retryError instanceof Error
+                      ? retryError
+                      : new Error(String(retryError));
+                  reject(err);
+                  throw err;
+                }
+              },
+              reject: (err: Error) => {
+                reject(err);
+              },
+            };
+          });
+        } catch (oauthError) {
+          this.dispatchTypedEvent("oauthError", {
+            error:
+              oauthError instanceof Error
+                ? oauthError
+                : new Error(String(oauthError)),
+          });
+          throw oauthError;
+        }
+      }
+      // Re-throw non-401 errors
       this.status = "error";
       this.dispatchTypedEvent("statusChange", this.status);
       this.dispatchTypedEvent(
@@ -919,22 +1168,24 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    try {
-      const params: any =
-        metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
-      if (cursor) {
-        params.cursor = cursor;
-      }
-      const response = await this.client.listTools(params);
-      return {
-        tools: response.tools || [],
-        nextCursor: response.nextCursor,
-      };
-    } catch (error) {
-      throw new Error(
-        `Failed to list tools: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+    return this.handleRequestWithOAuth(
+      "listTools",
+      async () => {
+        const params: any =
+          metadata && Object.keys(metadata).length > 0
+            ? { _meta: metadata }
+            : {};
+        if (cursor) {
+          params.cursor = cursor;
+        }
+        const response = await this.client!.listTools(params);
+        return {
+          tools: response.tools || [],
+          nextCursor: response.nextCursor,
+        };
+      },
+      { cursor, metadata },
+    );
   }
 
   /**
@@ -998,70 +1249,74 @@ export class InspectorClient extends InspectorClientEventTarget {
       );
     }
 
-    try {
-      let convertedArgs: Record<string, JsonValue> = args;
+    return this.handleRequestWithOAuth(
+      "callTool",
+      async () => {
+        let convertedArgs: Record<string, JsonValue> = args;
 
-      if (tool) {
-        // Convert parameters based on the tool's schema, but only for string values
-        // since we now accept pre-parsed values from the CLI
-        const stringArgs: Record<string, string> = {};
-        for (const [key, value] of Object.entries(args)) {
-          if (typeof value === "string") {
-            stringArgs[key] = value;
+        if (tool) {
+          // Convert parameters based on the tool's schema, but only for string values
+          // since we now accept pre-parsed values from the CLI
+          const stringArgs: Record<string, string> = {};
+          for (const [key, value] of Object.entries(args)) {
+            if (typeof value === "string") {
+              stringArgs[key] = value;
+            }
+          }
+
+          if (Object.keys(stringArgs).length > 0) {
+            const convertedStringArgs = convertToolParameters(tool, stringArgs);
+            convertedArgs = { ...args, ...convertedStringArgs };
           }
         }
 
-        if (Object.keys(stringArgs).length > 0) {
-          const convertedStringArgs = convertToolParameters(tool, stringArgs);
-          convertedArgs = { ...args, ...convertedStringArgs };
+        // Merge general metadata with tool-specific metadata
+        // Tool-specific metadata takes precedence over general metadata
+        let mergedMetadata: Record<string, string> | undefined;
+        if (generalMetadata || toolSpecificMetadata) {
+          mergedMetadata = {
+            ...(generalMetadata || {}),
+            ...(toolSpecificMetadata || {}),
+          };
         }
-      }
 
-      // Merge general metadata with tool-specific metadata
-      // Tool-specific metadata takes precedence over general metadata
-      let mergedMetadata: Record<string, string> | undefined;
-      if (generalMetadata || toolSpecificMetadata) {
-        mergedMetadata = {
-          ...(generalMetadata || {}),
-          ...(toolSpecificMetadata || {}),
+        const timestamp = new Date();
+        const metadata =
+          mergedMetadata && Object.keys(mergedMetadata).length > 0
+            ? mergedMetadata
+            : undefined;
+
+        const result = await this.client!.callTool({
+          name: name,
+          arguments: convertedArgs,
+          _meta: metadata,
+        });
+
+        const invocation: ToolCallInvocation = {
+          toolName: name,
+          params: args,
+          result: result as CallToolResult,
+          timestamp,
+          success: true,
+          metadata,
         };
-      }
 
-      const timestamp = new Date();
-      const metadata =
-        mergedMetadata && Object.keys(mergedMetadata).length > 0
-          ? mergedMetadata
-          : undefined;
+        // Store in cache
+        this.cacheInternal.setToolCallResult(name, invocation);
+        // Dispatch event
+        this.dispatchTypedEvent("toolCallResultChange", {
+          toolName: name,
+          params: args,
+          result: invocation.result,
+          timestamp,
+          success: true,
+          metadata,
+        });
 
-      const result = await this.client.callTool({
-        name: name,
-        arguments: convertedArgs,
-        _meta: metadata,
-      });
-
-      const invocation: ToolCallInvocation = {
-        toolName: name,
-        params: args,
-        result: result as CallToolResult,
-        timestamp,
-        success: true,
-        metadata,
-      };
-
-      // Store in cache
-      this.cacheInternal.setToolCallResult(name, invocation);
-      // Dispatch event
-      this.dispatchTypedEvent("toolCallResultChange", {
-        toolName: name,
-        params: args,
-        result: invocation.result,
-        timestamp,
-        success: true,
-        metadata,
-      });
-
-      return invocation;
-    } catch (error) {
+        return invocation;
+      },
+      { name, args, generalMetadata, toolSpecificMetadata },
+    ).catch((error) => {
       // Merge general metadata with tool-specific metadata for error case
       let mergedMetadata: Record<string, string> | undefined;
       if (generalMetadata || toolSpecificMetadata) {
@@ -1100,8 +1355,8 @@ export class InspectorClient extends InspectorClientEventTarget {
         metadata,
       });
 
-      return invocation;
-    }
+      throw error;
+    });
   }
 
   /**
@@ -1348,22 +1603,24 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    try {
-      const params: any =
-        metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
-      if (cursor) {
-        params.cursor = cursor;
-      }
-      const response = await this.client.listResources(params);
-      return {
-        resources: response.resources || [],
-        nextCursor: response.nextCursor,
-      };
-    } catch (error) {
-      throw new Error(
-        `Failed to list resources: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+    return this.handleRequestWithOAuth(
+      "listResources",
+      async () => {
+        const params: any =
+          metadata && Object.keys(metadata).length > 0
+            ? { _meta: metadata }
+            : {};
+        if (cursor) {
+          params.cursor = cursor;
+        }
+        const response = await this.client!.listResources(params);
+        return {
+          resources: response.resources || [],
+          nextCursor: response.nextCursor,
+        };
+      },
+      { cursor, metadata },
+    );
   }
 
   /**
@@ -1429,32 +1686,32 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    try {
-      const params: any = { uri };
-      if (metadata && Object.keys(metadata).length > 0) {
-        params._meta = metadata;
-      }
-      const result = await this.client.readResource(params);
-      const invocation: ResourceReadInvocation = {
-        result,
-        timestamp: new Date(),
-        uri,
-        metadata,
-      };
-      // Store in cache
-      this.cacheInternal.setResource(uri, invocation);
-      // Dispatch event
-      this.dispatchTypedEvent("resourceContentChange", {
-        uri,
-        content: invocation,
-        timestamp: invocation.timestamp,
-      });
-      return invocation;
-    } catch (error) {
-      throw new Error(
-        `Failed to read resource ${uri}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+    return this.handleRequestWithOAuth(
+      "readResource",
+      async () => {
+        const params: any = { uri };
+        if (metadata && Object.keys(metadata).length > 0) {
+          params._meta = metadata;
+        }
+        const result = await this.client!.readResource(params);
+        const invocation: ResourceReadInvocation = {
+          result,
+          timestamp: new Date(),
+          uri,
+          metadata,
+        };
+        // Store in cache
+        this.cacheInternal.setResource(uri, invocation);
+        // Dispatch event
+        this.dispatchTypedEvent("resourceContentChange", {
+          uri,
+          content: invocation,
+          timestamp: invocation.timestamp,
+        });
+        return invocation;
+      },
+      { uri, metadata },
+    );
   }
 
   /**
@@ -1630,22 +1887,24 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    try {
-      const params: any =
-        metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
-      if (cursor) {
-        params.cursor = cursor;
-      }
-      const response = await this.client.listPrompts(params);
-      return {
-        prompts: response.prompts || [],
-        nextCursor: response.nextCursor,
-      };
-    } catch (error) {
-      throw new Error(
-        `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+    return this.handleRequestWithOAuth(
+      "listPrompts",
+      async () => {
+        const params: any =
+          metadata && Object.keys(metadata).length > 0
+            ? { _meta: metadata }
+            : {};
+        if (cursor) {
+          params.cursor = cursor;
+        }
+        const response = await this.client!.listPrompts(params);
+        return {
+          prompts: response.prompts || [],
+          nextCursor: response.nextCursor,
+        };
+      },
+      { cursor, metadata },
+    );
   }
 
   /**
@@ -1711,44 +1970,44 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    try {
-      // Convert all arguments to strings for prompt arguments
-      const stringArgs = args ? convertPromptArguments(args) : {};
+    return this.handleRequestWithOAuth(
+      "getPrompt",
+      async () => {
+        // Convert all arguments to strings for prompt arguments
+        const stringArgs = args ? convertPromptArguments(args) : {};
 
-      const params: any = {
-        name,
-        arguments: stringArgs,
-      };
+        const params: any = {
+          name,
+          arguments: stringArgs,
+        };
 
-      if (metadata && Object.keys(metadata).length > 0) {
-        params._meta = metadata;
-      }
+        if (metadata && Object.keys(metadata).length > 0) {
+          params._meta = metadata;
+        }
 
-      const result = await this.client.getPrompt(params);
+        const result = await this.client!.getPrompt(params);
 
-      const invocation: PromptGetInvocation = {
-        result,
-        timestamp: new Date(),
-        name,
-        params: Object.keys(stringArgs).length > 0 ? stringArgs : undefined,
-        metadata,
-      };
+        const invocation: PromptGetInvocation = {
+          result,
+          timestamp: new Date(),
+          name,
+          params: Object.keys(stringArgs).length > 0 ? stringArgs : undefined,
+          metadata,
+        };
 
-      // Store in cache
-      this.cacheInternal.setPrompt(name, invocation);
-      // Dispatch event
-      this.dispatchTypedEvent("promptContentChange", {
-        name,
-        content: invocation,
-        timestamp: invocation.timestamp,
-      });
+        // Store in cache
+        this.cacheInternal.setPrompt(name, invocation);
+        // Dispatch event
+        this.dispatchTypedEvent("promptContentChange", {
+          name,
+          content: invocation,
+          timestamp: invocation.timestamp,
+        });
 
-      return invocation;
-    } catch (error) {
-      throw new Error(
-        `Failed to get prompt: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+        return invocation;
+      },
+      { name, args, metadata },
+    );
   }
 
   /**
@@ -1774,33 +2033,37 @@ export class InspectorClient extends InspectorClientEventTarget {
       return { values: [] };
     }
 
-    try {
-      const params: any = {
-        ref,
-        argument: {
-          name: argumentName,
-          value: argumentValue,
-        },
-      };
-
-      if (context) {
-        params.context = {
-          arguments: context,
+    return this.handleRequestWithOAuth(
+      "getCompletions",
+      async () => {
+        const params: any = {
+          ref,
+          argument: {
+            name: argumentName,
+            value: argumentValue,
+          },
         };
-      }
 
-      if (metadata && Object.keys(metadata).length > 0) {
-        params._meta = metadata;
-      }
+        if (context) {
+          params.context = {
+            arguments: context,
+          };
+        }
 
-      const response = await this.client.complete(params);
+        if (metadata && Object.keys(metadata).length > 0) {
+          params._meta = metadata;
+        }
 
-      return {
-        values: response.completion.values || [],
-        total: response.completion.total,
-        hasMore: response.completion.hasMore,
-      };
-    } catch (error) {
+        const response = await this.client!.complete(params);
+
+        return {
+          values: response.completion.values || [],
+          total: response.completion.total,
+          hasMore: response.completion.hasMore,
+        };
+      },
+      { ref, argumentName, argumentValue, context, metadata },
+    ).catch((error) => {
       // Handle MethodNotFound gracefully (server doesn't support completions)
       if (
         (error instanceof McpError &&
@@ -1816,7 +2079,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error(
         `Failed to get completions: ${error instanceof Error ? error.message : String(error)}`,
       );
-    }
+    });
   }
 
   /**
@@ -2063,5 +2326,498 @@ export class InspectorClient extends InspectorClientEventTarget {
         `Failed to unsubscribe from resource: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+
+  // ============================================================================
+  // OAuth Support
+  // ============================================================================
+
+  /**
+   * Get server URL from transport config
+   */
+  private getServerUrl(): string {
+    if (
+      this.transportConfig.type === "sse" ||
+      this.transportConfig.type === "streamable-http"
+    ) {
+      // Extract base URL from transport URL (remove /mcp or /sse path)
+      const url = new URL(this.transportConfig.url);
+      // Return base URL (protocol + host + port)
+      return `${url.protocol}//${url.host}`;
+    }
+    // Stdio transports don't have a URL - OAuth not applicable
+    throw new Error(
+      "OAuth is only supported for HTTP-based transports (SSE, streamable-http)",
+    );
+  }
+
+  /**
+   * Set OAuth configuration
+   */
+  setOAuthConfig(config: {
+    clientId?: string;
+    clientSecret?: string;
+    clientMetadataUrl?: string;
+    scope?: string;
+    redirectUrl?: string;
+  }): void {
+    this.oauthConfig = {
+      ...this.oauthConfig,
+      ...config,
+    };
+  }
+
+  /**
+   * Create and initialize an OAuth provider for the specified mode
+   */
+  private async createOAuthProvider(
+    mode: "normal" | "guided",
+  ): Promise<BaseOAuthClientProvider> {
+    if (!this.oauthConfig) {
+      throw new Error("OAuth not configured. Call setOAuthConfig() first.");
+    }
+
+    const serverUrl = this.getServerUrl();
+    const redirectUrl =
+      this.oauthConfig.redirectUrl || "http://localhost:3000/oauth/callback";
+
+    // Determine redirect URL provider based on redirectUrl
+    let redirectUrlProvider: RedirectUrlProvider;
+    if (
+      redirectUrl.startsWith("http://localhost:") ||
+      redirectUrl.startsWith("https://localhost:")
+    ) {
+      const url = new URL(redirectUrl);
+      const port = parseInt(url.port) || (url.protocol === "https:" ? 443 : 80);
+      redirectUrlProvider = new LocalServerRedirectUrlProvider(port, mode);
+    } else {
+      // ManualRedirectUrlProvider now handles full redirect URLs correctly
+      redirectUrlProvider = new ManualRedirectUrlProvider(redirectUrl, mode);
+    }
+
+    const navigation = new ConsoleNavigation();
+    const provider =
+      mode === "guided"
+        ? new GuidedNodeOAuthClientProvider(
+            serverUrl,
+            redirectUrlProvider,
+            navigation,
+            this.oauthConfig.clientMetadataUrl,
+          )
+        : new NodeOAuthClientProvider(
+            serverUrl,
+            redirectUrlProvider,
+            navigation,
+            this.oauthConfig.clientMetadataUrl,
+          );
+
+    // Set event target for event dispatch
+    provider.setEventTarget(this);
+
+    // Set scope if provided
+    if (this.oauthConfig.scope) {
+      provider["storage"].saveScope(serverUrl, this.oauthConfig.scope);
+    }
+
+    // Save preregistered client info if provided (static client from config)
+    if (this.oauthConfig.clientId) {
+      const clientInfo: OAuthClientInformation = {
+        client_id: this.oauthConfig.clientId,
+        ...(this.oauthConfig.clientSecret && {
+          client_secret: this.oauthConfig.clientSecret,
+        }),
+      };
+      await provider["storage"].savePreregisteredClientInformation(
+        serverUrl,
+        clientInfo,
+      );
+    }
+
+    return provider;
+  }
+
+  /**
+   * Check if error is a 401 Unauthorized error
+   */
+  private is401Error(error: unknown): boolean {
+    // Check for SDK-specific error types
+    if (error instanceof StreamableHTTPError) {
+      return error.code === 401;
+    }
+
+    if (error instanceof SseError) {
+      // SSE transport may report 401 as 404 in some cases
+      // EventSource reports non-200 status codes, but the actual HTTP status might be 401
+      if (error.code === 401) {
+        return true;
+      }
+      // For SSE, when middleware returns 401 with JSON response (not text/event-stream),
+      // EventSource may report it as 404 because it's not a valid SSE stream
+      // In this case, we need to treat 404 from SSE as potentially a 401 if OAuth is configured
+      // This is a workaround for the EventSource limitation
+      if (error.code === 404 && this.oauthConfig) {
+        // When OAuth is configured and we get a 404 from SSE, it's likely a 401
+        // that EventSource reported as 404 because the response wasn't a valid SSE stream
+        return true;
+      }
+      return false;
+    }
+
+    // Check for SDK-specific error types with code property
+    // SseError also has a code property
+    if (error && typeof error === "object" && "code" in error) {
+      const code = (error as { code: unknown }).code;
+      if (code === 401 || code === "401") {
+        return true;
+      }
+    }
+
+    // Check if error has a status property (HTTP status code)
+    if (error && typeof error === "object" && "status" in error) {
+      const status = (error as { status: unknown }).status;
+      if (status === 401 || status === "401") {
+        return true;
+      }
+    }
+
+    if (error instanceof McpError) {
+      return (
+        error.code === ErrorCode.InvalidRequest && error.message.includes("401")
+      );
+    }
+
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase();
+      const name = error.name?.toLowerCase() || "";
+      return (
+        message.includes("401") ||
+        message.includes("unauthorized") ||
+        message.includes("http 401") ||
+        message.includes("(401)") ||
+        message.includes("missing authorization") ||
+        message.includes("invalid bearer token") ||
+        name.includes("401") ||
+        name.includes("unauthorized")
+      );
+    }
+
+    // Check error string representation
+    const errorString = String(error).toLowerCase();
+    if (errorString.includes("401") || errorString.includes("unauthorized")) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Wraps a request method with 401 error handling and OAuth flow initiation
+   */
+  private async handleRequestWithOAuth<T>(
+    method: string,
+    requestFn: () => Promise<T>,
+    params?: any,
+  ): Promise<T> {
+    try {
+      return await requestFn();
+    } catch (error) {
+      // Debug: log error details to understand what we're getting
+      // Handle 401 errors by initiating OAuth flow
+      const is401 = this.is401Error(error);
+      if (is401 && this.oauthConfig) {
+        try {
+          await this.authenticate();
+          // Store pending request for retry after OAuth completes
+          // Return a Promise that resolves when OAuth completes and the request succeeds
+          return new Promise<T>((resolve, reject) => {
+            this.pendingOAuthRequest = {
+              method,
+              params,
+              resolve: async () => {
+                try {
+                  const result = await requestFn();
+                  resolve(result);
+                  return result;
+                } catch (retryError) {
+                  const err =
+                    retryError instanceof Error
+                      ? retryError
+                      : new Error(String(retryError));
+                  reject(err);
+                  throw err;
+                }
+              },
+              reject: (err: Error) => {
+                reject(err);
+              },
+            };
+          });
+        } catch (oauthError) {
+          this.dispatchTypedEvent("oauthError", {
+            error:
+              oauthError instanceof Error
+                ? oauthError
+                : new Error(String(oauthError)),
+          });
+          throw oauthError;
+        }
+      }
+      // Re-throw non-401 errors
+      throw error;
+    }
+  }
+
+  /**
+   * Initiates OAuth flow using SDK's auth() function (normal mode)
+   * Can be called directly by user or automatically triggered by 401 errors
+   */
+  async authenticate(): Promise<URL> {
+    if (!this.oauthConfig) {
+      throw new Error("OAuth not configured. Call setOAuthConfig() first.");
+    }
+
+    const provider = await this.createOAuthProvider("normal");
+    const serverUrl = this.getServerUrl();
+
+    // Clear any previously captured URL
+    provider.clearCapturedAuthUrl();
+
+    // Use SDK's auth() function - it handles client resolution, token refresh, etc.
+    const result = await auth(provider, {
+      serverUrl,
+      scope: provider.scope,
+    });
+
+    if (result === "AUTHORIZED") {
+      // Tokens were refreshed, no authorization URL needed
+      throw new Error(
+        "Unexpected: auth() returned AUTHORIZED without authorization code",
+      );
+    }
+
+    // Get the captured URL from the provider (set in redirectToAuthorization)
+    const capturedUrl = provider.getCapturedAuthUrl();
+    if (!capturedUrl) {
+      throw new Error("Failed to capture authorization URL");
+    }
+
+    return capturedUrl;
+  }
+
+  /**
+   * Initiates OAuth flow in guided mode using state machine
+   * Provides step-by-step control and visibility into OAuth flow
+   */
+  async authenticateGuided(): Promise<URL> {
+    if (!this.oauthConfig) {
+      throw new Error("OAuth not configured. Call setOAuthConfig() first.");
+    }
+
+    const provider = await this.createOAuthProvider("guided");
+    const serverUrl = this.getServerUrl();
+
+    // Initialize state machine for guided flow
+    this.oauthState = { ...EMPTY_GUIDED_STATE };
+    // Pre-set static client info when provided (restores deleted logic: resolve static/CIMD/DCR and set into state)
+    if (this.oauthConfig.clientId) {
+      this.oauthState.oauthClientInfo = {
+        client_id: this.oauthConfig.clientId,
+        ...(this.oauthConfig.clientSecret && {
+          client_secret: this.oauthConfig.clientSecret,
+        }),
+      };
+    }
+    this.oauthStateMachine = new OAuthStateMachine(
+      serverUrl,
+      provider,
+      (updates) => {
+        this.oauthState = { ...this.oauthState!, ...updates };
+        const previousStep = this.oauthState.oauthStep;
+        this.dispatchTypedEvent("oauthStepChange", {
+          step: updates.oauthStep || previousStep,
+          previousStep,
+          state: updates,
+        });
+      },
+    );
+
+    // Start guided flow
+    await this.oauthStateMachine.executeStep(this.oauthState);
+    // Continue through steps until we get authorization URL
+    while (
+      this.oauthState.oauthStep !== "authorization_code" &&
+      this.oauthState.oauthStep !== "complete"
+    ) {
+      await this.oauthStateMachine.executeStep(this.oauthState);
+    }
+
+    if (!this.oauthState.authorizationUrl) {
+      throw new Error("Failed to generate authorization URL");
+    }
+
+    this.dispatchTypedEvent("oauthAuthorizationRequired", {
+      url: this.oauthState.authorizationUrl,
+    });
+
+    return this.oauthState.authorizationUrl;
+  }
+
+  /**
+   * Completes OAuth flow with authorization code
+   */
+  async completeOAuthFlow(authorizationCode: string): Promise<void> {
+    if (!this.oauthConfig) {
+      throw new Error("OAuth not configured. Call setOAuthConfig() first.");
+    }
+
+    try {
+      if (this.oauthStateMachine && this.oauthState) {
+        // Guided mode - use state machine
+        this.oauthState.authorizationCode = authorizationCode;
+        await this.oauthStateMachine.executeStep(this.oauthState);
+        // Continue through remaining steps
+        while (this.oauthState.oauthStep !== "complete") {
+          await this.oauthStateMachine.executeStep(this.oauthState);
+        }
+
+        if (!this.oauthState.oauthTokens) {
+          throw new Error("Failed to exchange authorization code for tokens");
+        }
+
+        this.dispatchTypedEvent("oauthComplete", {
+          tokens: this.oauthState.oauthTokens,
+        });
+
+        // Retry pending request if any
+        if (this.pendingOAuthRequest) {
+          const pending = this.pendingOAuthRequest;
+          this.pendingOAuthRequest = null;
+          try {
+            await pending.resolve();
+          } catch (error) {
+            pending.reject(
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        }
+      } else {
+        // Normal mode - use SDK auth() with authorization code
+        const provider = await this.createOAuthProvider("normal");
+        const serverUrl = this.getServerUrl();
+
+        const result = await auth(provider, {
+          serverUrl,
+          authorizationCode,
+        });
+
+        if (result !== "AUTHORIZED") {
+          throw new Error(
+            `Expected AUTHORIZED after providing authorization code, got: ${result}`,
+          );
+        }
+
+        const tokens = await provider.tokens();
+        if (!tokens) {
+          throw new Error("Failed to retrieve tokens after authorization");
+        }
+
+        this.dispatchTypedEvent("oauthComplete", {
+          tokens,
+        });
+
+        // Retry pending request if any
+        if (this.pendingOAuthRequest) {
+          const pending = this.pendingOAuthRequest;
+          this.pendingOAuthRequest = null;
+          try {
+            await pending.resolve();
+          } catch (error) {
+            pending.reject(
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        }
+      }
+    } catch (error) {
+      this.dispatchTypedEvent("oauthError", {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Gets current OAuth tokens (if authorized)
+   */
+  async getOAuthTokens(): Promise<OAuthTokens | undefined> {
+    if (!this.oauthConfig) {
+      return undefined;
+    }
+
+    // Return tokens from state machine if in guided mode
+    if (this.oauthState?.oauthTokens) {
+      return this.oauthState.oauthTokens;
+    }
+
+    // Otherwise get from provider storage
+    const provider = await this.createOAuthProvider("normal");
+    const serverUrl = this.getServerUrl();
+    try {
+      return await provider["storage"].getTokens(serverUrl);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Clears OAuth tokens and client information
+   */
+  clearOAuthTokens(): void {
+    if (!this.oauthConfig) {
+      return;
+    }
+
+    // Clear storage directly (storage is shared singleton, so we can use NodeOAuthStorage directly)
+    const serverUrl = this.getServerUrl();
+    const storage = new NodeOAuthStorage();
+    storage.clear(serverUrl);
+
+    this.oauthState = null;
+    this.oauthStateMachine = null;
+  }
+
+  /**
+   * Checks if client is currently OAuth authorized
+   */
+  async isOAuthAuthorized(): Promise<boolean> {
+    const tokens = await this.getOAuthTokens();
+    return tokens !== undefined;
+  }
+
+  /**
+   * Get current OAuth state machine state (for guided mode)
+   */
+  getOAuthState(): AuthGuidedState | undefined {
+    return this.oauthState ? { ...this.oauthState } : undefined;
+  }
+
+  /**
+   * Get current OAuth step (for guided mode)
+   */
+  getOAuthStep(): OAuthStep | undefined {
+    return this.oauthState?.oauthStep;
+  }
+
+  /**
+   * Manually progress to next step in guided OAuth flow
+   */
+  async proceedOAuthStep(): Promise<void> {
+    if (!this.oauthStateMachine || !this.oauthState) {
+      throw new Error(
+        "Not in guided OAuth flow. Call authenticateGuided() first.",
+      );
+    }
+
+    await this.oauthStateMachine.executeStep(this.oauthState);
   }
 }

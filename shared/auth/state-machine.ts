@@ -1,5 +1,6 @@
-import { OAuthStep, AuthGuidedState } from "./auth-types";
-import { DebugInspectorOAuthClientProvider, discoverScopes } from "./auth";
+import type { OAuthStep, AuthGuidedState } from "./types.js";
+import type { BaseOAuthClientProvider } from "./providers.js";
+import { discoverScopes } from "./discovery.js";
 import {
   discoverAuthorizationServerMetadata,
   registerClient,
@@ -10,14 +11,14 @@ import {
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   OAuthMetadataSchema,
-  OAuthProtectedResourceMetadata,
+  type OAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { generateOAuthState } from "@/utils/oauthUtils";
+import { generateOAuthState } from "./utils.js";
 
 export interface StateMachineContext {
   state: AuthGuidedState;
   serverUrl: string;
-  provider: DebugInspectorOAuthClientProvider;
+  provider: BaseOAuthClientProvider;
   updateState: (updates: Partial<AuthGuidedState>) => void;
 }
 
@@ -32,15 +33,18 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
     canTransition: async () => true,
     execute: async (context) => {
       // Default to discovering from the server's URL
-      let authServerUrl = new URL("/", context.serverUrl);
+      let authServerUrl: URL = new URL("/", context.serverUrl);
       let resourceMetadata: OAuthProtectedResourceMetadata | null = null;
       let resourceMetadataError: Error | null = null;
       try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-          context.serverUrl,
+          context.serverUrl as string | URL,
         );
         if (resourceMetadata?.authorization_servers?.length) {
-          authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
+          const firstServer = resourceMetadata.authorization_servers[0];
+          if (firstServer) {
+            authServerUrl = new URL(firstServer);
+          }
         }
       } catch (e) {
         if (e instanceof Error) {
@@ -50,19 +54,28 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         }
       }
 
-      const resource: URL | undefined = await selectResourceURL(
-        context.serverUrl,
-        context.provider,
-        // we default to null, so swap it for undefined if not set
-        resourceMetadata ?? undefined,
-      );
+      const resource: URL | undefined = resourceMetadata
+        ? await selectResourceURL(
+            context.serverUrl,
+            context.provider,
+            resourceMetadata,
+          )
+        : undefined;
 
       const metadata = await discoverAuthorizationServerMetadata(authServerUrl);
       if (!metadata) {
         throw new Error("Failed to discover OAuth metadata");
       }
       const parsedMetadata = await OAuthMetadataSchema.parseAsync(metadata);
-      context.provider.saveServerMetadata(parsedMetadata);
+
+      // Save server metadata if provider supports it (guided mode)
+      if (
+        "saveServerMetadata" in context.provider &&
+        typeof context.provider.saveServerMetadata === "function"
+      ) {
+        await context.provider.saveServerMetadata(parsedMetadata);
+      }
+
       context.updateState({
         resourceMetadata,
         resource,
@@ -92,14 +105,38 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         }
       }
 
-      // Try Static client first, with DCR as fallback
-      let fullInformation = await context.provider.clientInformation();
+      // Use pre-set client info from state (static client) when present; otherwise provider lookup → CIMD → DCR
+      let fullInformation =
+        context.state.oauthClientInfo ??
+        (await context.provider.clientInformation());
       if (!fullInformation) {
-        fullInformation = await registerClient(context.serverUrl, {
-          metadata,
-          clientMetadata,
-        });
-        context.provider.saveClientInformation(fullInformation);
+        // Check if provider has clientMetadataUrl (CIMD mode)
+        const clientMetadataUrl =
+          "clientMetadataUrl" in context.provider &&
+          context.provider.clientMetadataUrl
+            ? context.provider.clientMetadataUrl
+            : undefined;
+
+        // Check for CIMD support (SDK handles this in authInternal - we replicate it here)
+        const supportsUrlBasedClientId =
+          metadata?.client_id_metadata_document_supported === true;
+        const shouldUseUrlBasedClientId =
+          supportsUrlBasedClientId && clientMetadataUrl;
+
+        if (shouldUseUrlBasedClientId) {
+          // SEP-991: URL-based Client IDs (CIMD)
+          // SDK creates { client_id: clientMetadataUrl } directly - no registration needed
+          fullInformation = {
+            client_id: clientMetadataUrl,
+          };
+        } else {
+          // Fallback to DCR registration
+          fullInformation = await registerClient(context.serverUrl, {
+            metadata,
+            clientMetadata,
+          });
+        }
+        await context.provider.saveClientInformation(fullInformation);
       }
 
       context.updateState({
@@ -137,7 +174,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         },
       );
 
-      context.provider.saveCodeVerifier(codeVerifier);
+      await context.provider.saveCodeVerifier(codeVerifier);
       context.updateState({
         authorizationUrl: authorizationUrl,
         oauthStep: "authorization_code",
@@ -167,16 +204,47 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
 
   token_request: {
     canTransition: async (context) => {
-      return (
-        !!context.state.authorizationCode &&
-        !!context.provider.getServerMetadata() &&
-        !!(await context.provider.clientInformation())
-      );
+      // For guided mode, check if provider has getServerMetadata
+      let hasMetadata = false;
+      if (
+        "getServerMetadata" in context.provider &&
+        typeof context.provider.getServerMetadata === "function"
+      ) {
+        hasMetadata = !!context.provider.getServerMetadata();
+      } else {
+        // For normal mode, use state metadata
+        hasMetadata = !!context.state.oauthMetadata;
+      }
+
+      const clientInfo =
+        context.state.oauthClientInfo ??
+        (await context.provider.clientInformation());
+      return !!context.state.authorizationCode && hasMetadata && !!clientInfo;
     },
     execute: async (context) => {
       const codeVerifier = context.provider.codeVerifier();
-      const metadata = context.provider.getServerMetadata()!;
-      const clientInformation = (await context.provider.clientInformation())!;
+
+      // Get metadata from provider (guided mode) or state (normal mode)
+      let metadata;
+      if (
+        "getServerMetadata" in context.provider &&
+        typeof context.provider.getServerMetadata === "function"
+      ) {
+        metadata = context.provider.getServerMetadata();
+      } else {
+        metadata = context.state.oauthMetadata;
+      }
+
+      if (!metadata) {
+        throw new Error("OAuth metadata not available");
+      }
+
+      const clientInformation =
+        context.state.oauthClientInfo ??
+        (await context.provider.clientInformation());
+      if (!clientInformation) {
+        throw new Error("Client information not available for token exchange");
+      }
 
       const tokens = await exchangeAuthorization(context.serverUrl, {
         metadata,
@@ -191,7 +259,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
           : undefined,
       });
 
-      context.provider.saveTokens(tokens);
+      await context.provider.saveTokens(tokens);
       context.updateState({
         oauthTokens: tokens,
         oauthStep: "complete",
@@ -210,15 +278,15 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
 export class OAuthStateMachine {
   constructor(
     private serverUrl: string,
+    private provider: BaseOAuthClientProvider,
     private updateState: (updates: Partial<AuthGuidedState>) => void,
   ) {}
 
   async executeStep(state: AuthGuidedState): Promise<void> {
-    const provider = new DebugInspectorOAuthClientProvider(this.serverUrl);
     const context: StateMachineContext = {
       state,
       serverUrl: this.serverUrl,
-      provider,
+      provider: this.provider,
       updateState: this.updateState,
     };
 

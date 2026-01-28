@@ -22,7 +22,8 @@
     "react/**/*.tsx",
     "json/**/*.ts",
     "test/**/*.ts",
-    "__tests__/**/*.ts"
+    "__tests__/**/*.ts",
+    "auth/**/*.ts"
   ],
   "exclude": ["node_modules", "build"]
 }
