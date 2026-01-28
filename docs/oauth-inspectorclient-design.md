@@ -23,7 +23,7 @@ The web client's OAuth implementation consists of:
 
 - **OAuth Client Providers** (`client/src/lib/auth.ts`):
   - `InspectorOAuthClientProvider`: Standard OAuth provider for automatic flow
-  - `DebugInspectorOAuthClientProvider`: Extended provider for guided/debug flow that saves server metadata and uses debug redirect URL
+  - `GuidedInspectorOAuthClientProvider`: Extended provider for guided flow that saves server metadata and uses guided redirect URL
 - **OAuth State Machine** (`client/src/lib/oauth-state-machine.ts`): Step-by-step OAuth flow that breaks OAuth into discrete, manually-progressible steps
 - **OAuth Utilities** (`client/src/utils/oauthUtils.ts`): Pure functions for parsing callbacks and generating state
 - **Scope Discovery** (`client/src/lib/auth.ts`): `discoverScopes()` function
@@ -33,14 +33,14 @@ The web client's OAuth implementation consists of:
   - `OAuthFlowProgress.tsx`: Visual progress indicator showing OAuth step status
   - OAuth callback handlers (web-specific, not moving)
 
-**Note on "Debug" Mode**: Despite the name, the Auth Debugger is a **core feature** of the web client, not an optional debug tool. It provides:
+**Note on "Guided" Mode**: The Auth Debugger (guided mode) is a **core feature** of the web client, not an optional debug tool. It provides:
 
 - **Guided Flow**: Manual step-by-step progression with full state visibility
 - **Quick Flow**: Automatic progression through all steps
 - **State Inspection**: Full visibility into OAuth state (tokens, metadata, client info, etc.)
 - **Error Debugging**: Clear error messages and validation at each step
 
-This guided/debug mode should be considered a core requirement for InspectorClient OAuth support, not a future enhancement.
+This guided mode should be considered a core requirement for InspectorClient OAuth support, not a future enhancement.
 
 ### Target Architecture
 
@@ -132,7 +132,7 @@ interface RedirectUrlProvider {
   getRedirectUrl(): string;
 
   /**
-   * Returns the redirect URL for debug mode
+   * Returns the redirect URL for guided mode
    */
   getDebugRedirectUrl(): string;
 }
@@ -142,21 +142,21 @@ interface RedirectUrlProvider {
 
 - `BrowserRedirectUrlProvider`:
   - Normal: `window.location.origin + "/oauth/callback"`
-  - Debug: `window.location.origin + "/oauth/callback/debug"`
+  - Guided: `window.location.origin + "/oauth/callback/guided"`
 - `LocalServerRedirectUrlProvider`:
   - Constructor takes `port: number` parameter
   - Normal: `http://localhost:${port}/oauth/callback`
-  - Debug: `http://localhost:${port}/oauth/callback/debug`
+  - Guided: `http://localhost:${port}/oauth/callback/guided`
 - `ManualRedirectUrlProvider`:
   - Constructor takes `baseUrl: string` parameter
   - Normal: `${baseUrl}/oauth/callback`
-  - Debug: `${baseUrl}/oauth/callback/debug`
+  - Guided: `${baseUrl}/oauth/callback/guided`
 
 **Design Rationale**:
 
 - Both redirect URLs are available from the provider
 - Both URLs are registered with the OAuth server during client registration (like web client)
-- This allows switching between normal and debug modes without re-registering the client
+- This allows switching between normal and guided modes without re-registering the client
 - The provider's mode determines which URL is used for the current flow, but both are registered for flexibility
 
 ### 3. Navigation Abstraction
@@ -186,7 +186,7 @@ abstract class BaseOAuthClientProvider implements OAuthClientProvider {
     protected storage: OAuthStorage,
     protected redirectUrlProvider: RedirectUrlProvider,
     protected navigation: OAuthNavigation,
-    protected mode: "normal" | "debug" = "normal", // OAuth flow mode
+    protected mode: "normal" | "guided" = "normal", // OAuth flow mode
   ) {}
 
   // Abstract methods implemented by subclasses
@@ -194,7 +194,7 @@ abstract class BaseOAuthClientProvider implements OAuthClientProvider {
 
   // Returns the redirect URL for the current mode
   get redirectUrl(): string {
-    return this.mode === "debug"
+    return this.mode === "guided"
       ? this.redirectUrlProvider.getDebugRedirectUrl()
       : this.redirectUrlProvider.getRedirectUrl();
   }
@@ -230,10 +230,10 @@ abstract class BaseOAuthClientProvider implements OAuthClientProvider {
 **Mode Selection**:
 
 - **Normal mode** (`mode: "normal"`): Provider uses `/oauth/callback` for the current flow
-- **Debug mode** (`mode: "debug"`): Provider uses `/oauth/callback/debug` for the current flow
+- **Guided mode** (`mode: "guided"`): Provider uses `/oauth/callback/guided` for the current flow
 - Both URLs are registered with the OAuth server during client registration (allows switching modes without re-registering)
 - The mode is determined when creating the provider - specify normal or debug and it "just works"
-- Both callback handlers are mounted (one at `/oauth/callback`, one at `/oauth/callback/debug`)
+- Both callback handlers are mounted (one at `/oauth/callback`, one at `/oauth/callback/guided`)
 - The handler behavior matches the provider's mode (normal handler auto-completes, debug handler shows code)
 
 **Client Identification Modes**:
@@ -343,11 +343,11 @@ abstract class BaseOAuthClientProvider implements OAuthClientProvider {
   - TUI: `tui/src/components/OAuthFlowProgress.tsx` (using Ink components)
   - Web: `client/src/components/OAuthFlowProgress.tsx` (using DOM/HTML components)
 
-## OAuth Guided/Debug Mode (Core Feature)
+## OAuth Guided Mode (Core Feature)
 
 ### What is the Auth Debugger?
 
-The "Auth Debugger" in the web client is **not** an optional debug tool - it's a **core feature** that provides two modes of OAuth flow:
+The "Auth Debugger" (guided mode) in the web client is **not** an optional debug tool - it's a **core feature** that provides two modes of OAuth flow:
 
 1. **Guided Flow** (Step-by-Step):
    - Breaks OAuth into discrete, manually-progressible steps
@@ -367,11 +367,11 @@ The "Auth Debugger" in the web client is **not** an optional debug tool - it's a
 **Components**:
 
 - **`OAuthStateMachine`**: Manages step-by-step progression through OAuth flow
-- **`DebugInspectorOAuthClientProvider`**: Extended provider that:
-  - Uses debug redirect URL (`/oauth/callback/debug` instead of `/oauth/callback`)
+- **`GuidedInspectorOAuthClientProvider`** (shared: `GuidedNodeOAuthClientProvider`): Extended provider that:
+  - Uses guided redirect URL (`/oauth/callback/guided` instead of `/oauth/callback`)
   - Saves server OAuth metadata to storage for UI display
   - Provides `getServerMetadata()` and `saveServerMetadata()` methods
-- **`AuthDebuggerState`**: Comprehensive state object tracking all OAuth data:
+- **`AuthGuidedState`**: Comprehensive state object tracking all OAuth data:
   - Current step (`oauthStep`)
   - OAuth metadata, client info, tokens
   - Authorization URL, code, errors
@@ -516,7 +516,7 @@ The "Auth Debugger" in the web client is **not** an optional debug tool - it's a
 
 #### Guided Flow (Step-by-Step Mode)
 
-1. **Initiation**: User calls `authenticate("debug")` to begin guided flow
+1. **Initiation**: User calls `authenticateGuided()` to begin guided flow
 2. **State Machine**: `OAuthStateMachine` executes steps manually
 3. **Step Control**: Each step can be viewed and manually progressed via `proceedOAuthStep()`
 4. **State Visibility**: Full OAuth state available via `getOAuthState()` and `oauthStepChange` events
@@ -590,24 +590,12 @@ class InspectorClient {
     redirectUrl?: string;
   }): void;
 
-  // OAuth flow initiation (Direct)
+  // OAuth flow initiation (normal mode)
   /**
-   * Directly initiates OAuth flow (user-initiated authentication)
-   * @param mode - "normal" for automatic flow (default), "debug" for guided/step-by-step flow
-   * Returns the authorization URL that the user should navigate to
-   * Dispatches 'oauthAuthorizationRequired' event
-   * If mode is "debug", also dispatches 'oauthStepChange' events as flow progresses
+   * Initiates OAuth flow (user-initiated or 401-triggered). Both paths use this method.
+   * Returns the authorization URL. Dispatches 'oauthAuthorizationRequired' event.
    */
-  async authenticate(mode?: "normal" | "debug"): Promise<URL>;
-
-  // OAuth flow initiation (Indirect - 401 triggered)
-  /**
-   * Initiates OAuth flow when a 401 error is encountered (indirect/automatic)
-   * Uses the OAuth provider configured for this client (normal mode by default)
-   * Returns the authorization URL that the user should navigate to
-   * Dispatches 'oauthAuthorizationRequired' event
-   */
-  async initiateOAuthFlow(): Promise<URL>;
+  async authenticate(): Promise<URL>;
 
   /**
    * Completes OAuth flow with authorization code
@@ -634,27 +622,26 @@ class InspectorClient {
   isOAuthAuthorized(): boolean;
 
   /**
-   * Gets OAuth authorization URL (for manual flow)
-   * @param mode - "normal" for automatic flow (default), "debug" for guided/step-by-step flow
-   * Uses the OAuth provider configured for the specified mode
+   * Initiates OAuth flow in guided mode (step-by-step, state machine).
+   * Returns the authorization URL. Dispatches 'oauthAuthorizationRequired' and 'oauthStepChange' events.
    */
-  async getOAuthAuthorizationUrl(mode?: "normal" | "debug"): Promise<URL>;
+  async authenticateGuided(): Promise<URL>;
 
-  // Guided/debug mode state management
+  // Guided mode state management
   /**
-   * Get current OAuth state machine state (for guided/debug mode)
+   * Get current OAuth state machine state (for guided mode)
    * Returns undefined if not in guided mode
    */
-  getOAuthState(): AuthDebuggerState | undefined;
+  getOAuthState(): AuthGuidedState | undefined;
 
   /**
-   * Get current OAuth step (for guided/debug mode)
+   * Get current OAuth step (for guided mode)
    * Returns undefined if not in guided mode
    */
   getOAuthStep(): OAuthStep | undefined;
 
   /**
-   * Manually progress to next step in guided/debug OAuth flow
+   * Manually progress to next step in guided OAuth flow
    * Only works when in guided mode
    * Dispatches 'oauthStepChange' event on step transition
    */
@@ -666,44 +653,44 @@ class InspectorClient {
 
 **Two Modes of Initiation**:
 
-1. **Direct Initiation** (User-Initiated):
-   - User calls `client.authenticate()` or `client.authenticate("debug")` explicitly
+1. **Normal Mode** (User-Initiated or 401-Triggered):
+   - User calls `client.authenticate()` explicitly, OR
+   - Server returns 401 error during connection or request (automatically calls `authenticate()`)
+   - Uses SDK's `auth()` function internally
    - Returns authorization URL
    - Dispatches `oauthAuthorizationRequired` event
-   - If mode is "debug", also dispatches `oauthStepChange` events as flow progresses
    - Client-side (CLI/TUI) listens for events and handles navigation
+   - After OAuth completes (if 401-triggered), original request is automatically retried
 
-2. **Indirect Initiation** (401-Triggered):
-   - Server returns 401 error during connection or request
-   - InspectorClient automatically calls `initiateOAuthFlow()`
+2. **Guided Mode** (User-Initiated):
+   - User calls `client.authenticateGuided()` explicitly
+   - Uses state machine for step-by-step control
+   - Dispatches `oauthStepChange` events as flow progresses
    - Returns authorization URL
    - Dispatches `oauthAuthorizationRequired` event
-   - Client-side listens for event and handles navigation
-   - After OAuth completes, original request is automatically retried
+   - Client-side listens for events and handles navigation
 
 **Event-Driven Architecture**:
 
 ```typescript
-// InspectorClient dispatches events for automatic flow
+// InspectorClient dispatches events for OAuth flow
 this.dispatchTypedEvent("oauthAuthorizationRequired", {
   url: authorizationUrl,
-  mode: "direct" | "indirect",
-  originalError?: Error  // Present if triggered by 401 error
 });
 
 this.dispatchTypedEvent("oauthComplete", { tokens });
 this.dispatchTypedEvent("oauthError", { error });
 
-// InspectorClient dispatches events for guided/debug flow
+// InspectorClient dispatches events for guided flow
 this.dispatchTypedEvent("oauthStepChange", {
   step: OAuthStep,
   previousStep?: OAuthStep,
-  state: Partial<AuthDebuggerState>
+  state: Partial<AuthGuidedState>
 });
 
 // Client-side (CLI/TUI) listens for events
 client.addEventListener("oauthAuthorizationRequired", (event) => {
-  const { url, mode } = event.detail;
+  const { url } = event.detail;
   // Handle navigation (print URL, open browser, etc.)
   // Wait for user to provide authorization code
   // Call client.completeOAuthFlow(code)
@@ -717,10 +704,12 @@ client.addEventListener("oauthStepChange", (event) => {
 });
 ```
 
-**Default Behavior**:
+**Event-Driven Architecture**:
 
-- If no listeners are registered for `oauthAuthorizationRequired`, InspectorClient will print the URL to console (for CLI/TUI compatibility)
-- UX layers should register event listeners to provide custom behavior
+- InspectorClient dispatches `oauthAuthorizationRequired` events
+- Callers are responsible for registering event listeners to handle the authorization URL
+- CLI/TUI applications should register listeners to display the URL (e.g., print to console, show in UI)
+- No default console output - callers must explicitly handle events
 
 **401 Error Handling**:
 
@@ -730,13 +719,8 @@ try {
   await this.client.request(...);
 } catch (error) {
   if (is401Error(error) && this.oauthConfig) {
-    // Indirect initiation - dispatch event, don't throw
-    const authUrl = await this.initiateOAuthFlow();
-    this.dispatchTypedEvent("oauthAuthorizationRequired", {
-      url: authUrl,
-      mode: "indirect",
-      originalError: error
-    });
+    // Automatic initiation - authenticate() handles event dispatch
+    const authUrl = await this.authenticate();
     // Note: Original request will be retried after OAuth completes
     // This is handled by the OAuth completion handler
   } else {
@@ -836,26 +820,24 @@ These options should be considered in the design but not implemented now.
    - Store OAuth config
    - Create `NodeOAuthClientProvider` instances on-demand based on mode (lazy initialization)
    - Normal mode provider created by default (for automatic flows)
-   - Debug mode provider created when `authenticate("debug")` is called
+   - Guided mode provider created when `authenticateGuided()` is called
    - Initialize Zustand store for OAuth state
    - **Important**: Both redirect URLs are registered with OAuth server (allows switching modes without re-registering)
-   - Both callback handlers are mounted (normal at `/oauth/callback`, debug at `/oauth/callback/debug`)
+   - Both callback handlers are mounted (normal at `/oauth/callback`, guided at `/oauth/callback/guided`)
    - The provider's mode determines which URL is used for the current flow
 
 3. **Implement OAuth Methods**
    - Implement `setOAuthConfig()` (supports clientMetadataUrl for CIMD)
-   - Implement `authenticate()` (direct initiation, uses default normal-mode provider)
-   - Implement `initiateOAuthFlow()` (indirect/401-triggered initiation, uses default normal-mode provider)
+   - Implement `authenticate()` (direct and 401-triggered initiation, uses normal-mode provider)
    - Implement `completeOAuthFlow()`
    - Implement `getOAuthTokens()`
    - Implement `clearOAuthTokens()`
    - Implement `isOAuthAuthorized()`
-   - Implement `getOAuthAuthorizationUrl(mode?)` (mode defaults to "normal")
-   - Implement guided/debug mode state management methods:
+   - Implement guided mode state management methods:
      - `getOAuthState()` - Get current OAuth state machine state (returns undefined if not in guided mode)
      - `getOAuthStep()` - Get current OAuth step (returns undefined if not in guided mode)
      - `proceedOAuthStep()` - Manually progress to next step (only works in guided mode, dispatches `oauthStepChange` event)
-   - **Note**: Guided/debug mode is initiated via `authenticate("debug")`, which creates a provider with `mode="debug"` and initiates the flow
+   - **Note**: Guided mode is initiated via `authenticateGuided()`, which creates a provider with `mode="guided"` and initiates the flow
    - **Note**: When creating `NodeOAuthClientProvider`, pass the `mode` parameter. Both redirect URLs are registered, but the provider uses the URL matching its mode for the current flow.
 
 4. **Add 401 Error Detection**
@@ -864,17 +846,16 @@ These options should be considered in the design but not implemented now.
    - Detect 401 errors in request methods
    - Detect 401 errors in `connect()` method
 
-5. **Add Indirect OAuth Flow Initiation (401-Triggered)**
-   - In `connect()`, catch 401 errors and call `initiateOAuthFlow()`
-   - In request methods, catch 401 errors and call `initiateOAuthFlow()`
-   - Dispatch `oauthAuthorizationRequired` event with authorization URL and mode="indirect"
+5. **Add OAuth Flow Initiation (401-Triggered and User-Initiated)**
+   - In `connect()` and request methods, catch 401 errors and call `authenticate()`
+   - Dispatch `oauthAuthorizationRequired` event with authorization URL
    - Store original request/error for retry after OAuth completes
+   - User-initiated flow also uses `authenticate()`. For guided (step-by-step) flow, use `authenticateGuided()`.
 
-6. **Add Direct OAuth Flow Initiation (User-Initiated)**
-   - Implement `authenticate(mode?)` method for explicit OAuth initiation
-   - If mode is "debug", create provider with debug mode and initiate guided flow
-   - Dispatch `oauthAuthorizationRequired` event with authorization URL and mode="direct"
-   - If mode is "debug", also dispatch `oauthStepChange` events as state machine progresses
+6. **Add Guided Mode**
+   - Implement `authenticateGuided()` for step-by-step OAuth flow
+   - Create provider with `mode="guided"` when `authenticateGuided()` is called
+   - Dispatch `oauthAuthorizationRequired` and `oauthStepChange` events as state machine progresses
 
 7. **Add Token Injection**
    - For HTTP-based transports, inject OAuth tokens into request headers
@@ -885,9 +866,9 @@ These options should be considered in the design but not implemented now.
    - Add `oauthAuthorizationRequired` event (dispatches authorization URL, mode, optional originalError)
    - Add `oauthComplete` event (dispatches tokens)
    - Add `oauthError` event (dispatches error)
-   - Add `oauthStepChange` event (dispatches step, previousStep, state) - for guided/debug mode
+   - Add `oauthStepChange` event (dispatches step, previousStep, state) - for guided mode
    - All events are event-driven for client-side integration
-   - If no listeners registered for `oauthAuthorizationRequired`, default to printing URL to console
+   - Callers must register event listeners to handle `oauthAuthorizationRequired` events
 
 ### Phase 4: Testing
 
@@ -1268,7 +1249,7 @@ if (authUrl) {
 
 ### InspectorClient Navigation
 
-**Default Behavior**: If no event listener is registered for `oauthAuthorizationRequired`, InspectorClient prints the URL to console
+**Event-Driven Architecture**: InspectorClient dispatches `oauthAuthorizationRequired` events. Callers must register event listeners to handle these events.
 
 **UX Layer Options**:
 

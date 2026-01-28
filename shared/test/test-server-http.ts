@@ -9,6 +9,10 @@ import { createServer as createNetServer } from "net";
 import * as z from "zod/v4";
 import * as crypto from "node:crypto";
 import type { ServerConfig } from "./test-server-fixtures.js";
+import {
+  setupOAuthRoutes,
+  createBearerTokenMiddleware,
+} from "./test-server-oauth.js";
 
 export interface RecordedRequest {
   method: string;
@@ -169,11 +173,29 @@ export class TestServerHttp {
     // Create HTTP server
     this.httpServer = createHttpServer(app);
 
+    // Set up OAuth if enabled (BEFORE MCP routes)
+    if (this.config.oauth?.enabled) {
+      // We need baseUrl, but it's not set yet - we'll set it after server starts
+      // For now, use a placeholder that will be updated
+      const placeholderUrl = `http://localhost:${port}`;
+      setupOAuthRoutes(app, this.config.oauth, placeholderUrl);
+    }
+
     // Store transports by sessionId - each transport instance manages ONE session
     const transports: Map<string, StreamableHTTPServerTransport> = new Map();
 
+    // Bearer token middleware for MCP routes if requireAuth
+    const mcpMiddleware: express.RequestHandler[] = [];
+    if (this.config.oauth?.enabled && this.config.oauth.requireAuth) {
+      mcpMiddleware.push(createBearerTokenMiddleware(this.config.oauth));
+    }
+
     // Set up Express route to handle MCP requests
-    app.post("/mcp", async (req: Request, res: Response) => {
+    app.post("/mcp", ...mcpMiddleware, async (req: Request, res: Response) => {
+      // If middleware already sent a response (401), don't continue
+      if (res.headersSent) {
+        return;
+      }
       // Capture headers for this request
       this.currentRequestHeaders = extractHeaders(req);
 
@@ -190,9 +212,12 @@ export class TestServerHttp {
         try {
           await transport.handleRequest(req, res, req.body);
         } catch (error) {
-          res.status(500).json({
-            error: error instanceof Error ? error.message : String(error),
-          });
+          // If response already sent (e.g., by OAuth middleware), don't send another
+          if (!res.headersSent) {
+            res.status(500).json({
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
       } else {
         // New session - create a new transport instance
@@ -215,15 +240,18 @@ export class TestServerHttp {
         try {
           await newTransport.handleRequest(req, res, req.body);
         } catch (error) {
-          res.status(500).json({
-            error: error instanceof Error ? error.message : String(error),
-          });
+          // If response already sent (e.g., by OAuth middleware), don't send another
+          if (!res.headersSent) {
+            res.status(500).json({
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
       }
     });
 
     // Handle GET requests for SSE stream - this enables server-initiated messages
-    app.get("/mcp", async (req: Request, res: Response) => {
+    app.get("/mcp", ...mcpMiddleware, async (req: Request, res: Response) => {
       // Get session ID from header - required for streamable-http
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
       if (!sessionId) {
@@ -276,11 +304,27 @@ export class TestServerHttp {
     // Create HTTP server
     this.httpServer = createHttpServer(app);
 
+    // Set up OAuth if enabled (BEFORE MCP routes)
+    // Note: We use port 0 to let OS assign port, so we can't know the actual port yet
+    // But the routes use relative paths, so they should work regardless
+    if (this.config.oauth?.enabled) {
+      // Use placeholder URL - actual baseUrl will be set after server starts
+      // The OAuth routes use relative paths, so they'll work with any base URL
+      const placeholderUrl = `http://localhost:${port}`;
+      setupOAuthRoutes(app, this.config.oauth, placeholderUrl);
+    }
+
+    // Bearer token middleware for SSE routes if requireAuth
+    const sseMiddleware: express.RequestHandler[] = [];
+    if (this.config.oauth?.enabled && this.config.oauth.requireAuth) {
+      sseMiddleware.push(createBearerTokenMiddleware(this.config.oauth));
+    }
+
     // Store transports by sessionId (like the SDK example)
     const sseTransports: Map<string, SSEServerTransport> = new Map();
 
     // GET handler for SSE connection (establishes the SSE stream)
-    app.get("/sse", async (req: Request, res: Response) => {
+    app.get("/sse", ...sseMiddleware, async (req: Request, res: Response) => {
       this.currentRequestHeaders = extractHeaders(req);
       const sseTransport = new SSEServerTransport("/sse", res);
 
@@ -300,7 +344,7 @@ export class TestServerHttp {
     });
 
     // POST handler for SSE message sending (SSE uses GET for stream, POST for sending messages)
-    app.post("/sse", async (req: Request, res: Response) => {
+    app.post("/sse", ...sseMiddleware, async (req: Request, res: Response) => {
       this.currentRequestHeaders = extractHeaders(req);
       const sessionId = req.query.sessionId as string | undefined;
 

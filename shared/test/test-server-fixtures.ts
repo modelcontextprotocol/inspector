@@ -1642,3 +1642,188 @@ export function getDefaultServerConfig(): ServerConfig {
     logging: true, // Required for notifications/message
   };
 }
+
+/**
+ * OAuth Test Fixtures
+ */
+
+/**
+ * Creates a test server configuration with OAuth enabled
+ */
+export function createOAuthTestServerConfig(options: {
+  requireAuth?: boolean;
+  scopesSupported?: string[];
+  staticClients?: Array<{
+    clientId: string;
+    clientSecret?: string;
+    redirectUris?: string[];
+  }>;
+  supportDCR?: boolean;
+  supportCIMD?: boolean;
+  tokenExpirationSeconds?: number;
+  supportRefreshTokens?: boolean;
+}): Partial<ServerConfig> {
+  return {
+    oauth: {
+      enabled: true,
+      requireAuth: options.requireAuth ?? false,
+      scopesSupported: options.scopesSupported ?? ["mcp"],
+      staticClients: options.staticClients,
+      supportDCR: options.supportDCR ?? false,
+      supportCIMD: options.supportCIMD ?? false,
+      tokenExpirationSeconds: options.tokenExpirationSeconds ?? 3600,
+      supportRefreshTokens: options.supportRefreshTokens ?? true,
+    },
+  };
+}
+
+/**
+ * Creates OAuth configuration for InspectorClient tests
+ */
+export function createOAuthClientConfig(options: {
+  mode: "static" | "dcr" | "cimd";
+  clientId?: string;
+  clientSecret?: string;
+  clientMetadataUrl?: string;
+  redirectUrl: string;
+  scope?: string;
+}): {
+  clientId?: string;
+  clientSecret?: string;
+  clientMetadataUrl?: string;
+  redirectUrl: string;
+  scope?: string;
+} {
+  const config: {
+    clientId?: string;
+    clientSecret?: string;
+    clientMetadataUrl?: string;
+    redirectUrl: string;
+    scope?: string;
+  } = {
+    redirectUrl: options.redirectUrl,
+  };
+
+  if (options.mode === "static") {
+    if (!options.clientId) {
+      throw new Error("clientId is required for static mode");
+    }
+    config.clientId = options.clientId;
+    if (options.clientSecret) {
+      config.clientSecret = options.clientSecret;
+    }
+  } else if (options.mode === "dcr") {
+    // DCR mode - no clientId needed, will be registered
+    // But we can optionally provide one for testing
+    if (options.clientId) {
+      config.clientId = options.clientId;
+    }
+  } else if (options.mode === "cimd") {
+    if (!options.clientMetadataUrl) {
+      throw new Error("clientMetadataUrl is required for CIMD mode");
+    }
+    config.clientMetadataUrl = options.clientMetadataUrl;
+  }
+
+  if (options.scope) {
+    config.scope = options.scope;
+  }
+
+  return config;
+}
+
+/**
+ * Client metadata document for CIMD testing
+ */
+export interface ClientMetadataDocument {
+  redirect_uris: string[];
+  token_endpoint_auth_method?: string;
+  grant_types?: string[];
+  response_types?: string[];
+  client_name?: string;
+  client_uri?: string;
+  scope?: string;
+}
+
+/**
+ * Creates an Express server that serves a client metadata document for CIMD testing
+ * The server runs on a different port and serves the metadata at the root path
+ *
+ * @param metadata - The client metadata document to serve
+ * @returns Object with server URL and cleanup function
+ */
+export async function createClientMetadataServer(
+  metadata: ClientMetadataDocument,
+): Promise<{ url: string; stop: () => Promise<void> }> {
+  const express = await import("express");
+  const app = express.default();
+
+  // Serve metadata document at root path
+  app.get("/", (req, res) => {
+    res.json(metadata);
+  });
+
+  // Start server on a random available port
+  return new Promise((resolve, reject) => {
+    const server = app.listen(0, () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        reject(new Error("Failed to get server address"));
+        return;
+      }
+      const port = address.port;
+      const url = `http://localhost:${port}`;
+
+      resolve({
+        url,
+        stop: async () => {
+          return new Promise<void>((resolveStop) => {
+            server.close(() => {
+              resolveStop();
+            });
+          });
+        },
+      });
+    });
+
+    server.on("error", reject);
+  });
+}
+
+/**
+ * Helper function to programmatically complete OAuth authorization
+ * Makes HTTP GET request to authorization URL and extracts authorization code
+ * The test server's authorization endpoint auto-approves and redirects with code
+ *
+ * @param authorizationUrl - The authorization URL from oauthAuthorizationRequired event
+ * @returns Authorization code extracted from redirect URL
+ */
+export async function completeOAuthAuthorization(
+  authorizationUrl: URL,
+): Promise<string> {
+  // Make GET request to authorization URL (test server auto-approves)
+  const response = await fetch(authorizationUrl.toString(), {
+    redirect: "manual", // Don't follow redirect automatically
+  });
+
+  if (response.status !== 302 && response.status !== 301) {
+    throw new Error(
+      `Expected redirect (302/301), got ${response.status}: ${await response.text()}`,
+    );
+  }
+
+  // Extract redirect URL from Location header
+  const redirectUrl = response.headers.get("location");
+  if (!redirectUrl) {
+    throw new Error("No Location header in redirect response");
+  }
+
+  // Parse authorization code from redirect URL
+  const redirectUrlObj = new URL(redirectUrl);
+  const code = redirectUrlObj.searchParams.get("code");
+  if (!code) {
+    throw new Error(`No authorization code in redirect URL: ${redirectUrl}`);
+  }
+
+  return code;
+}

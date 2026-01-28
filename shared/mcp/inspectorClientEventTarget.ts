@@ -30,6 +30,8 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
+import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
+import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 /**
  * Maps event names to their detail types for CustomEvents
@@ -93,6 +95,21 @@ export interface InspectorClientEventMap {
   messagesChange: void;
   stderrLogsChange: void;
   fetchRequestsChange: void;
+  // OAuth events
+  oauthAuthorizationRequired: {
+    url: URL;
+  };
+  oauthComplete: {
+    tokens: OAuthTokens;
+  };
+  oauthError: {
+    error: Error;
+  };
+  oauthStepChange: {
+    step: OAuthStep;
+    previousStep: OAuthStep;
+    state: Partial<AuthGuidedState>;
+  };
 }
 
 /**

@@ -230,6 +230,67 @@ export interface ServerConfig {
    * Only used if tasks capability is enabled
    */
   taskMessageQueue?: TaskMessageQueue;
+  /**
+   * OAuth 2.1 configuration for test server
+   * If enabled, server will act as an OAuth authorization server
+   */
+  oauth?: {
+    /**
+     * Whether OAuth is enabled for this test server
+     */
+    enabled: boolean;
+
+    /**
+     * OAuth authorization server issuer URL
+     * Used for metadata endpoints and token issuance
+     * If not provided, defaults to the test server's base URL
+     */
+    issuerUrl?: URL;
+
+    /**
+     * List of scopes supported by this authorization server
+     * Defaults to ["mcp"] if not provided
+     */
+    scopesSupported?: string[];
+
+    /**
+     * If true, MCP endpoints require valid Bearer token
+     * Returns 401 Unauthorized if token is missing or invalid
+     */
+    requireAuth?: boolean;
+
+    /**
+     * Static/preregistered clients for testing
+     * These clients are pre-configured and don't require DCR
+     */
+    staticClients?: Array<{
+      clientId: string;
+      clientSecret?: string;
+      redirectUris?: string[];
+    }>;
+
+    /**
+     * Whether to support Dynamic Client Registration (DCR)
+     * If true, exposes /register endpoint for client registration
+     */
+    supportDCR?: boolean;
+
+    /**
+     * Whether to support CIMD (Client ID Metadata Documents)
+     * If true, server will fetch client metadata from clientMetadataUrl
+     */
+    supportCIMD?: boolean;
+
+    /**
+     * Token expiration time in seconds (default: 3600)
+     */
+    tokenExpirationSeconds?: number;
+
+    /**
+     * Whether to support refresh tokens (default: true)
+     */
+    supportRefreshTokens?: boolean;
+  };
 }
 
 /**

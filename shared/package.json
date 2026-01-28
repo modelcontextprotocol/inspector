@@ -21,8 +21,11 @@
     "test:watch": "vitest"
   },
   "peerDependencies": {
-    "react": "^19.2.3",
-    "@modelcontextprotocol/sdk": "^1.25.2"
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "react": "^19.2.3"
+  },
+  "dependencies": {
+    "zustand": "^5.0.10"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
