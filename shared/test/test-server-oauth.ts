@@ -184,12 +184,10 @@ function setupAuthorizationEndpoint(
 
     // Validate required parameters
     if (!client_id || !redirect_uri || !response_type) {
-      res
-        .status(400)
-        .json({
-          error: "invalid_request",
-          error_description: "Missing required parameters",
-        });
+      res.status(400).json({
+        error: "invalid_request",
+        error_description: "Missing required parameters",
+      });
       return;
     }
 
@@ -210,23 +208,19 @@ function setupAuthorizationEndpoint(
       client.redirectUris &&
       !client.redirectUris.includes(redirect_uri as string)
     ) {
-      res
-        .status(400)
-        .json({
-          error: "invalid_request",
-          error_description: "Invalid redirect_uri",
-        });
+      res.status(400).json({
+        error: "invalid_request",
+        error_description: "Invalid redirect_uri",
+      });
       return;
     }
 
     // Validate PKCE
     if (code_challenge_method && code_challenge_method !== "S256") {
-      res
-        .status(400)
-        .json({
-          error: "invalid_request",
-          error_description: "Unsupported code_challenge_method",
-        });
+      res.status(400).json({
+        error: "invalid_request",
+        error_description: "Unsupported code_challenge_method",
+      });
       return;
     }
 
@@ -294,23 +288,19 @@ function setupTokenEndpoint(
       if (grant_type === "authorization_code") {
         // Authorization code flow
         if (!code || !redirect_uri || !client_id) {
-          res
-            .status(400)
-            .json({
-              error: "invalid_request",
-              error_description: "Missing required parameters",
-            });
+          res.status(400).json({
+            error: "invalid_request",
+            error_description: "Missing required parameters",
+          });
           return;
         }
 
         const authCodeData = getAuthorizationCode(code);
         if (!authCodeData) {
-          res
-            .status(400)
-            .json({
-              error: "invalid_grant",
-              error_description: "Invalid or expired authorization code",
-            });
+          res.status(400).json({
+            error: "invalid_grant",
+            error_description: "Invalid or expired authorization code",
+          });
           return;
         }
 
@@ -333,24 +323,20 @@ function setupTokenEndpoint(
 
         // Verify redirect_uri
         if (authCodeData.redirectUri !== redirect_uri) {
-          res
-            .status(400)
-            .json({
-              error: "invalid_grant",
-              error_description: "Redirect URI mismatch",
-            });
+          res.status(400).json({
+            error: "invalid_grant",
+            error_description: "Redirect URI mismatch",
+          });
           return;
         }
 
         // Verify PKCE code verifier
         if (authCodeData.codeChallenge) {
           if (!code_verifier) {
-            res
-              .status(400)
-              .json({
-                error: "invalid_request",
-                error_description: "code_verifier required",
-              });
+            res.status(400).json({
+              error: "invalid_request",
+              error_description: "code_verifier required",
+            });
             return;
           }
           // Proper PKCE verification: code_challenge should be base64url(SHA256(code_verifier))
@@ -366,12 +352,10 @@ function setupTokenEndpoint(
             .replace(/\//g, "_")
             .replace(/=/g, "");
           if (authCodeData.codeChallenge !== expectedChallenge) {
-            res
-              .status(400)
-              .json({
-                error: "invalid_grant",
-                error_description: "Invalid code_verifier",
-              });
+            res.status(400).json({
+              error: "invalid_grant",
+              error_description: "Invalid code_verifier",
+            });
             return;
           }
         }

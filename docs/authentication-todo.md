@@ -2,61 +2,6 @@
 
 This file tracks **remaining** authentication-related work: temporary workarounds, hacks, missing test coverage, and missing features.
 
-## SSE 401 Detection Hack
-
-**Location**: `shared/mcp/inspectorClient.ts` - `is401Error()` method
-
-**Issue**: When using SSE transport, EventSource reports 401 Unauthorized responses as 404 errors because the response is not a valid SSE stream (it's JSON). This is a limitation of the EventSource API.
-
-**Current Workaround**: The code treats SSE 404 errors as 401 when OAuth is configured:
-
-```typescript
-if (error instanceof SseError) {
-  if (error.code === 401) {
-    return true;
-  }
-  // For SSE, when middleware returns 401 with JSON response (not text/event-stream),
-  // EventSource may report it as 404 because it's not a valid SSE stream
-  // In this case, we need to treat 404 from SSE as potentially a 401 if OAuth is configured
-  // This is a workaround for the EventSource limitation
-  if (error.code === 404 && this.oauthConfig) {
-    return true;
-  }
-  return false;
-}
-```
-
-**Why This Is A Hack**: This is a heuristic that assumes any 404 from SSE when OAuth is configured is actually a 401. This could cause false positives if there are legitimate 404 errors.
-
-**Proper Solution**:
-
-- Check the actual HTTP status code from the error event if available
-- Or use a different transport (streamable-http) that properly reports 401 status codes
-- Or modify the SSE middleware to return a proper SSE error stream instead of JSON
-
-**Review Priority**: Medium - Works for now but should be improved
-
-## SSE Transport Recreation After OAuth
-
-**Location**: `shared/mcp/inspectorClient.ts` - `connect()` method retry logic
-
-**Issue**: For SSE transport, the EventSource connection cannot be restarted once it has been started. If the initial connection fails with a 401 (before OAuth tokens are available), we need to close the old transport and create a new one after OAuth completes.
-
-**Current Implementation**: After OAuth completes, the code:
-
-1. Closes the existing `baseTransport` (which has a failed EventSource)
-2. Creates a new transport instance with the same `getOAuthToken` callback
-3. The `getOAuthToken` callback automatically retrieves the newly saved token from storage
-4. Connects with the new transport instance
-
-**Why This Is Necessary**: EventSource API limitation - once `start()` is called on an SSEClientTransport, it cannot be restarted. The transport must be closed and a new one created.
-
-**Note**: This is not really a "hack" - it's the correct way to handle SSE transport reconnection after authentication. The `getOAuthToken` callback pattern ensures the token is automatically injected without manual token management.
-
-**Remaining Work**: Move this out of the "hacks" list (e.g. into implementation notes or the design doc) so the TODO stays focused on actionable work.
-
-**Review Priority**: Low - This is the correct implementation pattern for SSE
-
 ## Timer Delays in E2E Tests
 
 **Location**: `shared/__tests__/inspectorClient-oauth-e2e.test.ts`
@@ -146,32 +91,6 @@ errorStatus: (error as any)?.status,
 - Or pass token through middleware context/res.locals
 
 **Review Priority**: Low - Works but not type-safe
-
-## Type Casts: Private Method Access in Tests
-
-**Location**: `shared/__tests__/inspectorClient-oauth.test.ts` lines 87, 94, 101, 108
-
-**Issue**: Accessing private `is401Error` method using `as any` for testing.
-
-**Current Implementation**:
-
-```typescript
-const is401 = (client as any).is401Error(error);
-```
-
-**Why This Is A Hack**:
-
-- Tests are accessing private implementation details
-- Makes tests brittle to refactoring
-- Should test through public API
-
-**Proper Solution**:
-
-- Make `is401Error` a public method if it needs to be tested
-- Or test indirectly through public methods that use it
-- Or use TypeScript's `@internal` and proper test utilities
-
-**Review Priority**: Low - Common testing pattern but not ideal
 
 ## Type Casts: Global Object Mocking
 
@@ -384,18 +303,6 @@ Remaining work, grouped by priority. Tackle in order; some items can be done in 
   5. Add tests for custom storage path
 - **Files**: `shared/auth/storage-node.ts`, `shared/mcp/inspectorClient.ts`
 
-#### 2.4 SSE 401 Detection Hack
-
-- **Why**: Works but heuristic could cause false positives
-- **Effort**: Medium
-- **Steps**:
-  1. Investigate if actual HTTP status code is available from error event
-  2. If available, use actual status code instead of heuristic
-  3. If not available, consider modifying SSE middleware to return proper SSE error stream
-  4. Document limitations and workarounds
-  5. Add tests for both 401 and legitimate 404 cases
-- **Files**: `shared/mcp/inspectorClient.ts`, `shared/test/test-server-http.ts`
-
 #### 2.5 Timer Delays in E2E Tests
 
 - **Why**: Tests work but are fragile
@@ -459,16 +366,6 @@ Remaining work, grouped by priority. Tackle in order; some items can be done in 
   3. Or pass token through middleware context/res.locals
 - **Files**: `shared/test/test-server-oauth.ts`
 
-#### 3.5 Type Casts: Private Method Access in Tests
-
-- **Why**: Tests access private implementation details
-- **Effort**: Low
-- **Steps**:
-  1. Make `is401Error` a public method if it needs to be tested
-  2. Or test indirectly through public methods
-  3. Or use TypeScript's `@internal` and proper test utilities
-- **Files**: `shared/__tests__/inspectorClient-oauth.test.ts`, `shared/mcp/inspectorClient.ts`
-
 #### 3.6 Type Casts: Global Object Mocking
 
 - **Why**: Common pattern but could be cleaner
@@ -489,19 +386,10 @@ Remaining work, grouped by priority. Tackle in order; some items can be done in 
   3. Or use `Partial<BaseOAuthClientProvider>` if partial mocks are acceptable
 - **Files**: `shared/__tests__/auth/state-machine.test.ts`
 
-#### 3.8 Documentation: SSE Transport Recreation
-
-- **Why**: Documented in TODO as a "hack" but it's the correct implementation pattern for SSE
-- **Effort**: Documentation only
-- **Steps**:
-  1. Move "SSE Transport Recreation After OAuth" out of this TODO (e.g. to `oauth-inspectorclient-design.md` or implementation notes)
-  2. Document that transport recreation after OAuth is required for SSE and is intentional
-- **Files**: `docs/authentication-todo.md`, `docs/oauth-inspectorclient-design.md`
-
 ### Implementation Order Recommendation
 
 1. **Phase 1** (Critical): 1.1
-2. **Phase 2** (Important): 2.1–2.6
-3. **Phase 3** (Polish): 3.1–3.8
+2. **Phase 2** (Important): 2.1–2.3, 2.5–2.6
+3. **Phase 3** (Polish): 3.1–3.4, 3.6–3.7
 
 Many items can be done in parallel (e.g. 2.1–2.3 are test additions).
