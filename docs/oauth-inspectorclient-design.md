@@ -501,7 +501,7 @@ The "Auth Debugger" (guided mode) in the web client is **not** an optional debug
 
 1. **Configuration**: User provides OAuth config (clientId, clientSecret, scope, clientMetadataUrl) via `InspectorClientOptions` or `setOAuthConfig()`
 2. **Storage**: Config saved to Zustand store as `preregisteredClientInformation` (if static client provided)
-3. **Connection/Request**: On connect or request, if 401 error occurs, automatically initiates OAuth flow
+3. **Initiation**: User calls `authenticate()` (or `authenticateGuided()` for guided mode). We do not auto-initiate on 401; callers authenticate first, then connect.
 4. **SDK Handles**:
    - Authorization server metadata discovery (RFC 8414 - always client-initiated)
    - Client registration (static, DCR, or CIMD based on config)
@@ -512,7 +512,7 @@ The "Auth Debugger" (guided mode) in the web client is **not** an optional debug
 8. **Processing**: User provides authorization code via `completeOAuthFlow()`
 9. **Token Exchange**: SDK exchanges code for tokens (using stored code verifier)
 10. **Storage**: Tokens saved to Zustand store
-11. **Auto-Retry**: Original request automatically retried with new tokens
+11. **Connect**: User calls `connect()`. Transport is created with `authProvider` (tokens in storage). SDK injects tokens and handles 401 (auth, retry) inside the transport. We do not retry connect or requests after OAuth; the transport does.
 
 #### Guided Flow (Step-by-Step Mode)
 
@@ -653,14 +653,13 @@ class InspectorClient {
 
 **Two Modes of Initiation**:
 
-1. **Normal Mode** (User-Initiated or 401-Triggered):
-   - User calls `client.authenticate()` explicitly, OR
-   - Server returns 401 error during connection or request (automatically calls `authenticate()`)
+1. **Normal Mode** (User-Initiated):
+   - User calls `client.authenticate()` explicitly
    - Uses SDK's `auth()` function internally
    - Returns authorization URL
    - Dispatches `oauthAuthorizationRequired` event
    - Client-side (CLI/TUI) listens for events and handles navigation
-   - After OAuth completes (if 401-triggered), original request is automatically retried
+   - User completes OAuth (e.g. via callback), then calls `completeOAuthFlow(code)`, then `connect()`. The transport uses `authProvider` to inject tokens; the SDK handles 401 (auth, retry) internally. We do not automatically retry connect or requests after OAuth.
 
 2. **Guided Mode** (User-Initiated):
    - User calls `client.authenticateGuided()` explicitly
@@ -669,6 +668,7 @@ class InspectorClient {
    - Returns authorization URL
    - Dispatches `oauthAuthorizationRequired` event
    - Client-side listens for events and handles navigation
+   - Same flow as normal: complete OAuth, then `connect()`.
 
 **Event-Driven Architecture**:
 
@@ -711,35 +711,19 @@ client.addEventListener("oauthStepChange", (event) => {
 - CLI/TUI applications should register listeners to display the URL (e.g., print to console, show in UI)
 - No default console output - callers must explicitly handle events
 
-**401 Error Handling**:
+**401 Error Handling (legacy; see authProvider migration below)**:
 
-```typescript
-// In InspectorClient.connect() and request methods
-try {
-  await this.client.request(...);
-} catch (error) {
-  if (is401Error(error) && this.oauthConfig) {
-    // Automatic initiation - authenticate() handles event dispatch
-    const authUrl = await this.authenticate();
-    // Note: Original request will be retried after OAuth completes
-    // This is handled by the OAuth completion handler
-  } else {
-    throw error;
-  }
-}
-```
+InspectorClient previously detected 401 in `connect()` and request methods, called `authenticate()`, stored a pending request, and retried after OAuth. This custom logic has been **removed**. 401 handling is now delegated to the SDK transport via `authProvider`.
 
-### Token Injection
+### Token Injection and authProvider (Current Implementation)
 
-**Integration Point**: For HTTP-based transports (SSE, streamable-http), automatically inject OAuth tokens into request headers:
+**Integration Point**: For HTTP-based transports (SSE, streamable-http), we pass an **`authProvider`** (`OAuthClientProvider`) into `createTransport`. The SDK injects tokens and handles 401 via the provider; we do not manually add `Authorization` headers or detect 401.
 
-```typescript
-// In transport creation or request handling
-const tokens = await this.oauthProvider?.tokens();
-if (tokens?.access_token) {
-  headers["Authorization"] = `Bearer ${tokens.access_token}`;
-}
-```
+- **Transport creation**: All transport creation happens in **`connect()`** (single place for create, wrap, attach). When OAuth is configured, we create a provider via `createOAuthProvider("normal" | "guided")` and pass it as `authProvider` to `createTransport`; the provider is created async there.
+- **Flow**: Callers **authenticate first**, then connect. Run `authenticate()` or `authenticateGuided()`, complete OAuth with `completeOAuthFlow(code)`, then call `connect()`. The transport uses `authProvider` to inject tokens; the SDK handles 401 (auth, retry) inside the transport.
+- **No connect-time 401 retry**: We do not catch 401 on `connect()` or retry. If `connect()` is called without tokens, the transport/SDK may throw (e.g. `Unauthorized`). Callers must run `authenticate()` (or guided flow), then retry `connect()`.
+- **Request methods**: We no longer wrap `listTools`, `listResources`, etc. with 401 detection or retry. The transport handles 401 for all requests when `authProvider` is used.
+- **Removed**: `getOAuthToken` callback, `createOAuthFetchWrapper`, `is401Error`, `handleRequestWithOAuth`, `pendingOAuthRequest`, and connect-time 401 catch block.
 
 ## Implementation Plan
 
@@ -840,27 +824,20 @@ These options should be considered in the design but not implemented now.
    - **Note**: Guided mode is initiated via `authenticateGuided()`, which creates a provider with `mode="guided"` and initiates the flow
    - **Note**: When creating `NodeOAuthClientProvider`, pass the `mode` parameter. Both redirect URLs are registered, but the provider uses the URL matching its mode for the current flow.
 
-4. **Add 401 Error Detection**
-   - Create `is401Error()` helper method
-   - Detect 401 errors in transport layer (SSE, streamable-http)
-   - Detect 401 errors in request methods
-   - Detect 401 errors in `connect()` method
+4. **~~Add 401 Error Detection~~** (removed in authProvider migration)
+   - We no longer use `is401Error()` or detect 401 in connect/request methods. The transport handles 401 via `authProvider`.
 
-5. **Add OAuth Flow Initiation (401-Triggered and User-Initiated)**
-   - In `connect()` and request methods, catch 401 errors and call `authenticate()`
-   - Dispatch `oauthAuthorizationRequired` event with authorization URL
-   - Store original request/error for retry after OAuth completes
-   - User-initiated flow also uses `authenticate()`. For guided (step-by-step) flow, use `authenticateGuided()`.
+5. **Add OAuth Flow Initiation (User-Initiated Only)**
+   - User calls `authenticate()` or `authenticateGuided()` first, then `completeOAuthFlow(code)`, then `connect()`. We do not catch 401 or retry; the transport uses `authProvider` for token injection and 401 handling.
 
 6. **Add Guided Mode**
    - Implement `authenticateGuided()` for step-by-step OAuth flow
    - Create provider with `mode="guided"` when `authenticateGuided()` is called
    - Dispatch `oauthAuthorizationRequired` and `oauthStepChange` events as state machine progresses
 
-7. **Add Token Injection**
-   - For HTTP-based transports, inject OAuth tokens into request headers
-   - Update transport creation to include OAuth tokens from Zustand store
-   - Refresh tokens if expired (future enhancement)
+7. **Add Token Injection (via authProvider)**
+   - For HTTP-based transports with OAuth, pass `authProvider` into `createTransport`. The SDK injects tokens and handles 401. We do not manually add `Authorization` headers. All transport creation happens in `connect()`.
+   - Refresh tokens if expired (future enhancement) – handled by SDK/authProvider when supported.
 
 8. **Add OAuth Events**
    - Add `oauthAuthorizationRequired` event (dispatches authorization URL, mode, optional originalError)
@@ -1282,11 +1259,25 @@ if (authUrl) {
 
 ### 401 Error Handling
 
-- **Automatic Retry**: After successful OAuth, automatically retry failed request
-- **Manual Retry**: User can manually retry after OAuth completes
-- **Event-Based**: Dispatch events for UI to handle OAuth flow
+- **Transport / authProvider**: The SDK transport handles 401 when `authProvider` is used (token injection, auth, retry). InspectorClient does not detect 401 or retry connect/requests.
+- **Caller flow**: Authenticate first (`authenticate()` or `authenticateGuided()`), complete OAuth, then `connect()`. If `connect()` is called without tokens, the transport may throw; callers retry `connect()` after OAuth.
+- **Event-Based**: Dispatch events for UI to handle OAuth flow (`oauthAuthorizationRequired`, etc.)
 
 ## Migration Notes
+
+### authProvider Migration (2025)
+
+InspectorClient now uses the SDK’s **`authProvider`** (`OAuthClientProvider`) for OAuth on HTTP transports (SSE, streamable-http) instead of a `getOAuthToken` callback and custom 401 handling.
+
+**Summary of changes**:
+
+- **Transport**: `createTransport` accepts `authProvider` (optional). For SSE and streamable-http with OAuth, we pass the provider; the SDK injects tokens and handles 401. `getOAuthToken` and OAuth-specific fetch wrapping have been removed.
+- **InspectorClient**: All transport creation happens in `connect()` (single place for create, wrap, attach); for HTTP+OAuth the provider is created async there. We pass `authProvider` when creating the transport. On `disconnect()`, we null out the transport so the next `connect()` creates a fresh one. Removed: `is401Error`, `handleRequestWithOAuth`, connect-time 401 catch, and `pendingOAuthRequest`.
+- **Caller flow**: **Authenticate first, then connect.** Call `authenticate()` or `authenticateGuided()`, have the user complete OAuth, call `completeOAuthFlow(code)`, then `connect()`. We no longer detect 401 on `connect()` or retry internally; the transport handles 401 when `authProvider` is used.
+- **Guided mode**: Unchanged. Use `authenticateGuided()` → `completeOAuthFlow()` → `connect()`. The same provider (or shared storage) is used as `authProvider` when connecting after guided auth.
+- **Custom headers**: Config `headers` / `requestInit` / `eventSourceInit` continue to be passed at transport creation and are merged with `authProvider` by the SDK.
+
+See **"Token Injection and authProvider"** above for details.
 
 ### Web Client Migration (Future Consideration)
 

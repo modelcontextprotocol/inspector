@@ -86,41 +86,6 @@ describe("InspectorClient OAuth", () => {
     });
   });
 
-  describe("401 Error Detection", () => {
-    it("should detect 401 errors from McpError", () => {
-      const {
-        McpError,
-        ErrorCode,
-      } = require("@modelcontextprotocol/sdk/types.js");
-      const error = new McpError(ErrorCode.InvalidRequest, "401 Unauthorized");
-
-      // Access private method via type assertion for testing
-      const is401 = (client as any).is401Error(error);
-      expect(is401).toBe(true);
-    });
-
-    it("should detect 401 errors from Error with 401 message", () => {
-      const error = new Error("401 Unauthorized");
-
-      const is401 = (client as any).is401Error(error);
-      expect(is401).toBe(true);
-    });
-
-    it("should detect 401 errors from Error with Unauthorized message", () => {
-      const error = new Error("Unauthorized");
-
-      const is401 = (client as any).is401Error(error);
-      expect(is401).toBe(true);
-    });
-
-    it("should return false for non-401 errors", () => {
-      const error = new Error("Some other error");
-
-      const is401 = (client as any).is401Error(error);
-      expect(is401).toBe(false);
-    });
-  });
-
   describe("OAuth Events", () => {
     let testServer: TestServerHttp;
     const testRedirectUrl = "http://localhost:3001/oauth/callback";
@@ -294,6 +259,7 @@ describe("InspectorClient OAuth", () => {
         serverType: "sse" as const,
         ...createOAuthTestServerConfig({
           requireAuth: true,
+          supportDCR: true,
           staticClients: [
             {
               clientId: staticClientId,
@@ -308,7 +274,6 @@ describe("InspectorClient OAuth", () => {
       const port = await testServer.start();
       const serverUrl = `http://localhost:${port}`;
 
-      // Create client with OAuth config
       const clientConfig: InspectorClientOptions = {
         oauth: createOAuthClientConfig({
           mode: "static",
@@ -326,89 +291,42 @@ describe("InspectorClient OAuth", () => {
         clientConfig,
       );
 
-      // Complete OAuth flow first
-      let authorizationUrl: URL | null = null;
-      testClient.addEventListener("oauthAuthorizationRequired", (event) => {
-        authorizationUrl = event.detail.url;
-      });
-
-      const connectPromise = testClient.connect();
-
-      // Wait for authorization URL using event-driven approach
-      // Vitest's test timeout (15s) will catch this if the event never fires
-      await new Promise<void>((resolve) => {
-        // Check if we already have the URL (event might have fired before we set up listener)
-        if (authorizationUrl) {
-          resolve();
-          return;
-        }
-
-        // Set up a one-time listener
-        const handler = (event: Event) => {
-          const customEvent = event as CustomEvent<{ url: URL }>;
-          authorizationUrl = customEvent.detail.url;
-          testClient.removeEventListener("oauthAuthorizationRequired", handler);
-          resolve();
-        };
-        testClient.addEventListener("oauthAuthorizationRequired", handler);
-      });
-
-      if (!authorizationUrl) {
-        throw new Error("Authorization URL was not received");
-      }
-
+      // Auth-provider flow: authenticate first, complete OAuth, then connect.
+      // connect() creates transport with authProvider; tokens are already in storage.
+      const authorizationUrl = await testClient.authenticate();
       const authCode = await completeOAuthAuthorization(authorizationUrl);
       await testClient.completeOAuthFlow(authCode);
-      await connectPromise;
 
-      // Verify tokens are stored
+      await testClient.connect();
+
       const tokens = await testClient.getOAuthTokens();
       expect(tokens).toBeDefined();
       expect(tokens?.access_token).toBeDefined();
 
-      // After connectPromise resolves, connect() has fully completed including:
-      // - Closing old transport
-      // - Creating new transport with OAuth token
-      // - Connecting with new transport
-      // - Setting status to "connected"
-      // So the transport should be ready - no delay needed
-
-      // Now make a request - if tokens weren't injected, this would fail with 401
-      // The fact that it succeeds proves tokens are being injected into requests
+      // listTools() succeeds only if authProvider injects Bearer token
       const toolsResult = await testClient.listTools();
       expect(toolsResult).toBeDefined();
 
-      // Additionally, check fetch requests if available
-      // Note: For SSE EventSource (GET), headers might not be fully tracked,
-      // but the fact that listTools() succeeded proves tokens are being injected
       const fetchRequests = testClient.getFetchRequests();
       if (fetchRequests.length > 0) {
-        // Find POST requests to the MCP endpoint (POST requests track headers better)
         const mcpPostRequests = fetchRequests.filter(
           (req) =>
             req.method === "POST" &&
             (req.url.includes("/sse") || req.url.includes("/mcp")) &&
             !req.url.includes("/oauth"),
         );
-
         if (mcpPostRequests.length > 0) {
-          // Verify POST requests have Authorization header
           const hasAuthHeader = mcpPostRequests.some((req) => {
             const authHeader =
               req.requestHeaders?.["Authorization"] ||
               req.requestHeaders?.["authorization"];
             return authHeader && authHeader.startsWith("Bearer ");
           });
-          // If we have POST requests, at least one should have the header
-          // But even if not tracked, the fact that listTools() succeeded proves tokens work
           if (hasAuthHeader) {
             expect(hasAuthHeader).toBe(true);
           }
         }
       }
-
-      // The primary proof is that listTools() succeeded after OAuth
-      // This would fail with 401 if tokens weren't being injected
 
       await testClient.disconnect();
     });

@@ -1,3 +1,4 @@
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
   MCPServerConfig,
   StdioServerConfig,
@@ -55,10 +56,10 @@ export interface CreateTransportOptions {
   onFetchRequest?: (entry: import("./types.js").FetchRequestEntry) => void;
 
   /**
-   * Optional function to get OAuth access token for Bearer authentication
-   * This will be called for each HTTP request to inject the Authorization header
+   * Optional OAuth client provider for Bearer authentication (SSE, streamable-http).
+   * When set, the SDK injects tokens and handles 401 via the provider.
    */
-  getOAuthToken?: () => Promise<string | undefined>;
+  authProvider?: OAuthClientProvider;
 }
 
 export interface CreateTransportResult {
@@ -68,35 +69,6 @@ export interface CreateTransportResult {
 /**
  * Creates the appropriate transport for an MCP server configuration
  */
-/**
- * Creates a fetch wrapper that injects OAuth Bearer tokens into requests
- */
-function createOAuthFetchWrapper(
-  baseFetch: typeof fetch,
-  getOAuthToken?: () => Promise<string | undefined>,
-): typeof fetch {
-  if (!getOAuthToken) {
-    return baseFetch;
-  }
-
-  return async (
-    input: RequestInfo | URL,
-    init?: RequestInit,
-  ): Promise<Response> => {
-    const token = await getOAuthToken();
-    const headers = new Headers(init?.headers);
-
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
-    }
-
-    return baseFetch(input, {
-      ...init,
-      headers,
-    });
-  };
-}
-
 export function createTransport(
   config: MCPServerConfig,
   options: CreateTransportOptions = {},
@@ -106,7 +78,7 @@ export function createTransport(
     onStderr,
     pipeStderr = false,
     onFetchRequest,
-    getOAuthToken,
+    authProvider,
   } = options;
 
   if (serverType === "stdio") {
@@ -137,45 +109,32 @@ export function createTransport(
     const sseConfig = config as SseServerConfig;
     const url = new URL(sseConfig.url);
 
-    // Get base fetch function
     const baseFetch =
       (sseConfig.eventSourceInit?.fetch as typeof fetch) || globalThis.fetch;
+    const trackedFetch = onFetchRequest
+      ? createFetchTracker(baseFetch, { trackRequest: onFetchRequest })
+      : baseFetch;
 
-    // Create OAuth-aware fetch wrapper
-    const oauthFetch = createOAuthFetchWrapper(baseFetch, getOAuthToken);
-
-    // Merge headers and requestInit
     const eventSourceInit: Record<string, unknown> = {
       ...sseConfig.eventSourceInit,
       ...(sseConfig.headers && { headers: sseConfig.headers }),
-      fetch: onFetchRequest
-        ? createFetchTracker(oauthFetch, {
-            trackRequest: onFetchRequest,
-          })
-        : oauthFetch,
+      fetch: trackedFetch,
     };
-
-    // For SSE, POST requests also need OAuth token via fetch
-    // Create OAuth-aware fetch for POST requests
-    const oauthFetchForPost = createOAuthFetchWrapper(
-      globalThis.fetch,
-      getOAuthToken,
-    );
 
     const requestInit: RequestInit = {
       ...sseConfig.requestInit,
       ...(sseConfig.headers && { headers: sseConfig.headers }),
     };
 
+    const postFetch = onFetchRequest
+      ? createFetchTracker(globalThis.fetch, { trackRequest: onFetchRequest })
+      : globalThis.fetch;
+
     const transport = new SSEClientTransport(url, {
+      authProvider,
       eventSourceInit,
       requestInit,
-      // Pass OAuth-aware fetch for POST requests
-      fetch: onFetchRequest
-        ? createFetchTracker(oauthFetchForPost, {
-            trackRequest: onFetchRequest,
-          })
-        : oauthFetchForPost,
+      fetch: postFetch,
     });
 
     return { transport };
@@ -184,32 +143,21 @@ export function createTransport(
     const httpConfig = config as StreamableHttpServerConfig;
     const url = new URL(httpConfig.url);
 
-    // Get base fetch function
-    const baseFetch = globalThis.fetch;
-
-    // Create OAuth-aware fetch wrapper
-    const oauthFetch = createOAuthFetchWrapper(baseFetch, getOAuthToken);
-
-    // Merge headers and requestInit
     const requestInit: RequestInit = {
       ...httpConfig.requestInit,
       ...(httpConfig.headers && { headers: httpConfig.headers }),
     };
 
-    // Add fetch tracking and OAuth support
-    const transportOptions: {
-      requestInit?: RequestInit;
-      fetch?: typeof fetch;
-    } = {
-      requestInit,
-      fetch: onFetchRequest
-        ? createFetchTracker(oauthFetch, {
-            trackRequest: onFetchRequest,
-          })
-        : oauthFetch,
-    };
+    const baseFetch = globalThis.fetch;
+    const fetchFn = onFetchRequest
+      ? createFetchTracker(baseFetch, { trackRequest: onFetchRequest })
+      : baseFetch;
 
-    const transport = new StreamableHTTPClientTransport(url, transportOptions);
+    const transport = new StreamableHTTPClientTransport(url, {
+      authProvider,
+      requestInit,
+      fetch: fetchFn,
+    });
 
     return { transport };
   }

@@ -1,6 +1,4 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { SseError } from "@modelcontextprotocol/sdk/client/sse.js";
 import type {
   MCPServerConfig,
   StderrLogEntry,
@@ -227,6 +225,7 @@ export class InspectorClient extends InspectorClientEventTarget {
   private maxMessages: number;
   private maxStderrLogEvents: number;
   private maxFetchRequests: number;
+  private pipeStderr: boolean;
   private autoFetchServerContents: boolean;
   private initialLoggingLevel?: LoggingLevel;
   private sample: boolean;
@@ -264,12 +263,6 @@ export class InspectorClient extends InspectorClientEventTarget {
   private oauthConfig?: InspectorClientOptions["oauth"];
   private oauthStateMachine: OAuthStateMachine | null = null;
   private oauthState: AuthGuidedState | null = null;
-  private pendingOAuthRequest: {
-    method: string;
-    params?: any;
-    resolve: () => Promise<any>;
-    reject: (error: Error) => void;
-  } | null = null;
 
   constructor(
     private transportConfig: MCPServerConfig,
@@ -282,6 +275,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.maxMessages = options.maxMessages ?? 1000;
     this.maxStderrLogEvents = options.maxStderrLogEvents ?? 1000;
     this.maxFetchRequests = options.maxFetchRequests ?? 1000;
+    this.pipeStderr = options.pipeStderr ?? false;
     this.autoFetchServerContents = options.autoFetchServerContents ?? true;
     this.initialLoggingLevel = options.initialLoggingLevel;
     this.sample = options.sample ?? true;
@@ -298,98 +292,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Initialize OAuth config
     this.oauthConfig = options.oauth;
 
-    // Set up message tracking callbacks
-    const messageTracking: MessageTrackingCallbacks = {
-      trackRequest: (message: JSONRPCRequest) => {
-        const entry: MessageEntry = {
-          id: `${Date.now()}-${Math.random()}`,
-          timestamp: new Date(),
-          direction: "request",
-          message,
-        };
-        this.addMessage(entry);
-      },
-      trackResponse: (
-        message: JSONRPCResultResponse | JSONRPCErrorResponse,
-      ) => {
-        const messageId = message.id;
-        // Find the matching request by message ID
-        const requestEntry = this.messages.find(
-          (e) =>
-            e.direction === "request" &&
-            "id" in e.message &&
-            e.message.id === messageId,
-        );
-
-        if (requestEntry) {
-          // Update the request entry with the response
-          this.updateMessageResponse(requestEntry, message);
-        } else {
-          // No matching request found, create orphaned response entry
-          const entry: MessageEntry = {
-            id: `${Date.now()}-${Math.random()}`,
-            timestamp: new Date(),
-            direction: "response",
-            message,
-          };
-          this.addMessage(entry);
-        }
-      },
-      trackNotification: (message: JSONRPCNotification) => {
-        const entry: MessageEntry = {
-          id: `${Date.now()}-${Math.random()}`,
-          timestamp: new Date(),
-          direction: "notification",
-          message,
-        };
-        this.addMessage(entry);
-      },
-    };
-
-    // Create transport with stderr logging and fetch tracking if needed
-    const transportOptions: CreateTransportOptions = {
-      pipeStderr: options.pipeStderr ?? false,
-      onStderr: (entry: StderrLogEntry) => {
-        this.addStderrLog(entry);
-      },
-      onFetchRequest: (entry: FetchRequestEntry) => {
-        this.addFetchRequest(entry);
-      },
-      // Add OAuth token getter for HTTP transports
-      getOAuthToken: async () => {
-        const tokens = await this.getOAuthTokens();
-        return tokens?.access_token;
-      },
-    };
-
-    const { transport: baseTransport } = createTransport(
-      transportConfig,
-      transportOptions,
-    );
-
-    // Store base transport for event listeners (always listen to actual transport, not wrapper)
-    this.baseTransport = baseTransport;
-
-    // Wrap with MessageTrackingTransport if we're tracking messages
-    this.transport =
-      this.maxMessages > 0
-        ? new MessageTrackingTransport(baseTransport, messageTracking)
-        : baseTransport;
-
-    // Set up transport event listeners on base transport to track disconnections
-    this.baseTransport.onclose = () => {
-      if (this.status !== "disconnected") {
-        this.status = "disconnected";
-        this.dispatchTypedEvent("statusChange", this.status);
-        this.dispatchTypedEvent("disconnect");
-      }
-    };
-
-    this.baseTransport.onerror = (error: Error) => {
-      this.status = "error";
-      this.dispatchTypedEvent("statusChange", this.status);
-      this.dispatchTypedEvent("error", error);
-    };
+    // Transport is created in connect() (single place for create / wrap / attach).
 
     // Build client capabilities
     const clientOptions: { capabilities?: ClientCapabilities } = {};
@@ -436,17 +339,115 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
   }
 
+  private createMessageTrackingCallbacks(): MessageTrackingCallbacks {
+    return {
+      trackRequest: (message: JSONRPCRequest) => {
+        const entry: MessageEntry = {
+          id: `${Date.now()}-${Math.random()}`,
+          timestamp: new Date(),
+          direction: "request",
+          message,
+        };
+        this.addMessage(entry);
+      },
+      trackResponse: (
+        message: JSONRPCResultResponse | JSONRPCErrorResponse,
+      ) => {
+        const messageId = message.id;
+        const requestEntry = this.messages.find(
+          (e) =>
+            e.direction === "request" &&
+            "id" in e.message &&
+            e.message.id === messageId,
+        );
+        if (requestEntry) {
+          this.updateMessageResponse(requestEntry, message);
+        } else {
+          const entry: MessageEntry = {
+            id: `${Date.now()}-${Math.random()}`,
+            timestamp: new Date(),
+            direction: "response",
+            message,
+          };
+          this.addMessage(entry);
+        }
+      },
+      trackNotification: (message: JSONRPCNotification) => {
+        const entry: MessageEntry = {
+          id: `${Date.now()}-${Math.random()}`,
+          timestamp: new Date(),
+          direction: "notification",
+          message,
+        };
+        this.addMessage(entry);
+      },
+    };
+  }
+
+  private attachTransportListeners(baseTransport: any): void {
+    baseTransport.onclose = () => {
+      if (this.status !== "disconnected") {
+        this.status = "disconnected";
+        this.dispatchTypedEvent("statusChange", this.status);
+        this.dispatchTypedEvent("disconnect");
+      }
+    };
+    baseTransport.onerror = (error: Error) => {
+      this.status = "error";
+      this.dispatchTypedEvent("statusChange", this.status);
+      this.dispatchTypedEvent("error", error);
+    };
+  }
+
+  private isHttpOAuthConfig(): boolean {
+    const serverType = getServerTypeFromConfig(this.transportConfig);
+    return (
+      (serverType === "sse" || serverType === "streamable-http") &&
+      !!this.oauthConfig
+    );
+  }
+
   /**
    * Connect to the MCP server
    */
   async connect(): Promise<void> {
-    if (!this.client || !this.transport) {
-      throw new Error("Client or transport not initialized");
+    if (!this.client) {
+      throw new Error("Client not initialized");
     }
-
-    // If already connected, return early
     if (this.status === "connected") {
       return;
+    }
+
+    // Create transport (single place for create / wrap / attach).
+    if (!this.baseTransport) {
+      const transportOptions: CreateTransportOptions = {
+        pipeStderr: this.pipeStderr,
+        onStderr: (entry: StderrLogEntry) => {
+          this.addStderrLog(entry);
+        },
+        onFetchRequest: (entry: FetchRequestEntry) => {
+          this.addFetchRequest(entry);
+        },
+      };
+      if (this.isHttpOAuthConfig()) {
+        const provider = await this.createOAuthProvider("normal");
+        transportOptions.authProvider = provider;
+      }
+      const { transport: baseTransport } = createTransport(
+        this.transportConfig,
+        transportOptions,
+      );
+      this.baseTransport = baseTransport;
+      const messageTracking = this.createMessageTrackingCallbacks();
+      this.transport =
+        this.maxMessages > 0
+          ? new MessageTrackingTransport(baseTransport, messageTracking)
+          : baseTransport;
+      this.attachTransportListeners(this.baseTransport);
+    }
+
+    if (!this.transport) {
+      throw new Error("Transport not initialized");
     }
 
     try {
@@ -610,177 +611,6 @@ export class InspectorClient extends InspectorClientEventTarget {
         }
       }
     } catch (error) {
-      // Handle 401 errors by initiating OAuth flow
-      // The SDK's streamable-http transport throws an error when it receives a 401 HTTP response
-      if (this.is401Error(error) && this.oauthConfig) {
-        try {
-          const authUrl = await this.authenticate();
-          // Store pending connect for retry after OAuth completes
-          // Return a Promise that resolves when OAuth completes and connection succeeds
-          return new Promise<void>((resolve, reject) => {
-            this.pendingOAuthRequest = {
-              method: "connect",
-              resolve: async () => {
-                try {
-                  // Retry connect after OAuth completes
-                  // The transport may already be started from the initial connect attempt
-                  // Just call the internal connection logic without the full connect() method
-                  if (this.status === "connected") {
-                    // Already connected, just resolve
-                    resolve();
-                    return;
-                  }
-
-                  // Try to connect - handle "already started" error gracefully
-                  if (!this.client) {
-                    throw new Error("Client not initialized");
-                  }
-                  if (!this.transport) {
-                    throw new Error("Transport not initialized");
-                  }
-                  // Close the old transport if it exists (SSE EventSource can't be restarted)
-                  // The transport's getOAuthToken callback will automatically use the token we just saved
-                  if (this.baseTransport) {
-                    try {
-                      await this.baseTransport.close();
-                    } catch {
-                      // Ignore errors closing old transport
-                    }
-                  }
-
-                  // Create a new transport instance (same config, but now getOAuthToken will return the token)
-                  // The getOAuthToken callback is already set up in the constructor to call this.getOAuthTokens()
-                  const { createTransport } = await import("./transport.js");
-                  const transportOptions: CreateTransportOptions = {
-                    pipeStderr: false,
-                    onStderr: (entry: StderrLogEntry) => {
-                      this.addStderrLog(entry);
-                    },
-                    onFetchRequest: (entry: FetchRequestEntry) => {
-                      this.addFetchRequest(entry);
-                    },
-                    getOAuthToken: async () => {
-                      const tokens = await this.getOAuthTokens();
-                      return tokens?.access_token;
-                    },
-                  };
-                  const transportResult = createTransport(
-                    this.transportConfig,
-                    transportOptions,
-                  );
-
-                  // Update base transport
-                  this.baseTransport = transportResult.transport;
-
-                  // Re-wrap with MessageTrackingTransport if needed
-                  if (this.maxMessages > 0) {
-                    const { MessageTrackingTransport } =
-                      await import("./messageTrackingTransport.js");
-                    const messageTracking: MessageTrackingCallbacks = {
-                      trackRequest: (message: JSONRPCRequest) => {
-                        const entry: MessageEntry = {
-                          id: `${Date.now()}-${Math.random()}`,
-                          timestamp: new Date(),
-                          direction: "request",
-                          message,
-                        };
-                        this.addMessage(entry);
-                      },
-                      trackResponse: (
-                        message: JSONRPCResultResponse | JSONRPCErrorResponse,
-                      ) => {
-                        const messageId = message.id;
-                        const requestEntry = this.messages.find(
-                          (e) =>
-                            e.direction === "request" &&
-                            "id" in e.message &&
-                            e.message.id === messageId,
-                        );
-                        if (requestEntry) {
-                          this.updateMessageResponse(requestEntry, message);
-                        } else {
-                          const entry: MessageEntry = {
-                            id: `${Date.now()}-${Math.random()}`,
-                            timestamp: new Date(),
-                            direction: "response",
-                            message,
-                          };
-                          this.addMessage(entry);
-                        }
-                      },
-                      trackNotification: (message: JSONRPCNotification) => {
-                        const entry: MessageEntry = {
-                          id: `${Date.now()}-${Math.random()}`,
-                          timestamp: new Date(),
-                          direction: "notification",
-                          message,
-                        };
-                        this.addMessage(entry);
-                      },
-                    };
-                    this.transport = new MessageTrackingTransport(
-                      this.baseTransport,
-                      messageTracking,
-                    );
-                  } else {
-                    this.transport = this.baseTransport;
-                  }
-
-                  // Set up transport event listeners on new base transport
-                  this.baseTransport.onclose = () => {
-                    if (this.status !== "disconnected") {
-                      this.status = "disconnected";
-                      this.dispatchTypedEvent("statusChange", this.status);
-                      this.dispatchTypedEvent("disconnect");
-                    }
-                  };
-                  this.baseTransport.onerror = (error: Error) => {
-                    this.status = "error";
-                    this.dispatchTypedEvent("statusChange", this.status);
-                    this.dispatchTypedEvent("error", error);
-                  };
-
-                  // Now connect with the new transport (which will use the OAuth token via getOAuthToken callback)
-                  await this.client.connect(this.transport);
-
-                  this.status = "connected";
-                  this.dispatchTypedEvent("statusChange", this.status);
-                  this.dispatchTypedEvent("connect");
-
-                  // Always fetch server info (capabilities, serverInfo, instructions)
-                  await this.fetchServerInfo();
-
-                  // Set initial logging level if configured and server supports it
-                  if (this.initialLoggingLevel && this.capabilities?.logging) {
-                    await this.setLoggingLevel(this.initialLoggingLevel);
-                  }
-
-                  resolve();
-                } catch (retryError) {
-                  const err =
-                    retryError instanceof Error
-                      ? retryError
-                      : new Error(String(retryError));
-                  reject(err);
-                  throw err;
-                }
-              },
-              reject: (err: Error) => {
-                reject(err);
-              },
-            };
-          });
-        } catch (oauthError) {
-          this.dispatchTypedEvent("oauthError", {
-            error:
-              oauthError instanceof Error
-                ? oauthError
-                : new Error(String(oauthError)),
-          });
-          throw oauthError;
-        }
-      }
-      // Re-throw non-401 errors
       this.status = "error";
       this.dispatchTypedEvent("statusChange", this.status);
       this.dispatchTypedEvent(
@@ -802,6 +632,9 @@ export class InspectorClient extends InspectorClientEventTarget {
         // Ignore errors on close
       }
     }
+    // Null out transport so next connect() creates a fresh one.
+    this.baseTransport = null;
+    this.transport = null;
     // Update status - transport onclose handler will also fire and clear state
     // But we also do it here in case disconnect() is called directly
     if (this.status !== "disconnected") {
@@ -1168,24 +1001,16 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    return this.handleRequestWithOAuth(
-      "listTools",
-      async () => {
-        const params: any =
-          metadata && Object.keys(metadata).length > 0
-            ? { _meta: metadata }
-            : {};
-        if (cursor) {
-          params.cursor = cursor;
-        }
-        const response = await this.client!.listTools(params);
-        return {
-          tools: response.tools || [],
-          nextCursor: response.nextCursor,
-        };
-      },
-      { cursor, metadata },
-    );
+    const params: any =
+      metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
+    if (cursor) {
+      params.cursor = cursor;
+    }
+    const response = await this.client.listTools(params);
+    return {
+      tools: response.tools || [],
+      nextCursor: response.nextCursor,
+    };
   }
 
   /**
@@ -1249,74 +1074,70 @@ export class InspectorClient extends InspectorClientEventTarget {
       );
     }
 
-    return this.handleRequestWithOAuth(
-      "callTool",
-      async () => {
-        let convertedArgs: Record<string, JsonValue> = args;
+    try {
+      let convertedArgs: Record<string, JsonValue> = args;
 
-        if (tool) {
-          // Convert parameters based on the tool's schema, but only for string values
-          // since we now accept pre-parsed values from the CLI
-          const stringArgs: Record<string, string> = {};
-          for (const [key, value] of Object.entries(args)) {
-            if (typeof value === "string") {
-              stringArgs[key] = value;
-            }
-          }
-
-          if (Object.keys(stringArgs).length > 0) {
-            const convertedStringArgs = convertToolParameters(tool, stringArgs);
-            convertedArgs = { ...args, ...convertedStringArgs };
+      if (tool) {
+        // Convert parameters based on the tool's schema, but only for string values
+        // since we now accept pre-parsed values from the CLI
+        const stringArgs: Record<string, string> = {};
+        for (const [key, value] of Object.entries(args)) {
+          if (typeof value === "string") {
+            stringArgs[key] = value;
           }
         }
 
-        // Merge general metadata with tool-specific metadata
-        // Tool-specific metadata takes precedence over general metadata
-        let mergedMetadata: Record<string, string> | undefined;
-        if (generalMetadata || toolSpecificMetadata) {
-          mergedMetadata = {
-            ...(generalMetadata || {}),
-            ...(toolSpecificMetadata || {}),
-          };
+        if (Object.keys(stringArgs).length > 0) {
+          const convertedStringArgs = convertToolParameters(tool, stringArgs);
+          convertedArgs = { ...args, ...convertedStringArgs };
         }
+      }
 
-        const timestamp = new Date();
-        const metadata =
-          mergedMetadata && Object.keys(mergedMetadata).length > 0
-            ? mergedMetadata
-            : undefined;
-
-        const result = await this.client!.callTool({
-          name: name,
-          arguments: convertedArgs,
-          _meta: metadata,
-        });
-
-        const invocation: ToolCallInvocation = {
-          toolName: name,
-          params: args,
-          result: result as CallToolResult,
-          timestamp,
-          success: true,
-          metadata,
+      // Merge general metadata with tool-specific metadata
+      // Tool-specific metadata takes precedence over general metadata
+      let mergedMetadata: Record<string, string> | undefined;
+      if (generalMetadata || toolSpecificMetadata) {
+        mergedMetadata = {
+          ...(generalMetadata || {}),
+          ...(toolSpecificMetadata || {}),
         };
+      }
 
-        // Store in cache
-        this.cacheInternal.setToolCallResult(name, invocation);
-        // Dispatch event
-        this.dispatchTypedEvent("toolCallResultChange", {
-          toolName: name,
-          params: args,
-          result: invocation.result,
-          timestamp,
-          success: true,
-          metadata,
-        });
+      const timestamp = new Date();
+      const metadata =
+        mergedMetadata && Object.keys(mergedMetadata).length > 0
+          ? mergedMetadata
+          : undefined;
 
-        return invocation;
-      },
-      { name, args, generalMetadata, toolSpecificMetadata },
-    ).catch((error) => {
+      const result = await this.client.callTool({
+        name: name,
+        arguments: convertedArgs,
+        _meta: metadata,
+      });
+
+      const invocation: ToolCallInvocation = {
+        toolName: name,
+        params: args,
+        result: result as CallToolResult,
+        timestamp,
+        success: true,
+        metadata,
+      };
+
+      // Store in cache
+      this.cacheInternal.setToolCallResult(name, invocation);
+      // Dispatch event
+      this.dispatchTypedEvent("toolCallResultChange", {
+        toolName: name,
+        params: args,
+        result: invocation.result,
+        timestamp,
+        success: true,
+        metadata,
+      });
+
+      return invocation;
+    } catch (error) {
       // Merge general metadata with tool-specific metadata for error case
       let mergedMetadata: Record<string, string> | undefined;
       if (generalMetadata || toolSpecificMetadata) {
@@ -1356,7 +1177,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       });
 
       throw error;
-    });
+    }
   }
 
   /**
@@ -1603,24 +1424,16 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    return this.handleRequestWithOAuth(
-      "listResources",
-      async () => {
-        const params: any =
-          metadata && Object.keys(metadata).length > 0
-            ? { _meta: metadata }
-            : {};
-        if (cursor) {
-          params.cursor = cursor;
-        }
-        const response = await this.client!.listResources(params);
-        return {
-          resources: response.resources || [],
-          nextCursor: response.nextCursor,
-        };
-      },
-      { cursor, metadata },
-    );
+    const params: any =
+      metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
+    if (cursor) {
+      params.cursor = cursor;
+    }
+    const response = await this.client.listResources(params);
+    return {
+      resources: response.resources || [],
+      nextCursor: response.nextCursor,
+    };
   }
 
   /**
@@ -1686,32 +1499,26 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    return this.handleRequestWithOAuth(
-      "readResource",
-      async () => {
-        const params: any = { uri };
-        if (metadata && Object.keys(metadata).length > 0) {
-          params._meta = metadata;
-        }
-        const result = await this.client!.readResource(params);
-        const invocation: ResourceReadInvocation = {
-          result,
-          timestamp: new Date(),
-          uri,
-          metadata,
-        };
-        // Store in cache
-        this.cacheInternal.setResource(uri, invocation);
-        // Dispatch event
-        this.dispatchTypedEvent("resourceContentChange", {
-          uri,
-          content: invocation,
-          timestamp: invocation.timestamp,
-        });
-        return invocation;
-      },
-      { uri, metadata },
-    );
+    const params: any = { uri };
+    if (metadata && Object.keys(metadata).length > 0) {
+      params._meta = metadata;
+    }
+    const result = await this.client.readResource(params);
+    const invocation: ResourceReadInvocation = {
+      result,
+      timestamp: new Date(),
+      uri,
+      metadata,
+    };
+    // Store in cache
+    this.cacheInternal.setResource(uri, invocation);
+    // Dispatch event
+    this.dispatchTypedEvent("resourceContentChange", {
+      uri,
+      content: invocation,
+      timestamp: invocation.timestamp,
+    });
+    return invocation;
   }
 
   /**
@@ -1887,24 +1694,16 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    return this.handleRequestWithOAuth(
-      "listPrompts",
-      async () => {
-        const params: any =
-          metadata && Object.keys(metadata).length > 0
-            ? { _meta: metadata }
-            : {};
-        if (cursor) {
-          params.cursor = cursor;
-        }
-        const response = await this.client!.listPrompts(params);
-        return {
-          prompts: response.prompts || [],
-          nextCursor: response.nextCursor,
-        };
-      },
-      { cursor, metadata },
-    );
+    const params: any =
+      metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
+    if (cursor) {
+      params.cursor = cursor;
+    }
+    const response = await this.client.listPrompts(params);
+    return {
+      prompts: response.prompts || [],
+      nextCursor: response.nextCursor,
+    };
   }
 
   /**
@@ -1970,44 +1769,38 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    return this.handleRequestWithOAuth(
-      "getPrompt",
-      async () => {
-        // Convert all arguments to strings for prompt arguments
-        const stringArgs = args ? convertPromptArguments(args) : {};
+    // Convert all arguments to strings for prompt arguments
+    const stringArgs = args ? convertPromptArguments(args) : {};
 
-        const params: any = {
-          name,
-          arguments: stringArgs,
-        };
+    const params: any = {
+      name,
+      arguments: stringArgs,
+    };
 
-        if (metadata && Object.keys(metadata).length > 0) {
-          params._meta = metadata;
-        }
+    if (metadata && Object.keys(metadata).length > 0) {
+      params._meta = metadata;
+    }
 
-        const result = await this.client!.getPrompt(params);
+    const result = await this.client.getPrompt(params);
 
-        const invocation: PromptGetInvocation = {
-          result,
-          timestamp: new Date(),
-          name,
-          params: Object.keys(stringArgs).length > 0 ? stringArgs : undefined,
-          metadata,
-        };
+    const invocation: PromptGetInvocation = {
+      result,
+      timestamp: new Date(),
+      name,
+      params: Object.keys(stringArgs).length > 0 ? stringArgs : undefined,
+      metadata,
+    };
 
-        // Store in cache
-        this.cacheInternal.setPrompt(name, invocation);
-        // Dispatch event
-        this.dispatchTypedEvent("promptContentChange", {
-          name,
-          content: invocation,
-          timestamp: invocation.timestamp,
-        });
+    // Store in cache
+    this.cacheInternal.setPrompt(name, invocation);
+    // Dispatch event
+    this.dispatchTypedEvent("promptContentChange", {
+      name,
+      content: invocation,
+      timestamp: invocation.timestamp,
+    });
 
-        return invocation;
-      },
-      { name, args, metadata },
-    );
+    return invocation;
   }
 
   /**
@@ -2033,37 +1826,33 @@ export class InspectorClient extends InspectorClientEventTarget {
       return { values: [] };
     }
 
-    return this.handleRequestWithOAuth(
-      "getCompletions",
-      async () => {
-        const params: any = {
-          ref,
-          argument: {
-            name: argumentName,
-            value: argumentValue,
-          },
+    try {
+      const params: any = {
+        ref,
+        argument: {
+          name: argumentName,
+          value: argumentValue,
+        },
+      };
+
+      if (context) {
+        params.context = {
+          arguments: context,
         };
+      }
 
-        if (context) {
-          params.context = {
-            arguments: context,
-          };
-        }
+      if (metadata && Object.keys(metadata).length > 0) {
+        params._meta = metadata;
+      }
 
-        if (metadata && Object.keys(metadata).length > 0) {
-          params._meta = metadata;
-        }
+      const response = await this.client.complete(params);
 
-        const response = await this.client!.complete(params);
-
-        return {
-          values: response.completion.values || [],
-          total: response.completion.total,
-          hasMore: response.completion.hasMore,
-        };
-      },
-      { ref, argumentName, argumentValue, context, metadata },
-    ).catch((error) => {
+      return {
+        values: response.completion.values || [],
+        total: response.completion.total,
+        hasMore: response.completion.hasMore,
+      };
+    } catch (error) {
       // Handle MethodNotFound gracefully (server doesn't support completions)
       if (
         (error instanceof McpError &&
@@ -2079,7 +1868,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error(
         `Failed to get completions: ${error instanceof Error ? error.message : String(error)}`,
       );
-    });
+    }
   }
 
   /**
@@ -2437,137 +2226,6 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Check if error is a 401 Unauthorized error
-   */
-  private is401Error(error: unknown): boolean {
-    // Check for SDK-specific error types
-    if (error instanceof StreamableHTTPError) {
-      return error.code === 401;
-    }
-
-    if (error instanceof SseError) {
-      // SSE transport may report 401 as 404 in some cases
-      // EventSource reports non-200 status codes, but the actual HTTP status might be 401
-      if (error.code === 401) {
-        return true;
-      }
-      // For SSE, when middleware returns 401 with JSON response (not text/event-stream),
-      // EventSource may report it as 404 because it's not a valid SSE stream
-      // In this case, we need to treat 404 from SSE as potentially a 401 if OAuth is configured
-      // This is a workaround for the EventSource limitation
-      if (error.code === 404 && this.oauthConfig) {
-        // When OAuth is configured and we get a 404 from SSE, it's likely a 401
-        // that EventSource reported as 404 because the response wasn't a valid SSE stream
-        return true;
-      }
-      return false;
-    }
-
-    // Check for SDK-specific error types with code property
-    // SseError also has a code property
-    if (error && typeof error === "object" && "code" in error) {
-      const code = (error as { code: unknown }).code;
-      if (code === 401 || code === "401") {
-        return true;
-      }
-    }
-
-    // Check if error has a status property (HTTP status code)
-    if (error && typeof error === "object" && "status" in error) {
-      const status = (error as { status: unknown }).status;
-      if (status === 401 || status === "401") {
-        return true;
-      }
-    }
-
-    if (error instanceof McpError) {
-      return (
-        error.code === ErrorCode.InvalidRequest && error.message.includes("401")
-      );
-    }
-
-    if (error instanceof Error) {
-      const message = error.message.toLowerCase();
-      const name = error.name?.toLowerCase() || "";
-      return (
-        message.includes("401") ||
-        message.includes("unauthorized") ||
-        message.includes("http 401") ||
-        message.includes("(401)") ||
-        message.includes("missing authorization") ||
-        message.includes("invalid bearer token") ||
-        name.includes("401") ||
-        name.includes("unauthorized")
-      );
-    }
-
-    // Check error string representation
-    const errorString = String(error).toLowerCase();
-    if (errorString.includes("401") || errorString.includes("unauthorized")) {
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * Wraps a request method with 401 error handling and OAuth flow initiation
-   */
-  private async handleRequestWithOAuth<T>(
-    method: string,
-    requestFn: () => Promise<T>,
-    params?: any,
-  ): Promise<T> {
-    try {
-      return await requestFn();
-    } catch (error) {
-      // Debug: log error details to understand what we're getting
-      // Handle 401 errors by initiating OAuth flow
-      const is401 = this.is401Error(error);
-      if (is401 && this.oauthConfig) {
-        try {
-          await this.authenticate();
-          // Store pending request for retry after OAuth completes
-          // Return a Promise that resolves when OAuth completes and the request succeeds
-          return new Promise<T>((resolve, reject) => {
-            this.pendingOAuthRequest = {
-              method,
-              params,
-              resolve: async () => {
-                try {
-                  const result = await requestFn();
-                  resolve(result);
-                  return result;
-                } catch (retryError) {
-                  const err =
-                    retryError instanceof Error
-                      ? retryError
-                      : new Error(String(retryError));
-                  reject(err);
-                  throw err;
-                }
-              },
-              reject: (err: Error) => {
-                reject(err);
-              },
-            };
-          });
-        } catch (oauthError) {
-          this.dispatchTypedEvent("oauthError", {
-            error:
-              oauthError instanceof Error
-                ? oauthError
-                : new Error(String(oauthError)),
-          });
-          throw oauthError;
-        }
-      }
-      // Re-throw non-401 errors
-      throw error;
-    }
-  }
-
-  /**
    * Initiates OAuth flow using SDK's auth() function (normal mode)
    * Can be called directly by user or automatically triggered by 401 errors
    */
@@ -2687,19 +2345,6 @@ export class InspectorClient extends InspectorClientEventTarget {
         this.dispatchTypedEvent("oauthComplete", {
           tokens: this.oauthState.oauthTokens,
         });
-
-        // Retry pending request if any
-        if (this.pendingOAuthRequest) {
-          const pending = this.pendingOAuthRequest;
-          this.pendingOAuthRequest = null;
-          try {
-            await pending.resolve();
-          } catch (error) {
-            pending.reject(
-              error instanceof Error ? error : new Error(String(error)),
-            );
-          }
-        }
       } else {
         // Normal mode - use SDK auth() with authorization code
         const provider = await this.createOAuthProvider("normal");
@@ -2724,19 +2369,6 @@ export class InspectorClient extends InspectorClientEventTarget {
         this.dispatchTypedEvent("oauthComplete", {
           tokens,
         });
-
-        // Retry pending request if any
-        if (this.pendingOAuthRequest) {
-          const pending = this.pendingOAuthRequest;
-          this.pendingOAuthRequest = null;
-          try {
-            await pending.resolve();
-          } catch (error) {
-            pending.reject(
-              error instanceof Error ? error : new Error(String(error)),
-            );
-          }
-        }
       }
     } catch (error) {
       this.dispatchTypedEvent("oauthError", {

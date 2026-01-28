@@ -195,6 +195,7 @@ describe("InspectorClient OAuth E2E", () => {
           serverType: transport.serverType,
           ...createOAuthTestServerConfig({
             requireAuth: true,
+            supportDCR: true,
             staticClients: [
               {
                 clientId: staticClientId,
@@ -226,61 +227,15 @@ describe("InspectorClient OAuth E2E", () => {
           clientConfig,
         );
 
-        const authorizationUrlRef: { url: URL | null } = {
-          url: null as URL | null,
-        };
-        // Set up event listener BEFORE calling connect() to ensure we catch the event
-        client.addEventListener("oauthAuthorizationRequired", (event) => {
-          authorizationUrlRef.url = event.detail.url;
-        });
-
-        // First, connect (which will trigger 401 and OAuth flow)
-        // connect() will wait for OAuth to complete before returning
-        const connectPromise = client.connect();
-
-        // Wait for authorization URL using event-driven approach
-        await new Promise<void>((resolve) => {
-          // Check if we already have the URL (event might have fired before we set up listener)
-          if (authorizationUrlRef.url) {
-            resolve();
-            return;
-          }
-
-          // Set up a one-time listener
-          const handler = (event: Event) => {
-            const customEvent = event as CustomEvent<{ url: URL }>;
-            authorizationUrlRef.url = customEvent.detail.url;
-            client.removeEventListener("oauthAuthorizationRequired", handler);
-            resolve();
-          };
-          client.addEventListener("oauthAuthorizationRequired", handler);
-        });
-
-        expect(authorizationUrlRef.url).not.toBeNull();
-        if (!authorizationUrlRef.url) {
-          throw new Error("Authorization URL was not received");
-        }
-
-        // Complete OAuth flow (this will retry the pending connect)
-        const authUrl: URL = authorizationUrlRef.url as URL;
+        // Auth-provider flow: authenticate first, complete OAuth, then connect.
+        const authUrl = await client.authenticate();
+        expect(authUrl.href).toContain("/oauth/authorize");
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
+        await client.connect();
 
-        // Wait for connect() to complete (it was waiting for OAuth)
-        await connectPromise;
-
-        // Verify client is connected
         expect(client.getStatus()).toBe("connected");
-
-        // Small delay to ensure transport is fully ready
-        await new Promise((resolve) => setTimeout(resolve, 100));
-
-        // Now attempt to list tools (should work with OAuth token)
-        // This tests that listTools works after OAuth is complete
-        const listToolsPromise = client.listTools();
-
-        // Wait for listTools() to complete
-        const toolsResult = await listToolsPromise;
+        const toolsResult = await client.listTools();
         expect(toolsResult).toBeDefined();
       });
     },
@@ -371,7 +326,6 @@ describe("InspectorClient OAuth E2E", () => {
         const testRedirectUrl = "http://localhost:3001/oauth/callback";
         const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
 
-        // Create client metadata document (guided mode uses .../callback/guided)
         const clientMetadata: ClientMetadataDocument = {
           redirect_uris: [testRedirectUrl, guidedRedirectUrl],
           token_endpoint_auth_method: "none",
@@ -381,7 +335,6 @@ describe("InspectorClient OAuth E2E", () => {
           scope: "mcp",
         };
 
-        // Start metadata server
         metadataServer = await createClientMetadataServer(clientMetadata);
         const metadataUrl = metadataServer.url;
 
@@ -420,11 +373,7 @@ describe("InspectorClient OAuth E2E", () => {
         await client.connect();
 
         expect(client.getStatus()).toBe("connected");
-
-        await new Promise((resolve) => setTimeout(resolve, 100));
-
-        const listToolsPromise = client.listTools();
-        const toolsResult = await listToolsPromise;
+        const toolsResult = await client.listTools();
         expect(toolsResult).toBeDefined();
       });
     },
@@ -447,7 +396,6 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        // Create client without clientId (triggers DCR)
         const clientConfig: InspectorClientOptions = {
           oauth: createOAuthClientConfig({
             mode: "dcr",
@@ -463,40 +411,15 @@ describe("InspectorClient OAuth E2E", () => {
           clientConfig,
         );
 
-        let authorizationUrl: URL | null = null;
-        client.addEventListener("oauthAuthorizationRequired", (event) => {
-          authorizationUrl = event.detail.url;
-        });
-
-        // Attempt to connect (should trigger DCR, then OAuth)
-        // connect() will wait for OAuth to complete before returning
-        const connectPromise = client.connect();
-
-        // Wait for authorization URL with retries
-        let retries = 0;
-        while (!authorizationUrl && retries < 20) {
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          retries++;
-        }
-        expect(authorizationUrl).not.toBeNull();
-        if (!authorizationUrl) {
-          throw new Error("Authorization URL was not received");
-        }
-
-        // Complete OAuth flow (this will retry the pending connect)
-        const authUrl: URL = authorizationUrl;
+        const authUrl = await client.authenticate();
+        expect(authUrl.href).toContain("/oauth/authorize");
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
+        await client.connect();
 
-        // Wait for connect() to complete (it was waiting for OAuth)
-        await connectPromise;
-
-        // Verify tokens
         const tokens = await client.getOAuthTokens();
         expect(tokens).toBeDefined();
         expect(tokens?.access_token).toBeDefined();
-
-        // Connection should now be successful
         expect(client.getStatus()).toBe("connected");
       });
 
@@ -589,7 +512,7 @@ describe("InspectorClient OAuth E2E", () => {
   );
 
   describe.each(transports)("401 Error Handling ($name)", (transport) => {
-    it("should dispatch oauthAuthorizationRequired event on 401", async () => {
+    it("should dispatch oauthAuthorizationRequired when authenticating", async () => {
       const staticClientId = "test-client-401";
       const staticClientSecret = "test-secret-401";
 
@@ -598,6 +521,7 @@ describe("InspectorClient OAuth E2E", () => {
         serverType: transport.serverType,
         ...createOAuthTestServerConfig({
           requireAuth: true,
+          supportDCR: true,
           staticClients: [
             {
               clientId: staticClientId,
@@ -635,23 +559,8 @@ describe("InspectorClient OAuth E2E", () => {
         expect(event.detail.url).toBeInstanceOf(URL);
       });
 
-      // Attempt to connect (should trigger 401 and OAuth flow)
-      // connect() will wait for OAuth to complete before returning
-      const connectPromise = client.connect();
-
-      // Wait for event with retries
-      let retries = 0;
-      while (!authEventReceived && retries < 20) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        retries++;
-      }
+      await client.authenticate();
       expect(authEventReceived).toBe(true);
-
-      // The connect promise is still pending, waiting for OAuth completion
-      // For this test, we just verify the event was dispatched
-      // In a real scenario, the user would complete OAuth and connect() would resolve
-      // Cancel the pending connect to avoid hanging
-      client.disconnect();
     });
   });
 
@@ -665,6 +574,7 @@ describe("InspectorClient OAuth E2E", () => {
         serverType: transport.serverType,
         ...createOAuthTestServerConfig({
           requireAuth: true,
+          supportDCR: true,
           staticClients: [
             {
               clientId: staticClientId,
@@ -696,45 +606,16 @@ describe("InspectorClient OAuth E2E", () => {
         clientConfig,
       );
 
-      // Complete OAuth flow
-      let authorizationUrl: URL | null = null;
-      client.addEventListener("oauthAuthorizationRequired", (event) => {
-        authorizationUrl = event.detail.url;
-      });
-
-      // Attempt to connect (should trigger 401 and OAuth flow)
-      // connect() will wait for OAuth to complete before returning
-      const connectPromise = client.connect();
-
-      // Wait for authorization URL with retries
-      let retries = 0;
-      while (!authorizationUrl && retries < 20) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        retries++;
-      }
-      expect(authorizationUrl).not.toBeNull();
-      if (!authorizationUrl) {
-        throw new Error("Authorization URL was not received");
-      }
-      if (!authorizationUrl) {
-        throw new Error("Authorization URL was not received");
-      }
-
-      const authCode = await completeOAuthAuthorization(authorizationUrl);
+      const authUrl = await client.authenticate();
+      const authCode = await completeOAuthAuthorization(authUrl);
       await client.completeOAuthFlow(authCode);
+      await client.connect();
 
-      // Wait for connect() to complete (it was waiting for OAuth)
-      await connectPromise;
-
-      // Verify tokens are stored
       const tokens = await client.getOAuthTokens();
       expect(tokens).toBeDefined();
       expect(tokens?.access_token).toBeDefined();
-
-      // Verify isOAuthAuthorized
       expect(await client.isOAuthAuthorized()).toBe(true);
 
-      // Clear tokens
       client.clearOAuthTokens();
       expect(await client.isOAuthAuthorized()).toBe(false);
       expect(await client.getOAuthTokens()).toBeUndefined();
