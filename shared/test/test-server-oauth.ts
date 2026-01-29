@@ -434,6 +434,8 @@ function setupDCREndpoint(
       return;
     }
 
+    dcrRequests.push({ redirect_uris: [...redirect_uris] });
+
     // Generate client ID and secret
     const clientId = generateClientId();
     const clientSecret = generateClientSecret();
@@ -481,6 +483,9 @@ const authorizationCodes = new Map<string, AuthorizationCodeData>();
 const accessTokens = new Set<string>();
 const refreshTokens = new Map<string, RefreshTokenData>();
 const registeredClients = new Map<string, RegisteredClient>();
+
+/** Recorded DCR request bodies (redirect_uris) for tests that verify both URLs are registered. */
+const dcrRequests: Array<{ redirect_uris: string[] }> = [];
 
 /**
  * Check if a string is a valid URL
@@ -649,4 +654,22 @@ export function clearOAuthTestData(): void {
   accessTokens.clear();
   refreshTokens.clear();
   registeredClients.clear();
+  dcrRequests.length = 0;
+}
+
+/**
+ * Returns recorded DCR request bodies (redirect_uris) for tests that verify
+ * both normal and guided redirect URLs are registered.
+ */
+export function getDCRRequests(): Array<{ redirect_uris: string[] }> {
+  return dcrRequests;
+}
+
+/**
+ * Invalidate a single access token (remove from valid set).
+ * Used by E2E tests to simulate expired/revoked access token while keeping
+ * refresh_token valid, so 401 → auth() → refresh → retry can be exercised.
+ */
+export function invalidateAccessToken(token: string): void {
+  accessTokens.delete(token);
 }

@@ -35,21 +35,25 @@ interface OAuthStoreState {
   clearServerState: (serverUrl: string) => void;
 }
 
-/**
- * Get path to state.json file
- */
-function getStateFilePath(): string {
-  // Default to ~/.mcp-inspector/oauth/state.json
+const DEFAULT_STATE_PATH = (() => {
   const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
   return path.join(homeDir, ".mcp-inspector", "oauth", "state.json");
+})();
+
+/**
+ * Get path to state.json file.
+ * @param customPath - Optional custom path (full path to state file). Default: ~/.mcp-inspector/oauth/state.json
+ */
+export function getStateFilePath(customPath?: string): string {
+  return customPath ?? DEFAULT_STATE_PATH;
 }
 
 /**
  * Create Zustand store with persist middleware
  * Uses file-based storage for Node.js environments
  */
-function createOAuthStore() {
-  const statePath = getStateFilePath();
+function createOAuthStore(stateFilePath?: string) {
+  const statePath = getStateFilePath(stateFilePath);
 
   return createStore<OAuthStoreState>()(
     persist(
@@ -120,21 +124,26 @@ function createOAuthStore() {
   );
 }
 
-let storeInstance: ReturnType<typeof createOAuthStore> | null = null;
+const storeCache = new Map<string, ReturnType<typeof createOAuthStore>>();
 
 /**
- * Get or create the OAuth store instance
+ * Get or create the OAuth store instance for the given path.
+ * @param stateFilePath - Optional custom path to state file. Default: ~/.mcp-inspector/oauth/state.json
  */
-export function getOAuthStore() {
-  if (!storeInstance) {
-    storeInstance = createOAuthStore();
+export function getOAuthStore(stateFilePath?: string) {
+  const key = getStateFilePath(stateFilePath);
+  let store = storeCache.get(key);
+  if (!store) {
+    store = createOAuthStore(key);
+    storeCache.set(key, store);
   }
-  return storeInstance;
+  return store;
 }
 
 /**
- * Clear all OAuth client state (all servers).
+ * Clear all OAuth client state (all servers) in the default store.
  * Useful for test isolation in E2E OAuth tests.
+ * Use a custom-path store and clear per serverUrl if you need to clear non-default storage.
  */
 export function clearAllOAuthClientState(): void {
   const store = getOAuthStore();
@@ -150,7 +159,14 @@ export function clearAllOAuthClientState(): void {
  * For InspectorClient, CLI, and TUI
  */
 export class NodeOAuthStorage implements OAuthStorage {
-  private store = getOAuthStore();
+  private store: ReturnType<typeof getOAuthStore>;
+
+  /**
+   * @param storagePath - Optional path to state file. Default: ~/.mcp-inspector/oauth/state.json
+   */
+  constructor(storagePath?: string) {
+    this.store = getOAuthStore(storagePath);
+  }
 
   async getClientInformation(
     serverUrl: string,

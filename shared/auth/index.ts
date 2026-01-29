@@ -15,6 +15,7 @@ export { BrowserOAuthStorage } from "./storage-browser.js";
 export {
   NodeOAuthStorage,
   getOAuthStore,
+  getStateFilePath,
   clearAllOAuthClientState,
 } from "./storage-node.js";
 

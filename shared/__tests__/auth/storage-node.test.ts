@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { NodeOAuthStorage, getOAuthStore } from "../../auth/storage-node.js";
+import {
+  NodeOAuthStorage,
+  getOAuthStore,
+  getStateFilePath,
+} from "../../auth/storage-node.js";
 import type {
   OAuthClientInformation,
   OAuthTokens,
@@ -7,12 +11,7 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-
-// Get state file path (same logic as in storage-node.ts)
-function getStateFilePath(): string {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
-  return path.join(homeDir, ".mcp-inspector", "oauth", "state.json");
-}
+import * as os from "node:os";
 
 describe("NodeOAuthStorage", () => {
   let storage: NodeOAuthStorage;
@@ -142,6 +141,22 @@ describe("NodeOAuthStorage", () => {
       const result = await storage.getTokens(testServerUrl);
 
       expect(result).toEqual(tokens);
+    });
+
+    it("should persist and return refresh_token", async () => {
+      const tokens: OAuthTokens = {
+        access_token: "test-access-token",
+        token_type: "Bearer",
+        expires_in: 3600,
+        refresh_token: "test-refresh-token",
+      };
+
+      await storage.saveTokens(testServerUrl, tokens);
+      const result = await storage.getTokens(testServerUrl);
+
+      expect(result).toBeDefined();
+      expect(result?.access_token).toBe(tokens.access_token);
+      expect(result?.refresh_token).toBe(tokens.refresh_token);
     });
   });
 
@@ -386,5 +401,86 @@ describe("OAuth Store (Zustand)", () => {
       },
       { timeout: 2000, interval: 50 },
     );
+  });
+});
+
+describe("NodeOAuthStorage with custom storagePath", () => {
+  const testServerUrl = "http://localhost:3999";
+
+  it("should use custom path for state file", async () => {
+    const customPath = path.join(
+      os.tmpdir(),
+      `mcp-inspector-oauth-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
+    );
+
+    try {
+      const storage = new NodeOAuthStorage(customPath);
+      const tokens: OAuthTokens = {
+        access_token: "custom-path-token",
+        token_type: "Bearer",
+        refresh_token: "custom-refresh",
+      };
+      await storage.saveTokens(testServerUrl, tokens);
+
+      await vi.waitFor(
+        async () => {
+          const raw = await fs.readFile(customPath, "utf-8");
+          const parsed = JSON.parse(raw);
+          expect(parsed.state?.servers?.[testServerUrl]?.tokens).toBeDefined();
+          expect(parsed.state.servers[testServerUrl].tokens.access_token).toBe(
+            tokens.access_token,
+          );
+        },
+        { timeout: 2000, interval: 50 },
+      );
+
+      const stored = await storage.getTokens(testServerUrl);
+      expect(stored?.access_token).toBe(tokens.access_token);
+      expect(stored?.refresh_token).toBe(tokens.refresh_token);
+    } finally {
+      try {
+        await fs.unlink(customPath);
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  it("should isolate state from default store", async () => {
+    const customPath = path.join(
+      os.tmpdir(),
+      `mcp-inspector-oauth-isolate-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
+    );
+
+    try {
+      const defaultStore = getOAuthStore();
+      defaultStore.getState().setServerState(testServerUrl, {
+        tokens: {
+          access_token: "default-token",
+          token_type: "Bearer",
+        },
+      });
+
+      const customStorage = new NodeOAuthStorage(customPath);
+      await customStorage.saveTokens(testServerUrl, {
+        access_token: "custom-token",
+        token_type: "Bearer",
+      });
+
+      const fromCustom = await customStorage.getTokens(testServerUrl);
+      expect(fromCustom?.access_token).toBe("custom-token");
+
+      const defaultStorage = new NodeOAuthStorage();
+      const fromDefault = await defaultStorage.getTokens(testServerUrl);
+      expect(fromDefault?.access_token).toBe("default-token");
+
+      defaultStore.getState().clearServerState(testServerUrl);
+    } finally {
+      try {
+        await fs.unlink(customPath);
+      } catch {
+        /* ignore */
+      }
+    }
   });
 });
