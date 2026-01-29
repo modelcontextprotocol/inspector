@@ -130,7 +130,7 @@ const AppsTab = ({
             <div className="mt-6 border-t pt-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xl font-semibold">{selectedTool.name}</h3>
-                <Button onClick={handleCloseApp} variant="ghost" size="sm">
+                <Button onClick={handleCloseApp} variant="ghost" size="sm" aria-label="Close app">
                   <X className="w-4 h-4" />
                 </Button>
               </div>
