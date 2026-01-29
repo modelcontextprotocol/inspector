@@ -1165,7 +1165,7 @@ describe("InspectorClient", () => {
         { progressToken: progressToken.toString() }, // toolSpecificMetadata
       );
 
-      // Wait a bit for notifications
+      // Observation window: we assert no progressNotification events; can't wait for a non-event.
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       // Remove listener
@@ -2151,7 +2151,7 @@ describe("InspectorClient", () => {
         argName: string,
         value: string,
       ): Promise<string[]> => {
-        // Simulate async operation
+        // Simulate async I/O in completion callback; fixture behavior, not a test wait.
         await new Promise((resolve) => setTimeout(resolve, 10));
         const files = ["async1.txt", "async2.txt", "async3.txt"];
         return files.filter((f) => f.startsWith(value));
@@ -2551,7 +2551,7 @@ describe("InspectorClient", () => {
       const cached1 = client.cache.getResource(uri);
       expect(cached1).toBe(invocation1);
 
-      // Wait a bit to ensure different timestamp
+      // Advance clock so second readResource gets a strictly newer timestamp; no event/API to wait on.
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       // Second call should replace cache
@@ -3250,9 +3250,6 @@ describe("InspectorClient", () => {
 
       await client.connect();
 
-      // Wait for autoFetchServerContents to complete and any events to settle
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
       const initialTools = client.getTools();
       const initialToolCount = initialTools.length;
 
@@ -3274,7 +3271,7 @@ describe("InspectorClient", () => {
         description: "Test tool",
       });
 
-      // Wait a bit to see if notification handler runs
+      // Observation window: we assert no toolsChange from notification handler; can't wait for a non-event.
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       // Remove listener
@@ -3912,7 +3909,7 @@ describe("InspectorClient", () => {
         text: "Updated content",
       });
 
-      // Wait a bit to see if event is received
+      // Observation window: we assert no resourceUpdated for unsubscribed resource; can't wait for a non-event.
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Remove listener

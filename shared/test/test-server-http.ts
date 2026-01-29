@@ -104,13 +104,14 @@ export class TestServerHttp {
           : "unknown";
       const params = "params" in message ? message.params : undefined;
 
-      try {
-        // Extract metadata from params if present
-        const metadata =
-          params && typeof params === "object" && "_meta" in params
-            ? ((params as any)._meta as Record<string, string>)
-            : undefined;
+      // Extract metadata from params if present - it's probably not worth the effort
+      // to type it properly here - so we'll just pry the metadata out if exists.
+      const metadata =
+        params && typeof params === "object" && "_meta" in params
+          ? ((params as any)._meta as Record<string, string>)
+          : undefined;
 
+      try {
         // Let the server handle the message
         if (originalOnMessage) {
           await originalOnMessage.call(transport, message);
@@ -126,12 +127,6 @@ export class TestServerHttp {
           timestamp,
         });
       } catch (error) {
-        // Extract metadata from params if present
-        const metadata =
-          params && typeof params === "object" && "_meta" in params
-            ? ((params as any)._meta as Record<string, string>)
-            : undefined;
-
         // Record error
         this.recordedRequests.push({
           method,
