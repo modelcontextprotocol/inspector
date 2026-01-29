@@ -88,6 +88,7 @@ interface ServerState {
 export interface TestServerContext {
   server: McpServer;
   state: ServerState;
+  serverControl?: { isClosing(): boolean };
 }
 
 export interface ToolDefinition {
@@ -291,6 +292,11 @@ export interface ServerConfig {
      */
     supportRefreshTokens?: boolean;
   };
+  /**
+   * Optional server control for orderly shutdown (test HTTP server).
+   * When present, progress-sending tools check isClosing() before sending and skip/break if closing.
+   */
+  serverControl?: { isClosing(): boolean };
 }
 
 /**
@@ -376,6 +382,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
   const context: TestServerContext = {
     server: mcpServer,
     state,
+    ...(config.serverControl && { serverControl: config.serverControl }),
   };
 
   // Set up logging handler if logging is enabled
