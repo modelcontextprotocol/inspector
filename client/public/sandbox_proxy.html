@@ -16,6 +16,7 @@
   </head>
   <body>
     <div id="root"></div>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
     <script>
       (function () {
         const SANDBOX_PROXY_READY_METHOD =
@@ -36,12 +37,21 @@
         // Listen for the app resource (HTML) from the host
         window.addEventListener("message", (event) => {
           const message = event.data;
-          if (message && message.method === SANDBOX_RESOURCE_READY_METHOD) {
+          if (
+            message &&
+            typeof message === "object" &&
+            message.method === SANDBOX_RESOURCE_READY_METHOD &&
+            message.params &&
+            typeof message.params.html === "string"
+          ) {
             const { html } = message.params;
             if (html) {
-              // Write the HTML to the document
+              // Sanitize the HTML before writing it to the document
+              const safeHtml = window.DOMPurify
+                ? window.DOMPurify.sanitize(html)
+                : html;
               document.open();
-              document.write(html);
+              document.write(safeHtml);
               document.close();
             }
           }
