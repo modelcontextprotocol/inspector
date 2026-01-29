@@ -1317,14 +1317,14 @@ See **"Token Injection and authProvider"** above for details.
 
 ## Future Enhancements
 
-1. **Token Refresh**: Automatic token refresh when access token expires
+1. **Token Refresh**: Implemented via the SDK's `authProvider` when `refresh_token` is available; the provider persists and uses refresh tokens for automatic refresh after 401. No additional work required for standard flows.
 2. **Encrypted Storage**: Encrypt sensitive OAuth data in Zustand store
 3. **Multiple OAuth Providers**: Support multiple OAuth configurations per InspectorClient
 4. **Web Client Migration**: Consider migrating web client to use shared auth code or InspectorClient
 
 ## References
 
-- [OAuth Implementation Documentation](./oauth-implementation.md) - Current web client OAuth implementation details
+- Web client OAuth implementation (unchanged): `client/src/lib/auth.ts`, `client/src/lib/oauth-state-machine.ts`, `client/src/utils/oauthUtils.ts`
 - [MCP SDK OAuth APIs](https://github.com/modelcontextprotocol/typescript-sdk) - SDK OAuth client and server APIs
 - [OAuth 2.1 Specification](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1) - OAuth 2.1 protocol specification
 - [RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414) - OAuth 2.0 Authorization Server Metadata

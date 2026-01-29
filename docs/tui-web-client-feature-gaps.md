@@ -35,10 +35,11 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 | Set roots                                  | ✅              | ✅            | ❌  | Medium       |
 | Roots listChanged notifications            | ✅              | ✅            | ❌  | Medium       |
 | **Authentication**                         |
-| OAuth 2.1 flow                             | ❌              | ✅            | ❌  | High         |
-| OAuth: Static/Preregistered clients        | ❌              | ✅            | ❌  | High         |
-| OAuth: DCR (Dynamic Client Registration)   | ❌              | ✅            | ❌  | High         |
-| OAuth: CIMD (Client ID Metadata Documents) | ❌              | ❌            | ❌  | Medium       |
+| OAuth 2.1 flow                             | ✅              | ✅            | ❌  | High         |
+| OAuth: Static/Preregistered clients        | ✅              | ✅            | ❌  | High         |
+| OAuth: DCR (Dynamic Client Registration)   | ✅              | ✅            | ❌  | High         |
+| OAuth: CIMD (Client ID Metadata Documents) | ✅              | ❌            | ❌  | Medium       |
+| OAuth: Guided Auth (step-by-step)          | ✅              | ✅            | ❌  | High         |
 | Custom headers                             | ✅ (config)     | ✅ (UI)       | ❌  | Medium       |
 | **Advanced Features**                      |
 | Sampling requests                          | ✅              | ✅            | ❌  | High         |
@@ -100,37 +101,43 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 
 ### 2. OAuth 2.1 Authentication
 
+**InspectorClient Support:**
+
+- OAuth 2.1 support in shared package (`shared/auth/`), integrated via `authProvider` on HTTP transports (SSE, streamable-http)
+- **Static/Preregistered Clients**: ✅ Supported
+- **DCR (Dynamic Client Registration)**: ✅ Supported
+- **CIMD (Client ID Metadata Documents)**: ✅ Supported via `clientMetadataUrl` in OAuth config
+- Authorization code flow with PKCE, token exchange, token refresh (via SDK `authProvider` when `refresh_token` available)
+- Guided mode (`authenticateGuided()`, `proceedOAuthStep()`, `getOAuthStep()`) and normal mode (`authenticate()`, `completeOAuthFlow()`)
+- Configurable storage path (`oauth.storagePath`), default `~/.mcp-inspector/oauth/state.json`
+- Events: `oauthAuthorizationRequired`, `oauthComplete`, `oauthError`, `oauthStepChange`
+
 **Web Client Support:**
 
-- Full browser-based OAuth 2.1 flow:
+- Full browser-based OAuth 2.1 flow (uses its own OAuth code in `client/src/lib/`, unchanged):
   - **Static/Preregistered Clients**: ✅ Supported - User provides client ID and secret via UI
   - **DCR (Dynamic Client Registration)**: ✅ Supported - Falls back to DCR if no static client available
-  - **CIMD (Client ID Metadata Documents)**: ❌ Not Supported - Inspector does not set `clientMetadataUrl`, so URL-based client IDs are not used
-  - Authorization code flow with PKCE
-  - Token exchange
-  - Token refresh
+  - **CIMD (Client ID Metadata Documents)**: ❌ Not supported - Web client does not set `clientMetadataUrl`
+  - Authorization code flow with PKCE, token exchange, token refresh
 - OAuth state management via `InspectorOAuthClientProvider`
-- Session storage for OAuth tokens
-- OAuth callback handling
-- Automatic token injection into request headers
+- Session storage for OAuth tokens, OAuth callback handling, automatic token injection into request headers
 
 **TUI Status:**
 
-- ❌ No OAuth support
-- ❌ No OAuth token management
+- ❌ No OAuth support yet
+- ❌ No OAuth token management or UI
 
-**Implementation Requirements:**
+**Implementation Requirements (for TUI):**
 
+- Integrate `InspectorClient` OAuth (use `oauth` config, `authenticate()` / `authenticateGuided()`, `completeOAuthFlow()`, events)
 - Browser-based OAuth flow with localhost callback server (TUI-specific approach)
-- OAuth token management in `InspectorClient`
-- Token injection into transport headers
 - OAuth configuration in TUI server config
 
 **Code References:**
 
-- Web client: `client/src/lib/hooks/useConnection.ts` (lines 449-480)
-- Web client: `client/src/lib/auth.ts`
-- Architecture doc mentions: "There is a plan for implementing OAuth from the TUI"
+- InspectorClient OAuth: `shared/mcp/inspectorClient.ts` (OAuth options, `authenticate`, `authenticateGuided`, `completeOAuthFlow`, events), `shared/auth/`
+- Web client: `client/src/lib/hooks/useConnection.ts`, `client/src/lib/auth.ts`, `client/src/lib/oauth-state-machine.ts`
+- Design: [OAuth Support in InspectorClient](./oauth-inspectorclient-design.md)
 
 **Note:** OAuth in TUI requires a browser-based flow with a localhost callback server, which is feasible but different from the web client's approach.
 
@@ -688,9 +695,10 @@ Based on this analysis, `InspectorClient` needs the following additions:
    - ❌ Integration into TUI `PromptTestModal` for prompt argument completion
 
 5. **OAuth Support**:
-   - ❌ OAuth token management
-   - ❌ OAuth flow initiation
-   - ❌ Token injection into headers
+   - ✅ OAuth token management (shared auth, configurable storage)
+   - ✅ OAuth flow initiation (`authenticate()`, `authenticateGuided()`, `completeOAuthFlow()`)
+   - ✅ Token injection via `authProvider` on HTTP transports
+   - ❌ TUI integration and UI (browser-based flow, localhost callback server)
 
 6. **ListChanged Notifications**:
    - ✅ Notification handlers for `notifications/tools/list_changed` - **COMPLETED**
@@ -726,7 +734,7 @@ Based on this analysis, `InspectorClient` needs the following additions:
 
 - **HTTP Request Tracking**: `InspectorClient` tracks HTTP requests for SSE and streamable-http transports via `getFetchRequests()`. TUI displays these requests in a `RequestsTab`. Web client does not currently display HTTP request tracking, though the underlying `InspectorClient` supports it. This is a TUI advantage, not a gap.
 - **Resource Subscriptions**: Web client supports this, but TUI does not. `InspectorClient` now fully supports resource subscriptions with `subscribeToResource()`, `unsubscribeFromResource()`, and automatic handling of `notifications/resources/updated` notifications.
-- **OAuth**: Web client has full OAuth support. TUI needs browser-based OAuth flow with localhost callback server. `InspectorClient` does not yet support OAuth.
+- **OAuth**: Web client has full OAuth support. `InspectorClient` supports OAuth (shared auth, `authProvider`, guided mode, token refresh via SDK, configurable storage). TUI needs to integrate InspectorClient OAuth and add UI for browser-based OAuth flow with localhost callback server.
 - **Completions**: `InspectorClient` has full completion support via `getCompletions()`. Web client uses this for resource template forms and prompt parameter forms. TUI has both resource template forms and prompt parameter forms, but completion support is still needed to provide autocomplete suggestions.
 - **Sampling**: `InspectorClient` has full sampling support. Web client UI displays and handles sampling requests. TUI needs UI to display and handle sampling requests.
 - **Elicitation**: `InspectorClient` has full elicitation support. Web client UI displays and handles elicitation requests. TUI needs UI to display and handle elicitation requests.
