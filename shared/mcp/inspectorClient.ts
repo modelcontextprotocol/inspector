@@ -199,7 +199,8 @@ export interface InspectorClientOptions {
     redirectUrl?: string;
 
     /**
-     * Storage path for OAuth data (default: ~/.mcp-inspector/oauth/)
+     * Full path to OAuth state file (default: ~/.mcp-inspector/oauth/state.json).
+     * Allows per-instance storage isolation.
      */
     storagePath?: string;
   };
@@ -2149,6 +2150,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     clientMetadataUrl?: string;
     scope?: string;
     redirectUrl?: string;
+    storagePath?: string;
   }): void {
     this.oauthConfig = {
       ...this.oauthConfig,
@@ -2185,6 +2187,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
 
     const navigation = new ConsoleNavigation();
+    const storagePath = this.oauthConfig.storagePath;
     const provider =
       mode === "guided"
         ? new GuidedNodeOAuthClientProvider(
@@ -2192,12 +2195,14 @@ export class InspectorClient extends InspectorClientEventTarget {
             redirectUrlProvider,
             navigation,
             this.oauthConfig.clientMetadataUrl,
+            storagePath,
           )
         : new NodeOAuthClientProvider(
             serverUrl,
             redirectUrlProvider,
             navigation,
             this.oauthConfig.clientMetadataUrl,
+            storagePath,
           );
 
     // Set event target for event dispatch
@@ -2289,10 +2294,11 @@ export class InspectorClient extends InspectorClientEventTarget {
       serverUrl,
       provider,
       (updates) => {
+        const previousStep = this.oauthState!.oauthStep;
         this.oauthState = { ...this.oauthState!, ...updates };
-        const previousStep = this.oauthState.oauthStep;
+        const step = updates.oauthStep ?? previousStep;
         this.dispatchTypedEvent("oauthStepChange", {
-          step: updates.oauthStep || previousStep,
+          step,
           previousStep,
           state: updates,
         });
@@ -2409,9 +2415,8 @@ export class InspectorClient extends InspectorClientEventTarget {
       return;
     }
 
-    // Clear storage directly (storage is shared singleton, so we can use NodeOAuthStorage directly)
     const serverUrl = this.getServerUrl();
-    const storage = new NodeOAuthStorage();
+    const storage = new NodeOAuthStorage(this.oauthConfig.storagePath);
     storage.clear(serverUrl);
 
     this.oauthState = null;

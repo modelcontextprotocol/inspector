@@ -102,4 +102,157 @@ describe("OAuthStateMachine", () => {
       expect(updateState).toHaveBeenCalled();
     });
   });
+
+  describe("Resource metadata discovery and selection", () => {
+    const serverUrl = "http://localhost:3000";
+    const resourceMetadata = {
+      resource: "http://localhost:3000",
+      authorization_servers: ["http://localhost:3000"],
+      scopes_supported: ["read", "write"],
+    };
+
+    beforeEach(async () => {
+      const {
+        discoverAuthorizationServerMetadata,
+        discoverOAuthProtectedResourceMetadata,
+        selectResourceURL,
+      } = await import("@modelcontextprotocol/sdk/client/auth.js");
+      vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
+        issuer: "http://localhost:3000",
+        authorization_endpoint: "http://localhost:3000/authorize",
+        token_endpoint: "http://localhost:3000/token",
+        response_types_supported: ["code"],
+      } as OAuthMetadata);
+      vi.mocked(discoverOAuthProtectedResourceMetadata).mockReset();
+      vi.mocked(selectResourceURL).mockReset();
+    });
+
+    it("should discover resource metadata from well-known and use first authorization server", async () => {
+      const selectedResource = new URL("http://localhost:3000");
+      const { discoverOAuthProtectedResourceMetadata, selectResourceURL } =
+        await import("@modelcontextprotocol/sdk/client/auth.js");
+      vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue(
+        resourceMetadata as any,
+      );
+      vi.mocked(selectResourceURL).mockResolvedValue(selectedResource);
+
+      const stateMachine = new OAuthStateMachine(
+        serverUrl,
+        mockProvider,
+        updateState,
+      );
+      await stateMachine.executeStep(state);
+
+      expect(discoverOAuthProtectedResourceMetadata).toHaveBeenCalledWith(
+        serverUrl,
+      );
+      expect(selectResourceURL).toHaveBeenCalledWith(
+        serverUrl,
+        mockProvider,
+        resourceMetadata,
+      );
+      expect(updateState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resourceMetadata,
+          resource: selectedResource,
+          resourceMetadataError: null,
+          authServerUrl: new URL("http://localhost:3000"),
+          oauthStep: "client_registration",
+        }),
+      );
+    });
+
+    it("should call selectResourceURL only when resource metadata is present", async () => {
+      const { discoverOAuthProtectedResourceMetadata, selectResourceURL } =
+        await import("@modelcontextprotocol/sdk/client/auth.js");
+      vi.mocked(discoverOAuthProtectedResourceMetadata).mockRejectedValue(
+        new Error(
+          "Resource server does not implement OAuth 2.0 Protected Resource Metadata.",
+        ),
+      );
+
+      const stateMachine = new OAuthStateMachine(
+        serverUrl,
+        mockProvider,
+        updateState,
+      );
+      await stateMachine.executeStep(state);
+
+      expect(selectResourceURL).not.toHaveBeenCalled();
+      expect(updateState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resourceMetadata: null,
+          resourceMetadataError: expect.any(Error),
+          oauthStep: "client_registration",
+        }),
+      );
+    });
+
+    it("should use default auth server URL when discovery fails", async () => {
+      const {
+        discoverOAuthProtectedResourceMetadata,
+        discoverAuthorizationServerMetadata,
+      } = await import("@modelcontextprotocol/sdk/client/auth.js");
+      vi.mocked(discoverOAuthProtectedResourceMetadata).mockRejectedValue(
+        new Error("Discovery failed"),
+      );
+      vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
+        issuer: "http://localhost:3000",
+        authorization_endpoint: "http://localhost:3000/authorize",
+        token_endpoint: "http://localhost:3000/token",
+        response_types_supported: ["code"],
+      } as OAuthMetadata);
+
+      const stateMachine = new OAuthStateMachine(
+        serverUrl,
+        mockProvider,
+        updateState,
+      );
+      await stateMachine.executeStep(state);
+
+      expect(discoverAuthorizationServerMetadata).toHaveBeenCalledWith(
+        new URL("/", serverUrl),
+      );
+      expect(updateState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          authServerUrl: new URL("/", serverUrl),
+        }),
+      );
+    });
+
+    it("should use default auth server when metadata has empty authorization_servers", async () => {
+      const { discoverOAuthProtectedResourceMetadata, selectResourceURL } =
+        await import("@modelcontextprotocol/sdk/client/auth.js");
+      const metaNoServers = {
+        ...resourceMetadata,
+        authorization_servers: [] as string[],
+      };
+      vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue(
+        metaNoServers as any,
+      );
+      vi.mocked(selectResourceURL).mockResolvedValue(
+        new URL("http://localhost:3000"),
+      );
+
+      const stateMachine = new OAuthStateMachine(
+        serverUrl,
+        mockProvider,
+        updateState,
+      );
+      await stateMachine.executeStep(state);
+
+      expect(selectResourceURL).toHaveBeenCalledWith(
+        serverUrl,
+        mockProvider,
+        metaNoServers,
+      );
+      expect(updateState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resourceMetadata: metaNoServers,
+          authServerUrl: new URL("/", serverUrl),
+          oauthStep: "client_registration",
+        }),
+      );
+    });
+  });
 });

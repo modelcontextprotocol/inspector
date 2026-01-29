@@ -115,4 +115,45 @@ describe("OAuth Scope Discovery", () => {
 
     expect(scopes).toBeUndefined();
   });
+
+  it("should use OAuth metadata scopes when resource has scopes_supported undefined", async () => {
+    const { discoverAuthorizationServerMetadata } =
+      await import("@modelcontextprotocol/sdk/client/auth.js");
+    vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
+      issuer: "http://localhost:3000",
+      authorization_endpoint: "http://localhost:3000/authorize",
+      token_endpoint: "http://localhost:3000/token",
+      response_types_supported: ["code"],
+      scopes_supported: ["read", "write"],
+    });
+
+    const resourceMetadata: OAuthProtectedResourceMetadata = {
+      resource: "http://localhost:3000",
+      authorization_servers: ["http://localhost:3000"],
+      scopes_supported: undefined as unknown as string[],
+    };
+
+    const scopes = await discoverScopes(
+      "http://localhost:3000",
+      resourceMetadata,
+    );
+
+    expect(scopes).toBe("read write");
+  });
+
+  it("should return single scope when only one scope is supported", async () => {
+    const { discoverAuthorizationServerMetadata } =
+      await import("@modelcontextprotocol/sdk/client/auth.js");
+    vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
+      issuer: "http://localhost:3000",
+      authorization_endpoint: "http://localhost:3000/authorize",
+      token_endpoint: "http://localhost:3000/token",
+      response_types_supported: ["code"],
+      scopes_supported: ["openid"],
+    });
+
+    const scopes = await discoverScopes("http://localhost:3000");
+
+    expect(scopes).toBe("openid");
+  });
 });

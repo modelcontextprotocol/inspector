@@ -182,69 +182,7 @@ const schema = params.schema as any; // TODO: This is also not ideal
 
 **Issue**: Some features mentioned in the design document are not fully implemented or tested.
 
-**Missing/Incomplete Features**:
-
-2. **Token Refresh Support**:
-   - **Design Requirement** (line 1348): "Token Refresh: Automatic token refresh when access token expires" (Future Enhancement)
-   - Not implemented - refresh tokens are received and stored, but not used for automatic refresh
-   - **Test Server**: Supports refresh token flow (`grant_type === "refresh_token"`), but InspectorClient doesn't use it
-   - **Impact**: Tokens expire and require manual re-authentication
-   - **Proper Solution**: Implement token refresh logic that:
-     - Checks token expiration before making requests
-     - Automatically refreshes using `refresh_token` if expired
-     - Retries original request after refresh
-     - Handles refresh failures (re-initiate OAuth flow)
-
-3. **Storage Path Configuration**:
-   - **Design Requirement** (line 575): `storagePath?: string` option in OAuth config
-   - Not implemented - Option exists in interface but `getStateFilePath()` always uses default `~/.mcp-inspector/oauth/state.json`
-   - **Impact**: Users cannot customize OAuth storage location
-   - **Proper Solution**:
-     - Modify `getOAuthStore()` or `createOAuthStore()` to accept optional `storagePath` parameter
-     - Pass `storagePath` from `InspectorClientOptions.oauth?.storagePath` when creating provider
-     - Update `getStateFilePath()` to use custom path if provided
-     - Ensure storage path is configurable per InspectorClient instance
-
-4. **Resource Metadata Discovery and Selection Testing**:
-   - **Design Requirement** (line 43-65): State machine discovers resource metadata and selects resource URL
-   - Implemented in state machine but not tested
-   - **Impact**: Resource metadata discovery and selection logic is untested
-   - **Proper Solution**: Add tests for:
-     - Resource metadata discovery from `/.well-known/oauth-protected-resource`
-     - Authorization server selection from resource metadata
-     - Resource URL selection via `selectResourceURL()`
-     - Error handling when resource metadata discovery fails
-
-5. **Scope Discovery Testing**:
-   - **Design Requirement** (line 562): "OAuth scope (optional, will be discovered if not provided)"
-   - `discoverScopes()` function exists and is used, but not comprehensively tested
-   - **Impact**: Scope discovery logic may have edge cases
-   - **Proper Solution**: Add tests for:
-     - Scope discovery from resource metadata (preferred)
-     - Scope discovery from OAuth metadata (fallback)
-     - Scope discovery failure handling
-     - Scope discovery in both normal and guided modes
-
-6. **Both Redirect URLs Registration Verification**:
-   - **Design Requirement** (line 199-207): Both normal and guided redirect URLs should be registered with OAuth server
-   - `redirect_uris` getter returns both URLs, but need to verify they're actually registered
-   - **Impact**: If both URLs aren't registered, switching between normal/guided modes may fail
-   - **Proper Solution**: Add tests that verify both redirect URLs are included in DCR registration
-
-7. **oauthStepChange Event Testing**:
-   - **Design Requirement** (line 698-702): `oauthStepChange` event should fire on each step transition
-   - Event is dispatched but not tested
-   - **Impact**: Event-driven UI updates cannot be verified
-   - **Proper Solution**: Add tests that verify:
-     - Event fires on each step transition
-     - Event includes correct `step`, `previousStep`, and `state` data
-     - Event fires for all steps in guided mode
-
-**Review Priority**:
-
-- High: Token refresh, Resource metadata testing
-- Medium: Storage path, Scope discovery testing
-- Low: Redirect URLs verification, oauthStepChange event testing (partially covered by guided mode tests)
+**Missing/Incomplete Features**: None currently.
 
 ---
 
@@ -252,58 +190,9 @@ const schema = params.schema as any; // TODO: This is also not ideal
 
 Remaining work, grouped by priority. Tackle in order; some items can be done in parallel.
 
-### Priority 1: Critical Missing Features (High Impact)
+### Priority 1: Test Coverage & Code Quality (Medium Impact)
 
-#### 1.1 Token Refresh Support
-
-- **Why**: Important for production use - tokens expire without refresh
-- **Effort**: Medium-High
-- **Steps**:
-  1. Add token expiration checking before requests
-  2. Implement automatic refresh using `refresh_token` if expired
-  3. Retry original request after refresh
-  4. Handle refresh failures (re-initiate OAuth flow)
-  5. Add tests for token refresh flow
-  6. Test refresh token expiration handling
-- **Files**: `shared/mcp/inspectorClient.ts`, `shared/__tests__/inspectorClient-oauth-e2e.test.ts`
-
-### Priority 2: Test Coverage & Code Quality (Medium Impact)
-
-#### 2.1 Resource Metadata Discovery and Selection Testing
-
-- **Why**: Logic is implemented but untested
-- **Effort**: Medium
-- **Steps**:
-  1. Add tests for resource metadata discovery from `/.well-known/oauth-protected-resource`
-  2. Test authorization server selection from resource metadata
-  3. Test resource URL selection via `selectResourceURL()`
-  4. Test error handling when resource metadata discovery fails
-- **Files**: `shared/__tests__/auth/state-machine.test.ts`, `shared/__tests__/inspectorClient-oauth-e2e.test.ts`
-
-#### 2.2 Scope Discovery Testing
-
-- **Why**: Function exists but not comprehensively tested
-- **Effort**: Low-Medium
-- **Steps**:
-  1. Add tests for scope discovery from resource metadata (preferred)
-  2. Test scope discovery from OAuth metadata (fallback)
-  3. Test scope discovery failure handling
-  4. Test scope discovery in both normal and guided modes
-- **Files**: `shared/__tests__/auth/discovery.test.ts`
-
-#### 2.3 Storage Path Configuration
-
-- **Why**: Option exists but not implemented
-- **Effort**: Medium
-- **Steps**:
-  1. Modify `getOAuthStore()` or `createOAuthStore()` to accept optional `storagePath` parameter
-  2. Pass `storagePath` from `InspectorClientOptions.oauth?.storagePath` when creating provider
-  3. Update `getStateFilePath()` to use custom path if provided
-  4. Ensure storage path is configurable per InspectorClient instance
-  5. Add tests for custom storage path
-- **Files**: `shared/auth/storage-node.ts`, `shared/mcp/inspectorClient.ts`
-
-#### 2.5 Timer Delays in E2E Tests
+#### 1.1 Timer Delays in E2E Tests
 
 - **Why**: Tests work but are fragile
 - **Effort**: Low-Medium
@@ -314,7 +203,7 @@ Remaining work, grouped by priority. Tackle in order; some items can be done in 
   4. Verify tests are more reliable
 - **Files**: `shared/__tests__/inspectorClient-oauth-e2e.test.ts`
 
-#### 2.6 Type Casts: Metadata Property Access
+#### 1.2 Type Casts: Metadata Property Access
 
 - **Why**: Has TODO comment indicating known issue
 - **Effort**: Medium
@@ -325,28 +214,9 @@ Remaining work, grouped by priority. Tackle in order; some items can be done in 
   4. Remove TODO comment
 - **Files**: `shared/test/test-server-http.ts`, `shared/test/test-server-fixtures.ts`
 
-### Priority 3: Code Quality & Documentation (Low Impact)
+### Priority 2: Code Quality & Documentation (Low Impact)
 
-#### 3.1 Both Redirect URLs Registration Verification
-
-- **Why**: Should verify both URLs are registered
-- **Effort**: Low
-- **Steps**:
-  1. Add tests that verify both redirect URLs are included in DCR registration
-  2. Verify both URLs work for authorization callbacks
-- **Files**: `shared/__tests__/inspectorClient-oauth-e2e.test.ts`
-
-#### 3.2 oauthStepChange Event Testing
-
-- **Why**: Event is dispatched but not tested (partially covered by guided mode tests)
-- **Effort**: Low
-- **Steps**:
-  1. Add tests that verify event fires on each step transition
-  2. Verify event includes correct `step`, `previousStep`, and `state` data
-  3. Verify event fires for all steps in guided mode
-- **Files**: `shared/__tests__/inspectorClient-oauth-e2e.test.ts`
-
-#### 3.3 Type Casts: Error Property Access
+#### 2.1 Type Casts: Error Property Access
 
 - **Why**: Loses type safety
 - **Effort**: Low-Medium
@@ -356,7 +226,7 @@ Remaining work, grouped by priority. Tackle in order; some items can be done in 
   3. Check for properties before accessing
 - **Files**: `shared/mcp/inspectorClient.ts`
 
-#### 3.4 Type Casts: Express Request Extension
+#### 2.2 Type Casts: Express Request Extension
 
 - **Why**: Not type-safe
 - **Effort**: Low
@@ -366,7 +236,7 @@ Remaining work, grouped by priority. Tackle in order; some items can be done in 
   3. Or pass token through middleware context/res.locals
 - **Files**: `shared/test/test-server-oauth.ts`
 
-#### 3.6 Type Casts: Global Object Mocking
+#### 2.3 Type Casts: Global Object Mocking
 
 - **Why**: Common pattern but could be cleaner
 - **Effort**: Low
@@ -376,7 +246,7 @@ Remaining work, grouped by priority. Tackle in order; some items can be done in 
   3. Ensure proper cleanup in `afterEach`
 - **Files**: `shared/__tests__/auth/providers.test.ts`, `shared/__tests__/auth/storage-browser.test.ts`
 
-#### 3.7 Type Casts: Mock Provider Creation
+#### 2.4 Type Casts: Mock Provider Creation
 
 - **Why**: Double cast is a code smell
 - **Effort**: Low
@@ -388,8 +258,7 @@ Remaining work, grouped by priority. Tackle in order; some items can be done in 
 
 ### Implementation Order Recommendation
 
-1. **Phase 1** (Critical): 1.1
-2. **Phase 2** (Important): 2.1–2.3, 2.5–2.6
-3. **Phase 3** (Polish): 3.1–3.4, 3.6–3.7
+1. **Phase 1** (Important): 1.1–1.2
+2. **Phase 2** (Polish): 2.1–2.4
 
-Many items can be done in parallel (e.g. 2.1–2.3 are test additions).
+Many items can be done in parallel.

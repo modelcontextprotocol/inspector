@@ -369,8 +369,9 @@ export class NodeOAuthClientProvider extends BaseOAuthClientProvider {
     redirectUrlProvider: RedirectUrlProvider,
     navigation: OAuthNavigation,
     clientMetadataUrl?: string,
+    storagePath?: string,
   ) {
-    const storage = new NodeOAuthStorage();
+    const storage = new NodeOAuthStorage(storagePath);
 
     super(
       serverUrl,
@@ -406,6 +407,7 @@ export class GuidedNodeOAuthClientProvider extends NodeOAuthClientProvider {
     redirectUrlProvider: RedirectUrlProvider,
     navigation: OAuthNavigation,
     clientMetadataUrl?: string,
+    storagePath?: string,
   ) {
     // Create a guided-mode redirect URL provider
     const guidedRedirectProvider =
@@ -415,7 +417,13 @@ export class GuidedNodeOAuthClientProvider extends NodeOAuthClientProvider {
           ? redirectUrlProvider.clone("guided")
           : redirectUrlProvider;
 
-    super(serverUrl, guidedRedirectProvider, navigation, clientMetadataUrl);
+    super(
+      serverUrl,
+      guidedRedirectProvider,
+      navigation,
+      clientMetadataUrl,
+      storagePath,
+    );
   }
 
   get redirectUrl(): string {

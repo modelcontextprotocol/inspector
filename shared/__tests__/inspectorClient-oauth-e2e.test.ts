@@ -5,6 +5,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { InspectorClient } from "../mcp/inspectorClient.js";
 import { TestServerHttp } from "../test/test-server-http.js";
 import { getDefaultServerConfig } from "../test/test-server-fixtures.js";
@@ -15,7 +18,11 @@ import {
   createClientMetadataServer,
   type ClientMetadataDocument,
 } from "../test/test-server-fixtures.js";
-import { clearOAuthTestData } from "../test/test-server-oauth.js";
+import {
+  clearOAuthTestData,
+  getDCRRequests,
+  invalidateAccessToken,
+} from "../test/test-server-oauth.js";
 import { clearAllOAuthClientState } from "../auth/index.js";
 import type { InspectorClientOptions } from "../mcp/inspectorClient.js";
 import type { MCPServerConfig } from "../mcp/types.js";
@@ -511,6 +518,96 @@ describe("InspectorClient OAuth E2E", () => {
     },
   );
 
+  describe.each(transports)("Both redirect URLs (DCR) ($name)", (transport) => {
+    const normalRedirectUrl = testRedirectUrl;
+    const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
+
+    it("should include both normal and guided redirect_uris in DCR registration", async () => {
+      const serverConfig = {
+        ...getDefaultServerConfig(),
+        serverType: transport.serverType,
+        ...createOAuthTestServerConfig({
+          requireAuth: true,
+          supportDCR: true,
+        }),
+      };
+
+      server = new TestServerHttp(serverConfig);
+      const port = await server.start();
+      const serverUrl = `http://localhost:${port}`;
+
+      const clientConfig: InspectorClientOptions = {
+        oauth: createOAuthClientConfig({
+          mode: "dcr",
+          redirectUrl: normalRedirectUrl,
+        }),
+      };
+
+      client = new InspectorClient(
+        {
+          type: transport.clientType,
+          url: `${serverUrl}${transport.endpoint}`,
+        } as MCPServerConfig,
+        clientConfig,
+      );
+
+      const authUrl = await client.authenticate();
+      const authCode = await completeOAuthAuthorization(authUrl);
+      await client.completeOAuthFlow(authCode);
+      await client.connect();
+
+      const dcr = getDCRRequests();
+      expect(dcr.length).toBeGreaterThanOrEqual(1);
+      const uris = dcr[dcr.length - 1]!.redirect_uris;
+      expect(uris).toContain(normalRedirectUrl);
+      expect(uris).toContain(guidedRedirectUrl);
+    });
+
+    it("should accept both normal and guided redirect_uri for authorization callbacks", async () => {
+      const serverConfig = {
+        ...getDefaultServerConfig(),
+        serverType: transport.serverType,
+        ...createOAuthTestServerConfig({
+          requireAuth: true,
+          supportDCR: true,
+        }),
+      };
+
+      server = new TestServerHttp(serverConfig);
+      const port = await server.start();
+      const serverUrl = `http://localhost:${port}`;
+
+      const clientConfig: InspectorClientOptions = {
+        oauth: createOAuthClientConfig({
+          mode: "dcr",
+          redirectUrl: normalRedirectUrl,
+        }),
+      };
+
+      client = new InspectorClient(
+        {
+          type: transport.clientType,
+          url: `${serverUrl}${transport.endpoint}`,
+        } as MCPServerConfig,
+        clientConfig,
+      );
+
+      const authUrlNormal = await client.authenticate();
+      const authCodeNormal = await completeOAuthAuthorization(authUrlNormal);
+      await client.completeOAuthFlow(authCodeNormal);
+      await client.connect();
+      expect(client.getStatus()).toBe("connected");
+
+      await client.disconnect();
+
+      const authUrlGuided = await client.authenticateGuided();
+      const authCodeGuided = await completeOAuthAuthorization(authUrlGuided);
+      await client.completeOAuthFlow(authCodeGuided);
+      await client.connect();
+      expect(client.getStatus()).toBe("connected");
+    });
+  });
+
   describe.each(transports)("401 Error Handling ($name)", (transport) => {
     it("should dispatch oauthAuthorizationRequired when authenticating", async () => {
       const staticClientId = "test-client-401";
@@ -563,6 +660,216 @@ describe("InspectorClient OAuth E2E", () => {
       expect(authEventReceived).toBe(true);
     });
   });
+
+  describe.each(transports)(
+    "Resource metadata discovery and oauthStepChange ($name)",
+    (transport) => {
+      const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
+
+      it("should discover resource metadata and set resource in guided flow", async () => {
+        const staticClientId = "test-resource-metadata";
+        const staticClientSecret = "test-secret-rm";
+
+        const serverConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            staticClients: [
+              {
+                clientId: staticClientId,
+                clientSecret: staticClientSecret,
+                redirectUris: [testRedirectUrl, guidedRedirectUrl],
+              },
+            ],
+          }),
+        };
+
+        server = new TestServerHttp(serverConfig);
+        const port = await server.start();
+        const serverUrl = `http://localhost:${port}`;
+
+        const clientConfig: InspectorClientOptions = {
+          oauth: createOAuthClientConfig({
+            mode: "static",
+            clientId: staticClientId,
+            clientSecret: staticClientSecret,
+            redirectUrl: testRedirectUrl,
+          }),
+        };
+
+        client = new InspectorClient(
+          {
+            type: transport.clientType,
+            url: `${serverUrl}${transport.endpoint}`,
+          } as MCPServerConfig,
+          clientConfig,
+        );
+
+        await client.authenticateGuided();
+
+        const state = client.getOAuthState();
+        expect(state).toBeDefined();
+        expect(state?.resourceMetadata).toBeDefined();
+        expect(state?.resourceMetadata?.resource).toBeDefined();
+        expect(
+          state?.resourceMetadata?.authorization_servers?.length,
+        ).toBeGreaterThanOrEqual(1);
+        expect(state?.resourceMetadata?.scopes_supported).toBeDefined();
+        expect(state?.resource).toBeInstanceOf(URL);
+        expect(state?.resource?.href).toBe(state?.resourceMetadata?.resource);
+        expect(state?.resourceMetadataError).toBeNull();
+      });
+
+      it("should dispatch oauthStepChange on each step transition in guided flow", async () => {
+        const staticClientId = "test-step-events";
+        const staticClientSecret = "test-secret-se";
+
+        const serverConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            staticClients: [
+              {
+                clientId: staticClientId,
+                clientSecret: staticClientSecret,
+                redirectUris: [testRedirectUrl, guidedRedirectUrl],
+              },
+            ],
+          }),
+        };
+
+        server = new TestServerHttp(serverConfig);
+        const port = await server.start();
+        const serverUrl = `http://localhost:${port}`;
+
+        const clientConfig: InspectorClientOptions = {
+          oauth: createOAuthClientConfig({
+            mode: "static",
+            clientId: staticClientId,
+            clientSecret: staticClientSecret,
+            redirectUrl: testRedirectUrl,
+          }),
+        };
+
+        client = new InspectorClient(
+          {
+            type: transport.clientType,
+            url: `${serverUrl}${transport.endpoint}`,
+          } as MCPServerConfig,
+          clientConfig,
+        );
+
+        const stepEvents: Array<{
+          step: string;
+          previousStep: string;
+          state: unknown;
+        }> = [];
+        client.addEventListener("oauthStepChange", (event) => {
+          stepEvents.push({
+            step: event.detail.step,
+            previousStep: event.detail.previousStep,
+            state: event.detail.state,
+          });
+        });
+
+        const authUrl = await client.authenticateGuided();
+        const authCode = await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode);
+
+        const expectedTransitions = [
+          { previousStep: "metadata_discovery", step: "client_registration" },
+          {
+            previousStep: "client_registration",
+            step: "authorization_redirect",
+          },
+          {
+            previousStep: "authorization_redirect",
+            step: "authorization_code",
+          },
+          { previousStep: "authorization_code", step: "token_request" },
+          { previousStep: "token_request", step: "complete" },
+        ];
+
+        expect(stepEvents.length).toBe(expectedTransitions.length);
+        for (let i = 0; i < expectedTransitions.length; i++) {
+          const e = stepEvents[i];
+          expect(e).toBeDefined();
+          expect(e?.step).toBe(expectedTransitions[i]!.step);
+          expect(e?.previousStep).toBe(expectedTransitions[i]!.previousStep);
+          expect(e?.state).toBeDefined();
+          expect(typeof e?.state === "object" && e?.state !== null).toBe(true);
+        }
+      });
+    },
+  );
+
+  describe.each(transports)(
+    "Token refresh (authProvider) ($name)",
+    (transport) => {
+      it("should persist refresh_token and succeed connect after 401 via refresh", async () => {
+        const staticClientId = "test-refresh";
+        const staticClientSecret = "test-secret-refresh";
+
+        const serverConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            supportRefreshTokens: true,
+            staticClients: [
+              {
+                clientId: staticClientId,
+                clientSecret: staticClientSecret,
+                redirectUris: [testRedirectUrl],
+              },
+            ],
+          }),
+        };
+
+        server = new TestServerHttp(serverConfig);
+        const port = await server.start();
+        const serverUrl = `http://localhost:${port}`;
+
+        const clientConfig: InspectorClientOptions = {
+          oauth: createOAuthClientConfig({
+            mode: "static",
+            clientId: staticClientId,
+            clientSecret: staticClientSecret,
+            redirectUrl: testRedirectUrl,
+          }),
+        };
+
+        client = new InspectorClient(
+          {
+            type: transport.clientType,
+            url: `${serverUrl}${transport.endpoint}`,
+          } as MCPServerConfig,
+          clientConfig,
+        );
+
+        const authUrl = await client.authenticate();
+        const authCode = await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode);
+        await client.connect();
+
+        const tokens = await client.getOAuthTokens();
+        expect(tokens).toBeDefined();
+        expect(tokens?.access_token).toBeDefined();
+        expect(tokens?.refresh_token).toBeDefined();
+
+        invalidateAccessToken(tokens!.access_token);
+
+        await client.disconnect();
+        await client.connect();
+
+        expect(client.getStatus()).toBe("connected");
+        const toolsResult = await client.listTools();
+        expect(toolsResult).toBeDefined();
+      });
+    },
+  );
 
   describe.each(transports)("Token Management ($name)", (transport) => {
     it("should store and retrieve OAuth tokens", async () => {
@@ -619,6 +926,86 @@ describe("InspectorClient OAuth E2E", () => {
       client.clearOAuthTokens();
       expect(await client.isOAuthAuthorized()).toBe(false);
       expect(await client.getOAuthTokens()).toBeUndefined();
+    });
+  });
+
+  describe.each(transports)("Storage path (custom) ($name)", (transport) => {
+    it("should persist OAuth state to custom storagePath", async () => {
+      const customPath = path.join(
+        os.tmpdir(),
+        `mcp-inspector-e2e-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
+      );
+
+      const staticClientId = "test-storage-path";
+      const staticClientSecret = "test-secret-sp";
+
+      const serverConfig = {
+        ...getDefaultServerConfig(),
+        serverType: transport.serverType,
+        ...createOAuthTestServerConfig({
+          requireAuth: true,
+          staticClients: [
+            {
+              clientId: staticClientId,
+              clientSecret: staticClientSecret,
+              redirectUris: [testRedirectUrl],
+            },
+          ],
+        }),
+      };
+
+      server = new TestServerHttp(serverConfig);
+      const port = await server.start();
+      const serverUrl = `http://localhost:${port}`;
+
+      const clientConfig: InspectorClientOptions = {
+        oauth: {
+          ...createOAuthClientConfig({
+            mode: "static",
+            clientId: staticClientId,
+            clientSecret: staticClientSecret,
+            redirectUrl: testRedirectUrl,
+          }),
+          storagePath: customPath,
+        },
+      };
+
+      client = new InspectorClient(
+        {
+          type: transport.clientType,
+          url: `${serverUrl}${transport.endpoint}`,
+        } as MCPServerConfig,
+        clientConfig,
+      );
+
+      try {
+        const authUrl = await client.authenticate();
+        const authCode = await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode);
+        await client.connect();
+
+        expect(client.getStatus()).toBe("connected");
+
+        await vi.waitFor(
+          async () => {
+            const raw = await fs.readFile(customPath, "utf-8");
+            const parsed = JSON.parse(raw);
+            const servers = parsed?.state?.servers ?? {};
+            const keys = Object.keys(servers);
+            expect(keys.length).toBeGreaterThan(0);
+            const some = keys.find((k: string) => servers[k]?.tokens);
+            expect(some).toBeDefined();
+            expect(servers[some!].tokens.access_token).toBeDefined();
+          },
+          { timeout: 2000, interval: 50 },
+        );
+      } finally {
+        try {
+          await fs.unlink(customPath);
+        } catch {
+          /* ignore */
+        }
+      }
     });
   });
 });
