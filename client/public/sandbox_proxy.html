@@ -30,8 +30,13 @@
         const ALLOWED_ORIGINS = [];
 
         function sanitizeHtml(html) {
-          if (window.DOMPurify && typeof window.DOMPurify.sanitize === "function") {
-            return window.DOMPurify.sanitize(html, { RETURN_TRUSTED_TYPE: false });
+          if (
+            window.DOMPurify &&
+            typeof window.DOMPurify.sanitize === "function"
+          ) {
+            return window.DOMPurify.sanitize(html, {
+              RETURN_TRUSTED_TYPE: false,
+            });
           }
 
           // If DOMPurify is not available, do not attempt to sanitize manually.
