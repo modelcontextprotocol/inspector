@@ -1,89 +1,46 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <title>MCP App Sandbox Proxy</title>
-    <style>
-      body,
-      html {
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-    <script>
-      (function () {
-        const SANDBOX_PROXY_READY_METHOD =
-          "ui/notifications/sandbox-proxy-ready";
-        const SANDBOX_RESOURCE_READY_METHOD =
-          "ui/notifications/sandbox-resource-ready";
+<head>
+  <meta charset="utf-8">
+  <title>MCP App Sandbox Proxy</title>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    (function() {
+      const SANDBOX_PROXY_READY_METHOD = "ui/notifications/sandbox-proxy-ready";
+      const SANDBOX_RESOURCE_READY_METHOD = "ui/notifications/sandbox-resource-ready";
 
-        // Optionally restrict which origins are allowed to send sandbox HTML.
-        // Fill this array with explicit origins (for example, ["https://your-app.com"]).
-        // Leaving it empty will accept messages from any origin, but HTML is still sanitized.
-        const ALLOWED_ORIGINS = [];
+      // Notify host that we are ready to receive the app resource
+      window.parent.postMessage({
+        jsonrpc: "2.0",
+        method: SANDBOX_PROXY_READY_METHOD,
+        params: {}
+      }, "*");
 
-        function sanitizeHtml(html) {
-          if (
-            window.DOMPurify &&
-            typeof window.DOMPurify.sanitize === "function"
-          ) {
-            return window.DOMPurify.sanitize(html, {
-              RETURN_TRUSTED_TYPE: false,
-            });
+      // Listen for the app resource (HTML) from the host
+      window.addEventListener("message", (event) => {
+        const message = event.data;
+        if (message && message.method === SANDBOX_RESOURCE_READY_METHOD) {
+          const { html } = message.params;
+          if (html) {
+            // Write the HTML to the document
+            document.open();
+            document.write(html);
+            document.close();
           }
-
-          // If DOMPurify is not available, do not attempt to sanitize manually.
-          // Returning an empty string avoids rendering untrusted HTML with a weak sanitizer.
-          return "";
         }
-
-        // Notify host that we are ready to receive the app resource
-        window.parent.postMessage(
-          {
-            jsonrpc: "2.0",
-            method: SANDBOX_PROXY_READY_METHOD,
-            params: {},
-          },
-          "*",
-        );
-
-        // Listen for the app resource (HTML) from the host
-        window.addEventListener("message", (event) => {
-          // If ALLOWED_ORIGINS is non-empty, enforce origin restriction.
-          if (
-            Array.isArray(ALLOWED_ORIGINS) &&
-            ALLOWED_ORIGINS.length > 0 &&
-            !ALLOWED_ORIGINS.includes(event.origin)
-          ) {
-            return;
-          }
-
-          const message = event.data;
-          if (
-            message &&
-            typeof message === "object" &&
-            message.method === SANDBOX_RESOURCE_READY_METHOD &&
-            message.params &&
-            typeof message.params.html === "string"
-          ) {
-            const { html } = message.params;
-            if (html) {
-              // Sanitize the HTML before writing it to the document
-              const safeHtml = sanitizeHtml(html);
-              document.open();
-              document.write(safeHtml);
-              document.close();
-            }
-          }
-        });
-      })();
-    </script>
-  </body>
+      });
+    })();
+  </script>
+</body>
 </html>
