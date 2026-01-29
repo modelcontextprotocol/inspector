@@ -2,43 +2,84 @@
 
 This file tracks **remaining** authentication-related work: temporary workarounds, hacks, missing test coverage, and missing features.
 
-## Timer Delays in E2E Tests
+## Remaining E2E Timer Delays
 
-**Location**: `shared/__tests__/inspectorClient-oauth-e2e.test.ts`
+Fixed delays still used in tests. Each is a timer (not an event-driven wait) because no suitable signal exists to wait on. Event-driven helpers (`waitForEvent`, `waitForProgressCount`, `waitForStateFile`, `server.waitUntilRecorded`) have been implemented and deployed; the following are the only remaining delays.
 
-**Issue**: Tests use `setTimeout` polling loops to wait for OAuth events instead of proper event-driven waiting.
+---
 
-**Current Implementation**:
+### 1. Progress disabled — 200 ms
 
-```typescript
-// Wait for authorization URL with retries
-let retries = 0;
-while (!authorizationUrl && retries < 20) {
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  retries++;
-}
-```
+| Field        | Value                                                                       |
+| ------------ | --------------------------------------------------------------------------- |
+| **File**     | `shared/__tests__/inspectorClient.test.ts`                                  |
+| **Describe** | Progress Tracking                                                           |
+| **Test**     | “should not dispatch progressNotification events when progress is disabled” |
+| **Line**     | ~1169                                                                       |
+| **Code**     | `await new Promise((resolve) => setTimeout(resolve, 200));`                 |
 
-And:
+**Why timer, not wait:** We assert that **no** `progressNotification` events are received. You can’t wait for an event that must not happen. The delay is an observation window: we run the tool, wait 200 ms, then assert that no events arrived. A wait would need something like “event X did not fire,” which we don’t have.
 
-```typescript
-// Small delay to ensure transport is fully ready
-await new Promise((resolve) => setTimeout(resolve, 100));
-```
+---
 
-**Why This Is A Hack**:
+### 2. listChanged disabled — 200 ms + 200 ms
 
-- Polling with arbitrary delays is fragile and can cause flaky tests
-- The delays (50ms, 100ms) are arbitrary and may not be sufficient on slower systems
-- Proper event-driven waiting would be more reliable
+| Field        | Value                                                                |
+| ------------ | -------------------------------------------------------------------- |
+| **File**     | `shared/__tests__/inspectorClient.test.ts`                           |
+| **Describe** | ListChanged Notifications                                            |
+| **Test**     | “should respect listChangedNotifications config (disabled handlers)” |
+| **Lines**    | ~3254 (first), ~3278 (second)                                        |
+| **Code**     | `await new Promise((resolve) => setTimeout(resolve, 200));` (both)   |
 
-**Proper Solution**:
+**Why timer, not wait:**
 
-- Use proper event listeners with promises that resolve when events fire
-- Use `vi.waitFor()` or similar test utilities for async state changes
-- Remove arbitrary delays and rely on actual state changes
+- **First 200 ms (after connect):** Let auto-fetch and initial updates settle. There is no explicit “ready” or “initial fetch complete” event to wait on.
+- **Second 200 ms (after addTool):** We assert that **no** `toolsChange` is dispatched (handler is disabled). Same as progress disabled: we need an observation window, not a “wait for event,” because the assertion is that the event does **not** occur.
 
-**Review Priority**: Medium - Tests work but are fragile
+---
+
+### 3. resourceUpdated not subscribed — 100 ms
+
+| Field        | Value                                                                    |
+| ------------ | ------------------------------------------------------------------------ |
+| **File**     | `shared/__tests__/inspectorClient.test.ts`                               |
+| **Describe** | Resource Subscriptions                                                   |
+| **Test**     | “should ignore resource updated notification for unsubscribed resources” |
+| **Line**     | ~3916                                                                    |
+| **Code**     | `await new Promise((resolve) => setTimeout(resolve, 100));`              |
+
+**Why timer, not wait:** We assert that **no** `resourceUpdated` is received for an unsubscribed resource. Again, we’re checking for the absence of an event. The 100 ms is an observation window; there is no “event did not fire” signal to wait on.
+
+---
+
+### 4. Cache timestamp — 10 ms
+
+| Field        | Value                                                      |
+| ------------ | ---------------------------------------------------------- |
+| **File**     | `shared/__tests__/inspectorClient.test.ts`                 |
+| **Describe** | ContentCache integration                                   |
+| **Test**     | “should replace cache entry on subsequent calls”           |
+| **Line**     | ~2555                                                      |
+| **Code**     | `await new Promise((resolve) => setTimeout(resolve, 10));` |
+
+**Why timer, not wait:** We need the clock to advance so the second `readResource` gets a strictly newer `timestamp` than the first. We’re waiting for time to pass, not for an event or API. The only alternative would be fake timers (e.g. `vi.useFakeTimers` + `vi.advanceTimersByTime(10)`).
+
+---
+
+### 5. Async completion callback — 10 ms (in fixture)
+
+| Field        | Value                                                                                              |
+| ------------ | -------------------------------------------------------------------------------------------------- |
+| **File**     | `shared/__tests__/inspectorClient.test.ts` (uses `createFileResourceTemplate` with async callback) |
+| **Describe** | Completions                                                                                        |
+| **Test**     | “should handle async completion callbacks”                                                         |
+| **Line**     | ~2155 (inside fixture callback)                                                                    |
+| **Code**     | `await new Promise((resolve) => setTimeout(resolve, 10));`                                         |
+
+**Why timer, not wait:** The delay lives inside the **server fixture’s** async completion callback. It simulates async work (e.g. I/O); the test doesn’t explicitly “wait” for anything. The fixture just sleeps 10 ms before returning. Replacing it would mean changing fixture behavior, not replacing a test wait.
+
+---
 
 ## Type Casts: Error Property Access
 
@@ -194,14 +235,8 @@ Remaining work, grouped by priority. Tackle in order; some items can be done in 
 
 #### 1.1 Timer Delays in E2E Tests
 
-- **Why**: Tests work but are fragile
-- **Effort**: Low-Medium
-- **Steps**:
-  1. Replace polling loops with event-driven promises
-  2. Use `vi.waitFor()` or similar for async state changes
-  3. Remove arbitrary delays
-  4. Verify tests are more reliable
-- **Files**: `shared/__tests__/inspectorClient-oauth-e2e.test.ts`
+- **Status**: Event-driven helpers (`waitForEvent`, `waitForProgressCount`, `waitForStateFile`, `server.waitUntilRecorded`) are implemented and deployed. The **Remaining E2E Timer Delays** section above documents the five fixed delays still in use; each is a timer (not a wait) because no suitable signal exists. No further action unless we adopt fake timers for the cache-timestamp case.
+- **Files**: `shared/__tests__/inspectorClient.test.ts`, `shared/test/test-helpers.ts`, `shared/test/test-server-http.ts`
 
 #### 1.2 Type Casts: Metadata Property Access
 

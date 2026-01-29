@@ -7,6 +7,7 @@ import {
   createTestServerHttp,
   type TestServerHttp,
 } from "../test/test-server-http.js";
+import { waitForEvent, waitForProgressCount } from "../test/test-helpers.js";
 import {
   createEchoTool,
   createTestServerInfo,
@@ -1075,17 +1076,9 @@ describe("InspectorClient", () => {
 
       await client.connect();
 
-      const progressEvents: any[] = [];
-      const progressListener = (event: TypedEvent<"progressNotification">) => {
-        progressEvents.push(event.detail);
-      };
-      client.addEventListener("progressNotification", progressListener);
-
-      // Generate a progress token
       const progressToken = 12345;
 
-      // Call the tool with progressToken in metadata
-      await client.callTool(
+      client.callTool(
         "sendProgress",
         {
           units: 3,
@@ -1097,16 +1090,11 @@ describe("InspectorClient", () => {
         { progressToken: progressToken.toString() }, // toolSpecificMetadata
       );
 
-      // Wait a bit for all progress notifications to be received
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const progressEvents = await waitForProgressCount(client, 3, {
+        timeout: 3000,
+      });
 
-      // Remove listener
-      client.removeEventListener("progressNotification", progressListener);
-
-      // Verify we received progress events
       expect(progressEvents.length).toBe(3);
-
-      // Verify first progress event
       expect(progressEvents[0]).toMatchObject({
         progress: 1,
         total: 3,
@@ -1214,16 +1202,9 @@ describe("InspectorClient", () => {
 
       await client.connect();
 
-      const progressEvents: any[] = [];
-      const progressListener = (event: TypedEvent<"progressNotification">) => {
-        progressEvents.push(event.detail);
-      };
-      client.addEventListener("progressNotification", progressListener);
-
       const progressToken = 67890;
 
-      // Call the tool without total, with progressToken in metadata
-      await client.callTool(
+      client.callTool(
         "sendProgress",
         {
           units: 2,
@@ -1234,29 +1215,24 @@ describe("InspectorClient", () => {
         { progressToken: progressToken.toString() }, // toolSpecificMetadata
       );
 
-      // Wait a bit for notifications
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const progressEvents = await waitForProgressCount(client, 2, {
+        timeout: 3000,
+      });
 
-      // Remove listener
-      client.removeEventListener("progressNotification", progressListener);
-
-      // Verify we received progress events
       expect(progressEvents.length).toBe(2);
-
-      // Verify events don't have total
       expect(progressEvents[0]).toMatchObject({
         progress: 1,
         message: "Indeterminate progress (1/2)",
         progressToken: progressToken.toString(),
       });
-      expect(progressEvents[0].total).toBeUndefined();
+      expect((progressEvents[0] as { total?: number }).total).toBeUndefined();
 
       expect(progressEvents[1]).toMatchObject({
         progress: 2,
         message: "Indeterminate progress (2/2)",
         progressToken: progressToken.toString(),
       });
-      expect(progressEvents[1].total).toBeUndefined();
+      expect((progressEvents[1] as { total?: number }).total).toBeUndefined();
 
       await client.disconnect();
       await server.stop();
@@ -1939,27 +1915,14 @@ describe("InspectorClient", () => {
       ];
       await client.setRoots(newRoots);
 
-      // Wait for the notification to be recorded by the server
-      // The notification is sent asynchronously, so we need to wait for it to appear in recordedRequests
-      let rootsChangedNotification;
-      for (let i = 0; i < 50; i++) {
-        const recordedRequests = server.getRecordedRequests();
-        rootsChangedNotification = recordedRequests.find(
-          (req) => req.method === "notifications/roots/list_changed",
-        );
-        if (rootsChangedNotification) {
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      const rootsChangedNotification = await server.waitUntilRecorded(
+        (req) => req.method === "notifications/roots/list_changed",
+        { timeout: 5000, interval: 10 },
+      );
 
-      // Verify the notification was sent to the server
-      expect(rootsChangedNotification).toBeDefined();
-      if (rootsChangedNotification) {
-        expect(rootsChangedNotification.method).toBe(
-          "notifications/roots/list_changed",
-        );
-      }
+      expect(rootsChangedNotification.method).toBe(
+        "notifications/roots/list_changed",
+      );
 
       // Verify getRoots() returns the new roots
       const roots = client.getRoots();
@@ -1976,9 +1939,7 @@ describe("InspectorClient", () => {
         );
       });
 
-      // Update roots again to trigger event
       await client.setRoots([{ uri: "file:///updated", name: "Updated" }]);
-      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const rootsChangeEvent = await rootsChangePromise;
       expect(rootsChangeEvent.detail).toEqual([
@@ -4280,8 +4241,6 @@ describe("InspectorClient", () => {
       await client.disconnect();
       await server?.stop();
 
-      const taskFailedEvents: any[] = [];
-
       // Create a task tool that will fail after a short delay
       const failingTask = createFlexibleTaskTool({
         name: "failingTask",
@@ -4309,25 +4268,18 @@ describe("InspectorClient", () => {
       );
       await client.connect();
 
-      client.addEventListener(
-        "taskFailed",
-        (event: TypedEvent<"taskFailed">) => {
-          taskFailedEvents.push(event.detail);
-        },
-      );
-
-      // Call the failing task
-      await expect(
+      const failedPromise = expect(
         client.callToolStream("failingTask", { message: "test" }),
       ).rejects.toThrow();
 
-      // Wait a bit for the event
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const taskFailedDetail = await waitForEvent<{
+        taskId: string;
+        error: Error;
+      }>(client, "taskFailed", { timeout: 2000 });
+      expect(taskFailedDetail.taskId).toBeDefined();
+      expect(taskFailedDetail.error).toBeDefined();
 
-      // Verify taskFailed event was dispatched
-      expect(taskFailedEvents.length).toBeGreaterThan(0);
-      expect(taskFailedEvents[0].taskId).toBeDefined();
-      expect(taskFailedEvents[0].error).toBeDefined();
+      await failedPromise;
     });
 
     it("should cancel a running task", async () => {
@@ -4360,47 +4312,38 @@ describe("InspectorClient", () => {
       );
       await client.connect();
 
-      const cancelledEvents: any[] = [];
-      client.addEventListener(
-        "taskCancelled",
-        (event: TypedEvent<"taskCancelled">) => {
-          cancelledEvents.push(event.detail);
-        },
-      );
-
-      // Start a long-running task
       const taskPromise = client.callToolStream("longRunningTask", {
         message: "test",
       });
 
-      // Wait for task to be created
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const activeTasks = client.getClientTasks();
-      expect(activeTasks.length).toBeGreaterThan(0);
-      const activeTask = activeTasks[0];
-      expect(activeTask).toBeDefined();
-      const taskId = activeTask!.taskId;
+      const taskCreatedDetail = await waitForEvent<{ taskId: string }>(
+        client,
+        "taskCreated",
+        { timeout: 3000 },
+      );
+      const taskId = taskCreatedDetail.taskId;
+      expect(taskId).toBeDefined();
 
-      // Cancel the task
+      const cancelledPromise = waitForEvent<{ taskId: string }>(
+        client,
+        "taskCancelled",
+        { timeout: 3000 },
+      );
       await client.cancelTask(taskId);
 
-      // Wait for cancellation to complete
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const [cancelledResult, taskResult] = await Promise.allSettled([
+        cancelledPromise,
+        taskPromise,
+      ]);
+      expect(cancelledResult.status).toBe("fulfilled");
+      const cancelledDetail = (
+        cancelledResult as PromiseFulfilledResult<{ taskId: string }>
+      ).value;
+      expect(cancelledDetail.taskId).toBe(taskId);
+      expect(taskResult.status).toBe("rejected");
 
-      // Verify task is cancelled
       const task = await client.getTask(taskId);
       expect(task.status).toBe("cancelled");
-
-      // Verify cancelled event was dispatched
-      expect(cancelledEvents.length).toBeGreaterThan(0);
-      expect(cancelledEvents[0].taskId).toBe(taskId);
-
-      // Wait for the original promise (it should error or complete with cancellation)
-      try {
-        await taskPromise;
-      } catch {
-        // Expected if task was cancelled
-      }
     });
 
     it("should handle elicitation with task (input_required flow)", async () => {
@@ -4429,32 +4372,16 @@ describe("InspectorClient", () => {
       );
       await client.connect();
 
-      // Set up promise to wait for elicitation
-      const elicitationPromise = new Promise<ElicitationCreateMessage>(
-        (resolve) => {
-          const listener = (event: TypedEvent<"newPendingElicitation">) => {
-            resolve(event.detail);
-            client.removeEventListener("newPendingElicitation", listener);
-          };
-          client.addEventListener("newPendingElicitation", listener);
-        },
+      const elicitationPromise = waitForEvent<ElicitationCreateMessage>(
+        client,
+        "newPendingElicitation",
+        { timeout: 2000 },
       );
-
-      // Start the task
       const taskPromise = client.callToolStream("taskWithElicitation", {
         message: "test",
       });
 
-      // Wait for elicitation request (with timeout)
-      const elicitation = await Promise.race([
-        elicitationPromise,
-        new Promise<ElicitationCreateMessage>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Timeout waiting for elicitation")),
-            2000,
-          ),
-        ),
-      ]);
+      const elicitation = await elicitationPromise;
 
       // Verify elicitation was received
       expect(elicitation).toBeDefined();
@@ -4507,47 +4434,25 @@ describe("InspectorClient", () => {
       );
       await client.connect();
 
-      // Set up promise to wait for sampling
-      const samplingPromise = new Promise<SamplingCreateMessage>((resolve) => {
-        const listener = (event: TypedEvent<"newPendingSample">) => {
-          resolve(event.detail);
-          client.removeEventListener("newPendingSample", listener);
-        };
-        client.addEventListener("newPendingSample", listener);
-      });
-
-      // Start the task
+      const samplingPromise = waitForEvent<SamplingCreateMessage>(
+        client,
+        "newPendingSample",
+        { timeout: 3000 },
+      );
+      const taskCreatedPromise = waitForEvent<{ taskId: string }>(
+        client,
+        "taskCreated",
+        { timeout: 3000 },
+      );
       const taskPromise = client.callToolStream("taskWithSampling", {
         message: "test",
       });
 
-      // Wait for sampling request (with longer timeout)
-      const sample = await Promise.race([
-        samplingPromise,
-        new Promise<SamplingCreateMessage>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Timeout waiting for sampling")),
-            3000,
-          ),
-        ),
-      ]);
-
-      // Verify sampling was received
+      const sample = await samplingPromise;
       expect(sample).toBeDefined();
 
-      // Wait a bit for task to be created
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Verify task was created and is in input_required status
-      const activeTasks = client.getClientTasks();
-      expect(activeTasks.length).toBeGreaterThan(0);
-
-      // Find the task that triggered this sampling
-      // If taskId was extracted from metadata, use it; otherwise use the most recent task
-      const task = sample.taskId
-        ? activeTasks.find((t) => t.taskId === sample.taskId)
-        : activeTasks[activeTasks.length - 1];
-
+      const taskCreatedDetail = await taskCreatedPromise;
+      const task = await client.getTask(taskCreatedDetail.taskId);
       expect(task).toBeDefined();
       expect(task!.status).toBe("input_required");
 
@@ -4595,65 +4500,34 @@ describe("InspectorClient", () => {
       );
       await client.connect();
 
-      const progressEvents: any[] = [];
-      const taskCreatedEvents: any[] = [];
-      const taskCompletedEvents: any[] = [];
-
-      client.addEventListener(
-        "progressNotification",
-        (event: TypedEvent<"progressNotification">) => {
-          progressEvents.push(event.detail);
-        },
-      );
-      client.addEventListener(
-        "taskCreated",
-        (event: TypedEvent<"taskCreated">) => {
-          taskCreatedEvents.push(event.detail);
-        },
-      );
-      client.addEventListener(
-        "taskCompleted",
-        (event: TypedEvent<"taskCompleted">) => {
-          taskCompletedEvents.push(event.detail);
-        },
-      );
-
-      // Generate a progress token
       const progressToken = Math.random().toString();
 
-      // Call the tool with progress token
+      const taskCreatedPromise = waitForEvent<{ taskId: string }>(
+        client,
+        "taskCreated",
+        { timeout: 5000 },
+      );
+      const progressPromise = waitForProgressCount(client, 5, {
+        timeout: 5000,
+      });
+      const taskCompletedPromise = waitForEvent<{
+        taskId: string;
+        result: unknown;
+      }>(client, "taskCompleted", { timeout: 5000 });
       const resultPromise = client.callToolStream(
         "taskWithProgress",
-        {
-          message: "test",
-        },
+        { message: "test" },
         undefined,
         { progressToken },
       );
 
-      // Wait for task to be created
-      await new Promise((resolve) => {
-        if (taskCreatedEvents.length > 0) {
-          resolve(undefined);
-        } else {
-          const listener = (event: TypedEvent<"taskCreated">) => {
-            client.removeEventListener("taskCreated", listener);
-            resolve(undefined);
-          };
-          client.addEventListener("taskCreated", listener);
-        }
-      });
+      const taskCreatedDetail = await taskCreatedPromise;
+      const taskId = taskCreatedDetail.taskId;
+      expect(taskId).toBeDefined();
 
-      expect(taskCreatedEvents.length).toBe(1);
-      const taskId = taskCreatedEvents[0].taskId;
-
-      // Wait for all progress notifications to be sent
-      // Progress notifications are sent at ~400ms intervals (2000ms / 5 units)
-      // Wait for delayMs + buffer (2000ms + 500ms buffer = 2500ms)
-      await new Promise((resolve) => setTimeout(resolve, 2500));
-
-      // Wait for task to complete
+      const progressEvents = await progressPromise;
       const result = await resultPromise;
+      const taskCompletedDetail = await taskCompletedPromise;
 
       // Verify task completed successfully
       expect(result.success).toBe(true);
@@ -4687,29 +4561,23 @@ describe("InspectorClient", () => {
         expect(firstContent?.type).toBe("text");
       }
 
-      // Verify taskCompleted event was dispatched
-      expect(taskCompletedEvents.length).toBe(1);
-      expect(taskCompletedEvents[0].taskId).toBe(taskId);
-      expect(taskCompletedEvents[0].result).toBeDefined();
-      // Verify the taskCompleted event result matches the tool call result
-      expect(taskCompletedEvents[0].result).toEqual(toolResult);
+      expect(taskCompletedDetail.taskId).toBe(taskId);
+      expect(taskCompletedDetail.result).toBeDefined();
+      expect(taskCompletedDetail.result).toEqual(toolResult);
 
-      // Verify all 5 progress events were received
       expect(progressEvents.length).toBe(5);
-
-      // Verify each progress event
-      progressEvents.forEach((event, index) => {
-        // Verify progress token matches
+      progressEvents.forEach((evt: unknown, index: number) => {
+        const event = evt as {
+          progressToken: string;
+          progress: number;
+          total: number;
+          message: string;
+          _meta?: Record<string, unknown>;
+        };
         expect(event.progressToken).toBe(progressToken);
-
-        // Verify progress values are sequential (1, 2, 3, 4, 5)
         expect(event.progress).toBe(index + 1);
         expect(event.total).toBe(5);
-
-        // Verify progress message format
         expect(event.message).toBe(`Processing... ${index + 1}/5`);
-
-        // Verify progress events are linked to the task via _meta
         expect(event._meta).toBeDefined();
         expect(event._meta?.[RELATED_TASK_META_KEY]).toBeDefined();
         const relatedTask = event._meta?.[RELATED_TASK_META_KEY] as {
@@ -4726,15 +4594,9 @@ describe("InspectorClient", () => {
     });
 
     it("should handle listTasks pagination", async () => {
-      // Create multiple tasks
       await client.callToolStream("simpleTask", { message: "task1" });
       await client.callToolStream("simpleTask", { message: "task2" });
       await client.callToolStream("simpleTask", { message: "task3" });
-
-      // Wait for tasks to complete
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      // List tasks
       const result = await client.listTasks();
       expect(result.tasks.length).toBeGreaterThan(0);
 

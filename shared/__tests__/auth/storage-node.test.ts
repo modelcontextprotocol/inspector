@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   NodeOAuthStorage,
   getOAuthStore,
@@ -12,6 +12,7 @@ import type {
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
+import { waitForStateFile } from "../../test/test-helpers.js";
 
 describe("NodeOAuthStorage", () => {
   let storage: NodeOAuthStorage;
@@ -388,18 +389,21 @@ describe("OAuth Store (Zustand)", () => {
       clientInformation: clientInfo,
     });
 
-    // Zustand persist middleware writes asynchronously in the background
-    // Wait for the file to be written by polling for its existence and content
-    await vi.waitFor(
-      async () => {
-        const fileContent = await fs.readFile(stateFilePath, "utf-8");
-        const parsed = JSON.parse(fileContent);
-        expect(parsed.state.servers[serverUrl]).toBeDefined();
-        expect(parsed.state.servers[serverUrl].clientInformation).toEqual(
-          clientInfo,
-        );
+    type StateShape = {
+      state: {
+        servers: Record<string, { clientInformation?: OAuthClientInformation }>;
+      };
+    };
+    const parsed = await waitForStateFile<StateShape>(
+      stateFilePath,
+      (p) => {
+        const s = (p as StateShape)?.state?.servers?.[serverUrl];
+        return !!s?.clientInformation;
       },
       { timeout: 2000, interval: 50 },
+    );
+    expect(parsed.state.servers[serverUrl]?.clientInformation).toEqual(
+      clientInfo,
     );
   });
 });
@@ -422,16 +426,22 @@ describe("NodeOAuthStorage with custom storagePath", () => {
       };
       await storage.saveTokens(testServerUrl, tokens);
 
-      await vi.waitFor(
-        async () => {
-          const raw = await fs.readFile(customPath, "utf-8");
-          const parsed = JSON.parse(raw);
-          expect(parsed.state?.servers?.[testServerUrl]?.tokens).toBeDefined();
-          expect(parsed.state.servers[testServerUrl].tokens.access_token).toBe(
-            tokens.access_token,
-          );
+      type StateShape = {
+        state: {
+          servers: Record<string, { tokens?: { access_token?: string } }>;
+        };
+      };
+      const parsed = await waitForStateFile<StateShape>(
+        customPath,
+        (p) => {
+          const t = (p as StateShape)?.state?.servers?.[testServerUrl]?.tokens;
+          return t?.access_token === tokens.access_token;
         },
         { timeout: 2000, interval: 50 },
+      );
+
+      expect(parsed.state.servers[testServerUrl]?.tokens?.access_token).toBe(
+        tokens.access_token,
       );
 
       const stored = await storage.getTokens(testServerUrl);

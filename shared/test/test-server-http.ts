@@ -422,6 +422,37 @@ export class TestServerHttp {
   }
 
   /**
+   * Wait until a recorded request matches the predicate, or reject after timeout.
+   * Use instead of polling getRecordedRequests() with manual delays.
+   */
+  waitUntilRecorded(
+    predicate: (req: RecordedRequest) => boolean,
+    options?: { timeout?: number; interval?: number },
+  ): Promise<RecordedRequest> {
+    const { timeout = 5000, interval = 10 } = options ?? {};
+    const start = Date.now();
+    return new Promise<RecordedRequest>((resolve, reject) => {
+      const check = () => {
+        const req = this.getRecordedRequests().find(predicate);
+        if (req) {
+          resolve(req);
+          return;
+        }
+        if (Date.now() - start >= timeout) {
+          reject(
+            new Error(
+              `Timeout (${timeout}ms) waiting for recorded request matching predicate`,
+            ),
+          );
+          return;
+        }
+        setTimeout(check, interval);
+      };
+      check();
+    });
+  }
+
+  /**
    * Get the server URL with the appropriate endpoint path
    */
   get url(): string {
