@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { InspectorClient } from "../mcp/inspectorClient.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 import { TestServerHttp } from "../test/test-server-http.js";
+import { waitForEvent } from "../test/test-helpers.js";
 import { getDefaultServerConfig } from "../test/test-server-fixtures.js";
 import {
   createOAuthTestServerConfig,
@@ -143,37 +144,17 @@ describe("InspectorClient OAuth", () => {
         clientConfig,
       );
 
-      return new Promise<void>((resolve, reject) => {
-        let timeout: NodeJS.Timeout | null = setTimeout(() => {
-          timeout = null;
-          reject(new Error("Event not dispatched"));
-        }, 5000);
+      testClient.authenticate().catch(() => {});
 
-        testClient.addEventListener("oauthAuthorizationRequired", (event) => {
-          if (timeout) {
-            clearTimeout(timeout);
-            timeout = null;
-          }
-          expect(event.detail).toHaveProperty("url");
-          expect(event.detail.url).toBeInstanceOf(URL);
-          expect(event.detail.url.href).toContain("/oauth/authorize");
-          testClient
-            .disconnect()
-            .then(() => resolve())
-            .catch(reject);
-        });
-
-        // Trigger OAuth flow - this should dispatch the event
-        testClient.authenticate().catch((error) => {
-          // If event was dispatched, we'll resolve in the event handler
-          // If event wasn't dispatched and timeout is still active, reject
-          if (timeout) {
-            clearTimeout(timeout);
-            timeout = null;
-            reject(error);
-          }
-        });
-      });
+      const detail = await waitForEvent<{ url: URL }>(
+        testClient,
+        "oauthAuthorizationRequired",
+        { timeout: 5000 },
+      );
+      expect(detail).toHaveProperty("url");
+      expect(detail.url).toBeInstanceOf(URL);
+      expect(detail.url.href).toContain("/oauth/authorize");
+      await testClient.disconnect();
     });
 
     it("should dispatch oauthError event when OAuth flow fails", async () => {
@@ -208,30 +189,18 @@ describe("InspectorClient OAuth", () => {
         clientConfig,
       );
 
-      return new Promise<void>((resolve, reject) => {
-        let timeout: NodeJS.Timeout | null = setTimeout(() => {
-          timeout = null;
-          reject(new Error("Event not dispatched"));
-        }, 3000);
+      testClient.completeOAuthFlow("invalid-test-code").catch(() => {});
 
-        testClient.addEventListener("oauthError", (event) => {
-          if (timeout) {
-            clearTimeout(timeout);
-            timeout = null;
-          }
-          expect(event.detail).toHaveProperty("error");
-          expect(event.detail.error).toBeInstanceOf(Error);
-          testClient
-            .disconnect()
-            .then(() => resolve())
-            .catch(reject);
-        });
-
-        // Complete OAuth flow with invalid code (will fail and dispatch error event)
-        testClient.completeOAuthFlow("invalid-test-code").catch(() => {
-          // Expected to fail - error event should be dispatched
-        });
-      });
+      const detail = await waitForEvent<{ error: Error }>(
+        testClient,
+        "oauthError",
+        {
+          timeout: 3000,
+        },
+      );
+      expect(detail).toHaveProperty("error");
+      expect(detail.error).toBeInstanceOf(Error);
+      await testClient.disconnect();
     });
   });
 

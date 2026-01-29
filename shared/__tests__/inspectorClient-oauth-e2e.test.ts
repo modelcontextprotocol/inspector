@@ -10,6 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { InspectorClient } from "../mcp/inspectorClient.js";
 import { TestServerHttp } from "../test/test-server-http.js";
+import { waitForStateFile } from "../test/test-helpers.js";
 import { getDefaultServerConfig } from "../test/test-server-fixtures.js";
 import {
   createOAuthTestServerConfig,
@@ -986,18 +987,25 @@ describe("InspectorClient OAuth E2E", () => {
 
         expect(client.getStatus()).toBe("connected");
 
-        await vi.waitFor(
-          async () => {
-            const raw = await fs.readFile(customPath, "utf-8");
-            const parsed = JSON.parse(raw);
-            const servers = parsed?.state?.servers ?? {};
-            const keys = Object.keys(servers);
-            expect(keys.length).toBeGreaterThan(0);
-            const some = keys.find((k: string) => servers[k]?.tokens);
-            expect(some).toBeDefined();
-            expect(servers[some!].tokens.access_token).toBeDefined();
+        type StateShape = {
+          state?: {
+            servers?: Record<string, { tokens?: { access_token?: string } }>;
+          };
+        };
+        const parsed = await waitForStateFile<StateShape>(
+          customPath,
+          (p) => {
+            const servers = (p as StateShape)?.state?.servers ?? {};
+            return Object.values(servers).some(
+              (s) =>
+                !!(s as { tokens?: { access_token?: string } })?.tokens
+                  ?.access_token,
+            );
           },
           { timeout: 2000, interval: 50 },
+        );
+        expect(Object.keys(parsed.state?.servers ?? {}).length).toBeGreaterThan(
+          0,
         );
       } finally {
         try {
