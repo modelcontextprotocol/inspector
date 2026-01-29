@@ -34,23 +34,9 @@
             return window.DOMPurify.sanitize(html, { RETURN_TRUSTED_TYPE: false });
           }
 
-          // Very conservative fallback: strip <script> tags and common inline event handlers.
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(html, "text/html");
-
-          // Remove all <script> elements.
-          doc.querySelectorAll("script").forEach((el) => el.remove());
-
-          // Remove inline event handlers such as onclick, onload, etc.
-          doc.querySelectorAll("*").forEach((el) => {
-            [...el.attributes].forEach((attr) => {
-              if (/^on/i.test(attr.name)) {
-                el.removeAttribute(attr.name);
-              }
-            });
-          });
-
-          return doc.documentElement.innerHTML;
+          // If DOMPurify is not available, do not attempt to sanitize manually.
+          // Returning an empty string avoids rendering untrusted HTML with a weak sanitizer.
+          return "";
         }
 
         // Notify host that we are ready to receive the app resource
