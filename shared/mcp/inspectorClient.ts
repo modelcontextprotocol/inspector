@@ -38,7 +38,13 @@ import type {
   ElicitResult,
   CallToolResult,
   Task,
+  Progress,
+  ProgressToken,
 } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  RequestOptions,
+  ProgressCallback,
+} from "@modelcontextprotocol/sdk/shared/protocol.js";
 import {
   CreateMessageRequestSchema,
   ElicitRequestSchema,
@@ -48,7 +54,6 @@ import {
   ResourceListChangedNotificationSchema,
   PromptListChangedNotificationSchema,
   ResourceUpdatedNotificationSchema,
-  ProgressNotificationSchema,
   McpError,
   ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -165,6 +170,17 @@ export interface InspectorClientOptions {
   progress?: boolean; // default: true
 
   /**
+   * If true, receiving a progress notification resets the request timeout (default: true).
+   * Only applies to requests that can receive progress. Set to false for strict timeout caps.
+   */
+  resetTimeoutOnProgress?: boolean;
+
+  /**
+   * Per-request timeout in milliseconds. If not set, the SDK default (60_000) is used.
+   */
+  timeout?: number;
+
+  /**
    * OAuth configuration
    */
   oauth?: {
@@ -232,6 +248,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   private sample: boolean;
   private elicit: boolean | { form?: boolean; url?: boolean };
   private progress: boolean;
+  private resetTimeoutOnProgress: boolean;
+  private requestTimeout: number | undefined;
   private status: ConnectionStatus = "disconnected";
   // Server data
   private tools: Tool[] = [];
@@ -282,6 +300,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.sample = options.sample ?? true;
     this.elicit = options.elicit ?? true;
     this.progress = options.progress ?? true;
+    this.resetTimeoutOnProgress = options.resetTimeoutOnProgress ?? true;
+    this.requestTimeout = options.timeout;
     // Only set roots if explicitly provided (even if empty array) - this enables roots capability
     this.roots = options.roots;
     // Initialize listChangedNotifications config (default: all enabled)
@@ -400,6 +420,39 @@ export class InspectorClient extends InspectorClientEventTarget {
     };
   }
 
+  /**
+   * Build RequestOptions for SDK client calls (timeout, resetTimeoutOnProgress, onprogress).
+   * When timeout is unset, SDK uses DEFAULT_REQUEST_TIMEOUT_MSEC (60s).
+   *
+   * When progress is enabled, we pass a per-request onprogress so the SDK routes progress and
+   * runs timeout reset. The SDK injects progressToken: messageId; we do not expose the caller's
+   * token to the server. We collect it from metadata and inject it into dispatched progressNotification
+   * events only, so listeners can correlate progress with the request that triggered it.
+   *
+   * @param progressToken Optional token from request metadata; injected into progressNotification
+   * events when provided (not sent to server).
+   */
+  private getRequestOptions(progressToken?: ProgressToken): RequestOptions {
+    const opts: RequestOptions = {
+      resetTimeoutOnProgress: this.resetTimeoutOnProgress,
+    };
+    if (this.requestTimeout !== undefined) {
+      opts.timeout = this.requestTimeout;
+    }
+    if (this.progress) {
+      const token = progressToken;
+      const onprogress: ProgressCallback = (progress: Progress) => {
+        const payload: Progress & { progressToken?: ProgressToken } = {
+          ...progress,
+          ...(token != null && { progressToken: token }),
+        };
+        this.dispatchTypedEvent("progressNotification", payload);
+      };
+      opts.onprogress = onprogress;
+    }
+    return opts;
+  }
+
   private isHttpOAuthConfig(): boolean {
     const serverType = getServerTypeFromConfig(this.transportConfig);
     return (
@@ -470,7 +523,10 @@ export class InspectorClient extends InspectorClientEventTarget {
 
       // Set initial logging level if configured and server supports it
       if (this.initialLoggingLevel && this.capabilities?.logging) {
-        await this.client.setLoggingLevel(this.initialLoggingLevel);
+        await this.client.setLoggingLevel(
+          this.initialLoggingLevel,
+          this.getRequestOptions(),
+        );
       }
 
       // Auto-fetch server contents (tools, resources, prompts) if enabled
@@ -597,19 +653,9 @@ export class InspectorClient extends InspectorClientEventTarget {
           );
         }
 
-        // Progress notification handler
-        if (this.progress) {
-          this.client.setNotificationHandler(
-            ProgressNotificationSchema,
-            async (notification) => {
-              // Dispatch event with full progress notification params
-              this.dispatchTypedEvent(
-                "progressNotification",
-                notification.params,
-              );
-            },
-          );
-        }
+        // Progress: we use per-request onprogress (see getRequestOptions). We do not register
+        // a progress notification handler so the Protocol's _onprogress stays; timeout reset
+        // and routing work, and we inject the caller's progressToken into dispatched events.
       }
     } catch (error) {
       this.status = "error";
@@ -781,7 +827,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    const result = await this.client.experimental.tasks.getTask(taskId);
+    const result = await this.client.experimental.tasks.getTask(
+      taskId,
+      this.getRequestOptions(),
+    );
     // GetTaskResult is the task itself (taskId, status, ttl, etc.)
     // Update task cache with result
     this.updateClientTask(result);
@@ -808,6 +857,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     return await this.client.experimental.tasks.getTaskResult(
       taskId,
       CallToolResultSchema,
+      this.getRequestOptions(),
     );
   }
 
@@ -820,7 +870,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    await this.client.experimental.tasks.cancelTask(taskId);
+    await this.client.experimental.tasks.cancelTask(
+      taskId,
+      this.getRequestOptions(),
+    );
     // Update task cache if we have it
     const task = this.clientTasks.get(taskId);
     if (task) {
@@ -846,7 +899,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    const result = await this.client.experimental.tasks.listTasks(cursor);
+    const result = await this.client.experimental.tasks.listTasks(
+      cursor,
+      this.getRequestOptions(),
+    );
     // Update task cache with all returned tasks
     for (const task of result.tasks) {
       this.updateClientTask(task);
@@ -949,7 +1005,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.capabilities?.logging) {
       throw new Error("Server does not support logging");
     }
-    await this.client.setLoggingLevel(level);
+    await this.client.setLoggingLevel(level, this.getRequestOptions());
   }
 
   /**
@@ -1007,7 +1063,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (cursor) {
       params.cursor = cursor;
     }
-    const response = await this.client.listTools(params);
+    const response = await this.client.listTools(
+      params,
+      this.getRequestOptions(metadata?.progressToken),
+    );
     return {
       tools: response.tools || [],
       nextCursor: response.nextCursor,
@@ -1110,11 +1169,15 @@ export class InspectorClient extends InspectorClientEventTarget {
           ? mergedMetadata
           : undefined;
 
-      const result = await this.client.callTool({
-        name: name,
-        arguments: convertedArgs,
-        _meta: metadata,
-      });
+      const result = await this.client.callTool(
+        {
+          name: name,
+          arguments: convertedArgs,
+          _meta: metadata,
+        },
+        undefined,
+        this.getRequestOptions(metadata?.progressToken),
+      );
 
       const invocation: ToolCallInvocation = {
         toolName: name,
@@ -1247,6 +1310,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       const stream = this.client.experimental.tasks.callToolStream(
         streamParams,
         undefined, // Use default CallToolResultSchema
+        this.getRequestOptions(metadata?.progressToken),
       );
 
       let finalResult: CallToolResult | undefined;
@@ -1334,8 +1398,11 @@ export class InspectorClient extends InspectorClientEventTarget {
       // Try to get it from the task result endpoint
       if (!finalResult && taskId) {
         try {
-          finalResult =
-            await this.client.experimental.tasks.getTaskResult(taskId);
+          finalResult = await this.client.experimental.tasks.getTaskResult(
+            taskId,
+            undefined,
+            this.getRequestOptions(), // no metadata for fallback
+          );
         } catch (resultError) {
           throw new Error(
             `Tool call did not return a result: ${resultError instanceof Error ? resultError.message : String(resultError)}`,
@@ -1430,7 +1497,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (cursor) {
       params.cursor = cursor;
     }
-    const response = await this.client.listResources(params);
+    const response = await this.client.listResources(
+      params,
+      this.getRequestOptions(metadata?.progressToken),
+    );
     return {
       resources: response.resources || [],
       nextCursor: response.nextCursor,
@@ -1504,7 +1574,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (metadata && Object.keys(metadata).length > 0) {
       params._meta = metadata;
     }
-    const result = await this.client.readResource(params);
+    const result = await this.client.readResource(
+      params,
+      this.getRequestOptions(metadata?.progressToken),
+    );
     const invocation: ResourceReadInvocation = {
       result,
       timestamp: new Date(),
@@ -1615,7 +1688,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       if (cursor) {
         params.cursor = cursor;
       }
-      const response = await this.client.listResourceTemplates(params);
+      const response = await this.client.listResourceTemplates(
+        params,
+        this.getRequestOptions(metadata?.progressToken),
+      );
       return {
         resourceTemplates: response.resourceTemplates || [],
         nextCursor: response.nextCursor,
@@ -1700,7 +1776,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (cursor) {
       params.cursor = cursor;
     }
-    const response = await this.client.listPrompts(params);
+    const response = await this.client.listPrompts(
+      params,
+      this.getRequestOptions(metadata?.progressToken),
+    );
     return {
       prompts: response.prompts || [],
       nextCursor: response.nextCursor,
@@ -1782,7 +1861,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       params._meta = metadata;
     }
 
-    const result = await this.client.getPrompt(params);
+    const result = await this.client.getPrompt(
+      params,
+      this.getRequestOptions(metadata?.progressToken),
+    );
 
     const invocation: PromptGetInvocation = {
       result,
@@ -1846,7 +1928,10 @@ export class InspectorClient extends InspectorClientEventTarget {
         params._meta = metadata;
       }
 
-      const response = await this.client.complete(params);
+      const response = await this.client.complete(
+        params,
+        this.getRequestOptions(metadata?.progressToken),
+      );
 
       return {
         values: response.completion.values || [],
@@ -1900,9 +1985,9 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Fetch server contents (tools, resources, prompts) by sending MCP requests
-   * This is only called when autoFetchServerContents is enabled
-   * TODO: Add support for listChanged notifications to auto-refresh when server data changes
+   * Fetch server contents (tools, resources, prompts) by sending MCP requests.
+   * Only runs when autoFetchServerContents is enabled.
+   * listChanged auto-refresh is implemented via notification handlers in connect().
    */
   private async fetchServerContents(): Promise<void> {
     if (!this.client) {
@@ -2082,7 +2167,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Server does not support resource subscriptions");
     }
     try {
-      await this.client.subscribeResource({ uri });
+      await this.client.subscribeResource({ uri }, this.getRequestOptions());
       this.subscribedResources.add(uri);
       this.dispatchTypedEvent(
         "resourceSubscriptionsChange",
@@ -2105,7 +2190,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     try {
-      await this.client.unsubscribeResource({ uri });
+      await this.client.unsubscribeResource({ uri }, this.getRequestOptions());
       this.subscribedResources.delete(uri);
       this.dispatchTypedEvent(
         "resourceSubscriptionsChange",

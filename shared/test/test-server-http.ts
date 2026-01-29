@@ -13,6 +13,10 @@ import {
   setupOAuthRoutes,
   createBearerTokenMiddleware,
 } from "./test-server-oauth.js";
+import {
+  setTestServerControl,
+  type ServerControl,
+} from "./test-server-control.js";
 
 export interface RecordedRequest {
   method: string;
@@ -69,6 +73,8 @@ function extractHeaders(req: Request): Record<string, string> {
 export class TestServerHttp {
   private mcpServer: McpServer;
   private config: ServerConfig;
+  private readonly serverControl: ServerControl;
+  private _closing = false;
   private recordedRequests: RecordedRequest[] = [];
   private httpServer?: HttpServer;
   private transport?: StreamableHTTPServerTransport | SSEServerTransport;
@@ -78,12 +84,15 @@ export class TestServerHttp {
 
   constructor(config: ServerConfig) {
     this.config = config;
-    // Pass callback to track log level for testing
+    this.serverControl = {
+      isClosing: () => this._closing,
+    };
     const configWithCallback: ServerConfig = {
       ...config,
       onLogLevelSet: (level: string) => {
         this.currentLogLevel = level;
       },
+      serverControl: this.serverControl,
     };
     this.mcpServer = createMcpServer(configWithCallback);
   }
@@ -147,6 +156,7 @@ export class TestServerHttp {
    * Start the server using the configuration from ServerConfig
    */
   async start(): Promise<number> {
+    setTestServerControl(this.serverControl);
     const serverType = this.config.serverType ?? "streamable-http";
     const requestedPort = this.config.port;
 
@@ -380,9 +390,10 @@ export class TestServerHttp {
   }
 
   /**
-   * Stop the server
+   * Stop the server. Set closing before closing transport so in-flight tools can skip sending.
    */
   async stop(): Promise<void> {
+    this._closing = true;
     await this.mcpServer.close();
 
     if (this.transport) {
@@ -396,9 +407,12 @@ export class TestServerHttp {
         this.httpServer!.closeAllConnections?.();
         this.httpServer!.close(() => {
           this.httpServer = undefined;
+          setTestServerControl(null);
           resolve();
         });
       });
+    } else {
+      setTestServerControl(null);
     }
   }
 

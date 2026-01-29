@@ -40,7 +40,11 @@ import type {
   CallToolResult,
   Task,
 } from "@modelcontextprotocol/sdk/types.js";
-import { RELATED_TASK_META_KEY } from "@modelcontextprotocol/sdk/types.js";
+import {
+  RELATED_TASK_META_KEY,
+  McpError,
+  ErrorCode,
+} from "@modelcontextprotocol/sdk/types.js";
 
 describe("InspectorClient", () => {
   let client: InspectorClient;
@@ -53,6 +57,8 @@ describe("InspectorClient", () => {
   });
 
   afterEach(async () => {
+    // Orderly teardown: disconnect client first, then stop server.
+    // HTTP test server sets closing before close so in-flight progress tools skip sending.
     if (client) {
       try {
         await client.disconnect();
@@ -1233,6 +1239,140 @@ describe("InspectorClient", () => {
         progressToken: progressToken.toString(),
       });
       expect((progressEvents[1] as { total?: number }).total).toBeUndefined();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should complete when timeout and resetTimeoutOnProgress are set (options passed through)", async () => {
+      const { createSendProgressTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createSendProgressTool()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+          progress: true,
+          timeout: 2000,
+          resetTimeoutOnProgress: true,
+        },
+      );
+
+      await client.connect();
+
+      const progressToken = 999;
+      const result = await client.callTool(
+        "sendProgress",
+        { units: 3, delayMs: 100, total: 3, message: "Timeout test" },
+        undefined,
+        { progressToken: progressToken.toString() },
+      );
+
+      expect(result.success).toBe(true);
+      expect((result.result as { content?: unknown[] }).content).toBeDefined();
+      const text = (
+        result.result as { content?: { type: string; text?: string }[] }
+      ).content?.find((c) => c.type === "text")?.text;
+      expect(text).toContain("Completed 3 progress notifications");
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should not timeout when resetTimeoutOnProgress is true and progress is sent (reset extends timeout)", async () => {
+      const { createSendProgressTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createSendProgressTool()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+          progress: true,
+          timeout: 350,
+          resetTimeoutOnProgress: true,
+        },
+      );
+
+      await client.connect();
+
+      const result = await client.callTool(
+        "sendProgress",
+        { units: 4, delayMs: 200, total: 4, message: "Reset test" },
+        undefined,
+        { progressToken: "reset-test" },
+      );
+
+      expect(result.success).toBe(true);
+      expect((result.result as { content?: unknown[] }).content).toBeDefined();
+      const text = (
+        result.result as { content?: { type: string; text?: string }[] }
+      ).content?.find((c) => c.type === "text")?.text;
+      expect(text).toContain("Completed 4 progress notifications");
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should timeout with RequestTimeout when resetTimeoutOnProgress is false and gap exceeds timeout", async () => {
+      const { createSendProgressTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createSendProgressTool()],
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+          progress: true,
+          timeout: 150,
+          resetTimeoutOnProgress: false,
+        },
+      );
+
+      await client.connect();
+
+      const progressToken = 888;
+      let err: unknown;
+      try {
+        await client.callTool(
+          "sendProgress",
+          { units: 4, delayMs: 200, total: 4, message: "Timeout test" },
+          undefined,
+          { progressToken: progressToken.toString() },
+        );
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(McpError);
+      expect((err as McpError).code).toBe(ErrorCode.RequestTimeout);
 
       await client.disconnect();
       await server.stop();

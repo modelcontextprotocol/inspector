@@ -23,7 +23,8 @@ import type {
   ServerCapabilities,
   Implementation,
   Root,
-  ProgressNotificationParams,
+  Progress,
+  ProgressToken,
   Task,
   CallToolResult,
   McpError,
@@ -50,7 +51,7 @@ export interface InspectorClientEventMap {
   fetchRequest: FetchRequestEntry;
   error: Error;
   resourceUpdated: { uri: string };
-  progressNotification: ProgressNotificationParams;
+  progressNotification: Progress & { progressToken?: ProgressToken };
   toolCallResultChange: {
     toolName: string;
     params: Record<string, any>;

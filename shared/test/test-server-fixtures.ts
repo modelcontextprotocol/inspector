@@ -21,6 +21,7 @@ import type {
   ServerConfig,
   TestServerContext,
 } from "./composable-test-server.js";
+import { getTestServerControl } from "./test-server-control.js";
 import type {
   ElicitRequestFormParams,
   ElicitRequestURLParams,
@@ -1086,10 +1087,17 @@ export function createSendProgressTool(
       const progressToken = extra?._meta?.progressToken;
 
       // Send progress notifications
+      let sent = 0;
       for (let i = 1; i <= units; i++) {
+        if (context.serverControl?.isClosing()) {
+          break;
+        }
         // Wait before sending notification (except for the first one)
         if (i > 1 && delayMs > 0) {
           await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+        if (context.serverControl?.isClosing()) {
+          break;
         }
 
         if (progressToken !== undefined) {
@@ -1115,18 +1123,20 @@ export function createSendProgressTool(
               },
               { relatedRequestId: extra?.requestId },
             );
+            sent = i;
           } catch (error) {
             console.error(
               "[sendProgress] Error sending progress notification:",
               error,
             );
+            break;
           }
         }
       }
 
       return {
-        message: `Completed ${units} progress notifications`,
-        units,
+        message: `Completed ${sent} progress notifications`,
+        units: sent,
         total: total || units,
       };
     },
@@ -1353,9 +1363,15 @@ export function createFlexibleTaskTool(
               const units = progressUnits;
               if (progressToken !== undefined) {
                 for (let i = 1; i <= units; i++) {
+                  if (getTestServerControl()?.isClosing()) {
+                    break;
+                  }
                   await new Promise((resolve) =>
                     setTimeout(resolve, delayMs / units),
                   );
+                  if (getTestServerControl()?.isClosing()) {
+                    break;
+                  }
                   try {
                     await extra.sendNotification({
                       method: "notifications/progress",
@@ -1376,6 +1392,7 @@ export function createFlexibleTaskTool(
                       "[flexibleTask] Progress notification error:",
                       error,
                     );
+                    break;
                   }
                 }
               }
