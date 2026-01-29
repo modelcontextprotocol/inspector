@@ -10,14 +10,17 @@ jest.mock("../AppRenderer", () => {
   return function MockAppRenderer({
     tool,
     resourceContent,
+    toolInput,
   }: {
     tool: Tool;
     resourceContent: string;
+    toolInput?: Record<string, unknown>;
   }) {
     return (
       <div data-testid="app-renderer">
         <div>Tool: {tool.name}</div>
         <div>Content: {resourceContent || "No content"}</div>
+        <div data-testid="tool-input">{JSON.stringify(toolInput)}</div>
       </div>
     );
   };
@@ -134,7 +137,7 @@ describe("AppsTab", () => {
     expect(screen.getByText(errorMessage)).toBeInTheDocument();
   });
 
-  it("should open app renderer when an app card is clicked", () => {
+  it("should open app renderer when an app card is clicked and Open App button is clicked", () => {
     renderAppsTab({
       tools: [mockAppTool],
       resourceContentMap: { "ui://weather-app": "<html>test</html>" },
@@ -143,6 +146,14 @@ describe("AppsTab", () => {
     const appCard = screen.getByText("weatherApp").closest("div");
     expect(appCard).toBeTruthy();
     fireEvent.click(appCard!);
+
+    // Should see the input form now, not the renderer yet
+    expect(screen.queryByTestId("app-renderer")).not.toBeInTheDocument();
+    expect(screen.getByText("App Input")).toBeInTheDocument();
+
+    // Click Open App button
+    const openAppButton = screen.getByRole("button", { name: /open app/i });
+    fireEvent.click(openAppButton);
 
     // AppRenderer should be rendered
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
@@ -158,9 +169,10 @@ describe("AppsTab", () => {
     // Open the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
 
-    // Close the app
+    // Close the app (Deselect tool)
     const closeButton = screen.getByRole("button", { name: /close app/i });
     fireEvent.click(closeButton);
 
@@ -178,6 +190,7 @@ describe("AppsTab", () => {
     // Open the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
 
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
     expect(screen.getByText(`Content: ${resourceContent}`)).toBeInTheDocument();
@@ -214,6 +227,7 @@ describe("AppsTab", () => {
     // Select the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
 
     // Update tools list to remove the selected tool
@@ -240,6 +254,7 @@ describe("AppsTab", () => {
     // Select the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
 
     // Update tools list with the same tool
@@ -257,14 +272,76 @@ describe("AppsTab", () => {
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
   });
 
-  it("should display app cards with hover effect", () => {
+  it("should maximize and minimize the app window", () => {
     renderAppsTab({
       tools: [mockAppTool],
     });
 
+    // Select the app
     const appCard = screen.getByText("weatherApp").closest("div");
-    expect(appCard).toHaveClass("hover:border-primary");
-    expect(appCard).toHaveClass("cursor-pointer");
+    fireEvent.click(appCard!);
+
+    // Initially, Maximize button should not be visible (app not open)
+    expect(
+      screen.queryByRole("button", { name: /maximize/i }),
+    ).not.toBeInTheDocument();
+
+    // Open the app
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+
+    // Now Maximize button should be visible
+    expect(
+      screen.getByRole("button", { name: /maximize/i }),
+    ).toBeInTheDocument();
+
+    // Initially, ListPane should be visible
+    expect(screen.getByText("MCP Apps")).toBeInTheDocument();
+
+    // Click Maximize
+    const maximizeButton = screen.getByRole("button", { name: /maximize/i });
+    fireEvent.click(maximizeButton);
+
+    // ListPane should be hidden
+    expect(screen.queryByText("MCP Apps")).not.toBeInTheDocument();
+
+    // Click Minimize
+    const minimizeButton = screen.getByRole("button", { name: /minimize/i });
+    fireEvent.click(minimizeButton);
+
+    // ListPane should be visible again
+    expect(screen.getByText("MCP Apps")).toBeInTheDocument();
+  });
+
+  it("should reset maximized state when app is closed", () => {
+    renderAppsTab({
+      tools: [mockAppTool],
+    });
+
+    // Select the app
+    const appCard = screen.getByText("weatherApp").closest("div");
+    fireEvent.click(appCard!);
+
+    // Open the app
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+
+    // Maximize
+    fireEvent.click(screen.getByRole("button", { name: /maximize/i }));
+    expect(screen.queryByText("MCP Apps")).not.toBeInTheDocument();
+
+    // Close app (deselect tool)
+    fireEvent.click(screen.getByRole("button", { name: /close app/i }));
+
+    // ListPane should be visible again
+    expect(screen.getByText("MCP Apps")).toBeInTheDocument();
+  });
+
+  it("should display app cards in the list", () => {
+    renderAppsTab({
+      tools: [mockAppTool],
+    });
+
+    const appItem = screen.getByText("weatherApp").closest("div");
+    expect(appItem).toBeTruthy();
   });
 
   it("should handle empty resourceContentMap", () => {
@@ -276,9 +353,99 @@ describe("AppsTab", () => {
     // Open the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
 
     // AppRenderer should still be rendered but with no content
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
     expect(screen.getByText("Content: No content")).toBeInTheDocument();
+  });
+
+  it("should handle various input types and pass them to AppRenderer", () => {
+    const toolWithComplexSchema: Tool = {
+      name: "complexApp",
+      inputSchema: {
+        type: "object",
+        properties: {
+          text: { type: "string" },
+          toggle: { type: "boolean" },
+          number: { type: "number" },
+          choice: { type: "string", enum: ["a", "b"] },
+        },
+      },
+      _meta: { ui: { resourceUri: "ui://complex" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+
+    renderAppsTab({
+      tools: [toolWithComplexSchema],
+    });
+
+    fireEvent.click(screen.getByText("complexApp"));
+
+    // Fill the form
+    fireEvent.change(screen.getByLabelText("text"), {
+      target: { value: "hello" },
+    });
+    // Checkboxes are often rendered with a label next to them, let's look for the text
+    const toggleLabel = screen.getByText(/Toggle this option/i);
+    fireEvent.click(toggleLabel);
+    fireEvent.change(screen.getByLabelText("number"), {
+      target: { value: "42" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+
+    const toolInput = JSON.parse(
+      screen.getByTestId("tool-input").textContent || "{}",
+    );
+    expect(toolInput.text).toBe("hello");
+    expect(toolInput.toggle).toBe(true);
+    expect(toolInput.number).toBe(42);
+  });
+
+  it("should handle nullable fields", () => {
+    const toolWithNullable: Tool = {
+      name: "nullableApp",
+      inputSchema: {
+        type: "object",
+        properties: {
+          nullableField: { type: ["string", "null"] },
+        },
+      },
+      _meta: { ui: { resourceUri: "ui://nullable" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+
+    renderAppsTab({
+      tools: [toolWithNullable],
+    });
+
+    fireEvent.click(screen.getByText("nullableApp"));
+
+    // Check the 'null' checkbox
+    const nullCheckbox = screen.getByLabelText("null");
+    fireEvent.click(nullCheckbox);
+
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+
+    const toolInput = JSON.parse(
+      screen.getByTestId("tool-input").textContent || "{}",
+    );
+    expect(toolInput.nullableField).toBe(null);
+  });
+
+  it("should allow going back to input form from app renderer", () => {
+    renderAppsTab({
+      tools: [mockAppTool],
+    });
+
+    fireEvent.click(screen.getByText("weatherApp"));
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+
+    expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+
+    const backButton = screen.getByRole("button", { name: /back to input/i });
+    fireEvent.click(backButton);
+
+    expect(screen.queryByTestId("app-renderer")).not.toBeInTheDocument();
+    expect(screen.getByText("App Input")).toBeInTheDocument();
   });
 });

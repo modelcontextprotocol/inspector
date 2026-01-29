@@ -14,6 +14,7 @@ interface AppRendererProps {
   mcpClient: Client | null;
   onReadResource: (uri: string) => void;
   resourceContent: string;
+  toolInput?: Record<string, unknown>;
 }
 
 const AppRenderer = ({
@@ -21,6 +22,7 @@ const AppRenderer = ({
   mcpClient,
   onReadResource,
   resourceContent,
+  toolInput,
 }: AppRendererProps) => {
   const [error, setError] = useState<string | null>(null);
 
@@ -106,6 +108,7 @@ const AppRenderer = ({
           toolName={tool.name}
           html={html}
           hostContext={hostContext}
+          toolInput={toolInput}
           sandbox={{
             url: new URL("/sandbox_proxy.html", window.location.origin),
           }}
