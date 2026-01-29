@@ -161,7 +161,7 @@ describe("AppsTab", () => {
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
 
     // Close the app
-    const closeButton = screen.getByRole("button", { name: "" }); // X button has no text
+    const closeButton = screen.getByRole("button", { name: /close app/i });
     fireEvent.click(closeButton);
 
     // AppRenderer should be removed
