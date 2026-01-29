@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, RefreshCw, X } from "lucide-react";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
 import AppRenderer from "./AppRenderer";
 
 interface AppsTabProps {
@@ -18,8 +19,7 @@ interface AppsTabProps {
 
 // Type guard to check if a tool has UI metadata
 const hasUIMetadata = (tool: Tool): boolean => {
-  const meta = (tool as { _meta?: { ui?: { resourceUri?: string } } })._meta;
-  return !!meta?.ui?.resourceUri;
+  return !!getToolUiResourceUri(tool);
 };
 
 const AppsTab = ({
@@ -88,9 +88,7 @@ const AppsTab = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {appTools.map((tool) => {
-            const meta = (tool as { _meta?: { ui?: { resourceUri?: string } } })
-              ._meta;
-            const resourceUri = meta?.ui?.resourceUri || "";
+            const resourceUri = getToolUiResourceUri(tool) || "";
 
             return (
               <div
@@ -117,12 +115,7 @@ const AppsTab = ({
 
       {selectedTool &&
         (() => {
-          const resourceUri =
-            (
-              selectedTool as Tool & {
-                _meta?: { ui?: { resourceUri?: string } };
-              }
-            )._meta?.ui?.resourceUri || "";
+          const resourceUri = getToolUiResourceUri(selectedTool) || "";
           const content = resourceContentMap[resourceUri] || "";
 
           console.log("[AppsTab] Rendering app:", {

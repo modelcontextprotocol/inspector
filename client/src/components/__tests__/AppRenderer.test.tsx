@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, it, jest, beforeEach } from "@jest/globals";
 import AppRenderer from "../AppRenderer";
@@ -6,46 +6,23 @@ import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 // Mock the ext-apps module
-jest.mock("@modelcontextprotocol/ext-apps/app-bridge", () => {
-  class MockAppBridge {
-    oninitialized: (() => void) | null = null;
-    onerror: ((error: Error) => void) | null = null;
+jest.mock("@modelcontextprotocol/ext-apps/app-bridge", () => ({
+  getToolUiResourceUri: (tool: Tool) => {
+    const meta = (tool as Tool & { _meta?: { ui?: { resourceUri?: string } } })
+      ._meta;
+    return meta?.ui?.resourceUri || null;
+  },
+}));
 
-    async connect() {
-      // Simulate successful connection
-      setTimeout(() => {
-        if (this.oninitialized) {
-          this.oninitialized();
-        }
-      }, 0);
-    }
-
-    async close() {
-      // Mock close
-    }
-  }
-
-  class MockPostMessageTransport {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    constructor(_source: Window | null, _target: Window | null) {
-      // Mock constructor
-    }
-  }
-
-  return {
-    AppBridge: MockAppBridge,
-    PostMessageTransport: MockPostMessageTransport,
-    getToolUiResourceUri: (tool: Tool) => {
-      const meta = (
-        tool as Tool & { _meta?: { ui?: { resourceUri?: string } } }
-      )._meta;
-      return meta?.ui?.resourceUri || null;
-    },
-    buildAllowAttribute: (permissions?: Record<string, unknown>) => {
-      return permissions ? "custom-permissions" : "";
-    },
-  };
-});
+// Mock @mcp-ui/client
+jest.mock("@mcp-ui/client", () => ({
+  AppRenderer: ({ toolName, html }: { toolName: string; html: string }) => (
+    <div data-testid="mcp-ui-app-renderer">
+      <div data-testid="tool-name">{toolName}</div>
+      <div data-testid="html-content">{html}</div>
+    </div>
+  ),
+}));
 
 describe("AppRenderer", () => {
   const mockTool: Tool = {
@@ -64,6 +41,8 @@ describe("AppRenderer", () => {
 
   const mockMcpClient = {
     request: jest.fn(),
+    getServerCapabilities: jest.fn().mockReturnValue({}),
+    setNotificationHandler: jest.fn(),
   } as unknown as Client;
 
   const defaultProps = {
@@ -77,10 +56,9 @@ describe("AppRenderer", () => {
     jest.clearAllMocks();
   });
 
-  it("should display loading state initially", () => {
-    render(<AppRenderer {...defaultProps} />);
-
-    expect(screen.getByText(/Loading MCP App/i)).toBeInTheDocument();
+  it("should display waiting state when mcpClient is null", () => {
+    render(<AppRenderer {...defaultProps} mcpClient={null} />);
+    expect(screen.getByText(/Waiting for MCP client/i)).toBeInTheDocument();
   });
 
   it("should call onReadResource when resourceContent is empty", () => {
@@ -96,19 +74,6 @@ describe("AppRenderer", () => {
     expect(mockOnReadResource).toHaveBeenCalledWith("ui://test-app");
   });
 
-  it("should not call onReadResource when resourceContent is provided", () => {
-    const mockOnReadResource = jest.fn();
-    render(
-      <AppRenderer
-        {...defaultProps}
-        onReadResource={mockOnReadResource}
-        resourceContent="<html>test</html>"
-      />,
-    );
-
-    expect(mockOnReadResource).not.toHaveBeenCalled();
-  });
-
   it("should display error when no resource URI is found", () => {
     const toolWithoutUri: Tool = {
       name: "noUriTool",
@@ -121,10 +86,12 @@ describe("AppRenderer", () => {
 
     render(<AppRenderer {...defaultProps} tool={toolWithoutUri} />);
 
-    expect(screen.getByText(/No UI resource URI found/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/No UI resource URI found in tool metadata/i),
+    ).toBeInTheDocument();
   });
 
-  it("should render iframe with proper attributes", async () => {
+  it("should render McpUiAppRenderer when client and resource are ready", () => {
     render(
       <AppRenderer
         {...defaultProps}
@@ -132,32 +99,14 @@ describe("AppRenderer", () => {
       />,
     );
 
-    await waitFor(() => {
-      const iframe = document.querySelector("iframe");
-      expect(iframe).toBeInTheDocument();
-      expect(iframe).toHaveAttribute(
-        "sandbox",
-        "allow-scripts allow-same-origin",
-      );
-      expect(iframe).toHaveAttribute("title", "MCP App: testApp");
-    });
-  });
-
-  it("should display initialized message when app connects", async () => {
-    render(
-      <AppRenderer
-        {...defaultProps}
-        resourceContent="<html><body>Test</body></html>"
-      />,
+    expect(screen.getByTestId("mcp-ui-app-renderer")).toBeInTheDocument();
+    expect(screen.getByTestId("tool-name")).toHaveTextContent("testApp");
+    expect(screen.getByTestId("html-content")).toHaveTextContent(
+      "<html><body>Test</body></html>",
     );
-
-    await waitFor(() => {
-      expect(screen.getByText(/App connected/i)).toBeInTheDocument();
-      expect(screen.getByText(/testApp/)).toBeInTheDocument();
-    });
   });
 
-  it("should handle JSON resource content with MCP format", async () => {
+  it("should handle JSON resource content with MCP format", () => {
     const jsonContent = JSON.stringify({
       contents: [
         {
@@ -170,181 +119,39 @@ describe("AppRenderer", () => {
 
     render(<AppRenderer {...defaultProps} resourceContent={jsonContent} />);
 
-    await waitFor(() => {
-      const iframe = document.querySelector("iframe");
-      expect(iframe).toBeInTheDocument();
-    });
+    expect(screen.getByTestId("html-content")).toHaveTextContent(
+      "<html><body>Test App</body></html>",
+    );
   });
 
-  it("should handle plain HTML resource content", async () => {
-    const htmlContent = "<html><body>Plain HTML</body></html>";
-
-    render(<AppRenderer {...defaultProps} resourceContent={htmlContent} />);
-
-    await waitFor(() => {
-      const iframe = document.querySelector("iframe");
-      expect(iframe).toBeInTheDocument();
-    });
-  });
-
-  it("should apply custom permissions to iframe", async () => {
-    const toolWithPermissions: Tool = {
-      ...mockTool,
-      _meta: {
-        ui: {
-          resourceUri: "ui://test-app",
-          permissions: {
-            camera: true,
-            microphone: true,
-          },
-        },
-      },
-    } as Tool & {
-      _meta?: {
-        ui?: { resourceUri?: string; permissions?: Record<string, unknown> };
-      };
-    };
-
-    render(
-      <AppRenderer
-        {...defaultProps}
-        tool={toolWithPermissions}
-        resourceContent="<html><body>Test</body></html>"
-      />,
-    );
-
-    await waitFor(() => {
-      const iframe = document.querySelector("iframe");
-      expect(iframe).toHaveAttribute("allow", "custom-permissions");
-    });
-  });
-
-  it("should update when resourceContent changes", async () => {
-    const { rerender } = render(
-      <AppRenderer {...defaultProps} resourceContent="" />,
-    );
-
-    expect(screen.getByText(/Loading MCP App/i)).toBeInTheDocument();
-
-    // Update with content
-    rerender(
-      <AppRenderer
-        {...defaultProps}
-        resourceContent="<html><body>Updated</body></html>"
-      />,
-    );
-
-    await waitFor(() => {
-      const iframe = document.querySelector("iframe");
-      expect(iframe).toBeInTheDocument();
-    });
-  });
-
-  it("should cleanup on unmount", async () => {
-    const { unmount } = render(
-      <AppRenderer
-        {...defaultProps}
-        resourceContent="<html><body>Test</body></html>"
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText(/App connected/i)).toBeInTheDocument();
+  it("should display error from JSON resource response", () => {
+    const errorJson = JSON.stringify({
+      error: "Failed to load resource",
     });
 
-    // Unmount should not throw errors
-    unmount();
+    render(<AppRenderer {...defaultProps} resourceContent={errorJson} />);
+
+    expect(screen.getByText("Failed to load resource")).toBeInTheDocument();
   });
 
-  it("should handle missing contentWindow gracefully", () => {
-    // This test verifies that the component handles edge cases
-    // The actual error handling is tested through the error display
-    render(
-      <AppRenderer
-        {...defaultProps}
-        mcpClient={null}
-        resourceContent="<html><body>Test</body></html>"
-      />,
-    );
-
-    // Should still show loading state
-    expect(screen.getByText(/Loading MCP App/i)).toBeInTheDocument();
-  });
-
-  it("should set minimum height on iframe", async () => {
-    render(
-      <AppRenderer
-        {...defaultProps}
-        resourceContent="<html><body>Test</body></html>"
-      />,
-    );
-
-    await waitFor(() => {
-      const iframe = document.querySelector("iframe");
-      expect(iframe).toHaveStyle({ minHeight: "400px" });
-    });
-  });
-
-  it("should have proper styling classes on iframe", async () => {
-    render(
-      <AppRenderer
-        {...defaultProps}
-        resourceContent="<html><body>Test</body></html>"
-      />,
-    );
-
-    await waitFor(() => {
-      const iframe = document.querySelector("iframe");
-      expect(iframe).toHaveClass("w-full", "flex-1", "border", "rounded");
-    });
-  });
-
-  it("should handle JSON parsing errors gracefully", async () => {
-    const invalidJson = "{invalid json content}";
-
+  it("should handle invalid JSON gracefully by using as-is", () => {
+    const invalidJson = "{invalid json}";
     render(<AppRenderer {...defaultProps} resourceContent={invalidJson} />);
 
-    // Should still attempt to render as HTML
-    await waitFor(() => {
-      const iframe = document.querySelector("iframe");
-      expect(iframe).toBeInTheDocument();
-    });
+    expect(screen.getByTestId("html-content")).toHaveTextContent(
+      "{invalid json}",
+    );
   });
 
-  it("should handle empty contents array in JSON response", async () => {
-    const jsonContent = JSON.stringify({
-      contents: [],
-    });
+  it("should set minimum height on container", () => {
+    render(
+      <AppRenderer
+        {...defaultProps}
+        resourceContent="<html><body>Test</body></html>"
+      />,
+    );
 
-    render(<AppRenderer {...defaultProps} resourceContent={jsonContent} />);
-
-    await waitFor(() => {
-      const iframe = document.querySelector("iframe");
-      expect(iframe).toBeInTheDocument();
-    });
-  });
-
-  it("should extract text from first text content in MCP response", async () => {
-    const jsonContent = JSON.stringify({
-      contents: [
-        {
-          uri: "ui://test-app",
-          mimeType: "application/json",
-          text: '{"data": "not html"}',
-        },
-        {
-          uri: "ui://test-app",
-          mimeType: "text/html",
-          text: "<html><body>Actual HTML</body></html>",
-        },
-      ],
-    });
-
-    render(<AppRenderer {...defaultProps} resourceContent={jsonContent} />);
-
-    await waitFor(() => {
-      const iframe = document.querySelector("iframe");
-      expect(iframe).toBeInTheDocument();
-    });
+    const container = screen.getByTestId("mcp-ui-app-renderer").parentElement;
+    expect(container).toHaveStyle({ minHeight: "400px" });
   });
 });

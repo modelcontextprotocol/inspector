@@ -128,6 +128,9 @@ const App = () => {
   const [resourceContentMap, setResourceContentMap] = useState<
     Record<string, string>
   >({});
+  const [fetchingResources, setFetchingResources] = useState<Set<string>>(
+    new Set(),
+  );
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
   const [tools, setTools] = useState<Tool[]>([]);
@@ -866,36 +869,48 @@ const App = () => {
   };
 
   const readResource = async (uri: string) => {
+    if (fetchingResources.has(uri) || resourceContentMap[uri]) {
+      return;
+    }
+
     console.log("[App] Reading resource:", uri);
+    setFetchingResources((prev) => new Set(prev).add(uri));
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
-    const response = await sendMCPRequest(
-      {
-        method: "resources/read" as const,
-        params: { uri },
-      },
-      ReadResourceResultSchema,
-      "resources",
-    );
-    console.log("[App] Resource read response:", {
-      uri,
-      responseLength: JSON.stringify(response).length,
-      hasContents: !!(response as { contents?: unknown[] }).contents,
-    });
-    const content = JSON.stringify(response, null, 2);
-    setResourceContent(content);
-    setResourceContentMap((prev) => {
-      const updated = {
+    try {
+      const response = await sendMCPRequest(
+        {
+          method: "resources/read" as const,
+          params: { uri },
+        },
+        ReadResourceResultSchema,
+        "resources",
+      );
+      console.log("[App] Resource read response:", {
+        uri,
+        responseLength: JSON.stringify(response).length,
+        hasContents: !!(response as { contents?: unknown[] }).contents,
+      });
+      const content = JSON.stringify(response, null, 2);
+      setResourceContent(content);
+      setResourceContentMap((prev) => ({
         ...prev,
         [uri]: content,
-      };
-      console.log("[App] Updated resourceContentMap:", {
-        uri,
-        contentLength: content.length,
-        mapKeys: Object.keys(updated),
+      }));
+    } catch (error) {
+      console.error(`[App] Failed to read resource ${uri}:`, error);
+      const errorString = (error as Error).message ?? String(error);
+      setResourceContentMap((prev) => ({
+        ...prev,
+        [uri]: JSON.stringify({ error: errorString }),
+      }));
+    } finally {
+      setFetchingResources((prev) => {
+        const next = new Set(prev);
+        next.delete(uri);
+        return next;
       });
-      return updated;
-    });
+    }
   };
 
   const subscribeToResource = async (uri: string) => {
