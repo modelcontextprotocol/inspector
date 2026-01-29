@@ -24,6 +24,35 @@
         const SANDBOX_RESOURCE_READY_METHOD =
           "ui/notifications/sandbox-resource-ready";
 
+        // Optionally restrict which origins are allowed to send sandbox HTML.
+        // Fill this array with explicit origins (for example, ["https://your-app.com"]).
+        // Leaving it empty will accept messages from any origin, but HTML is still sanitized.
+        const ALLOWED_ORIGINS = [];
+
+        function sanitizeHtml(html) {
+          if (window.DOMPurify && typeof window.DOMPurify.sanitize === "function") {
+            return window.DOMPurify.sanitize(html, { RETURN_TRUSTED_TYPE: false });
+          }
+
+          // Very conservative fallback: strip <script> tags and common inline event handlers.
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, "text/html");
+
+          // Remove all <script> elements.
+          doc.querySelectorAll("script").forEach((el) => el.remove());
+
+          // Remove inline event handlers such as onclick, onload, etc.
+          doc.querySelectorAll("*").forEach((el) => {
+            [...el.attributes].forEach((attr) => {
+              if (/^on/i.test(attr.name)) {
+                el.removeAttribute(attr.name);
+              }
+            });
+          });
+
+          return doc.documentElement.innerHTML;
+        }
+
         // Notify host that we are ready to receive the app resource
         window.parent.postMessage(
           {
@@ -36,6 +65,15 @@
 
         // Listen for the app resource (HTML) from the host
         window.addEventListener("message", (event) => {
+          // If ALLOWED_ORIGINS is non-empty, enforce origin restriction.
+          if (
+            Array.isArray(ALLOWED_ORIGINS) &&
+            ALLOWED_ORIGINS.length > 0 &&
+            !ALLOWED_ORIGINS.includes(event.origin)
+          ) {
+            return;
+          }
+
           const message = event.data;
           if (
             message &&
@@ -47,9 +85,7 @@
             const { html } = message.params;
             if (html) {
               // Sanitize the HTML before writing it to the document
-              const safeHtml = window.DOMPurify
-                ? window.DOMPurify.sanitize(html)
-                : html;
+              const safeHtml = sanitizeHtml(html);
               document.open();
               document.write(safeHtml);
               document.close();
