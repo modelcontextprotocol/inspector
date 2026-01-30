@@ -23,8 +23,15 @@ export interface StatusMessage {
   message: string;
 }
 
+// How the current auth flow was started (guided = state machine with step events; normal = SDK auth())
+export type OAuthAuthType = "guided" | "normal";
+
 // Single state interface for OAuth state
 export interface AuthGuidedState {
+  /** How this auth flow was started; determines which fields are populated. */
+  authType: OAuthAuthType;
+  /** When auth reached step "complete" (ms since epoch), if applicable. */
+  completedAt: number | null;
   isInitiatingAuth: boolean;
   oauthTokens: OAuthTokens | null;
   oauthStep: OAuthStep;
@@ -42,6 +49,8 @@ export interface AuthGuidedState {
 }
 
 export const EMPTY_GUIDED_STATE: AuthGuidedState = {
+  authType: "guided",
+  completedAt: null,
   isInitiatingAuth: false,
   oauthTokens: null,
   oauthStep: "metadata_discovery",

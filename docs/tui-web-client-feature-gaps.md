@@ -754,3 +754,63 @@ Based on this analysis, `InspectorClient` needs the following additions:
 - [InspectorClient Details](./inspector-client-details.svg) - Visual diagram of InspectorClient responsibilities
 - [Task Support Design](./task-support-design.md) - Design and implementation plan for Task support
 - [MCP Clients Feature Support](https://modelcontextprotocol.info/docs/clients/) - High-level overview of MCP feature support across different clients
+
+## OAuth in TUI
+
+Hosted everything test server: https://example-server.modelcontextprotocol.io/mcp
+
+- Works from web client and TUI
+- Determine if it's using DCR or CIMD
+  - Whichever one, find server that uses the other
+
+GitHub: https://github.com/github/github-mcp-server/
+
+- This fails discovery in web client - appears related to CORS: https://github.com/modelcontextprotocol/inspector/issues/995
+- Test in TUI
+
+Guided auth
+
+- Try it in web ux to see how it works
+  - Record steps and output at each step
+- Implement in TUI
+
+Let's make the "OAuth complete. You can close this window." page a little fancier
+
+Auth step change give prev/current step, use client.getOAuthState() to get current state (is automatically update as state machine progresses)
+
+Guided:
+
+| previousStep             | step                     | state (payload — delta for this transition)                                                                                      |
+| ------------------------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `metadata_discovery`     | `client_registration`    | `resourceMetadata?`, `resource?`, `resourceMetadataError?`, `authServerUrl`, `oauthMetadata`, `oauthStep: "client_registration"` |
+| `client_registration`    | `authorization_redirect` | `oauthClientInfo`, `oauthStep: "authorization_redirect"`                                                                         |
+| `authorization_redirect` | `authorization_code`     | `authorizationUrl`, `oauthStep: "authorization_code"`                                                                            |
+| `authorization_code`     | `token_request`          | `validationError: null` (or error string if code missing), `oauthStep: "token_request"`                                          |
+| `token_request`          | `complete`               | `oauthTokens`, `oauthStep: "complete"`                                                                                           |
+
+Normal:
+
+| When                                 | oauthStep            | getOAuthState() — populated fields                                                             |
+| ------------------------------------ | -------------------- | ---------------------------------------------------------------------------------------------- |
+| Before `authenticate()`              | —                    | `undefined` (no state)                                                                         |
+| After `authenticate()` returns       | `authorization_code` | `authType: "normal"`, `oauthStep: "authorization_code"`, `authorizationUrl`, `oauthClientInfo` |
+| After `completeOAuthFlow()` succeeds | `complete`           | `oauthStep: "complete"`, `oauthTokens`, `completedAt`.                                         |
+
+Discovery fields (`resourceMetadata`, `oauthMetadata`, `authServerUrl`, `resource`) are null.
+
+Look at how web client displays Auth info (tab?)
+
+- We might want to have am Auth tab to show auth details
+  - Will differ between normal and guided (per above tables)
+
+## Issues
+
+Web client / proxy
+
+When attempting to auth to GitHub, it failed to be able to read the auth server metatata due to CORS
+
+- auth takes a fetch function for this purpose, and that fetch funciton needs to run in Node (not the browser) for this to work
+
+When attempting to connect in direct mode to the hosted "everything" server it failed because a CORS issue blocked the mcp-session-id response header from the initialize message
+
+- This can be addressed by running in proxy mode

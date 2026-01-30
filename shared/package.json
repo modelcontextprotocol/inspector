@@ -8,6 +8,8 @@
   "exports": {
     ".": "./build/mcp/index.js",
     "./mcp/*": "./build/mcp/*",
+    "./auth": "./build/auth/index.js",
+    "./auth/*": "./build/auth/*",
     "./react/*": "./build/react/*",
     "./test/*": "./build/test/*",
     "./json/*": "./build/json/*"

@@ -1,6 +1,7 @@
 // Types
 export type {
   OAuthStep,
+  OAuthAuthType,
   MessageType,
   StatusMessage,
   AuthGuidedState,
@@ -40,6 +41,18 @@ export {
   generateOAuthState,
   generateOAuthErrorDescription,
 } from "./utils.js";
+
+// OAuth callback server (TUI/CLI localhost redirect receiver)
+export {
+  createOAuthCallbackServer,
+  OAuthCallbackServer,
+} from "./oauth-callback-server.js";
+export type {
+  OAuthCallbackHandler,
+  OAuthErrorHandler,
+  OAuthCallbackServerStartOptions,
+  OAuthCallbackServerStartResult,
+} from "./oauth-callback-server.js";
 
 // Discovery
 export { discoverScopes } from "./discovery.js";
