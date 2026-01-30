@@ -35,19 +35,20 @@
   </head>
   <body>
     <script>
-      function buildAllowAttribute(permissions){
+      function buildAllowAttribute(permissions) {
         if (!permissions) return "";
 
         const allowList = [];
-        if (permissions['camera']) allowList.push("camera");
-        if (permissions['microphone']) allowList.push("microphone");
-        if (permissions['geolocation']) allowList.push("geolocation");
-        if (permissions['clipboardWrite']) allowList.push("clipboard-write");
+        if (permissions["camera"]) allowList.push("camera");
+        if (permissions["microphone"]) allowList.push("microphone");
+        if (permissions["geolocation"]) allowList.push("geolocation");
+        if (permissions["clipboardWrite"]) allowList.push("clipboard-write");
 
         return allowList.join("; ");
       }
 
-      const ALLOWED_REFERRER_PATTERN = /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/;
+      const ALLOWED_REFERRER_PATTERN =
+        /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/;
 
       if (window.self === window.top) {
         throw new Error("This file is only to be used in an iframe sandbox.");
@@ -73,7 +74,9 @@
       // This MUST throw a SecurityError -- if `window.top` is accessible, the sandbox
       // configuration is dangerously broken and untrusted content could escape.
       try {
-        window.top?.alert("If you see this, the sandbox is not setup securely.");
+        window.top?.alert(
+          "If you see this, the sandbox is not setup securely.",
+        );
         throw "FAIL";
       } catch (e) {
         if (e === "FAIL") {
@@ -89,12 +92,16 @@
       // origins.
       const inner = document.createElement("iframe");
       inner.style = "width:100%; height:100%; border:none;";
-      inner.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms");
+      inner.setAttribute(
+        "sandbox",
+        "allow-scripts allow-same-origin allow-forms",
+      );
       // Note: allow attribute is set later when receiving sandbox-resource-ready notification
       // based on the permissions requested by the app
       document.body.appendChild(inner);
 
-      const RESOURCE_READY_NOTIFICATION = "ui/notifications/sandbox-resource-ready";
+      const RESOURCE_READY_NOTIFICATION =
+        "ui/notifications/sandbox-resource-ready";
       const PROXY_READY_NOTIFICATION = "ui/notifications/sandbox-proxy-ready";
 
       // Message relay: This Sandbox (outer iframe) acts as a bidirectional bridge,
@@ -140,7 +147,8 @@
             }
             if (typeof html === "string") {
               // Use document.write instead of srcdoc (which the CesiumJS Map won't work with)
-              const doc = inner.contentDocument || inner.contentWindow?.document;
+              const doc =
+                inner.contentDocument || inner.contentWindow?.document;
               if (doc) {
                 doc.open();
                 doc.write(html);
