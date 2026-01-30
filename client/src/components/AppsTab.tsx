@@ -41,8 +41,6 @@ interface AppsTabProps {
   listTools: () => void;
   error: string | null;
   mcpClient: Client | null;
-  onReadResource: (uri: string) => void;
-  resourceContentMap: Record<string, string>;
 }
 
 // Type guard to check if a tool has UI metadata
@@ -50,14 +48,7 @@ const hasUIMetadata = (tool: Tool): boolean => {
   return !!getToolUiResourceUri(tool);
 };
 
-const AppsTab = ({
-  tools,
-  listTools,
-  error,
-  mcpClient,
-  onReadResource,
-  resourceContentMap,
-}: AppsTabProps) => {
+const AppsTab = ({ tools, listTools, error, mcpClient }: AppsTabProps) => {
   const [appTools, setAppTools] = useState<Tool[]>([]);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [params, setParams] = useState<Record<string, unknown>>({});
@@ -163,7 +154,6 @@ const AppsTab = ({
             listItems={handleRefresh}
             setSelectedItem={handleSelectTool}
             renderItem={(tool) => {
-              const resourceUri = getToolUiResourceUri(tool) || "";
               return (
                 <div className="flex items-start w-full gap-2">
                   <div className="flex-shrink-0 mt-1">
@@ -176,9 +166,6 @@ const AppsTab = ({
                         {tool.description}
                       </span>
                     )}
-                    <span className="text-[10px] text-muted-foreground text-right font-mono mt-1 truncate">
-                      {resourceUri}
-                    </span>
                   </div>
                   <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 mt-1" />
                 </div>
@@ -242,8 +229,6 @@ const AppsTab = ({
 
             {selectedTool ? (
               (() => {
-                const resourceUri = getToolUiResourceUri(selectedTool) || "";
-                const content = resourceContentMap[resourceUri] || "";
                 const hasFields =
                   selectedTool.inputSchema.properties &&
                   Object.keys(selectedTool.inputSchema.properties).length > 0;
@@ -502,8 +487,6 @@ const AppsTab = ({
                           <AppRenderer
                             tool={selectedTool}
                             mcpClient={mcpClient}
-                            onReadResource={onReadResource}
-                            resourceContent={content}
                             toolInput={params}
                           />
                         </div>

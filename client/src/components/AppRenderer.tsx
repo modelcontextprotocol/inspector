@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -12,54 +12,14 @@ import { AlertCircle } from "lucide-react";
 interface AppRendererProps {
   tool: Tool;
   mcpClient: Client | null;
-  onReadResource: (uri: string) => void;
-  resourceContent: string;
   toolInput?: Record<string, unknown>;
 }
 
-const AppRenderer = ({
-  tool,
-  mcpClient,
-  onReadResource,
-  resourceContent,
-  toolInput,
-}: AppRendererProps) => {
+const AppRenderer = ({ tool, mcpClient, toolInput }: AppRendererProps) => {
   const [error, setError] = useState<string | null>(null);
 
   // Extract UI metadata from tool
   const resourceUri = getToolUiResourceUri(tool);
-
-  // Parse HTML from resourceContent if it's a JSON-encoded resource response
-  const html = useMemo(() => {
-    let retval = "";
-    if (resourceContent) {
-      try {
-        const parsed = JSON.parse(resourceContent);
-        if (parsed.error) {
-          setError(parsed.error);
-          return "";
-        }
-        if (parsed.contents && Array.isArray(parsed.contents)) {
-          // MCP resource response format: TextResourceContents has uri, mimeType?, and text
-          const textContent = parsed.contents.find(
-            (c: { text?: string }) => c.text !== undefined,
-          );
-          retval = textContent?.text || resourceContent;
-        }
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      } catch (err) {
-        retval = resourceContent;
-      }
-    }
-    return retval;
-  }, [resourceContent]);
-
-  // Fetch UI resource when component mounts or tool changes
-  useEffect(() => {
-    if (resourceUri && !resourceContent && !error) {
-      onReadResource(resourceUri);
-    }
-  }, [resourceUri, resourceContent, onReadResource, error]);
 
   const hostContext: McpUiHostContext = useMemo(
     () => ({
@@ -106,7 +66,6 @@ const AppRenderer = ({
         <McpUiAppRenderer
           client={mcpClient}
           toolName={tool.name}
-          html={html}
           hostContext={hostContext}
           toolInput={toolInput}
           sandbox={{

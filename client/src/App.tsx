@@ -1553,11 +1553,6 @@ const App = () => {
                       }}
                       error={errors.tools}
                       mcpClient={mcpClient}
-                      onReadResource={(uri: string) => {
-                        clearError("resources");
-                        readResource(uri);
-                      }}
-                      resourceContentMap={resourceContentMap}
                     />
                     <ConsoleTab />
                     <PingTab
