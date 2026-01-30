@@ -36,6 +36,15 @@ const AppRenderer = ({
     [],
   );
 
+  const handleOpenLink = async ({ url }: { url: string }) => {
+    let isError = true;
+    if (url.startsWith("https://") || url.startsWith("http://")) {
+      window.open(url, "_blank");
+      isError = false;
+    }
+    return { isError };
+  };
+
   if (!resourceUri) {
     return (
       <Alert variant="destructive">
@@ -71,6 +80,7 @@ const AppRenderer = ({
       >
         <McpUiAppRenderer
           client={mcpClient}
+          onOpenLink={handleOpenLink}
           toolName={tool.name}
           hostContext={hostContext}
           toolInput={toolInput}
