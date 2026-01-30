@@ -308,11 +308,23 @@ export class TestServerHttp {
     // Create HTTP server
     this.httpServer = createHttpServer(app);
 
+    let activeSseTransport: SSEServerTransport | undefined;
+
+    // POST endpoint for SSE messages
+    app.post("/messages", async (req: Request, res: Response) => {
+      if (activeSseTransport) {
+        await activeSseTransport.handlePostMessage(req, res, req.body);
+      } else {
+        res.status(503).json({ error: "No active SSE session" });
+      }
+    });
+
     // For SSE, we need to set up an Express route that creates the transport per request
     // This is a simplified version - SSE transport is created per connection
     app.get("/mcp", async (req: Request, res: Response) => {
       this.currentRequestHeaders = extractHeaders(req);
-      const sseTransport = new SSEServerTransport("/mcp", res);
+      const sseTransport = new SSEServerTransport("/messages", res);
+      activeSseTransport = sseTransport;
 
       // Intercept messages
       const originalOnMessage = sseTransport.onmessage;
@@ -365,7 +377,6 @@ export class TestServerHttp {
       };
 
       await this.mcpServer.connect(sseTransport);
-      await sseTransport.start();
     });
 
     // Note: SSE transport is created per request, so we don't store a single instance

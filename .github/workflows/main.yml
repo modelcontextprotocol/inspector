@@ -37,6 +37,18 @@ jobs:
         working-directory: ./client
         run: npm test
 
+      - name: Run CLI tests
+        working-directory: ./cli
+        run: |
+          cd ..
+          npm ci --ignore-scripts
+          cd cli
+          npm run build
+          npm test
+        env:
+          NPM_CONFIG_YES: true
+          CI: true
+
       - run: npm run build
 
   publish:
