@@ -1,4 +1,10 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, {
+  useState,
+  useMemo,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 import { Box, Text, useInput, useApp, type Key } from "ink";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
@@ -6,10 +12,14 @@ import { dirname, join } from "path";
 import type {
   MessageEntry,
   FetchRequestEntry,
+  MCPServerConfig,
+  InspectorClientOptions,
 } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { loadMcpServersConfig } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { useInspectorClient } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
+import { createOAuthCallbackServer } from "@modelcontextprotocol/inspector-shared/auth";
+import { openUrl } from "./utils/openUrl.js";
 import { Tabs, type TabType, tabs as tabList } from "./components/Tabs.js";
 import { InfoTab } from "./components/InfoTab.js";
 import { ResourcesTab } from "./components/ResourcesTab.js";
@@ -70,6 +80,13 @@ interface AppProps {
   configFile: string;
 }
 
+/** HTTP transports (SSE, streamable-http) can use OAuth. No config gate. */
+function isOAuthCapableServer(config: MCPServerConfig | null): boolean {
+  if (!config) return false;
+  const c = config as MCPServerConfig & { oauth?: unknown };
+  return c.type === "sse" || c.type === "streamable-http";
+}
+
 function App({ configFile }: AppProps) {
   const { exit } = useApp();
 
@@ -85,6 +102,11 @@ function App({ configFile }: AppProps) {
     requests?: number;
     logging?: number;
   }>({});
+  const [oauthStatus, setOauthStatus] = useState<
+    "idle" | "authenticating" | "success" | "error"
+  >("idle");
+  const [oauthMessage, setOauthMessage] = useState<string | null>(null);
+  const oauthInProgressRef = useRef(false);
 
   // Tool test modal state
   const [toolTestModal, setToolTestModal] = useState<{
@@ -165,13 +187,21 @@ function App({ configFile }: AppProps) {
     const newClients: Record<string, InspectorClient> = {};
     for (const serverName of serverNames) {
       if (!(serverName in inspectorClients)) {
-        const serverConfig = mcpConfig.mcpServers[serverName];
-        newClients[serverName] = new InspectorClient(serverConfig, {
+        const serverConfig = mcpConfig.mcpServers[
+          serverName
+        ] as MCPServerConfig & {
+          oauth?: Record<string, unknown>;
+        };
+        const opts: InspectorClientOptions = {
           maxMessages: 1000,
           maxStderrLogEvents: 1000,
           maxFetchRequests: 1000,
           pipeStderr: true,
-        });
+        };
+        if (isOAuthCapableServer(serverConfig)) {
+          opts.oauth = { ...(serverConfig.oauth || {}) };
+        }
+        newClients[serverName] = new InspectorClient(serverConfig, opts);
       }
     }
     if (Object.keys(newClients).length > 0) {
@@ -198,6 +228,12 @@ function App({ configFile }: AppProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Clear OAuth status when switching servers
+  useEffect(() => {
+    setOauthStatus("idle");
+    setOauthMessage(null);
+  }, [selectedServer]);
 
   // Get InspectorClient for selected server
   const selectedInspectorClient = useMemo(
@@ -243,6 +279,62 @@ function App({ configFile }: AppProps) {
     // InspectorClient will update status automatically, and data is preserved
   }, [selectedServer, disconnectInspector]);
 
+  // OAuth Authenticate handler (normal mode; callback server + open URL)
+  const handleAuthenticate = useCallback(async () => {
+    if (
+      !selectedServer ||
+      !selectedInspectorClient ||
+      !selectedServerConfig ||
+      !isOAuthCapableServer(selectedServerConfig)
+    ) {
+      return;
+    }
+    if (oauthInProgressRef.current) return;
+    oauthInProgressRef.current = true;
+    setOauthStatus("authenticating");
+    setOauthMessage(null);
+    const callbackServer = createOAuthCallbackServer();
+    let flowResolve: () => void;
+    let flowReject: (err: Error) => void;
+    const flowDone = new Promise<void>((resolve, reject) => {
+      flowResolve = resolve;
+      flowReject = reject;
+    });
+    try {
+      const { redirectUrl } = await callbackServer.start({
+        port: 0,
+        onCallback: async (params) => {
+          try {
+            await selectedInspectorClient!.completeOAuthFlow(params.code);
+            flowResolve!();
+          } catch (err) {
+            flowReject!(err instanceof Error ? err : new Error(String(err)));
+          }
+        },
+        onError: (params) => {
+          flowReject!(
+            new Error(
+              params.error_description ?? params.error ?? "OAuth error",
+            ),
+          );
+          void callbackServer.stop();
+        },
+      });
+      selectedInspectorClient.setOAuthConfig({ redirectUrl });
+      const authUrl = await selectedInspectorClient.authenticate();
+      await openUrl(authUrl);
+      await flowDone;
+      setOauthStatus("success");
+      setOauthMessage("OAuth complete. Press C to connect.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setOauthStatus("error");
+      setOauthMessage(msg);
+    } finally {
+      oauthInProgressRef.current = false;
+    }
+  }, [selectedServer, selectedInspectorClient, selectedServerConfig]);
+
   // Build current server state from InspectorClient data
   const currentServerState = useMemo(() => {
     if (!selectedServer) return null;
@@ -269,6 +361,21 @@ function App({ configFile }: AppProps) {
     inspectorPrompts,
     inspectorTools,
     inspectorStderrLogs,
+  ]);
+
+  // 401 on connect → prompt to authenticate (HTTP servers). Hide during/after auth.
+  const show401AuthHint = useMemo(() => {
+    if (inspectorStatus !== "error") return false;
+    if (oauthStatus === "authenticating" || oauthStatus === "success")
+      return false;
+    if (!selectedServerConfig || !isOAuthCapableServer(selectedServerConfig))
+      return false;
+    return inspectorFetchRequests.some((r) => r.responseStatus === 401);
+  }, [
+    inspectorStatus,
+    oauthStatus,
+    selectedServerConfig,
+    inspectorFetchRequests,
   ]);
 
   // Helper functions to render details modal content
@@ -697,7 +804,7 @@ function App({ configFile }: AppProps) {
       }
     }
 
-    // Accelerator keys for connect/disconnect (work from anywhere)
+    // Accelerator keys for connect/disconnect/authenticate (work from anywhere)
     if (selectedServer) {
       if (
         input.toLowerCase() === "c" &&
@@ -709,6 +816,13 @@ function App({ configFile }: AppProps) {
         (inspectorStatus === "connected" || inspectorStatus === "connecting")
       ) {
         handleDisconnect();
+      } else if (
+        input.toLowerCase() === "a" &&
+        (inspectorStatus === "disconnected" || inspectorStatus === "error") &&
+        selectedServerConfig &&
+        isOAuthCapableServer(selectedServerConfig)
+      ) {
+        handleAuthenticate();
       }
     }
   });
@@ -858,7 +972,7 @@ function App({ configFile }: AppProps) {
                 <Text bold color="cyan">
                   {selectedServer}
                 </Text>
-                <Box flexDirection="row" alignItems="center">
+                <Box flexDirection="row" alignItems="center" gap={1}>
                   {currentServerState && (
                     <>
                       <Text color={getStatusColor(currentServerState.status)}>
@@ -872,6 +986,14 @@ function App({ configFile }: AppProps) {
                           [<Text underline>C</Text>onnect]
                         </Text>
                       )}
+                      {(currentServerState?.status === "disconnected" ||
+                        currentServerState?.status === "error") &&
+                        selectedServerConfig &&
+                        isOAuthCapableServer(selectedServerConfig) && (
+                          <Text color="green" bold>
+                            [<Text underline>A</Text>uth]
+                          </Text>
+                        )}
                       {(currentServerState?.status === "connected" ||
                         currentServerState?.status === "connecting") && (
                         <Text color="red" bold>
@@ -882,6 +1004,26 @@ function App({ configFile }: AppProps) {
                   )}
                 </Box>
               </Box>
+              {show401AuthHint && (
+                <Box marginTop={1}>
+                  <Text color="yellow">
+                    401 Unauthorized. Press <Text bold>A</Text> to authenticate.
+                  </Text>
+                </Box>
+              )}
+              {oauthStatus !== "idle" && (
+                <Box marginTop={1}>
+                  {oauthStatus === "authenticating" && (
+                    <Text dimColor>OAuth: authenticating…</Text>
+                  )}
+                  {oauthStatus === "success" && oauthMessage && (
+                    <Text color="green">{oauthMessage}</Text>
+                  )}
+                  {oauthStatus === "error" && oauthMessage && (
+                    <Text color="red">OAuth: {oauthMessage}</Text>
+                  )}
+                </Box>
+              )}
             </Box>
           </Box>
 

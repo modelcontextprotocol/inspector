@@ -183,9 +183,23 @@ describe("InspectorClient OAuth E2E", () => {
         const authUrl = await client.authenticate();
         expect(authUrl.href).toContain("/oauth/authorize");
 
+        const stateAfterAuth = client.getOAuthState();
+        expect(stateAfterAuth?.authType).toBe("normal");
+        expect(stateAfterAuth?.oauthStep).toBe("authorization_code");
+        expect(stateAfterAuth?.authorizationUrl?.href).toBe(authUrl.href);
+        expect(stateAfterAuth?.oauthClientInfo).toBeDefined();
+        expect(stateAfterAuth?.oauthClientInfo?.client_id).toBe(staticClientId);
+
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
         await client.connect();
+
+        const stateAfterComplete = client.getOAuthState();
+        expect(stateAfterComplete?.authType).toBe("normal");
+        expect(stateAfterComplete?.oauthStep).toBe("complete");
+        expect(stateAfterComplete?.oauthTokens).toBeDefined();
+        expect(stateAfterComplete?.completedAt).toBeDefined();
+        expect(typeof stateAfterComplete?.completedAt).toBe("number");
 
         const tokens = await client.getOAuthTokens();
         expect(tokens).toBeDefined();
@@ -464,9 +478,21 @@ describe("InspectorClient OAuth E2E", () => {
         const authUrl = await client.authenticate();
         expect(authUrl.href).toContain("/oauth/authorize");
 
+        const stateAfterAuth = client.getOAuthState();
+        expect(stateAfterAuth?.authType).toBe("normal");
+        expect(stateAfterAuth?.oauthStep).toBe("authorization_code");
+        expect(stateAfterAuth?.oauthClientInfo).toBeDefined();
+        expect(stateAfterAuth?.oauthClientInfo?.client_id).toBeDefined();
+
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
         await client.connect();
+
+        const stateAfterComplete = client.getOAuthState();
+        expect(stateAfterComplete?.authType).toBe("normal");
+        expect(stateAfterComplete?.oauthStep).toBe("complete");
+        expect(stateAfterComplete?.oauthTokens).toBeDefined();
+        expect(stateAfterComplete?.completedAt).toBeDefined();
 
         const tokens = await client.getOAuthTokens();
         expect(tokens).toBeDefined();
@@ -510,6 +536,11 @@ describe("InspectorClient OAuth E2E", () => {
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
         await client.connect();
+
+        const stateAfterComplete = client.getOAuthState();
+        expect(stateAfterComplete?.authType).toBe("guided");
+        expect(stateAfterComplete?.oauthStep).toBe("complete");
+        expect(stateAfterComplete?.completedAt).toBeDefined();
 
         const tokens = await client.getOAuthTokens();
         expect(tokens).toBeDefined();
@@ -711,6 +742,7 @@ describe("InspectorClient OAuth E2E", () => {
 
         const state = client.getOAuthState();
         expect(state).toBeDefined();
+        expect(state?.authType).toBe("guided");
         expect(state?.resourceMetadata).toBeDefined();
         expect(state?.resourceMetadata?.resource).toBeDefined();
         expect(
@@ -802,6 +834,13 @@ describe("InspectorClient OAuth E2E", () => {
           expect(e?.state).toBeDefined();
           expect(typeof e?.state === "object" && e?.state !== null).toBe(true);
         }
+
+        const finalState = client.getOAuthState();
+        expect(finalState?.authType).toBe("guided");
+        expect(finalState?.oauthStep).toBe("complete");
+        expect(finalState?.oauthTokens).toBeDefined();
+        expect(finalState?.completedAt).toBeDefined();
+        expect(typeof finalState?.completedAt).toBe("number");
       });
     },
   );

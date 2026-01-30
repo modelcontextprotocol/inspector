@@ -2349,6 +2349,15 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Failed to capture authorization URL");
     }
 
+    // Backfill oauthState so getOAuthState() returns consistent shape (normal flow)
+    const clientInfo = await provider.clientInformation();
+    this.oauthState = {
+      ...EMPTY_GUIDED_STATE,
+      authType: "normal",
+      oauthStep: "authorization_code",
+      authorizationUrl: capturedUrl,
+      oauthClientInfo: clientInfo ?? null,
+    };
     return capturedUrl;
   }
 
@@ -2381,6 +2390,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       (updates) => {
         const previousStep = this.oauthState!.oauthStep;
         this.oauthState = { ...this.oauthState!, ...updates };
+        if (updates.oauthStep === "complete") {
+          this.oauthState.completedAt = Date.now();
+        }
         const step = updates.oauthStep ?? previousStep;
         this.dispatchTypedEvent("oauthStepChange", {
           step,
@@ -2456,6 +2468,25 @@ export class InspectorClient extends InspectorClientEventTarget {
         if (!tokens) {
           throw new Error("Failed to retrieve tokens after authorization");
         }
+
+        const clientInfo = await provider.clientInformation();
+        const completedAt = Date.now();
+        this.oauthState = this.oauthState
+          ? {
+              ...this.oauthState,
+              oauthStep: "complete",
+              oauthTokens: tokens,
+              oauthClientInfo: clientInfo ?? null,
+              completedAt,
+            }
+          : {
+              ...EMPTY_GUIDED_STATE,
+              authType: "normal",
+              oauthStep: "complete",
+              oauthTokens: tokens,
+              oauthClientInfo: clientInfo ?? null,
+              completedAt,
+            };
 
         this.dispatchTypedEvent("oauthComplete", {
           tokens,
