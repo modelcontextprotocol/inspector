@@ -12,11 +12,7 @@ const distPath = join(__dirname, "../dist");
 const server = http.createServer((request, response) => {
   const handlerOptions = {
     public: distPath,
-    cleanUrls: false,
-    rewrites: [
-      { source: "/index.html", destination: "/index.html" },
-      { source: "/**", destination: "/index.html" },
-    ],
+    rewrites: [{ source: "/**", destination: "/index.html" }],
     headers: [
       {
         // Ensure index.html is never cached
