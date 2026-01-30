@@ -10,12 +10,18 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 
 interface AppRendererProps {
+  sandboxPath: string;
   tool: Tool;
   mcpClient: Client | null;
   toolInput?: Record<string, unknown>;
 }
 
-const AppRenderer = ({ tool, mcpClient, toolInput }: AppRendererProps) => {
+const AppRenderer = ({
+  sandboxPath,
+  tool,
+  mcpClient,
+  toolInput,
+}: AppRendererProps) => {
   const [error, setError] = useState<string | null>(null);
 
   // Extract UI metadata from tool
@@ -69,7 +75,7 @@ const AppRenderer = ({ tool, mcpClient, toolInput }: AppRendererProps) => {
           hostContext={hostContext}
           toolInput={toolInput}
           sandbox={{
-            url: new URL("/sandbox_proxy.html", window.location.origin),
+            url: new URL(sandboxPath, window.location.origin),
           }}
           onError={(err) => setError(err.message)}
         />

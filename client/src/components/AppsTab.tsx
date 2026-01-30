@@ -37,6 +37,7 @@ import {
 } from "@/utils/schemaUtils";
 
 interface AppsTabProps {
+  sandboxPath: string;
   tools: Tool[];
   listTools: () => void;
   error: string | null;
@@ -48,7 +49,13 @@ const hasUIMetadata = (tool: Tool): boolean => {
   return !!getToolUiResourceUri(tool);
 };
 
-const AppsTab = ({ tools, listTools, error, mcpClient }: AppsTabProps) => {
+const AppsTab = ({
+  sandboxPath,
+  tools,
+  listTools,
+  error,
+  mcpClient,
+}: AppsTabProps) => {
   const [appTools, setAppTools] = useState<Tool[]>([]);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [params, setParams] = useState<Record<string, unknown>>({});
@@ -485,6 +492,7 @@ const AppsTab = ({ tools, listTools, error, mcpClient }: AppsTabProps) => {
                         )}
                         <div className="h-[600px]">
                           <AppRenderer
+                            sandboxPath={sandboxPath}
                             tool={selectedTool}
                             mcpClient={mcpClient}
                             toolInput={params}

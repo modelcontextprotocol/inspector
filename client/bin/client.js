@@ -14,7 +14,6 @@ const server = http.createServer((request, response) => {
     public: distPath,
     cleanUrls: false,
     rewrites: [
-      { source: "/sandbox_proxy.html", destination: "/sandbox_proxy.html" },
       { source: "/index.html", destination: "/index.html" },
       { source: "/**", destination: "/index.html" },
     ],
@@ -22,16 +21,6 @@ const server = http.createServer((request, response) => {
       {
         // Ensure index.html is never cached
         source: "index.html",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "no-cache, no-store, max-age=0",
-          },
-        ],
-      },
-      {
-        // Ensure sandbox_proxy.html is never cached
-        source: "sandbox_proxy.html",
         headers: [
           {
             key: "Cache-Control",

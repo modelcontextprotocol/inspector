@@ -28,6 +28,9 @@ import express from "express";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+import { readFileSync } from "fs";
 
 const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 
@@ -785,6 +788,22 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
     console.error("Error in /config route:", error);
     res.status(500).json(error);
   }
+});
+
+app.get("/sandbox", (req, res) => {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const filePath = join(__dirname, "..", "static", "sandbox_proxy.html");
+  let sandboxHtml;
+
+  try {
+    sandboxHtml = readFileSync(filePath, "utf-8");
+  } catch (e) {
+    sandboxHtml = "MCP Apps sandbox not loaded: " + e;
+  }
+
+  res.set("Cache-Control", "no-cache, no-store, max-age=0");
+  res.send(sandboxHtml);
 });
 
 const PORT = parseInt(

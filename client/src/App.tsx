@@ -1546,6 +1546,7 @@ const App = () => {
                       nextCursor={nextTaskCursor}
                     />
                     <AppsTab
+                      sandboxPath={`${getMCPProxyAddress(config)}/sandbox`}
                       tools={tools}
                       listTools={() => {
                         clearError("tools");
