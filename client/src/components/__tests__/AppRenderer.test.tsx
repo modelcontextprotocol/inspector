@@ -16,10 +16,9 @@ jest.mock("@modelcontextprotocol/ext-apps/app-bridge", () => ({
 
 // Mock @mcp-ui/client
 jest.mock("@mcp-ui/client", () => ({
-  AppRenderer: ({ toolName, html }: { toolName: string; html: string }) => (
+  AppRenderer: ({ toolName }: { toolName: string }) => (
     <div data-testid="mcp-ui-app-renderer">
       <div data-testid="tool-name">{toolName}</div>
-      <div data-testid="html-content">{html}</div>
     </div>
   ),
 }));
@@ -48,8 +47,6 @@ describe("AppRenderer", () => {
   const defaultProps = {
     tool: mockTool,
     mcpClient: mockMcpClient,
-    onReadResource: jest.fn(),
-    resourceContent: "",
   };
 
   beforeEach(() => {
@@ -59,19 +56,6 @@ describe("AppRenderer", () => {
   it("should display waiting state when mcpClient is null", () => {
     render(<AppRenderer {...defaultProps} mcpClient={null} />);
     expect(screen.getByText(/Waiting for MCP client/i)).toBeInTheDocument();
-  });
-
-  it("should call onReadResource when resourceContent is empty", () => {
-    const mockOnReadResource = jest.fn();
-    render(
-      <AppRenderer
-        {...defaultProps}
-        onReadResource={mockOnReadResource}
-        resourceContent=""
-      />,
-    );
-
-    expect(mockOnReadResource).toHaveBeenCalledWith("ui://test-app");
   });
 
   it("should display error when no resource URI is found", () => {
@@ -91,65 +75,15 @@ describe("AppRenderer", () => {
     ).toBeInTheDocument();
   });
 
-  it("should render McpUiAppRenderer when client and resource are ready", () => {
-    render(
-      <AppRenderer
-        {...defaultProps}
-        resourceContent="<html><body>Test</body></html>"
-      />,
-    );
+  it("should render McpUiAppRenderer when client is ready", () => {
+    render(<AppRenderer {...defaultProps} />);
 
     expect(screen.getByTestId("mcp-ui-app-renderer")).toBeInTheDocument();
     expect(screen.getByTestId("tool-name")).toHaveTextContent("testApp");
-    expect(screen.getByTestId("html-content")).toHaveTextContent(
-      "<html><body>Test</body></html>",
-    );
-  });
-
-  it("should handle JSON resource content with MCP format", () => {
-    const jsonContent = JSON.stringify({
-      contents: [
-        {
-          uri: "ui://test-app",
-          mimeType: "text/html",
-          text: "<html><body>Test App</body></html>",
-        },
-      ],
-    });
-
-    render(<AppRenderer {...defaultProps} resourceContent={jsonContent} />);
-
-    expect(screen.getByTestId("html-content")).toHaveTextContent(
-      "<html><body>Test App</body></html>",
-    );
-  });
-
-  it("should display error from JSON resource response", () => {
-    const errorJson = JSON.stringify({
-      error: "Failed to load resource",
-    });
-
-    render(<AppRenderer {...defaultProps} resourceContent={errorJson} />);
-
-    expect(screen.getByText("Failed to load resource")).toBeInTheDocument();
-  });
-
-  it("should handle invalid JSON gracefully by using as-is", () => {
-    const invalidJson = "{invalid json}";
-    render(<AppRenderer {...defaultProps} resourceContent={invalidJson} />);
-
-    expect(screen.getByTestId("html-content")).toHaveTextContent(
-      "{invalid json}",
-    );
   });
 
   it("should set minimum height on container", () => {
-    render(
-      <AppRenderer
-        {...defaultProps}
-        resourceContent="<html><body>Test</body></html>"
-      />,
-    );
+    render(<AppRenderer {...defaultProps} />);
 
     const container = screen.getByTestId("mcp-ui-app-renderer").parentElement;
     expect(container).toHaveStyle({ minHeight: "400px" });

@@ -9,17 +9,14 @@ import { Tabs } from "../ui/tabs";
 jest.mock("../AppRenderer", () => {
   return function MockAppRenderer({
     tool,
-    resourceContent,
     toolInput,
   }: {
     tool: Tool;
-    resourceContent: string;
     toolInput?: Record<string, unknown>;
   }) {
     return (
       <div data-testid="app-renderer">
         <div>Tool: {tool.name}</div>
-        <div>Content: {resourceContent || "No content"}</div>
         <div data-testid="tool-input">{JSON.stringify(toolInput)}</div>
       </div>
     );
@@ -55,8 +52,6 @@ describe("AppsTab", () => {
     listTools: jest.fn(),
     error: null,
     mcpClient: null,
-    onReadResource: jest.fn(),
-    resourceContentMap: {},
   };
 
   const renderAppsTab = (props = {}) => {
@@ -86,7 +81,6 @@ describe("AppsTab", () => {
     // Should show the app tool
     expect(screen.getByText("weatherApp")).toBeInTheDocument();
     expect(screen.getByText("Weather app with UI")).toBeInTheDocument();
-    expect(screen.getByText("ui://weather-app")).toBeInTheDocument();
 
     // Should not show the regular tool
     expect(screen.queryByText("regularTool")).not.toBeInTheDocument();
@@ -151,7 +145,6 @@ describe("AppsTab", () => {
 
     renderAppsTab({
       tools: [toolWithFields],
-      resourceContentMap: { "ui://fields": "<html>test</html>" },
     });
 
     const appCard = screen.getByText("fieldsApp").closest("div");
@@ -174,7 +167,6 @@ describe("AppsTab", () => {
   it("should close app renderer when close button is clicked", () => {
     renderAppsTab({
       tools: [mockAppTool],
-      resourceContentMap: { "ui://weather-app": "<html>test</html>" },
     });
 
     // Open the app
@@ -189,22 +181,6 @@ describe("AppsTab", () => {
 
     // AppRenderer should be removed
     expect(screen.queryByTestId("app-renderer")).not.toBeInTheDocument();
-  });
-
-  it("should pass resourceContent to AppRenderer", () => {
-    const resourceContent = "<html><body>Weather App UI</body></html>";
-    renderAppsTab({
-      tools: [mockAppTool],
-      resourceContentMap: { "ui://weather-app": resourceContent },
-    });
-
-    // Open the app
-    const appCard = screen.getByText("weatherApp").closest("div");
-    fireEvent.click(appCard!);
-    // weatherApp has no properties in mockAppTool, so it should be open immediately
-
-    expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
-    expect(screen.getByText(`Content: ${resourceContent}`)).toBeInTheDocument();
   });
 
   it("should handle tool without description", () => {
@@ -226,13 +202,11 @@ describe("AppsTab", () => {
     });
 
     expect(screen.getByText("noDescriptionApp")).toBeInTheDocument();
-    expect(screen.getByText("ui://no-description-app")).toBeInTheDocument();
   });
 
   it("should reset selected tool when tools list changes and selected tool is removed", () => {
     const { rerender } = renderAppsTab({
       tools: [mockAppTool],
-      resourceContentMap: { "ui://weather-app": "<html>test</html>" },
     });
 
     // Select the app
@@ -244,11 +218,7 @@ describe("AppsTab", () => {
     // Update tools list to remove the selected tool
     rerender(
       <Tabs defaultValue="apps">
-        <AppsTab
-          {...defaultProps}
-          tools={[]}
-          resourceContentMap={{ "ui://weather-app": "<html>test</html>" }}
-        />
+        <AppsTab {...defaultProps} tools={[]} />
       </Tabs>,
     );
 
@@ -259,7 +229,6 @@ describe("AppsTab", () => {
   it("should maintain selected tool when tools list updates but includes the same tool", () => {
     const { rerender } = renderAppsTab({
       tools: [mockAppTool],
-      resourceContentMap: { "ui://weather-app": "<html>test</html>" },
     });
 
     // Select the app
@@ -271,11 +240,7 @@ describe("AppsTab", () => {
     // Update tools list with the same tool
     rerender(
       <Tabs defaultValue="apps">
-        <AppsTab
-          {...defaultProps}
-          tools={[mockAppTool]}
-          resourceContentMap={{ "ui://weather-app": "<html>test</html>" }}
-        />
+        <AppsTab {...defaultProps} tools={[mockAppTool]} />
       </Tabs>,
     );
 
@@ -349,7 +314,6 @@ describe("AppsTab", () => {
   it("should handle empty resourceContentMap", () => {
     renderAppsTab({
       tools: [mockAppTool],
-      resourceContentMap: {},
     });
 
     // Open the app
@@ -357,9 +321,8 @@ describe("AppsTab", () => {
     fireEvent.click(appCard!);
     // weatherApp has no properties in mockAppTool, so it should be open immediately
 
-    // AppRenderer should still be rendered but with no content
+    // AppRenderer should still be rendered
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
-    expect(screen.getByText("Content: No content")).toBeInTheDocument();
   });
 
   it("should handle various input types and pass them to AppRenderer", () => {
