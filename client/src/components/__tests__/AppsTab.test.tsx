@@ -137,13 +137,24 @@ describe("AppsTab", () => {
     expect(screen.getByText(errorMessage)).toBeInTheDocument();
   });
 
-  it("should open app renderer when an app card is clicked and Open App button is clicked", () => {
+  it("should open app renderer when an app card is clicked and Open App button is clicked if fields exist", () => {
+    const toolWithFields: Tool = {
+      name: "fieldsApp",
+      inputSchema: {
+        type: "object",
+        properties: {
+          field1: { type: "string" },
+        },
+      },
+      _meta: { ui: { resourceUri: "ui://fields" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+
     renderAppsTab({
-      tools: [mockAppTool],
-      resourceContentMap: { "ui://weather-app": "<html>test</html>" },
+      tools: [toolWithFields],
+      resourceContentMap: { "ui://fields": "<html>test</html>" },
     });
 
-    const appCard = screen.getByText("weatherApp").closest("div");
+    const appCard = screen.getByText("fieldsApp").closest("div");
     expect(appCard).toBeTruthy();
     fireEvent.click(appCard!);
 
@@ -157,7 +168,7 @@ describe("AppsTab", () => {
 
     // AppRenderer should be rendered
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
-    expect(screen.getByText("Tool: weatherApp")).toBeInTheDocument();
+    expect(screen.getByText("Tool: fieldsApp")).toBeInTheDocument();
   });
 
   it("should close app renderer when close button is clicked", () => {
@@ -169,7 +180,7 @@ describe("AppsTab", () => {
     // Open the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+    // weatherApp has no properties in mockAppTool, so it should be open immediately
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
 
     // Close the app (Deselect tool)
@@ -190,7 +201,7 @@ describe("AppsTab", () => {
     // Open the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+    // weatherApp has no properties in mockAppTool, so it should be open immediately
 
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
     expect(screen.getByText(`Content: ${resourceContent}`)).toBeInTheDocument();
@@ -227,7 +238,7 @@ describe("AppsTab", () => {
     // Select the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+    // weatherApp has no properties in mockAppTool, so it should be open immediately
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
 
     // Update tools list to remove the selected tool
@@ -254,7 +265,7 @@ describe("AppsTab", () => {
     // Select the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+    // weatherApp has no properties in mockAppTool, so it should be open immediately
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
 
     // Update tools list with the same tool
@@ -280,14 +291,7 @@ describe("AppsTab", () => {
     // Select the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-
-    // Initially, Maximize button should not be visible (app not open)
-    expect(
-      screen.queryByRole("button", { name: /maximize/i }),
-    ).not.toBeInTheDocument();
-
-    // Open the app
-    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+    // weatherApp has no properties in mockAppTool, so it should be open immediately
 
     // Now Maximize button should be visible
     expect(
@@ -320,9 +324,7 @@ describe("AppsTab", () => {
     // Select the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-
-    // Open the app
-    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+    // weatherApp has no properties in mockAppTool, so it should be open immediately
 
     // Maximize
     fireEvent.click(screen.getByRole("button", { name: /maximize/i }));
@@ -353,7 +355,7 @@ describe("AppsTab", () => {
     // Open the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+    // weatherApp has no properties in mockAppTool, so it should be open immediately
 
     // AppRenderer should still be rendered but with no content
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
@@ -433,11 +435,76 @@ describe("AppsTab", () => {
   });
 
   it("should allow going back to input form from app renderer", () => {
+    const toolWithFields: Tool = {
+      name: "fieldsApp",
+      inputSchema: {
+        type: "object",
+        properties: {
+          field1: { type: "string" },
+        },
+      },
+      _meta: { ui: { resourceUri: "ui://fields" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+
     renderAppsTab({
-      tools: [mockAppTool],
+      tools: [toolWithFields],
     });
 
-    fireEvent.click(screen.getByText("weatherApp"));
+    fireEvent.click(screen.getByText("fieldsApp"));
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+
+    expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+
+    const backButton = screen.queryByRole("button", { name: /back to input/i });
+    expect(backButton).toBeInTheDocument();
+  });
+
+  it("should skip input form if tool has no input fields", () => {
+    const toolNoFields: Tool = {
+      name: "noFieldsApp",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+      _meta: { ui: { resourceUri: "ui://no-fields" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+
+    renderAppsTab({
+      tools: [toolNoFields],
+    });
+
+    fireEvent.click(screen.getByText("noFieldsApp"));
+
+    // Should see the renderer immediately
+    expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    expect(screen.getByText("Tool: noFieldsApp")).toBeInTheDocument();
+
+    // Should NOT see the back button
+    expect(
+      screen.queryByRole("button", { name: /back to input/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("should allow going back to input form from app renderer if fields exist", () => {
+    const toolWithFields: Tool = {
+      name: "fieldsApp",
+      inputSchema: {
+        type: "object",
+        properties: {
+          field1: { type: "string" },
+        },
+      },
+      _meta: { ui: { resourceUri: "ui://fields" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+
+    renderAppsTab({
+      tools: [toolWithFields],
+    });
+
+    fireEvent.click(screen.getByText("fieldsApp"));
+
+    // Should see input form first
+    expect(screen.getByText("App Input")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /open app/i }));
 
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();

@@ -136,7 +136,10 @@ const AppsTab = ({
 
   const handleSelectTool = useCallback((tool: Tool) => {
     setSelectedTool(tool);
-    setIsAppOpen(false);
+    const hasFields =
+      tool.inputSchema.properties &&
+      Object.keys(tool.inputSchema.properties).length > 0;
+    setIsAppOpen(!hasFields);
   }, []);
 
   const handleDeselectTool = useCallback(() => {
@@ -158,7 +161,6 @@ const AppsTab = ({
           <ListPane
             items={appTools}
             listItems={handleRefresh}
-            clearItems={handleDeselectTool}
             setSelectedItem={handleSelectTool}
             renderItem={(tool) => {
               const resourceUri = getToolUiResourceUri(tool) || "";
@@ -174,7 +176,7 @@ const AppsTab = ({
                         {tool.description}
                       </span>
                     )}
-                    <span className="text-[10px] text-muted-foreground font-mono mt-1 truncate">
+                    <span className="text-[10px] text-muted-foreground text-right font-mono mt-1 truncate">
                       {resourceUri}
                     </span>
                   </div>
@@ -242,6 +244,9 @@ const AppsTab = ({
               (() => {
                 const resourceUri = getToolUiResourceUri(selectedTool) || "";
                 const content = resourceContentMap[resourceUri] || "";
+                const hasFields =
+                  selectedTool.inputSchema.properties &&
+                  Object.keys(selectedTool.inputSchema.properties).length > 0;
 
                 return (
                   <div className="space-y-4">
@@ -482,15 +487,17 @@ const AppsTab = ({
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        <div className="flex justify-end">
-                          <Button
-                            onClick={handleCloseApp}
-                            variant="outline"
-                            size="sm"
-                          >
-                            Back to Input
-                          </Button>
-                        </div>
+                        {hasFields && (
+                          <div className="flex justify-end">
+                            <Button
+                              onClick={handleCloseApp}
+                              variant="outline"
+                              size="sm"
+                            >
+                              Back to Input
+                            </Button>
+                          </div>
+                        )}
                         <div className="h-[600px]">
                           <AppRenderer
                             tool={selectedTool}
