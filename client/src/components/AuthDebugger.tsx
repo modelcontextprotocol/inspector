@@ -5,14 +5,18 @@ import { AlertCircle } from "lucide-react";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
 import { OAuthStateMachine } from "../lib/oauth-state-machine";
+import { createProxyFetch } from "../lib/proxyFetch";
 import { SESSION_KEYS } from "../lib/constants";
 import { validateRedirectUrl } from "@/utils/urlValidation";
+import type { InspectorConfig } from "../lib/configurationTypes";
 
 export interface AuthDebuggerProps {
   serverUrl: string;
   onBack: () => void;
   authState: AuthDebuggerState;
   updateAuthState: (updates: Partial<AuthDebuggerState>) => void;
+  config?: InspectorConfig;
+  connectionType?: "direct" | "proxy";
 }
 
 interface StatusMessageProps {
@@ -60,6 +64,8 @@ const AuthDebugger = ({
   onBack,
   authState,
   updateAuthState,
+  config,
+  connectionType,
 }: AuthDebuggerProps) => {
   // Check for existing tokens on mount
   useEffect(() => {
@@ -102,9 +108,12 @@ const AuthDebugger = ({
     });
   }, [serverUrl, updateAuthState]);
 
+  const fetchFn =
+    connectionType === "proxy" && config ? createProxyFetch(config) : undefined;
+
   const stateMachine = useMemo(
-    () => new OAuthStateMachine(serverUrl, updateAuthState),
-    [serverUrl, updateAuthState],
+    () => new OAuthStateMachine(serverUrl, updateAuthState, fetchFn),
+    [serverUrl, updateAuthState, fetchFn],
   );
 
   const proceedToNextStep = useCallback(async () => {
@@ -150,11 +159,15 @@ const AuthDebugger = ({
         latestError: null,
       };
 
-      const oauthMachine = new OAuthStateMachine(serverUrl, (updates) => {
-        // Update our temporary state during the process
-        currentState = { ...currentState, ...updates };
-        // But don't call updateAuthState yet
-      });
+      const oauthMachine = new OAuthStateMachine(
+        serverUrl,
+        (updates) => {
+          // Update our temporary state during the process
+          currentState = { ...currentState, ...updates };
+          // But don't call updateAuthState yet
+        },
+        fetchFn,
+      );
 
       // Manually step through each stage of the OAuth flow
       while (currentState.oauthStep !== "complete") {
@@ -214,7 +227,7 @@ const AuthDebugger = ({
     } finally {
       updateAuthState({ isInitiatingAuth: false });
     }
-  }, [serverUrl, updateAuthState, authState]);
+  }, [serverUrl, updateAuthState, authState, fetchFn]);
 
   const handleClearOAuth = useCallback(() => {
     if (serverUrl) {

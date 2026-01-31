@@ -772,6 +772,42 @@ app.get("/health", (req, res) => {
   });
 });
 
+app.post(
+  "/fetch",
+  express.json(),
+  originValidationMiddleware,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { url, init } = req.body as { url: string; init?: RequestInit };
+
+      const response = await fetch(url, {
+        method: init?.method ?? "GET",
+        headers: (init?.headers as Record<string, string>) ?? {},
+        body: init?.body as string | undefined,
+      });
+
+      const responseBody = await response.text();
+      const headers: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+
+      res.status(response.status).json({
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+        body: responseBody,
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
 app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
   try {
     res.json({
