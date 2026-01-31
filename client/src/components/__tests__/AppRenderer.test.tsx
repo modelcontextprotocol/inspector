@@ -1,9 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, it, jest, beforeEach } from "@jest/globals";
 import AppRenderer from "../AppRenderer";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { RequestHandlerExtra } from "@mcp-ui/client";
+import { McpUiMessageResult } from "@modelcontextprotocol/ext-apps";
 
 // Mock the ext-apps module
 jest.mock("@modelcontextprotocol/ext-apps/app-bridge", () => ({
@@ -14,11 +16,39 @@ jest.mock("@modelcontextprotocol/ext-apps/app-bridge", () => ({
   },
 }));
 
+// Mock toast hook
+const mockToast = jest.fn();
+jest.mock("@/lib/hooks/useToast", () => ({
+  useToast: () => ({
+    toast: mockToast,
+  }),
+}));
+
 // Mock @mcp-ui/client
 jest.mock("@mcp-ui/client", () => ({
-  AppRenderer: ({ toolName }: { toolName: string }) => (
+  AppRenderer: ({
+    toolName,
+    onMessage,
+  }: {
+    toolName: string;
+    onMessage?: (
+      params: { role: "user"; content: { type: "text"; text: string }[] },
+      extra: RequestHandlerExtra,
+    ) => Promise<McpUiMessageResult>;
+  }) => (
     <div data-testid="mcp-ui-app-renderer">
       <div data-testid="tool-name">{toolName}</div>
+      <button
+        data-testid="trigger-message"
+        onClick={() =>
+          onMessage?.(
+            { role: "user", content: [{ type: "text", text: "Test message" }] },
+            {} as RequestHandlerExtra,
+          )
+        }
+      >
+        Trigger Message
+      </button>
     </div>
   ),
 }));
@@ -45,6 +75,7 @@ describe("AppRenderer", () => {
   } as unknown as Client;
 
   const defaultProps = {
+    sandboxPath: "/sandbox",
     tool: mockTool,
     mcpClient: mockMcpClient,
   };
@@ -87,5 +118,15 @@ describe("AppRenderer", () => {
 
     const container = screen.getByTestId("mcp-ui-app-renderer").parentElement;
     expect(container).toHaveStyle({ minHeight: "400px" });
+  });
+
+  it("should show toast when onMessage is triggered", () => {
+    render(<AppRenderer {...defaultProps} />);
+
+    fireEvent.click(screen.getByTestId("trigger-message"));
+
+    expect(mockToast).toHaveBeenCalledWith({
+      description: "Test message",
+    });
   });
 });

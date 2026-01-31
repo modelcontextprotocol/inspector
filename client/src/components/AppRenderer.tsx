@@ -1,13 +1,19 @@
 import { useMemo, useState } from "react";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { Tool, ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import {
   AppRenderer as McpUiAppRenderer,
   type McpUiHostContext,
+  type RequestHandlerExtra,
 } from "@mcp-ui/client";
-import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
+import {
+  getToolUiResourceUri,
+  type McpUiMessageRequest,
+  type McpUiMessageResult,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
+import { useToast } from "@/lib/hooks/useToast";
 
 interface AppRendererProps {
   sandboxPath: string;
@@ -23,6 +29,7 @@ const AppRenderer = ({
   toolInput,
 }: AppRendererProps) => {
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   // Extract UI metadata from tool
   const resourceUri = getToolUiResourceUri(tool);
@@ -43,6 +50,27 @@ const AppRenderer = ({
       isError = false;
     }
     return { isError };
+  };
+
+  const handleMessage = async (
+    params: McpUiMessageRequest["params"],
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _extra: RequestHandlerExtra,
+  ): Promise<McpUiMessageResult> => {
+    const message = params.content
+      .filter((block): block is ContentBlock & { type: "text" } =>
+        Boolean(block.type === "text"),
+      )
+      .map((block) => block.text)
+      .join("\n");
+
+    if (message) {
+      toast({
+        description: message,
+      });
+    }
+
+    return {};
   };
 
   if (!resourceUri) {
@@ -81,6 +109,7 @@ const AppRenderer = ({
         <McpUiAppRenderer
           client={mcpClient}
           onOpenLink={handleOpenLink}
+          onMessage={handleMessage}
           toolName={tool.name}
           hostContext={hostContext}
           toolInput={toolInput}
