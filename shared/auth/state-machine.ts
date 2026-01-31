@@ -20,6 +20,7 @@ export interface StateMachineContext {
   serverUrl: string;
   provider: BaseOAuthClientProvider;
   updateState: (updates: Partial<AuthGuidedState>) => void;
+  fetchFn?: typeof fetch;
 }
 
 export interface StateTransition {
@@ -62,7 +63,12 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
           )
         : undefined;
 
-      const metadata = await discoverAuthorizationServerMetadata(authServerUrl);
+      const metadata = await discoverAuthorizationServerMetadata(
+        authServerUrl,
+        {
+          ...(context.fetchFn && { fetchFn: context.fetchFn }),
+        },
+      );
       if (!metadata) {
         throw new Error("Failed to discover OAuth metadata");
       }
@@ -128,6 +134,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
           fullInformation = await registerClient(context.serverUrl, {
             metadata,
             clientMetadata,
+            ...(context.fetchFn && { fetchFn: context.fetchFn }),
           });
         }
         await context.provider.saveClientInformation(fullInformation);
@@ -153,6 +160,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         scope = await discoverScopes(
           context.serverUrl,
           context.state.resourceMetadata ?? undefined,
+          context.fetchFn,
         );
       }
 
@@ -230,6 +238,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
             ? context.state.resource
             : new URL(context.state.resource)
           : undefined,
+        ...(context.fetchFn && { fetchFn: context.fetchFn }),
       });
 
       await context.provider.saveTokens(tokens);
@@ -253,6 +262,7 @@ export class OAuthStateMachine {
     private serverUrl: string,
     private provider: BaseOAuthClientProvider,
     private updateState: (updates: Partial<AuthGuidedState>) => void,
+    private fetchFn?: typeof fetch,
   ) {}
 
   async executeStep(state: AuthGuidedState): Promise<void> {
@@ -261,6 +271,7 @@ export class OAuthStateMachine {
       serverUrl: this.serverUrl,
       provider: this.provider,
       updateState: this.updateState,
+      ...(this.fetchFn && { fetchFn: this.fetchFn }),
     };
 
     const transition = oauthTransitions[state.oauthStep];

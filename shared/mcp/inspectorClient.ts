@@ -219,6 +219,13 @@ export interface InspectorClientOptions {
      * sent to the authorization URL.
      */
     navigation: OAuthNavigation;
+
+    /**
+     * Optional fetch function for OAuth HTTP calls (discovery, registration,
+     * token exchange). When provided (e.g. proxy fetch in browser), used for
+     * all auth-related requests to bypass CORS.
+     */
+    fetchFn?: typeof fetch;
   };
 }
 
@@ -2304,6 +2311,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     const result = await auth(provider, {
       serverUrl,
       scope: provider.scope,
+      ...(this.oauthConfig.fetchFn && { fetchFn: this.oauthConfig.fetchFn }),
     });
 
     if (result === "AUTHORIZED") {
@@ -2370,6 +2378,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           state: updates,
         });
       },
+      this.oauthConfig.fetchFn,
     );
 
     // Start guided flow
@@ -2426,6 +2435,9 @@ export class InspectorClient extends InspectorClientEventTarget {
         const result = await auth(provider, {
           serverUrl,
           authorizationCode,
+          ...(this.oauthConfig.fetchFn && {
+            fetchFn: this.oauthConfig.fetchFn,
+          }),
         });
 
         if (result !== "AUTHORIZED") {

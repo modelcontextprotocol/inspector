@@ -214,6 +214,7 @@ describe("OAuthStateMachine", () => {
 
       expect(discoverAuthorizationServerMetadata).toHaveBeenCalledWith(
         new URL("/", serverUrl),
+        {}, // No fetchFn when not provided (conditional spread omits it)
       );
       expect(updateState).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -253,6 +254,76 @@ describe("OAuthStateMachine", () => {
           resourceMetadata: metaNoServers,
           authServerUrl: new URL("/", serverUrl),
           oauthStep: "client_registration",
+        }),
+      );
+    });
+
+    it("should pass fetchFn to registerClient when provided", async () => {
+      const { registerClient } =
+        await import("@modelcontextprotocol/sdk/client/auth.js");
+      const mockFetchFn = vi.fn();
+      vi.mocked(registerClient).mockResolvedValue({
+        client_id: "registered-client-id",
+      } as any);
+
+      const stateMachine = new OAuthStateMachine(
+        serverUrl,
+        mockProvider,
+        updateState,
+        mockFetchFn,
+      );
+      await stateMachine.executeStep(state);
+      expect(state.oauthStep).toBe("client_registration");
+
+      await stateMachine.executeStep(state);
+
+      expect(registerClient).toHaveBeenCalledWith(
+        serverUrl,
+        expect.objectContaining({
+          fetchFn: mockFetchFn,
+        }),
+      );
+    });
+
+    it("should pass fetchFn to exchangeAuthorization when provided", async () => {
+      const { exchangeAuthorization } =
+        await import("@modelcontextprotocol/sdk/client/auth.js");
+      const mockFetchFn = vi.fn();
+      const metadata = {
+        issuer: "http://localhost:3000",
+        authorization_endpoint: "http://localhost:3000/authorize",
+        token_endpoint: "http://localhost:3000/token",
+        response_types_supported: ["code"],
+      };
+      vi.mocked(exchangeAuthorization).mockResolvedValue({
+        access_token: "test-token",
+      } as any);
+
+      const providerWithMetadata = {
+        ...mockProvider,
+        getServerMetadata: vi.fn(() => metadata),
+      } as unknown as BaseOAuthClientProvider;
+
+      const tokenRequestState: AuthGuidedState = {
+        ...EMPTY_GUIDED_STATE,
+        oauthStep: "token_request",
+        oauthMetadata: metadata as any,
+        oauthClientInfo: { client_id: "test-client" },
+        authorizationCode: "test-code",
+      };
+
+      const stateMachine = new OAuthStateMachine(
+        serverUrl,
+        providerWithMetadata,
+        updateState,
+        mockFetchFn,
+      );
+      await stateMachine.executeStep(tokenRequestState);
+
+      expect(exchangeAuthorization).toHaveBeenCalledWith(
+        serverUrl,
+        expect.objectContaining({
+          fetchFn: mockFetchFn,
         }),
       );
     });

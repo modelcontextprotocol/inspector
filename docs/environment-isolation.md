@@ -10,13 +10,14 @@ We use the term **seams** for the individual integration points where environmen
 
 These seams are already implemented in InspectorClient:
 
-| Seam                   | Abstraction           | Node Implementation                                           | Browser Implementation                        |
-| ---------------------- | --------------------- | ------------------------------------------------------------- | --------------------------------------------- |
-| **OAuth storage**      | `OAuthStorage`        | `NodeOAuthStorage` (file-based)                               | `BrowserOAuthStorage` (sessionStorage)        |
-| **OAuth navigation**   | `OAuthNavigation`     | `CallbackNavigation` (e.g. opens URL via `open`)              | `BrowserNavigation` (redirects)               |
-| **OAuth redirect URL** | `RedirectUrlProvider` | `MutableRedirectUrlProvider` (populated from callback server) | Object literal using `window.location.origin` |
+| Seam                   | Abstraction                        | Node Implementation                                           | Browser Implementation                                    |
+| ---------------------- | ---------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------- |
+| **OAuth storage**      | `OAuthStorage`                     | `NodeOAuthStorage` (file-based)                               | `BrowserOAuthStorage` (sessionStorage)                    |
+| **OAuth navigation**   | `OAuthNavigation`                  | `CallbackNavigation` (e.g. opens URL via `open`)              | `BrowserNavigation` (redirects)                           |
+| **OAuth redirect URL** | `RedirectUrlProvider`              | `MutableRedirectUrlProvider` (populated from callback server) | Object literal using `window.location.origin`             |
+| **OAuth auth fetch**   | Optional `fetchFn` in OAuth config | N/A (Node has no CORS)                                        | Caller provides fetch that POSTs to proxy when in browser |
 
-The caller provides storage, navigation, and redirect URL provider when configuring OAuth.
+The caller provides storage, navigation, and redirect URL provider when configuring OAuth. InspectorClient accepts optional `fetchFn` and passes it to all SDK auth calls (discovery, registration, token exchange, scope discovery). The web client must still implement the proxy endpoint and a fetch wrapper that routes requests through it.
 
 ---
 
@@ -26,7 +27,7 @@ These seams are not yet implemented. They fall into two groups: browser integrat
 
 ### Proxy Fetch (OAuth Auth Seam)
 
-**Status:** Not implemented. InspectorClient does not accept or pass `fetchFn` to SDK auth calls.
+**Status:** Partially implemented. InspectorClient accepts optional `fetchFn` in OAuth config and passes it to all SDK auth calls. The web client must still implement the proxy endpoint (`POST /fetch`) and a client-side fetch wrapper that serializes requests and POSTs them to the proxy.
 
 **Problem**
 
@@ -40,11 +41,11 @@ Failed to start OAuth flow: Failed to discover OAuth metadata
 
 **Implementation**
 
-**Bridge or proxy**: Add `POST /fetch` endpoint that accepts `{ url, init }`, performs the fetch in Node, and returns `{ ok, status, statusText, headers, body }`. Protected by auth middleware.
+**InspectorClient** (done): Accepts optional `fetchFn` in OAuth config; passes it to `auth()`, `discoverAuthorizationServerMetadata`, `registerClient`, `exchangeAuthorization`, and `discoverScopes`.
 
-**InspectorClient**: Accept optional `fetchFn` in OAuth config; pass it to `auth()`, `discoverAuthorizationServerMetadata`, `registerClient`, `exchangeAuthorization`, and `discoverScopes`. Caller provides a fetch that POSTs to the bridge/proxy when in browser.
+**Bridge or proxy** (pending): Add `POST /fetch` endpoint that accepts `{ url, init }`, performs the fetch in Node, and returns `{ ok, status, statusText, headers, body }`. Protected by auth middleware.
 
-**Body serialization**: Must handle `URLSearchParams` (e.g. token exchange form data) by calling `.toString()` before `JSON.stringify`.
+**Client fetch wrapper** (pending): Caller provides a fetch that POSTs to the bridge/proxy when in browser. Body serialization must handle `URLSearchParams` (e.g. token exchange form data) by calling `.toString()` before `JSON.stringify`.
 
 **Limitations:** Requires proxy mode; direct connections still hit CORS. Proxy must be running; token must be set in config.
 
@@ -105,12 +106,12 @@ Package exports: `"./node/auth"`, `"./node/mcp"`. Browser consumers import from 
 
 ## Summary
 
-| Seam                   | Status          | Notes                                                                                     |
-| ---------------------- | --------------- | ----------------------------------------------------------------------------------------- |
-| OAuth storage          | Implemented     | Injected `OAuthStorage`                                                                   |
-| OAuth navigation       | Implemented     | Injected `OAuthNavigation`                                                                |
-| OAuth redirect URL     | Implemented     | Injected `RedirectUrlProvider`                                                            |
-| OAuth auth fetch       | Not implemented | InspectorClient must accept and pass `fetchFn`; bridge/proxy needs `POST /fetch` endpoint |
-| Transports             | Not implemented | Remote transport design; stdio handled in bridge (Node)                                   |
-| Node code organization | Not implemented | Move to `shared/node/`                                                                    |
-| Config loading         | Not implemented | Move to `shared/node/mcp/`                                                                |
+| Seam                   | Status                | Notes                                                                                       |
+| ---------------------- | --------------------- | ------------------------------------------------------------------------------------------- |
+| OAuth storage          | Implemented           | Injected `OAuthStorage`                                                                     |
+| OAuth navigation       | Implemented           | Injected `OAuthNavigation`                                                                  |
+| OAuth redirect URL     | Implemented           | Injected `RedirectUrlProvider`                                                              |
+| OAuth auth fetch       | Partially implemented | InspectorClient accepts and passes `fetchFn`; client needs proxy endpoint and fetch wrapper |
+| Transports             | Not implemented       | Remote transport design; stdio handled in bridge (Node)                                     |
+| Node code organization | Not implemented       | Move to `shared/node/`                                                                      |
+| Config loading         | Not implemented       | Move to `shared/node/mcp/`                                                                  |
