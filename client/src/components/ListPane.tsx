@@ -6,7 +6,7 @@ import { useState, useMemo, useRef } from "react";
 type ListPaneProps<T> = {
   items: T[];
   listItems: () => void;
-  clearItems: () => void;
+  clearItems?: () => void;
   setSelectedItem: (item: T) => void;
   renderItem: (item: T) => React.ReactNode;
   title: string;
@@ -101,14 +101,16 @@ const ListPane = <T extends object>({
         >
           {buttonText}
         </Button>
-        <Button
-          variant="outline"
-          className="w-full mb-4"
-          onClick={clearItems}
-          disabled={items.length === 0}
-        >
-          Clear
-        </Button>
+        {clearItems && (
+          <Button
+            variant="outline"
+            className="w-full mb-4"
+            onClick={clearItems}
+            disabled={items.length === 0}
+          >
+            Clear
+          </Button>
+        )}
         <div className="space-y-2 overflow-y-auto max-h-96">
           {filteredItems.map((item, index) => (
             <div
