@@ -10,7 +10,7 @@ import {
   Maximize2,
   Minimize2,
 } from "lucide-react";
-import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { Tool, ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
 import AppRenderer from "./AppRenderer";
@@ -42,6 +42,7 @@ interface AppsTabProps {
   listTools: () => void;
   error: string | null;
   mcpClient: Client | null;
+  onNotification?: (notification: ServerNotification) => void;
 }
 
 // Type guard to check if a tool has UI metadata
@@ -55,6 +56,7 @@ const AppsTab = ({
   listTools,
   error,
   mcpClient,
+  onNotification,
 }: AppsTabProps) => {
   const [appTools, setAppTools] = useState<Tool[]>([]);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
@@ -496,6 +498,7 @@ const AppsTab = ({
                             tool={selectedTool}
                             mcpClient={mcpClient}
                             toolInput={params}
+                            onNotification={onNotification}
                           />
                         </div>
                       </div>

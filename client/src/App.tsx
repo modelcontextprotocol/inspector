@@ -1554,6 +1554,9 @@ const App = () => {
                       }}
                       error={errors.tools}
                       mcpClient={mcpClient}
+                      onNotification={(notification) => {
+                        setNotifications((prev) => [...prev, notification]);
+                      }}
                     />
                     <ConsoleTab />
                     <PingTab

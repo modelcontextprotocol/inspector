@@ -1,6 +1,11 @@
 import { useMemo, useState } from "react";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { Tool, ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import {
+  Tool,
+  ContentBlock,
+  ServerNotification,
+  LoggingMessageNotificationParams,
+} from "@modelcontextprotocol/sdk/types.js";
 import {
   AppRenderer as McpUiAppRenderer,
   type McpUiHostContext,
@@ -20,6 +25,7 @@ interface AppRendererProps {
   tool: Tool;
   mcpClient: Client | null;
   toolInput?: Record<string, unknown>;
+  onNotification?: (notification: ServerNotification) => void;
 }
 
 const AppRenderer = ({
@@ -27,6 +33,7 @@ const AppRenderer = ({
   tool,
   mcpClient,
   toolInput,
+  onNotification,
 }: AppRendererProps) => {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
@@ -73,6 +80,15 @@ const AppRenderer = ({
     return {};
   };
 
+  const handleLoggingMessage = (params: LoggingMessageNotificationParams) => {
+    if (onNotification) {
+      onNotification({
+        method: "notifications/message",
+        params,
+      } as ServerNotification);
+    }
+  };
+
   if (!resourceUri) {
     return (
       <Alert variant="destructive">
@@ -110,6 +126,7 @@ const AppRenderer = ({
           client={mcpClient}
           onOpenLink={handleOpenLink}
           onMessage={handleMessage}
+          onLoggingMessage={handleLoggingMessage}
           toolName={tool.name}
           hostContext={hostContext}
           toolInput={toolInput}
