@@ -3,6 +3,7 @@ import { parseOAuthCallbackParams } from "./utils.js";
 import { generateOAuthErrorDescription } from "./utils.js";
 
 const OAUTH_CALLBACK_PATH = "/oauth/callback";
+const OAUTH_CALLBACK_GUIDED_PATH = "/oauth/callback/guided";
 
 const SUCCESS_HTML = `<!DOCTYPE html>
 <html>
@@ -45,6 +46,7 @@ export interface OAuthCallbackServerStartOptions {
 export interface OAuthCallbackServerStartResult {
   port: number;
   redirectUrl: string;
+  redirectUrlGuided: string;
 }
 
 /**
@@ -85,6 +87,7 @@ export class OAuthCallbackServer {
         resolve({
           port: this.port,
           redirectUrl: `http://localhost:${this.port}${OAUTH_CALLBACK_PATH}`,
+          redirectUrlGuided: `http://localhost:${this.port}${OAUTH_CALLBACK_GUIDED_PATH}`,
         });
       });
     });
@@ -136,7 +139,10 @@ export class OAuthCallbackServer {
       return;
     }
 
-    if (pathname !== OAUTH_CALLBACK_PATH) {
+    if (
+      pathname !== OAUTH_CALLBACK_PATH &&
+      pathname !== OAUTH_CALLBACK_GUIDED_PATH
+    ) {
       send(404, needJson ? '{"error":"Not Found"}' : SUCCESS_HTML);
       return;
     }

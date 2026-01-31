@@ -188,19 +188,28 @@ interface Transport {
 
 ```typescript
 // shared/mcp/remoteTransport.ts
+import { SseError } from "@modelcontextprotocol/sdk/client/sse.js";
+import type { FetchRequestEntry } from "./types.js";
+
 export class RemoteTransport implements Transport {
   private eventSource: EventSource | null = null;
   private sessionId: string | null = null;
   private apiBase: string; // e.g., '/api/mcp' or 'http://localhost:5173/api/mcp'
   private authToken: string; // Required for security - see Security Considerations
 
+  private onFetchRequest?: (entry: FetchRequestEntry) => void;
+
   constructor(
     private serverConfig: MCPServerConfig,
-    options?: { apiBase?: string; authToken?: string },
+    options?: {
+      apiBase?: string;
+      authToken?: string;
+      onFetchRequest?: (entry: FetchRequestEntry) => void;
+    },
   ) {
     this.apiBase = options?.apiBase || "/api/mcp";
-    // Token injected by Vite in dev, or provided explicitly
     this.authToken = options?.authToken || __MCP_BRIDGE_TOKEN__;
+    this.onFetchRequest = options?.onFetchRequest;
   }
 
   private getAuthHeaders(): Record<string, string> {
@@ -220,6 +229,14 @@ export class RemoteTransport implements Transport {
 
     if (!response.ok) {
       if (response.status === 401) {
+        const body = await response.json().catch(() => ({}));
+        if (body.code === 401) {
+          throw new SseError(
+            401,
+            body.error ?? "Unauthorized",
+            null as unknown as Event,
+          );
+        }
         throw new Error("Unauthorized: Invalid or missing bridge auth token");
       }
       throw new Error(`Failed to connect: ${response.statusText}`);
@@ -240,6 +257,42 @@ export class RemoteTransport implements Transport {
       this.onmessage?.(message);
     };
 
+    this.eventSource.addEventListener(
+      "transport_error",
+      (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data ?? "{}");
+          const err =
+            data.code === 401
+              ? new SseError(
+                  401,
+                  data.error ?? "Unauthorized",
+                  event as unknown as Event,
+                )
+              : new Error(data.error ?? "Transport error");
+          this.onerror?.(err);
+        } catch {
+          this.onerror?.(new Error("Transport error"));
+        }
+      },
+    );
+
+    this.eventSource.addEventListener(
+      "fetch_request",
+      (event: MessageEvent) => {
+        try {
+          const raw = JSON.parse(event.data ?? "{}");
+          const entry: FetchRequestEntry = {
+            ...raw,
+            timestamp: raw.timestamp ? new Date(raw.timestamp) : new Date(),
+          };
+          this.onFetchRequest?.(entry);
+        } catch {
+          // Ignore malformed entries
+        }
+      },
+    );
+
     this.eventSource.onerror = () => {
       this.onerror?.(new Error("SSE connection failed"));
     };
@@ -257,6 +310,14 @@ export class RemoteTransport implements Transport {
 
     if (!response.ok) {
       if (response.status === 401) {
+        const body = await response.json().catch(() => ({}));
+        if (body.code === 401) {
+          throw new SseError(
+            401,
+            body.error ?? "Unauthorized",
+            null as unknown as Event,
+          );
+        }
         throw new Error("Unauthorized: Invalid or missing bridge auth token");
       }
       throw new Error(`Failed to send: ${response.statusText}`);
@@ -344,8 +405,10 @@ export class InspectorClient {
     let transport: Transport;
 
     if (typeof window !== "undefined") {
-      // Browser: use RemoteTransport
-      transport = new RemoteTransport(this.serverConfig);
+      // Browser: use RemoteTransport (with fetch tracking for Requests tab)
+      transport = new RemoteTransport(this.serverConfig, {
+        onFetchRequest: (entry) => this.addFetchRequest(entry),
+      });
     } else {
       // Node (CLI/TUI): use LocalTransport (wraps real SDK transport)
       transport = new LocalTransport(this.serverConfig);
@@ -374,7 +437,13 @@ export class InspectorClient {
 import { Plugin } from "vite";
 import express from "express";
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { SseError } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createTransport } from "../shared/mcp/transport.js";
+
+const is401Error = (err: unknown) =>
+  (err instanceof SseError && err.code === 401) ||
+  (err instanceof StreamableHTTPError && err.code === 401);
 
 // Generate auth token (see Security Considerations section)
 const bridgeToken =
@@ -385,7 +454,7 @@ export function getBridgeToken(): string {
 }
 
 export function createMcpBridgePlugin(): Plugin {
-  const sessions = new Map(); // sessionId → { transport }
+  const sessions = new Map(); // sessionId → { transport, fetchRequestQueue, fetchRequestHandler? }
 
   // Auth middleware - see Security Considerations for full implementation
   const authMiddleware = (req: any, res: any, next: () => void) => {
@@ -425,26 +494,47 @@ export function createMcpBridgePlugin(): Plugin {
       server.middlewares.use("/api/mcp", authMiddleware);
 
       // 1. Connect: create real SDK transport
+      // Preserve 401 so client can trigger OAuth (see "Preserving Transport Semantics")
+      // Use onFetchRequest to forward HTTP tracking for Requests tab (see "HTTP Fetch Tracking")
       server.middlewares.use("/api/mcp/connect", async (req, res) => {
         try {
           const serverConfig = req.body;
           const sessionId = generateId();
+          const session = {
+            transport: null,
+            fetchRequestQueue: [],
+            fetchRequestHandler: null,
+          };
+          sessions.set(sessionId, session);
+          const onFetchRequest = (entry) => {
+            const serialized = {
+              ...entry,
+              timestamp:
+                entry.timestamp?.toISOString?.() ?? new Date().toISOString(),
+            };
+            if (session.fetchRequestHandler) {
+              session.fetchRequestHandler(serialized);
+            } else {
+              session.fetchRequestQueue.push(serialized);
+            }
+          };
 
-          // Create the REAL transport (stdio, SSE, streamable-http)
-          const transport = await createTransport(serverConfig);
+          const { transport } = createTransport(serverConfig, {
+            onFetchRequest,
+          });
+          session.transport = transport;
           await transport.start();
-
-          sessions.set(sessionId, { transport });
 
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ sessionId }));
         } catch (error) {
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(
-            JSON.stringify({
-              error: error instanceof Error ? error.message : String(error),
-            }),
-          );
+          const status = is401Error(error) ? 401 : 500;
+          const body = {
+            error: error instanceof Error ? error.message : String(error),
+            ...(is401Error(error) && { code: 401 }),
+          };
+          res.writeHead(status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(body));
         }
       });
 
@@ -465,12 +555,13 @@ export function createMcpBridgePlugin(): Plugin {
           res.writeHead(200);
           res.end();
         } catch (error) {
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(
-            JSON.stringify({
-              error: error instanceof Error ? error.message : String(error),
-            }),
-          );
+          const status = is401Error(error) ? 401 : 500;
+          const body = {
+            error: error instanceof Error ? error.message : String(error),
+            ...(is401Error(error) && { code: 401 }),
+          };
+          res.writeHead(status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(body));
         }
       });
 
@@ -493,16 +584,32 @@ export function createMcpBridgePlugin(): Plugin {
           Connection: "keep-alive",
         });
 
+        // Drain buffered fetch_request entries and forward future ones
+        for (const entry of session.fetchRequestQueue) {
+          res.write(`event: fetch_request\n`);
+          res.write(`data: ${JSON.stringify(entry)}\n\n`);
+        }
+        session.fetchRequestQueue.length = 0;
+        session.fetchRequestHandler = (entry) => {
+          res.write(`event: fetch_request\n`);
+          res.write(`data: ${JSON.stringify(entry)}\n\n`);
+        };
+
         // Forward ALL messages from transport to browser
         session.transport.onmessage = (message) => {
           res.write(`data: ${JSON.stringify(message)}\n\n`);
         };
 
         session.transport.onerror = (error) => {
-          res.write(`event: error\n`);
+          const code =
+            error instanceof SseError || error instanceof StreamableHTTPError
+              ? error.code
+              : undefined;
+          res.write(`event: transport_error\n`);
           res.write(
             `data: ${JSON.stringify({
               error: error instanceof Error ? error.message : String(error),
+              ...(code !== undefined && { code }),
             })}\n\n`,
           );
         };
@@ -595,6 +702,104 @@ async authenticate() {
 }
 ```
 
+## Preserving Transport Semantics: 401 and HTTP Signals
+
+The client must receive the same error signals from `RemoteTransport` as from a local
+transport. Otherwise it cannot trigger OAuth on 401 or handle other HTTP semantics.
+**Research from the codebase** shows how this works today and what the bridge must do.
+
+### How Local Transports Signal 401
+
+- **SSEClientTransport**: When the MCP server returns 401, the SDK's `EventSource`
+  (from the `eventsource` package) receives the non-200 status, calls
+  `failConnection(message, status)`, and emits an error event with `code: 401`. The
+  SDK creates `SseError(401, message, event)` and rejects/calls `onerror`.
+- **StreamableHTTPClientTransport**: Throws `StreamableHTTPError(401, message)` when
+  the MCP server returns 401.
+- **Client detection** (`useConnection.ts` `is401Error`): Checks
+  `SseError && error.code === 401`, `StreamableHTTPError && error.code === 401`, or
+  `Error && message.includes("401")` / `"Unauthorized"` as fallbacks.
+
+### How the Current Proxy Preserves This
+
+The proxy (`server/src/index.ts`) catches 401 from the underlying transport and
+returns `res.status(401).json(error)` to the browser. The browser's
+`SSEClientTransport` connects to the proxy; when the proxy returns 401, the
+`eventsource` package's fetch handler sees `status !== 200` and emits an error with
+`code: 401`. The SDK creates `SseError(401)`, so `is401Error` works and
+`handleAuthError` runs. **No client changes are needed** because the proxy preserves
+the HTTP status.
+
+### What the Bridge Must Do
+
+To achieve the same transparency:
+
+1. **`/connect` on 401**: When `transport.start()` fails with `SseError(401)` or
+   `StreamableHTTPError(401)`, the bridge must return **401** (not 500), with a body
+   that includes the original error (e.g. `{ error, code: 401 }`).
+
+2. **`RemoteTransport.start()`**: When `fetch(/connect)` returns 401, throw
+   `SseError(401, ...)` or `StreamableHTTPError(401, ...)` (both from the SDK) so
+   `is401Error` continues to work without client changes.
+
+3. **`/send` on 401**: If `transport.send()` fails with 401, return 401 with the same
+   error shape. `RemoteTransport.send()` should throw the matching error type.
+
+4. **`event: transport_error` in events stream**: When `transport.onerror` fires
+   with `SseError(401)` or `StreamableHTTPError(401)`, send
+   `event: transport_error` with `data: { error, code: 401 }`. (Use a distinct
+   event name to avoid clashing with EventSource's built-in `error` for connection
+   failures.) `RemoteTransport`'s listener for `transport_error` must call
+   `onerror` with an error that passes `is401Error` (e.g.
+   `new SseError(401, data.error, null)`).
+
+5. **Headers (e.g. `mcp-session-id`)**: Already addressed—the bridge's transport runs
+   in Node and sees all headers. Session handling stays server-side; the browser
+   never needs these headers.
+
+With these changes, the client uses the same `is401Error` / `handleAuthError` logic
+for both local and remote transports. No branching on "am I remote?" is required.
+
+## HTTP Fetch Tracking (Requests Tab)
+
+**Current mechanism**: `createFetchTracker` wraps the `fetch` used by SSE and
+streamable-http transports. Every HTTP request to the MCP server is intercepted;
+the tracker captures URL, method, request/response headers, bodies, status, and
+duration. It calls `onFetchRequest(entry)` for each. `InspectorClient` passes
+`onFetchRequest: (e) => this.addFetchRequest(e)` when creating the transport, so
+entries flow to `getFetchRequests()` and the Requests tab.
+
+**The problem with remoting**: The actual HTTP connection to the MCP server
+happens in the bridge (Node.js). The browser's `RemoteTransport` only speaks to
+`/api/mcp/*`. The tracker runs where `fetch` is invoked—in the bridge—so the
+browser never sees those entries unless the bridge forwards them.
+
+**Solution**:
+
+1. **Bridge**: When creating the transport, use `createFetchTracker` with an
+   `onFetchRequest` that sends each entry to the browser. Over the existing
+   `/events` SSE stream, emit:
+
+   ```
+   event: fetch_request
+   data: {"id":"...","timestamp":"...","method":"GET","url":"...","requestHeaders":{...},...}
+   ```
+
+   Serialize `FetchRequestEntry` (Date becomes ISO string; parse on receive).
+
+2. **RemoteTransport**: Accept optional `onFetchRequest?: (entry: FetchRequestEntry) => void` in its constructor. Listen for `fetch_request` events on the EventSource, parse the entry (restore `timestamp` as `Date`), and call `onFetchRequest(entry)`.
+
+3. **InspectorClient**: When creating `RemoteTransport`, pass
+   `onFetchRequest: (e) => this.addFetchRequest(e)` so entries flow into
+   `getFetchRequests()` exactly as with `LocalTransport`. The Requests tab and
+   `fetchRequestsChange` events continue to work.
+
+4. **Scope**: Only applicable for HTTP transports (SSE, streamable-http). Stdio
+   has no HTTP conversation; the bridge would not emit `fetch_request` events.
+
+With this, the client sees the real HTTP traffic with the MCP server (headers,
+bodies, status codes) for remote HTTP transports, matching local behavior.
+
 ## Feature Preservation
 
 ### 1. Message Tracking (History Tab)
@@ -641,6 +846,10 @@ All events continue to work because `InspectorClient` handles them:
 
 Handled by `RemoteTransport` - passes serverConfig (including custom headers) to bridge, which forwards them when creating the real transport.
 
+### 4a. HTTP Fetch Tracking (Requests Tab)
+
+Bridge uses `createTransport(..., { onFetchRequest })` so every HTTP request to the MCP server is tracked. Entries are queued until the client opens `/events`, then streamed as `event: fetch_request`. `RemoteTransport` listens and forwards to `onFetchRequest`, which `InspectorClient` connects to `addFetchRequest`. Same `getFetchRequests()` API as local; only HTTP transports emit entries.
+
 ### 5. Progress Tracking
 
 Works automatically - progress notifications are JSON-RPC messages that flow through the transport like any other message.
@@ -651,20 +860,21 @@ Now works in web client! The bridge creates the stdio transport in Node.js and f
 
 ## Comparison: Current vs. Proposed
 
-| Aspect                 | Current Proxy                                 | Proposed (Vite Bridge)             |
-| ---------------------- | --------------------------------------------- | ---------------------------------- |
-| **Processes**          | 2 (Vite + Proxy)                              | 1 (Vite with plugin)               |
-| **Browser code**       | SDK `Client` directly (~880 lines)            | `InspectorClient` (shared)         |
-| **Server code**        | Full SDK `Client` + session mgmt (~700 lines) | Message forwarder (~150 lines)     |
-| **State management**   | Duplicated (browser + proxy)                  | Single (browser only)              |
-| **Code sharing**       | Web separate from CLI/TUI                     | All use `InspectorClient`          |
-| **OAuth**              | Browser (CORS issues)                         | Browser coord + Node HTTP          |
-| **Message tracking**   | Separate logic for web                        | Unified `MessageTrackingTransport` |
-| **Stdio support**      | No (web client)                               | Yes (via bridge)                   |
-| **Session management** | Complex (Maps, cleanup)                       | Simple (sessionId → transport)     |
-| **Authentication**     | Session token                                 | Same (can keep or simplify)        |
-| **CORS headers**       | Managed by proxy                              | Managed by Vite                    |
-| **Custom headers**     | Complex forwarding logic                      | Passed in config                   |
+| Aspect                  | Current Proxy                                 | Proposed (Vite Bridge)                 |
+| ----------------------- | --------------------------------------------- | -------------------------------------- |
+| **Processes**           | 2 (Vite + Proxy)                              | 1 (Vite with plugin)                   |
+| **Browser code**        | SDK `Client` directly (~880 lines)            | `InspectorClient` (shared)             |
+| **Server code**         | Full SDK `Client` + session mgmt (~700 lines) | Message forwarder (~150 lines)         |
+| **State management**    | Duplicated (browser + proxy)                  | Single (browser only)                  |
+| **Code sharing**        | Web separate from CLI/TUI                     | All use `InspectorClient`              |
+| **OAuth**               | Browser (CORS issues)                         | Browser coord + Node HTTP              |
+| **Message tracking**    | Separate logic for web                        | Unified `MessageTrackingTransport`     |
+| **HTTP fetch tracking** | TUI via InspectorClient; web N/A              | Both via bridge → fetch_request events |
+| **Stdio support**       | No (web client)                               | Yes (via bridge)                       |
+| **Session management**  | Complex (Maps, cleanup)                       | Simple (sessionId → transport)         |
+| **Authentication**      | Session token                                 | Same (can keep or simplify)            |
+| **CORS headers**        | Managed by proxy                              | Managed by Vite                        |
+| **Custom headers**      | Complex forwarding logic                      | Passed in config                       |
 
 ## Migration Plan
 
@@ -677,7 +887,8 @@ Now works in web client! The bridge creates the stdio transport in Node.js and f
 1. Create `shared/mcp/remoteTransport.ts`
    - Implement `Transport` interface
    - HTTP client for `/api/mcp/*` endpoints
-   - SSE listener for responses
+   - SSE listener for responses and `fetch_request` / `transport_error` events
+   - Optional `onFetchRequest` callback for Requests tab
    - Tests with mock API
 
 2. Create `shared/mcp/localTransport.ts`
@@ -692,7 +903,8 @@ Now works in web client! The bridge creates the stdio transport in Node.js and f
 
 4. Add Vite plugin: `client/vite-mcp-bridge.ts`
    - Implement `/api/mcp/connect`, `/send`, `/events`, `/disconnect`
-   - Use existing `createTransport()` from shared
+   - Use existing `createTransport()` from shared with `onFetchRequest`
+   - Queue fetch entries until client opens `/events`, then stream as `event: fetch_request`
    - Add to `vite.config.ts`
 
 5. Test with CLI/TUI

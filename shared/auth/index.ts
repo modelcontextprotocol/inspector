@@ -21,18 +21,19 @@ export {
 } from "./storage-node.js";
 
 // Providers
-export type { RedirectUrlProvider, OAuthNavigation } from "./providers.js";
+export type {
+  OAuthProviderConfig,
+  RedirectUrlProvider,
+  OAuthNavigation,
+  OAuthNavigationCallback,
+} from "./providers.js";
 export {
-  BrowserRedirectUrlProvider,
-  LocalServerRedirectUrlProvider,
-  ManualRedirectUrlProvider,
+  MutableRedirectUrlProvider,
   BrowserNavigation,
   ConsoleNavigation,
   CallbackNavigation,
   BaseOAuthClientProvider,
   BrowserOAuthClientProvider,
-  NodeOAuthClientProvider,
-  GuidedNodeOAuthClientProvider,
 } from "./providers.js";
 
 // Utilities

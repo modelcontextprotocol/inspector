@@ -40,23 +40,33 @@ describe("InspectorClient OAuth", () => {
 
   describe("OAuth Configuration", () => {
     it("should set OAuth configuration", () => {
-      client.setOAuthConfig({
+      const oauthConfig = createOAuthClientConfig({
+        mode: "static",
         clientId: "test-client-id",
         clientSecret: "test-secret",
-        scope: "read write",
         redirectUrl: "http://localhost:3000/callback",
+        scope: "read write",
       });
+      client = new InspectorClient(
+        { type: "sse", url: "http://localhost:3000/sse" },
+        { autoFetchServerContents: false, oauth: oauthConfig },
+      );
 
       // Configuration should be set (no error thrown)
       expect(client).toBeDefined();
     });
 
     it("should set OAuth configuration with clientMetadataUrl for CIMD", () => {
-      client.setOAuthConfig({
+      const oauthConfig = createOAuthClientConfig({
+        mode: "cimd",
         clientMetadataUrl: "https://example.com/client-metadata.json",
-        scope: "read write",
         redirectUrl: "http://localhost:3000/callback",
+        scope: "read write",
       });
+      client = new InspectorClient(
+        { type: "sse", url: "http://localhost:3000/sse" },
+        { autoFetchServerContents: false, oauth: oauthConfig },
+      );
 
       expect(client).toBeDefined();
     });
@@ -64,10 +74,17 @@ describe("InspectorClient OAuth", () => {
 
   describe("OAuth Token Management", () => {
     beforeEach(() => {
-      client.setOAuthConfig({
-        clientId: "test-client-id",
-        redirectUrl: "http://localhost:3000/callback",
-      });
+      client = new InspectorClient(
+        { type: "sse", url: "http://localhost:3000/sse" },
+        {
+          autoFetchServerContents: false,
+          oauth: createOAuthClientConfig({
+            mode: "static",
+            clientId: "test-client-id",
+            redirectUrl: "http://localhost:3000/callback",
+          }),
+        },
+      );
     });
 
     it("should return undefined tokens when not authorized", async () => {

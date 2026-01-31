@@ -18,7 +18,12 @@ import type {
 import { loadMcpServersConfig } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { useInspectorClient } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
-import { createOAuthCallbackServer } from "@modelcontextprotocol/inspector-shared/auth";
+import {
+  createOAuthCallbackServer,
+  CallbackNavigation,
+  MutableRedirectUrlProvider,
+  NodeOAuthStorage,
+} from "@modelcontextprotocol/inspector-shared/auth";
 import { openUrl } from "./utils/openUrl.js";
 import { Tabs, type TabType, tabs as tabList } from "./components/Tabs.js";
 import { InfoTab } from "./components/InfoTab.js";
@@ -182,6 +187,11 @@ function App({ configFile }: AppProps) {
     ? mcpConfig.mcpServers[selectedServer]
     : null;
 
+  // Mutable redirect URL providers, keyed by server name (populated before authenticate)
+  const redirectUrlProvidersRef = useRef<
+    Record<string, MutableRedirectUrlProvider>
+  >({});
+
   // Create InspectorClient instances for each server on mount
   useEffect(() => {
     const newClients: Record<string, InspectorClient> = {};
@@ -199,7 +209,21 @@ function App({ configFile }: AppProps) {
           pipeStderr: true,
         };
         if (isOAuthCapableServer(serverConfig)) {
-          opts.oauth = { ...(serverConfig.oauth || {}) };
+          const oauthFromConfig = serverConfig.oauth as
+            | { storagePath?: string }
+            | undefined;
+          const redirectUrlProvider =
+            redirectUrlProvidersRef.current[serverName] ??
+            (redirectUrlProvidersRef.current[serverName] =
+              new MutableRedirectUrlProvider());
+          opts.oauth = {
+            ...(serverConfig.oauth || {}),
+            storage: new NodeOAuthStorage(oauthFromConfig?.storagePath),
+            navigation: new CallbackNavigation(
+              async (url) => await openUrl(url),
+            ),
+            redirectUrlProvider,
+          };
         }
         newClients[serverName] = new InspectorClient(serverConfig, opts);
       }
@@ -301,7 +325,7 @@ function App({ configFile }: AppProps) {
       flowReject = reject;
     });
     try {
-      const { redirectUrl } = await callbackServer.start({
+      const { redirectUrl, redirectUrlGuided } = await callbackServer.start({
         port: 0,
         onCallback: async (params) => {
           try {
@@ -320,9 +344,13 @@ function App({ configFile }: AppProps) {
           void callbackServer.stop();
         },
       });
-      selectedInspectorClient.setOAuthConfig({ redirectUrl });
-      const authUrl = await selectedInspectorClient.authenticate();
-      await openUrl(authUrl);
+      const redirectUrlProvider =
+        redirectUrlProvidersRef.current[selectedServer];
+      if (redirectUrlProvider) {
+        redirectUrlProvider.redirectUrl = redirectUrl;
+        redirectUrlProvider.redirectUrlGuided = redirectUrlGuided;
+      }
+      await selectedInspectorClient.authenticate();
       await flowDone;
       setOauthStatus("success");
       setOauthMessage("OAuth complete. Press C to connect.");
