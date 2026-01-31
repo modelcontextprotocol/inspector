@@ -322,7 +322,7 @@ describe("useConnection", () => {
       const [, samplingHandler] = samplingHandlerCall;
 
       // Invoke handler; should return a CreateTaskResult immediately
-      let createTaskResult: SchemaOutput<typeof CreateTaskResultSchema>;
+      let createTaskResult!: SchemaOutput<typeof CreateTaskResultSchema>;
       await act(async () => {
         createTaskResult = await samplingHandler(samplingRequest);
       });
@@ -449,7 +449,7 @@ describe("useConnection", () => {
         });
 
       expect(elicitRequestHandlerCall).toBeDefined();
-      const [, handler] = elicitRequestHandlerCall;
+      const [, handler] = elicitRequestHandlerCall!;
 
       mockOnElicitationRequest.mockImplementation((_request, resolve) => {
         resolve({ action: "accept", content: { name: "test" } });
@@ -640,7 +640,7 @@ describe("useConnection", () => {
         });
 
       expect(elicitRequestHandlerCall).toBeDefined();
-      const [, handler] = elicitRequestHandlerCall;
+      const [, handler] = elicitRequestHandlerCall!;
 
       const mockElicitationRequest: ElicitRequest = {
         method: "elicitation/create",
@@ -707,7 +707,8 @@ describe("useConnection", () => {
           }
         });
 
-      const [, handler] = elicitRequestHandlerCall;
+      expect(elicitRequestHandlerCall).toBeDefined();
+      const [, handler] = elicitRequestHandlerCall!;
 
       const mockElicitationRequest: ElicitRequest = {
         method: "elicitation/create",
@@ -732,7 +733,7 @@ describe("useConnection", () => {
         resolve(mockResponse);
       });
 
-      let handlerResult;
+      let handlerResult!: ElicitResult;
       await act(async () => {
         handlerResult = await handler(mockElicitationRequest);
       });
@@ -1514,15 +1515,19 @@ describe("useConnection", () => {
           expect(mockDiscoverScopes).toHaveBeenCalledWith(
             defaultProps.sseUrl,
             undefined,
+            expect.any(Function), // fetchFn when connectionType is proxy
           );
         } else {
           expect(mockDiscoverScopes).not.toHaveBeenCalled();
         }
 
-        expect(mockAuth).toHaveBeenCalledWith(expect.any(Object), {
-          serverUrl: defaultProps.sseUrl,
-          scope: expectedAuthScope,
-        });
+        expect(mockAuth).toHaveBeenCalledWith(
+          expect.any(Object),
+          expect.objectContaining({
+            serverUrl: defaultProps.sseUrl,
+            scope: expectedAuthScope,
+          }),
+        );
       },
     );
 
@@ -1538,11 +1543,36 @@ describe("useConnection", () => {
       expect(mockDiscoverScopes).toHaveBeenCalledWith(
         defaultProps.sseUrl,
         undefined,
+        expect.any(Function), // fetchFn when connectionType is proxy
       );
-      expect(mockAuth).toHaveBeenCalledWith(expect.any(Object), {
-        serverUrl: defaultProps.sseUrl,
-        scope: undefined,
-      });
+      expect(mockAuth).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          serverUrl: defaultProps.sseUrl,
+          scope: undefined,
+        }),
+      );
+    });
+
+    it("passes undefined fetchFn when connectionType is direct", async () => {
+      mockDiscoverScopes.mockResolvedValue("read write");
+      setup401Error();
+
+      const directProps = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+      };
+      await attemptConnection(directProps);
+
+      expect(mockDiscoverScopes).toHaveBeenCalledWith(
+        defaultProps.sseUrl,
+        undefined,
+        undefined, // fetchFn is undefined for direct
+      );
+      expect(mockAuth).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.not.objectContaining({ fetchFn: expect.anything() }),
+      );
     });
   });
 
