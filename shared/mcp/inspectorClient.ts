@@ -68,18 +68,11 @@ import { InspectorClientEventTarget } from "./inspectorClientEventTarget.js";
 import { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 import type {
-  BaseOAuthClientProvider,
-  RedirectUrlProvider,
   OAuthNavigation,
+  RedirectUrlProvider,
 } from "../auth/providers.js";
-import {
-  NodeOAuthClientProvider,
-  GuidedNodeOAuthClientProvider,
-  LocalServerRedirectUrlProvider,
-  ManualRedirectUrlProvider,
-  ConsoleNavigation,
-} from "../auth/providers.js";
-import { NodeOAuthStorage } from "../auth/storage-node.js";
+import { BaseOAuthClientProvider } from "../auth/providers.js";
+import type { OAuthStorage } from "../auth/storage.js";
 import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
 import { EMPTY_GUIDED_STATE } from "../auth/types.js";
 import { OAuthStateMachine } from "../auth/state-machine.js";
@@ -209,16 +202,23 @@ export interface InspectorClientOptions {
     scope?: string;
 
     /**
-     * Redirect URL for OAuth callback (required for OAuth flow)
-     * For CLI/TUI, this should be a local server URL or manual callback URL
+     * Redirect URL provider. Returns redirect URL for normal/guided mode when
+     * needed. Caller populates URLs before authenticate() (e.g. from callback
+     * server).
      */
-    redirectUrl?: string;
+    redirectUrlProvider: RedirectUrlProvider;
 
     /**
-     * Full path to OAuth state file (default: ~/.mcp-inspector/oauth/state.json).
-     * Allows per-instance storage isolation.
+     * OAuth storage. The caller provides the storage implementation (e.g.
+     * NodeOAuthStorage for TUI/CLI, BrowserOAuthStorage for web).
      */
-    storagePath?: string;
+    storage: OAuthStorage;
+
+    /**
+     * Navigation handler. The caller handles navigation when the user must be
+     * sent to the authorization URL.
+     */
+    navigation: OAuthNavigation;
   };
 }
 
@@ -2234,13 +2234,16 @@ export class InspectorClient extends InspectorClientEventTarget {
     clientSecret?: string;
     clientMetadataUrl?: string;
     scope?: string;
-    redirectUrl?: string;
-    storagePath?: string;
   }): void {
+    if (!this.oauthConfig) {
+      throw new Error(
+        "OAuth config must be set at creation. Pass oauth in constructor.",
+      );
+    }
     this.oauthConfig = {
       ...this.oauthConfig,
       ...config,
-    };
+    } as NonNullable<InspectorClientOptions["oauth"]>;
   }
 
   /**
@@ -2254,48 +2257,18 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
 
     const serverUrl = this.getServerUrl();
-    const redirectUrl =
-      this.oauthConfig.redirectUrl || "http://localhost:3000/oauth/callback";
-
-    // Determine redirect URL provider based on redirectUrl
-    let redirectUrlProvider: RedirectUrlProvider;
-    if (
-      redirectUrl.startsWith("http://localhost:") ||
-      redirectUrl.startsWith("https://localhost:")
-    ) {
-      const url = new URL(redirectUrl);
-      const port = parseInt(url.port) || (url.protocol === "https:" ? 443 : 80);
-      redirectUrlProvider = new LocalServerRedirectUrlProvider(port, mode);
-    } else {
-      // ManualRedirectUrlProvider now handles full redirect URLs correctly
-      redirectUrlProvider = new ManualRedirectUrlProvider(redirectUrl, mode);
-    }
-
-    const navigation = new ConsoleNavigation();
-    const storagePath = this.oauthConfig.storagePath;
-    const provider =
-      mode === "guided"
-        ? new GuidedNodeOAuthClientProvider(
-            serverUrl,
-            redirectUrlProvider,
-            navigation,
-            this.oauthConfig.clientMetadataUrl,
-            storagePath,
-          )
-        : new NodeOAuthClientProvider(
-            serverUrl,
-            redirectUrlProvider,
-            navigation,
-            this.oauthConfig.clientMetadataUrl,
-            storagePath,
-          );
+    const provider = new BaseOAuthClientProvider(
+      serverUrl,
+      this.oauthConfig,
+      mode,
+    );
 
     // Set event target for event dispatch
     provider.setEventTarget(this);
 
     // Set scope if provided
     if (this.oauthConfig.scope) {
-      provider["storage"].saveScope(serverUrl, this.oauthConfig.scope);
+      await provider.saveScope(this.oauthConfig.scope);
     }
 
     // Save preregistered client info if provided (static client from config)
@@ -2306,10 +2279,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           client_secret: this.oauthConfig.clientSecret,
         }),
       };
-      await provider["storage"].savePreregisteredClientInformation(
-        serverUrl,
-        clientInfo,
-      );
+      await provider.savePreregisteredClientInformation(clientInfo);
     }
 
     return provider;
@@ -2515,9 +2485,8 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     // Otherwise get from provider storage
     const provider = await this.createOAuthProvider("normal");
-    const serverUrl = this.getServerUrl();
     try {
-      return await provider["storage"].getTokens(serverUrl);
+      return await provider.tokens();
     } catch {
       return undefined;
     }
@@ -2527,13 +2496,12 @@ export class InspectorClient extends InspectorClientEventTarget {
    * Clears OAuth tokens and client information
    */
   clearOAuthTokens(): void {
-    if (!this.oauthConfig) {
+    if (!this.oauthConfig?.storage) {
       return;
     }
 
     const serverUrl = this.getServerUrl();
-    const storage = new NodeOAuthStorage(this.oauthConfig.storagePath);
-    storage.clear(serverUrl);
+    this.oauthConfig.storage.clear(serverUrl);
 
     this.oauthState = null;
     this.oauthStateMachine = null;

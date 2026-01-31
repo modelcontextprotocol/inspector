@@ -24,7 +24,7 @@ import {
   getDCRRequests,
   invalidateAccessToken,
 } from "../test/test-server-oauth.js";
-import { clearAllOAuthClientState } from "../auth/index.js";
+import { clearAllOAuthClientState, NodeOAuthStorage } from "../auth/index.js";
 import type { InspectorClientOptions } from "../mcp/inspectorClient.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 
@@ -572,6 +572,7 @@ describe("InspectorClient OAuth E2E", () => {
         oauth: createOAuthClientConfig({
           mode: "dcr",
           redirectUrl: normalRedirectUrl,
+          redirectUrlGuided: guidedRedirectUrl,
         }),
       };
 
@@ -613,6 +614,7 @@ describe("InspectorClient OAuth E2E", () => {
         oauth: createOAuthClientConfig({
           mode: "dcr",
           redirectUrl: normalRedirectUrl,
+          redirectUrlGuided: guidedRedirectUrl,
         }),
       };
 
@@ -1006,7 +1008,7 @@ describe("InspectorClient OAuth E2E", () => {
             clientSecret: staticClientSecret,
             redirectUrl: testRedirectUrl,
           }),
-          storagePath: customPath,
+          storage: new NodeOAuthStorage(customPath),
         },
       };
 

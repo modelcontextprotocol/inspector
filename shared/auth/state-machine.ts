@@ -68,13 +68,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       }
       const parsedMetadata = await OAuthMetadataSchema.parseAsync(metadata);
 
-      // Save server metadata if provider supports it (guided mode)
-      if (
-        "saveServerMetadata" in context.provider &&
-        typeof context.provider.saveServerMetadata === "function"
-      ) {
-        await context.provider.saveServerMetadata(parsedMetadata);
-      }
+      await context.provider.saveServerMetadata(parsedMetadata);
 
       context.updateState({
         resourceMetadata,
@@ -204,18 +198,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
 
   token_request: {
     canTransition: async (context) => {
-      // For guided mode, check if provider has getServerMetadata
-      let hasMetadata = false;
-      if (
-        "getServerMetadata" in context.provider &&
-        typeof context.provider.getServerMetadata === "function"
-      ) {
-        hasMetadata = !!context.provider.getServerMetadata();
-      } else {
-        // For normal mode, use state metadata
-        hasMetadata = !!context.state.oauthMetadata;
-      }
-
+      const hasMetadata = !!context.provider.getServerMetadata();
       const clientInfo =
         context.state.oauthClientInfo ??
         (await context.provider.clientInformation());
@@ -223,17 +206,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
     },
     execute: async (context) => {
       const codeVerifier = context.provider.codeVerifier();
-
-      // Get metadata from provider (guided mode) or state (normal mode)
-      let metadata;
-      if (
-        "getServerMetadata" in context.provider &&
-        typeof context.provider.getServerMetadata === "function"
-      ) {
-        metadata = context.provider.getServerMetadata();
-      } else {
-        metadata = context.state.oauthMetadata;
-      }
+      const metadata = context.provider.getServerMetadata();
 
       if (!metadata) {
         throw new Error("OAuth metadata not available");

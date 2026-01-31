@@ -1694,6 +1694,25 @@ export function createOAuthTestServerConfig(options: {
   };
 }
 
+import type {
+  OAuthNavigation,
+  RedirectUrlProvider,
+} from "../auth/providers.js";
+import type { OAuthStorage } from "../auth/storage.js";
+import { ConsoleNavigation } from "../auth/providers.js";
+import { NodeOAuthStorage } from "../auth/storage-node.js";
+
+/** Creates a static RedirectUrlProvider for tests. */
+function createStaticRedirectUrlProvider(
+  redirectUrl: string,
+  redirectUrlGuided?: string,
+): RedirectUrlProvider {
+  const guided = redirectUrlGuided ?? redirectUrl;
+  return {
+    getRedirectUrl: (mode) => (mode === "guided" ? guided : redirectUrl),
+  };
+}
+
 /**
  * Creates OAuth configuration for InspectorClient tests
  */
@@ -1703,22 +1722,32 @@ export function createOAuthClientConfig(options: {
   clientSecret?: string;
   clientMetadataUrl?: string;
   redirectUrl: string;
+  redirectUrlGuided?: string;
   scope?: string;
 }): {
   clientId?: string;
   clientSecret?: string;
   clientMetadataUrl?: string;
-  redirectUrl: string;
+  redirectUrlProvider: RedirectUrlProvider;
   scope?: string;
+  storage: OAuthStorage;
+  navigation: OAuthNavigation;
 } {
   const config: {
     clientId?: string;
     clientSecret?: string;
     clientMetadataUrl?: string;
-    redirectUrl: string;
+    redirectUrlProvider: RedirectUrlProvider;
     scope?: string;
+    storage: OAuthStorage;
+    navigation: OAuthNavigation;
   } = {
-    redirectUrl: options.redirectUrl,
+    redirectUrlProvider: createStaticRedirectUrlProvider(
+      options.redirectUrl,
+      options.redirectUrlGuided,
+    ),
+    storage: new NodeOAuthStorage(),
+    navigation: new ConsoleNavigation(),
   };
 
   if (options.mode === "static") {

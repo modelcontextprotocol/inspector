@@ -48,6 +48,8 @@ describe("OAuthStateMachine", () => {
       codeVerifier: vi.fn(() => "test-code-verifier"),
       clear: vi.fn(),
       state: vi.fn(() => "test-state"),
+      getServerMetadata: vi.fn(() => null),
+      saveServerMetadata: vi.fn(),
     } as unknown as BaseOAuthClientProvider;
   });
 
