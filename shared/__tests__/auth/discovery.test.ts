@@ -156,4 +156,24 @@ describe("OAuth Scope Discovery", () => {
 
     expect(scopes).toBe("openid");
   });
+
+  it("should pass fetchFn to discoverAuthorizationServerMetadata when provided", async () => {
+    const { discoverAuthorizationServerMetadata } =
+      await import("@modelcontextprotocol/sdk/client/auth.js");
+    const mockFetchFn = vi.fn();
+    vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
+      issuer: "http://localhost:3000",
+      authorization_endpoint: "http://localhost:3000/authorize",
+      token_endpoint: "http://localhost:3000/token",
+      response_types_supported: ["code"],
+      scopes_supported: ["read", "write"],
+    });
+
+    await discoverScopes("http://localhost:3000", undefined, mockFetchFn);
+
+    expect(discoverAuthorizationServerMetadata).toHaveBeenCalledWith(
+      new URL("/", "http://localhost:3000"),
+      { fetchFn: mockFetchFn },
+    );
+  });
 });

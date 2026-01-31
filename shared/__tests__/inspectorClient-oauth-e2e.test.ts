@@ -1057,4 +1057,81 @@ describe("InspectorClient OAuth E2E", () => {
       }
     });
   });
+
+  describe("fetchFn integration", () => {
+    it("should use provided fetchFn for OAuth HTTP requests", async () => {
+      const tracker: Array<{ url: string; method: string }> = [];
+      const fetchFn: typeof fetch = (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        tracker.push({
+          url: typeof input === "string" ? input : input.toString(),
+          method: init?.method ?? "GET",
+        });
+        return fetch(input, init);
+      };
+
+      const staticClientId = "test-fetchFn-client";
+      const staticClientSecret = "test-fetchFn-secret";
+      const transport = transports[0]!;
+
+      const serverConfig = {
+        ...getDefaultServerConfig(),
+        serverType: transport.serverType,
+        ...createOAuthTestServerConfig({
+          requireAuth: true,
+          staticClients: [
+            {
+              clientId: staticClientId,
+              clientSecret: staticClientSecret,
+              redirectUris: [testRedirectUrl],
+            },
+          ],
+        }),
+      };
+
+      server = new TestServerHttp(serverConfig);
+      const port = await server.start();
+      const serverUrl = `http://localhost:${port}`;
+
+      const clientConfig: InspectorClientOptions = {
+        oauth: {
+          ...createOAuthClientConfig({
+            mode: "static",
+            clientId: staticClientId,
+            clientSecret: staticClientSecret,
+            redirectUrl: testRedirectUrl,
+          }),
+          fetchFn,
+        },
+      };
+
+      client = new InspectorClient(
+        {
+          type: transport.clientType,
+          url: `${serverUrl}${transport.endpoint}`,
+        } as MCPServerConfig,
+        clientConfig,
+      );
+
+      const authUrl = await client.authenticateGuided();
+      expect(authUrl.href).toContain("/oauth/authorize");
+
+      const authCode = await completeOAuthAuthorization(authUrl);
+      await client.completeOAuthFlow(authCode);
+      await client.connect();
+
+      expect(client.getStatus()).toBe("connected");
+
+      expect(tracker.length).toBeGreaterThan(0);
+      const oauthUrls = tracker.filter(
+        (c) =>
+          c.url.includes("well-known") ||
+          c.url.includes("/oauth/") ||
+          c.url.includes("token"),
+      );
+      expect(oauthUrls.length).toBeGreaterThan(0);
+    });
+  });
 });
