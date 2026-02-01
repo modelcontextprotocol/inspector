@@ -1702,14 +1702,12 @@ import type { OAuthStorage } from "../auth/storage.js";
 import { ConsoleNavigation } from "../auth/providers.js";
 import { NodeOAuthStorage } from "../auth/storage-node.js";
 
-/** Creates a static RedirectUrlProvider for tests. */
+/** Creates a static RedirectUrlProvider for tests. Single URL for both modes. */
 function createStaticRedirectUrlProvider(
   redirectUrl: string,
-  redirectUrlGuided?: string,
 ): RedirectUrlProvider {
-  const guided = redirectUrlGuided ?? redirectUrl;
   return {
-    getRedirectUrl: (mode) => (mode === "guided" ? guided : redirectUrl),
+    getRedirectUrl: () => redirectUrl,
   };
 }
 
@@ -1722,7 +1720,6 @@ export function createOAuthClientConfig(options: {
   clientSecret?: string;
   clientMetadataUrl?: string;
   redirectUrl: string;
-  redirectUrlGuided?: string;
   scope?: string;
 }): {
   clientId?: string;
@@ -1742,10 +1739,7 @@ export function createOAuthClientConfig(options: {
     storage: OAuthStorage;
     navigation: OAuthNavigation;
   } = {
-    redirectUrlProvider: createStaticRedirectUrlProvider(
-      options.redirectUrl,
-      options.redirectUrlGuided,
-    ),
+    redirectUrlProvider: createStaticRedirectUrlProvider(options.redirectUrl),
     storage: new NodeOAuthStorage(),
     navigation: new ConsoleNavigation(),
   };

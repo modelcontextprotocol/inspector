@@ -341,7 +341,7 @@ function App({ configFile }: AppProps) {
       flowReject = reject;
     });
     try {
-      const { redirectUrl, redirectUrlGuided } = await callbackServer.start({
+      const { redirectUrl } = await callbackServer.start({
         port: 0,
         onCallback: async (params) => {
           try {
@@ -364,7 +364,6 @@ function App({ configFile }: AppProps) {
         redirectUrlProvidersRef.current[selectedServer];
       if (redirectUrlProvider) {
         redirectUrlProvider.redirectUrl = redirectUrl;
-        redirectUrlProvider.redirectUrlGuided = redirectUrlGuided;
       }
       await selectedInspectorClient.authenticate();
       await flowDone;
@@ -398,7 +397,7 @@ function App({ configFile }: AppProps) {
     const callbackServer = createOAuthCallbackServer();
     callbackServerRef.current = callbackServer;
     try {
-      const { redirectUrl, redirectUrlGuided } = await callbackServer.start({
+      const { redirectUrl } = await callbackServer.start({
         port: 0,
         onCallback: async (params) => {
           try {
@@ -409,7 +408,6 @@ function App({ configFile }: AppProps) {
             setOauthStatus("error");
             setOauthMessage(err instanceof Error ? err.message : String(err));
           } finally {
-            await callbackServer.stop();
             callbackServerRef.current = null;
           }
         },
@@ -426,7 +424,6 @@ function App({ configFile }: AppProps) {
         redirectUrlProvidersRef.current[selectedServer];
       if (redirectUrlProvider) {
         redirectUrlProvider.redirectUrl = redirectUrl;
-        redirectUrlProvider.redirectUrlGuided = redirectUrlGuided;
       }
       await selectedInspectorClient.beginGuidedAuth();
       setOauthStatus("idle");
@@ -477,7 +474,7 @@ function App({ configFile }: AppProps) {
       if (callbackServerRef.current) return;
       const callbackServer = createOAuthCallbackServer();
       callbackServerRef.current = callbackServer;
-      const { redirectUrl, redirectUrlGuided } = await callbackServer.start({
+      const { redirectUrl } = await callbackServer.start({
         port: 0,
         onCallback: async (params) => {
           try {
@@ -488,7 +485,6 @@ function App({ configFile }: AppProps) {
             setOauthStatus("error");
             setOauthMessage(err instanceof Error ? err.message : String(err));
           } finally {
-            await callbackServer.stop();
             callbackServerRef.current = null;
           }
         },
@@ -505,7 +501,6 @@ function App({ configFile }: AppProps) {
         redirectUrlProvidersRef.current[selectedServer];
       if (redirectUrlProvider) {
         redirectUrlProvider.redirectUrl = redirectUrl;
-        redirectUrlProvider.redirectUrlGuided = redirectUrlGuided;
       }
     };
 

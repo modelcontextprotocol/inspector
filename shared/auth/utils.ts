@@ -55,6 +55,40 @@ export const generateOAuthState = (): string => {
   );
 };
 
+export type OAuthStateMode = "normal" | "guided";
+
+/**
+ * Generate OAuth state with mode prefix for single-redirect-URL flow.
+ * Format: {mode}:{random} (e.g. "guided:a1b2c3...").
+ * The random part is 64 hex chars for CSRF protection.
+ */
+export const generateOAuthStateWithMode = (mode: OAuthStateMode): string => {
+  const random = generateOAuthState();
+  return `${mode}:${random}`;
+};
+
+/**
+ * Parse OAuth state to extract mode and random part.
+ * Returns null if invalid.
+ * Legacy state (plain 64-char hex, no prefix) is treated as mode "normal".
+ */
+export const parseOAuthState = (
+  state: string,
+): { mode: OAuthStateMode; random: string } | null => {
+  if (!state || typeof state !== "string") return null;
+  if (state.startsWith("normal:")) {
+    return { mode: "normal", random: state.slice(7) };
+  }
+  if (state.startsWith("guided:")) {
+    return { mode: "guided", random: state.slice(7) };
+  }
+  // Legacy: plain 64-char hex
+  if (/^[a-f0-9]{64}$/i.test(state)) {
+    return { mode: "normal", random: state };
+  }
+  return null;
+};
+
 /**
  * Generates a human-readable error description from OAuth callback error parameters
  * @param params OAuth error callback parameters containing error details

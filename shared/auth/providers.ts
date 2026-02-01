@@ -6,7 +6,7 @@ import type {
   OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { OAuthStorage } from "./storage.js";
-import { generateOAuthState } from "./utils.js";
+import { generateOAuthStateWithMode } from "./utils.js";
 
 /**
  * Redirect URL provider. Returns the redirect URL for the requested mode.
@@ -17,17 +17,14 @@ export interface RedirectUrlProvider {
 }
 
 /**
- * Mutable redirect URL provider for TUI/CLI. Caller sets redirectUrl and
- * redirectUrlGuided before authenticate(), then the provider returns them.
+ * Mutable redirect URL provider for TUI/CLI. Caller sets redirectUrl
+ * before authenticate(); same URL is used for both normal and guided flows.
  */
 export class MutableRedirectUrlProvider implements RedirectUrlProvider {
   redirectUrl = "";
-  redirectUrlGuided = "";
 
-  getRedirectUrl(mode: "normal" | "guided"): string {
-    return mode === "guided"
-      ? this.redirectUrlGuided || this.redirectUrl
-      : this.redirectUrl;
+  getRedirectUrl(_mode: "normal" | "guided"): string {
+    return this.redirectUrl;
   }
 }
 
@@ -169,9 +166,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   }
 
   get redirect_uris(): string[] {
-    const normal = this.redirectUrlProvider.getRedirectUrl("normal");
-    const guided = this.redirectUrlProvider.getRedirectUrl("guided");
-    return [...new Set([normal, guided])];
+    return [this.redirectUrlProvider.getRedirectUrl("normal")];
   }
 
   get clientMetadata(): OAuthClientMetadata {
@@ -192,7 +187,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   }
 
   state(): string | Promise<string> {
-    return generateOAuthState();
+    return generateOAuthStateWithMode(this.mode);
   }
 
   async clientInformation(): Promise<OAuthClientInformation | undefined> {

@@ -11,16 +11,13 @@ describe("OAuthCallbackServer", () => {
     if (server) await server.stop();
   });
 
-  it("start() returns port, redirectUrl, and redirectUrlGuided", async () => {
+  it("start() returns port and redirectUrl", async () => {
     server = createOAuthCallbackServer();
     const result = await server.start({ port: 0 });
 
     expect(result.port).toBeGreaterThan(0);
     expect(result.redirectUrl).toBe(
       `http://localhost:${result.port}/oauth/callback`,
-    );
-    expect(result.redirectUrlGuided).toBe(
-      `http://localhost:${result.port}/oauth/callback/guided`,
     );
   });
 
@@ -68,22 +65,15 @@ describe("OAuthCallbackServer", () => {
     expect(received.state).toBeUndefined();
   });
 
-  it("GET /oauth/callback/guided?code=abc returns 200 and invokes onCallback", async () => {
+  it("GET /oauth/callback/guided returns 404 (single path only)", async () => {
     server = createOAuthCallbackServer();
-    const received: { code?: string } = {};
-    const result = await server.start({
-      port: 0,
-      onCallback: async (p) => {
-        received.code = p.code;
-      },
-    });
+    const result = await server.start({ port: 0 });
 
     const res = await fetch(
       `http://localhost:${result.port}/oauth/callback/guided?code=guided-code`,
     );
 
-    expect(res.status).toBe(200);
-    expect(received.code).toBe("guided-code");
+    expect(res.status).toBe(404);
   });
 
   it("GET /oauth/callback?error=access_denied returns 400 and invokes onError", async () => {

@@ -3,7 +3,6 @@ import { parseOAuthCallbackParams } from "./utils.js";
 import { generateOAuthErrorDescription } from "./utils.js";
 
 const OAUTH_CALLBACK_PATH = "/oauth/callback";
-const OAUTH_CALLBACK_GUIDED_PATH = "/oauth/callback/guided";
 
 const SUCCESS_HTML = `<!DOCTYPE html>
 <html>
@@ -46,12 +45,11 @@ export interface OAuthCallbackServerStartOptions {
 export interface OAuthCallbackServerStartResult {
   port: number;
   redirectUrl: string;
-  redirectUrlGuided: string;
 }
 
 /**
  * Minimal HTTP server that receives OAuth 2.1 redirects at GET /oauth/callback.
- * Used by TUI/CLI to complete the authorization code flow (normal mode only).
+ * Used by TUI/CLI to complete the authorization code flow (both normal and guided).
  * Caller provides onCallback/onError; typically onCallback calls
  * InspectorClient.completeOAuthFlow(code) then stops the server.
  */
@@ -87,7 +85,6 @@ export class OAuthCallbackServer {
         resolve({
           port: this.port,
           redirectUrl: `http://localhost:${this.port}${OAUTH_CALLBACK_PATH}`,
-          redirectUrlGuided: `http://localhost:${this.port}${OAUTH_CALLBACK_GUIDED_PATH}`,
         });
       });
     });
@@ -139,10 +136,7 @@ export class OAuthCallbackServer {
       return;
     }
 
-    if (
-      pathname !== OAUTH_CALLBACK_PATH &&
-      pathname !== OAUTH_CALLBACK_GUIDED_PATH
-    ) {
+    if (pathname !== OAUTH_CALLBACK_PATH) {
       send(404, needJson ? '{"error":"Not Found"}' : SUCCESS_HTML);
       return;
     }
