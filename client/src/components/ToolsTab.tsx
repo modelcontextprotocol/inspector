@@ -104,7 +104,7 @@ const ToolsTab = ({
   // Function to check if any form has validation errors
   const checkValidationErrors = () => {
     const errors = Object.values(formRefs.current).some(
-      (ref) => ref && !ref.validateJson().isValid,
+      (ref) => ref && ref.hasJsonError(),
     );
     setHasValidationErrors(errors);
     return errors;
