@@ -121,7 +121,8 @@ describe("InspectorClient OAuth E2E", () => {
           clientConfig,
         );
 
-        const authUrl = await client.authenticateGuided();
+        const authUrl = await client.runGuidedAuth();
+        if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
 
         const authCode = await completeOAuthAuthorization(authUrl);
@@ -327,7 +328,8 @@ describe("InspectorClient OAuth E2E", () => {
         );
 
         // CIMD uses guided mode (HTTP clientMetadataUrl); auth() requires HTTPS
-        const authUrl = await client.authenticateGuided();
+        const authUrl = await client.runGuidedAuth();
+        if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
 
         const authCode = await completeOAuthAuthorization(authUrl);
@@ -389,7 +391,8 @@ describe("InspectorClient OAuth E2E", () => {
           clientConfig,
         );
 
-        const authUrl = await client.authenticateGuided();
+        const authUrl = await client.runGuidedAuth();
+        if (!authUrl) throw new Error("Expected authorization URL");
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
         await client.connect();
@@ -500,7 +503,7 @@ describe("InspectorClient OAuth E2E", () => {
         expect(client.getStatus()).toBe("connected");
       });
 
-      it("should register client and complete OAuth flow using authenticateGuided() (guided mode)", async () => {
+      it("should register client and complete OAuth flow using runGuidedAuth() (automated guided mode)", async () => {
         const serverConfig = {
           ...getDefaultServerConfig(),
           serverType: transport.serverType,
@@ -529,8 +532,8 @@ describe("InspectorClient OAuth E2E", () => {
           clientConfig,
         );
 
-        // Use authenticateGuided() (guided mode) - should trigger DCR via state machine
-        const authUrl = await client.authenticateGuided();
+        const authUrl = await client.runGuidedAuth();
+        if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
 
         const authCode = await completeOAuthAuthorization(authUrl);
@@ -546,6 +549,197 @@ describe("InspectorClient OAuth E2E", () => {
         expect(tokens).toBeDefined();
         expect(tokens?.access_token).toBeDefined();
         expect(client.getStatus()).toBe("connected");
+      });
+
+      it("should complete OAuth flow using manual guided mode (beginGuidedAuth + proceedOAuthStep)", async () => {
+        const staticClientId = "test-static-manual";
+        const staticClientSecret = "test-static-secret-manual";
+        const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
+
+        const serverConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            staticClients: [
+              {
+                clientId: staticClientId,
+                clientSecret: staticClientSecret,
+                redirectUris: [testRedirectUrl, guidedRedirectUrl],
+              },
+            ],
+          }),
+        };
+
+        server = new TestServerHttp(serverConfig);
+        const port = await server.start();
+        const serverUrl = `http://localhost:${port}`;
+
+        const clientConfig: InspectorClientOptions = {
+          oauth: createOAuthClientConfig({
+            mode: "static",
+            clientId: staticClientId,
+            clientSecret: staticClientSecret,
+            redirectUrl: testRedirectUrl,
+            redirectUrlGuided: guidedRedirectUrl,
+          }),
+        };
+
+        client = new InspectorClient(
+          {
+            type: transport.clientType,
+            url: `${serverUrl}${transport.endpoint}`,
+          } as MCPServerConfig,
+          clientConfig,
+        );
+
+        await client.beginGuidedAuth();
+
+        while (true) {
+          const state = client.getOAuthState();
+          if (
+            state?.oauthStep === "authorization_code" ||
+            state?.oauthStep === "complete"
+          ) {
+            break;
+          }
+          await client.proceedOAuthStep();
+        }
+
+        const state = client.getOAuthState();
+        const authUrl = state?.authorizationUrl;
+        if (!authUrl) throw new Error("Expected authorizationUrl");
+        expect(authUrl.href).toContain("/oauth/authorize");
+
+        const authCode = await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode);
+        await client.connect();
+
+        const stateAfterComplete = client.getOAuthState();
+        expect(stateAfterComplete?.authType).toBe("guided");
+        expect(stateAfterComplete?.oauthStep).toBe("complete");
+
+        const tokens = await client.getOAuthTokens();
+        expect(tokens).toBeDefined();
+        expect(tokens?.access_token).toBeDefined();
+        expect(client.getStatus()).toBe("connected");
+      });
+
+      it("runGuidedAuth continues from already-started guided flow", async () => {
+        const staticClientId = "test-run-from-started";
+        const staticClientSecret = "test-secret-run-from-started";
+        const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
+
+        const serverConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            staticClients: [
+              {
+                clientId: staticClientId,
+                clientSecret: staticClientSecret,
+                redirectUris: [testRedirectUrl, guidedRedirectUrl],
+              },
+            ],
+          }),
+        };
+
+        server = new TestServerHttp(serverConfig);
+        const port = await server.start();
+        const serverUrl = `http://localhost:${port}`;
+
+        const clientConfig: InspectorClientOptions = {
+          oauth: createOAuthClientConfig({
+            mode: "static",
+            clientId: staticClientId,
+            clientSecret: staticClientSecret,
+            redirectUrl: testRedirectUrl,
+            redirectUrlGuided: guidedRedirectUrl,
+          }),
+        };
+
+        client = new InspectorClient(
+          {
+            type: transport.clientType,
+            url: `${serverUrl}${transport.endpoint}`,
+          } as MCPServerConfig,
+          clientConfig,
+        );
+
+        await client.beginGuidedAuth();
+        await client.proceedOAuthStep();
+
+        const stateBeforeRun = client.getOAuthState();
+        expect(stateBeforeRun?.oauthStep).not.toBe("authorization_code");
+        expect(stateBeforeRun?.oauthStep).not.toBe("complete");
+
+        const authUrl = await client.runGuidedAuth();
+        if (!authUrl) throw new Error("Expected authorization URL");
+        expect(authUrl.href).toContain("/oauth/authorize");
+
+        const authCode = await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode);
+        await client.connect();
+
+        const tokens = await client.getOAuthTokens();
+        expect(tokens).toBeDefined();
+        expect(tokens?.access_token).toBeDefined();
+        expect(client.getStatus()).toBe("connected");
+      });
+
+      it("runGuidedAuth returns undefined when already complete", async () => {
+        const staticClientId = "test-run-complete";
+        const staticClientSecret = "test-secret-run-complete";
+        const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
+
+        const serverConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            staticClients: [
+              {
+                clientId: staticClientId,
+                clientSecret: staticClientSecret,
+                redirectUris: [testRedirectUrl, guidedRedirectUrl],
+              },
+            ],
+          }),
+        };
+
+        server = new TestServerHttp(serverConfig);
+        const port = await server.start();
+        const serverUrl = `http://localhost:${port}`;
+
+        const clientConfig: InspectorClientOptions = {
+          oauth: createOAuthClientConfig({
+            mode: "static",
+            clientId: staticClientId,
+            clientSecret: staticClientSecret,
+            redirectUrl: testRedirectUrl,
+            redirectUrlGuided: guidedRedirectUrl,
+          }),
+        };
+
+        client = new InspectorClient(
+          {
+            type: transport.clientType,
+            url: `${serverUrl}${transport.endpoint}`,
+          } as MCPServerConfig,
+          clientConfig,
+        );
+
+        const authUrl = await client.runGuidedAuth();
+        if (!authUrl) throw new Error("Expected authorization URL");
+        const authCode = await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode);
+
+        const stateAfterComplete = client.getOAuthState();
+        expect(stateAfterComplete?.oauthStep).toBe("complete");
+
+        const authUrlAgain = await client.runGuidedAuth();
+        expect(authUrlAgain).toBeUndefined();
       });
     },
   );
@@ -634,7 +828,8 @@ describe("InspectorClient OAuth E2E", () => {
 
       await client.disconnect();
 
-      const authUrlGuided = await client.authenticateGuided();
+      const authUrlGuided = await client.runGuidedAuth();
+      if (!authUrlGuided) throw new Error("Expected authorization URL");
       const authCodeGuided = await completeOAuthAuthorization(authUrlGuided);
       await client.completeOAuthFlow(authCodeGuided);
       await client.connect();
@@ -740,7 +935,7 @@ describe("InspectorClient OAuth E2E", () => {
           clientConfig,
         );
 
-        await client.authenticateGuided();
+        await client.runGuidedAuth();
 
         const state = client.getOAuthState();
         expect(state).toBeDefined();
@@ -809,7 +1004,8 @@ describe("InspectorClient OAuth E2E", () => {
           });
         });
 
-        const authUrl = await client.authenticateGuided();
+        const authUrl = await client.runGuidedAuth();
+        if (!authUrl) throw new Error("Expected authorization URL");
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
 
@@ -1115,7 +1311,8 @@ describe("InspectorClient OAuth E2E", () => {
         clientConfig,
       );
 
-      const authUrl = await client.authenticateGuided();
+      const authUrl = await client.runGuidedAuth();
+      if (!authUrl) throw new Error("Expected authorization URL");
       expect(authUrl.href).toContain("/oauth/authorize");
 
       const authCode = await completeOAuthAuthorization(authUrl);

@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 
 export type TabType =
   | "info"
+  | "auth"
   | "resources"
   | "prompts"
   | "tools"
@@ -16,6 +17,7 @@ interface TabsProps {
   width: number;
   counts?: {
     info?: number;
+    auth?: number;
     resources?: number;
     prompts?: number;
     tools?: number;
@@ -24,12 +26,14 @@ interface TabsProps {
     logging?: number;
   };
   focused?: boolean;
+  showAuth?: boolean;
   showLogging?: boolean;
   showRequests?: boolean;
 }
 
 export const tabs: { id: TabType; label: string; accelerator: string }[] = [
   { id: "info", label: "Info", accelerator: "i" },
+  { id: "auth", label: "Auth", accelerator: "a" },
   { id: "resources", label: "Resources", accelerator: "r" },
   { id: "prompts", label: "Prompts", accelerator: "p" },
   { id: "tools", label: "Tools", accelerator: "t" },
@@ -44,10 +48,14 @@ export function Tabs({
   width,
   counts = {},
   focused = false,
+  showAuth = true,
   showLogging = true,
   showRequests = false,
 }: TabsProps) {
   let visibleTabs = tabs;
+  if (!showAuth) {
+    visibleTabs = visibleTabs.filter((tab) => tab.id !== "auth");
+  }
   if (!showLogging) {
     visibleTabs = visibleTabs.filter((tab) => tab.id !== "logging");
   }

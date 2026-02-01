@@ -5,6 +5,7 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["**/__tests__/**/*.test.ts"],
-    testTimeout: 15000, // 15 seconds - tests may spawn subprocesses
+    testTimeout: 30000, // 30 seconds - e2e tests spawn servers
+    hookTimeout: 30000, // 30 seconds - before/after hooks may start/stop servers
   },
 });
