@@ -2340,10 +2340,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Initiates OAuth flow in guided mode using state machine
-   * Provides step-by-step control and visibility into OAuth flow
+   * Starts guided OAuth flow (step-by-step). Runs only the first step.
+   * Use proceedOAuthStep() to advance. When oauthStep is "authorization_code",
+   * set authorizationCode and call proceedOAuthStep() to complete.
    */
-  async authenticateGuided(): Promise<URL> {
+  async beginGuidedAuth(): Promise<void> {
     if (!this.oauthConfig) {
       throw new Error("OAuth not configured. Call setOAuthConfig() first.");
     }
@@ -2351,9 +2352,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     const provider = await this.createOAuthProvider("guided");
     const serverUrl = this.getServerUrl();
 
-    // Initialize state machine for guided flow
     this.oauthState = { ...EMPTY_GUIDED_STATE };
-    // Pre-set static client info when provided (restores deleted logic: resolve static/CIMD/DCR and set into state)
     if (this.oauthConfig.clientId) {
       this.oauthState.oauthClientInfo = {
         client_id: this.oauthConfig.clientId,
@@ -2366,8 +2365,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       serverUrl,
       provider,
       (updates) => {
-        const previousStep = this.oauthState!.oauthStep;
-        this.oauthState = { ...this.oauthState!, ...updates };
+        const state = this.oauthState;
+        if (!state) throw new Error("OAuth state not initialized");
+        const previousStep = state.oauthStep;
+        this.oauthState = { ...state, ...updates };
         if (updates.oauthStep === "complete") {
           this.oauthState.completedAt = Date.now();
         }
@@ -2381,25 +2382,55 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.oauthConfig.fetchFn,
     );
 
-    // Start guided flow
     await this.oauthStateMachine.executeStep(this.oauthState);
-    // Continue through steps until we get authorization URL
-    while (
-      this.oauthState.oauthStep !== "authorization_code" &&
-      this.oauthState.oauthStep !== "complete"
-    ) {
-      await this.oauthStateMachine.executeStep(this.oauthState);
+  }
+
+  /**
+   * Runs guided OAuth flow to completion. If already started (via beginGuidedAuth),
+   * continues from current step. Otherwise initializes and runs from the start.
+   * Returns the authorization URL when user must authorize, or undefined if already complete.
+   */
+  async runGuidedAuth(): Promise<URL | undefined> {
+    if (!this.oauthConfig) {
+      throw new Error("OAuth not configured. Call setOAuthConfig() first.");
     }
 
-    if (!this.oauthState.authorizationUrl) {
+    if (!this.oauthStateMachine || !this.oauthState) {
+      await this.beginGuidedAuth();
+    }
+
+    const machine = this.oauthStateMachine;
+    if (!machine) {
+      throw new Error("Guided auth failed to initialize state");
+    }
+
+    while (true) {
+      const state = this.oauthState;
+      if (!state) {
+        throw new Error("Guided auth failed to initialize state");
+      }
+      if (
+        state.oauthStep === "authorization_code" ||
+        state.oauthStep === "complete"
+      ) {
+        break;
+      }
+      await machine.executeStep(state);
+    }
+
+    const state = this.oauthState;
+    if (state?.oauthStep === "complete") {
+      return undefined;
+    }
+    if (!state?.authorizationUrl) {
       throw new Error("Failed to generate authorization URL");
     }
 
     this.dispatchTypedEvent("oauthAuthorizationRequired", {
-      url: this.oauthState.authorizationUrl,
+      url: state.authorizationUrl,
     });
 
-    return this.oauthState.authorizationUrl;
+    return state.authorizationUrl;
   }
 
   /**

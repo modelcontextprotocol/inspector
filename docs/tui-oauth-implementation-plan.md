@@ -246,3 +246,29 @@ Details can be folded into a later “CLI OAuth” plan; the important point is 
 - [TUI and Web Client Feature Gaps](./tui-web-client-feature-gaps.md)
 - `shared/auth/`: providers, state-machine, utils, storage-node
 - `shared/mcp/inspectorClient.ts`: `authenticate`, `completeOAuthFlow`, OAuth config, `authProvider` (guided: `authenticateGuided` later)
+
+## DEBUG
+
+https://example-server.modelcontextprotocol.io//authorize?response_type=code&client_id=c73beafa-07b0-490e-8626-30274ff2593f&code_challenge=cAAo3CYOWGSjF747HINXLhnIBbpZbyqw_bMNYm9RNRo&code_challenge_method=S256&redirect_uri=http%3A%2F%2Flocalhost%3A55569%2Foauth%2Fcallback%2Fguided&state=49134cd984f4cd1ac88a6c0fb87fbd7e8f10fe5ca45fe53bbb89d597d4642f30&resource=https%3A%2F%2Fexample-server.modelcontextprotocol.io%2F
+
+{"error":"invalid_request","error_description":"Unregistered redirect_uri"}
+
+What if we can't bring up a browser endpoint for redirect (like if we're in a container or sandbox)?
+
+- Can we get the code somehow and manually enter it? What is that flow like?
+
+CIMD
+
+- We probably need to publish a static document for inspector client info
+- How do we indicate the resource location to InspectorClient / auth congig
+- Are there tests for this, and if so, how do they work?
+
+We need a way in the TUI to config static client, CIMD, maybe whether to try DCR at all?
+
+## Other
+
+Inspector config elements (verify them, and the we support same set)
+
+- Task TTL
+- Max total timeout
+- Request timeout
