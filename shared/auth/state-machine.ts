@@ -13,7 +13,6 @@ import {
   OAuthMetadataSchema,
   type OAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { generateOAuthState } from "./utils.js";
 
 export interface StateMachineContext {
   state: AuthGuidedState;
@@ -164,6 +163,8 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         );
       }
 
+      const providerState = context.provider.state();
+      const state = await Promise.resolve(providerState);
       const { authorizationUrl, codeVerifier } = await startAuthorization(
         context.serverUrl,
         {
@@ -171,7 +172,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
           clientInformation,
           redirectUrl: context.provider.redirectUrl,
           scope,
-          state: generateOAuthState(),
+          state,
           resource: context.state.resource ?? undefined,
         },
       );

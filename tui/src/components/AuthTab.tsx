@@ -261,7 +261,7 @@ export function AuthTab({
         </Box>
         <ScrollView ref={scrollViewRef} height={height - 10}>
           {selectedAction === "guided" && (
-            <Box flexShrink={0} flexDirection="column">
+            <Box key="guided" flexShrink={0} flexDirection="column">
               <Text bold>Guided OAuth Flow Progress</Text>
               {STEP_ORDER.map((step) => {
                 const stepIdx = stepIndex(step);
@@ -329,7 +329,7 @@ export function AuthTab({
           )}
 
           {selectedAction === "quick" && (
-            <Box flexShrink={0} flexDirection="column">
+            <Box key="quick" flexShrink={0} flexDirection="column">
               {oauthStatus === "authenticating" && (
                 <Text dimColor>Authenticating...</Text>
               )}
@@ -364,7 +364,7 @@ export function AuthTab({
           )}
 
           {selectedAction === "clear" && clearedConfirmation && (
-            <Box flexShrink={0} flexDirection="column">
+            <Box key="clear" flexShrink={0} flexDirection="column">
               <Text color="green">OAuth state cleared.</Text>
             </Box>
           )}

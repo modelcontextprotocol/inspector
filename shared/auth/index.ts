@@ -40,8 +40,11 @@ export {
 export {
   parseOAuthCallbackParams,
   generateOAuthState,
+  generateOAuthStateWithMode,
+  parseOAuthState,
   generateOAuthErrorDescription,
 } from "./utils.js";
+export type { OAuthStateMode } from "./utils.js";
 
 // OAuth callback server (TUI/CLI localhost redirect receiver)
 export {

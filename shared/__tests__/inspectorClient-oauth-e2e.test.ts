@@ -81,7 +81,6 @@ describe("InspectorClient OAuth E2E", () => {
       it("should complete OAuth flow with static client", async () => {
         const staticClientId = "test-static-client";
         const staticClientSecret = "test-static-secret";
-        const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
 
         // Create test server with OAuth enabled and static client
         const serverConfig = {
@@ -93,7 +92,7 @@ describe("InspectorClient OAuth E2E", () => {
               {
                 clientId: staticClientId,
                 clientSecret: staticClientSecret,
-                redirectUris: [testRedirectUrl, guidedRedirectUrl],
+                redirectUris: [testRedirectUrl],
               },
             ],
           }),
@@ -279,11 +278,10 @@ describe("InspectorClient OAuth E2E", () => {
 
       it("should complete OAuth flow with CIMD client", async () => {
         const testRedirectUrl = "http://localhost:3001/oauth/callback";
-        const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
 
-        // Create client metadata document (guided mode uses .../callback/guided)
+        // Create client metadata document
         const clientMetadata: ClientMetadataDocument = {
-          redirect_uris: [testRedirectUrl, guidedRedirectUrl],
+          redirect_uris: [testRedirectUrl],
           token_endpoint_auth_method: "none",
           grant_types: ["authorization_code", "refresh_token"],
           response_types: ["code"],
@@ -348,10 +346,9 @@ describe("InspectorClient OAuth E2E", () => {
 
       it("should retry original request after OAuth completion with CIMD", async () => {
         const testRedirectUrl = "http://localhost:3001/oauth/callback";
-        const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
 
         const clientMetadata: ClientMetadataDocument = {
-          redirect_uris: [testRedirectUrl, guidedRedirectUrl],
+          redirect_uris: [testRedirectUrl],
           token_endpoint_auth_method: "none",
           grant_types: ["authorization_code", "refresh_token"],
           response_types: ["code"],
@@ -554,7 +551,6 @@ describe("InspectorClient OAuth E2E", () => {
       it("should complete OAuth flow using manual guided mode (beginGuidedAuth + proceedOAuthStep)", async () => {
         const staticClientId = "test-static-manual";
         const staticClientSecret = "test-static-secret-manual";
-        const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
 
         const serverConfig = {
           ...getDefaultServerConfig(),
@@ -565,7 +561,7 @@ describe("InspectorClient OAuth E2E", () => {
               {
                 clientId: staticClientId,
                 clientSecret: staticClientSecret,
-                redirectUris: [testRedirectUrl, guidedRedirectUrl],
+                redirectUris: [testRedirectUrl],
               },
             ],
           }),
@@ -581,7 +577,6 @@ describe("InspectorClient OAuth E2E", () => {
             clientId: staticClientId,
             clientSecret: staticClientSecret,
             redirectUrl: testRedirectUrl,
-            redirectUrlGuided: guidedRedirectUrl,
           }),
         };
 
@@ -628,7 +623,6 @@ describe("InspectorClient OAuth E2E", () => {
       it("runGuidedAuth continues from already-started guided flow", async () => {
         const staticClientId = "test-run-from-started";
         const staticClientSecret = "test-secret-run-from-started";
-        const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
 
         const serverConfig = {
           ...getDefaultServerConfig(),
@@ -639,7 +633,7 @@ describe("InspectorClient OAuth E2E", () => {
               {
                 clientId: staticClientId,
                 clientSecret: staticClientSecret,
-                redirectUris: [testRedirectUrl, guidedRedirectUrl],
+                redirectUris: [testRedirectUrl],
               },
             ],
           }),
@@ -655,7 +649,6 @@ describe("InspectorClient OAuth E2E", () => {
             clientId: staticClientId,
             clientSecret: staticClientSecret,
             redirectUrl: testRedirectUrl,
-            redirectUrlGuided: guidedRedirectUrl,
           }),
         };
 
@@ -691,7 +684,6 @@ describe("InspectorClient OAuth E2E", () => {
       it("runGuidedAuth returns undefined when already complete", async () => {
         const staticClientId = "test-run-complete";
         const staticClientSecret = "test-secret-run-complete";
-        const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
 
         const serverConfig = {
           ...getDefaultServerConfig(),
@@ -702,7 +694,7 @@ describe("InspectorClient OAuth E2E", () => {
               {
                 clientId: staticClientId,
                 clientSecret: staticClientSecret,
-                redirectUris: [testRedirectUrl, guidedRedirectUrl],
+                redirectUris: [testRedirectUrl],
               },
             ],
           }),
@@ -718,7 +710,6 @@ describe("InspectorClient OAuth E2E", () => {
             clientId: staticClientId,
             clientSecret: staticClientSecret,
             redirectUrl: testRedirectUrl,
-            redirectUrlGuided: guidedRedirectUrl,
           }),
         };
 
@@ -744,98 +735,97 @@ describe("InspectorClient OAuth E2E", () => {
     },
   );
 
-  describe.each(transports)("Both redirect URLs (DCR) ($name)", (transport) => {
-    const normalRedirectUrl = testRedirectUrl;
-    const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
+  describe.each(transports)(
+    "Single redirect URL (DCR) ($name)",
+    (transport) => {
+      const redirectUrl = testRedirectUrl;
 
-    it("should include both normal and guided redirect_uris in DCR registration", async () => {
-      const serverConfig = {
-        ...getDefaultServerConfig(),
-        serverType: transport.serverType,
-        ...createOAuthTestServerConfig({
-          requireAuth: true,
-          supportDCR: true,
-        }),
-      };
+      it("should include single redirect_uri in DCR registration", async () => {
+        const serverConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            supportDCR: true,
+          }),
+        };
 
-      server = new TestServerHttp(serverConfig);
-      const port = await server.start();
-      const serverUrl = `http://localhost:${port}`;
+        server = new TestServerHttp(serverConfig);
+        const port = await server.start();
+        const serverUrl = `http://localhost:${port}`;
 
-      const clientConfig: InspectorClientOptions = {
-        oauth: createOAuthClientConfig({
-          mode: "dcr",
-          redirectUrl: normalRedirectUrl,
-          redirectUrlGuided: guidedRedirectUrl,
-        }),
-      };
+        const clientConfig: InspectorClientOptions = {
+          oauth: createOAuthClientConfig({
+            mode: "dcr",
+            redirectUrl,
+          }),
+        };
 
-      client = new InspectorClient(
-        {
-          type: transport.clientType,
-          url: `${serverUrl}${transport.endpoint}`,
-        } as MCPServerConfig,
-        clientConfig,
-      );
+        client = new InspectorClient(
+          {
+            type: transport.clientType,
+            url: `${serverUrl}${transport.endpoint}`,
+          } as MCPServerConfig,
+          clientConfig,
+        );
 
-      const authUrl = await client.authenticate();
-      const authCode = await completeOAuthAuthorization(authUrl);
-      await client.completeOAuthFlow(authCode);
-      await client.connect();
+        const authUrl = await client.authenticate();
+        const authCode = await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode);
+        await client.connect();
 
-      const dcr = getDCRRequests();
-      expect(dcr.length).toBeGreaterThanOrEqual(1);
-      const uris = dcr[dcr.length - 1]!.redirect_uris;
-      expect(uris).toContain(normalRedirectUrl);
-      expect(uris).toContain(guidedRedirectUrl);
-    });
+        const dcr = getDCRRequests();
+        expect(dcr.length).toBeGreaterThanOrEqual(1);
+        const uris = dcr[dcr.length - 1]!.redirect_uris;
+        expect(uris).toEqual([redirectUrl]);
+      });
 
-    it("should accept both normal and guided redirect_uri for authorization callbacks", async () => {
-      const serverConfig = {
-        ...getDefaultServerConfig(),
-        serverType: transport.serverType,
-        ...createOAuthTestServerConfig({
-          requireAuth: true,
-          supportDCR: true,
-        }),
-      };
+      it("should accept single redirect_uri for both normal and guided auth", async () => {
+        const serverConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            supportDCR: true,
+          }),
+        };
 
-      server = new TestServerHttp(serverConfig);
-      const port = await server.start();
-      const serverUrl = `http://localhost:${port}`;
+        server = new TestServerHttp(serverConfig);
+        const port = await server.start();
+        const serverUrl = `http://localhost:${port}`;
 
-      const clientConfig: InspectorClientOptions = {
-        oauth: createOAuthClientConfig({
-          mode: "dcr",
-          redirectUrl: normalRedirectUrl,
-          redirectUrlGuided: guidedRedirectUrl,
-        }),
-      };
+        const clientConfig: InspectorClientOptions = {
+          oauth: createOAuthClientConfig({
+            mode: "dcr",
+            redirectUrl,
+          }),
+        };
 
-      client = new InspectorClient(
-        {
-          type: transport.clientType,
-          url: `${serverUrl}${transport.endpoint}`,
-        } as MCPServerConfig,
-        clientConfig,
-      );
+        client = new InspectorClient(
+          {
+            type: transport.clientType,
+            url: `${serverUrl}${transport.endpoint}`,
+          } as MCPServerConfig,
+          clientConfig,
+        );
 
-      const authUrlNormal = await client.authenticate();
-      const authCodeNormal = await completeOAuthAuthorization(authUrlNormal);
-      await client.completeOAuthFlow(authCodeNormal);
-      await client.connect();
-      expect(client.getStatus()).toBe("connected");
+        const authUrlNormal = await client.authenticate();
+        const authCodeNormal = await completeOAuthAuthorization(authUrlNormal);
+        await client.completeOAuthFlow(authCodeNormal);
+        await client.connect();
+        expect(client.getStatus()).toBe("connected");
 
-      await client.disconnect();
+        await client.disconnect();
 
-      const authUrlGuided = await client.runGuidedAuth();
-      if (!authUrlGuided) throw new Error("Expected authorization URL");
-      const authCodeGuided = await completeOAuthAuthorization(authUrlGuided);
-      await client.completeOAuthFlow(authCodeGuided);
-      await client.connect();
-      expect(client.getStatus()).toBe("connected");
-    });
-  });
+        const authUrlGuided = await client.runGuidedAuth();
+        if (!authUrlGuided) throw new Error("Expected authorization URL");
+        const authCodeGuided = await completeOAuthAuthorization(authUrlGuided);
+        await client.completeOAuthFlow(authCodeGuided);
+        await client.connect();
+        expect(client.getStatus()).toBe("connected");
+      });
+    },
+  );
 
   describe.each(transports)("401 Error Handling ($name)", (transport) => {
     it("should dispatch oauthAuthorizationRequired when authenticating", async () => {
@@ -893,8 +883,6 @@ describe("InspectorClient OAuth E2E", () => {
   describe.each(transports)(
     "Resource metadata discovery and oauthStepChange ($name)",
     (transport) => {
-      const guidedRedirectUrl = "http://localhost:3001/oauth/callback/guided";
-
       it("should discover resource metadata and set resource in guided flow", async () => {
         const staticClientId = "test-resource-metadata";
         const staticClientSecret = "test-secret-rm";
@@ -908,7 +896,7 @@ describe("InspectorClient OAuth E2E", () => {
               {
                 clientId: staticClientId,
                 clientSecret: staticClientSecret,
-                redirectUris: [testRedirectUrl, guidedRedirectUrl],
+                redirectUris: [testRedirectUrl],
               },
             ],
           }),
@@ -964,7 +952,7 @@ describe("InspectorClient OAuth E2E", () => {
               {
                 clientId: staticClientId,
                 clientSecret: staticClientSecret,
-                redirectUris: [testRedirectUrl, guidedRedirectUrl],
+                redirectUris: [testRedirectUrl],
               },
             ],
           }),
