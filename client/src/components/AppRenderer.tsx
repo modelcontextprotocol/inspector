@@ -12,7 +12,6 @@ import {
   type RequestHandlerExtra,
 } from "@mcp-ui/client";
 import {
-  getToolUiResourceUri,
   type McpUiMessageRequest,
   type McpUiMessageResult,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
@@ -37,9 +36,6 @@ const AppRenderer = ({
 }: AppRendererProps) => {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
-
-  // Extract UI metadata from tool
-  const resourceUri = getToolUiResourceUri(tool);
 
   const hostContext: McpUiHostContext = useMemo(
     () => ({
@@ -88,17 +84,6 @@ const AppRenderer = ({
       } as ServerNotification);
     }
   };
-
-  if (!resourceUri) {
-    return (
-      <Alert variant="destructive">
-        <AlertCircle className="h-4 w-4" />
-        <AlertDescription>
-          No UI resource URI found in tool metadata
-        </AlertDescription>
-      </Alert>
-    );
-  }
 
   if (!mcpClient) {
     return (
