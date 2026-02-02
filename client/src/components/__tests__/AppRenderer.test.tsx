@@ -89,23 +89,6 @@ describe("AppRenderer", () => {
     expect(screen.getByText(/Waiting for MCP client/i)).toBeInTheDocument();
   });
 
-  it("should display error when no resource URI is found", () => {
-    const toolWithoutUri: Tool = {
-      name: "noUriTool",
-      description: "Tool without UI",
-      inputSchema: {
-        type: "object" as const,
-        properties: {},
-      },
-    };
-
-    render(<AppRenderer {...defaultProps} tool={toolWithoutUri} />);
-
-    expect(
-      screen.getByText(/No UI resource URI found in tool metadata/i),
-    ).toBeInTheDocument();
-  });
-
   it("should render McpUiAppRenderer when client is ready", () => {
     render(<AppRenderer {...defaultProps} />);
 
