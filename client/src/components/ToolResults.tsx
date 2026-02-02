@@ -115,7 +115,7 @@ const ToolResults = ({
           error:
             "Tool has an output schema but did not return structured content",
         };
-      } else if (structuredResult.structuredContent) {
+      } else if (structuredResult.structuredContent && !isError) {
         validationResult = validateToolOutput(
           selectedTool.name,
           structuredResult.structuredContent,

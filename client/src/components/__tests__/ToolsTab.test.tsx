@@ -483,6 +483,32 @@ describe("ToolsTab", () => {
       ).toBeInTheDocument();
     });
 
+    it("should not validate structuredContent against output schema when isError is true", () => {
+      const errorResult = {
+        content: [
+          {
+            type: "text",
+            text: "Something went wrong",
+          },
+        ],
+        structuredContent: {
+          errorCode: "NOT_FOUND",
+        },
+        isError: true,
+      };
+
+      renderToolsTab({
+        tools: [toolWithOutputSchema],
+        selectedTool: toolWithOutputSchema,
+        toolResult: errorResult,
+      });
+
+      // Should display structured content
+      expect(screen.getByText("Structured Content:")).toBeInTheDocument();
+      // Should NOT show a validation error
+      expect(screen.queryByText(/Validation Error:/)).not.toBeInTheDocument();
+    });
+
     it("should show unstructured content title when both structured and unstructured exist", () => {
       const resultWithBoth = {
         content: [{ type: "text", text: '{"temperature": 25}' }],
