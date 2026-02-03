@@ -61,6 +61,10 @@ export type {
 // Discovery
 export { discoverScopes } from "./discovery.js";
 
+// Logging
+export { silentLogger } from "./logger.js";
+export { createLoggingFetch } from "./loggingFetch.js";
+
 // State Machine
 export type { StateMachineContext, StateTransition } from "./state-machine.js";
 export { oauthTransitions, OAuthStateMachine } from "./state-machine.js";

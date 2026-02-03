@@ -1,16 +1,34 @@
 #!/usr/bin/env node
 
+import { Command } from "commander";
 import { render } from "ink";
 import App from "./src/App.js";
 
-export async function runTui(): Promise<void> {
-  const args = process.argv.slice(2);
+export async function runTui(args?: string[]): Promise<void> {
+  const program = new Command();
 
-  const configFile = args[0];
+  program
+    .name("mcp-inspector-tui")
+    .description("Terminal UI for MCP Inspector")
+    .argument("<config-file.json>", "path to MCP servers config file")
+    .option(
+      "--client-id <id>",
+      "OAuth client ID (static client) for HTTP servers",
+    )
+    .option(
+      "--client-secret <secret>",
+      "OAuth client secret (for confidential clients)",
+    )
+    .parse(args ?? process.argv);
+
+  const configFile = program.args[0];
+  const options = program.opts() as {
+    clientId?: string;
+    clientSecret?: string;
+  };
 
   if (!configFile) {
-    console.error("Usage: mcp-inspector-tui <config-file.json>");
-    process.exit(1);
+    program.error("Config file is required");
   }
 
   // Intercept stdout.write to filter out \x1b[3J (Erase Saved Lines)
@@ -45,7 +63,13 @@ export async function runTui(): Promise<void> {
   }
 
   // Render the app
-  const instance = render(<App configFile={configFile} />);
+  const instance = render(
+    <App
+      configFile={configFile}
+      clientId={options.clientId}
+      clientSecret={options.clientSecret}
+    />,
+  );
 
   // Wait for exit, then switch back from alternate screen
   try {

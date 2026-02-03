@@ -79,6 +79,10 @@ import { OAuthStateMachine } from "../auth/state-machine.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { Logger } from "pino";
+import { createLoggingFetch } from "../auth/loggingFetch.js";
+import { silentLogger } from "../auth/logger.js";
+
 export interface InspectorClientOptions {
   /**
    * Client identity (name and version)
@@ -172,6 +176,13 @@ export interface InspectorClientOptions {
    * Per-request timeout in milliseconds. If not set, the SDK default (60_000) is used.
    */
   timeout?: number;
+
+  /**
+   * Optional pino logger for InspectorClient events (transport, OAuth, etc.).
+   * When provided, token endpoint fetch requests/responses are logged.
+   * Caller configures destination, level, etc.
+   */
+  logger?: Logger;
 
   /**
    * OAuth configuration
@@ -289,6 +300,7 @@ export class InspectorClient extends InspectorClientEventTarget {
   private oauthConfig?: InspectorClientOptions["oauth"];
   private oauthStateMachine: OAuthStateMachine | null = null;
   private oauthState: AuthGuidedState | null = null;
+  private logger: Logger;
 
   constructor(
     private transportConfig: MCPServerConfig,
@@ -317,8 +329,24 @@ export class InspectorClient extends InspectorClientEventTarget {
       resources: options.listChangedNotifications?.resources ?? true,
       prompts: options.listChangedNotifications?.prompts ?? true,
     };
-    // Initialize OAuth config
+    // Logger: use injected or silent no-op
+    this.logger = options.logger ?? silentLogger;
+
+    // OAuth config: wrap fetch with token-endpoint logging only when logger is provided
     this.oauthConfig = options.oauth;
+    if (options.oauth != null && options.logger != null) {
+      const baseFetch = options.oauth.fetchFn ?? fetch;
+      this.oauthConfig = {
+        ...options.oauth,
+        fetchFn: createLoggingFetch(
+          baseFetch,
+          this.logger.child({
+            component: "InspectorClient",
+            category: "oauth.fetch",
+          }),
+        ),
+      };
+    }
 
     // Transport is created in connect() (single place for create / wrap / attach).
 
@@ -2215,17 +2243,14 @@ export class InspectorClient extends InspectorClientEventTarget {
   // ============================================================================
 
   /**
-   * Get server URL from transport config
+   * Get server URL from transport config (full URL including path, for OAuth discovery)
    */
   private getServerUrl(): string {
     if (
       this.transportConfig.type === "sse" ||
       this.transportConfig.type === "streamable-http"
     ) {
-      // Extract base URL from transport URL (remove /mcp or /sse path)
-      const url = new URL(this.transportConfig.url);
-      // Return base URL (protocol + host + port)
-      return `${url.protocol}//${url.host}`;
+      return this.transportConfig.url;
     }
     // Stdio transports don't have a URL - OAuth not applicable
     throw new Error(

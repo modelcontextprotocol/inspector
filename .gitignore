@@ -21,3 +21,10 @@ client/test-results/
 client/e2e/test-results/
 mcp.json
 .claude/settings.local.json
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
