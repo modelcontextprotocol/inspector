@@ -17,7 +17,20 @@ describe("OAuthCallbackServer", () => {
 
     expect(result.port).toBeGreaterThan(0);
     expect(result.redirectUrl).toBe(
-      `http://localhost:${result.port}/oauth/callback`,
+      `http://127.0.0.1:${result.port}/oauth/callback`,
+    );
+  });
+
+  it("start() supports custom host, path, and port", async () => {
+    server = createOAuthCallbackServer();
+    const result = await server.start({
+      hostname: "127.0.0.1",
+      port: 0,
+      path: "/custom/path",
+    });
+
+    expect(result.redirectUrl).toBe(
+      `http://127.0.0.1:${result.port}/custom/path`,
     );
   });
 

@@ -19,17 +19,75 @@ export async function runTui(args?: string[]): Promise<void> {
       "--client-secret <secret>",
       "OAuth client secret (for confidential clients)",
     )
+    .option(
+      "--client-metadata-url <url>",
+      "OAuth Client ID Metadata Document URL (CIMD) for HTTP servers",
+    )
+    .option(
+      "--callback-url <url>",
+      "OAuth redirect/callback listener URL (default: http://127.0.0.1:0/oauth/callback)",
+    )
     .parse(args ?? process.argv);
 
   const configFile = program.args[0];
   const options = program.opts() as {
     clientId?: string;
     clientSecret?: string;
+    clientMetadataUrl?: string;
+    callbackUrl?: string;
   };
 
   if (!configFile) {
     program.error("Config file is required");
   }
+
+  interface CallbackUrlConfig {
+    hostname: string;
+    port: number;
+    pathname: string;
+  }
+
+  function parseCallbackUrl(raw?: string): CallbackUrlConfig {
+    if (!raw) {
+      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" };
+    }
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch (err) {
+      program.error(
+        `Invalid callback URL: ${(err as Error)?.message ?? String(err)}`,
+      );
+      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" };
+    }
+    if (url.protocol !== "http:") {
+      program.error("Callback URL must use http scheme");
+      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" };
+    }
+    const hostname = url.hostname;
+    if (!hostname) {
+      program.error("Callback URL must include a hostname");
+      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" };
+    }
+    const pathname = url.pathname || "/";
+    let port: number;
+    if (url.port === "") {
+      port = 80;
+    } else {
+      port = Number(url.port);
+      if (
+        !Number.isFinite(port) ||
+        !Number.isInteger(port) ||
+        port < 0 ||
+        port > 65535
+      ) {
+        program.error("Callback URL port must be between 0 and 65535");
+      }
+    }
+    return { hostname, port, pathname };
+  }
+
+  const callbackUrlConfig = parseCallbackUrl(options.callbackUrl);
 
   // Intercept stdout.write to filter out \x1b[3J (Erase Saved Lines)
   // This prevents Ink's clearTerminal from clearing scrollback on macOS Terminal
@@ -68,6 +126,8 @@ export async function runTui(args?: string[]): Promise<void> {
       configFile={configFile}
       clientId={options.clientId}
       clientSecret={options.clientSecret}
+      clientMetadataUrl={options.clientMetadataUrl}
+      callbackUrlConfig={callbackUrlConfig}
     />,
   );
 
