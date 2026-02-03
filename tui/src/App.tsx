@@ -350,6 +350,9 @@ function App({
     // InspectorClient will update status automatically, and data is preserved
   }, [selectedServer, disconnectInspector]);
 
+  // Shared ref for OAuth callback server; stop before starting new (avoids EADDRINUSE when prior auth failed without redirect)
+  const callbackServerRef = useRef<OAuthCallbackServer | null>(null);
+
   // OAuth Quick Auth (normal mode; callback server + open URL)
   const handleQuickAuth = useCallback(async () => {
     if (
@@ -368,7 +371,13 @@ function App({
       { server: selectedServer },
       "OAuth authentication started (Quick Auth)",
     );
+    const existing = callbackServerRef.current;
+    if (existing) {
+      await existing.stop();
+      callbackServerRef.current = null;
+    }
     const callbackServer = createOAuthCallbackServer();
+    callbackServerRef.current = callbackServer;
     let flowResolve: () => void;
     let flowReject: (err: Error) => void;
     const flowDone = new Promise<void>((resolve, reject) => {
@@ -384,6 +393,8 @@ function App({
             flowResolve!();
           } catch (err) {
             flowReject!(err instanceof Error ? err : new Error(String(err)));
+          } finally {
+            callbackServerRef.current = null;
           }
         },
         onError: (params) => {
@@ -393,6 +404,7 @@ function App({
             ),
           );
           void callbackServer.stop();
+          callbackServerRef.current = null;
         },
       });
       const redirectUrlProvider =
@@ -414,8 +426,6 @@ function App({
   }, [selectedServer, selectedInspectorClient, selectedServerConfig]);
 
   // OAuth Guided Auth - step-by-step
-  const callbackServerRef = useRef<OAuthCallbackServer | null>(null);
-
   const handleGuidedStart = useCallback(async () => {
     if (
       !selectedServer ||
@@ -433,6 +443,12 @@ function App({
       { server: selectedServer },
       "OAuth authentication started (Guided Auth)",
     );
+    // Stop any previous callback server (e.g. from failed auth where AS never redirected)
+    const existing = callbackServerRef.current;
+    if (existing) {
+      await existing.stop();
+      callbackServerRef.current = null;
+    }
     const callbackServer = createOAuthCallbackServer();
     callbackServerRef.current = callbackServer;
     try {

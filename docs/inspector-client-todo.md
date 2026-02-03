@@ -10,27 +10,30 @@ If we can't bring up a browser endpoint for redirect (like if we're in a contain
 - Device flow feature advertisement has issues (for example, GitHub doesn't show it in metadata, but supports it based on app setting)
 - Device flow returns "devide_flow_disabed" error, as well as "access_denied", so maybe we just always try, and on those specific error we try the token mode
 
-Also, if we are in a container with port mapping and we do want to bring up a callback server
+If we are in a container:
 
-- Need to be able to set callback port via config (local port)
-- Need to be able to set callback URL via config (host address)
+- We can set the callback url via config (--callback-url) for creating the local server (binding / serving)
+- We don't have a way to specify a different callback url for the protocol (for example, using a host address and/or mapped port)
 
 CIMD
 
-- We probably need to publish a static document for inspector client info
-- How do we indicate the resource location to InspectorClient / auth config
-- Are there tests for this, and if so, how do they work?
+- We need to publish a static document for inspector client info
+- We have a TUI command line param to set it (--client-metadata-url)
 
-If we get auths server metadata, then we know definitively whether DCR or CIMD are supported
+If we get auth server metadata, then we know definitively whether DCR or CIMD are supported
 
-- We should not attempted unsupported mechanisms and report an appropriate error
-- This could be "no client_id provided and no other client identification mechanisms supported by server"
+- We should not attempt unsupported mechanisms and report an appropriate error if not mechanisms are supported
+  - For example, GitHub only supports preregisgtered static client - if we don't have client info and CIMD and DCR not supported, stop and error
+  - This could be "no client_id provided and no other client identification mechanisms supported by server"
+- If we don't get auth server metadata, we will fall back to trying default endpoints
+  - It's highly unlikely that CIMD would be supported by an auth server without metadata
+  - It's possible that DCR could be supported
 
-Here is the MCPJam CIMD: https://www.mcpjam.com/.well-known/oauth/client-metadata.json
+Here are some sampole CIMD files:
 
-mcp-inspect: https://teamsparkai.github.io/mcp-inspect/.well-known/auth/client-metadata.json
-
-We need a way in the TUI to config static client, CIMD, maybe whether to try DCR at all?
+- MCPJam - https://www.mcpjam.com/.well-known/oauth/client-metadata.json
+- VS Code - https://vscode.dev/oauth/client-metadata.json
+- mcp-inspect: https://teamsparkai.github.io/mcp-inspect/.well-known/auth/client-metadata.json
 
 Inspector v1 Supports
 
@@ -75,9 +78,7 @@ CIMD - Need static document for Inspector
 
 clientMetadataUrl
 
-- Harcoded to mcp-inspect CIMD
-- Make one for this repo
-- Possibly add config/override to TUI config UX
+- After we makde one for Inspector, make it the default for --client-metadata-url
 
 Create CIMD file and test in TUI
 
@@ -93,7 +94,6 @@ Implement and test device flow / device code to see if it's supported
 
 Testing
 
-- Static client: Github
-  - https://api.githubcopilot.com/mcp (works, requires client_id AND client_secret)
-- DCR: hosted everything (works)
-- CIMD: ???
+- Static client: https://api.githubcopilot.com/mcp (works, requires client_id AND client_secret)
+- DCR: https://example-server.modelcontextprotocol.io/mcp (works)
+- CIMD: https://stytch-as-demo.val.run/mcp (works - as long as client_id and client_uri use the same domain)
