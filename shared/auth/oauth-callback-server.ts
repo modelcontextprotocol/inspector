@@ -2,7 +2,8 @@ import { createServer, type Server } from "node:http";
 import { parseOAuthCallbackParams } from "./utils.js";
 import { generateOAuthErrorDescription } from "./utils.js";
 
-const OAUTH_CALLBACK_PATH = "/oauth/callback";
+const DEFAULT_HOSTNAME = "127.0.0.1";
+const DEFAULT_CALLBACK_PATH = "/oauth/callback";
 
 const SUCCESS_HTML = `<!DOCTYPE html>
 <html>
@@ -38,6 +39,8 @@ export type OAuthErrorHandler = (params: {
 
 export interface OAuthCallbackServerStartOptions {
   port?: number;
+  hostname?: string;
+  path?: string;
   onCallback?: OAuthCallbackHandler;
   onError?: OAuthErrorHandler;
 }
@@ -56,6 +59,8 @@ export interface OAuthCallbackServerStartResult {
 export class OAuthCallbackServer {
   private server: Server | null = null;
   private port: number = 0;
+  private hostname: string = DEFAULT_HOSTNAME;
+  private callbackPath: string = DEFAULT_CALLBACK_PATH;
   private handled = false;
   private onCallback?: OAuthCallbackHandler;
   private onError?: OAuthErrorHandler;
@@ -67,15 +72,28 @@ export class OAuthCallbackServer {
   async start(
     options: OAuthCallbackServerStartOptions = {},
   ): Promise<OAuthCallbackServerStartResult> {
-    const { port = 0, onCallback, onError } = options;
+    const {
+      port = 0,
+      hostname = DEFAULT_HOSTNAME,
+      path = DEFAULT_CALLBACK_PATH,
+      onCallback,
+      onError,
+    } = options;
+    if (!path.startsWith("/")) {
+      return Promise.reject(
+        new Error("Callback path must start with '/' (absolute path)"),
+      );
+    }
     this.onCallback = onCallback;
     this.onError = onError;
     this.handled = false;
+    this.hostname = hostname;
+    this.callbackPath = path;
 
     return new Promise((resolve, reject) => {
       this.server = createServer((req, res) => this.handleRequest(req, res));
       this.server.on("error", reject);
-      this.server.listen(port, "127.0.0.1", () => {
+      this.server.listen(port, hostname, () => {
         const a = this.server!.address();
         if (!a || typeof a === "string") {
           reject(new Error("Failed to get server address"));
@@ -84,7 +102,7 @@ export class OAuthCallbackServer {
         this.port = a.port;
         resolve({
           port: this.port,
-          redirectUrl: `http://localhost:${this.port}${OAUTH_CALLBACK_PATH}`,
+          redirectUrl: buildRedirectUrl(hostname, this.port, path),
         });
       });
     });
@@ -127,7 +145,7 @@ export class OAuthCallbackServer {
     let search: string;
     let state: string | undefined;
     try {
-      const u = new URL(req.url ?? "", "http://localhost");
+      const u = new URL(req.url ?? "", "http://placeholder");
       pathname = u.pathname;
       search = u.search;
       state = u.searchParams.get("state") ?? undefined;
@@ -136,7 +154,7 @@ export class OAuthCallbackServer {
       return;
     }
 
-    if (pathname !== OAUTH_CALLBACK_PATH) {
+    if (pathname !== this.callbackPath) {
       send(404, needJson ? '{"error":"Not Found"}' : SUCCESS_HTML);
       return;
     }
@@ -189,4 +207,10 @@ export class OAuthCallbackServer {
  */
 export function createOAuthCallbackServer(): OAuthCallbackServer {
   return new OAuthCallbackServer();
+}
+
+function buildRedirectUrl(host: string, port: number, path: string): string {
+  const needsBrackets = host.includes(":") && !host.startsWith("[");
+  const formattedHost = needsBrackets ? `[${host}]` : host;
+  return `http://${formattedHost}:${port}${path}`;
 }

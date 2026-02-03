@@ -88,6 +88,12 @@ interface AppProps {
   configFile: string;
   clientId?: string;
   clientSecret?: string;
+  clientMetadataUrl?: string;
+  callbackUrlConfig: {
+    hostname: string;
+    port: number;
+    pathname: string;
+  };
 }
 
 /** HTTP transports (SSE, streamable-http) can use OAuth. No config gate. */
@@ -97,8 +103,22 @@ function isOAuthCapableServer(config: MCPServerConfig | null): boolean {
   return c.type === "sse" || c.type === "streamable-http";
 }
 
-function App({ configFile, clientId, clientSecret }: AppProps) {
+function App({
+  configFile,
+  clientId,
+  clientSecret,
+  clientMetadataUrl,
+  callbackUrlConfig,
+}: AppProps) {
   const { exit } = useApp();
+  const callbackServerBaseOptions = useMemo(
+    () => ({
+      port: callbackUrlConfig.port,
+      hostname: callbackUrlConfig.hostname,
+      path: callbackUrlConfig.pathname,
+    }),
+    [callbackUrlConfig],
+  );
 
   useEffect(() => {
     tuiLogger.info({ configFile }, "TUI started");
@@ -236,10 +256,9 @@ function App({ configFile, clientId, clientSecret }: AppProps) {
               async (url) => await openUrl(url),
             ),
             redirectUrlProvider,
-            clientMetadataUrl:
-              "https://teamsparkai.github.io/mcp-inspect/.well-known/auth/client-metadata.json",
             ...(clientId && { clientId }),
             ...(clientSecret && { clientSecret }),
+            ...(clientMetadataUrl && { clientMetadataUrl }),
           };
         }
         newClients[serverName] = new InspectorClient(serverConfig, opts);
@@ -249,7 +268,7 @@ function App({ configFile, clientId, clientSecret }: AppProps) {
       setInspectorClients((prev) => ({ ...prev, ...newClients }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, clientSecret]);
+  }, [clientId, clientSecret, clientMetadataUrl]);
 
   // Cleanup: disconnect all clients on unmount
   useEffect(() => {
@@ -358,7 +377,7 @@ function App({ configFile, clientId, clientSecret }: AppProps) {
     });
     try {
       const { redirectUrl } = await callbackServer.start({
-        port: 0,
+        ...callbackServerBaseOptions,
         onCallback: async (params) => {
           try {
             await selectedInspectorClient!.completeOAuthFlow(params.code);
@@ -418,7 +437,7 @@ function App({ configFile, clientId, clientSecret }: AppProps) {
     callbackServerRef.current = callbackServer;
     try {
       const { redirectUrl } = await callbackServer.start({
-        port: 0,
+        ...callbackServerBaseOptions,
         onCallback: async (params) => {
           try {
             await selectedInspectorClient!.completeOAuthFlow(params.code);
@@ -500,7 +519,7 @@ function App({ configFile, clientId, clientSecret }: AppProps) {
       const callbackServer = createOAuthCallbackServer();
       callbackServerRef.current = callbackServer;
       const { redirectUrl } = await callbackServer.start({
-        port: 0,
+        ...callbackServerBaseOptions,
         onCallback: async (params) => {
           try {
             await selectedInspectorClient!.completeOAuthFlow(params.code);
