@@ -35,11 +35,11 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 | Set roots                                  | ✅              | ✅            | ❌  | Medium       |
 | Roots listChanged notifications            | ✅              | ✅            | ❌  | Medium       |
 | **Authentication**                         |
-| OAuth 2.1 flow                             | ✅              | ✅            | ❌  | High         |
-| OAuth: Static/Preregistered clients        | ✅              | ✅            | ❌  | High         |
-| OAuth: DCR (Dynamic Client Registration)   | ✅              | ✅            | ❌  | High         |
-| OAuth: CIMD (Client ID Metadata Documents) | ✅              | ❌            | ❌  | Medium       |
-| OAuth: Guided Auth (step-by-step)          | ✅              | ✅            | ❌  | High         |
+| OAuth 2.1 flow                             | ✅              | ✅            | ✅  | -            |
+| OAuth: Static/Preregistered clients        | ✅              | ✅            | ✅  | -            |
+| OAuth: DCR (Dynamic Client Registration)   | ✅              | ✅            | ✅  | -            |
+| OAuth: CIMD (Client ID Metadata Documents) | ✅              | ❌            | ✅  | -            |
+| OAuth: Guided Auth (step-by-step)          | ✅              | ✅            | ✅  | -            |
 | Custom headers                             | ✅ (config)     | ✅ (UI)       | ❌  | Medium       |
 | **Advanced Features**                      |
 | Sampling requests                          | ✅              | ✅            | ❌  | High         |
@@ -124,14 +124,10 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 
 **TUI Status:**
 
-- ❌ No OAuth support yet
-- ❌ No OAuth token management or UI
-
-**Implementation Requirements (for TUI):**
-
-- Integrate `InspectorClient` OAuth (use `oauth` config, `authenticate()` / `authenticateGuided()`, `completeOAuthFlow()`, events)
-- Browser-based OAuth flow with localhost callback server (TUI-specific approach)
-- OAuth configuration in TUI server config
+- ✅ OAuth 2.1 support including static client, CIMD, DCR, and guided auth
+- ✅ OAuth token management via Auth tab
+- ✅ Browser-based OAuth flow with localhost callback server
+- ✅ CLI options: `--client-id`, `--client-secret`, `--client-metadata-url`, `--callback-url`
 
 **Code References:**
 
@@ -702,7 +698,7 @@ Based on this analysis, `InspectorClient` needs the following additions:
    - ✅ OAuth token management (shared auth, configurable storage)
    - ✅ OAuth flow initiation (`authenticate()`, `authenticateGuided()`, `completeOAuthFlow()`)
    - ✅ Token injection via `authProvider` on HTTP transports
-   - ❌ TUI integration and UI (browser-based flow, localhost callback server)
+   - ✅ TUI integration and UI (OAuth 2.1, static client, CIMD, DCR, guided auth, browser-based flow, localhost callback server)
 
 6. **ListChanged Notifications**:
    - ✅ Notification handlers for `notifications/tools/list_changed` - **COMPLETED**
@@ -738,7 +734,7 @@ Based on this analysis, `InspectorClient` needs the following additions:
 
 - **HTTP Request Tracking**: `InspectorClient` tracks HTTP requests for SSE and streamable-http transports via `getFetchRequests()`. TUI displays these requests in a `RequestsTab`. Web client does not currently display HTTP request tracking, though the underlying `InspectorClient` supports it. This is a TUI advantage, not a gap.
 - **Resource Subscriptions**: Web client supports this, but TUI does not. `InspectorClient` now fully supports resource subscriptions with `subscribeToResource()`, `unsubscribeFromResource()`, and automatic handling of `notifications/resources/updated` notifications.
-- **OAuth**: Web client has full OAuth support. `InspectorClient` supports OAuth (shared auth, `authProvider`, guided mode, token refresh via SDK, configurable storage). TUI needs to integrate InspectorClient OAuth and add UI for browser-based OAuth flow with localhost callback server.
+- **OAuth**: Web client has full OAuth support. TUI now supports OAuth 2.1 including static client, CIMD, DCR, and guided auth, with browser-based flow and localhost callback server.
 - **Completions**: `InspectorClient` has full completion support via `getCompletions()`. Web client uses this for resource template forms and prompt parameter forms. TUI has both resource template forms and prompt parameter forms, but completion support is still needed to provide autocomplete suggestions.
 - **Sampling**: `InspectorClient` has full sampling support. Web client UI displays and handles sampling requests. TUI needs UI to display and handle sampling requests.
 - **Elicitation**: `InspectorClient` has full elicitation support. Web client UI displays and handles elicitation requests. TUI needs UI to display and handle elicitation requests.
