@@ -23,6 +23,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/inspector-shared": "*",
+    "pino": "^9.6.0",
+    "commander": "^13.1.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "fullscreen-ink": "^0.1.0",
     "ink": "^6.6.0",

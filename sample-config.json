@@ -14,10 +14,6 @@
         "KEY": "value",
         "KEY2": "value2"
       }
-    },
-    "hosted-everything": {
-      "type": "streamable-http",
-      "url": "https://example-server.modelcontextprotocol.io/mcp"
     }
   }
 }

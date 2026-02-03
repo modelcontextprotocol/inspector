@@ -25,6 +25,7 @@ import {
   MutableRedirectUrlProvider,
   NodeOAuthStorage,
 } from "@modelcontextprotocol/inspector-shared/auth";
+import { tuiLogger } from "./logger.js";
 import { openUrl } from "./utils/openUrl.js";
 import { Tabs, type TabType, tabs as tabList } from "./components/Tabs.js";
 import { InfoTab } from "./components/InfoTab.js";
@@ -85,6 +86,8 @@ type FocusArea =
 
 interface AppProps {
   configFile: string;
+  clientId?: string;
+  clientSecret?: string;
 }
 
 /** HTTP transports (SSE, streamable-http) can use OAuth. No config gate. */
@@ -94,8 +97,12 @@ function isOAuthCapableServer(config: MCPServerConfig | null): boolean {
   return c.type === "sse" || c.type === "streamable-http";
 }
 
-function App({ configFile }: AppProps) {
+function App({ configFile, clientId, clientSecret }: AppProps) {
   const { exit } = useApp();
+
+  useEffect(() => {
+    tuiLogger.info({ configFile }, "TUI started");
+  }, [configFile]);
 
   const [selectedServer, setSelectedServer] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("info");
@@ -212,6 +219,7 @@ function App({ configFile }: AppProps) {
           maxStderrLogEvents: 1000,
           maxFetchRequests: 1000,
           pipeStderr: true,
+          logger: tuiLogger,
         };
         if (isOAuthCapableServer(serverConfig)) {
           const oauthFromConfig = serverConfig.oauth as
@@ -228,6 +236,10 @@ function App({ configFile }: AppProps) {
               async (url) => await openUrl(url),
             ),
             redirectUrlProvider,
+            clientMetadataUrl:
+              "https://teamsparkai.github.io/mcp-inspect/.well-known/auth/client-metadata.json",
+            ...(clientId && { clientId }),
+            ...(clientSecret && { clientSecret }),
           };
         }
         newClients[serverName] = new InspectorClient(serverConfig, opts);
@@ -237,7 +249,7 @@ function App({ configFile }: AppProps) {
       setInspectorClients((prev) => ({ ...prev, ...newClients }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [clientId, clientSecret]);
 
   // Cleanup: disconnect all clients on unmount
   useEffect(() => {
@@ -333,6 +345,10 @@ function App({ configFile }: AppProps) {
     oauthInProgressRef.current = true;
     setOauthStatus("authenticating");
     setOauthMessage(null);
+    tuiLogger.info(
+      { server: selectedServer },
+      "OAuth authentication started (Quick Auth)",
+    );
     const callbackServer = createOAuthCallbackServer();
     let flowResolve: () => void;
     let flowReject: (err: Error) => void;
@@ -394,6 +410,10 @@ function App({ configFile }: AppProps) {
     oauthInProgressRef.current = true;
     setOauthStatus("authenticating");
     setOauthMessage(null);
+    tuiLogger.info(
+      { server: selectedServer },
+      "OAuth authentication started (Guided Auth)",
+    );
     const callbackServer = createOAuthCallbackServer();
     callbackServerRef.current = callbackServer;
     try {
@@ -441,6 +461,7 @@ function App({ configFile }: AppProps) {
     oauthInProgressRef.current = true;
     setOauthStatus("authenticating");
     setOauthMessage(null);
+    tuiLogger.info("OAuth authentication started (Guided Auth advance step)");
     try {
       await selectedInspectorClient.proceedOAuthStep();
       const state = selectedInspectorClient.getOAuthState();
@@ -469,6 +490,10 @@ function App({ configFile }: AppProps) {
     oauthInProgressRef.current = true;
     setOauthStatus("authenticating");
     setOauthMessage(null);
+    tuiLogger.info(
+      { server: selectedServer },
+      "OAuth authentication started (Run Guided Auth to completion)",
+    );
 
     const ensureCallbackServer = async () => {
       if (callbackServerRef.current) return;

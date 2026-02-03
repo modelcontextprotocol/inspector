@@ -24,6 +24,7 @@
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
+    "pino": "^9.6.0",
     "react": "^19.2.3"
   },
   "dependencies": {
@@ -31,6 +32,7 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
+    "pino": "^9.6.0",
     "@types/react": "^19.2.7",
     "react": "^19.2.3",
     "typescript": "^5.4.2",
