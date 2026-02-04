@@ -49,6 +49,44 @@ Each feature screen uses a **resizable panel layout** for flexibility.
 +---------------------+--------------------------------------+------------------------+
 ```
 
+**With Pending Client Requests (inline expansion):**
+
+When a tool execution triggers sampling or elicitation requests, they appear inline:
+
+```
++---------------------+--------------------------------------------------------------+
+| Tools (4)           | Tool: query_database                         [Executing...] |
+|                     +--------------------------------------------------------------+
+| [Search...]         | Parameters: { "table": "users", "limit": 10 }                |
+|                     +--------------------------------------------------------------+
+| (*) query_db        | [!] Pending Client Requests (2)                              |
+| ( ) echo            |                                                              |
+| ( ) add             | +----------------------------------------------------------+ |
+| ( ) longOp          | | sampling/createMessage                       [1 of 2]   | |
+|                     | | Model hints: claude-3-sonnet                            | |
+|                     | | Messages: "Analyze this database schema..."             | |
+|                     | |                                                          | |
+|                     | | Response:  [Testing Profile: Quick Mock]                | |
+|                     | | +------------------------------------------------------+ | |
+|                     | | | This is a mock LLM response for testing purposes.   | | |
+|                     | | +------------------------------------------------------+ | |
+|                     | |                                                          | |
+|                     | |          [Auto-respond]  [Edit & Send]  [Reject]        | |
+|                     | +----------------------------------------------------------+ |
+|                     |                                                              |
+|                     | +----------------------------------------------------------+ |
+|                     | | elicitation/create (form)                    [2 of 2]   | |
+|                     | | Message: "Please confirm the query parameters"          | |
+|                     | |                                                          | |
+|                     | | table: [users     ]  limit: [10]  [x] include_deleted   | |
+|                     | |                                                          | |
+|                     | |                                [Cancel]  [Submit]       | |
+|                     | +----------------------------------------------------------+ |
+|                     |                                                              |
+|                     |                                            [Cancel Tool]     |
++---------------------+--------------------------------------------------------------+
+```
+
 **Features:**
 - **List Changed Indicator** - Shows when `notifications/tools/list_changed` received, with refresh button
 - Searchable/filterable tool list
@@ -72,6 +110,14 @@ Each feature screen uses a **resizable panel layout** for flexibility.
   - Elapsed time display
 - Execute button with loading state
 - **Cancel button** sends `notifications/cancelled`
+- **Inline Client Request Queue** - When tool triggers sampling/elicitation:
+  - Pending requests shown inline (not as separate modal)
+  - Queue counter shows total pending requests
+  - Each request shows type, summary, and response options
+  - **Auto-respond** button uses active Testing Profile
+  - **Edit & Send** allows modifying response before sending
+  - Requests processed in order, tool execution resumes after all resolved
+  - Visible connection between tool call and its triggered requests
 - **Rich Result Display**:
   - JSON/text with syntax highlighting
   - Image preview for image content (base64)
@@ -233,7 +279,36 @@ Uses an **accordion layout** for the left panel to organize Resources, Templates
 | [x] ALERT             |                                                     |
 | [x] EMERGENCY         |                                                     |
 |                       |                                                     |
+| Request Filter:       |                                                     |
+| +-----------------+   |                                                     |
+| | All requests  v |   |                                                     |
+| +-----------------+   |                                                     |
+|                       |                                                     |
 | [Clear] [Export]      | [Auto-scroll] [Copy All]                            |
++-----------------------+-----------------------------------------------------+
+```
+
+**With Request Correlation:**
+
+Logs can be filtered by the request that triggered them:
+
+```
++-----------------------+-----------------------------------------------------+
+| Log Controls (25%)    | Log Stream (filtered by request)                    |
++-----------------------+-----------------------------------------------------+
+|                       |                                                     |
+| Request Filter:       | Showing logs for: tools/call (query_database)       |
+| +-----------------+   |                                   [View in History] |
+| | query_database  |   | -------------------------------------------------   |
+| |   14:32:10    v |   | 14:32:10 [DEBUG]    Starting query execution        |
+| +-----------------+   | 14:32:11 [INFO]     Requesting LLM analysis         |
+|                       | 14:32:12 [DEBUG]    Sampling response received      |
+| Recent Requests:      | 14:32:13 [WARNING]  Query taking longer than usual  |
+| ( ) query_database    | 14:32:15 [INFO]     Query completed, 42 rows        |
+| ( ) analyze_data      |                                                     |
+| ( ) prompts/get       |                                                     |
+|                       |                                                     |
+| [Show All Logs]       | [Auto-scroll] [Copy Filtered]                       |
 +-----------------------+-----------------------------------------------------+
 ```
 
@@ -261,6 +336,12 @@ Uses an **accordion layout** for the left panel to organize Resources, Templates
 - Auto-scroll toggle
 - Export logs to file
 - Copy all logs to clipboard
+- **Request Correlation**:
+  - Filter logs by request (shows logs emitted during a specific tool/resource/prompt call)
+  - Recent requests dropdown shows last N requests
+  - [View in History] link navigates to the request in History screen
+  - Logs include correlation ID linking them to their parent request
+  - Click any log entry to see which request chain it belongs to
 
 ## Tasks Screen
 
@@ -314,46 +395,40 @@ Uses an **accordion layout** for the left panel to organize Resources, Templates
 
 ## History Screen
 
-A unified history of all MCP requests with replay capability.
+A unified history of all MCP requests with **hierarchical request trace** capability. Shows parent-child relationships when tool calls trigger sampling or elicitation requests.
 
 ```
 +-------------------------------------------------------------------------------------+
 | History                                           [Search...] [Filter v] [Clear All] |
 +-------------------------------------------------------------------------------------+
 |                                                                                     |
-| +---------------------------------------------------------------------------------+ |
-| | * 14:35:22  tools/call         echo                             [Replay] [Pin]  | |
-| |    Parameters: { "message": "Hello world" }                                     | |
-| |    Result: Success (45ms)                                                       | |
-| |    ------------------------------------------------------------------           | |
-| |    Response: { "content": [{ "type": "text", "text": "Hello world" }] }         | |
-| +---------------------------------------------------------------------------------+ |
+| [>] 14:35:22  tools/call  query_database         [success] 450ms   [Replay] [Pin]   |
+|     +-- 14:35:23  sampling/createMessage  claude-3-sonnet           [+45ms]         |
+|     |     Model: claude-3-sonnet-20241022                                           |
+|     |     Response: "Based on the schema, I recommend..."         [Expand]          |
+|     +-- 14:35:24  sampling/createMessage  gpt-4                     [+120ms]        |
+|     |     Model: gpt-4-turbo                                                        |
+|     |     Response: "The query should use an index..."            [Expand]          |
+|     +-- 14:35:25  elicitation/create  (form: confirm_action)        [+200ms]        |
+|           User provided: { confirmed: true }                                        |
 |                                                                                     |
-| +---------------------------------------------------------------------------------+ |
-| |   14:34:15  resources/read     file:///config.json              [Replay] [Pin]  | |
-| |    Result: Success (120ms)                                                      | |
-| |    ------------------------------------------------------------------           | |
-| |    Content: { "name": "my-app", "version": "1.0.0" }  (collapsed)  [Expand]     | |
-| +---------------------------------------------------------------------------------+ |
+| [>] 14:34:15  resources/read  file:///config.json  [success] 120ms  [Replay] [Pin]  |
+|     (no client requests)                                                            |
 |                                                                                     |
-| +---------------------------------------------------------------------------------+ |
-| |   14:33:45  prompts/get        greeting_prompt                  [Replay] [Pin]  | |
-| |    Arguments: { "name": "John", "interests": "cats" }                           | |
-| |    Result: Success (30ms)                                                       | |
-| +---------------------------------------------------------------------------------+ |
+| [>] 14:33:45  prompts/get  greeting_prompt        [success] 30ms   [Replay] [Pin]   |
+|     Arguments: { "name": "John", "interests": "cats" }                              |
 |                                                                                     |
-| +---------------------------------------------------------------------------------+ |
-| |   14:32:10  tools/call         query_database                   [Replay] [Pin]  | |
-| |    Parameters: { "table": "users", "limit": 10 }                                | |
-| |    Result: [X] Error (200ms)                                                    | |
-| |    ------------------------------------------------------------------           | |
-| |    Error: "Table 'users' not found"                                             | |
-| +---------------------------------------------------------------------------------+ |
+| [>] 14:32:10  tools/call  analyze_data            [success] 800ms  [Replay] [Pin]   |
+|     +-- 14:32:11  sampling/createMessage  claude-3-opus             [+350ms]        |
+|     |     Messages: "Analyze this dataset and identify..."                          |
+|     |     Response: "I've identified 3 key patterns..."          [Expand]           |
+|     +-- 14:32:12  elicitation/create  (url: oauth)                  [+400ms]        |
+|           Status: User completed OAuth flow                                         |
 |                                                                                     |
 | Pinned Requests (2)                                                                 |
 | +---------------------------------------------------------------------------------+ |
-| | * "Test echo"      tools/call    echo             14:35:22       [Replay] [Unpin] |
-| | * "Get config"     resources/read file:///config.json 14:34:15   [Replay] [Unpin] |
+| | * "Test query"     tools/call  query_database    14:35:22      [Replay] [Unpin]  | |
+| | * "Get config"     resources/read  config.json   14:34:15      [Replay] [Unpin]  | |
 | +---------------------------------------------------------------------------------+ |
 |                                                                                     |
 |                                                          Showing 50 of 127 entries |
@@ -362,31 +437,46 @@ A unified history of all MCP requests with replay capability.
 ```
 
 **Features:**
+
+- **Request Trace** - Hierarchical view showing causal relationships:
+  - Top-level requests (tools/call, resources/read, prompts/get) shown as parent nodes
+  - Client requests (sampling, elicitation) shown as nested children with timing offset
+  - Expandable/collapsible tree structure
+  - Visual connector lines showing the chain
+  - **Correlation ID** links related requests together
+
 - **Automatic Capture** - All MCP requests/responses logged automatically:
-  - `tools/call` - Tool invocations
-  - `resources/read` - Resource reads
-  - `prompts/get` - Prompt retrievals
-  - `sampling/createMessage` - Sampling requests/responses
-  - `elicitation/create` - Elicitation requests/responses
+  - `tools/call` - Tool invocations (parent)
+  - `resources/read` - Resource reads (parent)
+  - `prompts/get` - Prompt retrievals (parent)
+  - `sampling/createMessage` - Sampling requests (child, nested under triggering request)
+  - `elicitation/create` - Elicitation requests (child, nested under triggering request)
+
 - **Request Details** displayed:
-  - Timestamp
+  - Timestamp (absolute for parents, relative offset for children)
   - Method name
-  - Target (tool name, resource URI, prompt name)
+  - Target (tool name, resource URI, prompt name, model hint)
   - Parameters/arguments
   - Result status (success/error)
-  - Response time
+  - Total response time (for parents), offset time (for children)
   - Response data (collapsible)
+
 - **Replay** - Re-execute any request with original parameters:
   - Opens relevant screen (Tools, Resources, Prompts) pre-filled
   - Option to modify parameters before replay
+  - Replaying a parent re-executes the full chain
+
 - **Pin/Save** - Pin important requests for quick access:
   - Pinned requests persist across sessions
   - Optional custom label for pinned items
   - Pinned section at bottom for easy access
+
 - **Filter** by:
   - Method type (tools, resources, prompts, sampling, elicitation)
   - Status (success, error)
   - Time range
+  - Show/hide child requests (flatten view)
+
 - **Search** across method names, parameters, and responses
 - **Pagination** - Load more for large histories
 - **Clear** - Clear history (with confirmation)
@@ -397,4 +487,4 @@ A unified history of all MCP requests with replay capability.
 2. Inspector navigates to the appropriate screen (Tools, Resources, Prompts)
 3. Form is pre-filled with the original parameters
 4. User can modify parameters or execute immediately
-5. New request is added to history
+5. New request is added to history (with any triggered client requests nested)
