@@ -104,8 +104,15 @@ const ToolsTab = ({
   >([]);
   const [hasValidationErrors, setHasValidationErrors] = useState(false);
   const formRefs = useRef<Record<string, DynamicJsonFormRef | null>>({});
+  const searchRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { copied, setCopied } = useCopy();
+
+  useEffect(() => {
+    if (tools.length > 0) {
+      searchRef.current?.focus();
+    }
+  }, [tools.length]);
 
   const {
     size: listWidth,
@@ -254,6 +261,7 @@ const ToolsTab = ({
               title="Tools"
               buttonText={nextCursor ? "List More Tools" : "List Tools"}
               isButtonDisabled={!nextCursor && tools.length > 0}
+              searchRef={searchRef}
             />
           </div>
           <Resizer
