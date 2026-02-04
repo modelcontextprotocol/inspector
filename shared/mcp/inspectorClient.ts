@@ -10,12 +10,12 @@ import type {
   PromptGetInvocation,
   ToolCallInvocation,
 } from "./types.js";
-import {
-  createTransport,
-  type CreateTransportOptions,
-  getServerType as getServerTypeFromConfig,
-  type ServerType,
-} from "./transport.js";
+import { getServerType as getServerTypeFromConfig } from "./config.js";
+import type {
+  CreateTransport,
+  CreateTransportOptions,
+  ServerType,
+} from "./types.js";
 import {
   MessageTrackingTransport,
   type MessageTrackingCallbacks,
@@ -84,6 +84,13 @@ import { createLoggingFetch } from "../auth/loggingFetch.js";
 import { silentLogger } from "../auth/logger.js";
 
 export interface InspectorClientOptions {
+  /**
+   * Factory that creates a client transport for the given server config.
+   * Required. Caller provides the implementation (e.g. createTransport for Node,
+   * RemoteClientTransport factory for browser bridge).
+   */
+  transportClientFactory: CreateTransport;
+
   /**
    * Client identity (name and version)
    */
@@ -301,12 +308,14 @@ export class InspectorClient extends InspectorClientEventTarget {
   private oauthStateMachine: OAuthStateMachine | null = null;
   private oauthState: AuthGuidedState | null = null;
   private logger: Logger;
+  private transportClientFactory: CreateTransport;
 
   constructor(
     private transportConfig: MCPServerConfig,
-    options: InspectorClientOptions = {},
+    options: InspectorClientOptions,
   ) {
     super();
+    this.transportClientFactory = options.transportClientFactory;
     // Initialize content cache
     this.cacheInternal = new ContentCache();
     this.cache = this.cacheInternal;
@@ -522,7 +531,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         const provider = await this.createOAuthProvider("normal");
         transportOptions.authProvider = provider;
       }
-      const { transport: baseTransport } = createTransport(
+      const { transport: baseTransport } = this.transportClientFactory(
         this.transportConfig,
         transportOptions,
       );

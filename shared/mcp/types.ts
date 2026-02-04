@@ -29,6 +29,8 @@ export type MCPServerConfig =
   | SseServerConfig
   | StreamableHttpServerConfig;
 
+export type ServerType = "stdio" | "sse" | "streamable-http";
+
 export interface MCPConfig {
   mcpServers: Record<string, MCPServerConfig>;
 }
@@ -80,6 +82,46 @@ export interface FetchRequestEntry {
   duration?: number; // Time between request and response in ms
   error?: string;
 }
+
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+
+export interface CreateTransportOptions {
+  /**
+   * Optional callback to handle stderr logs from stdio transports
+   */
+  onStderr?: (entry: StderrLogEntry) => void;
+
+  /**
+   * Whether to pipe stderr for stdio transports (default: true for TUI, false for CLI)
+   */
+  pipeStderr?: boolean;
+
+  /**
+   * Optional callback to track HTTP fetch requests (for SSE and streamable-http transports)
+   */
+  onFetchRequest?: (entry: FetchRequestEntry) => void;
+
+  /**
+   * Optional OAuth client provider for Bearer authentication (SSE, streamable-http).
+   * When set, the SDK injects tokens and handles 401 via the provider.
+   */
+  authProvider?: OAuthClientProvider;
+}
+
+export interface CreateTransportResult {
+  transport: Transport;
+}
+
+/**
+ * Factory that creates a client transport for an MCP server configuration.
+ * Required by InspectorClient; caller provides the implementation for their
+ * environment (e.g. createTransport for Node, RemoteClientTransport factory for browser).
+ */
+export type CreateTransport = (
+  config: MCPServerConfig,
+  options: CreateTransportOptions,
+) => CreateTransportResult;
 
 export interface ServerState {
   status: ConnectionStatus;

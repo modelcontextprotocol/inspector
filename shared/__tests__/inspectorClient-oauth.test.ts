@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { InspectorClient } from "../mcp/inspectorClient.js";
+import { createTransportNode } from "../mcp/transport.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 import { TestServerHttp } from "../test/test-server-http.js";
 import { waitForEvent } from "../test/test-helpers.js";
@@ -23,6 +24,7 @@ describe("InspectorClient OAuth", () => {
       url: "http://localhost:3000/sse",
     };
     client = new InspectorClient(config, {
+      transportClientFactory: createTransportNode,
       autoFetchServerContents: false,
     });
   });
@@ -49,7 +51,11 @@ describe("InspectorClient OAuth", () => {
       });
       client = new InspectorClient(
         { type: "sse", url: "http://localhost:3000/sse" },
-        { autoFetchServerContents: false, oauth: oauthConfig },
+        {
+          transportClientFactory: createTransportNode,
+          autoFetchServerContents: false,
+          oauth: oauthConfig,
+        },
       );
 
       // Configuration should be set (no error thrown)
@@ -65,7 +71,11 @@ describe("InspectorClient OAuth", () => {
       });
       client = new InspectorClient(
         { type: "sse", url: "http://localhost:3000/sse" },
-        { autoFetchServerContents: false, oauth: oauthConfig },
+        {
+          transportClientFactory: createTransportNode,
+          autoFetchServerContents: false,
+          oauth: oauthConfig,
+        },
       );
 
       expect(client).toBeDefined();
@@ -77,6 +87,7 @@ describe("InspectorClient OAuth", () => {
       client = new InspectorClient(
         { type: "sse", url: "http://localhost:3000/sse" },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
           oauth: createOAuthClientConfig({
             mode: "static",
@@ -145,6 +156,7 @@ describe("InspectorClient OAuth", () => {
 
       // Create client with OAuth config pointing to test server
       const clientConfig: InspectorClientOptions = {
+        transportClientFactory: createTransportNode,
         oauth: createOAuthClientConfig({
           mode: "static",
           clientId: staticClientId,
@@ -190,6 +202,7 @@ describe("InspectorClient OAuth", () => {
       const serverUrl = `http://localhost:${port}`;
 
       const clientConfig: InspectorClientOptions = {
+        transportClientFactory: createTransportNode,
         oauth: createOAuthClientConfig({
           mode: "static",
           clientId: "test-error-client",
@@ -261,6 +274,7 @@ describe("InspectorClient OAuth", () => {
       const serverUrl = `http://localhost:${port}`;
 
       const clientConfig: InspectorClientOptions = {
+        transportClientFactory: createTransportNode,
         oauth: createOAuthClientConfig({
           mode: "static",
           clientId: staticClientId,

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { InspectorClient } from "../mcp/inspectorClient.js";
+import { createTransportNode } from "../mcp/transport.js";
 import { SamplingCreateMessage } from "../mcp/samplingCreateMessage.js";
 import { ElicitationCreateMessage } from "../mcp/elicitationCreateMessage.js";
 import { getTestMcpServerCommand } from "../test/test-server-stdio.js";
@@ -79,11 +80,14 @@ describe("InspectorClient", () => {
 
   describe("Connection Management", () => {
     it("should create client with stdio transport", () => {
-      client = new InspectorClient({
-        type: "stdio",
-        command: serverCommand.command,
-        args: serverCommand.args,
-      });
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        { transportClientFactory: createTransportNode },
+      );
 
       expect(client.getStatus()).toBe("disconnected");
       expect(client.getServerType()).toBe("stdio");
@@ -97,6 +101,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -114,6 +119,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -133,6 +139,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true,
         },
       );
@@ -154,6 +161,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -195,6 +203,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -219,6 +228,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -243,6 +253,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           maxMessages: 5,
           autoFetchServerContents: false,
         },
@@ -266,6 +277,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -289,6 +301,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -320,6 +333,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -350,6 +364,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -380,6 +395,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -413,6 +429,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           maxFetchRequests: 3,
           autoFetchServerContents: false,
         },
@@ -441,6 +458,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -469,6 +487,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -494,6 +513,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true,
         },
       );
@@ -513,6 +533,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -530,6 +551,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true,
         },
       );
@@ -555,6 +577,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -644,6 +667,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           clientIdentity: { name: "test", version: "1.0.0" },
           autoFetchServerContents: false,
         },
@@ -696,6 +720,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -741,6 +766,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           clientIdentity: { name: "test", version: "1.0.0" },
           autoFetchServerContents: false,
         },
@@ -798,6 +824,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           clientIdentity: { name: "test", version: "1.0.0" },
           autoFetchServerContents: false,
         },
@@ -867,6 +894,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           clientIdentity: { name: "test", version: "1.0.0" },
           autoFetchServerContents: false,
         },
@@ -908,6 +936,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           clientIdentity: { name: "test", version: "1.0.0" },
           autoFetchServerContents: false,
         },
@@ -980,6 +1009,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -1014,6 +1044,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           clientIdentity: { name: "test", version: "1.0.0" },
           autoFetchServerContents: false,
         },
@@ -1074,6 +1105,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           clientIdentity: { name: "test", version: "1.0.0" },
           autoFetchServerContents: false,
           progress: true,
@@ -1144,6 +1176,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           clientIdentity: { name: "test", version: "1.0.0" },
           autoFetchServerContents: false,
           progress: false, // Disable progress
@@ -1200,6 +1233,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           clientIdentity: { name: "test", version: "1.0.0" },
           autoFetchServerContents: false,
           progress: true,
@@ -1260,6 +1294,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           clientIdentity: { name: "test", version: "1.0.0" },
           autoFetchServerContents: false,
           progress: true,
@@ -1305,6 +1340,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           clientIdentity: { name: "test", version: "1.0.0" },
           autoFetchServerContents: false,
           progress: true,
@@ -1349,6 +1385,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           clientIdentity: { name: "test", version: "1.0.0" },
           autoFetchServerContents: false,
           progress: true,
@@ -1388,6 +1425,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
           initialLoggingLevel: "debug",
         },
@@ -1411,6 +1449,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           pipeStderr: true,
           autoFetchServerContents: false,
         },
@@ -1433,6 +1472,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -1458,6 +1498,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -1479,6 +1520,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -1512,6 +1554,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
           sample: true, // Enable sampling capability
         },
@@ -1607,6 +1650,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -1664,6 +1708,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -1721,6 +1766,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -1781,6 +1827,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
           elicit: true, // Enable elicitation capability
         },
@@ -1883,6 +1930,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
           elicit: { url: true }, // Enable elicitation capability
         },
@@ -1987,6 +2035,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
           roots: initialRoots, // Enable roots capability
         },
@@ -2038,6 +2087,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
           roots: [], // Enable roots capability with empty array
         },
@@ -2122,6 +2172,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2171,6 +2222,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2206,6 +2258,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2264,6 +2317,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2312,6 +2366,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2340,6 +2395,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2364,6 +2420,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true,
         },
       );
@@ -2421,6 +2478,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2446,6 +2504,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2488,6 +2547,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true, // Auto-fetch to populate templates
         },
       );
@@ -2539,6 +2599,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true, // Auto-fetch to populate prompts
         },
       );
@@ -2585,6 +2646,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true, // Auto-fetch to populate tools
         },
       );
@@ -2633,6 +2695,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2679,6 +2742,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2714,6 +2778,7 @@ describe("InspectorClient", () => {
           args: serverCommand.args,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2752,6 +2817,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2775,6 +2841,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2808,6 +2875,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2834,6 +2902,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2861,6 +2930,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2888,6 +2958,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
           listChangedNotifications: {
             tools: false,
@@ -2920,6 +2991,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -2964,6 +3036,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3015,6 +3088,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3048,6 +3122,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3083,6 +3158,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3136,6 +3212,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3191,6 +3268,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true, // Auto-fetch to populate initial state
         },
       );
@@ -3251,6 +3329,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true,
         },
       );
@@ -3324,6 +3403,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true,
         },
       );
@@ -3379,6 +3459,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true,
           listChangedNotifications: {
             tools: false, // Disable tools listChanged handler
@@ -3451,6 +3532,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true,
         },
       );
@@ -3483,6 +3565,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true,
         },
       );
@@ -3539,6 +3622,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true,
         },
       );
@@ -3595,6 +3679,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: true,
         },
       );
@@ -3649,6 +3734,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3682,6 +3768,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3717,6 +3804,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3750,6 +3838,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3788,6 +3877,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3826,6 +3916,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3875,6 +3966,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3924,6 +4016,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -3958,6 +4051,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -4019,6 +4113,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -4081,6 +4176,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -4400,6 +4496,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -4444,6 +4541,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
         },
       );
@@ -4503,6 +4601,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
           elicit: true,
         },
@@ -4565,6 +4664,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
           sample: true,
         },
@@ -4631,6 +4731,7 @@ describe("InspectorClient", () => {
           url: server.url,
         },
         {
+          transportClientFactory: createTransportNode,
           autoFetchServerContents: false,
           progress: true,
         },

@@ -6,18 +6,23 @@
 
 We use the term **seams** for the individual integration points where environment-specific behavior plugs in. Each seam has an abstraction (interface or injection point) and one or more implementations per environment.
 
+**Dependency consolidation (future):** Instead of injecting many separate dependencies (storage, navigation, redirectUrlProvider, fetchFn, logger, etc.), consider a single `InspectorClientEnvironment` interface that defines all seams. Callers would pass one object; each environment (Node, browser, tests) provides its implementation bundle. Simplifies wiring, clarifies the contract, and keeps optional properties optional.
+
 ## Implemented Seams
 
 These seams are already implemented in InspectorClient:
 
-| Seam                   | Abstraction                        | Node Implementation                                           | Browser Implementation                                    |
-| ---------------------- | ---------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------- |
-| **OAuth storage**      | `OAuthStorage`                     | `NodeOAuthStorage` (file-based)                               | `BrowserOAuthStorage` (sessionStorage)                    |
-| **OAuth navigation**   | `OAuthNavigation`                  | `CallbackNavigation` (e.g. opens URL via `open`)              | `BrowserNavigation` (redirects)                           |
-| **OAuth redirect URL** | `RedirectUrlProvider`              | `MutableRedirectUrlProvider` (populated from callback server) | Object literal using `window.location.origin`             |
-| **OAuth auth fetch**   | Optional `fetchFn` in OAuth config | N/A (Node has no CORS)                                        | Caller provides fetch that POSTs to proxy when in browser |
+| Seam                   | Abstraction                        | Node Implementation                                           | Browser Implementation                                                                |
+| ---------------------- | ---------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **OAuth storage**      | `OAuthStorage`                     | `NodeOAuthStorage` (file-based)                               | `BrowserOAuthStorage` (sessionStorage)                                                |
+| **OAuth navigation**   | `OAuthNavigation`                  | `CallbackNavigation` (e.g. opens URL via `open`)              | `BrowserNavigation` (redirects)                                                       |
+| **OAuth redirect URL** | `RedirectUrlProvider`              | `MutableRedirectUrlProvider` (populated from callback server) | Object literal using `window.location.origin`                                         |
+| **OAuth auth fetch**   | Optional `fetchFn` in OAuth config | N/A (Node has no CORS)                                        | Caller provides fetch that POSTs to proxy when in browser                             |
+| **Transport creation** | `CreateTransport` (required)       | `createTransportNode` (creates stdio, SSE, streamable-http)   | `createTransportRemote` (proposed; creates `RemoteClientTransport` talking to bridge) |
 
 The caller provides storage, navigation, and redirect URL provider when configuring OAuth. InspectorClient accepts optional `fetchFn` and passes it to all SDK auth calls (discovery, registration, token exchange, scope discovery). The web client must still implement the proxy endpoint and a fetch wrapper that routes requests through it.
+
+InspectorClient **requires** a `transportClientFactory` of type `CreateTransport`. Node environments (TUI, CLI) pass `createTransportNode` from `shared/mcp/transport`. Web environments will pass `createTransportRemote` (or a factory that creates `RemoteClientTransport` instances connecting to the bridge).
 
 ---
 
@@ -59,7 +64,9 @@ Failed to start OAuth flow: Failed to discover OAuth metadata
 
 The web client cannot use stdio transports (no `child_process` in browser) and faces CORS/header limitations with direct HTTP connections (e.g. `mcp-session-id` hidden, many servers don't send `Access-Control-Expose-Headers`). The current web client proxy server runs as a separate process with duplicate SDK clients and state.
 
-**Solution:** A **transport bridge** creates real SDK transports in Node and forwards JSON-RPC messages to/from the browser. The browser uses a `RemoteTransport` that talks to the bridge; it implements the same `Transport` interface as local transports. The design is similar to the current web client proxy model. We will attempt to run it on the same server as the UX server (Vite dev server or equivalent), though with the option to run as a separate proxy if needed.
+**Solution:** A **transport bridge** creates real SDK transports in Node and forwards JSON-RPC messages to/from the browser. The browser uses a `RemoteClientTransport` that talks to the bridge; it implements the same `Transport` interface as local transports. The design is similar to the current web client proxy model. We will attempt to run it on the same server as the UX server (Vite dev server or equivalent), though with the option to run as a separate proxy if needed.
+
+**Implementation status:** InspectorClient now **requires** a `CreateTransport` (transport factory). Node callers (TUI, CLI) pass `createTransportNode`. Web callers will pass `createTransportRemote`, which creates `RemoteClientTransport` instances. The transport bridge, `createTransportRemote`, and `RemoteClientTransport` are not yet implemented.
 
 **Bridge endpoints**
 
@@ -71,17 +78,17 @@ The web client cannot use stdio transports (no `child_process` in browser) and f
 
 **Design**
 
-The bridge forwards messages only; it holds no SDK `Client` and no protocol state. `InspectorClient` runs in the browser (or Node for CLI/TUI) and remains the single source of truth. For stdio servers, the browser always uses a remote transport; the bridge creates the real stdio transport in Node, so the browser never loads `StdioClientTransport` or `child_process`. When the underlying transport returns 401, the bridge must return HTTP 401 (not 500) and `RemoteTransport` must throw `SseError(401)` or `StreamableHTTPError(401)` so OAuth triggers correctly. All bridge endpoints require session token (`x-mcp-bridge-auth`), origin validation, and timing-safe token comparison.
+The bridge forwards messages only; it holds no SDK `Client` and no protocol state. `InspectorClient` runs in the browser (or Node for CLI/TUI) and remains the single source of truth. For stdio servers, the browser always uses a remote transport; the bridge creates the real stdio transport in Node, so the browser never loads `StdioClientTransport` or `child_process`. When the underlying transport returns 401, the bridge must return HTTP 401 (not 500) and `RemoteClientTransport` must throw `SseError(401)` or `StreamableHTTPError(401)` so OAuth triggers correctly. All bridge endpoints require session token (`x-mcp-bridge-auth`), origin validation, and timing-safe token comparison.
 
 **Event stream and message handlers**
 
-The bridge multiplexes multiple event types on the SSE stream (`/api/mcp/events`). The browser’s `RemoteTransport` subscribes to this stream and routes each event to the appropriate handler on the JavaScript side:
+The bridge multiplexes multiple event types on the SSE stream (`/api/mcp/events`). The browser’s `RemoteClientTransport` subscribes to this stream and routes each event to the appropriate handler on the JavaScript side:
 
 - `event: message` + JSON-RPC data → pass to `transport.onmessage` (protocol messages)
 - `event: fetch_request` + `FetchRequestEntry` → call `onFetchRequest` (HTTP request/response tracking for the Requests tab)
 - `event: stdio_log` (or `notifications/message`) + stderr payload → call `onStderr` (console output from stdio transports)
 
-The bridge uses `createFetchTracker` when creating HTTP transports and emits `fetch_request` events when requests complete. For stdio transports, the bridge listens to the child process stderr and emits `stdio_log` (or equivalent) events. The `RemoteTransport` implements the same handler interface as local transports, so `InspectorClient` does not need to know whether it is using a local or remote transport.
+The bridge uses `createFetchTracker` when creating HTTP transports and emits `fetch_request` events when requests complete. For stdio transports, the bridge listens to the child process stderr and emits `stdio_log` (or equivalent) events. The `RemoteClientTransport` implements the same handler interface as local transports, so `InspectorClient` does not need to know whether it is using a local or remote transport.
 
 ---
 
@@ -104,14 +111,35 @@ Package exports: `"./node/auth"`, `"./node/mcp"`. Browser consumers import from 
 
 ---
 
+### Logging
+
+**Status:** Partially implemented. InspectorClient accepts optional `logger` (pino `Logger`); TUI creates a file-based logger. Web client integration is not implemented.
+
+**Problem**
+
+InspectorClient can log (auth fetch, events, etc.). In Node (TUI, CLI), the caller creates a pino logger that writes to a file. In the web client, InspectorClient runs in the browser, which cannot write to the filesystem. Logs need to reach a destination the browser can reach.
+
+**Solution (web client)**
+
+A web client using InspectorClient would create a logger in its Node launcher process (bridge/proxy). That logger uses a transport that sends log events to a logging API endpoint—for example, `POST /api/log`—which performs the actual logging (file, aggregator, etc.). The browser’s InspectorClient would receive a logger implementation that POSTs log events to that endpoint instead of writing locally.
+
+**Open questions**
+
+- **Config sharing:** How does the browser learn the logging endpoint URL, log level, and other options? Options: server injects config into the initial page, config fetched from an API at startup, or config passed as part of bridge session setup.
+- **Transport design:** Does the browser hold a “remote logger” that batches and POSTs events? Or does the bridge expose a logger that the browser uses via a different mechanism?
+- **Backpressure and buffering:** How to handle logging when the logging endpoint is slow or unavailable.
+
+---
+
 ## Summary
 
-| Seam                   | Status                | Notes                                                                                       |
-| ---------------------- | --------------------- | ------------------------------------------------------------------------------------------- |
-| OAuth storage          | Implemented           | Injected `OAuthStorage`                                                                     |
-| OAuth navigation       | Implemented           | Injected `OAuthNavigation`                                                                  |
-| OAuth redirect URL     | Implemented           | Injected `RedirectUrlProvider`                                                              |
-| OAuth auth fetch       | Partially implemented | InspectorClient accepts and passes `fetchFn`; client needs proxy endpoint and fetch wrapper |
-| Transports             | Not implemented       | Remote transport design; stdio handled in bridge (Node)                                     |
-| Node code organization | Not implemented       | Move to `shared/node/`                                                                      |
-| Config loading         | Not implemented       | Move to `shared/node/mcp/`                                                                  |
+| Seam                   | Status                | Notes                                                                                                   |
+| ---------------------- | --------------------- | ------------------------------------------------------------------------------------------------------- |
+| OAuth storage          | Implemented           | Injected `OAuthStorage`                                                                                 |
+| OAuth navigation       | Implemented           | Injected `OAuthNavigation`                                                                              |
+| OAuth redirect URL     | Implemented           | Injected `RedirectUrlProvider`                                                                          |
+| OAuth auth fetch       | Partially implemented | InspectorClient accepts and passes `fetchFn`; client needs proxy endpoint and fetch wrapper             |
+| Logging                | Partially implemented | InspectorClient accepts `logger`; TUI uses file logger. Web client needs remote logger → API            |
+| Transports             | Partially implemented | `CreateTransport` required; Node uses `createTransportNode`. `createTransportRemote` and bridge pending |
+| Node code organization | Not implemented       | Move to `shared/node/`                                                                                  |
+| Config loading         | Not implemented       | Move to `shared/node/mcp/`                                                                              |
