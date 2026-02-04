@@ -22,13 +22,13 @@ export function useResizable({
   const lastSize = useRef<number>(initialSize);
 
   const toggleCollapse = useCallback(() => {
-    if (size > 0) {
+    if (size > minSize) {
       lastSize.current = size;
-      setSize(0);
+      setSize(minSize);
     } else {
-      setSize(lastSize.current > 0 ? lastSize.current : initialSize);
+      setSize(lastSize.current > minSize ? lastSize.current : initialSize);
     }
-  }, [size, initialSize]);
+  }, [size, minSize, initialSize]);
 
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {

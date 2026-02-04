@@ -220,13 +220,13 @@ const ToolsTab = ({
     <TabsContent value="tools">
       <div className="flex gap-4 h-full overflow-hidden">
         <div
-          className="relative flex-shrink-0"
+          className="relative flex-shrink-0 h-fit"
           style={{
             width: listWidth,
             transition: isDragging ? "none" : "width 0.15s",
           }}
         >
-          <div className="h-full pr-4 overflow-hidden">
+          <div className="overflow-hidden">
             <ListPane
               items={tools}
               listItems={listTools}
