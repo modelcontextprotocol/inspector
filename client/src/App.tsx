@@ -75,6 +75,7 @@ import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import TasksTab from "./components/TasksTab";
+import { Resizer } from "./components/Resizer";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
   getMCPProxyAddress,
@@ -326,11 +327,17 @@ const App = () => {
     }, 100);
   };
 
-  const { height: historyPaneHeight, handleDragStart } = useDraggablePane(300);
+  const {
+    height: historyPaneHeight,
+    isDragging: isHistoryDragging,
+    handleDragStart,
+    toggleCollapse: toggleHistory,
+  } = useDraggablePane(300);
   const {
     width: sidebarWidth,
     isDragging: isSidebarDragging,
     handleDragStart: handleSidebarDragStart,
+    toggleCollapse: toggleSidebar,
   } = useDraggableSidebar(320);
 
   const selectedTaskRef = useRef<Task | null>(null);
@@ -1215,57 +1222,50 @@ const App = () => {
       <div
         style={{
           width: sidebarWidth,
-          minWidth: 200,
+          minWidth: 0,
           maxWidth: 600,
           transition: isSidebarDragging ? "none" : "width 0.15s",
         }}
-        className="bg-card border-r border-border flex flex-col h-full relative"
+        className="relative h-full flex-shrink-0"
       >
-        <Sidebar
-          connectionStatus={connectionStatus}
-          transportType={transportType}
-          setTransportType={setTransportType}
-          command={command}
-          setCommand={setCommand}
-          args={args}
-          setArgs={setArgs}
-          sseUrl={sseUrl}
-          setSseUrl={setSseUrl}
-          env={env}
-          setEnv={setEnv}
-          config={config}
-          setConfig={setConfig}
-          customHeaders={customHeaders}
-          setCustomHeaders={setCustomHeaders}
-          oauthClientId={oauthClientId}
-          setOauthClientId={setOauthClientId}
-          oauthClientSecret={oauthClientSecret}
-          setOauthClientSecret={setOauthClientSecret}
-          oauthScope={oauthScope}
-          setOauthScope={setOauthScope}
-          onConnect={connectMcpServer}
-          onDisconnect={disconnectMcpServer}
-          logLevel={logLevel}
-          sendLogLevelRequest={sendLogLevelRequest}
-          loggingSupported={!!serverCapabilities?.logging || false}
-          connectionType={connectionType}
-          setConnectionType={setConnectionType}
-          serverImplementation={serverImplementation}
-        />
-        <div
+        <div className="bg-card border-r border-border flex flex-col h-full overflow-hidden">
+          <Sidebar
+            connectionStatus={connectionStatus}
+            transportType={transportType}
+            setTransportType={setTransportType}
+            command={command}
+            setCommand={setCommand}
+            args={args}
+            setArgs={setArgs}
+            sseUrl={sseUrl}
+            setSseUrl={setSseUrl}
+            env={env}
+            setEnv={setEnv}
+            config={config}
+            setConfig={setConfig}
+            customHeaders={customHeaders}
+            setCustomHeaders={setCustomHeaders}
+            oauthClientId={oauthClientId}
+            setOauthClientId={setOauthClientId}
+            oauthClientSecret={oauthClientSecret}
+            setOauthClientSecret={setOauthClientSecret}
+            oauthScope={oauthScope}
+            setOauthScope={setOauthScope}
+            onConnect={connectMcpServer}
+            onDisconnect={disconnectMcpServer}
+            logLevel={logLevel}
+            sendLogLevelRequest={sendLogLevelRequest}
+            loggingSupported={!!serverCapabilities?.logging || false}
+            connectionType={connectionType}
+            setConnectionType={setConnectionType}
+            serverImplementation={serverImplementation}
+          />
+        </div>
+        <Resizer
+          axis="x"
           onMouseDown={handleSidebarDragStart}
-          style={{
-            cursor: "col-resize",
-            position: "absolute",
-            top: 0,
-            right: 0,
-            width: 6,
-            height: "100%",
-            zIndex: 10,
-            background: isSidebarDragging ? "rgba(0,0,0,0.08)" : "transparent",
-          }}
-          aria-label="Resize sidebar"
-          data-testid="sidebar-drag-handle"
+          onDoubleClick={toggleSidebar}
+          className="absolute top-0 right-[-8px]"
         />
       </div>
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -1477,6 +1477,7 @@ const App = () => {
                         clearError("resources");
                         readResource(uri);
                       }}
+                      config={config}
                     />
                     <TasksTab
                       tasks={tasks}
@@ -1563,14 +1564,15 @@ const App = () => {
           className="relative border-t border-border"
           style={{
             height: `${historyPaneHeight}px`,
+            transition: isHistoryDragging ? "none" : "height 0.15s",
           }}
         >
-          <div
-            className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50 dark:hover:bg-input/40"
+          <Resizer
+            axis="y"
             onMouseDown={handleDragStart}
-          >
-            <div className="w-8 h-1 rounded-full bg-border" />
-          </div>
+            onDoubleClick={toggleHistory}
+            className="absolute top-[-8px] left-0"
+          />
           <div className="h-full overflow-auto">
             <HistoryAndNotifications
               requestHistory={requestHistory}

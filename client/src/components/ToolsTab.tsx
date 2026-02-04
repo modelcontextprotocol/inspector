@@ -39,6 +39,7 @@ import { useEffect, useState, useRef } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
+import { Resizer } from "./Resizer";
 import { useToast } from "@/lib/hooks/useToast";
 import useCopy from "@/lib/hooks/useCopy";
 import IconDisplay, { WithIcons } from "./IconDisplay";
@@ -51,6 +52,9 @@ import {
   hasValidMetaPrefix,
   isReservedMetaKey,
 } from "@/utils/metaUtils";
+
+import { useResizable } from "../lib/hooks/useDraggablePane";
+import { InspectorConfig } from "@/lib/configurationTypes";
 
 // Type guard to safely detect the optional _meta field without using `any`
 const hasMeta = (tool: Tool): tool is Tool & { _meta: unknown } =>
@@ -69,6 +73,7 @@ const ToolsTab = ({
   error,
   resourceContent,
   onReadResource,
+  config,
 }: {
   tools: Tool[];
   listTools: () => void;
@@ -87,6 +92,7 @@ const ToolsTab = ({
   error: string | null;
   resourceContent: Record<string, string>;
   onReadResource?: (uri: string) => void;
+  config: InspectorConfig;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [runAsTask, setRunAsTask] = useState(false);
@@ -101,15 +107,70 @@ const ToolsTab = ({
   const { toast } = useToast();
   const { copied, setCopied } = useCopy();
 
+  const {
+    size: listWidth,
+    isDragging,
+    handleDragStart,
+    toggleCollapse,
+  } = useResizable({
+    initialSize: 350,
+    axis: "x",
+    minSize: 200,
+    maxSize: 600,
+  });
+
+  const enableHistory = config.MCP_ENABLE_BROWSER_HISTORY?.value !== false;
+
   // Function to check if any form has validation errors
-  const checkValidationErrors = (validateChildren: boolean = false) => {
+  const checkValidationErrors = () => {
     const errors = Object.values(formRefs.current).some(
-      (ref) =>
-        ref &&
-        (validateChildren ? !ref.validateJson().isValid : ref.hasJsonError()),
+      (ref) => ref && !ref.validateJson().isValid,
     );
     setHasValidationErrors(errors);
     return errors;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    const enableHistory = config.MCP_ENABLE_BROWSER_HISTORY?.value !== false;
+
+    // Note: If history is enabled, we do NOT preventDefault here to allow the
+    // browser to see a successful submission to the hidden iframe.
+    if (!enableHistory) {
+      e.preventDefault();
+    }
+
+    // Validate JSON inputs before calling tool
+    if (checkValidationErrors()) {
+      e.preventDefault(); // Always stop submission if there are validation errors
+      return;
+    }
+
+    try {
+      setIsToolRunning(true);
+      const metadata = metadataEntries.reduce<Record<string, unknown>>(
+        (acc, { key, value }) => {
+          const trimmedKey = key.trim();
+          if (
+            trimmedKey !== "" &&
+            hasValidMetaPrefix(trimmedKey) &&
+            !isReservedMetaKey(trimmedKey) &&
+            hasValidMetaName(trimmedKey)
+          ) {
+            acc[trimmedKey] = value;
+          }
+          return acc;
+        },
+        {},
+      );
+      await callTool(
+        selectedTool!.name,
+        params,
+        Object.keys(metadata).length ? metadata : undefined,
+        runAsTask,
+      );
+    } finally {
+      setIsToolRunning(false);
+    }
   };
 
   useEffect(() => {
@@ -157,37 +218,54 @@ const ToolsTab = ({
 
   return (
     <TabsContent value="tools">
-      <div className="grid grid-cols-2 gap-4">
-        <ListPane
-          items={tools}
-          listItems={listTools}
-          clearItems={() => {
-            clearTools();
-            setSelectedTool(null);
-            setRunAsTask(false);
+      <div className="flex gap-4 h-full overflow-hidden">
+        <div
+          className="relative flex-shrink-0"
+          style={{
+            width: listWidth,
+            transition: isDragging ? "none" : "width 0.15s",
           }}
-          setSelectedItem={setSelectedTool}
-          renderItem={(tool) => (
-            <div className="flex items-start w-full gap-2">
-              <div className="flex-shrink-0 mt-1">
-                <IconDisplay icons={(tool as WithIcons).icons} size="sm" />
-              </div>
-              <div className="flex flex-col flex-1 min-w-0">
-                <span className="truncate">{tool.name}</span>
-                <span className="text-sm text-gray-500 text-left line-clamp-2">
-                  {tool.description}
-                </span>
-              </div>
-              <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 mt-1" />
-            </div>
-          )}
-          title="Tools"
-          buttonText={nextCursor ? "List More Tools" : "List Tools"}
-          isButtonDisabled={!nextCursor && tools.length > 0}
-        />
+        >
+          <div className="h-full pr-4 overflow-hidden">
+            <ListPane
+              items={tools}
+              listItems={listTools}
+              clearItems={() => {
+                clearTools();
+                setSelectedTool(null);
+                setRunAsTask(false);
+              }}
+              selectedItem={selectedTool}
+              setSelectedItem={setSelectedTool}
+              renderItem={(tool) => (
+                <div className="flex items-start w-full gap-2">
+                  <div className="flex-shrink-0 mt-1">
+                    <IconDisplay icons={(tool as WithIcons).icons} size="sm" />
+                  </div>
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <span className="truncate">{tool.name}</span>
+                    <span className="text-sm text-gray-500 text-left line-clamp-2">
+                      {tool.description}
+                    </span>
+                  </div>
+                  <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 mt-1" />
+                </div>
+              )}
+              title="Tools"
+              buttonText={nextCursor ? "List More Tools" : "List Tools"}
+              isButtonDisabled={!nextCursor && tools.length > 0}
+            />
+          </div>
+          <Resizer
+            axis="x"
+            onMouseDown={handleDragStart}
+            onDoubleClick={toggleCollapse}
+            className="absolute top-0 right-[-8px]"
+          />
+        </div>
 
-        <div className="bg-card border border-border rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200 dark:border-border">
+        <div className="flex-1 bg-card border border-border rounded-lg shadow overflow-y-auto min-w-0">
+          <div className="p-4 border-b border-gray-200 dark:border-border h-16 flex items-center">
             <div className="flex items-center gap-2">
               {selectedTool && (
                 <IconDisplay
@@ -215,8 +293,30 @@ const ToolsTab = ({
                 <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap max-h-48 overflow-y-auto">
                   {selectedTool.description}
                 </p>
-                {Object.entries(selectedTool.inputSchema.properties ?? []).map(
-                  ([key, value]) => {
+                {enableHistory && (
+                  /*
+                   * Hidden iframe hack: Browsers only save autocomplete history for standard form
+                   * submissions. By targeting a hidden iframe and allowing the event to bubble,
+                   * we trick the browser into recording the input values without a page reload.
+                   */
+                  <iframe
+                    name="ghost-frame"
+                    id="ghost-frame"
+                    style={{ display: "none" }}
+                    title="ghost-frame"
+                  />
+                )}
+                <form
+                  onSubmit={handleSubmit}
+                  target={enableHistory ? "ghost-frame" : undefined}
+                  method={enableHistory ? "POST" : undefined}
+                  action={enableHistory ? "#" : undefined}
+                  autoComplete={enableHistory ? "on" : "off"}
+                  className="space-y-4"
+                >
+                  {Object.entries(
+                    selectedTool.inputSchema.properties ?? [],
+                  ).map(([key, value]) => {
                     // First resolve any $ref references
                     const resolvedValue = resolveRef(
                       value as JsonSchemaType,
@@ -338,6 +438,7 @@ const ToolsTab = ({
                             <Textarea
                               id={key}
                               name={key}
+                              autoComplete={enableHistory ? "on" : "off"}
                               placeholder={prop.description}
                               value={
                                 params[key] === undefined
@@ -390,9 +491,10 @@ const ToolsTab = ({
                           ) : prop.type === "number" ||
                             prop.type === "integer" ? (
                             <Input
-                              type="number"
+                              type="text"
                               id={key}
                               name={key}
+                              autoComplete={enableHistory ? "on" : "off"}
                               placeholder={prop.description}
                               value={
                                 params[key] === undefined
@@ -451,8 +553,46 @@ const ToolsTab = ({
                         </div>
                       </div>
                     );
-                  },
-                )}
+                  })}
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="run-as-task"
+                      checked={runAsTask}
+                      onCheckedChange={(checked: boolean) =>
+                        setRunAsTask(checked)
+                      }
+                    />
+                    <Label
+                      htmlFor="run-as-task"
+                      className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
+                    >
+                      Run as task
+                    </Label>
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={
+                      isToolRunning ||
+                      isPollingTask ||
+                      hasValidationErrors ||
+                      hasReservedMetadataEntry ||
+                      hasInvalidMetaPrefixEntry ||
+                      hasInvalidMetaNameEntry
+                    }
+                  >
+                    {isToolRunning || isPollingTask ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        {isPollingTask ? "Polling Task..." : "Running..."}
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4 mr-2" />
+                        Run Tool
+                      </>
+                    )}
+                  </Button>
+                </form>
                 <div className="pb-4">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-sm font-semibold">
@@ -659,73 +799,6 @@ const ToolsTab = ({
                       </div>
                     </div>
                   )}
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="run-as-task"
-                    checked={runAsTask}
-                    onCheckedChange={(checked: boolean) =>
-                      setRunAsTask(checked)
-                    }
-                  />
-                  <Label
-                    htmlFor="run-as-task"
-                    className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
-                  >
-                    Run as task
-                  </Label>
-                </div>
-                <Button
-                  onClick={async () => {
-                    // Validate JSON inputs before calling tool
-                    if (checkValidationErrors(true)) return;
-
-                    try {
-                      setIsToolRunning(true);
-                      const metadata = metadataEntries.reduce<
-                        Record<string, unknown>
-                      >((acc, { key, value }) => {
-                        const trimmedKey = key.trim();
-                        if (
-                          trimmedKey !== "" &&
-                          hasValidMetaPrefix(trimmedKey) &&
-                          !isReservedMetaKey(trimmedKey) &&
-                          hasValidMetaName(trimmedKey)
-                        ) {
-                          acc[trimmedKey] = value;
-                        }
-                        return acc;
-                      }, {});
-                      await callTool(
-                        selectedTool.name,
-                        params,
-                        Object.keys(metadata).length ? metadata : undefined,
-                        runAsTask,
-                      );
-                    } finally {
-                      setIsToolRunning(false);
-                    }
-                  }}
-                  disabled={
-                    isToolRunning ||
-                    isPollingTask ||
-                    hasValidationErrors ||
-                    hasReservedMetadataEntry ||
-                    hasInvalidMetaPrefixEntry ||
-                    hasInvalidMetaNameEntry
-                  }
-                >
-                  {isToolRunning || isPollingTask ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      {isPollingTask ? "Polling Task..." : "Running..."}
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4 mr-2" />
-                      Run Tool
-                    </>
-                  )}
-                </Button>
                 <div className="flex gap-2">
                   <Button
                     onClick={async () => {

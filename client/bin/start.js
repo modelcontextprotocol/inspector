@@ -36,9 +36,15 @@ async function startDevServer(serverOptions) {
     abort,
     transport,
     serverUrl,
+    command,
+    mcpServerArgs,
   } = serverOptions;
   const serverCommand = "npx";
   const serverArgs = ["tsx", "watch", "--clear-screen=false", "src/index.ts"];
+  // Forward the MCP server command and arguments to the proxy server in dev mode
+  if (command) serverArgs.push(`--command=${command}`);
+  if (mcpServerArgs.length > 0)
+    serverArgs.push(`--args=${mcpServerArgs.join(" ")}`);
   const isWindows = process.platform === "win32";
 
   const spawnOptions = {
@@ -268,9 +274,9 @@ async function main() {
       } else {
         envVars[envVar] = "";
       }
-    } else if (!command && !isDev) {
+    } else if (!command) {
       command = arg;
-    } else if (!isDev) {
+    } else {
       mcpServerArgs.push(arg);
     }
   }
