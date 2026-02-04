@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { InspectorClient } from "../mcp/inspectorClient.js";
+import { createTransportNode } from "../mcp/transport.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 import { createOAuthClientConfig } from "../test/test-server-fixtures.js";
 import type { InspectorClientOptions } from "../mcp/inspectorClient.js";
@@ -51,6 +52,7 @@ describe("InspectorClient OAuth fetchFn", () => {
     client = new InspectorClient(
       { type: "sse", url: "http://localhost:3000/sse" } as MCPServerConfig,
       {
+        transportClientFactory: createTransportNode,
         autoFetchServerContents: false,
         oauth: oauthConfig,
       } as InspectorClientOptions,
@@ -77,6 +79,7 @@ describe("InspectorClient OAuth fetchFn", () => {
     client = new InspectorClient(
       { type: "sse", url: "http://localhost:3000/sse" } as MCPServerConfig,
       {
+        transportClientFactory: createTransportNode,
         autoFetchServerContents: false,
         oauth: oauthConfig,
       } as InspectorClientOptions,
@@ -114,6 +117,7 @@ describe("InspectorClient OAuth fetchFn", () => {
     client = new InspectorClient(
       { type: "sse", url: "http://localhost:3000/sse" } as MCPServerConfig,
       {
+        transportClientFactory: createTransportNode,
         autoFetchServerContents: false,
         oauth: oauthConfig,
       } as InspectorClientOptions,

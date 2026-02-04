@@ -9,6 +9,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { InspectorClient } from "../mcp/inspectorClient.js";
+import { createTransportNode } from "../mcp/transport.js";
 import { TestServerHttp } from "../test/test-server-http.js";
 import { waitForStateFile } from "../test/test-helpers.js";
 import { getDefaultServerConfig } from "../test/test-server-fixtures.js";
@@ -104,6 +105,7 @@ describe("InspectorClient OAuth E2E", () => {
 
         // Create client with static OAuth config
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "static",
             clientId: staticClientId,
@@ -163,6 +165,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "static",
             clientId: staticClientId,
@@ -233,6 +236,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "static",
             clientId: staticClientId,
@@ -310,6 +314,7 @@ describe("InspectorClient OAuth E2E", () => {
 
         // Create client with CIMD config
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "cimd",
             clientMetadataUrl: metadataUrl,
@@ -373,6 +378,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "cimd",
             clientMetadataUrl: metadataUrl,
@@ -419,6 +425,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "dcr",
             redirectUrl: testRedirectUrl,
@@ -460,6 +467,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "dcr",
             redirectUrl: testRedirectUrl,
@@ -515,6 +523,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "dcr",
             redirectUrl: testRedirectUrl,
@@ -572,6 +581,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "static",
             clientId: staticClientId,
@@ -644,6 +654,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "static",
             clientId: staticClientId,
@@ -705,6 +716,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "static",
             clientId: staticClientId,
@@ -755,6 +767,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "dcr",
             redirectUrl,
@@ -795,6 +808,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "dcr",
             redirectUrl,
@@ -853,6 +867,7 @@ describe("InspectorClient OAuth E2E", () => {
       const serverUrl = `http://localhost:${port}`;
 
       const clientConfig: InspectorClientOptions = {
+        transportClientFactory: createTransportNode,
         oauth: createOAuthClientConfig({
           mode: "static",
           clientId: staticClientId,
@@ -907,6 +922,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "static",
             clientId: staticClientId,
@@ -963,6 +979,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "static",
             clientId: staticClientId,
@@ -1059,6 +1076,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         const clientConfig: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           oauth: createOAuthClientConfig({
             mode: "static",
             clientId: staticClientId,
@@ -1123,6 +1141,7 @@ describe("InspectorClient OAuth E2E", () => {
       const serverUrl = `http://localhost:${port}`;
 
       const clientConfig: InspectorClientOptions = {
+        transportClientFactory: createTransportNode,
         oauth: createOAuthClientConfig({
           mode: "static",
           clientId: staticClientId,
@@ -1185,6 +1204,7 @@ describe("InspectorClient OAuth E2E", () => {
       const serverUrl = `http://localhost:${port}`;
 
       const clientConfig: InspectorClientOptions = {
+        transportClientFactory: createTransportNode,
         oauth: {
           ...createOAuthClientConfig({
             mode: "static",
@@ -1280,6 +1300,7 @@ describe("InspectorClient OAuth E2E", () => {
       const serverUrl = `http://localhost:${port}`;
 
       const clientConfig: InspectorClientOptions = {
+        transportClientFactory: createTransportNode,
         oauth: {
           ...createOAuthClientConfig({
             mode: "static",

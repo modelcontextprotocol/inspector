@@ -15,8 +15,11 @@ import type {
   MCPServerConfig,
   InspectorClientOptions,
 } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
-import { loadMcpServersConfig } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
-import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import {
+  createTransportNode,
+  InspectorClient,
+  loadMcpServersConfig,
+} from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { useInspectorClient } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
 import {
   createOAuthCallbackServer,
@@ -235,6 +238,7 @@ function App({
           oauth?: Record<string, unknown>;
         };
         const opts: InspectorClientOptions = {
+          transportClientFactory: createTransportNode,
           maxMessages: 1000,
           maxStderrLogEvents: 1000,
           maxFetchRequests: 1000,

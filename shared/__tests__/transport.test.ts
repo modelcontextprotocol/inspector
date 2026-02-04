@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createTransport, getServerType } from "../mcp/transport.js";
+import { getServerType } from "../mcp/config.js";
+import { createTransportNode } from "../mcp/transport.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 import { createTestServerHttp } from "../test/test-server-http.js";
 import {
@@ -59,7 +60,7 @@ describe("Transport", () => {
         command: "echo",
         args: ["hello"],
       };
-      const result = createTransport(config);
+      const result = createTransportNode(config);
       expect(result.transport).toBeDefined();
     });
 
@@ -68,7 +69,7 @@ describe("Transport", () => {
         type: "sse",
         url: "http://localhost:3000/sse",
       };
-      const result = createTransport(config);
+      const result = createTransportNode(config);
       expect(result.transport).toBeDefined();
     });
 
@@ -77,7 +78,7 @@ describe("Transport", () => {
         type: "streamable-http",
         url: "http://localhost:3000/mcp",
       };
-      const result = createTransport(config);
+      const result = createTransportNode(config);
       expect(result.transport).toBeDefined();
     });
 
@@ -97,7 +98,7 @@ describe("Transport", () => {
         };
 
         const fetchRequests: any[] = [];
-        const result = createTransport(config, {
+        const result = createTransportNode(config, {
           onFetchRequest: (entry) => {
             fetchRequests.push(entry);
           },
@@ -150,7 +151,7 @@ describe("Transport", () => {
         };
 
         const fetchRequests: any[] = [];
-        const result = createTransport(config, {
+        const result = createTransportNode(config, {
           onFetchRequest: (entry) => {
             fetchRequests.push(entry);
           },

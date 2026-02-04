@@ -12,7 +12,10 @@ import type {
   SseServerConfig,
   StreamableHttpServerConfig,
 } from "@modelcontextprotocol/inspector-shared/mcp/types.js";
-import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/inspectorClient.js";
+import {
+  createTransportNode,
+  InspectorClient,
+} from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import type { JsonValue } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import {
   LoggingLevelSchema,
@@ -169,6 +172,7 @@ async function callMethod(args: Args): Promise<void> {
   const clientIdentity = { name, version };
 
   const inspectorClient = new InspectorClient(argsToMcpServerConfig(args), {
+    transportClientFactory: createTransportNode,
     clientIdentity,
     autoFetchServerContents: false, // CLI doesn't need auto-fetching, it calls methods directly
     initialLoggingLevel: "debug", // Set debug logging level for CLI

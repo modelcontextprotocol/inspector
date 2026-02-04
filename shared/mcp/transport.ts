@@ -1,75 +1,21 @@
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import { getServerType } from "./config.js";
 import type {
   MCPServerConfig,
   StdioServerConfig,
   SseServerConfig,
   StreamableHttpServerConfig,
-  StderrLogEntry,
-  FetchRequestEntry,
+  CreateTransportOptions,
+  CreateTransportResult,
 } from "./types.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { createFetchTracker } from "./fetchTracking.js";
 
-export type ServerType = "stdio" | "sse" | "streamable-http";
-
-export function getServerType(config: MCPServerConfig): ServerType {
-  // If type is not present, default to stdio
-  if (!("type" in config) || config.type === undefined) {
-    return "stdio";
-  }
-
-  // If type is present, validate it matches one of the valid values
-  const type = config.type;
-  if (type === "stdio") {
-    return "stdio";
-  }
-  if (type === "sse") {
-    return "sse";
-  }
-  if (type === "streamable-http") {
-    return "streamable-http";
-  }
-
-  // If type is present but doesn't match any valid value, throw error
-  throw new Error(
-    `Invalid server type: ${type}. Valid types are: stdio, sse, streamable-http`,
-  );
-}
-
-export interface CreateTransportOptions {
-  /**
-   * Optional callback to handle stderr logs from stdio transports
-   */
-  onStderr?: (entry: StderrLogEntry) => void;
-
-  /**
-   * Whether to pipe stderr for stdio transports (default: true for TUI, false for CLI)
-   */
-  pipeStderr?: boolean;
-
-  /**
-   * Optional callback to track HTTP fetch requests (for SSE and streamable-http transports)
-   */
-  onFetchRequest?: (entry: import("./types.js").FetchRequestEntry) => void;
-
-  /**
-   * Optional OAuth client provider for Bearer authentication (SSE, streamable-http).
-   * When set, the SDK injects tokens and handles 401 via the provider.
-   */
-  authProvider?: OAuthClientProvider;
-}
-
-export interface CreateTransportResult {
-  transport: Transport;
-}
-
 /**
- * Creates the appropriate transport for an MCP server configuration
+ * Creates the appropriate transport for an MCP server configuration.
  */
-export function createTransport(
+export function createTransportNode(
   config: MCPServerConfig,
   options: CreateTransportOptions = {},
 ): CreateTransportResult {
