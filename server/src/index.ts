@@ -36,6 +36,31 @@ const defaultEnvironment = {
   ...(process.env.MCP_ENV_VARS ? JSON.parse(process.env.MCP_ENV_VARS) : {}),
 };
 
+/**
+ * Detects the transport type from a server endpoint URL.
+ * - URLs ending with /sse -> "sse"
+ * - URLs ending with /mcp -> "streamable-http"
+ * - Otherwise -> "sse" (default fallback)
+ */
+const detectTransportFromEndpoint = (
+  endpoint: string,
+): "sse" | "streamable-http" => {
+  try {
+    const url = new URL(endpoint);
+    if (url.pathname.endsWith("/sse")) {
+      return "sse";
+    } else if (url.pathname.endsWith("/mcp")) {
+      return "streamable-http";
+    }
+  } catch {
+    // Invalid URL, fall through to default
+  }
+  return "sse";
+};
+
+// Environment variable for default MCP server endpoint
+const defaultServerEndpoint = process.env.MCP_SERVER_ENDPOINT;
+
 const { values } = parseArgs({
   args: process.argv.slice(2),
   options: {
@@ -774,12 +799,21 @@ app.get("/health", (req, res) => {
 
 app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
   try {
+    // Determine effective server URL and transport type
+    // CLI args take precedence over environment variables
+    const effectiveServerUrl = values["server-url"] || defaultServerEndpoint;
+    const effectiveTransport =
+      values.transport ||
+      (defaultServerEndpoint
+        ? detectTransportFromEndpoint(defaultServerEndpoint)
+        : "");
+
     res.json({
       defaultEnvironment,
       defaultCommand: values.command,
       defaultArgs: values.args,
-      defaultTransport: values.transport,
-      defaultServerUrl: values["server-url"],
+      defaultTransport: effectiveTransport,
+      defaultServerUrl: effectiveServerUrl,
     });
   } catch (error) {
     console.error("Error in /config route:", error);
