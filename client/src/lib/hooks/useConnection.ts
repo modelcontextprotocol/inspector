@@ -1217,5 +1217,7 @@ export function useConnection({
     completionsSupported,
     connect,
     disconnect,
+    mcpSessionId,
+    mcpProtocolVersion,
   };
 }

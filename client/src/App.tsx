@@ -353,6 +353,8 @@ const App = () => {
     completionsSupported,
     connect: connectMcpServer,
     disconnect: disconnectMcpServer,
+    mcpSessionId,
+    mcpProtocolVersion,
   } = useConnection({
     transportType,
     command,
@@ -1251,6 +1253,8 @@ const App = () => {
           connectionType={connectionType}
           setConnectionType={setConnectionType}
           serverImplementation={serverImplementation}
+          mcpSessionId={mcpSessionId}
+          mcpProtocolVersion={mcpProtocolVersion}
         />
         <div
           onMouseDown={handleSidebarDragStart}

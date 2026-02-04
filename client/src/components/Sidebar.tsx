@@ -76,6 +76,8 @@ interface SidebarProps {
   serverImplementation?:
     | (WithIcons & { name?: string; version?: string; websiteUrl?: string })
     | null;
+  mcpSessionId: string | null;
+  mcpProtocolVersion: string | null;
 }
 
 const Sidebar = ({
@@ -108,6 +110,8 @@ const Sidebar = ({
   connectionType,
   setConnectionType,
   serverImplementation,
+  mcpSessionId,
+  mcpProtocolVersion,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
@@ -117,6 +121,7 @@ const Sidebar = ({
   const [showClientSecret, setShowClientSecret] = useState(false);
   const [copiedServerEntry, setCopiedServerEntry] = useState(false);
   const [copiedServerFile, setCopiedServerFile] = useState(false);
+  const [copiedSessionId, setCopiedSessionId] = useState(false);
   const { toast } = useToast();
 
   const connectionTypeTip =
@@ -233,6 +238,26 @@ const Sidebar = ({
       reportError(error);
     }
   }, [generateMCPServerFile, toast, reportError]);
+
+  const handleCopySessionId = useCallback(() => {
+    if (!mcpSessionId) return;
+
+    navigator.clipboard
+      .writeText(mcpSessionId)
+      .then(() => {
+        setCopiedSessionId(true);
+        toast({
+          title: "Session ID copied",
+          description: "Session ID has been copied to clipboard.",
+        });
+        setTimeout(() => {
+          setCopiedSessionId(false);
+        }, 2000);
+      })
+      .catch((error) => {
+        reportError(error);
+      });
+  }, [mcpSessionId, toast, reportError]);
 
   return (
     <div className="bg-card border-r border-border flex flex-col h-full">
@@ -816,6 +841,41 @@ const Sidebar = ({
                 {serverImplementation.version && (
                   <div className="text-xs text-gray-500 dark:text-gray-400">
                     Version: {serverImplementation.version}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {connectionStatus === "connected" && mcpSessionId && (
+              <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg mb-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                    Session ID
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleCopySessionId}
+                        className="h-6 px-2"
+                      >
+                        {copiedSessionId ? (
+                          <CheckCheck className="h-3 w-3" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Copy Session ID</TooltipContent>
+                  </Tooltip>
+                </div>
+                <div className="text-xs text-gray-700 dark:text-gray-300 font-mono break-all">
+                  {mcpSessionId}
+                </div>
+                {mcpProtocolVersion && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Protocol: {mcpProtocolVersion}
                   </div>
                 )}
               </div>
