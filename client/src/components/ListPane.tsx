@@ -13,6 +13,7 @@ type ListPaneProps<T> = {
   title: string;
   buttonText: string;
   isButtonDisabled?: boolean;
+  searchRef?: React.RefObject<HTMLInputElement>;
 };
 
 const ListPane = <T extends object>({
@@ -25,10 +26,9 @@ const ListPane = <T extends object>({
   title,
   buttonText,
   isButtonDisabled,
+  searchRef,
 }: ListPaneProps<T>) => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return items;
@@ -44,58 +44,13 @@ const ListPane = <T extends object>({
     });
   }, [items, searchQuery]);
 
-  const handleSearchClick = () => {
-    setIsSearchExpanded(true);
-    setTimeout(() => {
-      searchInputRef.current?.focus();
-    }, 100);
-  };
-
-  const handleSearchBlur = () => {
-    if (!searchQuery.trim()) {
-      setIsSearchExpanded(false);
-    }
-  };
-
   return (
-    <div className="bg-card border border-border rounded-lg shadow overflow-hidden">
-      <div className="p-4 border-b border-gray-200 dark:border-border h-16 flex items-center">
-        <div className="flex items-center justify-between gap-4 w-full">
-          <h3 className="font-semibold dark:text-white flex-shrink-0">
-            {title}
-          </h3>
-          <div className="flex items-center justify-end min-w-0 flex-1">
-            {!isSearchExpanded ? (
-              <button
-                name="search"
-                aria-label="Search"
-                onClick={handleSearchClick}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all duration-300 ease-in-out"
-              >
-                <Search className="w-4 h-4 text-muted-foreground" />
-              </button>
-            ) : (
-              <div className="flex items-center w-full max-w-xs">
-                <div className="relative w-full">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none z-10" />
-                  <Input
-                    ref={searchInputRef}
-                    name="search"
-                    type="text"
-                    placeholder="Search..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onBlur={handleSearchBlur}
-                    className="pl-10 w-full transition-all duration-300 ease-in-out"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+    <div className="bg-card border border-border rounded-lg shadow overflow-hidden flex flex-col">
+      <div className="p-4 border-b border-gray-200 dark:border-border h-16 flex items-center flex-shrink-0">
+        <h3 className="font-semibold dark:text-white flex-shrink-0">{title}</h3>
       </div>
-      <div className="p-4">
-        <div className="grid grid-cols-2 gap-2 mb-4">
+      <div className="p-4 flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="grid grid-cols-2 gap-2 mb-4 flex-shrink-0">
           <Button
             variant="outline"
             className="w-full"
@@ -113,7 +68,21 @@ const ListPane = <T extends object>({
             Clear
           </Button>
         </div>
-        <div className="space-y-2 overflow-y-auto max-h-96">
+        {items.length > 3 && (
+          <div className="relative mb-4 flex-shrink-0">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none z-10" />
+            <Input
+              ref={searchRef}
+              name="search"
+              type="text"
+              placeholder="Search..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 w-full"
+            />
+          </div>
+        )}
+        <div className="space-y-2 overflow-y-auto flex-1 min-h-0">
           {filteredItems.map((item, index) => (
             <div
               key={index}
