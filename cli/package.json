@@ -12,7 +12,8 @@
     "mcp-inspector-cli": "build/cli.js"
   },
   "files": [
-    "build"
+    "build",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",

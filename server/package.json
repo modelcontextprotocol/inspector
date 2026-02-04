@@ -11,7 +11,8 @@
     "mcp-inspector-server": "build/index.js"
   },
   "files": [
-    "build"
+    "build",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",

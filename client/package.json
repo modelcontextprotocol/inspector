@@ -12,7 +12,8 @@
   },
   "files": [
     "bin",
-    "dist"
+    "dist",
+    "LICENSE"
   ],
   "scripts": {
     "dev": "vite --port 6274",
