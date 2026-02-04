@@ -102,9 +102,11 @@ const ToolsTab = ({
   const { copied, setCopied } = useCopy();
 
   // Function to check if any form has validation errors
-  const checkValidationErrors = () => {
+  const checkValidationErrors = (validateChildren: boolean = false) => {
     const errors = Object.values(formRefs.current).some(
-      (ref) => ref && !ref.validateJson().isValid,
+      (ref) =>
+        ref &&
+        (validateChildren ? !ref.validateJson().isValid : ref.hasJsonError()),
     );
     setHasValidationErrors(errors);
     return errors;
@@ -675,7 +677,7 @@ const ToolsTab = ({
                 <Button
                   onClick={async () => {
                     // Validate JSON inputs before calling tool
-                    if (checkValidationErrors()) return;
+                    if (checkValidationErrors(true)) return;
 
                     try {
                       setIsToolRunning(true);
