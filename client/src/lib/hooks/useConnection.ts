@@ -7,10 +7,12 @@ import {
 import {
   StreamableHTTPClientTransport,
   StreamableHTTPClientTransportOptions,
+  StreamableHTTPError,
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   ClientNotification,
   ClientRequest,
+  ClientResult,
   CreateMessageRequestSchema,
   ListRootsRequestSchema,
   ResourceUpdatedNotificationSchema,
@@ -31,13 +33,22 @@ import {
   LoggingLevel,
   ElicitRequestSchema,
   Implementation,
+  Task,
+  CreateTaskResultSchema,
+  GetTaskRequestSchema,
+  GetTaskPayloadRequestSchema,
+  ListTasksRequestSchema,
+  CancelTaskRequestSchema,
+  ListTasksResultSchema,
+  CancelTaskResultSchema,
+  TaskStatusNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
   AnySchema,
   SchemaOutput,
 } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/lib/hooks/useToast";
 import { ConnectionStatus, CLIENT_IDENTITY } from "../constants";
 import { Notification } from "../notificationTypes";
@@ -55,6 +66,7 @@ import {
 } from "../auth";
 import {
   getMCPProxyAddress,
+  getMCPTaskTtl,
   getMCPServerRequestMaxTotalTimeout,
   resetRequestTimeoutOnProgress,
   getMCPProxyAuthToken,
@@ -130,6 +142,18 @@ export function useConnection({
   );
   const [serverImplementation, setServerImplementation] =
     useState<Implementation | null>(null);
+
+  type ReceiverTaskRecord = {
+    task: Task;
+    payloadPromise: Promise<ClientResult>;
+    resolvePayload: (payload: ClientResult) => void;
+    rejectPayload: (reason?: unknown) => void;
+    cleanupTimeoutId?: ReturnType<typeof setTimeout>;
+  };
+
+  // Tasks created locally in response to *incoming* task-augmented requests
+  // (e.g. `sampling/createMessage` and `elicitation/create` with `params.task`).
+  const receiverTasksRef = useRef<Map<string, ReceiverTaskRecord>>(new Map());
 
   useEffect(() => {
     if (!oauthClientId) {
@@ -359,8 +383,11 @@ export function useConnection({
   const is401Error = (error: unknown): boolean => {
     return (
       (error instanceof SseError && error.code === 401) ||
+      (error instanceof StreamableHTTPError && error.code === 401) ||
       (error instanceof Error && error.message.includes("401")) ||
-      (error instanceof Error && error.message.includes("Unauthorized"))
+      (error instanceof Error && error.message.includes("Unauthorized")) ||
+      (error instanceof Error &&
+        error.message.includes("Missing Authorization header"))
     );
   };
 
@@ -390,11 +417,22 @@ export function useConnection({
       saveScopeToSessionStorage(sseUrl, scope);
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
-      const result = await auth(serverAuthProvider, {
-        serverUrl: sseUrl,
-        scope,
-      });
-      return result === "AUTHORIZED";
+      try {
+        const result = await auth(serverAuthProvider, {
+          serverUrl: sseUrl,
+          scope,
+        });
+        return result === "AUTHORIZED";
+      } catch (authError) {
+        // Show user-friendly error message for OAuth failures
+        toast({
+          title: "OAuth Authentication Failed",
+          description:
+            authError instanceof Error ? authError.message : String(authError),
+          variant: "destructive",
+        });
+        return false;
+      }
     }
 
     return false;
@@ -419,6 +457,22 @@ export function useConnection({
         elicitation: {},
         roots: {
           listChanged: true,
+        },
+        tasks: {
+          list: {},
+          cancel: {},
+          ...(onPendingRequest || onElicitationRequest
+            ? {
+                requests: {
+                  ...(onPendingRequest
+                    ? { sampling: { createMessage: {} } }
+                    : undefined),
+                  ...(onElicitationRequest
+                    ? { elicitation: { create: {} } }
+                    : undefined),
+                },
+              }
+            : undefined),
         },
       },
     };
@@ -533,6 +587,7 @@ export function useConnection({
             requestHeaders["Accept"] = "text/event-stream";
             requestHeaders["content-type"] = "application/json";
             transportOptions = {
+              authProvider: serverAuthProvider,
               fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
@@ -554,6 +609,7 @@ export function useConnection({
 
           case "streamable-http":
             transportOptions = {
+              authProvider: serverAuthProvider,
               fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
@@ -642,6 +698,7 @@ export function useConnection({
               );
             }
             transportOptions = {
+              authProvider: serverAuthProvider,
               eventSourceInit: {
                 fetch: (
                   url: string | URL | globalThis.Request,
@@ -663,6 +720,7 @@ export function useConnection({
             mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
             mcpProxyServerUrl.searchParams.append("url", sseUrl);
             transportOptions = {
+              authProvider: serverAuthProvider,
               eventSourceInit: {
                 fetch: (
                   url: string | URL | globalThis.Request,
@@ -698,6 +756,7 @@ export function useConnection({
           ResourceListChangedNotificationSchema,
           ToolListChangedNotificationSchema,
           PromptListChangedNotificationSchema,
+          TaskStatusNotificationSchema,
         ].forEach((notificationSchema) => {
           client.setNotificationHandler(notificationSchema, onNotification);
         });
@@ -778,17 +837,282 @@ export function useConnection({
       setServerCapabilities(capabilities ?? null);
       setCompletionsSupported(capabilities?.completions !== undefined);
 
+      const nowIso = () => new Date().toISOString();
+
+      const makeTaskId = () => {
+        // Prefer UUID when available; otherwise fall back to a reasonably unique id.
+        const cryptoAny = globalThis.crypto as unknown as
+          | { randomUUID?: () => string }
+          | undefined;
+        return (
+          cryptoAny?.randomUUID?.() ??
+          `task_${Date.now()}_${Math.random().toString(16).slice(2)}`
+        );
+      };
+
+      const emitTaskStatus = async (task: Task) => {
+        // Best-effort; task status notifications are optional.
+        try {
+          const notification: ClientNotification = {
+            method: "notifications/tasks/status",
+            params: task,
+          } as unknown as ClientNotification;
+          await client.notification(notification);
+          pushHistory(notification);
+        } catch (e) {
+          console.warn("Failed to send notifications/tasks/status", e);
+        }
+      };
+
+      const upsertReceiverTask = async (task: Task) => {
+        // Update task record and emit status notification.
+        const record = receiverTasksRef.current.get(task.taskId);
+        if (record) {
+          receiverTasksRef.current.set(task.taskId, { ...record, task });
+        }
+        await emitTaskStatus(task);
+      };
+
+      const createReceiverTask = (opts: {
+        ttl?: number;
+        initialStatus: Task["status"];
+        statusMessage?: string;
+        pollInterval?: number;
+      }): ReceiverTaskRecord => {
+        const taskId = makeTaskId();
+        const createdAt = nowIso();
+        const ttl = opts.ttl ?? getMCPTaskTtl(config);
+
+        let resolvePayload: (payload: ClientResult) => void = () => undefined;
+        let rejectPayload: (reason?: unknown) => void = () => undefined;
+        const payloadPromise = new Promise<ClientResult>((resolve, reject) => {
+          resolvePayload = resolve;
+          rejectPayload = reject;
+        });
+
+        const task: Task = {
+          taskId,
+          status: opts.initialStatus,
+          ttl,
+          createdAt,
+          lastUpdatedAt: createdAt,
+          ...(opts.pollInterval !== undefined
+            ? { pollInterval: opts.pollInterval }
+            : undefined),
+          ...(opts.statusMessage ? { statusMessage: opts.statusMessage } : {}),
+        };
+
+        const record: ReceiverTaskRecord = {
+          task,
+          payloadPromise,
+          resolvePayload,
+          rejectPayload,
+        };
+
+        // Cleanup after TTL (best-effort).
+        if (ttl !== null && ttl > 0) {
+          record.cleanupTimeoutId = setTimeout(() => {
+            receiverTasksRef.current.delete(taskId);
+          }, ttl);
+        }
+
+        receiverTasksRef.current.set(taskId, record);
+        void emitTaskStatus(task);
+        return record;
+      };
+
+      // Server -> client Tasks handlers (receiver side)
+      client.setRequestHandler(ListTasksRequestSchema, async () => {
+        return {
+          tasks: Array.from(receiverTasksRef.current.values()).map(
+            (r) => r.task,
+          ),
+        };
+      });
+
+      client.setRequestHandler(GetTaskRequestSchema, async (request) => {
+        const record = receiverTasksRef.current.get(request.params.taskId);
+        if (!record) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `Unknown taskId: ${request.params.taskId}`,
+          );
+        }
+        return record.task;
+      });
+
+      client.setRequestHandler(GetTaskPayloadRequestSchema, async (request) => {
+        const record = receiverTasksRef.current.get(request.params.taskId);
+        if (!record) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `Unknown taskId: ${request.params.taskId}`,
+          );
+        }
+
+        // Block until the task payload is ready.
+        return await record.payloadPromise;
+      });
+
+      client.setRequestHandler(CancelTaskRequestSchema, async (request) => {
+        const record = receiverTasksRef.current.get(request.params.taskId);
+        if (!record) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `Unknown taskId: ${request.params.taskId}`,
+          );
+        }
+
+        const terminalStatuses: Task["status"][] = [
+          "completed",
+          "failed",
+          "cancelled",
+        ];
+
+        if (!terminalStatuses.includes(record.task.status)) {
+          const updated: Task = {
+            ...record.task,
+            status: "cancelled",
+            lastUpdatedAt: nowIso(),
+            statusMessage: "Cancelled",
+          };
+          receiverTasksRef.current.set(request.params.taskId, {
+            ...record,
+            task: updated,
+          });
+
+          // Unblock any pending `tasks/result`.
+          record.rejectPayload(
+            new McpError(ErrorCode.InternalError, "Task was cancelled"),
+          );
+
+          await emitTaskStatus(updated);
+        }
+
+        return receiverTasksRef.current.get(request.params.taskId)!.task;
+      });
+
       if (onPendingRequest) {
         client.setRequestHandler(CreateMessageRequestSchema, (request) => {
-          return new Promise((resolve, reject) => {
-            onPendingRequest(request, resolve, reject);
+          const taskSpec = (request as { params?: { task?: { ttl?: number } } })
+            .params?.task;
+
+          if (!taskSpec) {
+            return new Promise((resolve, reject) => {
+              onPendingRequest(request, resolve, reject);
+            });
+          }
+
+          // Task-augmented sampling request: return a task immediately and
+          // allow the server to poll via `tasks/get` and `tasks/result`.
+          const record = createReceiverTask({
+            ttl: taskSpec.ttl,
+            initialStatus: "input_required",
+            statusMessage: "Awaiting user input",
           });
+
+          // Background runner to complete and resolve this specific task record.
+          void (async () => {
+            try {
+              const payload = await new Promise((resolve, reject) => {
+                onPendingRequest(request, resolve, reject);
+              });
+              record.resolvePayload(payload as ClientResult);
+              const updated: Task = {
+                ...record.task,
+                status: "completed",
+                lastUpdatedAt: nowIso(),
+              };
+              receiverTasksRef.current.set(record.task.taskId, {
+                ...record,
+                task: updated,
+              });
+              await upsertReceiverTask(updated);
+            } catch (e) {
+              record.rejectPayload(e);
+              const updated: Task = {
+                ...record.task,
+                status: "failed",
+                lastUpdatedAt: nowIso(),
+                statusMessage: e instanceof Error ? e.message : "Task failed",
+              };
+              receiverTasksRef.current.set(record.task.taskId, {
+                ...record,
+                task: updated,
+              });
+              await upsertReceiverTask(updated);
+            }
+          })();
+
+          const createTaskResult: SchemaOutput<typeof CreateTaskResultSchema> =
+            {
+              task: record.task,
+            };
+          return createTaskResult;
         });
       }
 
       if (getRoots) {
         client.setRequestHandler(ListRootsRequestSchema, async () => {
           return { roots: getRoots() };
+        });
+      }
+
+      if (onElicitationRequest) {
+        client.setRequestHandler(ElicitRequestSchema, (request) => {
+          const taskSpec = (request as { params?: { task?: { ttl?: number } } })
+            .params?.task;
+
+          if (!taskSpec) {
+            return new Promise((resolve) => {
+              onElicitationRequest(request, resolve);
+            });
+          }
+
+          const record = createReceiverTask({
+            ttl: taskSpec.ttl,
+            initialStatus: "input_required",
+            statusMessage: "Awaiting user input",
+          });
+
+          // Run elicitation flow and resolve the task payload.
+          void (async () => {
+            try {
+              const payload = await new Promise((resolve) => {
+                onElicitationRequest(request, resolve);
+              });
+              record.resolvePayload(payload as ClientResult);
+              const updated: Task = {
+                ...record.task,
+                status: "completed",
+                lastUpdatedAt: nowIso(),
+              };
+              receiverTasksRef.current.set(record.task.taskId, {
+                ...record,
+                task: updated,
+              });
+              await upsertReceiverTask(updated);
+            } catch (e) {
+              record.rejectPayload(e);
+              const updated: Task = {
+                ...record.task,
+                status: "failed",
+                lastUpdatedAt: nowIso(),
+                statusMessage: e instanceof Error ? e.message : "Task failed",
+              };
+              receiverTasksRef.current.set(record.task.taskId, {
+                ...record,
+                task: updated,
+              });
+              await upsertReceiverTask(updated);
+            }
+          })();
+
+          const createTaskResult: SchemaOutput<typeof CreateTaskResultSchema> =
+            {
+              task: record.task,
+            };
+          return createTaskResult;
         });
       }
 
@@ -807,14 +1131,6 @@ export function useConnection({
         lastRequest = "";
       }
 
-      if (onElicitationRequest) {
-        client.setRequestHandler(ElicitRequestSchema, async (request) => {
-          return new Promise((resolve) => {
-            onElicitationRequest(request, resolve);
-          });
-        });
-      }
-
       setMcpClient(client);
       setConnectionStatus("connected");
     } catch (e) {
@@ -828,6 +1144,12 @@ export function useConnection({
           description: `Server declares logging capability but doesn't implement method: "${lastRequest}"`,
           variant: "destructive",
         });
+      } else {
+        toast({
+          title: "Connection error",
+          description: `Connection failed: "${e}"`,
+          variant: "destructive",
+        });
       }
       console.error(e);
       setConnectionError(e);
@@ -835,7 +1157,35 @@ export function useConnection({
     }
   };
 
+  const cancelTask = async (taskId: string) => {
+    return makeRequest(
+      {
+        method: "tasks/cancel",
+        params: { taskId },
+      },
+      CancelTaskResultSchema,
+    );
+  };
+
+  const listTasks = async (cursor?: string) => {
+    return makeRequest(
+      {
+        method: "tasks/list",
+        params: { cursor },
+      },
+      ListTasksResultSchema,
+    );
+  };
+
   const disconnect = async () => {
+    // Clear any receiver-side tasks + cleanup timers
+    receiverTasksRef.current.forEach((record) => {
+      if (record.cleanupTimeoutId) {
+        clearTimeout(record.cleanupTimeoutId);
+      }
+    });
+    receiverTasksRef.current.clear();
+
     if (transportType === "streamable-http")
       await (
         clientTransport as StreamableHTTPClientTransport
@@ -867,6 +1217,8 @@ export function useConnection({
     requestHistory,
     clearRequestHistory,
     makeRequest,
+    cancelTask,
+    listTasks,
     sendNotification,
     handleCompletion,
     completionsSupported,

@@ -1,9 +1,9 @@
 {
   "name": "@modelcontextprotocol/inspector-server",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "Server-side application for the Model Context Protocol inspector",
-  "license": "MIT",
-  "author": "Anthropic, PBC (https://anthropic.com)",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Model Context Protocol a Series of LF Projects, LLC.",
   "homepage": "https://modelcontextprotocol.io",
   "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "type": "module",
@@ -28,7 +28,7 @@
     "typescript": "^5.6.2"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.24.3",
+    "@modelcontextprotocol/sdk": "^1.25.2",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "shell-quote": "^1.8.3",

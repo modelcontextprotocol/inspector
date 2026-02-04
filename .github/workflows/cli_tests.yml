@@ -31,9 +31,6 @@ jobs:
       - name: Build CLI
         run: npm run build
 
-      - name: Explicitly pre-install test dependencies
-        run: npx -y @modelcontextprotocol/server-everything --help || true
-
       - name: Run tests
         run: npm test
         env:
