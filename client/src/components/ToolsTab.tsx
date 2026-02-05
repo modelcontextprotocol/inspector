@@ -577,29 +577,56 @@ const ToolsTab = ({
                       Run as task
                     </Label>
                   </div>
-                  <Button
-                    type="submit"
-                    disabled={
-                      isToolRunning ||
-                      isPollingTask ||
-                      hasValidationErrors ||
-                      hasReservedMetadataEntry ||
-                      hasInvalidMetaPrefixEntry ||
-                      hasInvalidMetaNameEntry
-                    }
-                  >
-                    {isToolRunning || isPollingTask ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        {isPollingTask ? "Polling Task..." : "Running..."}
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-4 h-4 mr-2" />
-                        Run Tool
-                      </>
-                    )}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      type="submit"
+                      disabled={
+                        isToolRunning ||
+                        isPollingTask ||
+                        hasValidationErrors ||
+                        hasReservedMetadataEntry ||
+                        hasInvalidMetaPrefixEntry ||
+                        hasInvalidMetaNameEntry
+                      }
+                    >
+                      {isToolRunning || isPollingTask ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          {isPollingTask ? "Polling Task..." : "Running..."}
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4 mr-2" />
+                          Run Tool
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          navigator.clipboard.writeText(
+                            JSON.stringify(params, null, 2),
+                          );
+                          setCopied(true);
+                        } catch (error) {
+                          toast({
+                            title: "Error",
+                            description: `There was an error copying input to the clipboard: ${error instanceof Error ? error.message : String(error)}`,
+                            variant: "destructive",
+                          });
+                        }
+                      }}
+                    >
+                      {copied ? (
+                        <CheckCheck className="h-4 w-4 mr-2 dark:text-green-700 text-green-600" />
+                      ) : (
+                        <Copy className="h-4 w-4 mr-2" />
+                      )}
+                      Copy Input
+                    </Button>
+                  </div>
                 </form>
                 <div className="pb-4">
                   <div className="flex items-center justify-between mb-2">
@@ -807,31 +834,6 @@ const ToolsTab = ({
                       </div>
                     </div>
                   )}
-                <div className="flex gap-2">
-                  <Button
-                    onClick={async () => {
-                      try {
-                        navigator.clipboard.writeText(
-                          JSON.stringify(params, null, 2),
-                        );
-                        setCopied(true);
-                      } catch (error) {
-                        toast({
-                          title: "Error",
-                          description: `There was an error copying input to the clipboard: ${error instanceof Error ? error.message : String(error)}`,
-                          variant: "destructive",
-                        });
-                      }
-                    }}
-                  >
-                    {copied ? (
-                      <CheckCheck className="h-4 w-4 mr-2 dark:text-green-700 text-green-600" />
-                    ) : (
-                      <Copy className="h-4 w-4 mr-2" />
-                    )}
-                    Copy Input
-                  </Button>
-                </div>
                 <ToolResults
                   toolResult={toolResult}
                   selectedTool={selectedTool}
