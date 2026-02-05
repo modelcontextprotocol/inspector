@@ -1,0 +1,26 @@
+/**
+ * Remote transport client - pure TypeScript, runs in browser, Deno, or Node.
+ * Talks to the remote server for MCP connections when direct transport is not available.
+ */
+
+export {
+  RemoteClientTransport,
+  type RemoteTransportOptions,
+} from "./remoteClientTransport.js";
+export {
+  createRemoteTransport,
+  type RemoteTransportFactoryOptions,
+} from "./createRemoteTransport.js";
+export {
+  createRemoteFetch,
+  type RemoteFetchOptions,
+} from "./createRemoteFetch.js";
+export {
+  createRemoteLogger,
+  type RemoteLoggerOptions,
+} from "./createRemoteLogger.js";
+export type {
+  RemoteConnectRequest,
+  RemoteConnectResponse,
+  RemoteEvent,
+} from "./types.js";

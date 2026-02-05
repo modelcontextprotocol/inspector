@@ -18,7 +18,11 @@
     "./mcp/node": "./build/mcp/node/index.js",
     "./mcp/node/*": "./build/mcp/node/*",
     "./auth/browser": "./build/auth/browser/index.js",
-    "./auth/browser/*": "./build/auth/browser/*"
+    "./auth/browser/*": "./build/auth/browser/*",
+    "./mcp/remote": "./build/mcp/remote/index.js",
+    "./mcp/remote/*": "./build/mcp/remote/*",
+    "./mcp/remote/node": "./build/mcp/remote/node/index.js",
+    "./mcp/remote/node/*": "./build/mcp/remote/node/*"
   },
   "files": [
     "build"
@@ -34,9 +38,11 @@
     "react": "^19.2.3"
   },
   "dependencies": {
+    "hono": "^4.6.0",
     "zustand": "^5.0.10"
   },
   "devDependencies": {
+    "@hono/node-server": "^1.19.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "pino": "^9.6.0",
     "@types/react": "^19.2.7",

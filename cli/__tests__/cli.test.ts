@@ -59,6 +59,17 @@ describe("CLI Tests", () => {
 
       expectCliFailure(result);
     });
+
+    // Temporary: remove .skip to verify that expectCliSuccess shows CLI stdout/stderr when the CLI fails
+    it.skip("TEMP: expect success when CLI fails (validates error output in assertion)", async () => {
+      const result = await runCli([
+        NO_SERVER_SENTINEL,
+        "--cli",
+        "--method",
+        "tools/list",
+      ]);
+      expectCliSuccess(result); // will fail; failure message should include result.stdout and result.stderr
+    });
   });
 
   describe("Environment Variables", () => {

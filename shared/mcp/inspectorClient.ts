@@ -80,7 +80,7 @@ import { OAuthStateMachine } from "../auth/state-machine.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type { Logger } from "pino";
+import type pino from "pino";
 import { silentLogger } from "../auth/logger.js";
 import { createFetchTracker } from "./fetchTracking.js";
 
@@ -188,9 +188,9 @@ export interface InspectorClientOptions {
   /**
    * Optional pino logger for InspectorClient events (transport, OAuth, etc.).
    * When provided, token endpoint fetch requests/responses are logged.
-   * Caller configures destination, level, etc.
+   * Node: pass a pino file logger. Web: pass createRemoteLogger({ baseUrl }).
    */
-  logger?: Logger;
+  logger?: pino.Logger;
 
   /**
    * Optional fetch function for HTTP requests (OAuth discovery/token exchange and
@@ -309,7 +309,7 @@ export class InspectorClient extends InspectorClientEventTarget {
   private oauthConfig?: InspectorClientOptions["oauth"];
   private oauthStateMachine: OAuthStateMachine | null = null;
   private oauthState: AuthGuidedState | null = null;
-  private logger: Logger;
+  private logger: pino.Logger;
   private transportClientFactory: CreateTransport;
   private fetchFn?: typeof fetch;
   private effectiveAuthFetch: typeof fetch;

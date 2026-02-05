@@ -1460,9 +1460,14 @@ describe("InspectorClient", () => {
 
       await client.connect();
 
-      // Stderr logs may or may not be present depending on server behavior
+      const testMessage = `stderr-direct-${Date.now()}`;
+      await client.callTool("writeToStderr", { message: testMessage });
+
       const logs = client.getStderrLogs();
       expect(Array.isArray(logs)).toBe(true);
+      const matching = logs.filter((l) => l.message.includes(testMessage));
+      expect(matching.length).toBeGreaterThan(0);
+      expect(matching[0]!.message).toContain(testMessage);
     });
   });
 
