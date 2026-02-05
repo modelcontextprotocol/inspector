@@ -19,6 +19,7 @@ import {
   Task,
   GetTaskResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { TimestampedNotification } from "./lib/notificationTypes";
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type {
   AnySchema,
@@ -154,7 +155,9 @@ const App = () => {
     },
   );
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
-  const [notifications, setNotifications] = useState<ServerNotification[]>([]);
+  const [notifications, setNotifications] = useState<TimestampedNotification[]>(
+    [],
+  );
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
 
@@ -366,7 +369,11 @@ const App = () => {
     config,
     connectionType,
     onNotification: (notification) => {
-      setNotifications((prev) => [...prev, notification as ServerNotification]);
+      const timestamped: TimestampedNotification = {
+        notification: notification as ServerNotification,
+        receivedAt: new Date().toISOString(),
+      };
+      setNotifications((prev) => [...prev, timestamped]);
 
       if (notification.method === "notifications/tasks/list_changed") {
         void listTasks();
