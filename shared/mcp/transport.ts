@@ -21,11 +21,14 @@ export function createTransportNode(
 ): CreateTransportResult {
   const serverType = getServerType(config);
   const {
+    fetchFn: optionsFetchFn,
     onStderr,
     pipeStderr = false,
     onFetchRequest,
     authProvider,
   } = options;
+
+  const baseFetch = optionsFetchFn ?? globalThis.fetch;
 
   if (serverType === "stdio") {
     const stdioConfig = config as StdioServerConfig;
@@ -55,11 +58,11 @@ export function createTransportNode(
     const sseConfig = config as SseServerConfig;
     const url = new URL(sseConfig.url);
 
-    const baseFetch =
-      (sseConfig.eventSourceInit?.fetch as typeof fetch) || globalThis.fetch;
+    const sseFetch =
+      (sseConfig.eventSourceInit?.fetch as typeof fetch) || baseFetch;
     const trackedFetch = onFetchRequest
-      ? createFetchTracker(baseFetch, { trackRequest: onFetchRequest })
-      : baseFetch;
+      ? createFetchTracker(sseFetch, { trackRequest: onFetchRequest })
+      : sseFetch;
 
     const eventSourceInit: Record<string, unknown> = {
       ...sseConfig.eventSourceInit,
@@ -73,8 +76,8 @@ export function createTransportNode(
     };
 
     const postFetch = onFetchRequest
-      ? createFetchTracker(globalThis.fetch, { trackRequest: onFetchRequest })
-      : globalThis.fetch;
+      ? createFetchTracker(baseFetch, { trackRequest: onFetchRequest })
+      : baseFetch;
 
     const transport = new SSEClientTransport(url, {
       authProvider,
@@ -94,15 +97,14 @@ export function createTransportNode(
       ...(httpConfig.headers && { headers: httpConfig.headers }),
     };
 
-    const baseFetch = globalThis.fetch;
-    const fetchFn = onFetchRequest
+    const transportFetch = onFetchRequest
       ? createFetchTracker(baseFetch, { trackRequest: onFetchRequest })
       : baseFetch;
 
     const transport = new StreamableHTTPClientTransport(url, {
       authProvider,
       requestInit,
-      fetch: fetchFn,
+      fetch: transportFetch,
     });
 
     return { transport };

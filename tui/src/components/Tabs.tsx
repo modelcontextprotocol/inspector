@@ -66,6 +66,7 @@ export function Tabs({
   return (
     <Box
       width={width}
+      flexShrink={0}
       borderStyle="single"
       borderTop={false}
       borderLeft={false}

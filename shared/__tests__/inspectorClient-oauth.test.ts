@@ -115,6 +115,82 @@ describe("InspectorClient OAuth", () => {
     });
   });
 
+  describe("OAuth fetch tracking", () => {
+    let testServer: TestServerHttp;
+    const testRedirectUrl = "http://localhost:3001/oauth/callback";
+
+    beforeEach(() => {
+      clearOAuthTestData();
+    });
+
+    afterEach(async () => {
+      if (testServer) {
+        await testServer.stop();
+      }
+    });
+
+    it("should track auth fetches with category 'auth' during guided auth", async () => {
+      const staticClientId = "test-auth-fetch-client";
+      const staticClientSecret = "test-auth-fetch-secret";
+
+      const serverConfig = {
+        ...getDefaultServerConfig(),
+        serverType: "sse" as const,
+        ...createOAuthTestServerConfig({
+          requireAuth: false,
+          supportDCR: true,
+          staticClients: [
+            {
+              clientId: staticClientId,
+              clientSecret: staticClientSecret,
+              redirectUris: [testRedirectUrl],
+            },
+          ],
+        }),
+      };
+
+      testServer = new TestServerHttp(serverConfig);
+      const port = await testServer.start();
+      const serverUrl = `http://localhost:${port}`;
+
+      const testClient = new InspectorClient(
+        {
+          type: "sse",
+          url: `${serverUrl}/sse`,
+        } as MCPServerConfig,
+        {
+          transportClientFactory: createTransportNode,
+          autoFetchServerContents: false,
+          oauth: createOAuthClientConfig({
+            mode: "static",
+            clientId: staticClientId,
+            clientSecret: staticClientSecret,
+            redirectUrl: testRedirectUrl,
+          }),
+        },
+      );
+
+      // beginGuidedAuth runs metadata_discovery, client_registration, authorization_redirect
+      // (stops at authorization_code awaiting user). Produces auth fetches only (no connect yet).
+      await testClient.beginGuidedAuth();
+
+      const fetchRequests = testClient.getFetchRequests();
+      const authFetches = fetchRequests.filter(
+        (req) => req.category === "auth",
+      );
+      expect(authFetches.length).toBeGreaterThan(0);
+      const hasOAuthUrls = authFetches.some(
+        (req) =>
+          req.url.includes("well-known") ||
+          req.url.includes("/oauth/") ||
+          req.url.includes("token"),
+      );
+      expect(hasOAuthUrls).toBe(true);
+
+      await testClient.disconnect();
+    });
+  });
+
   describe("OAuth Events", () => {
     let testServer: TestServerHttp;
     const testRedirectUrl = "http://localhost:3001/oauth/callback";
@@ -308,23 +384,42 @@ describe("InspectorClient OAuth", () => {
       expect(toolsResult).toBeDefined();
 
       const fetchRequests = testClient.getFetchRequests();
-      if (fetchRequests.length > 0) {
-        const mcpPostRequests = fetchRequests.filter(
-          (req) =>
-            req.method === "POST" &&
-            (req.url.includes("/sse") || req.url.includes("/mcp")) &&
-            !req.url.includes("/oauth"),
-        );
-        if (mcpPostRequests.length > 0) {
-          const hasAuthHeader = mcpPostRequests.some((req) => {
-            const authHeader =
-              req.requestHeaders?.["Authorization"] ||
-              req.requestHeaders?.["authorization"];
-            return authHeader && authHeader.startsWith("Bearer ");
-          });
-          if (hasAuthHeader) {
-            expect(hasAuthHeader).toBe(true);
-          }
+      expect(fetchRequests.length).toBeGreaterThan(0);
+
+      // Auth fetches (discovery, token exchange) should have category 'auth'
+      const authFetches = fetchRequests.filter(
+        (req) => req.category === "auth",
+      );
+      expect(authFetches.length).toBeGreaterThan(0);
+      const oauthFetches = authFetches.filter(
+        (req) =>
+          req.url.includes("well-known") ||
+          req.url.includes("/oauth/") ||
+          req.url.includes("/token"),
+      );
+      expect(oauthFetches.length).toBeGreaterThan(0);
+
+      // Transport fetches (SSE, MCP) should have category 'transport'
+      const transportFetches = fetchRequests.filter(
+        (req) => req.category === "transport",
+      );
+      expect(transportFetches.length).toBeGreaterThan(0);
+
+      const mcpPostRequests = transportFetches.filter(
+        (req) =>
+          req.method === "POST" &&
+          (req.url.includes("/sse") || req.url.includes("/mcp")) &&
+          !req.url.includes("/oauth"),
+      );
+      if (mcpPostRequests.length > 0) {
+        const hasAuthHeader = mcpPostRequests.some((req) => {
+          const authHeader =
+            req.requestHeaders?.["Authorization"] ||
+            req.requestHeaders?.["authorization"];
+          return authHeader && authHeader.startsWith("Bearer ");
+        });
+        if (hasAuthHeader) {
+          expect(hasAuthHeader).toBe(true);
         }
       }
 

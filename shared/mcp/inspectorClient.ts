@@ -5,6 +5,7 @@ import type {
   ConnectionStatus,
   MessageEntry,
   FetchRequestEntry,
+  FetchRequestEntryBase,
   ResourceReadInvocation,
   ResourceTemplateReadInvocation,
   PromptGetInvocation,
@@ -80,8 +81,8 @@ import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { Logger } from "pino";
-import { createLoggingFetch } from "../auth/loggingFetch.js";
 import { silentLogger } from "../auth/logger.js";
+import { createFetchTracker } from "./fetchTracking.js";
 
 export interface InspectorClientOptions {
   /**
@@ -192,6 +193,14 @@ export interface InspectorClientOptions {
   logger?: Logger;
 
   /**
+   * Optional fetch function for HTTP requests (OAuth discovery/token exchange and
+   * MCP transport). When provided (e.g. proxy fetch in browser), used for both
+   * auth and transport to bypass CORS. Fetches are tracked with category ('auth'
+   * or 'transport') for the Requests tab.
+   */
+  fetchFn?: typeof fetch;
+
+  /**
    * OAuth configuration
    */
   oauth?: {
@@ -237,13 +246,6 @@ export interface InspectorClientOptions {
      * sent to the authorization URL.
      */
     navigation: OAuthNavigation;
-
-    /**
-     * Optional fetch function for OAuth HTTP calls (discovery, registration,
-     * token exchange). When provided (e.g. proxy fetch in browser), used for
-     * all auth-related requests to bypass CORS.
-     */
-    fetchFn?: typeof fetch;
   };
 }
 
@@ -309,6 +311,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   private oauthState: AuthGuidedState | null = null;
   private logger: Logger;
   private transportClientFactory: CreateTransport;
+  private fetchFn?: typeof fetch;
+  private effectiveAuthFetch: typeof fetch;
 
   constructor(
     private transportConfig: MCPServerConfig,
@@ -341,21 +345,13 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Logger: use injected or silent no-op
     this.logger = options.logger ?? silentLogger;
 
-    // OAuth config: wrap fetch with token-endpoint logging only when logger is provided
+    // Top-level fetchFn: used for both auth and transport
+    this.fetchFn = options.fetchFn;
+
+    // Effective auth fetch: base fetch + tracking with category 'auth'
+    this.effectiveAuthFetch = this.buildEffectiveAuthFetch();
+
     this.oauthConfig = options.oauth;
-    if (options.oauth != null && options.logger != null) {
-      const baseFetch = options.oauth.fetchFn ?? fetch;
-      this.oauthConfig = {
-        ...options.oauth,
-        fetchFn: createLoggingFetch(
-          baseFetch,
-          this.logger.child({
-            component: "InspectorClient",
-            category: "oauth.fetch",
-          }),
-        ),
-      };
-    }
 
     // Transport is created in connect() (single place for create / wrap / attach).
 
@@ -402,6 +398,14 @@ export class InspectorClient extends InspectorClientEventTarget {
       },
       Object.keys(clientOptions).length > 0 ? clientOptions : undefined,
     );
+  }
+
+  private buildEffectiveAuthFetch(): typeof fetch {
+    const base = this.fetchFn ?? fetch;
+    return createFetchTracker(base, {
+      trackRequest: (entry) =>
+        this.addFetchRequest({ ...entry, category: "auth" }),
+    });
   }
 
   private createMessageTrackingCallbacks(): MessageTrackingCallbacks {
@@ -519,12 +523,13 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Create transport (single place for create / wrap / attach).
     if (!this.baseTransport) {
       const transportOptions: CreateTransportOptions = {
+        fetchFn: this.fetchFn,
         pipeStderr: this.pipeStderr,
         onStderr: (entry: StderrLogEntry) => {
           this.addStderrLog(entry);
         },
-        onFetchRequest: (entry: FetchRequestEntry) => {
-          this.addFetchRequest(entry);
+        onFetchRequest: (entry: FetchRequestEntryBase) => {
+          this.addFetchRequest({ ...entry, category: "transport" });
         },
       };
       if (this.isHttpOAuthConfig()) {
@@ -2123,6 +2128,27 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   private addFetchRequest(entry: FetchRequestEntry): void {
+    this.logger.info(
+      {
+        component: "InspectorClient",
+        category: entry.category,
+        fetchRequest: {
+          url: entry.url,
+          method: entry.method,
+          headers: entry.requestHeaders,
+          body: entry.requestBody ?? "[no body]",
+        },
+        fetchResponse: entry.error
+          ? { error: entry.error }
+          : {
+              status: entry.responseStatus,
+              statusText: entry.responseStatusText,
+              headers: entry.responseHeaders,
+              body: entry.responseBody,
+            },
+      },
+      `${entry.category} fetch`,
+    );
     if (
       this.maxFetchRequests > 0 &&
       this.fetchRequests.length >= this.maxFetchRequests
@@ -2345,7 +2371,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     const result = await auth(provider, {
       serverUrl,
       scope: provider.scope,
-      ...(this.oauthConfig.fetchFn && { fetchFn: this.oauthConfig.fetchFn }),
+      fetchFn: this.effectiveAuthFetch,
     });
 
     if (result === "AUTHORIZED") {
@@ -2413,7 +2439,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           state: updates,
         });
       },
-      this.oauthConfig.fetchFn,
+      this.effectiveAuthFetch,
     );
 
     await this.oauthStateMachine.executeStep(this.oauthState);
@@ -2500,9 +2526,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         const result = await auth(provider, {
           serverUrl,
           authorizationCode,
-          ...(this.oauthConfig.fetchFn && {
-            fetchFn: this.oauthConfig.fetchFn,
-          }),
+          fetchFn: this.effectiveAuthFetch,
         });
 
         if (result !== "AUTHORIZED") {

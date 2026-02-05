@@ -1,7 +1,7 @@
-import type { FetchRequestEntry } from "./types.js";
+import type { FetchRequestEntryBase } from "./types.js";
 
 export interface FetchTrackingCallbacks {
-  trackRequest?: (entry: FetchRequestEntry) => void;
+  trackRequest?: (entry: FetchRequestEntryBase) => void;
 }
 
 /**
@@ -75,7 +75,7 @@ export function createFetchTracker(
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
       // Create a minimal error entry
-      const entry: FetchRequestEntry = {
+      const entry: FetchRequestEntryBase = {
         id,
         timestamp,
         method,
@@ -130,7 +130,7 @@ export function createFetchTracker(
     }
 
     // Create entry and track it
-    const entry: FetchRequestEntry = {
+    const entry: FetchRequestEntryBase = {
       id,
       timestamp,
       method,

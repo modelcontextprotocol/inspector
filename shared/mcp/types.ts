@@ -68,6 +68,8 @@ export interface MessageEntry {
   duration?: number; // Time between request and response in ms
 }
 
+export type FetchRequestCategory = "auth" | "transport";
+
 export interface FetchRequestEntry {
   id: string;
   timestamp: Date;
@@ -81,12 +83,23 @@ export interface FetchRequestEntry {
   responseBody?: string;
   duration?: number; // Time between request and response in ms
   error?: string;
+  /** Distinguishes OAuth/auth fetches from MCP transport fetches */
+  category: FetchRequestCategory;
 }
+
+/** Entry shape from createFetchTracker before category is added by the caller */
+export type FetchRequestEntryBase = Omit<FetchRequestEntry, "category">;
 
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 export interface CreateTransportOptions {
+  /**
+   * Optional fetch function. When provided, used as the base for transport HTTP requests
+   * (SSE, streamable-http). Enables proxy fetch in browser (CORS bypass).
+   */
+  fetchFn?: typeof fetch;
+
   /**
    * Optional callback to handle stderr logs from stdio transports
    */
@@ -98,9 +111,10 @@ export interface CreateTransportOptions {
   pipeStderr?: boolean;
 
   /**
-   * Optional callback to track HTTP fetch requests (for SSE and streamable-http transports)
+   * Optional callback to track HTTP fetch requests (for SSE and streamable-http transports).
+   * Receives entries without category; caller adds category when storing.
    */
-  onFetchRequest?: (entry: FetchRequestEntry) => void;
+  onFetchRequest?: (entry: FetchRequestEntryBase) => void;
 
   /**
    * Optional OAuth client provider for Bearer authentication (SSE, streamable-http).
