@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import {
   createOAuthCallbackServer,
   type OAuthCallbackServer,
-} from "../../auth/oauth-callback-server.js";
+} from "../../auth/node/oauth-callback-server.js";
 
 describe("OAuthCallbackServer", () => {
   let server: OAuthCallbackServer;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { BrowserOAuthStorage } from "../../auth/storage-browser.js";
+import { BrowserOAuthStorage } from "../../auth/browser/storage.js";
 import type {
   OAuthClientInformation,
   OAuthTokens,

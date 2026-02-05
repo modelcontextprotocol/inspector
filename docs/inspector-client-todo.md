@@ -88,7 +88,7 @@ Implement and test device flow / device code to see if it's supported
 
 - Hosted everything - https://example-server.modelcontextprotocol.io/mcp - not supported
 - GitHub - https://api.githubcopilot.com/mcp
-  - Device flow enabled in Github OAuth app, doesn't show in metadata (which isn't client specific)
+  - DevReorganiice flow enabled in Github OAuth app, doesn't show in metadata (which isn't client specific)
   - Try it and see if it works (if it works, try it without client_secret to see if that works)
 - Others if neither of those work?
 

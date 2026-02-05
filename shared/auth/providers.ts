@@ -81,23 +81,6 @@ export class ConsoleNavigation extends CallbackNavigation {
 }
 
 /**
- * Browser navigation handler
- * Redirects the browser window to the authorization URL, optionally invokes an
- * extra callback.
- */
-export class BrowserNavigation extends CallbackNavigation {
-  constructor(callback?: OAuthNavigationCallback) {
-    super((url) => {
-      if (typeof window === "undefined") {
-        throw new Error("BrowserNavigation requires browser environment");
-      }
-      window.location.href = url.href;
-      return callback?.(url);
-    });
-  }
-}
-
-/**
  * Config passed to BaseOAuthClientProvider. Provider assigns to members and
  * accesses as needed.
  */
@@ -268,31 +251,5 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
 
   async saveServerMetadata(metadata: OAuthMetadata): Promise<void> {
     await this.storage.saveServerMetadata(this.serverUrl, metadata);
-  }
-}
-
-/**
- * Browser OAuth client provider
- * Uses sessionStorage directly (for web client reference)
- */
-export class BrowserOAuthClientProvider extends BaseOAuthClientProvider {
-  constructor(serverUrl: string) {
-    if (typeof window === "undefined") {
-      throw new Error(
-        "BrowserOAuthClientProvider requires browser environment",
-      );
-    }
-    // Import browser storage dynamically to avoid Node.js dependency
-    const { BrowserOAuthStorage } = require("./storage-browser.js");
-    const storage = new BrowserOAuthStorage();
-    const redirectUrlProvider: RedirectUrlProvider = {
-      getRedirectUrl: (mode) =>
-        mode === "guided"
-          ? `${window.location.origin}/oauth/callback/guided`
-          : `${window.location.origin}/oauth/callback`,
-    };
-    const navigation = new BrowserNavigation();
-
-    super(serverUrl, { storage, redirectUrlProvider, navigation }, "normal");
   }
 }

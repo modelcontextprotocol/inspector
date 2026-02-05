@@ -1,6 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { OAuthStorage } from "./storage.js";
+import type { OAuthStorage } from "../storage.js";
 import type {
   OAuthClientInformation,
   OAuthTokens,

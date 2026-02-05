@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
-import { parseOAuthCallbackParams } from "./utils.js";
-import { generateOAuthErrorDescription } from "./utils.js";
+import { parseOAuthCallbackParams } from "../utils.js";
+import { generateOAuthErrorDescription } from "../utils.js";
 
 const DEFAULT_HOSTNAME = "127.0.0.1";
 const DEFAULT_CALLBACK_PATH = "/oauth/callback";

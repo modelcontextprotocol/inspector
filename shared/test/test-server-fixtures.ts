@@ -1700,7 +1700,7 @@ import type {
 } from "../auth/providers.js";
 import type { OAuthStorage } from "../auth/storage.js";
 import { ConsoleNavigation } from "../auth/providers.js";
-import { NodeOAuthStorage } from "../auth/storage-node.js";
+import { NodeOAuthStorage } from "../auth/node/storage-node.js";
 
 /** Creates a static RedirectUrlProvider for tests. Single URL for both modes. */
 function createStaticRedirectUrlProvider(

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { InspectorClient } from "../mcp/inspectorClient.js";
-import { createTransportNode } from "../mcp/transport.js";
+import { createTransportNode } from "../mcp/node/transport.js";
 import { SamplingCreateMessage } from "../mcp/samplingCreateMessage.js";
 import { ElicitationCreateMessage } from "../mcp/elicitationCreateMessage.js";
 import { getTestMcpServerCommand } from "../test/test-server-stdio.js";

@@ -3,7 +3,7 @@ import {
   NodeOAuthStorage,
   getOAuthStore,
   getStateFilePath,
-} from "../../auth/storage-node.js";
+} from "../../auth/node/storage-node.js";
 import type {
   OAuthClientInformation,
   OAuthTokens,
