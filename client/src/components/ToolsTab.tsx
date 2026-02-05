@@ -227,13 +227,13 @@ const ToolsTab = ({
     <TabsContent value="tools">
       <div className="flex gap-4 h-full overflow-hidden">
         <div
-          className="relative flex-shrink-0 h-fit"
+          className="relative flex-shrink-0"
           style={{
             width: listWidth,
             transition: isDragging ? "none" : "width 0.15s",
           }}
         >
-          <div className="overflow-hidden">
+          <div className="h-full overflow-hidden">
             <ListPane
               items={tools}
               listItems={listTools}
@@ -268,7 +268,7 @@ const ToolsTab = ({
             axis="x"
             onMouseDown={handleDragStart}
             onDoubleClick={toggleCollapse}
-            className="absolute top-0 right-[-8px]"
+            className="absolute top-0 right-[-8px] max-h-96"
           />
         </div>
 

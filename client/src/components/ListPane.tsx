@@ -45,7 +45,7 @@ const ListPane = <T extends object>({
   }, [items, searchQuery]);
 
   return (
-    <div className="bg-card border border-border rounded-lg shadow overflow-hidden flex flex-col">
+    <div className="bg-card border border-border rounded-lg shadow overflow-hidden flex flex-col h-full">
       <div className="p-4 border-b border-gray-200 dark:border-border h-16 flex items-center flex-shrink-0">
         <h3 className="font-semibold dark:text-white flex-shrink-0">{title}</h3>
       </div>
