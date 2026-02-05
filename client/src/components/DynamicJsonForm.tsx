@@ -28,6 +28,7 @@ interface DynamicJsonFormProps {
 
 export interface DynamicJsonFormRef {
   validateJson: () => { isValid: boolean; error: string | null };
+  hasJsonError: () => boolean;
 }
 
 const isTypeSupported = (
@@ -128,6 +129,10 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
     // Use a ref to manage debouncing timeouts to avoid parsing JSON
     // on every keystroke which would be inefficient and error-prone
     const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+    const hasJsonError = () => {
+      return !!jsonError;
+    };
 
     // Debounce JSON parsing and parent updates to handle typing gracefully
     const debouncedUpdateParent = useCallback(
@@ -253,6 +258,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
 
     useImperativeHandle(ref, () => ({
       validateJson,
+      hasJsonError,
     }));
 
     const renderFormFields = (
