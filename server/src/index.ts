@@ -796,21 +796,25 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
   }
 });
 
-app.get("/sandbox", sandboxRateLimiter, (req, res) => {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = dirname(__filename);
-  const filePath = join(__dirname, "..", "static", "sandbox_proxy.html");
-  let sandboxHtml;
+app.get(
+  "/sandbox",
+  sandboxRateLimiter as express.RequestHandler,
+  (req, res) => {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const filePath = join(__dirname, "..", "static", "sandbox_proxy.html");
+    let sandboxHtml;
 
-  try {
-    sandboxHtml = readFileSync(filePath, "utf-8");
-  } catch (e) {
-    sandboxHtml = "MCP Apps sandbox not loaded: " + e;
-  }
+    try {
+      sandboxHtml = readFileSync(filePath, "utf-8");
+    } catch (e) {
+      sandboxHtml = "MCP Apps sandbox not loaded: " + e;
+    }
 
-  res.set("Cache-Control", "no-cache, no-store, max-age=0");
-  res.send(sandboxHtml);
-});
+    res.set("Cache-Control", "no-cache, no-store, max-age=0");
+    res.send(sandboxHtml);
+  },
+);
 
 const PORT = parseInt(
   process.env.SERVER_PORT || DEFAULT_MCP_PROXY_LISTEN_PORT,
