@@ -259,7 +259,7 @@ const { status, messages, tools, resources, prompts, connect, disconnect } =
 **TUI Status:**
 
 - **Experimental**: The TUI functionality may be considered "experimental" until sufficient testing and review of features and implementation. This allows for iteration and refinement based on user feedback before committing to a stable feature set.
-- **Feature Gaps**: Current feature gaps with the web UX include lack of support for OAuth, completions, elicitation, and sampling. These will be addressed in Phase 4 by extending `InspectorClient` with the required functionality. Note that some features, like MCP-UI, may not be feasible in a terminal-based interface. There is a plan for implementing OAuth from the TUI.
+- **Feature parity**: The TUI now supports OAuth (static client, CIMD, DCR, guided auth), completions, elicitation, sampling, and HTTP request tracking. InspectorClient provides all of these.
 
 **Entry Point:**
 The TUI is invoked via the main `mcp-inspector` command with a `--tui` flag:
@@ -270,70 +270,57 @@ The TUI is invoked via the main `mcp-inspector` command with a `--tui` flag:
 
 This provides a single entry point with consistent argument parsing across all three UX modes.
 
-## Phase 4: TUI Feature Gap Implementation (Planned)
+## Phase 4: TUI Feature Gaps (Complete)
 
-### Overview
+InspectorClient supports OAuth (static client, CIMD, DCR, guided auth), completions (`getCompletions`), elicitation (pending elicitations, `newPendingElicitation` event), sampling (pending samples, `newPendingSample` event), roots (`getRoots`, `setRoots`), progress notifications, and custom headers via `MCPServerConfig`. The TUI uses these features.
 
-The next phase will address TUI feature gaps (OAuth, completions, elicitation, and sampling) by extending `InspectorClient` with the required functionality. This approach serves dual purposes:
+## InspectorClient Readiness for Web App
 
-1. **TUI Feature Parity**: Brings TUI closer to feature parity with the web client
-2. **InspectorClient Preparation**: Prepares `InspectorClient` for full web client integration
+### Current State
 
-When complete, `InspectorClient` will be very close to ready for full support of the v2 web client (which is currently under development).
+InspectorClient is **close to ready** for web app support. The core functionality matches what the web client needs:
 
-### Features to Implement
+| Capability                | InspectorClient                                    | Web Client useConnection                     |
+| ------------------------- | -------------------------------------------------- | -------------------------------------------- |
+| Connection management     | ✅ `connect()`, `disconnect()`, status events      | ✅                                           |
+| Tools, resources, prompts | ✅ Auto-fetch, events, methods                     | ✅                                           |
+| Message tracking          | ✅ `MessageEntry[]`, `messagesChange`              | Different format (`{ request, response }[]`) |
+| OAuth                     | ✅ Injected storage, navigation, redirect, fetchFn | ✅ Own flow, session storage                 |
+| Custom headers            | ✅ `headers` in SSE/streamable-http config         | ✅                                           |
+| Elicitation               | ✅ Pending elicitations, events                    | ✅                                           |
+| Completion                | ✅ `getCompletions()`                              | ✅                                           |
+| Sampling                  | ✅ Pending samples, events                         | ✅                                           |
+| Roots                     | ✅ `getRoots()`, `setRoots()`, events              | ✅                                           |
+| Progress                  | ✅ `progressNotification` event, timeout reset     | ✅                                           |
+| Fetch tracking            | ✅ Auth + transport categories                     | ✅ Request history                           |
+| Logger                    | ✅ Optional injected (pino)                        | —                                            |
+| Transport factory         | ✅ Required `CreateTransport`                      | Creates transports directly                  |
 
-**1. OAuth Support**
+### Environment Isolation: What's Done vs. Pending
 
-- Add OAuth authentication flow support to `InspectorClient`
-- TUI-specific: Browser-based OAuth flow with localhost callback server
-- Web client benefit: OAuth support will be ready for v2 web client integration
+Per [environment-isolation.md](environment-isolation.md):
 
-**2. Completion Support**
+**Implemented:** OAuth storage, navigation, redirect URL, and auth fetch (`fetchFn`) are injectable. Transport creation is via required `CreateTransport`; Node uses `createTransportNode`. InspectorClient accepts optional `logger`. The shared package works in Node (CLI, TUI).
 
-- Add completion capability detection and management
-- Add `handleCompletion()` method or access pattern for `completion/complete` requests
-- TUI benefit: Enables autocomplete in TUI forms
-- Web client benefit: Completion support ready for v2 web client
+**Pending:**
 
-**3. Elicitation Support**
+- **Hono API server** — Endpoints for transport (`/api/mcp/connect`, `send`, `events`, `disconnect`), proxy fetch (`/api/fetch`), and logging (`/api/log`).
+- **createTransportRemote + RemoteClientTransport** — Browser transport that talks to the bridge instead of creating stdio/SSE/HTTP transports directly. InspectorClient would receive this as its `CreateTransport` implementation.
+- **Node code organization** — Move Node-only code into `shared/auth/node/` and `shared/mcp/node/` so the browser can import `inspector-shared` without pulling in `fs`, `child_process`, etc. Auth stays under auth, MCP under MCP.
+- **Optional: OAuth store API** — If the web app should share the on-disk store with TUI/CLI, an API (`GET/POST /api/oauth/store/:serverUrl`) would let the browser delegate to Node.
 
-- Add request handler support for elicitation requests
-- Add convenience methods: `setElicitationHandler()`, `setPendingRequestHandler()`, `setRootsHandler()`
-- TUI benefit: Enables elicitation workflows in TUI
-- Web client benefit: Request handler support ready for v2 web client
+### Port Effort Estimate
 
-**4. Sampling Support**
+| Work                     | Effort | Notes                                                                                                                                                                                                            |
+| ------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hono API server          | Medium | Transport, fetch, log endpoints; session/auth middleware. See environment-isolation.md.                                                                                                                          |
+| createTransportRemote    | Medium | Implements `Transport`; uses `/api/mcp/*`; subscribes to SSE event stream; forwards fetch_request, stdio_log events.                                                                                             |
+| Node code org            | Small  | Move to `shared/auth/node/` and `shared/mcp/node/`; update imports in TUI, CLI, tests.                                                                                                                           |
+| Web client fetch wrapper | Small  | Fetch that POSTs to `/api/fetch`; handle `URLSearchParams` serialization.                                                                                                                                        |
+| Web client logger        | Small  | Logger that POSTs to `/api/log`, or omit initially.                                                                                                                                                              |
+| Web client refactor      | Large  | Replace `useConnection` with `InspectorClient` + `useInspectorClient`; migrate state; switch to `MessageEntry[]`; wire OAuth (BrowserOAuthStorage, BrowserNavigation); use web app's own `oauth/callback` route. |
 
-- Add sampling capability detection and management
-- Add methods or access patterns for sampling requests
-- TUI benefit: Enables sampling workflows in TUI
-- Web client benefit: Sampling support ready for v2 web client
-
-### Implementation Strategy
-
-As each TUI feature gap is addressed:
-
-1. Extend `InspectorClient` with the required functionality
-2. Implement the feature in TUI using the new `InspectorClient` capabilities
-3. Test the feature in TUI context
-4. Document the new `InspectorClient` API
-
-This incremental approach ensures:
-
-- Features are validated in real usage (TUI) before web client integration
-- `InspectorClient` API is refined based on actual needs
-- Both TUI and v2 web client benefit from shared implementation
-
-### Relationship to Web Client Integration
-
-The features added in Phase 4 directly address the "Features Needed in InspectorClient for Web Client" listed in the Web Client Integration Plan. By implementing these for TUI first, we:
-
-- Validate the API design with real usage
-- Ensure the implementation works in a React context (TUI uses React/Ink)
-- Build toward full v2 web client support incrementally
-
-Once Phase 4 is complete, `InspectorClient` will have most of the functionality needed for v2 web client integration, with primarily adapter/wrapper work remaining.
+**Summary:** InspectorClient itself needs no further feature work for the web app. The remaining effort is (1) implementing the Hono API and `createTransportRemote`, (2) organizing Node-only code so the shared package loads in the browser, and (3) refactoring the web client to use InspectorClient instead of `useConnection`. The first two are one-time infra; the third is the main migration.
 
 ## Web Client Integration Plan
 
@@ -422,13 +409,15 @@ The main `App.tsx` component manages extensive state including:
 
 ### Features Needed in InspectorClient for Web Client
 
-To fully support the web client, `InspectorClient` needs to add support for:
+InspectorClient already provides:
 
-1. **Custom Headers** - Support for OAuth tokens and custom authentication headers in transport configuration
-2. **Request Handlers** - Support for setting elicitation, pending request, and roots handlers
-3. **Completion Support** - Methods or access patterns for `completion/complete` requests
-4. **Progress Notifications** - Callback support for progress notifications and timeout reset
-5. **Session Management** - Access to session ID and protocol version from transport
+1. **Custom Headers** — `headers` in `SseServerConfig` and `StreamableHttpServerConfig`
+2. **Request Handlers** — Elicitation (built-in), roots (`getRoots`, `setRoots`, `rootsChange` event)
+3. **Completion Support** — `getCompletions()` method
+4. **Progress Notifications** — `progressNotification` event and timeout reset
+5. **Session Management** — Access via transport; `messageTrackingTransport` exposes `sessionId`
+
+No additional InspectorClient features are required for web client integration.
 
 ### Integration Challenges
 
@@ -436,7 +425,7 @@ To fully support the web client, `InspectorClient` needs to add support for:
 
 - Web client uses browser-based OAuth flow (authorization code with PKCE)
 - Requires browser redirects and callback handling
-- **Solution**: Keep OAuth handling in web client, inject tokens via custom headers in `MCPServerConfig`
+- **Solution**: InspectorClient supports injectable OAuth storage, navigation, redirect URL, and fetchFn. Web client injects `BrowserOAuthStorage`, `BrowserNavigation`, and a redirect provider using `window.location.origin`. The web app implements its own `oauth/callback` route.
 
 **2. Proxy Mode**
 
@@ -446,7 +435,7 @@ To fully support the web client, `InspectorClient` needs to add support for:
 **3. Custom Headers**
 
 - Web client manages custom headers (OAuth tokens, custom auth headers)
-- **Solution**: Extend `MCPServerConfig` to support `headers` in `SseServerConfig` and `StreamableHttpServerConfig`
+- **Solution**: `MCPServerConfig` already supports `headers` in `SseServerConfig` and `StreamableHttpServerConfig`
 
 **4. Request History Format**
 
@@ -476,59 +465,11 @@ To fully support the web client, `InspectorClient` needs to add support for:
 
 ### Integration Strategy
 
-**Phase 1: Extend InspectorClient for Web Client Needs**
+InspectorClient already has the needed features (see "InspectorClient Readiness for Web App" above). The integration work is:
 
-1. **Add Custom Headers Support**
-   - Add `headers?: Record<string, string>` to `SseServerConfig` and `StreamableHttpServerConfig` in `MCPServerConfig`
-   - Pass headers to transport creation in `shared/mcp/transport.ts`
-
-2. **Add Request Handler Support**
-   - Add convenience methods: `setRequestHandler()`, `setElicitationHandler()`, `setRootsHandler()`
-   - Or document that `getClient()` can be used to set request handlers directly
-   - Support for elicitation requests, pending requests, and roots requests
-
-3. **Add Completion Support**
-   - Add `handleCompletion()` method or document access via `getClient()`
-   - Completion capability is already available via `getCapabilities()?.completions`
-   - Web client can use `getClient()` to call `completion/complete` directly
-
-4. **Add Progress Notification Support**
-   - Add `onProgress?: (progress: Progress) => void` to `InspectorClientOptions`
-   - Forward progress notifications to callback
-   - Support timeout reset on progress notifications
-
-5. **Add Session Management**
-   - Expose session ID and protocol version via getter methods
-   - Or provide access to transport for session information
-
-**Phase 2: Create Web-Specific Adapter**
-
-Create adapter function that:
-
-- Converts web client config to `MCPServerConfig`
-- Handles proxy URL construction
-- Manages OAuth token injection into headers
-- Handles direct vs. proxy mode
-
-**Phase 3: Hybrid Integration (Recommended)**
-
-**Short Term:**
-
-- Keep `useConnection` for OAuth, proxy, and web-specific features
-- Use `InspectorClient` for core MCP operations (tools, resources, prompts) via `getClient()`
-- Gradually migrate state management
-
-**Medium Term:**
-
-- Use `useInspectorClient` hook for state management
-- Keep OAuth/proxy handling in web-specific wrapper
-- Migrate request history to `MessageEntry[]` format
-
-**Long Term:**
-
-- Replace `useConnection` with `useInspectorClient` + web-specific wrapper
-- Remove duplicate transport creation
-- Remove duplicate server data fetching
+1. **Environment isolation infra** — Implement Hono API server, `createTransportRemote`, Node code organization (see [environment-isolation.md](environment-isolation.md)).
+2. **Web-specific adapters** — Create adapter that converts web client config to `MCPServerConfig`, handles proxy URL construction, and manages OAuth token injection into headers. Provide fetch wrapper (POST to `/api/fetch`), optional logger (POST to `/api/log`), and OAuth providers (`BrowserOAuthStorage`, `BrowserNavigation`).
+3. **Replace useConnection** — Use `InspectorClient` + `useInspectorClient` instead of `useConnection`; migrate state and request history to `MessageEntry[]`; wire OAuth via web app's `oauth/callback` route.
 
 ### Benefits of Web Client Integration
 
@@ -541,11 +482,10 @@ Create adapter function that:
 
 ### Implementation Steps
 
-1. **Extend `MCPServerConfig`** to support custom headers
-2. **Create adapter function** to convert web client config to `MCPServerConfig`
-3. **Use `InspectorClient`** for tools/resources/prompts operations (via `getClient()` initially)
-4. **Gradually migrate** state management to `useInspectorClient`
-5. **Eventually replace** `useConnection` with `useInspectorClient` + web-specific wrapper
+1. Implement Hono API server and `createTransportRemote` (see [environment-isolation.md](environment-isolation.md))
+2. Organize Node-only code in `shared/auth/node/` and `shared/mcp/node/` so shared loads in browser
+3. Create adapter to convert web client config to `MCPServerConfig`; add fetch wrapper, logger, OAuth providers
+4. Replace `useConnection` with `InspectorClient` + `useInspectorClient`; migrate state to `MessageEntry[]`
 
 ## Technical Details
 
@@ -625,10 +565,10 @@ The shared code architecture provides:
 - ✅ Phase 1: TUI integrated and using shared code
 - ✅ Phase 2: Shared package created and configured
 - ✅ Phase 3: CLI migrated to use shared code
-- 🔄 Phase 4: TUI feature gap implementation (planned)
+- ✅ Phase 4: TUI feature gaps addressed (OAuth, completions, elicitation, sampling, etc.)
 - 🔄 Phase 5: v2 web client integration (planned)
 
 **Next Steps:**
 
-1. **Phase 4**: Implement TUI feature gaps (OAuth, completions, elicitation, sampling) by extending `InspectorClient`
-2. **Phase 5**: Integrate `InspectorClient` with v2 web client (once Phase 4 is complete and v2 web client is ready)
+1. Implement environment isolation infra: Hono API server, `createTransportRemote`, Node code organization (see [environment-isolation.md](environment-isolation.md))
+2. Integrate `InspectorClient` with v2 web client: replace `useConnection` with `InspectorClient` + `useInspectorClient`, add fetch/logger wrappers

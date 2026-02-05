@@ -1,4 +1,4 @@
-import { getServerType } from "./config.js";
+import { getServerType } from "../config.js";
 import type {
   MCPServerConfig,
   StdioServerConfig,
@@ -6,11 +6,11 @@ import type {
   StreamableHttpServerConfig,
   CreateTransportOptions,
   CreateTransportResult,
-} from "./types.js";
+} from "../types.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createFetchTracker } from "./fetchTracking.js";
+import { createFetchTracker } from "../fetchTracking.js";
 
 /**
  * Creates the appropriate transport for an MCP server configuration.

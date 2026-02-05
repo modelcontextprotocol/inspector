@@ -22,7 +22,7 @@ These seams are already implemented in InspectorClient:
 
 The caller provides storage, navigation, and redirect URL provider when configuring OAuth. InspectorClient accepts an optional top-level `fetchFn` used for both OAuth (discovery, registration, token exchange) and MCP transport HTTP requests. Fetches are tracked with `category: 'auth'` or `category: 'transport'` for the Requests tab. The web client must still implement the proxy endpoint and a fetch wrapper that routes requests through it.
 
-InspectorClient **requires** a `transportClientFactory` of type `CreateTransport`. Node environments (TUI, CLI) pass `createTransportNode` from `shared/mcp/transport`. Web environments will pass `createTransportRemote` (or a factory that creates `RemoteClientTransport` instances connecting to the bridge).
+InspectorClient **requires** a `transportClientFactory` of type `CreateTransport`. Node environments (TUI, CLI) pass `createTransportNode` from `inspector-shared/mcp/node`. Web environments will pass `createTransportRemote` (or a factory that creates `RemoteClientTransport` instances connecting to the bridge).
 
 ---
 
@@ -92,22 +92,31 @@ The bridge uses `createFetchTracker` when creating HTTP transports and emits `fe
 
 ---
 
-### Node Code Organization
+## Module Organization (Implemented)
 
-**Problem**: `shared/auth/index.ts` re-exports `NodeOAuthStorage` and `createOAuthCallbackServer`, which import `fs`, `path`, and `node:http`. Importing from `inspector-shared/auth` loads those modules and fails in the browser.
+Environment-specific code is under `node` or `browser` subdirectories so the core `auth` and `mcp` modules stay portable.
 
-**Solution**: Move Node-only code to `shared/node/`:
+### Auth
 
-- `shared/node/auth/` – `NodeOAuthStorage`, `oauth-callback-server`, `clearAllOAuthClientState`
-- `shared/node/mcp/` – `loadMcpServersConfig`, `argsToMcpServerConfig` (uses `fs`, `path`, `process.cwd`)
+- **`shared/auth/`** — Types, interfaces, base providers, utilities (no `fs`, `window`, or `sessionStorage`). Exports storage interface, `CallbackNavigation`, `ConsoleNavigation`, `BaseOAuthClientProvider`, etc.
+- **`shared/auth/node/`** — Node-only: `NodeOAuthStorage`, `createOAuthCallbackServer`, `clearAllOAuthClientState` (moved from `storage-node.ts`, `oauth-callback-server.ts`). Package export: `"./auth/node"`.
+- **`shared/auth/browser/`** — Browser-only: `BrowserOAuthStorage` (sessionStorage), `BrowserNavigation`, `BrowserOAuthClientProvider` (moved from `storage-browser.ts` and `providers.ts`). Package export: `"./auth/browser"`.
 
-Package exports: `"./node/auth"`, `"./node/mcp"`. Browser consumers import from `inspector-shared` and `inspector-shared/auth` only; Node consumers (TUI, CLI, tests) additionally import from `inspector-shared/node/auth` and `inspector-shared/node/mcp`.
+Node consumers (TUI, CLI, tests) import from `inspector-shared/auth/node`. Browser consumers import from `inspector-shared/auth/browser`. Core auth is imported from `inspector-shared/auth` only.
 
-### Config File Loading
+### MCP
 
-**Problem**: `loadMcpServersConfig` uses `fs`, `path`, `process.cwd()`. It is exported from the main mcp index, so importing `InspectorClient` can pull it in.
+- **`shared/mcp/`** — Portable: `InspectorClient`, types, `getServerType`, `createFetchTracker`, message tracking, etc. No Node-only APIs.
+- **`shared/mcp/node/`** — Node-only: `loadMcpServersConfig`, `argsToMcpServerConfig`, `createTransportNode` (moved from `config.ts` and `transport.ts`). Package export: `"./mcp/node"`.
 
-**Solution**: Move to `shared/node/mcp/` (see above). TUI and CLI import from `inspector-shared/node/mcp` for config loading. The main mcp index does not export config.
+Node consumers import from `inspector-shared/mcp/node` for config loading and transport creation. The main mcp index does not export config or `createTransportNode`.
+
+### Summary
+
+| Area | Portable (no env APIs)                | Node (`./auth/node`, `./mcp/node`)                               | Browser (`./auth/browser`)                                         |
+| ---- | ------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Auth | storage types, base providers, utils  | NodeOAuthStorage, callback server                                | BrowserOAuthStorage, BrowserNavigation, BrowserOAuthClientProvider |
+| MCP  | InspectorClient, types, getServerType | loadMcpServersConfig, argsToMcpServerConfig, createTransportNode | —                                                                  |
 
 ---
 
@@ -131,15 +140,47 @@ A web client using InspectorClient would create a logger in its Node launcher pr
 
 ---
 
+## API Implementation (Web App)
+
+For the web app, we would launch a **Hono server** that hosts all the Node-backed endpoints required by the browser-based InspectorClient. This server runs alongside (or as) the UX server and exposes the seams as HTTP APIs. The browser calls these endpoints via fetch wrappers and the `RemoteClientTransport`; InspectorClient remains unaware of whether it is talking to local or remote services.
+
+**Endpoints**
+
+| Endpoint                   | Purpose                                                           | Seam              |
+| -------------------------- | ----------------------------------------------------------------- | ----------------- |
+| `POST /api/mcp/connect`    | Create session and client transport (stdio, SSE, streamable HTTP) | Remote transports |
+| `POST /api/mcp/send`       | Forward JSON-RPC message to MCP server                            | Remote transports |
+| `GET /api/mcp/events`      | Stream responses and side-channel events (SSE)                    | Remote transports |
+| `POST /api/mcp/disconnect` | Cleanup session                                                   | Remote transports |
+| `POST /api/fetch`          | Proxy HTTP requests for OAuth and transport (CORS bypass)         | Proxy fetch       |
+| `POST /api/log`            | Receive log events from browser for server-side logging           | Logging           |
+
+All endpoints require a session token (e.g. `x-mcp-bridge-auth` header), origin validation, and timing-safe token comparison.
+
+**Rationale for Hono**
+
+Hono is lightweight, framework-agnostic, and supports Node. Using Hono keeps the API surface simple and consistent with the goal of a single server hosting transport, fetch, and logging. The existing proxy/express setup could be migrated to Hono if desired, or the Hono server could run as a separate process. The critical point is that one server hosts all endpoints the web client needs; the exact framework is an implementation detail.
+
+**Out of scope for the API**
+
+- **OAuth callback** — The web app implements its own `oauth/callback` route. OAuth redirects hit the web app directly; the callback is not part of the bridge API.
+
+**OAuth storage and the on-disk store**
+
+If we want the web app to use the same on-disk OAuth store as the Node apps (`NodeOAuthStorage`), the browser cannot read/write the filesystem directly. We would need an API that exposes storage operations—e.g. `GET /api/oauth/store/:serverUrl` and `POST /api/oauth/store/:serverUrl`—so the web app’s `OAuthStorage` implementation can delegate to the Node side. The Node process would use `NodeOAuthStorage` (or equivalent) to persist tokens. This is a design consideration for shared auth state between a locally running web app and the existing file-based store used by the TUI/CLI.
+
+---
+
 ## Summary
 
-| Seam                   | Status                | Notes                                                                                                   |
-| ---------------------- | --------------------- | ------------------------------------------------------------------------------------------------------- |
-| OAuth storage          | Implemented           | Injected `OAuthStorage`                                                                                 |
-| OAuth navigation       | Implemented           | Injected `OAuthNavigation`                                                                              |
-| OAuth redirect URL     | Implemented           | Injected `RedirectUrlProvider`                                                                          |
-| OAuth auth fetch       | Partially implemented | InspectorClient accepts and passes `fetchFn`; client needs proxy endpoint and fetch wrapper             |
-| Logging                | Partially implemented | InspectorClient accepts `logger`; TUI uses file logger. Web client needs remote logger → API            |
-| Transports             | Partially implemented | `CreateTransport` required; Node uses `createTransportNode`. `createTransportRemote` and bridge pending |
-| Node code organization | Not implemented       | Move to `shared/node/`                                                                                  |
-| Config loading         | Not implemented       | Move to `shared/node/mcp/`                                                                              |
+| Seam                      | Status                | Notes                                                                                                   |
+| ------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------- |
+| OAuth storage             | Implemented           | Injected `OAuthStorage`                                                                                 |
+| OAuth navigation          | Implemented           | Injected `OAuthNavigation`                                                                              |
+| OAuth redirect URL        | Implemented           | Injected `RedirectUrlProvider`                                                                          |
+| OAuth auth fetch          | Partially implemented | InspectorClient accepts and passes `fetchFn`; client needs proxy endpoint and fetch wrapper             |
+| Logging                   | Partially implemented | InspectorClient accepts `logger`; TUI uses file logger. Web client needs remote logger → API            |
+| Transports                | Partially implemented | `CreateTransport` required; Node uses `createTransportNode`. `createTransportRemote` and bridge pending |
+| Node code organization    | Implemented           | `shared/auth/node/`, `shared/mcp/node/`                                                                 |
+| Browser code organization | Implemented           | `shared/auth/browser/`                                                                                  |
+| Config loading            | Implemented           | In `shared/mcp/node/`                                                                                   |

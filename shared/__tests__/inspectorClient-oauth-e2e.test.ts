@@ -9,7 +9,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { InspectorClient } from "../mcp/inspectorClient.js";
-import { createTransportNode } from "../mcp/transport.js";
+import { createTransportNode } from "../mcp/node/transport.js";
 import { TestServerHttp } from "../test/test-server-http.js";
 import { waitForStateFile } from "../test/test-helpers.js";
 import { getDefaultServerConfig } from "../test/test-server-fixtures.js";
@@ -25,7 +25,10 @@ import {
   getDCRRequests,
   invalidateAccessToken,
 } from "../test/test-server-oauth.js";
-import { clearAllOAuthClientState, NodeOAuthStorage } from "../auth/index.js";
+import {
+  clearAllOAuthClientState,
+  NodeOAuthStorage,
+} from "../auth/node/index.js";
 import type { InspectorClientOptions } from "../mcp/inspectorClient.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 

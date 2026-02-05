@@ -4,17 +4,10 @@
 export { InspectorClient } from "./inspectorClient.js";
 export type { InspectorClientOptions } from "./inspectorClient.js";
 
-// Transport factory for Node (TUI, CLI); web apps would provide RemoteClientTransport factory
-export { createTransportNode } from "./transport.js";
-
 // Re-export type-safe event target types for consumers
 export type { InspectorClientEventMap } from "./inspectorClientEventTarget.js";
 
-export {
-  loadMcpServersConfig,
-  argsToMcpServerConfig,
-  getServerType,
-} from "./config.js";
+export { getServerType } from "./config.js";
 
 // Re-export ContentCache
 export {

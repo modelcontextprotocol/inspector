@@ -12,10 +12,8 @@ import type {
   SseServerConfig,
   StreamableHttpServerConfig,
 } from "@modelcontextprotocol/inspector-shared/mcp/types.js";
-import {
-  createTransportNode,
-  InspectorClient,
-} from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import { createTransportNode } from "@modelcontextprotocol/inspector-shared/mcp/node/index.js";
 import type { JsonValue } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import {
   LoggingLevelSchema,

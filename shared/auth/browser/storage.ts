@@ -1,4 +1,4 @@
-import type { OAuthStorage } from "./storage.js";
+import type { OAuthStorage } from "../storage.js";
 import type {
   OAuthClientInformation,
   OAuthTokens,
@@ -8,7 +8,7 @@ import {
   OAuthClientInformationSchema,
   OAuthTokensSchema,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { getServerSpecificKey, OAUTH_STORAGE_KEYS } from "./storage.js";
+import { getServerSpecificKey, OAUTH_STORAGE_KEYS } from "../storage.js";
 
 /**
  * Browser storage implementation using sessionStorage

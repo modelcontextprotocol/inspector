@@ -12,7 +12,13 @@
     "./auth/*": "./build/auth/*",
     "./react/*": "./build/react/*",
     "./test/*": "./build/test/*",
-    "./json/*": "./build/json/*"
+    "./json/*": "./build/json/*",
+    "./auth/node": "./build/auth/node/index.js",
+    "./auth/node/*": "./build/auth/node/*",
+    "./mcp/node": "./build/mcp/node/index.js",
+    "./mcp/node/*": "./build/mcp/node/*",
+    "./auth/browser": "./build/auth/browser/index.js",
+    "./auth/browser/*": "./build/auth/browser/*"
   },
   "files": [
     "build"

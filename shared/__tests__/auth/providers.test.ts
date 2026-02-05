@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  BrowserNavigation,
-  ConsoleNavigation,
-  CallbackNavigation,
-} from "../../auth/providers.js";
+import { ConsoleNavigation, CallbackNavigation } from "../../auth/providers.js";
+import { BrowserNavigation } from "../../auth/browser/providers.js";
 
 describe("OAuthNavigation", () => {
   describe("ConsoleNavigation", () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { InspectorClient } from "../mcp/inspectorClient.js";
-import { createTransportNode } from "../mcp/transport.js";
+import { createTransportNode } from "../mcp/node/transport.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 import { createOAuthClientConfig } from "../test/test-server-fixtures.js";
 import type { InspectorClientOptions } from "../mcp/inspectorClient.js";

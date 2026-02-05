@@ -12,13 +12,6 @@ export { EMPTY_GUIDED_STATE } from "./types.js";
 // Storage
 export type { OAuthStorage } from "./storage.js";
 export { getServerSpecificKey, OAUTH_STORAGE_KEYS } from "./storage.js";
-export { BrowserOAuthStorage } from "./storage-browser.js";
-export {
-  NodeOAuthStorage,
-  getOAuthStore,
-  getStateFilePath,
-  clearAllOAuthClientState,
-} from "./storage-node.js";
 
 // Providers
 export type {
@@ -29,11 +22,9 @@ export type {
 } from "./providers.js";
 export {
   MutableRedirectUrlProvider,
-  BrowserNavigation,
   ConsoleNavigation,
   CallbackNavigation,
   BaseOAuthClientProvider,
-  BrowserOAuthClientProvider,
 } from "./providers.js";
 
 // Utilities
@@ -45,18 +36,6 @@ export {
   generateOAuthErrorDescription,
 } from "./utils.js";
 export type { OAuthStateMode } from "./utils.js";
-
-// OAuth callback server (TUI/CLI localhost redirect receiver)
-export {
-  createOAuthCallbackServer,
-  OAuthCallbackServer,
-} from "./oauth-callback-server.js";
-export type {
-  OAuthCallbackHandler,
-  OAuthErrorHandler,
-  OAuthCallbackServerStartOptions,
-  OAuthCallbackServerStartResult,
-} from "./oauth-callback-server.js";
 
 // Discovery
 export { discoverScopes } from "./discovery.js";

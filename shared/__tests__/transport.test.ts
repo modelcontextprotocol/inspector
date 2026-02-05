@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getServerType } from "../mcp/config.js";
-import { createTransportNode } from "../mcp/transport.js";
+import { createTransportNode } from "../mcp/node/transport.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 import { createTestServerHttp } from "../test/test-server-http.js";
 import {
