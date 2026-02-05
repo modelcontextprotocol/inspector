@@ -12,15 +12,15 @@ We use the term **seams** for the individual integration points where environmen
 
 These seams are already implemented in InspectorClient:
 
-| Seam                   | Abstraction                        | Node Implementation                                           | Browser Implementation                                                                |
-| ---------------------- | ---------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| **OAuth storage**      | `OAuthStorage`                     | `NodeOAuthStorage` (file-based)                               | `BrowserOAuthStorage` (sessionStorage)                                                |
-| **OAuth navigation**   | `OAuthNavigation`                  | `CallbackNavigation` (e.g. opens URL via `open`)              | `BrowserNavigation` (redirects)                                                       |
-| **OAuth redirect URL** | `RedirectUrlProvider`              | `MutableRedirectUrlProvider` (populated from callback server) | Object literal using `window.location.origin`                                         |
-| **OAuth auth fetch**   | Optional `fetchFn` in OAuth config | N/A (Node has no CORS)                                        | Caller provides fetch that POSTs to proxy when in browser                             |
-| **Transport creation** | `CreateTransport` (required)       | `createTransportNode` (creates stdio, SSE, streamable-http)   | `createTransportRemote` (proposed; creates `RemoteClientTransport` talking to bridge) |
+| Seam                   | Abstraction                  | Node Implementation                                           | Browser Implementation                                                                |
+| ---------------------- | ---------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **OAuth storage**      | `OAuthStorage`               | `NodeOAuthStorage` (file-based)                               | `BrowserOAuthStorage` (sessionStorage)                                                |
+| **OAuth navigation**   | `OAuthNavigation`            | `CallbackNavigation` (e.g. opens URL via `open`)              | `BrowserNavigation` (redirects)                                                       |
+| **OAuth redirect URL** | `RedirectUrlProvider`        | `MutableRedirectUrlProvider` (populated from callback server) | Object literal using `window.location.origin`                                         |
+| **OAuth auth fetch**   | Optional top-level `fetchFn` | N/A (Node has no CORS)                                        | Caller provides fetch that POSTs to proxy when in browser                             |
+| **Transport creation** | `CreateTransport` (required) | `createTransportNode` (creates stdio, SSE, streamable-http)   | `createTransportRemote` (proposed; creates `RemoteClientTransport` talking to bridge) |
 
-The caller provides storage, navigation, and redirect URL provider when configuring OAuth. InspectorClient accepts optional `fetchFn` and passes it to all SDK auth calls (discovery, registration, token exchange, scope discovery). The web client must still implement the proxy endpoint and a fetch wrapper that routes requests through it.
+The caller provides storage, navigation, and redirect URL provider when configuring OAuth. InspectorClient accepts an optional top-level `fetchFn` used for both OAuth (discovery, registration, token exchange) and MCP transport HTTP requests. Fetches are tracked with `category: 'auth'` or `category: 'transport'` for the Requests tab. The web client must still implement the proxy endpoint and a fetch wrapper that routes requests through it.
 
 InspectorClient **requires** a `transportClientFactory` of type `CreateTransport`. Node environments (TUI, CLI) pass `createTransportNode` from `shared/mcp/transport`. Web environments will pass `createTransportRemote` (or a factory that creates `RemoteClientTransport` instances connecting to the bridge).
 
@@ -32,7 +32,7 @@ These seams are not yet implemented. They fall into two groups: browser integrat
 
 ### Proxy Fetch (OAuth Auth Seam)
 
-**Status:** Partially implemented. InspectorClient accepts optional `fetchFn` in OAuth config and passes it to all SDK auth calls. The web client must still implement the proxy endpoint (`POST /fetch`) and a client-side fetch wrapper that serializes requests and POSTs them to the proxy.
+**Status:** Partially implemented. InspectorClient accepts optional top-level `fetchFn` and uses it for both OAuth and transport HTTP requests. The web client must still implement the proxy endpoint (`POST /fetch`) and a client-side fetch wrapper that serializes requests and POSTs them to the proxy.
 
 **Problem**
 

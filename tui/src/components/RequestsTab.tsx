@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { FetchRequestEntry } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface RequestsTabProps {
   serverName: string | null;
@@ -24,51 +25,27 @@ export function RequestsTab({
   onViewDetails,
   modalOpen = false,
 }: RequestsTabProps) {
-  const [selectedIndex, setSelectedIndex] = useState<number>(0);
-  const [leftScrollOffset, setLeftScrollOffset] = useState<number>(0);
-  const scrollViewRef = useRef<ScrollViewRef>(null);
-
-  // Calculate visible area for left pane (accounting for header)
-  const leftPaneHeight = height - 2; // Subtract header space
-  const visibleRequests = requests.slice(
-    leftScrollOffset,
-    leftScrollOffset + leftPaneHeight,
+  const visibleCount = Math.max(1, height - 7);
+  const { selectedIndex, firstVisible, setSelection } = useSelectableList(
+    requests.length,
+    visibleCount,
   );
-
+  const scrollViewRef = useRef<ScrollViewRef>(null);
   const selectedRequest = requests[selectedIndex] || null;
 
   // Handle arrow key navigation and scrolling when focused
   useInput(
     (input: string, key: Key) => {
       if (focusedPane === "requests") {
-        if (key.upArrow) {
-          if (selectedIndex > 0) {
-            const newIndex = selectedIndex - 1;
-            setSelectedIndex(newIndex);
-            // Auto-scroll if selection goes above visible area
-            if (newIndex < leftScrollOffset) {
-              setLeftScrollOffset(newIndex);
-            }
-          }
-        } else if (key.downArrow) {
-          if (selectedIndex < requests.length - 1) {
-            const newIndex = selectedIndex + 1;
-            setSelectedIndex(newIndex);
-            // Auto-scroll if selection goes below visible area
-            if (newIndex >= leftScrollOffset + leftPaneHeight) {
-              setLeftScrollOffset(Math.max(0, newIndex - leftPaneHeight + 1));
-            }
-          }
+        if (key.upArrow && selectedIndex > 0) {
+          setSelection(selectedIndex - 1);
+        } else if (key.downArrow && selectedIndex < requests.length - 1) {
+          setSelection(selectedIndex + 1);
         } else if (key.pageUp) {
-          setLeftScrollOffset(Math.max(0, leftScrollOffset - leftPaneHeight));
-          setSelectedIndex(Math.max(0, selectedIndex - leftPaneHeight));
+          setSelection(Math.max(0, selectedIndex - visibleCount));
         } else if (key.pageDown) {
-          const maxScroll = Math.max(0, requests.length - leftPaneHeight);
-          setLeftScrollOffset(
-            Math.min(maxScroll, leftScrollOffset + leftPaneHeight),
-          );
-          setSelectedIndex(
-            Math.min(requests.length - 1, selectedIndex + leftPaneHeight),
+          setSelection(
+            Math.min(requests.length - 1, selectedIndex + visibleCount),
           );
         }
         return;
@@ -106,14 +83,7 @@ export function RequestsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requests.length]);
 
-  // Reset selection when requests change
-  useEffect(() => {
-    if (selectedIndex >= requests.length) {
-      setSelectedIndex(Math.max(0, requests.length - 1));
-    }
-  }, [requests.length, selectedIndex]);
-
-  // Reset scroll when request selection changes
+  // Reset details scroll when request selection changes
   useEffect(() => {
     scrollViewRef.current?.scrollTo(0);
   }, [selectedIndex]);
@@ -158,30 +128,40 @@ export function RequestsTab({
             <Text dimColor>No requests</Text>
           </Box>
         ) : (
-          <Box flexDirection="column" flexGrow={1} minHeight={0}>
-            {visibleRequests.map((req, visibleIndex) => {
-              const actualIndex = leftScrollOffset + visibleIndex;
-              const isSelected = actualIndex === selectedIndex;
-              const statusColor = getStatusColor(req.responseStatus);
-              const statusText = req.responseStatus
-                ? `${req.responseStatus}`
-                : req.error
-                  ? "ERROR"
-                  : "...";
+          <Box
+            flexDirection="column"
+            height={visibleCount}
+            overflow="hidden"
+            flexShrink={0}
+          >
+            {requests
+              .slice(firstVisible, firstVisible + visibleCount)
+              .map((req, i) => {
+                const index = firstVisible + i;
+                const isSelected = index === selectedIndex;
+                const statusColor = getStatusColor(req.responseStatus);
+                const statusText = req.responseStatus
+                  ? `${req.responseStatus}`
+                  : req.error
+                    ? "ERROR"
+                    : "...";
 
-              return (
-                <Box key={req.id} paddingY={0}>
-                  <Text color={isSelected ? "white" : "white"}>
-                    {isSelected ? "▶ " : "  "}
-                    <Text color={statusColor}>{req.method}</Text>{" "}
-                    <Text dimColor>{statusText}</Text>
-                    {req.duration !== undefined && (
-                      <Text dimColor> {req.duration}ms</Text>
-                    )}
-                  </Text>
-                </Box>
-              );
-            })}
+                const categoryLabel = req.category === "auth" ? "AUTH" : "MCP ";
+                const methodPadded = req.method === "GET" ? "GET " : req.method;
+                return (
+                  <Box key={req.id} paddingY={0} flexShrink={0}>
+                    <Text color={isSelected ? "white" : "white"}>
+                      {isSelected ? "▶ " : "  "}
+                      <Text>{categoryLabel}</Text>{" "}
+                      <Text color={statusColor}>{methodPadded}</Text>{" "}
+                      <Text dimColor>{statusText}</Text>
+                      {req.duration !== undefined && (
+                        <Text dimColor> {req.duration}ms</Text>
+                      )}
+                    </Text>
+                  </Box>
+                );
+              })}
           </Box>
         )}
       </Box>
@@ -202,12 +182,7 @@ export function RequestsTab({
         {selectedRequest ? (
           <>
             {/* Fixed header */}
-            <Box
-              flexDirection="row"
-              justifyContent="space-between"
-              flexShrink={0}
-              paddingTop={1}
-            >
+            <Box flexShrink={0} paddingTop={1}>
               <Text
                 bold
                 backgroundColor={
@@ -217,13 +192,20 @@ export function RequestsTab({
               >
                 {selectedRequest.method} {selectedRequest.url}
               </Text>
-              <Text dimColor>
-                {selectedRequest.timestamp.toLocaleTimeString()}
-              </Text>
             </Box>
 
             {/* Scrollable content area */}
             <ScrollView ref={scrollViewRef} height={height - 5}>
+              {/* Category */}
+              <Box marginTop={1} flexShrink={0}>
+                <Text bold>
+                  Category:{" "}
+                  <Text>
+                    {selectedRequest.category === "auth" ? "auth" : "transport"}
+                  </Text>
+                </Text>
+              </Box>
+
               {/* Status */}
               {selectedRequest.responseStatus !== undefined ? (
                 <Box marginTop={1} flexShrink={0}>
@@ -254,7 +236,10 @@ export function RequestsTab({
               {/* Duration */}
               {selectedRequest.duration !== undefined && (
                 <Box marginTop={1} flexShrink={0}>
-                  <Text dimColor>Duration: {selectedRequest.duration}ms</Text>
+                  <Text dimColor>
+                    {selectedRequest.timestamp.toLocaleTimeString()} (
+                    {selectedRequest.duration}ms)
+                  </Text>
                 </Box>
               )}
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface ToolsTabProps {
   tools: any[];
@@ -26,11 +27,14 @@ export function ToolsTab({
   onViewDetails,
   modalOpen = false,
 }: ToolsTabProps) {
-  const [selectedIndex, setSelectedIndex] = useState<number>(0);
+  const visibleCount = Math.max(1, height - 7);
+  const { selectedIndex, firstVisible, setSelection } = useSelectableList(
+    tools.length,
+    visibleCount,
+    { resetWhen: [tools] },
+  );
   const [error, setError] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollViewRef>(null);
-  const listScrollViewRef = useRef<ScrollViewRef>(null);
-
   const listWidth = Math.floor(width * 0.4);
   const detailWidth = width - listWidth;
 
@@ -44,11 +48,10 @@ export function ToolsTab({
       }
 
       if (focusedPane === "list") {
-        // Navigate the list
         if (key.upArrow && selectedIndex > 0) {
-          setSelectedIndex(selectedIndex - 1);
+          setSelection(selectedIndex - 1);
         } else if (key.downArrow && selectedIndex < tools.length - 1) {
-          setSelectedIndex(selectedIndex + 1);
+          setSelection(selectedIndex + 1);
         }
         return;
       }
@@ -98,18 +101,6 @@ export function ToolsTab({
     scrollViewRef.current?.scrollTo(0);
   }, [selectedIndex]);
 
-  // Auto-scroll list to show selected item
-  useEffect(() => {
-    if (listScrollViewRef.current && selectedIndex >= 0 && tools.length > 0) {
-      listScrollViewRef.current.scrollTo(selectedIndex);
-    }
-  }, [selectedIndex, tools.length]);
-
-  // Reset selected index when tools array changes (different server)
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [tools]);
-
   const selectedTool = tools[selectedIndex] || null;
 
   return (
@@ -143,19 +134,27 @@ export function ToolsTab({
             <Text dimColor>No tools available</Text>
           </Box>
         ) : (
-          <ScrollView ref={listScrollViewRef} height={height - 2}>
-            {tools.map((tool, index) => {
-              const isSelected = index === selectedIndex;
-              return (
-                <Box key={tool.name || index} paddingY={0}>
-                  <Text>
-                    {isSelected ? "▶ " : "  "}
-                    {tool.name || `Tool ${index + 1}`}
-                  </Text>
-                </Box>
-              );
-            })}
-          </ScrollView>
+          <Box
+            flexDirection="column"
+            height={visibleCount}
+            overflow="hidden"
+            flexShrink={0}
+          >
+            {tools
+              .slice(firstVisible, firstVisible + visibleCount)
+              .map((tool, i) => {
+                const index = firstVisible + i;
+                const isSelected = index === selectedIndex;
+                return (
+                  <Box key={tool.name || index} paddingY={0} flexShrink={0}>
+                    <Text>
+                      {isSelected ? "▶ " : "  "}
+                      {tool.name || `Tool ${index + 1}`}
+                    </Text>
+                  </Box>
+                );
+              })}
+          </Box>
         )}
       </Box>
 

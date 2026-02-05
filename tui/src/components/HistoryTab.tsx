@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { MessageEntry } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface HistoryTabProps {
   serverName: string | null;
@@ -24,51 +25,27 @@ export function HistoryTab({
   onViewDetails,
   modalOpen = false,
 }: HistoryTabProps) {
-  const [selectedIndex, setSelectedIndex] = useState<number>(0);
-  const [leftScrollOffset, setLeftScrollOffset] = useState<number>(0);
-  const scrollViewRef = useRef<ScrollViewRef>(null);
-
-  // Calculate visible area for left pane (accounting for header)
-  const leftPaneHeight = height - 2; // Subtract header space
-  const visibleMessages = messages.slice(
-    leftScrollOffset,
-    leftScrollOffset + leftPaneHeight,
+  const visibleCount = Math.max(1, height - 7);
+  const { selectedIndex, firstVisible, setSelection } = useSelectableList(
+    messages.length,
+    visibleCount,
   );
-
+  const scrollViewRef = useRef<ScrollViewRef>(null);
   const selectedMessage = messages[selectedIndex] || null;
 
   // Handle arrow key navigation and scrolling when focused
   useInput(
     (input: string, key: Key) => {
       if (focusedPane === "messages") {
-        if (key.upArrow) {
-          if (selectedIndex > 0) {
-            const newIndex = selectedIndex - 1;
-            setSelectedIndex(newIndex);
-            // Auto-scroll if selection goes above visible area
-            if (newIndex < leftScrollOffset) {
-              setLeftScrollOffset(newIndex);
-            }
-          }
-        } else if (key.downArrow) {
-          if (selectedIndex < messages.length - 1) {
-            const newIndex = selectedIndex + 1;
-            setSelectedIndex(newIndex);
-            // Auto-scroll if selection goes below visible area
-            if (newIndex >= leftScrollOffset + leftPaneHeight) {
-              setLeftScrollOffset(Math.max(0, newIndex - leftPaneHeight + 1));
-            }
-          }
+        if (key.upArrow && selectedIndex > 0) {
+          setSelection(selectedIndex - 1);
+        } else if (key.downArrow && selectedIndex < messages.length - 1) {
+          setSelection(selectedIndex + 1);
         } else if (key.pageUp) {
-          setLeftScrollOffset(Math.max(0, leftScrollOffset - leftPaneHeight));
-          setSelectedIndex(Math.max(0, selectedIndex - leftPaneHeight));
+          setSelection(Math.max(0, selectedIndex - visibleCount));
         } else if (key.pageDown) {
-          const maxScroll = Math.max(0, messages.length - leftPaneHeight);
-          setLeftScrollOffset(
-            Math.min(maxScroll, leftScrollOffset + leftPaneHeight),
-          );
-          setSelectedIndex(
-            Math.min(messages.length - 1, selectedIndex + leftPaneHeight),
+          setSelection(
+            Math.min(messages.length - 1, selectedIndex + visibleCount),
           );
         }
         return;
@@ -106,14 +83,7 @@ export function HistoryTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length]);
 
-  // Reset selection when messages change
-  useEffect(() => {
-    if (selectedIndex >= messages.length) {
-      setSelectedIndex(Math.max(0, messages.length - 1));
-    }
-  }, [messages.length, selectedIndex]);
-
-  // Reset scroll when message selection changes
+  // Reset details scroll when message selection changes
   useEffect(() => {
     scrollViewRef.current?.scrollTo(0);
   }, [selectedIndex]);
@@ -150,51 +120,58 @@ export function HistoryTab({
             <Text dimColor>No messages</Text>
           </Box>
         ) : (
-          <Box flexDirection="column" flexGrow={1} minHeight={0}>
-            {visibleMessages.map((msg, visibleIndex) => {
-              const actualIndex = leftScrollOffset + visibleIndex;
-              const isSelected = actualIndex === selectedIndex;
-              let label: string;
-              if (msg.direction === "request" && "method" in msg.message) {
-                label = msg.message.method;
-              } else if (msg.direction === "response") {
-                if ("result" in msg.message) {
-                  label = "Response (result)";
-                } else if ("error" in msg.message) {
-                  label = `Response (error: ${msg.message.error.code})`;
+          <Box
+            flexDirection="column"
+            height={visibleCount}
+            overflow="hidden"
+            flexShrink={0}
+          >
+            {messages
+              .slice(firstVisible, firstVisible + visibleCount)
+              .map((msg, i) => {
+                const index = firstVisible + i;
+                const isSelected = index === selectedIndex;
+                let label: string;
+                if (msg.direction === "request" && "method" in msg.message) {
+                  label = msg.message.method;
+                } else if (msg.direction === "response") {
+                  if ("result" in msg.message) {
+                    label = "Response (result)";
+                  } else if ("error" in msg.message) {
+                    label = `Response (error: ${msg.message.error.code})`;
+                  } else {
+                    label = "Response";
+                  }
+                } else if (
+                  msg.direction === "notification" &&
+                  "method" in msg.message
+                ) {
+                  label = msg.message.method;
                 } else {
-                  label = "Response";
+                  label = "Unknown";
                 }
-              } else if (
-                msg.direction === "notification" &&
-                "method" in msg.message
-              ) {
-                label = msg.message.method;
-              } else {
-                label = "Unknown";
-              }
-              const direction =
-                msg.direction === "request"
-                  ? "→"
-                  : msg.direction === "response"
-                    ? "←"
-                    : "•";
-              const hasResponse = msg.response !== undefined;
+                const direction =
+                  msg.direction === "request"
+                    ? "→"
+                    : msg.direction === "response"
+                      ? "←"
+                      : "•";
+                const hasResponse = msg.response !== undefined;
 
-              return (
-                <Box key={msg.id} paddingY={0}>
-                  <Text color={isSelected ? "white" : "white"}>
-                    {isSelected ? "▶ " : "  "}
-                    {direction} {label}
-                    {hasResponse
-                      ? " ✓"
-                      : msg.direction === "request"
-                        ? " ..."
-                        : ""}
-                  </Text>
-                </Box>
-              );
-            })}
+                return (
+                  <Box key={msg.id} paddingY={0} flexShrink={0}>
+                    <Text color={isSelected ? "white" : "white"}>
+                      {isSelected ? "▶ " : "  "}
+                      {direction} {label}
+                      {hasResponse
+                        ? " ✓"
+                        : msg.direction === "request"
+                          ? " ..."
+                          : ""}
+                    </Text>
+                  </Box>
+                );
+              })}
           </Box>
         )}
       </Box>
@@ -215,12 +192,7 @@ export function HistoryTab({
         {selectedMessage ? (
           <>
             {/* Fixed method caption only */}
-            <Box
-              flexDirection="row"
-              justifyContent="space-between"
-              flexShrink={0}
-              paddingTop={1}
-            >
+            <Box flexShrink={0} paddingTop={1}>
               <Text
                 bold
                 backgroundColor={
@@ -238,9 +210,6 @@ export function HistoryTab({
                       ? selectedMessage.message.method
                       : "Message"}
               </Text>
-              <Text dimColor>
-                {selectedMessage.timestamp.toLocaleTimeString()}
-              </Text>
             </Box>
 
             {/* Scrollable content area */}
@@ -248,11 +217,13 @@ export function HistoryTab({
               {/* Metadata */}
               <Box marginTop={1} flexDirection="column" flexShrink={0}>
                 <Text bold>Direction: {selectedMessage.direction}</Text>
-                {selectedMessage.duration !== undefined && (
-                  <Box marginTop={1}>
-                    <Text dimColor>Duration: {selectedMessage.duration}ms</Text>
-                  </Box>
-                )}
+                <Box marginTop={1}>
+                  <Text dimColor>
+                    {selectedMessage.timestamp.toLocaleTimeString()}
+                    {selectedMessage.duration !== undefined &&
+                      ` (${selectedMessage.duration}ms)`}
+                  </Text>
+                </Box>
               </Box>
 
               {selectedMessage.direction === "request" ? (

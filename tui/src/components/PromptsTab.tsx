@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface PromptsTabProps {
   prompts: any[];
@@ -28,10 +29,14 @@ export function PromptsTab({
   onFetchPrompt,
   modalOpen = false,
 }: PromptsTabProps) {
-  const [selectedIndex, setSelectedIndex] = useState<number>(0);
+  const visibleCount = Math.max(1, height - 7);
+  const { selectedIndex, firstVisible, setSelection } = useSelectableList(
+    prompts.length,
+    visibleCount,
+    { resetWhen: [prompts] },
+  );
   const [error, setError] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollViewRef>(null);
-  const listScrollViewRef = useRef<ScrollViewRef>(null);
 
   // Handle arrow key navigation when focused
   useInput(
@@ -67,11 +72,10 @@ export function PromptsTab({
       }
 
       if (focusedPane === "list") {
-        // Navigate the list
         if (key.upArrow && selectedIndex > 0) {
-          setSelectedIndex(selectedIndex - 1);
+          setSelection(selectedIndex - 1);
         } else if (key.downArrow && selectedIndex < prompts.length - 1) {
-          setSelectedIndex(selectedIndex + 1);
+          setSelection(selectedIndex + 1);
         }
         return;
       }
@@ -110,18 +114,6 @@ export function PromptsTab({
     scrollViewRef.current?.scrollTo(0);
   }, [selectedIndex]);
 
-  // Auto-scroll list to show selected item
-  useEffect(() => {
-    if (listScrollViewRef.current && selectedIndex >= 0 && prompts.length > 0) {
-      listScrollViewRef.current.scrollTo(selectedIndex);
-    }
-  }, [selectedIndex, prompts.length]);
-
-  // Reset selected index when prompts array changes (different server)
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [prompts]);
-
   const selectedPrompt = prompts[selectedIndex] || null;
 
   const listWidth = Math.floor(width * 0.4);
@@ -158,19 +150,27 @@ export function PromptsTab({
             <Text dimColor>No prompts available</Text>
           </Box>
         ) : (
-          <ScrollView ref={listScrollViewRef} height={height - 2}>
-            {prompts.map((prompt, index) => {
-              const isSelected = index === selectedIndex;
-              return (
-                <Box key={prompt.name || index} paddingY={0}>
-                  <Text>
-                    {isSelected ? "▶ " : "  "}
-                    {prompt.name || `Prompt ${index + 1}`}
-                  </Text>
-                </Box>
-              );
-            })}
-          </ScrollView>
+          <Box
+            flexDirection="column"
+            height={visibleCount}
+            overflow="hidden"
+            flexShrink={0}
+          >
+            {prompts
+              .slice(firstVisible, firstVisible + visibleCount)
+              .map((prompt, i) => {
+                const index = firstVisible + i;
+                const isSelected = index === selectedIndex;
+                return (
+                  <Box key={prompt.name || index} paddingY={0} flexShrink={0}>
+                    <Text>
+                      {isSelected ? "▶ " : "  "}
+                      {prompt.name || `Prompt ${index + 1}`}
+                    </Text>
+                  </Box>
+                );
+              })}
+          </Box>
         )}
       </Box>
 

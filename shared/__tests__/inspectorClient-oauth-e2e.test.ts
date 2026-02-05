@@ -1301,15 +1301,13 @@ describe("InspectorClient OAuth E2E", () => {
 
       const clientConfig: InspectorClientOptions = {
         transportClientFactory: createTransportNode,
-        oauth: {
-          ...createOAuthClientConfig({
-            mode: "static",
-            clientId: staticClientId,
-            clientSecret: staticClientSecret,
-            redirectUrl: testRedirectUrl,
-          }),
-          fetchFn,
-        },
+        fetchFn,
+        oauth: createOAuthClientConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        }),
       };
 
       client = new InspectorClient(
@@ -1338,6 +1336,15 @@ describe("InspectorClient OAuth E2E", () => {
           c.url.includes("token"),
       );
       expect(oauthUrls.length).toBeGreaterThan(0);
+
+      // Verify fetch tracking categories: auth vs transport
+      const fetchRequests = client.getFetchRequests();
+      const authFetches = fetchRequests.filter((r) => r.category === "auth");
+      const transportFetches = fetchRequests.filter(
+        (r) => r.category === "transport",
+      );
+      expect(authFetches.length).toBeGreaterThan(0);
+      expect(transportFetches.length).toBeGreaterThan(0);
     });
   });
 });

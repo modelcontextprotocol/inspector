@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface ResourceTemplate {
   name: string;
@@ -36,7 +37,6 @@ export function ResourcesTab({
   onFetchTemplate,
   modalOpen = false,
 }: ResourcesTabProps) {
-  const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
   const [resourceContent, setResourceContent] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -44,7 +44,6 @@ export function ResourcesTab({
     null,
   );
   const scrollViewRef = useRef<ScrollViewRef>(null);
-  const listScrollViewRef = useRef<ScrollViewRef>(null);
 
   // Combined list: resources first, then templates - memoized to prevent unnecessary recalculations
   const allItems = useMemo(
@@ -59,7 +58,12 @@ export function ResourcesTab({
     [resources.length, resourceTemplates.length],
   );
 
-  // Calculate selectedItem before useInput to avoid stale closure
+  const visibleCount = Math.max(1, height - 7);
+  const { selectedIndex, firstVisible, setSelection } = useSelectableList(
+    totalCount,
+    visibleCount,
+    { resetWhen: [resources] },
+  );
   const selectedItem = useMemo(
     () => allItems[selectedIndex] || null,
     [allItems, selectedIndex],
@@ -89,11 +93,10 @@ export function ResourcesTab({
       }
 
       if (focusedPane === "list") {
-        // Navigate the list
         if (key.upArrow && selectedIndex > 0) {
-          setSelectedIndex(selectedIndex - 1);
+          setSelection(selectedIndex - 1);
         } else if (key.downArrow && selectedIndex < totalCount - 1) {
-          setSelectedIndex(selectedIndex + 1);
+          setSelection(selectedIndex + 1);
         }
         return;
       }
@@ -132,20 +135,10 @@ export function ResourcesTab({
     scrollViewRef.current?.scrollTo(0);
   }, [selectedIndex]);
 
-  // Auto-scroll list to show selected item
-  useEffect(() => {
-    if (listScrollViewRef.current && selectedIndex >= 0 && totalCount > 0) {
-      listScrollViewRef.current.scrollTo(selectedIndex);
-    }
-  }, [selectedIndex, totalCount]);
-
-  // Reset selected index when resources array reference changes
-  // The component key in App.tsx handles remounting on server change,
-  // so this only needs to handle updates for the same server
+  // Clear fetched content when resources change
   const prevResourcesRef = useRef<any[]>(resources);
   useEffect(() => {
     if (prevResourcesRef.current !== resources) {
-      setSelectedIndex(0);
       setResourceContent(null);
       setShouldFetchResource(null);
       prevResourcesRef.current = resources;
@@ -225,63 +218,36 @@ export function ResourcesTab({
             <Text dimColor>No resources available</Text>
           </Box>
         ) : (
-          <ScrollView ref={listScrollViewRef} height={height - 2}>
-            {/* Resources Section */}
-            {resources.length > 0 && (
-              <>
-                <Box paddingY={1} flexShrink={0}>
-                  <Text bold dimColor>
-                    Resources
-                  </Text>
-                </Box>
-                {resources.map((resource, index) => {
-                  const isSelected =
-                    selectedIndex === index &&
-                    selectedItem?.type === "resource";
-                  return (
-                    <Box key={resource.uri || index} paddingY={0}>
-                      <Text>
-                        {isSelected ? "▶ " : "  "}
-                        {resource.name ||
-                          resource.uri ||
-                          `Resource ${index + 1}`}
-                      </Text>
-                    </Box>
-                  );
-                })}
-              </>
-            )}
-
-            {/* Resource Templates Section */}
-            {resourceTemplates.length > 0 && (
-              <>
-                {resources.length > 0 && (
-                  <Box paddingY={0} flexShrink={0}>
-                    <Text> </Text>
+          <Box
+            flexDirection="column"
+            height={visibleCount}
+            overflow="hidden"
+            flexShrink={0}
+          >
+            {allItems
+              .slice(firstVisible, firstVisible + visibleCount)
+              .map((item, i) => {
+                const index = firstVisible + i;
+                const isSelected = index === selectedIndex;
+                const label =
+                  item.type === "resource"
+                    ? item.data.name || item.data.uri || `Resource ${index + 1}`
+                    : item.data.name ||
+                      `Template ${index - resources.length + 1}`;
+                const key =
+                  item.type === "resource"
+                    ? item.data.uri || index
+                    : item.data.uriTemplate || index;
+                return (
+                  <Box key={key} paddingY={0} flexShrink={0}>
+                    <Text>
+                      {isSelected ? "▶ " : "  "}
+                      {label}
+                    </Text>
                   </Box>
-                )}
-                <Box paddingY={1} flexShrink={0}>
-                  <Text bold dimColor>
-                    Resource Templates
-                  </Text>
-                </Box>
-                {resourceTemplates.map((template, index) => {
-                  const templateIndex = resources.length + index;
-                  const isSelected =
-                    selectedIndex === templateIndex &&
-                    selectedItem?.type === "template";
-                  return (
-                    <Box key={template.uriTemplate || index} paddingY={0}>
-                      <Text>
-                        {isSelected ? "▶ " : "  "}
-                        {template.name || `Template ${index + 1}`}
-                      </Text>
-                    </Box>
-                  );
-                })}
-              </>
-            )}
-          </ScrollView>
+                );
+              })}
+          </Box>
         )}
       </Box>
 

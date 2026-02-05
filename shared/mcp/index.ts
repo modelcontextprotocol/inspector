@@ -38,6 +38,8 @@ export type {
   StderrLogEntry,
   MessageEntry,
   FetchRequestEntry,
+  FetchRequestEntryBase,
+  FetchRequestCategory,
   ServerState,
   // Invocation types (returned from InspectorClient methods)
   ResourceReadInvocation,

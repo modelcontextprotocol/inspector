@@ -348,6 +348,7 @@ describe("InspectorClient", () => {
       if (request) {
         expect(request.url).toContain("/sse");
         expect(request.method).toBe("GET");
+        expect(request.category).toBe("transport");
       }
     });
 
@@ -379,6 +380,7 @@ describe("InspectorClient", () => {
       if (request) {
         expect(request.url).toContain("/mcp");
         expect(request.method).toBe("POST");
+        expect(request.category).toBe("transport");
       }
     });
 
@@ -413,6 +415,7 @@ describe("InspectorClient", () => {
         expect(request.responseStatus).toBeDefined();
         expect(request.responseHeaders).toBeDefined();
         expect(request.duration).toBeDefined();
+        expect(request.category).toBe("transport");
       }
     });
 

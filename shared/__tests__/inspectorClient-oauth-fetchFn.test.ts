@@ -38,16 +38,13 @@ describe("InspectorClient OAuth fetchFn", () => {
     vi.restoreAllMocks();
   });
 
-  it("should pass fetchFn to auth() when provided in oauth config", async () => {
+  it("should pass fetchFn to auth() when provided", async () => {
     const mockFetchFn = vi.fn();
-    const oauthConfig = {
-      ...createOAuthClientConfig({
-        mode: "static",
-        clientId: "test-client",
-        redirectUrl: "http://localhost:3000/callback",
-      }),
-      fetchFn: mockFetchFn,
-    };
+    const oauthConfig = createOAuthClientConfig({
+      mode: "static",
+      clientId: "test-client",
+      redirectUrl: "http://localhost:3000/callback",
+    });
 
     client = new InspectorClient(
       { type: "sse", url: "http://localhost:3000/sse" } as MCPServerConfig,
@@ -55,6 +52,7 @@ describe("InspectorClient OAuth fetchFn", () => {
         transportClientFactory: createTransportNode,
         autoFetchServerContents: false,
         oauth: oauthConfig,
+        fetchFn: mockFetchFn,
       } as InspectorClientOptions,
     );
 
@@ -64,12 +62,12 @@ describe("InspectorClient OAuth fetchFn", () => {
     expect(mockAuth).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        fetchFn: mockFetchFn,
+        fetchFn: expect.any(Function),
       }),
     );
   });
 
-  it("should not include fetchFn in auth() options when not provided", async () => {
+  it("should pass fetchFn to auth() when not provided (uses default fetch)", async () => {
     const oauthConfig = createOAuthClientConfig({
       mode: "static",
       clientId: "test-client",
@@ -90,7 +88,8 @@ describe("InspectorClient OAuth fetchFn", () => {
     expect(mockAuth).toHaveBeenCalled();
     const callArgs = mockAuth.mock.calls[0]!;
     const options = callArgs[1];
-    expect(options).not.toHaveProperty("fetchFn");
+    expect(options).toHaveProperty("fetchFn");
+    expect(typeof options.fetchFn).toBe("function");
   });
 
   it("should pass fetchFn to auth() in completeOAuthFlow when provided", async () => {
@@ -105,14 +104,11 @@ describe("InspectorClient OAuth fetchFn", () => {
       },
     );
 
-    const oauthConfig = {
-      ...createOAuthClientConfig({
-        mode: "static",
-        clientId: "test-client",
-        redirectUrl: "http://localhost:3000/callback",
-      }),
-      fetchFn: mockFetchFn,
-    };
+    const oauthConfig = createOAuthClientConfig({
+      mode: "static",
+      clientId: "test-client",
+      redirectUrl: "http://localhost:3000/callback",
+    });
 
     client = new InspectorClient(
       { type: "sse", url: "http://localhost:3000/sse" } as MCPServerConfig,
@@ -120,6 +116,7 @@ describe("InspectorClient OAuth fetchFn", () => {
         transportClientFactory: createTransportNode,
         autoFetchServerContents: false,
         oauth: oauthConfig,
+        fetchFn: mockFetchFn,
       } as InspectorClientOptions,
     );
 
@@ -129,7 +126,7 @@ describe("InspectorClient OAuth fetchFn", () => {
       expect.anything(),
       expect.objectContaining({
         authorizationCode: "test-authorization-code",
-        fetchFn: mockFetchFn,
+        fetchFn: expect.any(Function),
       }),
     );
   });

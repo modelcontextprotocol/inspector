@@ -757,6 +757,12 @@ function App({
           {request.method} {request.url}
         </Text>
       </Box>
+      <Box marginTop={1} flexShrink={0}>
+        <Text bold>
+          Category:{" "}
+          <Text>{request.category === "auth" ? "auth" : "transport"}</Text>
+        </Text>
+      </Box>
       {request.responseStatus !== undefined ? (
         <Box marginTop={1} flexShrink={0}>
           <Text bold>
@@ -772,7 +778,9 @@ function App({
       ) : null}
       {request.duration !== undefined && (
         <Box marginTop={1} flexShrink={0}>
-          <Text dimColor>Duration: {request.duration}ms</Text>
+          <Text dimColor>
+            {request.timestamp.toLocaleTimeString()} ({request.duration}ms)
+          </Text>
         </Box>
       )}
       <Box marginTop={1} flexShrink={0}>
@@ -868,11 +876,12 @@ function App({
       <Box flexShrink={0}>
         <Text bold>Direction: {message.direction}</Text>
       </Box>
-      {message.duration !== undefined && (
-        <Box marginTop={1} flexShrink={0}>
-          <Text dimColor>Duration: {message.duration}ms</Text>
-        </Box>
-      )}
+      <Box marginTop={1} flexShrink={0}>
+        <Text dimColor>
+          {message.timestamp.toLocaleTimeString()}
+          {message.duration !== undefined && ` (${message.duration}ms)`}
+        </Text>
+      </Box>
       {message.direction === "request" ? (
         <>
           <Box marginTop={1} flexShrink={0} flexDirection="column">
@@ -1358,6 +1367,7 @@ function App({
           {/* Tab Content */}
           <Box
             flexGrow={1}
+            minHeight={6}
             width={contentWidth}
             borderTop={false}
             borderLeft={false}
