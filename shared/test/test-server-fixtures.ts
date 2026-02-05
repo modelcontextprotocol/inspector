@@ -156,6 +156,24 @@ export function createEchoTool(): ToolDefinition {
 }
 
 /**
+ * Create a tool that writes a message to stderr. Used to test stderr capture/piping.
+ */
+export function createWriteToStderrTool(): ToolDefinition {
+  return {
+    name: "writeToStderr",
+    description: "Write a message to stderr (for testing stderr capture)",
+    inputSchema: {
+      message: z.string().describe("Message to write to stderr"),
+    },
+    handler: async (params: Record<string, unknown>) => {
+      const msg = params.message as string;
+      process.stderr.write(`${msg}\n`);
+      return { message: `Wrote to stderr: ${msg}` };
+    },
+  };
+}
+
+/**
  * Create an "add" tool that adds two numbers together
  */
 export function createAddTool(): ToolDefinition {
@@ -1644,6 +1662,7 @@ export function getDefaultServerConfig(): ServerConfig {
       createGetSumTool(),
       createGetAnnotatedMessageTool(),
       createSendNotificationTool(),
+      createWriteToStderrTool(),
     ],
     prompts: [createSimplePrompt(), createArgsPrompt()],
     resources: [

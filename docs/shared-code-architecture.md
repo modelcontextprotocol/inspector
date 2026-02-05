@@ -302,25 +302,30 @@ Per [environment-isolation.md](environment-isolation.md):
 
 **Implemented:** OAuth storage, navigation, redirect URL, and auth fetch (`fetchFn`) are injectable. Transport creation is via required `CreateTransport`; Node uses `createTransportNode`. InspectorClient accepts optional `logger`. The shared package works in Node (CLI, TUI).
 
+**Implemented (remote infrastructure):**
+
+- **Hono API server** — In `shared/mcp/remote/node/`. Endpoints for transport (`/api/mcp/connect`, `send`, `events`, `disconnect`), proxy fetch (`/api/fetch`), and logging (`/api/log`).
+- **createRemoteTransport + RemoteClientTransport** — In `shared/mcp/remote/` (portable). Browser transport that talks to the remote server.
+- **createRemoteFetch** — In `shared/mcp/remote/`. Fetch that POSTs to `/api/fetch` for OAuth (CORS bypass).
+- **createRemoteLogger** — In `shared/mcp/remote/`. Pino logger that POSTs to `/api/log` via `pino/browser` transmit.
+- **Node code organization** — `shared/auth/node/`, `shared/mcp/node/`, `shared/mcp/remote/node/`.
+
 **Pending:**
 
-- **Hono API server** — Endpoints for transport (`/api/mcp/connect`, `send`, `events`, `disconnect`), proxy fetch (`/api/fetch`), and logging (`/api/log`).
-- **createTransportRemote + RemoteClientTransport** — Browser transport that talks to the bridge instead of creating stdio/SSE/HTTP transports directly. InspectorClient would receive this as its `CreateTransport` implementation.
-- **Node code organization** — Move Node-only code into `shared/auth/node/` and `shared/mcp/node/` so the browser can import `inspector-shared` without pulling in `fs`, `child_process`, etc. Auth stays under auth, MCP under MCP.
-- **Optional: OAuth store API** — If the web app should share the on-disk store with TUI/CLI, an API (`GET/POST /api/oauth/store/:serverUrl`) would let the browser delegate to Node.
+- **Optional: Generic storage API** — If the web app should share on-disk state with TUI/CLI, a generic endpoint `GET/POST /api/storage/:storeId` (whole-store read/write) would let the browser delegate to Node. See [environment-isolation.md](environment-isolation.md).
 
 ### Port Effort Estimate
 
 | Work                     | Effort | Notes                                                                                                                                                                                                            |
 | ------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hono API server          | Medium | Transport, fetch, log endpoints; session/auth middleware. See environment-isolation.md.                                                                                                                          |
-| createTransportRemote    | Medium | Implements `Transport`; uses `/api/mcp/*`; subscribes to SSE event stream; forwards fetch_request, stdio_log events.                                                                                             |
-| Node code org            | Small  | Move to `shared/auth/node/` and `shared/mcp/node/`; update imports in TUI, CLI, tests.                                                                                                                           |
+| Hono API server          | Medium | In `shared/mcp/remote/node/`. Transport, fetch, log endpoints; session/auth middleware. See environment-isolation.md.                                                                                            |
+| createRemoteTransport    | Medium | In `shared/mcp/remote/`. Implements `Transport`; uses `/api/mcp/*`; subscribes to SSE event stream; forwards fetch_request, stdio_log events.                                                                    |
+| Node code org            | Small  | Move to `shared/auth/node/` and `shared/mcp/node/`; remote server in `shared/mcp/remote/node/`; update imports in TUI, CLI, tests.                                                                               |
 | Web client fetch wrapper | Small  | Fetch that POSTs to `/api/fetch`; handle `URLSearchParams` serialization.                                                                                                                                        |
 | Web client logger        | Small  | Logger that POSTs to `/api/log`, or omit initially.                                                                                                                                                              |
 | Web client refactor      | Large  | Replace `useConnection` with `InspectorClient` + `useInspectorClient`; migrate state; switch to `MessageEntry[]`; wire OAuth (BrowserOAuthStorage, BrowserNavigation); use web app's own `oauth/callback` route. |
 
-**Summary:** InspectorClient itself needs no further feature work for the web app. The remaining effort is (1) implementing the Hono API and `createTransportRemote`, (2) organizing Node-only code so the shared package loads in the browser, and (3) refactoring the web client to use InspectorClient instead of `useConnection`. The first two are one-time infra; the third is the main migration.
+**Summary:** InspectorClient and the remote infrastructure (Hono API, createRemoteTransport, createRemoteFetch, createRemoteLogger) are implemented. The remaining effort is (1) refactoring the web client to use InspectorClient + `createRemoteTransport` instead of `useConnection`, and (2) optionally wiring the generic storage API (`/api/storage/:storeId`) for shared on-disk state with TUI/CLI.
 
 ## Web Client Integration Plan
 
@@ -467,8 +472,8 @@ No additional InspectorClient features are required for web client integration.
 
 InspectorClient already has the needed features (see "InspectorClient Readiness for Web App" above). The integration work is:
 
-1. **Environment isolation infra** — Implement Hono API server, `createTransportRemote`, Node code organization (see [environment-isolation.md](environment-isolation.md)).
-2. **Web-specific adapters** — Create adapter that converts web client config to `MCPServerConfig`, handles proxy URL construction, and manages OAuth token injection into headers. Provide fetch wrapper (POST to `/api/fetch`), optional logger (POST to `/api/log`), and OAuth providers (`BrowserOAuthStorage`, `BrowserNavigation`).
+1. ~~**Environment isolation infra**~~ (done) — Hono API server, `createRemoteTransport`, `createRemoteFetch`, `createRemoteLogger`, Node code organization.
+2. **Web-specific adapters** — Create adapter that converts web client config to `MCPServerConfig`, handles proxy URL construction, and manages OAuth token injection into headers. Use `createRemoteFetch` (POST to `/api/fetch`), `createRemoteLogger` (POST to `/api/log`), and OAuth providers (`BrowserOAuthStorage`, `BrowserNavigation`).
 3. **Replace useConnection** — Use `InspectorClient` + `useInspectorClient` instead of `useConnection`; migrate state and request history to `MessageEntry[]`; wire OAuth via web app's `oauth/callback` route.
 
 ### Benefits of Web Client Integration
@@ -482,9 +487,9 @@ InspectorClient already has the needed features (see "InspectorClient Readiness 
 
 ### Implementation Steps
 
-1. Implement Hono API server and `createTransportRemote` (see [environment-isolation.md](environment-isolation.md))
-2. Organize Node-only code in `shared/auth/node/` and `shared/mcp/node/` so shared loads in browser
-3. Create adapter to convert web client config to `MCPServerConfig`; add fetch wrapper, logger, OAuth providers
+1. ~~Implement Hono API server in `shared/mcp/remote/node/` and `createRemoteTransport` in `shared/mcp/remote/`~~ (done)
+2. ~~Organize Node-only code in `shared/auth/node/` and `shared/mcp/node/`; remote server in `shared/mcp/remote/node/`~~ (done)
+3. Create adapter to convert web client config to `MCPServerConfig`; add fetch wrapper (`createRemoteFetch`), logger (`createRemoteLogger`), OAuth providers
 4. Replace `useConnection` with `InspectorClient` + `useInspectorClient`; migrate state to `MessageEntry[]`
 
 ## Technical Details
@@ -570,5 +575,5 @@ The shared code architecture provides:
 
 **Next Steps:**
 
-1. Implement environment isolation infra: Hono API server, `createTransportRemote`, Node code organization (see [environment-isolation.md](environment-isolation.md))
+1. Implement environment isolation infra: Hono API server in `shared/mcp/remote/node/`, `createRemoteTransport` in `shared/mcp/remote/`, Node code organization (see [environment-isolation.md](environment-isolation.md))
 2. Integrate `InspectorClient` with v2 web client: replace `useConnection` with `InspectorClient` + `useInspectorClient`, add fetch/logger wrappers
