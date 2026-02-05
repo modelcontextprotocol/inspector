@@ -1,12 +1,10 @@
-import { useCallback, useMemo, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DebugInspectorOAuthClientProvider } from "../lib/auth";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "../lib/auth-types";
-import { OAuthFlowProgress } from "./OAuthFlowProgress";
-import { OAuthStateMachine } from "../lib/oauth-state-machine";
-import { SESSION_KEYS } from "../lib/constants";
-import { validateRedirectUrl } from "@/utils/urlValidation";
+import { AuthDebuggerFlow } from "./AuthDebuggerFlow";
+import { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 export interface AuthDebuggerProps {
   serverUrl: string;
@@ -23,6 +21,7 @@ const StatusMessage = ({ message }: StatusMessageProps) => {
   let bgColor: string;
   let textColor: string;
   let borderColor: string;
+  let Icon = AlertCircle;
 
   switch (message.type) {
     case "error":
@@ -34,6 +33,7 @@ const StatusMessage = ({ message }: StatusMessageProps) => {
       bgColor = "bg-green-50";
       textColor = "text-green-700";
       borderColor = "border-green-200";
+      Icon = CheckCircle2;
       break;
     case "info":
     default:
@@ -48,7 +48,7 @@ const StatusMessage = ({ message }: StatusMessageProps) => {
       className={`p-3 rounded-md border ${bgColor} ${borderColor} ${textColor} mb-4`}
     >
       <div className="flex items-center gap-2">
-        <AlertCircle className="h-4 w-4" />
+        <Icon className="h-4 w-4" />
         <p className="text-sm">{message.message}</p>
       </div>
     </div>
@@ -56,11 +56,14 @@ const StatusMessage = ({ message }: StatusMessageProps) => {
 };
 
 const AuthDebugger = ({
-  serverUrl: serverUrl,
+  serverUrl,
   onBack,
   authState,
   updateAuthState,
 }: AuthDebuggerProps) => {
+  const [flowMode, setFlowMode] = useState<"debug" | "quick" | null>(null);
+  const [flowComplete, setFlowComplete] = useState(false);
+
   // Check for existing tokens on mount
   useEffect(() => {
     if (serverUrl && !authState.oauthTokens) {
@@ -82,139 +85,69 @@ const AuthDebugger = ({
     }
   }, [serverUrl, updateAuthState, authState.oauthTokens]);
 
-  const startOAuthFlow = useCallback(() => {
-    if (!serverUrl) {
+  const startFlow = useCallback(
+    (mode: "debug" | "quick") => {
+      if (!serverUrl) {
+        updateAuthState({
+          statusMessage: {
+            type: "error",
+            message:
+              "Please enter a server URL in the sidebar before authenticating",
+          },
+        });
+        return;
+      }
+
       updateAuthState({
-        statusMessage: {
-          type: "error",
-          message:
-            "Please enter a server URL in the sidebar before authenticating",
-        },
-      });
-      return;
-    }
-
-    updateAuthState({
-      oauthStep: "metadata_discovery",
-      authorizationUrl: null,
-      statusMessage: null,
-      latestError: null,
-    });
-  }, [serverUrl, updateAuthState]);
-
-  const stateMachine = useMemo(
-    () => new OAuthStateMachine(serverUrl, updateAuthState),
-    [serverUrl, updateAuthState],
-  );
-
-  const proceedToNextStep = useCallback(async () => {
-    if (!serverUrl) return;
-
-    try {
-      updateAuthState({
-        isInitiatingAuth: true,
         statusMessage: null,
         latestError: null,
       });
+      setFlowComplete(false);
+      setFlowMode(mode);
+    },
+    [serverUrl, updateAuthState],
+  );
 
-      await stateMachine.executeStep(authState);
-    } catch (error) {
-      console.error("OAuth flow error:", error);
+  const startRunFlow = useCallback(() => startFlow("quick"), [startFlow]);
+  const startSlowFlow = useCallback(() => startFlow("debug"), [startFlow]);
+
+  const handleFlowComplete = useCallback(
+    (tokens: OAuthTokens) => {
       updateAuthState({
-        latestError: error instanceof Error ? error : new Error(String(error)),
+        oauthTokens: tokens,
+        oauthStep: "complete",
       });
-    } finally {
-      updateAuthState({ isInitiatingAuth: false });
-    }
-  }, [serverUrl, authState, updateAuthState, stateMachine]);
+      // Keep the flow visible but mark as complete
+      setFlowComplete(true);
+    },
+    [updateAuthState],
+  );
 
-  const handleQuickOAuth = useCallback(async () => {
-    if (!serverUrl) {
+  const handleFlowCancel = useCallback(() => {
+    setFlowMode(null);
+    setFlowComplete(false);
+    updateAuthState({
+      statusMessage: {
+        type: "info",
+        message: "OAuth flow cancelled",
+      },
+    });
+  }, [updateAuthState]);
+
+  const handleFlowError = useCallback(
+    (error: Error) => {
+      setFlowMode(null);
+      setFlowComplete(false);
       updateAuthState({
+        latestError: error,
         statusMessage: {
           type: "error",
-          message:
-            "Please enter a server URL in the sidebar before authenticating",
+          message: `OAuth flow failed: ${error.message}`,
         },
       });
-      return;
-    }
-
-    updateAuthState({ isInitiatingAuth: true, statusMessage: null });
-    try {
-      // Step through the OAuth flow using the state machine instead of the auth() function
-      let currentState: AuthDebuggerState = {
-        ...authState,
-        oauthStep: "metadata_discovery",
-        authorizationUrl: null,
-        latestError: null,
-      };
-
-      const oauthMachine = new OAuthStateMachine(serverUrl, (updates) => {
-        // Update our temporary state during the process
-        currentState = { ...currentState, ...updates };
-        // But don't call updateAuthState yet
-      });
-
-      // Manually step through each stage of the OAuth flow
-      while (currentState.oauthStep !== "complete") {
-        await oauthMachine.executeStep(currentState);
-        // In quick mode, we'll just redirect to the authorization URL
-        if (
-          currentState.oauthStep === "authorization_code" &&
-          currentState.authorizationUrl
-        ) {
-          // Validate the URL before redirecting
-          try {
-            validateRedirectUrl(currentState.authorizationUrl);
-          } catch (error) {
-            updateAuthState({
-              ...currentState,
-              isInitiatingAuth: false,
-              latestError:
-                error instanceof Error ? error : new Error(String(error)),
-              statusMessage: {
-                type: "error",
-                message: `Invalid authorization URL: ${error instanceof Error ? error.message : String(error)}`,
-              },
-            });
-            return;
-          }
-
-          // Store the current auth state before redirecting
-          sessionStorage.setItem(
-            SESSION_KEYS.AUTH_DEBUGGER_STATE,
-            JSON.stringify(currentState),
-          );
-          // Open the authorization URL automatically
-          window.location.href = currentState.authorizationUrl.toString();
-          break;
-        }
-      }
-
-      // After the flow completes or reaches a user-input step, update the app state
-      updateAuthState({
-        ...currentState,
-        statusMessage: {
-          type: "info",
-          message:
-            currentState.oauthStep === "complete"
-              ? "Authentication completed successfully"
-              : "Please complete authentication in the opened window and enter the code",
-        },
-      });
-    } catch (error) {
-      console.error("OAuth initialization error:", error);
-      updateAuthState({
-        statusMessage: {
-          type: "error",
-          message: `Failed to start OAuth flow: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      });
-    } finally {
-      updateAuthState({ isInitiatingAuth: false });
-    }
-  }, [serverUrl, updateAuthState, authState]);
+    },
+    [updateAuthState],
+  );
 
   const handleClearOAuth = useCallback(() => {
     if (serverUrl) {
@@ -229,6 +162,8 @@ const AuthDebugger = ({
           message: "OAuth tokens cleared successfully",
         },
       });
+      setFlowMode(null);
+      setFlowComplete(false);
 
       // Clear success message after 3 seconds
       setTimeout(() => {
@@ -236,6 +171,11 @@ const AuthDebugger = ({
       }, 3000);
     }
   }, [serverUrl, updateAuthState]);
+
+  const handleNewFlow = useCallback(() => {
+    setFlowMode(null);
+    setFlowComplete(false);
+  }, []);
 
   return (
     <div className="w-full p-4">
@@ -273,46 +213,50 @@ const AuthDebugger = ({
                   </div>
                 )}
 
-                <div className="flex gap-4">
+                <div className="flex gap-4 flex-wrap">
                   <Button
-                    variant="outline"
-                    onClick={startOAuthFlow}
-                    disabled={authState.isInitiatingAuth}
+                    onClick={startRunFlow}
+                    disabled={flowMode !== null && !flowComplete}
                   >
-                    {authState.oauthTokens
-                      ? "Guided Token Refresh"
-                      : "Guided OAuth Flow"}
+                    {flowComplete ? "Run Again" : "Run Flow"}
                   </Button>
 
                   <Button
-                    onClick={handleQuickOAuth}
-                    disabled={authState.isInitiatingAuth}
+                    variant="outline"
+                    onClick={startSlowFlow}
+                    disabled={flowMode !== null && !flowComplete}
                   >
-                    {authState.isInitiatingAuth
-                      ? "Initiating..."
-                      : authState.oauthTokens
-                        ? "Quick Refresh"
-                        : "Quick OAuth Flow"}
+                    Slow Mo
                   </Button>
 
                   <Button variant="outline" onClick={handleClearOAuth}>
                     Clear OAuth State
                   </Button>
+
+                  {flowComplete && (
+                    <Button variant="ghost" onClick={handleNewFlow}>
+                      Close
+                    </Button>
+                  )}
                 </div>
 
                 <p className="text-xs text-muted-foreground">
-                  Choose "Guided" for step-by-step instructions or "Quick" for
-                  the standard automatic flow.
+                  <strong>Run Flow</strong>: Run the entire OAuth flow
+                  automatically. <strong>Slow Mo</strong>: Step through each
+                  request one at a time.
                 </p>
               </div>
             </div>
 
-            <OAuthFlowProgress
-              serverUrl={serverUrl}
-              authState={authState}
-              updateAuthState={updateAuthState}
-              proceedToNextStep={proceedToNextStep}
-            />
+            {flowMode && (
+              <AuthDebuggerFlow
+                serverUrl={serverUrl}
+                quickMode={flowMode === "quick"}
+                onComplete={handleFlowComplete}
+                onCancel={handleFlowCancel}
+                onError={handleFlowError}
+              />
+            )}
           </div>
         </div>
       </div>
