@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { useState, useMemo, useRef } from "react";
@@ -78,8 +78,20 @@ const ListPane = <T extends object>({
               placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 w-full"
+              className="pl-10 pr-10 w-full"
             />
+            {searchQuery && (
+              <button
+                onClick={() => {
+                  setSearchQuery("");
+                  searchRef?.current?.focus();
+                }}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors z-10"
+                aria-label="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
         <div className="space-y-2 overflow-y-auto flex-1 min-h-0">
