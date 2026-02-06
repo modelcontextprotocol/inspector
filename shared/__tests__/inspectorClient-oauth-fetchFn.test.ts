@@ -3,7 +3,10 @@ import { InspectorClient } from "../mcp/inspectorClient.js";
 import { createTransportNode } from "../mcp/node/transport.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 import { createOAuthClientConfig } from "../test/test-server-fixtures.js";
-import type { InspectorClientOptions } from "../mcp/inspectorClient.js";
+import type {
+  InspectorClientOptions,
+  InspectorClientEnvironment,
+} from "../mcp/inspectorClient.js";
 
 const mockAuth = vi.fn();
 vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
@@ -49,11 +52,23 @@ describe("InspectorClient OAuth fetchFn", () => {
     client = new InspectorClient(
       { type: "sse", url: "http://localhost:3000/sse" } as MCPServerConfig,
       {
-        transportClientFactory: createTransportNode,
+        environment: {
+          transport: createTransportNode,
+          fetch: mockFetchFn,
+          oauth: {
+            storage: oauthConfig.storage,
+            navigation: oauthConfig.navigation,
+            redirectUrlProvider: oauthConfig.redirectUrlProvider,
+          },
+        },
         autoFetchServerContents: false,
-        oauth: oauthConfig,
-        fetchFn: mockFetchFn,
-      } as InspectorClientOptions,
+        oauth: {
+          clientId: oauthConfig.clientId,
+          clientSecret: oauthConfig.clientSecret,
+          clientMetadataUrl: oauthConfig.clientMetadataUrl,
+          scope: oauthConfig.scope,
+        },
+      },
     );
 
     const url = await client.authenticate();
@@ -77,9 +92,21 @@ describe("InspectorClient OAuth fetchFn", () => {
     client = new InspectorClient(
       { type: "sse", url: "http://localhost:3000/sse" } as MCPServerConfig,
       {
-        transportClientFactory: createTransportNode,
+        environment: {
+          transport: createTransportNode,
+          oauth: {
+            storage: oauthConfig.storage,
+            navigation: oauthConfig.navigation,
+            redirectUrlProvider: oauthConfig.redirectUrlProvider,
+          },
+        },
         autoFetchServerContents: false,
-        oauth: oauthConfig,
+        oauth: {
+          clientId: oauthConfig.clientId,
+          clientSecret: oauthConfig.clientSecret,
+          clientMetadataUrl: oauthConfig.clientMetadataUrl,
+          scope: oauthConfig.scope,
+        },
       } as InspectorClientOptions,
     );
 
@@ -113,11 +140,23 @@ describe("InspectorClient OAuth fetchFn", () => {
     client = new InspectorClient(
       { type: "sse", url: "http://localhost:3000/sse" } as MCPServerConfig,
       {
-        transportClientFactory: createTransportNode,
+        environment: {
+          transport: createTransportNode,
+          fetch: mockFetchFn,
+          oauth: {
+            storage: oauthConfig.storage,
+            navigation: oauthConfig.navigation,
+            redirectUrlProvider: oauthConfig.redirectUrlProvider,
+          },
+        },
         autoFetchServerContents: false,
-        oauth: oauthConfig,
-        fetchFn: mockFetchFn,
-      } as InspectorClientOptions,
+        oauth: {
+          clientId: oauthConfig.clientId,
+          clientSecret: oauthConfig.clientSecret,
+          clientMetadataUrl: oauthConfig.clientMetadataUrl,
+          scope: oauthConfig.scope,
+        },
+      },
     );
 
     await client.completeOAuthFlow("test-authorization-code");

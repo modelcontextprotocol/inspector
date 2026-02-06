@@ -84,13 +84,66 @@ import type pino from "pino";
 import { silentLogger } from "../auth/logger.js";
 import { createFetchTracker } from "./fetchTracking.js";
 
-export interface InspectorClientOptions {
+/**
+ * Consolidated environment interface that defines all environment-specific seams.
+ * Each environment (Node, browser, tests) provides a complete implementation bundle.
+ */
+export interface InspectorClientEnvironment {
   /**
    * Factory that creates a client transport for the given server config.
-   * Required. Caller provides the implementation (e.g. createTransport for Node,
-   * RemoteClientTransport factory for browser bridge).
+   * Required. Environment provides the implementation:
+   * - Node: createTransportNode
+   * - Browser: createRemoteTransport
    */
-  transportClientFactory: CreateTransport;
+  transport: CreateTransport;
+
+  /**
+   * Optional fetch function for HTTP requests (OAuth discovery/token exchange and
+   * MCP transport). When provided, used for both auth and transport to bypass CORS.
+   * - Node: undefined (uses global fetch)
+   * - Browser: createRemoteFetch
+   */
+  fetch?: typeof fetch;
+
+  /**
+   * Optional logger for InspectorClient events (transport, OAuth, etc.).
+   * - Node: pino file logger
+   * - Browser: createRemoteLogger
+   */
+  logger?: pino.Logger;
+
+  /**
+   * OAuth environment components
+   */
+  oauth?: {
+    /**
+     * OAuth storage implementation
+     * - Node: NodeOAuthStorage (file-based)
+     * - Browser: BrowserOAuthStorage (sessionStorage) or RemoteOAuthStorage (shared state)
+     */
+    storage?: OAuthStorage;
+
+    /**
+     * Navigation handler for redirecting users to authorization URLs
+     * - Node: ConsoleNavigation
+     * - Browser: BrowserNavigation
+     */
+    navigation?: OAuthNavigation;
+
+    /**
+     * Redirect URL provider
+     * - Node: from OAuth callback server
+     * - Browser: from window.location or callback route
+     */
+    redirectUrlProvider?: RedirectUrlProvider;
+  };
+}
+
+export interface InspectorClientOptions {
+  /**
+   * Environment-specific implementations (transport, fetch, logger, OAuth components)
+   */
+  environment: InspectorClientEnvironment;
 
   /**
    * Client identity (name and version)
@@ -186,22 +239,9 @@ export interface InspectorClientOptions {
   timeout?: number;
 
   /**
-   * Optional pino logger for InspectorClient events (transport, OAuth, etc.).
-   * When provided, token endpoint fetch requests/responses are logged.
-   * Node: pass a pino file logger. Web: pass createRemoteLogger({ baseUrl }).
-   */
-  logger?: pino.Logger;
-
-  /**
-   * Optional fetch function for HTTP requests (OAuth discovery/token exchange and
-   * MCP transport). When provided (e.g. proxy fetch in browser), used for both
-   * auth and transport to bypass CORS. Fetches are tracked with category ('auth'
-   * or 'transport') for the Requests tab.
-   */
-  fetchFn?: typeof fetch;
-
-  /**
-   * OAuth configuration
+   * OAuth configuration (client credentials, scope, etc.)
+   * Note: OAuth environment components (storage, navigation, redirectUrlProvider)
+   * are in environment.oauth, but clientId/clientSecret/scope are config.
    */
   oauth?: {
     /**
@@ -227,25 +267,6 @@ export interface InspectorClientOptions {
      * OAuth scope (optional, will be discovered if not provided)
      */
     scope?: string;
-
-    /**
-     * Redirect URL provider. Returns redirect URL for normal/guided mode when
-     * needed. Caller populates URLs before authenticate() (e.g. from callback
-     * server).
-     */
-    redirectUrlProvider: RedirectUrlProvider;
-
-    /**
-     * OAuth storage. The caller provides the storage implementation (e.g.
-     * NodeOAuthStorage for TUI/CLI, BrowserOAuthStorage for web).
-     */
-    storage: OAuthStorage;
-
-    /**
-     * Navigation handler. The caller handles navigation when the user must be
-     * sent to the authorization URL.
-     */
-    navigation: OAuthNavigation;
   };
 }
 
@@ -306,7 +327,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   // Task tracking
   private clientTasks: Map<string, Task> = new Map();
   // OAuth support
-  private oauthConfig?: InspectorClientOptions["oauth"];
+  private oauthConfig?: InspectorClientOptions["oauth"] &
+    NonNullable<InspectorClientEnvironment["oauth"]>;
   private oauthStateMachine: OAuthStateMachine | null = null;
   private oauthState: AuthGuidedState | null = null;
   private logger: pino.Logger;
@@ -319,7 +341,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     options: InspectorClientOptions,
   ) {
     super();
-    this.transportClientFactory = options.transportClientFactory;
+    // Extract environment components
+    this.transportClientFactory = options.environment.transport;
+    this.fetchFn = options.environment.fetch;
+    this.logger = options.environment.logger ?? silentLogger;
+
     // Initialize content cache
     this.cacheInternal = new ContentCache();
     this.cache = this.cacheInternal;
@@ -342,16 +368,19 @@ export class InspectorClient extends InspectorClientEventTarget {
       resources: options.listChangedNotifications?.resources ?? true,
       prompts: options.listChangedNotifications?.prompts ?? true,
     };
-    // Logger: use injected or silent no-op
-    this.logger = options.logger ?? silentLogger;
-
-    // Top-level fetchFn: used for both auth and transport
-    this.fetchFn = options.fetchFn;
 
     // Effective auth fetch: base fetch + tracking with category 'auth'
     this.effectiveAuthFetch = this.buildEffectiveAuthFetch();
 
-    this.oauthConfig = options.oauth;
+    // Merge OAuth config with environment components
+    if (options.oauth || options.environment.oauth) {
+      this.oauthConfig = {
+        // Environment components (storage, navigation, redirectUrlProvider)
+        ...options.environment.oauth,
+        // Config values (clientId, clientSecret, clientMetadataUrl, scope)
+        ...options.oauth,
+      };
+    }
 
     // Transport is created in connect() (single place for create / wrap / attach).
 
@@ -2323,10 +2352,25 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("OAuth not configured. Call setOAuthConfig() first.");
     }
 
+    if (
+      !this.oauthConfig.storage ||
+      !this.oauthConfig.redirectUrlProvider ||
+      !this.oauthConfig.navigation
+    ) {
+      throw new Error(
+        "OAuth environment components (storage, navigation, redirectUrlProvider) are required.",
+      );
+    }
+
     const serverUrl = this.getServerUrl();
     const provider = new BaseOAuthClientProvider(
       serverUrl,
-      this.oauthConfig,
+      {
+        storage: this.oauthConfig.storage,
+        redirectUrlProvider: this.oauthConfig.redirectUrlProvider,
+        navigation: this.oauthConfig.navigation,
+        clientMetadataUrl: this.oauthConfig.clientMetadataUrl,
+      },
       mode,
     );
 

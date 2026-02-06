@@ -2,7 +2,10 @@
 // Re-exports the primary API for MCP client/server interaction
 
 export { InspectorClient } from "./inspectorClient.js";
-export type { InspectorClientOptions } from "./inspectorClient.js";
+export type {
+  InspectorClientOptions,
+  InspectorClientEnvironment,
+} from "./inspectorClient.js";
 
 // Re-export type-safe event target types for consumers
 export type { InspectorClientEventMap } from "./inspectorClientEventTarget.js";
