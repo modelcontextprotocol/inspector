@@ -68,14 +68,15 @@ describe("BrowserOAuthStorage", () => {
         client_secret: "preregistered-secret",
       };
 
-      // Browser storage uses a different key for preregistered info
-      const { getServerSpecificKey, OAUTH_STORAGE_KEYS } =
-        await import("../../auth/storage.js");
-      const key = getServerSpecificKey(
-        OAUTH_STORAGE_KEYS.PREREGISTERED_CLIENT_INFORMATION,
+      // Use the storage API instead of manually setting sessionStorage
+      // since BrowserOAuthStorage now uses Zustand with a different storage format
+      storage.savePreregisteredClientInformation(
         testServerUrl,
+        preregisteredInfo,
       );
-      mockSessionStorage.setItem(key, JSON.stringify(preregisteredInfo));
+
+      // Wait for Zustand to persist
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const result = await storage.getClientInformation(testServerUrl, true);
 

@@ -24,6 +24,7 @@ import type { MCPServerConfig } from "../mcp/types.js";
 
 interface StartRemoteServerOptions {
   logger?: pino.Logger;
+  storageDir?: string;
 }
 
 async function startRemoteServer(
@@ -34,7 +35,10 @@ async function startRemoteServer(
   server: ServerType;
   authToken: string;
 }> {
-  const { app, authToken } = createRemoteApp({ logger: options.logger });
+  const { app, authToken } = createRemoteApp({
+    logger: options.logger,
+    storageDir: options.storageDir,
+  });
   return new Promise((resolve, reject) => {
     const server = serve(
       { fetch: app.fetch, port, hostname: "127.0.0.1" },
@@ -560,6 +564,231 @@ describe("Remote transport e2e", () => {
       expect(logContent).toContain("category");
 
       await client.disconnect();
+    });
+  });
+
+  describe("storage", () => {
+    let tempDir: string | null = null;
+
+    beforeEach(() => {
+      tempDir = null;
+    });
+
+    afterEach(async () => {
+      if (tempDir) {
+        try {
+          rmSync(tempDir, { recursive: true });
+        } catch {
+          // Ignore cleanup errors
+        }
+        tempDir = null;
+      }
+    });
+
+    it("returns empty object for non-existent store", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+      });
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "GET",
+        headers: {
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json).toEqual({});
+    });
+
+    it("reads and writes store data", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+      });
+      remoteServer = server;
+
+      const testData = { key1: "value1", key2: { nested: "value" } };
+
+      // Write store
+      const writeRes = await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify(testData),
+      });
+
+      expect(writeRes.status).toBe(200);
+      const writeJson = await writeRes.json();
+      expect(writeJson).toEqual({ ok: true });
+
+      // Read store
+      const readRes = await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "GET",
+        headers: {
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+      });
+
+      expect(readRes.status).toBe(200);
+      const readJson = await readRes.json();
+      expect(readJson).toEqual(testData);
+    });
+
+    it("overwrites store on POST", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+      });
+      remoteServer = server;
+
+      const initialData = { key1: "value1" };
+      const updatedData = { key2: "value2" };
+
+      // Write initial data
+      await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify(initialData),
+      });
+
+      // Overwrite with new data
+      await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify(updatedData),
+      });
+
+      // Read and verify overwrite
+      const readRes = await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "GET",
+        headers: {
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+      });
+
+      expect(readRes.status).toBe(200);
+      const readJson = await readRes.json();
+      expect(readJson).toEqual(updatedData);
+      expect(readJson).not.toEqual(initialData);
+    });
+
+    it("rejects invalid storeId", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+      });
+      remoteServer = server;
+
+      // Test invalid characters (not alphanumeric, hyphen, underscore)
+      const res = await fetch(`${baseUrl}/api/storage/invalid.store.id`, {
+        method: "GET",
+        headers: {
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toBe("Invalid storeId");
+    });
+
+    it("rejects requests without auth token", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const { baseUrl, server } = await startRemoteServer(0, {
+        storageDir: tempDir,
+      });
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "GET",
+      });
+
+      expect(res.status).toBe(401);
+      const json = await res.json();
+      expect(json.error).toBe("Unauthorized");
+    });
+
+    it("deletes store with DELETE endpoint", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+      });
+      remoteServer = server;
+
+      const testData = { key1: "value1" };
+
+      // Write store
+      await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify(testData),
+      });
+
+      // Verify it exists
+      const readRes = await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "GET",
+        headers: {
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+      });
+      expect(readRes.status).toBe(200);
+      const readJson = await readRes.json();
+      expect(readJson).toEqual(testData);
+
+      // Delete store
+      const deleteRes = await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "DELETE",
+        headers: {
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+      });
+      expect(deleteRes.status).toBe(200);
+      const deleteJson = await deleteRes.json();
+      expect(deleteJson).toEqual({ ok: true });
+
+      // Verify it's gone (returns empty object)
+      const readAfterDelete = await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "GET",
+        headers: {
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+      });
+      expect(readAfterDelete.status).toBe(200);
+      const readAfterDeleteJson = await readAfterDelete.json();
+      expect(readAfterDeleteJson).toEqual({});
+    });
+
+    it("DELETE returns success for non-existent store", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+      });
+      remoteServer = server;
+
+      const deleteRes = await fetch(`${baseUrl}/api/storage/non-existent`, {
+        method: "DELETE",
+        headers: {
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+      });
+      expect(deleteRes.status).toBe(200);
+      const deleteJson = await deleteRes.json();
+      expect(deleteJson).toEqual({ ok: true });
     });
   });
 });

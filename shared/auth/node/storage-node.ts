@@ -1,5 +1,3 @@
-import { createStore } from "zustand/vanilla";
-import { persist, createJSONStorage } from "zustand/middleware";
 import type { OAuthStorage } from "../storage.js";
 import type {
   OAuthClientInformation,
@@ -10,30 +8,9 @@ import {
   OAuthClientInformationSchema,
   OAuthTokensSchema,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import * as fs from "node:fs/promises";
 import * as path from "node:path";
-
-/**
- * OAuth state for a single server
- */
-interface ServerOAuthState {
-  clientInformation?: OAuthClientInformation;
-  preregisteredClientInformation?: OAuthClientInformation;
-  tokens?: OAuthTokens;
-  codeVerifier?: string;
-  scope?: string;
-  serverMetadata?: OAuthMetadata;
-}
-
-/**
- * Zustand store state (all servers)
- */
-interface OAuthStoreState {
-  servers: Record<string, ServerOAuthState>;
-  getServerState: (serverUrl: string) => ServerOAuthState;
-  setServerState: (serverUrl: string, state: Partial<ServerOAuthState>) => void;
-  clearServerState: (serverUrl: string) => void;
-}
+import { createOAuthStore, type ServerOAuthState } from "../store.js";
+import { createFileStorageAdapter } from "../../storage/adapters/file-storage.js";
 
 const DEFAULT_STATE_PATH = (() => {
   const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
@@ -48,82 +25,6 @@ export function getStateFilePath(customPath?: string): string {
   return customPath ?? DEFAULT_STATE_PATH;
 }
 
-/**
- * Create Zustand store with persist middleware
- * Uses file-based storage for Node.js environments
- */
-function createOAuthStore(stateFilePath?: string) {
-  const statePath = getStateFilePath(stateFilePath);
-
-  return createStore<OAuthStoreState>()(
-    persist(
-      (set, get) => ({
-        servers: {},
-        getServerState: (serverUrl: string) => {
-          return get().servers[serverUrl] || {};
-        },
-        setServerState: (
-          serverUrl: string,
-          updates: Partial<ServerOAuthState>,
-        ) => {
-          set((state) => ({
-            servers: {
-              ...state.servers,
-              [serverUrl]: {
-                ...state.servers[serverUrl],
-                ...updates,
-              },
-            },
-          }));
-        },
-        clearServerState: (serverUrl: string) => {
-          set((state) => {
-            const { [serverUrl]: _, ...rest } = state.servers;
-            return { servers: rest };
-          });
-        },
-      }),
-      {
-        name: "mcp-inspector-oauth",
-        storage: createJSONStorage<OAuthStoreState>(() => ({
-          getItem: async (name: string) => {
-            try {
-              const data = await fs.readFile(statePath, "utf-8");
-              return data;
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-                return null;
-              }
-              throw error;
-            }
-          },
-          setItem: async (name: string, value: string) => {
-            // Ensure directory exists
-            const dir = path.dirname(statePath);
-            await fs.mkdir(dir, { recursive: true });
-            await fs.writeFile(statePath, value, "utf-8");
-            // Set restrictive permissions (600) - only if file exists
-            try {
-              await fs.chmod(statePath, 0o600);
-            } catch {
-              // Ignore chmod errors (file may not exist in some test scenarios)
-            }
-          },
-          removeItem: async (name: string) => {
-            try {
-              await fs.unlink(statePath);
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-                throw error;
-              }
-            }
-          },
-        })),
-      },
-    ),
-  );
-}
-
 const storeCache = new Map<string, ReturnType<typeof createOAuthStore>>();
 
 /**
@@ -134,7 +35,9 @@ export function getOAuthStore(stateFilePath?: string) {
   const key = getStateFilePath(stateFilePath);
   let store = storeCache.get(key);
   if (!store) {
-    store = createOAuthStore(key);
+    const filePath = getStateFilePath(stateFilePath);
+    const storage = createFileStorageAdapter({ filePath });
+    store = createOAuthStore(storage);
     storeCache.set(key, store);
   }
   return store;

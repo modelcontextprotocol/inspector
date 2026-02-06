@@ -1,9 +1,11 @@
 /**
  * Hono-based remote server for MCP transports.
- * Hosts /api/mcp/connect, send, events, disconnect, /api/fetch, /api/log.
+ * Hosts /api/mcp/connect, send, events, disconnect, /api/fetch, /api/log, /api/storage/:storeId.
  */
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type pino from "pino";
 import type { LogEvent } from "pino";
 import { Hono } from "hono";
@@ -13,6 +15,8 @@ import { createTransportNode } from "../../node/transport.js";
 import type { RemoteConnectRequest, RemoteSendRequest } from "../types.js";
 import type { MCPServerConfig } from "../../types.js";
 import { RemoteSession } from "./remote-session.js";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 export interface RemoteServerOptions {
   /** Optional auth token. If not provided, uses MCP_REMOTE_AUTH_TOKEN env var or generates one. */
@@ -23,6 +27,9 @@ export interface RemoteServerOptions {
 
   /** Optional pino file logger. When set, /api/log forwards received events to it. */
   logger?: pino.Logger;
+
+  /** Optional storage directory for /api/storage/:storeId. Default: ~/.mcp-inspector/storage */
+  storageDir?: string;
 }
 
 export interface CreateRemoteAppResult {
@@ -93,6 +100,67 @@ function createAuthMiddleware(authToken: string) {
   };
 }
 
+/**
+ * Get default storage directory path.
+ */
+function getDefaultStorageDir(): string {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
+  return path.join(homeDir, ".mcp-inspector", "storage");
+}
+
+/**
+ * Validate storeId to prevent path traversal attacks.
+ * Store IDs must be alphanumeric, hyphens, underscores only, and not empty.
+ */
+function validateStoreId(storeId: string): boolean {
+  return /^[a-zA-Z0-9_-]+$/.test(storeId) && storeId.length > 0;
+}
+
+/**
+ * Get file path for a store ID.
+ */
+function getStoreFilePath(storageDir: string, storeId: string): string {
+  return path.join(storageDir, `${storeId}.json`);
+}
+
+/**
+ * Simple OAuth client provider that just returns tokens.
+ * Used by remote server to inject Bearer tokens into transport requests.
+ */
+function createTokenAuthProvider(
+  tokens: RemoteConnectRequest["oauthTokens"],
+): OAuthClientProvider | undefined {
+  if (!tokens) return undefined;
+
+  return {
+    async tokens(): Promise<OAuthTokens | undefined> {
+      return tokens as OAuthTokens;
+    },
+    // Other methods not needed for transport Bearer token injection
+    async clientInformation() {
+      return undefined;
+    },
+    async saveTokens() {
+      // No-op
+    },
+    codeVerifier() {
+      return undefined;
+    },
+    async saveCodeVerifier() {
+      // No-op
+    },
+    clear() {
+      // No-op
+    },
+    redirectToAuthorization() {
+      // No-op
+    },
+    state() {
+      return "";
+    },
+  } as unknown as OAuthClientProvider;
+}
+
 function forwardLogEvent(
   logger: pino.Logger,
   logEvent: Partial<LogEvent>,
@@ -147,6 +215,7 @@ export function createRemoteApp(
   const app = new Hono();
   const sessions = new Map<string, RemoteSession>();
   const { logger: fileLogger } = options;
+  const storageDir = options.storageDir ?? getDefaultStorageDir();
 
   // Apply auth middleware to all routes
   // Auth is always enabled (token from options, env var, or generated)
@@ -170,10 +239,14 @@ export function createRemoteApp(
 
     let transport: Awaited<ReturnType<typeof createTransportNode>>["transport"];
     try {
+      // Create authProvider from tokens if provided
+      const authProvider = createTokenAuthProvider(body.oauthTokens);
+
       const result = createTransportNode(config, {
         pipeStderr: true,
         onStderr: (entry) => session.onStderr(entry),
         onFetchRequest: (entry) => session.onFetchRequest(entry),
+        authProvider,
       });
       transport = result.transport;
     } catch (err) {
@@ -191,7 +264,16 @@ export function createRemoteApp(
       await transport.start();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return c.json({ error: `Failed to start transport: ${msg}` }, 500);
+      // Preserve 401 status if the underlying error is a 401
+      // This allows clients to detect auth failures
+      const is401 =
+        (err as { code?: number }).code === 401 ||
+        msg.includes("401") ||
+        msg.includes("Unauthorized");
+      return c.json(
+        { error: `Failed to start transport: ${msg}` },
+        is401 ? 401 : 500,
+      );
     }
     sessions.set(sessionId, session);
 
@@ -344,6 +426,87 @@ export function createRemoteApp(
       console.log("[remote-log]", body);
     }
     return c.json({ ok: true });
+  });
+
+  app.get("/api/storage/:storeId", async (c) => {
+    const storeId = c.req.param("storeId");
+    if (!storeId || !validateStoreId(storeId)) {
+      return c.json({ error: "Invalid storeId" }, 400);
+    }
+
+    const filePath = getStoreFilePath(storageDir, storeId);
+
+    try {
+      const data = await fs.readFile(filePath, "utf-8");
+      const store = JSON.parse(data);
+      return c.json(store);
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        return c.json({}, 200); // Return empty object if file doesn't exist
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      return c.json({ error: `Failed to read store: ${msg}` }, 500);
+    }
+  });
+
+  app.post("/api/storage/:storeId", async (c) => {
+    const storeId = c.req.param("storeId");
+    if (!storeId || !validateStoreId(storeId)) {
+      return c.json({ error: "Invalid storeId" }, 400);
+    }
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    const filePath = getStoreFilePath(storageDir, storeId);
+
+    try {
+      // Ensure storage directory exists
+      await fs.mkdir(storageDir, { recursive: true });
+
+      // Write store as JSON
+      const jsonData = JSON.stringify(body, null, 2);
+      await fs.writeFile(filePath, jsonData, "utf-8");
+
+      // Set restrictive permissions (600) for security
+      try {
+        await fs.chmod(filePath, 0o600);
+      } catch {
+        // Ignore chmod errors (may fail on some systems)
+      }
+
+      return c.json({ ok: true });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: `Failed to write store: ${msg}` }, 500);
+    }
+  });
+
+  app.delete("/api/storage/:storeId", async (c) => {
+    const storeId = c.req.param("storeId");
+    if (!storeId || !validateStoreId(storeId)) {
+      return c.json({ error: "Invalid storeId" }, 400);
+    }
+
+    const filePath = getStoreFilePath(storageDir, storeId);
+
+    try {
+      await fs.unlink(filePath);
+      return c.json({ ok: true });
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        // Already deleted, return success
+        return c.json({ ok: true });
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      return c.json({ error: `Failed to delete store: ${msg}` }, 500);
+    }
   });
 
   return { app, authToken };

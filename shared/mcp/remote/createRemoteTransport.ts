@@ -8,6 +8,7 @@ import type {
   CreateTransportOptions,
   CreateTransportResult,
 } from "../types.js";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { RemoteClientTransport } from "./remoteClientTransport.js";
 
 export interface RemoteTransportFactoryOptions {
@@ -54,6 +55,7 @@ export function createRemoteTransport(
         fetchFn: options.fetchFn,
         onStderr: transportOptions.onStderr,
         onFetchRequest: transportOptions.onFetchRequest,
+        authProvider: transportOptions.authProvider,
       },
       config,
     );

@@ -8,6 +8,13 @@ import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 export interface RemoteConnectRequest {
   /** MCP server config (stdio, sse, or streamable-http) */
   config: MCPServerConfig;
+  /** Optional OAuth tokens for Bearer authentication (for HTTP transports) */
+  oauthTokens?: {
+    access_token: string;
+    token_type: string;
+    expires_in?: number;
+    refresh_token?: string;
+  };
 }
 
 export interface RemoteConnectResponse {

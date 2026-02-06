@@ -23,7 +23,8 @@
     "json/**/*.ts",
     "test/**/*.ts",
     "__tests__/**/*.ts",
-    "auth/**/*.ts"
+    "auth/**/*.ts",
+    "storage/**/*.ts"
   ],
   "exclude": ["node_modules", "build"]
 }
