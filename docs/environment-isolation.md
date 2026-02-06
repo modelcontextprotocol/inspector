@@ -98,11 +98,11 @@ We allow a supplied fetch for two reasons: (1) **run remotely to avoid CORS** (b
 
 ## Remote API Server
 
-**Status:** Implemented. The remote API server (`createRemoteApp` in `shared/mcp/remote/node/`) is a Hono-based server that hosts all Node-backed endpoints required by browser-based InspectorClient. This server runs alongside (or as) the UX server and exposes environment-specific functionality as HTTP APIs. The browser uses pure JavaScript wrappers that call these APIs where the Node-specific logic is implemented; InspectorClient remains unaware of whether it is talking to local or remote services.
+**Status:** Implemented. The remote API server (`createRemoteApp` in `shared/mcp/remote/node/`) is a Hono-based server that hosts all Node-backed endpoints required by browser-based InspectorClient. This server will be integrated directly into the Vite dev server (same origin as the web client) and exposes environment-specific functionality as HTTP APIs. The browser uses pure JavaScript wrappers that call these APIs where the Node-specific logic is implemented; InspectorClient remains unaware of whether it is talking to local or remote services.
 
 **Rationale for Hono**
 
-Hono is lightweight, framework-agnostic, and supports Node. Using Hono keeps the API surface simple and consistent with the goal of a single server hosting transport, fetch, logging, and storage. The existing express setup could be migrated to Hono if desired, or the Hono server could run as a separate process. The critical point is that one server hosts all endpoints the web client needs; the exact framework is an implementation detail.
+Hono is lightweight, framework-agnostic, and supports Node. Using Hono keeps the API surface simple and consistent with the goal of a single server hosting transport, fetch, logging, and storage. The Hono server will be integrated into the Vite dev server as middleware, eliminating the need for a separate Express server. This provides same-origin requests (no CORS issues) and simplifies deployment.
 
 **Security**
 
@@ -288,4 +288,8 @@ Remote transport code follows the same pattern: portable client in the module ro
 | Browser code organization | Implemented | `shared/auth/browser/`                                                                                                                                                           |
 | Config loading            | Implemented | In `shared/mcp/node/`                                                                                                                                                            |
 
-**Not yet wired:** The web client (`client/`) and server (`server/`) do not use the remote infrastructure. The web client still uses `useConnection` with direct SDK transports and the express server. Migrating to InspectorClient + `createRemoteTransport` + Hono remote server is pending.
+**Not yet wired:** The web client (`client/`) does not yet use the remote infrastructure. The web client still uses `useConnection` with direct SDK transports and a separate Express server. The plan is to:
+
+1. Integrate `createRemoteApp` (Hono) into the Vite dev server as middleware
+2. Port the web client to use `InspectorClient` + `createRemoteTransport`
+3. Remove the separate Express server (`server/` directory)
