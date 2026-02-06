@@ -101,8 +101,8 @@ const PromptsTab = ({
   };
 
   return (
-    <TabsContent value="prompts">
-      <div className="grid grid-cols-2 gap-4">
+    <TabsContent value="prompts" className="h-full mt-0 focus-visible:ring-0">
+      <div className="grid grid-cols-2 gap-4 h-full overflow-hidden">
         <ListPane
           items={prompts}
           listItems={listPrompts}
@@ -133,8 +133,8 @@ const PromptsTab = ({
           isButtonDisabled={!nextCursor && prompts.length > 0}
         />
 
-        <div className="bg-card border border-border rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200 dark:border-border">
+        <div className="bg-card border border-border rounded-lg shadow h-full flex flex-col">
+          <div className="p-4 border-b border-gray-200 dark:border-border flex-shrink-0">
             <div className="flex items-center gap-2">
               {selectedPrompt && (
                 <IconDisplay
@@ -147,7 +147,7 @@ const PromptsTab = ({
               </h3>
             </div>
           </div>
-          <div className="p-4">
+          <div className="p-4 flex-1 overflow-auto">
             {error ? (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />

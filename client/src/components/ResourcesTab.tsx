@@ -111,8 +111,8 @@ const ResourcesTab = ({
   };
 
   return (
-    <TabsContent value="resources">
-      <div className="grid grid-cols-3 gap-4">
+    <TabsContent value="resources" className="h-full mt-0 focus-visible:ring-0">
+      <div className="grid grid-cols-3 gap-4 h-full overflow-hidden">
         <ListPane
           items={resources}
           listItems={listResources}
@@ -180,8 +180,8 @@ const ResourcesTab = ({
           isButtonDisabled={!nextTemplateCursor && resourceTemplates.length > 0}
         />
 
-        <div className="bg-card border border-border rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200 dark:border-border flex justify-between items-center">
+        <div className="bg-card border border-border rounded-lg shadow h-full flex flex-col">
+          <div className="p-4 border-b border-gray-200 dark:border-border flex justify-between items-center flex-shrink-0">
             <div className="flex items-center gap-2 truncate">
               {(selectedResource || selectedTemplate) && (
                 <IconDisplay
@@ -237,7 +237,7 @@ const ResourcesTab = ({
               </div>
             )}
           </div>
-          <div className="p-4">
+          <div className="p-4 flex-1 overflow-auto">
             {error ? (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
@@ -249,7 +249,7 @@ const ResourcesTab = ({
             ) : selectedResource ? (
               <JsonView
                 data={resourceContent}
-                className="bg-gray-50 dark:bg-gray-800 p-4 rounded text-sm overflow-auto max-h-96 text-gray-900 dark:text-gray-100"
+                className="bg-gray-50 dark:bg-gray-800 p-4 rounded text-sm overflow-auto h-full text-gray-900 dark:text-gray-100"
               />
             ) : selectedTemplate ? (
               <div className="space-y-4">

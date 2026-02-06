@@ -122,7 +122,7 @@ const ToolsTab = ({
   } = useResizable({
     initialSize: 350,
     axis: "x",
-    minSize: 200,
+    minSize: 0,
     maxSize: 600,
   });
 
@@ -224,10 +224,10 @@ const ToolsTab = ({
   });
 
   return (
-    <TabsContent value="tools">
+    <TabsContent value="tools" className="h-full mt-0 focus-visible:ring-0">
       <div className="flex gap-4 h-full overflow-hidden">
         <div
-          className="relative flex-shrink-0"
+          className="relative flex-shrink-0 h-full"
           style={{
             width: listWidth,
             transition: isDragging ? "none" : "width 0.15s",
@@ -268,7 +268,7 @@ const ToolsTab = ({
             axis="x"
             onMouseDown={handleDragStart}
             onDoubleClick={toggleCollapse}
-            className="absolute top-0 right-[-8px] max-h-96"
+            className="absolute top-0 right-[-8px]"
           />
         </div>
 

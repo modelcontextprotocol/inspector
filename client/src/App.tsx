@@ -1265,21 +1265,21 @@ const App = () => {
           axis="x"
           onMouseDown={handleSidebarDragStart}
           onDoubleClick={toggleSidebar}
-          className="absolute top-0 right-[-8px]"
+          className="absolute top-0 right-[-7px]"
         />
       </div>
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 min-h-0 overflow-hidden">
           {mcpClient ? (
             <Tabs
               value={activeTab}
-              className="w-full p-4"
+              className="w-full h-full p-4 flex flex-col"
               onValueChange={(value) => {
                 setActiveTab(value);
                 window.location.hash = value;
               }}
             >
-              <TabsList className="mb-4 py-0">
+              <TabsList className="mb-4 py-0 flex-shrink-0">
                 <TabsTrigger
                   value="resources"
                   disabled={!serverCapabilities?.resources}
@@ -1344,7 +1344,7 @@ const App = () => {
                 </TabsTrigger>
               </TabsList>
 
-              <div className="w-full">
+              <div className="w-full flex-1 min-h-0">
                 {!serverCapabilities?.resources &&
                 !serverCapabilities?.prompts &&
                 !serverCapabilities?.tools ? (
@@ -1561,7 +1561,7 @@ const App = () => {
           )}
         </div>
         <div
-          className="relative border-t border-border"
+          className="relative border-t border-border flex-shrink-0"
           style={{
             height: `${historyPaneHeight}px`,
             transition: isHistoryDragging ? "none" : "height 0.15s",
@@ -1571,15 +1571,17 @@ const App = () => {
             axis="y"
             onMouseDown={handleDragStart}
             onDoubleClick={toggleHistory}
-            className="absolute top-[-8px] left-0"
+            className="absolute top-[-8px] left-[1px]"
           />
-          <div className="h-full overflow-auto">
-            <HistoryAndNotifications
-              requestHistory={requestHistory}
-              serverNotifications={notifications}
-              onClearHistory={clearRequestHistory}
-              onClearNotifications={handleClearNotifications}
-            />
+          <div className="h-full overflow-hidden">
+            <div className="h-full overflow-auto">
+              <HistoryAndNotifications
+                requestHistory={requestHistory}
+                serverNotifications={notifications}
+                onClearHistory={clearRequestHistory}
+                onClearNotifications={handleClearNotifications}
+              />
+            </div>
           </div>
         </div>
       </div>
