@@ -48,6 +48,64 @@ function safeCompare(a: string, b: string): boolean {
 }
 
 /**
+ * Hono middleware for origin validation (CORS and DNS rebinding protection).
+ * Validates Origin header against allowedOrigins if provided.
+ */
+function createOriginMiddleware(allowedOrigins?: string[]) {
+  return async (c: Context, next: Next) => {
+    // If no allowedOrigins configured, skip validation (allow all)
+    if (!allowedOrigins || allowedOrigins.length === 0) {
+      await next();
+      return;
+    }
+
+    const origin = c.req.header("origin");
+
+    // Handle CORS preflight requests
+    if (c.req.method === "OPTIONS") {
+      if (origin && allowedOrigins.includes(origin)) {
+        c.header("Access-Control-Allow-Origin", origin);
+        c.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+        c.header(
+          "Access-Control-Allow-Headers",
+          "Content-Type, x-mcp-remote-auth",
+        );
+        c.header("Access-Control-Max-Age", "86400"); // 24 hours
+        return c.body(null, 204);
+      }
+      // Invalid origin for preflight - return 403
+      return c.json(
+        {
+          error: "Forbidden",
+          message:
+            "Invalid origin. Request blocked to prevent DNS rebinding attacks.",
+        },
+        403,
+      );
+    }
+
+    // For actual requests, validate origin if present
+    if (origin) {
+      if (!allowedOrigins.includes(origin)) {
+        return c.json(
+          {
+            error: "Forbidden",
+            message:
+              "Invalid origin. Request blocked to prevent DNS rebinding attacks. Configure allowed origins via allowedOrigins option.",
+          },
+          403,
+        );
+      }
+      // Set CORS header for allowed origin
+      c.header("Access-Control-Allow-Origin", origin);
+    }
+    // If no origin header (same-origin or non-browser client), allow request
+
+    await next();
+  };
+}
+
+/**
  * Hono middleware for auth token validation.
  * Expects Bearer token format: x-mcp-remote-auth: Bearer <token>
  */
@@ -214,8 +272,12 @@ export function createRemoteApp(
 
   const app = new Hono();
   const sessions = new Map<string, RemoteSession>();
-  const { logger: fileLogger } = options;
+  const { logger: fileLogger, allowedOrigins } = options;
   const storageDir = options.storageDir ?? getDefaultStorageDir();
+
+  // Apply origin validation middleware first (before auth)
+  // This prevents DNS rebinding attacks by validating Origin header
+  app.use("*", createOriginMiddleware(allowedOrigins));
 
   // Apply auth middleware to all routes
   // Auth is always enabled (token from options, env var, or generated)
