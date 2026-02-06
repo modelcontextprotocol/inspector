@@ -30,6 +30,12 @@ import mcpProxy from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 
 const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
+/**
+ * SHOULD_FORWARD_STDERR allows users to suppress stderr forwarding to the browser UI.
+ * This is useful if the terminal logs are preferred or if the browser UI becomes too noisy.
+ * Defaults to true for backward compatibility.
+ */
+const SHOULD_FORWARD_STDERR = process.env.MCP_PROXY_FORWARD_STDERR !== "false";
 
 const defaultEnvironment = {
   ...getDefaultEnvironment(),
@@ -596,25 +602,46 @@ app.get(
       await webAppTransport.start();
 
       (serverTransport as StdioClientTransport).stderr!.on("data", (chunk) => {
+        // If the user has disabled stderr forwarding, we write directly to the proxy's stderr
+        // instead of attempting to send it to the browser via the webAppTransport.
+        if (!SHOULD_FORWARD_STDERR) {
+          process.stderr.write(chunk);
+          return;
+        }
+
+        // The 'notifications/message' call below can fail if the browser connection is closed
+        // while we are still receiving stderr from the MCP server. We wrap these in .catch()
+        // to prevent the proxy from crashing due to unhandled promise rejections.
         if (chunk.toString().includes("MODULE_NOT_FOUND")) {
           // Server command not found, remove transports
           const message = "Command not found, transports removed";
-          webAppTransport.send({
-            jsonrpc: "2.0",
-            method: "notifications/message",
-            params: {
-              level: "emergency",
-              logger: "proxy",
-              data: {
-                message,
+          webAppTransport
+            .send({
+              jsonrpc: "2.0",
+              method: "notifications/message",
+              params: {
+                level: "emergency",
+                logger: "proxy",
+                data: {
+                  message,
+                },
               },
-            },
-          });
+            })
+            // Log warning if the browser disconnected before we could send the error.
+            .catch((error) => {
+              if (error instanceof Error && error.message === "Not connected") {
+                console.warn(
+                  "Skipped sending MODULE_NOT_FOUND notification: browser disconnected.",
+                );
+              } else {
+                throw error;
+              }
+            });
           webAppTransport.close();
           serverTransport.close();
+          // Cleanup session state so it doesn't leak or cause issues on reconnect
           webAppTransports.delete(webAppTransport.sessionId);
           serverTransports.delete(webAppTransport.sessionId);
-          sessionHeaderHolders.delete(webAppTransport.sessionId);
           console.error(message);
         } else {
           // Inspect message and attempt to assign a RFC 5424 Syslog Protocol level
@@ -649,17 +676,28 @@ app.get(
           } else {
             level = "info";
           }
-          webAppTransport.send({
-            jsonrpc: "2.0",
-            method: "notifications/message",
-            params: {
-              level,
-              logger: "stdio",
-              data: {
-                message,
+          webAppTransport
+            .send({
+              jsonrpc: "2.0",
+              method: "notifications/message",
+              params: {
+                level,
+                logger: "stdio",
+                data: {
+                  message,
+                },
               },
-            },
-          });
+            })
+            // Silently ignore 'Not connected' errors for routine logging to avoid polluting logs.
+            .catch((error) => {
+              if (error instanceof Error && error.message === "Not connected") {
+                console.warn(
+                  "Skipped forwarding log to browser: connection closed.",
+                );
+              } else {
+                throw error;
+              }
+            });
         }
       });
 

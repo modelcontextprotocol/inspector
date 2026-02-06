@@ -7,6 +7,7 @@ type ListPaneProps<T> = {
   items: T[];
   listItems: () => void;
   clearItems: () => void;
+  selectedItem?: T | null;
   setSelectedItem: (item: T) => void;
   renderItem: (item: T) => React.ReactNode;
   title: string;
@@ -18,6 +19,7 @@ const ListPane = <T extends object>({
   items,
   listItems,
   clearItems,
+  selectedItem,
   setSelectedItem,
   renderItem,
   title,
@@ -57,8 +59,8 @@ const ListPane = <T extends object>({
 
   return (
     <div className="bg-card border border-border rounded-lg shadow">
-      <div className="p-4 border-b border-gray-200 dark:border-border">
-        <div className="flex items-center justify-between gap-4">
+      <div className="p-4 border-b border-gray-200 dark:border-border h-16 flex items-center">
+        <div className="flex items-center justify-between gap-4 w-full">
           <h3 className="font-semibold dark:text-white flex-shrink-0">
             {title}
           </h3>
@@ -93,27 +95,33 @@ const ListPane = <T extends object>({
         </div>
       </div>
       <div className="p-4">
-        <Button
-          variant="outline"
-          className="w-full mb-4"
-          onClick={listItems}
-          disabled={isButtonDisabled}
-        >
-          {buttonText}
-        </Button>
-        <Button
-          variant="outline"
-          className="w-full mb-4"
-          onClick={clearItems}
-          disabled={items.length === 0}
-        >
-          Clear
-        </Button>
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={listItems}
+            disabled={isButtonDisabled}
+          >
+            {buttonText}
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={clearItems}
+            disabled={items.length === 0}
+          >
+            Clear
+          </Button>
+        </div>
         <div className="space-y-2 overflow-y-auto max-h-96">
           {filteredItems.map((item, index) => (
             <div
               key={index}
-              className="flex items-center py-2 px-4 rounded hover:bg-gray-50 dark:hover:bg-secondary cursor-pointer"
+              className={`flex items-center py-2 px-2 rounded cursor-pointer transition-colors ${
+                selectedItem === item
+                  ? "bg-accent text-accent-foreground shadow-sm"
+                  : "hover:bg-primary/90 hover:text-primary-foreground dark:hover:bg-gray-700 dark:hover:text-white"
+              }`}
               onClick={() => setSelectedItem(item)}
             >
               {renderItem(item)}

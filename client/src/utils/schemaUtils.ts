@@ -107,7 +107,7 @@ export function generateDefaultValue(
       return isRequired ? "" : undefined;
     case "number":
     case "integer":
-      return isRequired ? 0 : undefined;
+      return undefined;
     case "boolean":
       return isRequired ? false : undefined;
     case "array":

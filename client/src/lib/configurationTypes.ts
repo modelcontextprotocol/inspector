@@ -45,4 +45,9 @@ export type InspectorConfig = {
    * Default Time-to-Live (TTL) in milliseconds for newly created tasks.
    */
   MCP_TASK_TTL: ConfigItem;
+
+  /**
+   * Whether to enable the hidden iframe hack for browser autocomplete history.
+   */
+  MCP_ENABLE_BROWSER_HISTORY: ConfigItem;
 };
