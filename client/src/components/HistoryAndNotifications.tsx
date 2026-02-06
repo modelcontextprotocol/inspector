@@ -29,11 +29,11 @@ const HistoryAndNotifications = ({
     handleDragStart,
     toggleCollapse,
   } = useResizable({
-    initialSize: window.innerWidth / 2,
+    initialSize: 50,
     axis: "x",
     reverse: true,
     minSize: 0,
-    maxSize: window.innerWidth - 400,
+    maxSize: 80,
   });
 
   const toggleRequestExpansion = (index: number) => {
@@ -126,7 +126,7 @@ const HistoryAndNotifications = ({
       <div
         className="relative h-full flex-shrink-0 border-l border-border"
         style={{
-          width: notificationsWidth,
+          width: `${notificationsWidth}%`,
           transition: isDragging ? "none" : "width 0.15s",
         }}
       >

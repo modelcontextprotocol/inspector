@@ -332,13 +332,13 @@ const App = () => {
     isDragging: isHistoryDragging,
     handleDragStart,
     toggleCollapse: toggleHistory,
-  } = useDraggablePane(300);
+  } = useDraggablePane(30);
   const {
     width: sidebarWidth,
     isDragging: isSidebarDragging,
     handleDragStart: handleSidebarDragStart,
     toggleCollapse: toggleSidebar,
-  } = useDraggableSidebar(320);
+  } = useDraggableSidebar(20);
 
   const selectedTaskRef = useRef<Task | null>(null);
   useEffect(() => {
@@ -1221,9 +1221,9 @@ const App = () => {
     <div className="flex h-screen bg-background">
       <div
         style={{
-          width: sidebarWidth,
+          width: `${sidebarWidth}%`,
           minWidth: 0,
-          maxWidth: 600,
+          maxWidth: "60%",
           transition: isSidebarDragging ? "none" : "width 0.15s",
         }}
         className="relative h-full flex-shrink-0"
@@ -1563,7 +1563,7 @@ const App = () => {
         <div
           className="relative border-t border-border flex-shrink-0"
           style={{
-            height: `${historyPaneHeight}px`,
+            height: `${historyPaneHeight}%`,
             transition: isHistoryDragging ? "none" : "height 0.15s",
           }}
         >

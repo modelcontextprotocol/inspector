@@ -13,7 +13,7 @@ export function useResizable({
   axis,
   reverse = false,
   minSize = 0,
-  maxSize = Infinity,
+  maxSize = 100,
 }: UseResizableOptions) {
   const [size, setSize] = useState(initialSize);
   const [isDragging, setIsDragging] = useState(false);
@@ -47,8 +47,15 @@ export function useResizable({
       const delta = reverse
         ? dragStartPos.current - currentPos
         : currentPos - dragStartPos.current;
+
+      const totalDim = axis === "x" ? window.innerWidth : window.innerHeight;
+      const deltaPercent = (delta / totalDim) * 100;
+
       setSize(
-        Math.max(minSize, Math.min(maxSize, dragStartSize.current + delta)),
+        Math.max(
+          minSize,
+          Math.min(maxSize, dragStartSize.current + deltaPercent),
+        ),
       );
     },
     [isDragging, axis, reverse, minSize, maxSize],
@@ -79,24 +86,27 @@ export function useResizable({
 }
 
 // Compatibility wrappers to minimize changes in other files
-export function useDraggablePane(initialHeight: number) {
+export function useDraggablePane(initialHeightPercent: number) {
   const { size, isDragging, handleDragStart, toggleCollapse } = useResizable({
-    initialSize: initialHeight,
+    initialSize: initialHeightPercent,
     axis: "y",
     reverse: true, // Vertical pane in App.tsx grows as mouse moves UP
     minSize: 0,
-    maxSize: 800,
+    maxSize: 80,
   });
   return { height: size, isDragging, handleDragStart, toggleCollapse };
 }
 
-export function useDraggableSidebar(initialWidth: number, reverse = false) {
+export function useDraggableSidebar(
+  initialWidthPercent: number,
+  reverse = false,
+) {
   const { size, isDragging, handleDragStart, toggleCollapse } = useResizable({
-    initialSize: initialWidth,
+    initialSize: initialWidthPercent,
     axis: "x",
     reverse,
     minSize: 0,
-    maxSize: 600,
+    maxSize: 60,
   });
   return { width: size, isDragging, handleDragStart, toggleCollapse };
 }

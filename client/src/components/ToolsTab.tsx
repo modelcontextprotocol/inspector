@@ -120,10 +120,10 @@ const ToolsTab = ({
     handleDragStart,
     toggleCollapse,
   } = useResizable({
-    initialSize: 350,
+    initialSize: 25,
     axis: "x",
     minSize: 0,
-    maxSize: 600,
+    maxSize: 50,
   });
 
   const enableHistory = config.MCP_ENABLE_BROWSER_HISTORY?.value !== false;
@@ -229,7 +229,7 @@ const ToolsTab = ({
         <div
           className="relative flex-shrink-0 h-full"
           style={{
-            width: listWidth,
+            width: `${listWidth}%`,
             transition: isDragging ? "none" : "width 0.15s",
           }}
         >
