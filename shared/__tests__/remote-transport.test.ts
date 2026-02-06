@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
-import type { Server } from "node:http";
+import type { ServerType } from "@hono/node-server";
 import pino from "pino";
 import { InspectorClient } from "../mcp/inspectorClient.js";
 import { createRemoteTransport } from "../mcp/remote/createRemoteTransport.js";
@@ -31,9 +31,10 @@ async function startRemoteServer(
   options: StartRemoteServerOptions = {},
 ): Promise<{
   baseUrl: string;
-  server: Server;
+  server: ServerType;
+  authToken: string;
 }> {
-  const app = createRemoteApp({ logger: options.logger });
+  const { app, authToken } = createRemoteApp({ logger: options.logger });
   return new Promise((resolve, reject) => {
     const server = serve(
       { fetch: app.fetch, port, hostname: "127.0.0.1" },
@@ -44,16 +45,17 @@ async function startRemoteServer(
             : port;
         resolve({
           baseUrl: `http://127.0.0.1:${actualPort}`,
-          server: server as unknown as Server,
+          server,
+          authToken,
         });
       },
-    ) as unknown as Server;
+    );
     server.on("error", reject);
   });
 }
 
 describe("Remote transport e2e", () => {
-  let remoteServer: Server | null;
+  let remoteServer: ServerType | null;
   let mcpHttpServer: Awaited<ReturnType<typeof createTestServerHttp>> | null;
 
   beforeEach(() => {
@@ -81,10 +83,10 @@ describe("Remote transport e2e", () => {
   async function setupRemoteAndConnect(
     config: MCPServerConfig,
   ): Promise<InspectorClient> {
-    const { baseUrl, server } = await startRemoteServer(0);
+    const { baseUrl, server, authToken } = await startRemoteServer(0);
     remoteServer = server;
 
-    const createTransport = createRemoteTransport({ baseUrl });
+    const createTransport = createRemoteTransport({ baseUrl, authToken });
     const client = new InspectorClient(config, {
       transportClientFactory: createTransport,
       autoFetchServerContents: false,
@@ -107,12 +109,15 @@ describe("Remote transport e2e", () => {
     });
     await mcpHttpServer.start();
 
-    const { baseUrl, server } = await startRemoteServer(0);
+    const { baseUrl, server, authToken } = await startRemoteServer(0);
     remoteServer = server;
 
     const res = await fetch(`${baseUrl}/api/mcp/connect`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-mcp-remote-auth": `Bearer ${authToken}`,
+      },
       body: JSON.stringify({
         config: { type: "sse" as const, url: mcpHttpServer!.url },
       }),
@@ -347,6 +352,142 @@ describe("Remote transport e2e", () => {
     });
   });
 
+  describe("authentication", () => {
+    it("rejects requests without auth token", async () => {
+      const { baseUrl, server } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "sse" as const, url: "http://localhost:3000" },
+        }),
+      });
+
+      expect(res.status).toBe(401);
+      const json = (await res.json()) as { error?: string; message?: string };
+      expect(json.error).toBe("Unauthorized");
+      expect(json.message).toContain("x-mcp-remote-auth");
+    });
+
+    it("rejects requests with incorrect auth token", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer wrong-token-${authToken}`,
+        },
+        body: JSON.stringify({
+          config: { type: "sse" as const, url: "http://localhost:3000" },
+        }),
+      });
+
+      expect(res.status).toBe(401);
+      const json = (await res.json()) as { error?: string; message?: string };
+      expect(json.error).toBe("Unauthorized");
+    });
+
+    it("rejects requests without Bearer prefix", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": authToken, // Missing "Bearer " prefix
+        },
+        body: JSON.stringify({
+          config: { type: "sse" as const, url: "http://localhost:3000" },
+        }),
+      });
+
+      expect(res.status).toBe(401);
+      const json = (await res.json()) as { error?: string; message?: string };
+      expect(json.error).toBe("Unauthorized");
+    });
+
+    it("rejects requests to /api/fetch without auth token", async () => {
+      const { baseUrl, server } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: "http://example.com" }),
+      });
+
+      expect(res.status).toBe(401);
+      const json = (await res.json()) as { error?: string; message?: string };
+      expect(json.error).toBe("Unauthorized");
+    });
+
+    it("rejects requests to /api/log without auth token", async () => {
+      const { baseUrl, server } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level: { label: "info" }, messages: ["test"] }),
+      });
+
+      expect(res.status).toBe(401);
+      const json = (await res.json()) as { error?: string; message?: string };
+      expect(json.error).toBe("Unauthorized");
+    });
+
+    it("rejects requests to /api/mcp/send without auth token", async () => {
+      const { baseUrl, server } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "test-session",
+          message: { jsonrpc: "2.0", method: "test", id: 1 },
+        }),
+      });
+
+      expect(res.status).toBe(401);
+      const json = (await res.json()) as { error?: string; message?: string };
+      expect(json.error).toBe("Unauthorized");
+    });
+
+    it("rejects requests to /api/mcp/events without auth token", async () => {
+      const { baseUrl, server } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/events?sessionId=test`, {
+        method: "GET",
+      });
+
+      expect(res.status).toBe(401);
+      const json = (await res.json()) as { error?: string; message?: string };
+      expect(json.error).toBe("Unauthorized");
+    });
+
+    it("rejects requests to /api/mcp/disconnect without auth token", async () => {
+      const { baseUrl, server } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/disconnect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: "test-session" }),
+      });
+
+      expect(res.status).toBe(401);
+      const json = (await res.json()) as { error?: string; message?: string };
+      expect(json.error).toBe("Unauthorized");
+    });
+  });
+
   describe("remote logging", () => {
     let tempDir: string | null = null;
 
@@ -376,13 +517,20 @@ describe("Remote transport e2e", () => {
       });
       await mcpHttpServer.start();
 
-      const { baseUrl, server } = await startRemoteServer(0, {
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
         logger: fileLogger,
       });
       remoteServer = server;
 
-      const createTransport = createRemoteTransport({ baseUrl });
-      const remoteLogger = createRemoteLogger({ baseUrl, fetchFn: fetch });
+      const createTransport = createRemoteTransport({
+        baseUrl,
+        authToken,
+      });
+      const remoteLogger = createRemoteLogger({
+        baseUrl,
+        authToken,
+        fetchFn: fetch,
+      });
       const client = new InspectorClient(
         { type: "sse", url: mcpHttpServer!.url },
         {

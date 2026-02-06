@@ -112,7 +112,7 @@ export function createRemoteFetch(options: RemoteFetchOptions): typeof fetch {
       ...headers,
     };
     if (options.authToken) {
-      reqHeaders["x-mcp-remote-auth"] = options.authToken;
+      reqHeaders["x-mcp-remote-auth"] = `Bearer ${options.authToken}`;
     }
 
     const res = await fetchFn(`${baseUrl}/api/fetch`, {
