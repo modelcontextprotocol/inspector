@@ -126,7 +126,7 @@ export class RemoteClientTransport implements Transport {
       "Content-Type": "application/json",
     };
     if (this.options.authToken) {
-      h["x-mcp-remote-auth"] = this.options.authToken;
+      h["x-mcp-remote-auth"] = `Bearer ${this.options.authToken}`;
     }
     return h;
   }
@@ -160,7 +160,7 @@ export class RemoteClientTransport implements Transport {
       `${this.baseUrl}/api/mcp/events?sessionId=${encodeURIComponent(this._sessionId!)}`,
       {
         headers: this.options.authToken
-          ? { "x-mcp-remote-auth": this.options.authToken }
+          ? { "x-mcp-remote-auth": `Bearer ${this.options.authToken}` }
           : {},
         signal: this.eventStreamAbort.signal,
       },

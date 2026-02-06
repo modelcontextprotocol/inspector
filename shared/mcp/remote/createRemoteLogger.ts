@@ -43,7 +43,7 @@ export function createRemoteLogger(options: RemoteLoggerOptions): Logger {
             "Content-Type": "application/json",
           };
           if (options.authToken) {
-            headers["x-mcp-remote-auth"] = options.authToken;
+            headers["x-mcp-remote-auth"] = `Bearer ${options.authToken}`;
           }
 
           fetchFn(`${baseUrl}/api/log`, {

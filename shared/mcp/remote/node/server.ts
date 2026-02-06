@@ -3,10 +3,11 @@
  * Hosts /api/mcp/connect, send, events, disconnect, /api/fetch, /api/log.
  */
 
-import { timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import type pino from "pino";
 import type { LogEvent } from "pino";
 import { Hono } from "hono";
+import type { Context, Next } from "hono";
 import { streamSSE } from "hono/streaming";
 import { createTransportNode } from "../../node/transport.js";
 import type { RemoteConnectRequest, RemoteSendRequest } from "../types.js";
@@ -14,7 +15,7 @@ import type { MCPServerConfig } from "../../types.js";
 import { RemoteSession } from "./remote-session.js";
 
 export interface RemoteServerOptions {
-  /** Optional auth token. If set, all requests require x-mcp-remote-auth header. */
+  /** Optional auth token. If not provided, uses MCP_REMOTE_AUTH_TOKEN env var or generates one. */
   authToken?: string;
 
   /** Optional: validate Origin header against allowed origins (for CORS) */
@@ -22,6 +23,13 @@ export interface RemoteServerOptions {
 
   /** Optional pino file logger. When set, /api/log forwards received events to it. */
   logger?: pino.Logger;
+}
+
+export interface CreateRemoteAppResult {
+  /** The Hono app */
+  app: Hono;
+  /** The auth token (from options, env var, or generated). Returned so caller can embed in client. */
+  authToken: string;
 }
 
 function safeCompare(a: string, b: string): boolean {
@@ -32,23 +40,57 @@ function safeCompare(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
-/** Returns a 401 Response if auth fails; otherwise null (caller may proceed). */
-function requireAuth(
-  c: {
-    req: { header: (n: string) => string | undefined };
-    json: (body: unknown, status?: number) => Response;
-  },
-  authToken: string | undefined,
-): Response | null {
-  if (!authToken) return null;
-  const provided = c.req.header("x-mcp-remote-auth");
-  if (!provided) {
-    return c.json({ error: "Missing x-mcp-remote-auth header" }, 401);
-  }
-  if (!safeCompare(provided, authToken)) {
-    return c.json({ error: "Invalid x-mcp-remote-auth" }, 401);
-  }
-  return null;
+/**
+ * Hono middleware for auth token validation.
+ * Expects Bearer token format: x-mcp-remote-auth: Bearer <token>
+ */
+function createAuthMiddleware(authToken: string) {
+  return async (c: Context, next: Next) => {
+    const authHeader = c.req.header("x-mcp-remote-auth");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return c.json(
+        {
+          error: "Unauthorized",
+          message:
+            "Authentication required. Use the x-mcp-remote-auth header with Bearer token.",
+        },
+        401,
+      );
+    }
+
+    const providedToken = authHeader.substring(7); // Remove 'Bearer ' prefix
+    const expectedToken = authToken;
+
+    // Convert to buffers for timing-safe comparison
+    const providedBuffer = Buffer.from(providedToken);
+    const expectedBuffer = Buffer.from(expectedToken);
+
+    // Check length first to prevent timing attacks
+    if (providedBuffer.length !== expectedBuffer.length) {
+      return c.json(
+        {
+          error: "Unauthorized",
+          message:
+            "Authentication required. Use the x-mcp-remote-auth header with Bearer token.",
+        },
+        401,
+      );
+    }
+
+    // Perform timing-safe comparison
+    if (!timingSafeEqual(providedBuffer, expectedBuffer)) {
+      return c.json(
+        {
+          error: "Unauthorized",
+          message:
+            "Authentication required. Use the x-mcp-remote-auth header with Bearer token.",
+        },
+        401,
+      );
+    }
+
+    await next();
+  };
 }
 
 function forwardLogEvent(
@@ -93,15 +135,24 @@ function forwardLogEvent(
   }
 }
 
-export function createRemoteApp(options: RemoteServerOptions = {}): Hono {
+export function createRemoteApp(
+  options: RemoteServerOptions = {},
+): CreateRemoteAppResult {
+  // Determine auth token: options > env var > generate
+  const authToken =
+    options.authToken ||
+    process.env.MCP_REMOTE_AUTH_TOKEN ||
+    randomBytes(32).toString("hex");
+
   const app = new Hono();
   const sessions = new Map<string, RemoteSession>();
-  const { authToken, logger: fileLogger } = options;
+  const { logger: fileLogger } = options;
+
+  // Apply auth middleware to all routes
+  // Auth is always enabled (token from options, env var, or generated)
+  app.use("*", createAuthMiddleware(authToken));
 
   app.post("/api/mcp/connect", async (c) => {
-    const authErr = requireAuth(c, authToken);
-    if (authErr) return authErr;
-
     let body: RemoteConnectRequest;
     try {
       body = (await c.req.json()) as RemoteConnectRequest;
@@ -148,9 +199,6 @@ export function createRemoteApp(options: RemoteServerOptions = {}): Hono {
   });
 
   app.post("/api/mcp/send", async (c) => {
-    const authErr = requireAuth(c, authToken);
-    if (authErr) return authErr;
-
     let body: RemoteSendRequest & { sessionId?: string };
     try {
       body = (await c.req.json()) as RemoteSendRequest & { sessionId?: string };
@@ -180,9 +228,6 @@ export function createRemoteApp(options: RemoteServerOptions = {}): Hono {
   });
 
   app.get("/api/mcp/events", async (c) => {
-    const authErr = requireAuth(c, authToken);
-    if (authErr) return authErr;
-
     const sessionId = c.req.query("sessionId");
     if (!sessionId) {
       return c.json({ error: "Missing sessionId query" }, 400);
@@ -217,9 +262,6 @@ export function createRemoteApp(options: RemoteServerOptions = {}): Hono {
   });
 
   app.post("/api/mcp/disconnect", async (c) => {
-    const authErr = requireAuth(c, authToken);
-    if (authErr) return authErr;
-
     let body: { sessionId?: string };
     try {
       body = (await c.req.json()) as { sessionId?: string };
@@ -243,9 +285,6 @@ export function createRemoteApp(options: RemoteServerOptions = {}): Hono {
   });
 
   app.post("/api/fetch", async (c) => {
-    const authErr = requireAuth(c, authToken);
-    if (authErr) return authErr;
-
     let body: {
       url: string;
       method?: string;
@@ -298,9 +337,6 @@ export function createRemoteApp(options: RemoteServerOptions = {}): Hono {
   });
 
   app.post("/api/log", async (c) => {
-    const authErr = requireAuth(c, authToken);
-    if (authErr) return authErr;
-
     const body = (await c.req.json().catch(() => ({}))) as Partial<LogEvent>;
     if (fileLogger) {
       forwardLogEvent(fileLogger, body);
@@ -310,5 +346,5 @@ export function createRemoteApp(options: RemoteServerOptions = {}): Hono {
     return c.json({ ok: true });
   });
 
-  return app;
+  return { app, authToken };
 }
