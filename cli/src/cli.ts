@@ -121,6 +121,60 @@ async function runWebClient(args: Args): Promise<void> {
   }
 }
 
+async function runWeb(args: Args): Promise<void> {
+  // Path to the web entry point
+  const inspectorWebPath = resolve(
+    __dirname,
+    "../../",
+    "web",
+    "bin",
+    "start.js",
+  );
+
+  const abort = new AbortController();
+  let cancelled: boolean = false;
+  process.on("SIGINT", () => {
+    cancelled = true;
+    abort.abort();
+  });
+
+  // Build arguments to pass to start.js
+  const startArgs: string[] = [];
+
+  // Pass environment variables
+  for (const [key, value] of Object.entries(args.envArgs)) {
+    startArgs.push("-e", `${key}=${value}`);
+  }
+
+  // Pass transport type if specified
+  if (args.transport) {
+    startArgs.push("--transport", args.transport);
+  }
+
+  // Pass server URL if specified
+  if (args.serverUrl) {
+    startArgs.push("--server-url", args.serverUrl);
+  }
+
+  // Pass command and args (using -- to separate them)
+  if (args.command) {
+    startArgs.push("--", args.command, ...args.args);
+  }
+
+  try {
+    await spawnPromise("node", [inspectorWebPath, ...startArgs], {
+      signal: abort.signal,
+      echoOutput: true,
+      // pipe the stdout through here, prevents issues with buffering and
+      // dropping the end of console.out after 8192 chars due to node
+      // closing the stdout pipe before the output has finished flushing
+      stdio: "inherit",
+    });
+  } catch (e) {
+    if (!cancelled || process.env.DEBUG) throw e;
+  }
+}
+
 async function runCli(args: Args): Promise<void> {
   const projectRoot = resolve(__dirname, "..");
   const cliPath = resolve(projectRoot, "build", "index.js");
@@ -424,10 +478,20 @@ async function main(): Promise<void> {
       return;
     }
 
+    // Check for --web in raw argv - if present, use web app instead of client
+    const useWeb = process.argv.includes("--web");
+    if (useWeb) {
+      // Remove --web from args before parsing
+      const filteredArgs = process.argv.filter((arg) => arg !== "--web");
+      process.argv = filteredArgs;
+    }
+
     const args = parseArgs();
 
     if (args.cli) {
       await runCli(args);
+    } else if (useWeb) {
+      await runWeb(args);
     } else {
       await runWebClient(args);
     }
