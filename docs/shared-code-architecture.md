@@ -347,7 +347,11 @@ Per [environment-isolation.md](environment-isolation.md):
 - **Generic storage API** — `GET/POST/DELETE /api/storage/:storeId` endpoints for shared on-disk state between web app and TUI/CLI. See [environment-isolation.md](environment-isolation.md).
 - **Node code organization** — `shared/auth/node/`, `shared/mcp/node/`, `shared/mcp/remote/node/`.
 
-**Summary:** InspectorClient and the remote infrastructure (Hono API, createRemoteTransport, createRemoteFetch, createRemoteLogger, storage API) are implemented. The remaining effort is refactoring the web client to use InspectorClient + `createRemoteTransport` instead of `useConnection`.
+**Summary:** InspectorClient and the remote infrastructure (Hono API, createRemoteTransport, createRemoteFetch, createRemoteLogger, storage API) are implemented. The remaining effort is:
+
+1. Integrating `createRemoteApp` (Hono) into the Vite dev server as middleware
+2. Refactoring the web client to use InspectorClient + `createRemoteTransport` instead of `useConnection`
+3. Removing the separate Express server once integration is complete
 
 ## Web Client Integration Plan
 
@@ -482,8 +486,10 @@ The main `App.tsx` component manages extensive state including:
 
 InspectorClient already has the needed features (see "InspectorClient Readiness for Web App" above). The remaining integration work is:
 
-1. **Web-specific adapters** — Create adapter that converts web client config to `MCPServerConfig` and manages OAuth token injection into headers. Use `createRemoteTransport` as the transport factory, `createRemoteFetch` (POST to `/api/fetch`) for OAuth, `createRemoteLogger` (POST to `/api/log`) for logging, and OAuth providers (`BrowserOAuthStorage`, `BrowserNavigation`, or `RemoteOAuthStorage` for shared state).
-2. **Replace useConnection** — Use `InspectorClient` + `useInspectorClient` instead of `useConnection`; migrate state and request history to `MessageEntry[]`; wire OAuth via web app's `oauth/callback` route.
+1. **Integrate Hono server into Vite** — Mount `createRemoteApp` (Hono) as middleware in the Vite dev server. This eliminates the need for a separate Express server. The Hono app handles all `/api/*` routes (`/api/mcp/*`, `/api/fetch`, `/api/log`, `/api/storage/*`) on the same origin as the web client.
+2. **Web-specific adapters** — Create adapter that converts web client config to `MCPServerConfig` and manages OAuth token injection into headers. Use `createRemoteTransport` as the transport factory, `createRemoteFetch` (POST to `/api/fetch`) for OAuth, `createRemoteLogger` (POST to `/api/log`) for logging, and OAuth providers (`BrowserOAuthStorage`, `BrowserNavigation`, or `RemoteOAuthStorage` for shared state).
+3. **Replace useConnection** — Use `InspectorClient` + `useInspectorClient` instead of `useConnection`; migrate state and request history to `MessageEntry[]`; wire OAuth via web app's `oauth/callback` route.
+4. **Remove Express server** — Delete or deprecate the separate Express server (`server/` directory) once Hono is integrated into Vite and the web client is ported.
 
 ### Benefits of Web Client Integration
 
@@ -498,8 +504,10 @@ InspectorClient already has the needed features (see "InspectorClient Readiness 
 
 The remote infrastructure is complete (Hono API server, `createRemoteTransport`, `createRemoteFetch`, `createRemoteLogger`, storage abstraction, Node code organization). Remaining steps:
 
-1. Create adapter to convert web client config to `MCPServerConfig`; use `createRemoteTransport` as transport factory, `createRemoteFetch` for OAuth, `createRemoteLogger` for logging, and OAuth providers (`BrowserOAuthStorage`, `BrowserNavigation`, or `RemoteOAuthStorage` for shared state)
-2. Replace `useConnection` with `InspectorClient` + `useInspectorClient`; migrate state to `MessageEntry[]`
+1. **Integrate Hono into Vite dev server** — Mount `createRemoteApp` as middleware in Vite configuration. Configure auth token, storage directory, and optional origin validation. This eliminates the separate Express server.
+2. **Create adapter** — Convert web client config to `MCPServerConfig`; use `createRemoteTransport` as transport factory, `createRemoteFetch` for OAuth, `createRemoteLogger` for logging, and OAuth providers (`BrowserOAuthStorage`, `BrowserNavigation`, or `RemoteOAuthStorage` for shared state).
+3. **Replace useConnection** — Use `InspectorClient` + `useInspectorClient` instead of `useConnection`; migrate state to `MessageEntry[]` format.
+4. **Remove Express server** — Delete `server/` directory and update startup scripts once integration is complete.
 
 ## Summary
 
