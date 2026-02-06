@@ -12,13 +12,13 @@ We use the term **seams** for the individual integration points where environmen
 
 These seams are already implemented in InspectorClient:
 
-| Seam                   | Abstraction                  | Node Implementation                                           | Browser Implementation                                                      |
-| ---------------------- | ---------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| **OAuth storage**      | `OAuthStorage`               | `NodeOAuthStorage` (file-based)                               | `BrowserOAuthStorage` (sessionStorage)                                      |
-| **OAuth navigation**   | `OAuthNavigation`            | `CallbackNavigation` (e.g. opens URL via `open`)              | `BrowserNavigation` (redirects)                                             |
-| **OAuth redirect URL** | `RedirectUrlProvider`        | `MutableRedirectUrlProvider` (populated from callback server) | Object literal using `window.location.origin`                               |
-| **OAuth auth fetch**   | Optional top-level `fetchFn` | N/A (Node has no CORS)                                        | Caller provides fetch that POSTs to proxy when in browser                   |
-| **Transport creation** | `CreateTransport` (required) | `createTransportNode` (creates stdio, SSE, streamable-http)   | `createRemoteTransport` (creates `RemoteClientTransport` talking to remote) |
+| Seam                   | Abstraction                  | Node Implementation                                           | Browser Implementation                                                              |
+| ---------------------- | ---------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| **OAuth storage**      | `OAuthStorage`               | `NodeOAuthStorage` (file-based via Zustand)                   | `BrowserOAuthStorage` (sessionStorage via Zustand), `RemoteOAuthStorage` (HTTP API) |
+| **OAuth navigation**   | `OAuthNavigation`            | `CallbackNavigation` (e.g. opens URL via `open`)              | `BrowserNavigation` (redirects)                                                     |
+| **OAuth redirect URL** | `RedirectUrlProvider`        | `MutableRedirectUrlProvider` (populated from callback server) | Object literal using `window.location.origin`                                       |
+| **OAuth auth fetch**   | Optional top-level `fetchFn` | N/A (Node has no CORS)                                        | Caller provides fetch that POSTs to proxy when in browser                           |
+| **Transport creation** | `CreateTransport` (required) | `createTransportNode` (creates stdio, SSE, streamable-http)   | `createRemoteTransport` (creates `RemoteClientTransport` talking to remote)         |
 
 The caller provides storage, navigation, and redirect URL provider when configuring OAuth. InspectorClient accepts an optional top-level `fetchFn` used for both OAuth (discovery, registration, token exchange) and MCP transport HTTP requests. Fetches are tracked with `category: 'auth'` or `category: 'transport'` for the Requests tab. The web client must still implement the proxy endpoint and a fetch wrapper that routes requests through it.
 
@@ -134,11 +134,12 @@ Node consumers (TUI, CLI) import from `inspector-shared/mcp/node` for config loa
 
 ### Summary
 
-| Area   | Portable (no env APIs)                                          | Node (`./auth/node`, `./mcp/node`, `./mcp/remote/node`) | Browser (`./auth/browser`)                                         |
-| ------ | --------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------ |
-| Auth   | storage types, base providers, utils                            | NodeOAuthStorage, callback server                       | BrowserOAuthStorage, BrowserNavigation, BrowserOAuthClientProvider |
-| MCP    | InspectorClient, types, getServerType                           | loadMcpServersConfig, createTransportNode               | —                                                                  |
-| Remote | createRemoteTransport, createRemoteFetch, RemoteClientTransport | remote server (Hono, stdio spawn, fetch proxy, log)     | —                                                                  |
+| Area    | Portable (no env APIs)                                          | Node (`./auth/node`, `./mcp/node`, `./mcp/remote/node`)          | Browser (`./auth/browser`, `./auth/remote`)                                            |
+| ------- | --------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Auth    | storage types, base providers, utils                            | NodeOAuthStorage, callback server                                | BrowserOAuthStorage, RemoteOAuthStorage, BrowserNavigation, BrowserOAuthClientProvider |
+| Storage | storage adapter interfaces, createOAuthStore                    | FileStorageAdapter                                               | RemoteStorageAdapter                                                                   |
+| MCP     | InspectorClient, types, getServerType                           | loadMcpServersConfig, createTransportNode                        | —                                                                                      |
+| Remote  | createRemoteTransport, createRemoteFetch, RemoteClientTransport | remote server (Hono, stdio spawn, fetch proxy, log, storage API) | —                                                                                      |
 
 ---
 
@@ -154,16 +155,17 @@ For the web app, we would launch a **Hono server** that hosts all the Node-backe
 
 **Endpoints**
 
-| Endpoint                     | Purpose                                                           | Seam               |
-| ---------------------------- | ----------------------------------------------------------------- | ------------------ |
-| `POST /api/mcp/connect`      | Create session and client transport (stdio, SSE, streamable HTTP) | Remote transports  |
-| `POST /api/mcp/send`         | Forward JSON-RPC message to MCP server                            | Remote transports  |
-| `GET /api/mcp/events`        | Stream responses and side-channel events (SSE)                    | Remote transports  |
-| `POST /api/mcp/disconnect`   | Cleanup session                                                   | Remote transports  |
-| `POST /api/fetch`            | Proxy HTTP requests for OAuth and transport (CORS bypass)         | Proxy fetch        |
-| `POST /api/log`              | Receive log events from browser for server-side logging           | Logging            |
-| `GET /api/storage/:storeId`  | Read entire store (generic, e.g. oauth, preferences)              | Storage (optional) |
-| `POST /api/storage/:storeId` | Write entire store (generic)                                      | Storage (optional) |
+| Endpoint                       | Purpose                                                           | Seam              |
+| ------------------------------ | ----------------------------------------------------------------- | ----------------- |
+| `POST /api/mcp/connect`        | Create session and client transport (stdio, SSE, streamable HTTP) | Remote transports |
+| `POST /api/mcp/send`           | Forward JSON-RPC message to MCP server                            | Remote transports |
+| `GET /api/mcp/events`          | Stream responses and side-channel events (SSE)                    | Remote transports |
+| `POST /api/mcp/disconnect`     | Cleanup session                                                   | Remote transports |
+| `POST /api/fetch`              | Proxy HTTP requests for OAuth and transport (CORS bypass)         | Proxy fetch       |
+| `POST /api/log`                | Receive log events from browser for server-side logging           | Logging           |
+| `GET /api/storage/:storeId`    | Read entire store (generic, e.g. oauth, preferences)              | Storage           |
+| `POST /api/storage/:storeId`   | Write entire store (generic)                                      | Storage           |
+| `DELETE /api/storage/:storeId` | Delete store (generic)                                            | Storage           |
 
 All endpoints require a session token (e.g. `x-mcp-remote-auth` header), origin validation, and timing-safe token comparison.
 
@@ -177,25 +179,36 @@ Hono is lightweight, framework-agnostic, and supports Node. Using Hono keeps the
 
 **Generic storage (for shared on-disk state)**
 
-If the web app should share on-disk state with the Node apps (TUI, CLI)—e.g. OAuth tokens, preferences—the browser cannot read/write the filesystem directly. A **generic storage endpoint** favors simplicity over fine-grained control, similar to Zustand's remote persistence:
+**Status:** Implemented. The browser cannot read/write the filesystem directly, so a generic storage API enables shared on-disk state between web app and Node apps (TUI, CLI).
 
-- **`GET /api/storage/:storeId`** — returns the entire store as JSON (empty object or 404 if none)
-- **`POST /api/storage/:storeId`** — body is the entire store JSON; overwrites
+**Implementation:**
 
-## The server treats stores as opaque blobs; it does not parse or validate schema. Store IDs are arbitrary (e.g. `oauth`, `inspector-settings`). A `RemoteOAuthStorage` adapter would: fetch the `oauth` store on first use, implement the `OAuthStorage` interface against the in-memory structure (keyed by serverUrl), and POST the whole store back on any mutation. The same pattern works for other stores (Zustand, preferences). This makes sense when the web app runs alongside the same Node process that hosts the remote API (e.g. Vite dev server with Hono backend). Alternative: use `BrowserOAuthStorage` (sessionStorage) and keep OAuth state in the browser—no storage API, but no shared state with TUI/CLI.
+- **Storage adapters** (`shared/storage/adapters/`): Reusable Zustand storage adapters:
+  - `FileStorageAdapter` — file-based storage for Node (uses `fs/promises`)
+  - `RemoteStorageAdapter` — HTTP-based storage for browser (uses `/api/storage/:storeId`)
+- **OAuth storage implementations**:
+  - `NodeOAuthStorage` — uses `FileStorageAdapter` with Zustand persist middleware
+  - `BrowserOAuthStorage` — uses Zustand with `sessionStorage` adapter (browser-only)
+  - `RemoteOAuthStorage` — uses `RemoteStorageAdapter` for shared state with Node apps
+- **API endpoints** (in `createRemoteApp`):
+  - `GET /api/storage/:storeId` — returns entire store as JSON (empty object `{}` if not found)
+  - `POST /api/storage/:storeId` — overwrites entire store with provided JSON
+  - `DELETE /api/storage/:storeId` — deletes store (idempotent)
+
+**Design:** The server treats stores as opaque JSON blobs (Zustand's persist format: `{ state: {...}, version: 0 }`). Store IDs are arbitrary (e.g. `oauth`, `inspector-settings`). All OAuth storage implementations use the same Zustand-backed pattern for consistency. `RemoteOAuthStorage` fetches the store on initialization, implements `OAuthStorage` against the in-memory structure, and persists changes via POST. This enables shared OAuth state when the web app runs alongside the Node process hosting the remote API (e.g. Vite dev server with Hono backend). Alternative: use `BrowserOAuthStorage` (sessionStorage) for browser-only state—no shared state with TUI/CLI.
 
 ## Summary
 
-| Seam                      | Status      | Notes                                                                                                   |
-| ------------------------- | ----------- | ------------------------------------------------------------------------------------------------------- |
-| OAuth storage             | Implemented | Injected `OAuthStorage`. Optional generic `/api/storage/:storeId` for shared on-disk state (see above). |
-| OAuth navigation          | Implemented | Injected `OAuthNavigation`                                                                              |
-| OAuth redirect URL        | Implemented | Injected `RedirectUrlProvider`                                                                          |
-| OAuth auth fetch          | Implemented | `createRemoteFetch`, `POST /api/fetch`                                                                  |
-| Logging                   | Implemented | `createRemoteLogger`, `POST /api/log`, file logger option in `createRemoteApp`                          |
-| Transports                | Implemented | `createRemoteTransport`, `RemoteClientTransport`, `createRemoteApp` with `/api/mcp/*`                   |
-| Node code organization    | Implemented | `shared/auth/node/`, `shared/mcp/node/`, `shared/mcp/remote/node/`                                      |
-| Browser code organization | Implemented | `shared/auth/browser/`                                                                                  |
-| Config loading            | Implemented | In `shared/mcp/node/`                                                                                   |
+| Seam                      | Status      | Notes                                                                                                                                                                            |
+| ------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OAuth storage             | Implemented | Injected `OAuthStorage`. `NodeOAuthStorage` (file), `BrowserOAuthStorage` (sessionStorage), `RemoteOAuthStorage` (HTTP API). All use Zustand persist middleware for consistency. |
+| OAuth navigation          | Implemented | Injected `OAuthNavigation`                                                                                                                                                       |
+| OAuth redirect URL        | Implemented | Injected `RedirectUrlProvider`                                                                                                                                                   |
+| OAuth auth fetch          | Implemented | `createRemoteFetch`, `POST /api/fetch`                                                                                                                                           |
+| Logging                   | Implemented | `createRemoteLogger`, `POST /api/log`, file logger option in `createRemoteApp`                                                                                                   |
+| Transports                | Implemented | `createRemoteTransport`, `RemoteClientTransport`, `createRemoteApp` with `/api/mcp/*`                                                                                            |
+| Node code organization    | Implemented | `shared/auth/node/`, `shared/mcp/node/`, `shared/mcp/remote/node/`                                                                                                               |
+| Browser code organization | Implemented | `shared/auth/browser/`                                                                                                                                                           |
+| Config loading            | Implemented | In `shared/mcp/node/`                                                                                                                                                            |
 
 **Not yet wired:** The web client (`client/`) and server (`server/`) do not use the remote infrastructure. The web client still uses `useConnection` with direct SDK transports and the express proxy. Migrating to InspectorClient + `createRemoteTransport` + Hono remote server is pending.

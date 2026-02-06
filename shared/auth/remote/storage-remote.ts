@@ -1,4 +1,9 @@
-import { createJSONStorage } from "zustand/middleware";
+/**
+ * Remote HTTP storage implementation for OAuth state.
+ * Uses Zustand with remote storage adapter (HTTP API).
+ * For web clients that need to share state with Node apps.
+ */
+
 import type { OAuthStorage } from "../storage.js";
 import type {
   OAuthClientInformation,
@@ -10,20 +15,37 @@ import {
   OAuthTokensSchema,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { createOAuthStore, type ServerOAuthState } from "../store.js";
+import { createRemoteStorageAdapter } from "../../storage/adapters/remote-storage.js";
+
+export interface RemoteOAuthStorageOptions {
+  /** Base URL of the remote server (e.g. http://localhost:3000) */
+  baseUrl: string;
+  /** Store ID (default: "oauth") */
+  storeId?: string;
+  /** Optional auth token for x-mcp-remote-auth header */
+  authToken?: string;
+  /** Fetch function to use (default: globalThis.fetch) */
+  fetchFn?: typeof fetch;
+}
 
 /**
- * Browser storage implementation using Zustand with sessionStorage.
- * For web client (can be used by InspectorClient in browser).
+ * Remote HTTP storage implementation using Zustand with remote storage adapter.
+ * Stores OAuth state via HTTP API (GET/POST/DELETE /api/storage/:storeId).
+ * For web clients that need to share state with Node apps (TUI, CLI).
  */
-export class BrowserOAuthStorage implements OAuthStorage {
+export class RemoteOAuthStorage implements OAuthStorage {
   private store: ReturnType<typeof createOAuthStore>;
 
-  constructor() {
-    // Use Zustand's built-in sessionStorage adapter
-    // The `name` option in persist() ("mcp-inspector-oauth") becomes the sessionStorage key
-    const storage = createJSONStorage(() => sessionStorage);
+  constructor(options: RemoteOAuthStorageOptions) {
+    const storage = createRemoteStorageAdapter({
+      baseUrl: options.baseUrl,
+      storeId: options.storeId ?? "oauth",
+      authToken: options.authToken,
+      fetchFn: options.fetchFn,
+    });
     this.store = createOAuthStore(storage);
   }
+
   async getClientInformation(
     serverUrl: string,
     isPreregistered?: boolean,

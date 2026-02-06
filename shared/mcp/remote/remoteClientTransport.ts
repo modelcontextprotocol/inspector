@@ -34,6 +34,9 @@ export interface RemoteTransportOptions {
 
   /** Callback for fetch request tracking (forwarded via remote) */
   onFetchRequest?: (entry: FetchRequestEntryBase) => void;
+
+  /** Optional OAuth client provider for Bearer authentication */
+  authProvider?: import("@modelcontextprotocol/sdk/client/auth.js").OAuthClientProvider;
 }
 
 /**
@@ -135,7 +138,24 @@ export class RemoteClientTransport implements Transport {
     if (this.sessionId) return;
     if (this.closed) throw new Error("Transport is closed");
 
-    const body: RemoteConnectRequest = { config: this.config };
+    // Extract OAuth tokens from authProvider if available
+    let oauthTokens: RemoteConnectRequest["oauthTokens"] | undefined;
+    if (this.options.authProvider) {
+      const tokens = await this.options.authProvider.tokens();
+      if (tokens) {
+        oauthTokens = {
+          access_token: tokens.access_token,
+          token_type: tokens.token_type,
+          expires_in: tokens.expires_in,
+          refresh_token: tokens.refresh_token,
+        };
+      }
+    }
+
+    const body: RemoteConnectRequest = {
+      config: this.config,
+      oauthTokens,
+    };
     const res = await this.fetchFn(`${this.baseUrl}/api/mcp/connect`, {
       method: "POST",
       headers: this.headers,
@@ -144,7 +164,10 @@ export class RemoteClientTransport implements Transport {
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Remote connect failed (${res.status}): ${text}`);
+      // Preserve the status code in the error so callers can detect 401
+      const error = new Error(`Remote connect failed (${res.status}): ${text}`);
+      (error as { status?: number }).status = res.status;
+      throw error;
     }
 
     const json = (await res.json()) as RemoteConnectResponse;
