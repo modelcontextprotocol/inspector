@@ -34,6 +34,7 @@ const HistoryAndNotifications = ({
     reverse: true,
     minSize: 0,
     maxSize: 80,
+    unit: "%",
   });
 
   const toggleRequestExpansion = (index: number) => {
@@ -134,7 +135,7 @@ const HistoryAndNotifications = ({
           axis="x"
           onMouseDown={handleDragStart}
           onDoubleClick={toggleCollapse}
-          className="absolute top-0 left-[-9px]"
+          className="absolute top-0 left-[-8px]"
         />
 
         <div className="h-full overflow-hidden">

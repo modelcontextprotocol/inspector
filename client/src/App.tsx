@@ -332,13 +332,13 @@ const App = () => {
     isDragging: isHistoryDragging,
     handleDragStart,
     toggleCollapse: toggleHistory,
-  } = useDraggablePane(30);
+  } = useDraggablePane(30, "%");
   const {
     width: sidebarWidth,
     isDragging: isSidebarDragging,
     handleDragStart: handleSidebarDragStart,
     toggleCollapse: toggleSidebar,
-  } = useDraggableSidebar(20);
+  } = useDraggableSidebar(20, false, "%");
 
   const selectedTaskRef = useRef<Task | null>(null);
   useEffect(() => {
@@ -1265,7 +1265,7 @@ const App = () => {
           axis="x"
           onMouseDown={handleSidebarDragStart}
           onDoubleClick={toggleSidebar}
-          className="absolute top-0 right-[-7px]"
+          className="absolute top-0 right-[-8px]"
         />
       </div>
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -1571,7 +1571,7 @@ const App = () => {
             axis="y"
             onMouseDown={handleDragStart}
             onDoubleClick={toggleHistory}
-            className="absolute top-[-8px] left-[1px]"
+            className="absolute top-[-8px] left-0"
           />
           <div className="h-full overflow-hidden">
             <div className="h-full overflow-auto">

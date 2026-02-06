@@ -124,6 +124,7 @@ const ToolsTab = ({
     axis: "x",
     minSize: 0,
     maxSize: 50,
+    unit: "%",
   });
 
   const enableHistory = config.MCP_ENABLE_BROWSER_HISTORY?.value !== false;
@@ -225,9 +226,9 @@ const ToolsTab = ({
 
   return (
     <TabsContent value="tools" className="h-full mt-0 focus-visible:ring-0">
-      <div className="flex gap-4 h-full overflow-hidden">
+      <div className="flex h-full overflow-hidden">
         <div
-          className="relative flex-shrink-0 h-full"
+          className="relative flex-shrink-0 h-full pr-4"
           style={{
             width: `${listWidth}%`,
             transition: isDragging ? "none" : "width 0.15s",

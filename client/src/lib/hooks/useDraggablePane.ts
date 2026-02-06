@@ -6,6 +6,7 @@ type UseResizableOptions = {
   reverse?: boolean;
   minSize?: number;
   maxSize?: number;
+  unit?: "px" | "%";
 };
 
 export function useResizable({
@@ -13,7 +14,8 @@ export function useResizable({
   axis,
   reverse = false,
   minSize = 0,
-  maxSize = 100,
+  maxSize = Infinity,
+  unit = "px",
 }: UseResizableOptions) {
   const [size, setSize] = useState(initialSize);
   const [isDragging, setIsDragging] = useState(false);
@@ -44,21 +46,21 @@ export function useResizable({
     (e: MouseEvent) => {
       if (!isDragging) return;
       const currentPos = axis === "x" ? e.clientX : e.clientY;
-      const delta = reverse
+      const deltaPixels = reverse
         ? dragStartPos.current - currentPos
         : currentPos - dragStartPos.current;
 
-      const totalDim = axis === "x" ? window.innerWidth : window.innerHeight;
-      const deltaPercent = (delta / totalDim) * 100;
+      let delta = deltaPixels;
+      if (unit === "%") {
+        const totalDim = axis === "x" ? window.innerWidth : window.innerHeight;
+        delta = (deltaPixels / totalDim) * 100;
+      }
 
       setSize(
-        Math.max(
-          minSize,
-          Math.min(maxSize, dragStartSize.current + deltaPercent),
-        ),
+        Math.max(minSize, Math.min(maxSize, dragStartSize.current + delta)),
       );
     },
-    [isDragging, axis, reverse, minSize, maxSize],
+    [isDragging, axis, reverse, minSize, maxSize, unit],
   );
 
   const handleDragEnd = useCallback(() => {
@@ -77,6 +79,18 @@ export function useResizable({
     }
   }, [isDragging, handleDragMove, handleDragEnd]);
 
+  // Handle window resize to keep size within bounds.
+  // For percentage units, it's mostly stable, but for pixels we might need clamping.
+  useEffect(() => {
+    const handleResize = () => {
+      const totalDim = axis === "x" ? window.innerWidth : window.innerHeight;
+      const maxAllowed = unit === "%" ? 90 : totalDim * 0.9;
+      setSize((prev) => Math.min(prev, maxAllowed));
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [axis, unit]);
+
   return {
     size,
     isDragging,
@@ -86,27 +100,33 @@ export function useResizable({
 }
 
 // Compatibility wrappers to minimize changes in other files
-export function useDraggablePane(initialHeightPercent: number) {
+export function useDraggablePane(
+  initialHeight: number,
+  unit: "px" | "%" = "px",
+) {
   const { size, isDragging, handleDragStart, toggleCollapse } = useResizable({
-    initialSize: initialHeightPercent,
+    initialSize: initialHeight,
     axis: "y",
-    reverse: true, // Vertical pane in App.tsx grows as mouse moves UP
+    reverse: true,
     minSize: 0,
-    maxSize: 80,
+    maxSize: unit === "%" ? 80 : 800,
+    unit,
   });
   return { height: size, isDragging, handleDragStart, toggleCollapse };
 }
 
 export function useDraggableSidebar(
-  initialWidthPercent: number,
+  initialWidth: number,
   reverse = false,
+  unit: "px" | "%" = "px",
 ) {
   const { size, isDragging, handleDragStart, toggleCollapse } = useResizable({
-    initialSize: initialWidthPercent,
+    initialSize: initialWidth,
     axis: "x",
     reverse,
     minSize: 0,
-    maxSize: 60,
+    maxSize: unit === "%" ? 80 : 800,
+    unit,
   });
   return { width: size, isDragging, handleDragStart, toggleCollapse };
 }
