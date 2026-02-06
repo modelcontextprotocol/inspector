@@ -25,6 +25,7 @@ import type { MCPServerConfig } from "../mcp/types.js";
 interface StartRemoteServerOptions {
   logger?: pino.Logger;
   storageDir?: string;
+  allowedOrigins?: string[];
 }
 
 async function startRemoteServer(
@@ -38,6 +39,7 @@ async function startRemoteServer(
   const { app, authToken } = createRemoteApp({
     logger: options.logger,
     storageDir: options.storageDir,
+    allowedOrigins: options.allowedOrigins,
   });
   return new Promise((resolve, reject) => {
     const server = serve(
@@ -793,6 +795,140 @@ describe("Remote transport e2e", () => {
       expect(deleteRes.status).toBe(200);
       const deleteJson = await deleteRes.json();
       expect(deleteJson).toEqual({ ok: true });
+    });
+  });
+
+  describe("Origin validation", () => {
+    it("allows requests with valid origin", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        allowedOrigins: ["http://localhost:3000"],
+      });
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+          Origin: "http://localhost:3000",
+        },
+        body: JSON.stringify({
+          config: { type: "sse" as const, url: "http://localhost:3000" },
+        }),
+      });
+
+      // Should not be blocked by origin validation (may fail for other reasons)
+      expect(res.status).not.toBe(403);
+      const json = (await res.json()) as { error?: string };
+      // Should not be "Forbidden" due to origin
+      expect(json.error).not.toBe("Forbidden");
+    });
+
+    it("blocks requests with invalid origin", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        allowedOrigins: ["http://localhost:3000"],
+      });
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+          Origin: "http://evil.com",
+        },
+        body: JSON.stringify({
+          config: { type: "sse" as const, url: "http://localhost:3000" },
+        }),
+      });
+
+      expect(res.status).toBe(403);
+      const json = (await res.json()) as { error?: string; message?: string };
+      expect(json.error).toBe("Forbidden");
+      expect(json.message).toContain("Invalid origin");
+    });
+
+    it("allows requests without origin header (same-origin or non-browser)", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        allowedOrigins: ["http://localhost:3000"],
+      });
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+          // No Origin header
+        },
+        body: JSON.stringify({
+          config: { type: "sse" as const, url: "http://localhost:3000" },
+        }),
+      });
+
+      // Should not be blocked by origin validation
+      expect(res.status).not.toBe(403);
+    });
+
+    it("handles CORS preflight requests with valid origin", async () => {
+      const { baseUrl, server } = await startRemoteServer(0, {
+        allowedOrigins: ["http://localhost:3000"],
+      });
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "OPTIONS",
+        headers: {
+          Origin: "http://localhost:3000",
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "content-type,x-mcp-remote-auth",
+        },
+      });
+
+      expect(res.status).toBe(204);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+        "http://localhost:3000",
+      );
+      expect(res.headers.get("Access-Control-Allow-Methods")).toContain("POST");
+    });
+
+    it("blocks CORS preflight requests with invalid origin", async () => {
+      const { baseUrl, server } = await startRemoteServer(0, {
+        allowedOrigins: ["http://localhost:3000"],
+      });
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "OPTIONS",
+        headers: {
+          Origin: "http://evil.com",
+          "Access-Control-Request-Method": "POST",
+        },
+      });
+
+      expect(res.status).toBe(403);
+      const json = (await res.json()) as { error?: string };
+      expect(json.error).toBe("Forbidden");
+    });
+
+    it("allows all origins when allowedOrigins is not configured", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+          Origin: "http://any-origin.com",
+        },
+        body: JSON.stringify({
+          config: { type: "sse" as const, url: "http://localhost:3000" },
+        }),
+      });
+
+      // Should not be blocked by origin validation
+      expect(res.status).not.toBe(403);
     });
   });
 });
