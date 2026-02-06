@@ -32,7 +32,9 @@ export interface RemoteTransportFactoryOptions {
  *   authToken: process.env.MCP_REMOTE_TOKEN,
  * });
  * const inspector = new InspectorClient(config, {
- *   transportClientFactory: createTransport,
+ *   environment: {
+ *     transport: createTransport,
+ *   },
  *   ...
  * });
  */

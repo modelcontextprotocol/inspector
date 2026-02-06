@@ -92,7 +92,9 @@ describe("Remote transport e2e", () => {
 
     const createTransport = createRemoteTransport({ baseUrl, authToken });
     const client = new InspectorClient(config, {
-      transportClientFactory: createTransport,
+      environment: {
+        transport: createTransport,
+      },
       autoFetchServerContents: false,
       maxMessages: 100,
       maxFetchRequests: 100,
@@ -538,8 +540,10 @@ describe("Remote transport e2e", () => {
       const client = new InspectorClient(
         { type: "sse", url: mcpHttpServer!.url },
         {
-          transportClientFactory: createTransport,
-          logger: remoteLogger,
+          environment: {
+            transport: createTransport,
+            logger: remoteLogger,
+          },
           autoFetchServerContents: false,
           maxMessages: 100,
           maxFetchRequests: 100,

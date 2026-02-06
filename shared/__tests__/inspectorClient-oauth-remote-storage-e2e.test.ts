@@ -190,12 +190,20 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
           redirectUrl: testRedirectUrl,
         });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransport,
-          fetchFn: remoteFetch,
+          environment: {
+            transport: createTransport,
+            fetch: remoteFetch,
+            oauth: {
+              storage: remoteStorage,
+              navigation: new ConsoleNavigation(),
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
           oauth: {
-            ...oauthConfig,
-            storage: remoteStorage,
-            navigation: new ConsoleNavigation(),
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
           },
         };
 
@@ -272,11 +280,20 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
           redirectUrl: testRedirectUrl,
         });
         const clientConfig1: InspectorClientOptions = {
-          transportClientFactory: createTransport,
-          fetchFn: remoteFetch,
+          environment: {
+            transport: createTransport,
+            fetch: remoteFetch,
+            oauth: {
+              storage: remoteStorage,
+              navigation: oauthConfig1.navigation,
+              redirectUrlProvider: oauthConfig1.redirectUrlProvider,
+            },
+          },
           oauth: {
-            ...oauthConfig1,
-            storage: remoteStorage,
+            clientId: oauthConfig1.clientId,
+            clientSecret: oauthConfig1.clientSecret,
+            clientMetadataUrl: oauthConfig1.clientMetadataUrl,
+            scope: oauthConfig1.scope,
           },
         };
 
@@ -315,11 +332,20 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
           redirectUrl: testRedirectUrl,
         });
         const clientConfig2: InspectorClientOptions = {
-          transportClientFactory: createTransport,
-          fetchFn: remoteFetch,
+          environment: {
+            transport: createTransport,
+            fetch: remoteFetch,
+            oauth: {
+              storage: remoteStorage2,
+              navigation: oauthConfig2.navigation,
+              redirectUrlProvider: oauthConfig2.redirectUrlProvider,
+            },
+          },
           oauth: {
-            ...oauthConfig2,
-            storage: remoteStorage2,
+            clientId: oauthConfig2.clientId,
+            clientSecret: oauthConfig2.clientSecret,
+            clientMetadataUrl: oauthConfig2.clientMetadataUrl,
+            scope: oauthConfig2.scope,
           },
         };
 
@@ -393,11 +419,20 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
           redirectUrl: testRedirectUrl,
         });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransport,
-          fetchFn: remoteFetch,
+          environment: {
+            transport: createTransport,
+            fetch: remoteFetch,
+            oauth: {
+              storage: remoteStorage,
+              navigation: new ConsoleNavigation(),
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
           oauth: {
-            ...oauthConfig,
-            storage: remoteStorage,
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
           },
         };
 

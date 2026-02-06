@@ -170,7 +170,9 @@ async function callMethod(args: Args): Promise<void> {
   const clientIdentity = { name, version };
 
   const inspectorClient = new InspectorClient(argsToMcpServerConfig(args), {
-    transportClientFactory: createTransportNode,
+    environment: {
+      transport: createTransportNode,
+    },
     clientIdentity,
     autoFetchServerContents: false, // CLI doesn't need auto-fetching, it calls methods directly
     initialLoggingLevel: "debug", // Set debug logging level for CLI

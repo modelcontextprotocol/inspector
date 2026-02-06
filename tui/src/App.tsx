@@ -14,6 +14,7 @@ import type {
   FetchRequestEntry,
   MCPServerConfig,
   InspectorClientOptions,
+  InspectorClientEnvironment,
 } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import {
@@ -239,13 +240,16 @@ function App({
         ] as MCPServerConfig & {
           oauth?: Record<string, unknown>;
         };
+        const environment: InspectorClientEnvironment = {
+          transport: createTransportNode,
+          logger: tuiLogger,
+        };
         const opts: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
+          environment,
           maxMessages: 1000,
           maxStderrLogEvents: 1000,
           maxFetchRequests: 1000,
           pipeStderr: true,
-          logger: tuiLogger,
         };
         if (isOAuthCapableServer(serverConfig)) {
           const oauthFromConfig = serverConfig.oauth as
@@ -255,13 +259,15 @@ function App({
             redirectUrlProvidersRef.current[serverName] ??
             (redirectUrlProvidersRef.current[serverName] =
               new MutableRedirectUrlProvider());
-          opts.oauth = {
-            ...(serverConfig.oauth || {}),
+          environment.oauth = {
             storage: new NodeOAuthStorage(oauthFromConfig?.storagePath),
             navigation: new CallbackNavigation(
               async (url) => await openUrl(url),
             ),
             redirectUrlProvider,
+          };
+          opts.oauth = {
+            ...(serverConfig.oauth || {}),
             ...(clientId && { clientId }),
             ...(clientSecret && { clientSecret }),
             ...(clientMetadataUrl && { clientMetadataUrl }),

@@ -107,14 +107,27 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         // Create client with static OAuth config
+        const oauthConfig = createOAuthClientConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "static",
-            clientId: staticClientId,
-            clientSecret: staticClientSecret,
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -167,14 +180,27 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "static",
-            clientId: staticClientId,
-            clientSecret: staticClientSecret,
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -238,14 +264,27 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "static",
-            clientId: staticClientId,
-            clientSecret: staticClientSecret,
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -316,13 +355,26 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         // Create client with CIMD config
+        const oauthConfig = createOAuthClientConfig({
+          mode: "cimd",
+          clientMetadataUrl: metadataUrl,
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "cimd",
-            clientMetadataUrl: metadataUrl,
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -380,13 +432,26 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "cimd",
+          clientMetadataUrl: metadataUrl,
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "cimd",
-            clientMetadataUrl: metadataUrl,
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -427,12 +492,25 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "dcr",
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "dcr",
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -469,12 +547,25 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "dcr",
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "dcr",
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -525,12 +616,25 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "dcr",
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "dcr",
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -583,14 +687,27 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "static",
-            clientId: staticClientId,
-            clientSecret: staticClientSecret,
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -656,14 +773,27 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "static",
-            clientId: staticClientId,
-            clientSecret: staticClientSecret,
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -718,14 +848,27 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "static",
-            clientId: staticClientId,
-            clientSecret: staticClientSecret,
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -769,12 +912,25 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "dcr",
+          redirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "dcr",
-            redirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -810,12 +966,25 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "dcr",
+          redirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "dcr",
-            redirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -869,14 +1038,27 @@ describe("InspectorClient OAuth E2E", () => {
       const port = await server.start();
       const serverUrl = `http://localhost:${port}`;
 
+      const oauthConfig = createOAuthClientConfig({
+        mode: "static",
+        clientId: staticClientId,
+        clientSecret: staticClientSecret,
+        redirectUrl: testRedirectUrl,
+      });
       const clientConfig: InspectorClientOptions = {
-        transportClientFactory: createTransportNode,
-        oauth: createOAuthClientConfig({
-          mode: "static",
-          clientId: staticClientId,
-          clientSecret: staticClientSecret,
-          redirectUrl: testRedirectUrl,
-        }),
+        environment: {
+          transport: createTransportNode,
+          oauth: {
+            storage: oauthConfig.storage,
+            navigation: oauthConfig.navigation,
+            redirectUrlProvider: oauthConfig.redirectUrlProvider,
+          },
+        },
+        oauth: {
+          clientId: oauthConfig.clientId,
+          clientSecret: oauthConfig.clientSecret,
+          clientMetadataUrl: oauthConfig.clientMetadataUrl,
+          scope: oauthConfig.scope,
+        },
       };
 
       client = new InspectorClient(
@@ -924,14 +1106,27 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "static",
-            clientId: staticClientId,
-            clientSecret: staticClientSecret,
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -981,14 +1176,27 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "static",
-            clientId: staticClientId,
-            clientSecret: staticClientSecret,
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -1078,14 +1286,27 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
+        const oauthConfig = createOAuthClientConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        });
         const clientConfig: InspectorClientOptions = {
-          transportClientFactory: createTransportNode,
-          oauth: createOAuthClientConfig({
-            mode: "static",
-            clientId: staticClientId,
-            clientSecret: staticClientSecret,
-            redirectUrl: testRedirectUrl,
-          }),
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
         };
 
         client = new InspectorClient(
@@ -1143,14 +1364,27 @@ describe("InspectorClient OAuth E2E", () => {
       const port = await server.start();
       const serverUrl = `http://localhost:${port}`;
 
+      const oauthConfig = createOAuthClientConfig({
+        mode: "static",
+        clientId: staticClientId,
+        clientSecret: staticClientSecret,
+        redirectUrl: testRedirectUrl,
+      });
       const clientConfig: InspectorClientOptions = {
-        transportClientFactory: createTransportNode,
-        oauth: createOAuthClientConfig({
-          mode: "static",
-          clientId: staticClientId,
-          clientSecret: staticClientSecret,
-          redirectUrl: testRedirectUrl,
-        }),
+        environment: {
+          transport: createTransportNode,
+          oauth: {
+            storage: oauthConfig.storage,
+            navigation: oauthConfig.navigation,
+            redirectUrlProvider: oauthConfig.redirectUrlProvider,
+          },
+        },
+        oauth: {
+          clientId: oauthConfig.clientId,
+          clientSecret: oauthConfig.clientSecret,
+          clientMetadataUrl: oauthConfig.clientMetadataUrl,
+          scope: oauthConfig.scope,
+        },
       };
 
       client = new InspectorClient(
@@ -1206,16 +1440,26 @@ describe("InspectorClient OAuth E2E", () => {
       const port = await server.start();
       const serverUrl = `http://localhost:${port}`;
 
+      const oauthConfig = createOAuthClientConfig({
+        mode: "static",
+        clientId: staticClientId,
+        clientSecret: staticClientSecret,
+        redirectUrl: testRedirectUrl,
+      });
       const clientConfig: InspectorClientOptions = {
-        transportClientFactory: createTransportNode,
+        environment: {
+          transport: createTransportNode,
+          oauth: {
+            storage: new NodeOAuthStorage(customPath),
+            navigation: oauthConfig.navigation,
+            redirectUrlProvider: oauthConfig.redirectUrlProvider,
+          },
+        },
         oauth: {
-          ...createOAuthClientConfig({
-            mode: "static",
-            clientId: staticClientId,
-            clientSecret: staticClientSecret,
-            redirectUrl: testRedirectUrl,
-          }),
-          storage: new NodeOAuthStorage(customPath),
+          clientId: oauthConfig.clientId,
+          clientSecret: oauthConfig.clientSecret,
+          clientMetadataUrl: oauthConfig.clientMetadataUrl,
+          scope: oauthConfig.scope,
         },
       };
 
@@ -1302,15 +1546,28 @@ describe("InspectorClient OAuth E2E", () => {
       const port = await server.start();
       const serverUrl = `http://localhost:${port}`;
 
+      const oauthConfig = createOAuthClientConfig({
+        mode: "static",
+        clientId: staticClientId,
+        clientSecret: staticClientSecret,
+        redirectUrl: testRedirectUrl,
+      });
       const clientConfig: InspectorClientOptions = {
-        transportClientFactory: createTransportNode,
-        fetchFn,
-        oauth: createOAuthClientConfig({
-          mode: "static",
-          clientId: staticClientId,
-          clientSecret: staticClientSecret,
-          redirectUrl: testRedirectUrl,
-        }),
+        environment: {
+          transport: createTransportNode,
+          fetch: fetchFn,
+          oauth: {
+            storage: oauthConfig.storage,
+            navigation: oauthConfig.navigation,
+            redirectUrlProvider: oauthConfig.redirectUrlProvider,
+          },
+        },
+        oauth: {
+          clientId: oauthConfig.clientId,
+          clientSecret: oauthConfig.clientSecret,
+          clientMetadataUrl: oauthConfig.clientMetadataUrl,
+          scope: oauthConfig.scope,
+        },
       };
 
       client = new InspectorClient(

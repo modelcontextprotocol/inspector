@@ -4,6 +4,15 @@
 
 This document describes a shared code architecture that enables code reuse across the MCP Inspector's three user interfaces: the **CLI**, **TUI** (Terminal User Interface), and **web client** (likely targeting v2). The shared codebase approach prevents the feature drift and maintenance burden that can occur when each app has a separate implementation.
 
+### Environment Isolation
+
+The architecture uses **environment isolation** to separate portable JavaScript from environment-specific code (Node.js vs. browser). `InspectorClient` is portable and accepts **injected dependencies** (seams) for environment-specific behavior:
+
+- **CLI/TUI (Node)**: Inject Node-specific implementations (`createTransportNode`, `NodeOAuthStorage`, file-based logging)
+- **Web client (Browser)**: Inject browser-specific implementations (`createRemoteTransport`, `BrowserOAuthStorage` or `RemoteOAuthStorage`, remote logging)
+
+`InspectorClient` remains unaware of which environment it's running in—it just uses the injected dependencies. This allows the same code to run in Node (CLI, TUI) and browser (web client). See [environment-isolation.md](environment-isolation.md) for detailed design.
+
 ### Motivation
 
 Previously, the CLI and web client had no shared code, leading to:
@@ -17,11 +26,18 @@ Adding the TUI (as-is) with yet another separate implementation seemed problemat
 
 The shared code architecture addresses these issues by providing a single source of truth for MCP client operations that all three interfaces can use.
 
-## Current Architecture
+## Proposed Architecture
 
 ### Architecture Diagram
 
 ![Shared Code Architecture](shared-code-architecture.svg)
+
+**Key concept**: Each environment (CLI, TUI, web client) injects environment-specific dependencies into `InspectorClient`:
+
+- **CLI/TUI**: Pass `environment` object with `transport: createTransportNode` (creates stdio, SSE, streamable-http transports directly in Node), `oauth.storage: NodeOAuthStorage` (file-based), `logger` (file-based pino logger)
+- **Web client**: Pass `environment` object with `transport: createRemoteTransport` (creates `RemoteClientTransport` that talks to remote API server), `fetch: createRemoteFetch`, `logger: createRemoteLogger`, `oauth.storage: BrowserOAuthStorage` or `RemoteOAuthStorage` (sessionStorage or HTTP API)
+
+`InspectorClient` uses these injected dependencies to create transports and manage OAuth, remaining portable across all environments.
 
 ### Project Structure
 
@@ -89,6 +105,21 @@ The `shared/` directory is a **workspace package** that:
 - Caches capabilities, serverInfo, instructions
 - Event-driven updates for all server data (`toolsChange`, `resourcesChange`, `promptsChange`, etc.)
 
+**Request History Tracking:**
+
+- Tracks HTTP requests for OAuth (discovery, registration, token exchange) and transport
+- Categorizes requests as `'auth'` or `'transport'`
+- `FetchRequestEntry[]` format with full request/response details
+- Event-driven updates (`fetchRequest` event)
+- Configurable via `maxFetchRequests` option
+
+**Stderr Log Tracking:**
+
+- Captures and stores stderr output from stdio transports (when `pipeStderr` is enabled)
+- `StderrLogEntry[]` format with timestamps
+- Event-driven updates (`stderrLog`, `stderrLogsChange` events)
+- Configurable via `maxStderrLogEvents` and `pipeStderr` options
+
 **MCP Method Wrappers:**
 
 - `listTools(metadata?)` - List available tools
@@ -98,7 +129,19 @@ The `shared/` directory is a **workspace package** that:
 - `listResourceTemplates(metadata?)` - List resource templates
 - `listPrompts(metadata?)` - List available prompts
 - `getPrompt(name, args?, metadata?)` - Get a prompt with automatic argument stringification
+- `getCompletions(resourceUri, prompt, metadata?)` - Get completions for resource templates or prompts
+- `getRoots()` - List roots
+- `setRoots(roots)` - Set roots
 - `setLoggingLevel(level)` - Set logging level with capability checks
+
+**Advanced Features:**
+
+- **OAuth 2.1** - Full OAuth support (static client, DCR, CIMD, guided auth) with injectable storage, navigation, and redirect URL providers
+- **Sampling** - Handles sampling requests, tracks pending samples, dispatches `newPendingSample` events
+- **Elicitation** - Handles elicitation requests (form and URL), tracks pending elicitations, dispatches `newPendingElicitation` events
+- **Roots** - Manages roots capability, handles `roots/list` requests, dispatches `rootsChange` events
+- **Progress Notifications** - Handles progress notifications, dispatches `progressNotification` events, resets request timeout on progress
+- **ListChanged Notifications** - Automatically reloads tools/resources/prompts when `listChanged` notifications are received
 
 **Configurable Options:**
 
@@ -106,7 +149,8 @@ The `shared/` directory is a **workspace package** that:
 - `initialLoggingLevel` - Sets the logging level on connect if server supports logging (optional)
 - `maxMessages` - Maximum number of messages to store (default: 1000)
 - `maxStderrLogEvents` - Maximum number of stderr log entries to store (default: 1000)
-- `pipeStderr` - Whether to pipe stderr for stdio transports (default: `true` for TUI, `false` for CLI)
+- `maxFetchRequests` - Maximum number of fetch requests to store (default: 1000)
+- `pipeStderr` - Whether to pipe stderr for stdio transports (default: `false`; TUI and CLI set this explicitly)
 
 ### Event System
 
@@ -134,28 +178,19 @@ The `shared/` directory is a **workspace package** that:
 
 ### Shared Module Structure
 
-**`shared/mcp/`** - MCP client/server interaction:
+The shared package is organized with environment-specific code separated into `node/` and `browser/` subdirectories. Portable code (no environment-specific APIs) lives in module roots; Node-specific code is under `node/` subdirectories; browser-specific code is under `browser/` subdirectories.
 
-- `inspectorClient.ts` - Main `InspectorClient` class
-- `transport.ts` - Transport creation from `MCPServerConfig`
-- `config.ts` - Config file loading (`loadMcpServersConfig`)
-- `types.ts` - Shared types (`MCPServerConfig`, `MessageEntry`, `ConnectionStatus`, etc.)
-- `messageTrackingTransport.ts` - Transport wrapper for message tracking
-- `index.ts` - Public API exports
+**Main modules:**
 
-**`shared/json/`** - JSON utilities:
+- **`shared/mcp/`** - `InspectorClient` and core MCP functionality
+- **`shared/mcp/remote/`** - Remote transport infrastructure (portable client code)
+- **`shared/auth/`** - OAuth infrastructure (portable base code)
+- **`shared/storage/`** - Storage abstraction layer
+- **`shared/react/`** - `useInspectorClient` React hook
+- **`shared/json/`** - JSON utilities
+- **`shared/test/`** - Test fixtures and harness servers
 
-- `jsonUtils.ts` - JSON value types and conversion utilities (`JsonValue`, `convertParameterValue`, `convertToolParameters`, `convertPromptArguments`)
-
-**`shared/react/`** - Shared React code:
-
-- `useInspectorClient.ts` - React hook that subscribes to EventTarget events and provides reactive state (works in both TUI and web client)
-
-**`shared/test/`** - Test fixtures and harness servers:
-
-- `test-server-fixtures.ts` - Shared server configs and definitions
-- `test-server-http.ts` - HTTP/SSE test server
-- `test-server-stdio.ts` - Stdio test server
+For detailed module organization, environment-specific modules, and package exports, see [environment-isolation.md](environment-isolation.md).
 
 ## Integration History
 
@@ -272,7 +307,7 @@ This provides a single entry point with consistent argument parsing across all t
 
 ## Phase 4: TUI Feature Gaps (Complete)
 
-InspectorClient supports OAuth (static client, CIMD, DCR, guided auth), completions (`getCompletions`), elicitation (pending elicitations, `newPendingElicitation` event), sampling (pending samples, `newPendingSample` event), roots (`getRoots`, `setRoots`), progress notifications, and custom headers via `MCPServerConfig`. The TUI uses these features.
+InspectorClient supports OAuth (static client, CIMD, DCR, guided auth), completions (`getCompletions`), elicitation (pending elicitations, `newPendingElicitation` event), sampling (pending samples, `newPendingSample` event), roots (`getRoots`, `setRoots`), progress notifications, and custom headers via `MCPServerConfig`. For details on which features are implemented in the TUI vs. web client, see [tui-web-client-feature-gaps.md](tui-web-client-feature-gaps.md).
 
 ## InspectorClient Readiness for Web App
 
@@ -280,52 +315,39 @@ InspectorClient supports OAuth (static client, CIMD, DCR, guided auth), completi
 
 InspectorClient is **close to ready** for web app support. The core functionality matches what the web client needs:
 
-| Capability                | InspectorClient                                    | Web Client useConnection                     |
-| ------------------------- | -------------------------------------------------- | -------------------------------------------- |
-| Connection management     | ✅ `connect()`, `disconnect()`, status events      | ✅                                           |
-| Tools, resources, prompts | ✅ Auto-fetch, events, methods                     | ✅                                           |
-| Message tracking          | ✅ `MessageEntry[]`, `messagesChange`              | Different format (`{ request, response }[]`) |
-| OAuth                     | ✅ Injected storage, navigation, redirect, fetchFn | ✅ Own flow, session storage                 |
-| Custom headers            | ✅ `headers` in SSE/streamable-http config         | ✅                                           |
-| Elicitation               | ✅ Pending elicitations, events                    | ✅                                           |
-| Completion                | ✅ `getCompletions()`                              | ✅                                           |
-| Sampling                  | ✅ Pending samples, events                         | ✅                                           |
-| Roots                     | ✅ `getRoots()`, `setRoots()`, events              | ✅                                           |
-| Progress                  | ✅ `progressNotification` event, timeout reset     | ✅                                           |
-| Fetch tracking            | ✅ Auth + transport categories                     | ✅ Request history                           |
-| Logger                    | ✅ Optional injected (pino)                        | —                                            |
-| Transport factory         | ✅ Required `CreateTransport`                      | Creates transports directly                  |
+| Capability                | InspectorClient                                                                          | Web Client useConnection                                            |
+| ------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Connection management     | ✅ `connect()`, `disconnect()`, status events                                            | ✅                                                                  |
+| Tools, resources, prompts | ✅ Auto-fetch, events, methods                                                           | ✅                                                                  |
+| Message tracking          | ✅ `MessageEntry[]`, `messagesChange`                                                    | Different format (`{ request, response }[]`)                        |
+| OAuth                     | ✅ Injected via `environment.oauth` (storage, navigation, redirect), `environment.fetch` | ✅ Own flow, session storage                                        |
+| Custom headers            | ✅ `headers` in SSE/streamable-http config                                               | ✅                                                                  |
+| Elicitation               | ✅ Pending elicitations, events                                                          | ✅                                                                  |
+| Completion                | ✅ `getCompletions()`                                                                    | ✅                                                                  |
+| Sampling                  | ✅ Pending samples, events                                                               | ✅                                                                  |
+| Roots                     | ✅ `getRoots()`, `setRoots()`, events                                                    | ✅                                                                  |
+| Progress                  | ✅ `progressNotification` event, timeout reset                                           | ✅                                                                  |
+| Request history           | ✅ Auth + transport request tracking                                                     | ✅ Request history                                                  |
+| Logger                    | ✅ Optional injected (pino)                                                              | —                                                                   |
+| Transport factory         | ✅ Required `CreateTransport`                                                            | Creates transports directly (web servers) or via proxy (stdio/CORS) |
 
 ### Environment Isolation: What's Done vs. Pending
 
 Per [environment-isolation.md](environment-isolation.md):
 
-**Implemented:** OAuth storage, navigation, redirect URL, and auth fetch (`fetchFn`) are injectable. Transport creation is via required `CreateTransport`; Node uses `createTransportNode`. InspectorClient accepts optional `logger`. The shared package works in Node (CLI, TUI).
+**Implemented:** All environment-specific dependencies are consolidated into `InspectorClientEnvironment` (transport, fetch, logger, oauth.storage, oauth.navigation, oauth.redirectUrlProvider). Transport is required; fetch, logger, and OAuth components are optional. Node uses `createTransportNode`; browser uses `createRemoteTransport`, `createRemoteFetch`, `createRemoteLogger`. The shared package works in Node (CLI, TUI).
 
 **Implemented (remote infrastructure):**
 
-- **Hono API server** — In `shared/mcp/remote/node/`. Endpoints for transport (`/api/mcp/connect`, `send`, `events`, `disconnect`), proxy fetch (`/api/fetch`), and logging (`/api/log`).
+- **Hono API server** — In `shared/mcp/remote/node/`. Endpoints for transport (`/api/mcp/connect`, `send`, `events`, `disconnect`), proxy fetch (`/api/fetch`), logging (`/api/log`), and storage (`/api/storage/:storeId`).
 - **createRemoteTransport + RemoteClientTransport** — In `shared/mcp/remote/` (portable). Browser transport that talks to the remote server.
 - **createRemoteFetch** — In `shared/mcp/remote/`. Fetch that POSTs to `/api/fetch` for OAuth (CORS bypass).
 - **createRemoteLogger** — In `shared/mcp/remote/`. Pino logger that POSTs to `/api/log` via `pino/browser` transmit.
+- **Storage abstraction** — `FileStorageAdapter` (Node), `RemoteStorageAdapter` (browser), `RemoteOAuthStorage` (HTTP API). All OAuth storage implementations use Zustand persist middleware for consistency.
+- **Generic storage API** — `GET/POST/DELETE /api/storage/:storeId` endpoints for shared on-disk state between web app and TUI/CLI. See [environment-isolation.md](environment-isolation.md).
 - **Node code organization** — `shared/auth/node/`, `shared/mcp/node/`, `shared/mcp/remote/node/`.
 
-**Pending:**
-
-- **Optional: Generic storage API** — If the web app should share on-disk state with TUI/CLI, a generic endpoint `GET/POST /api/storage/:storeId` (whole-store read/write) would let the browser delegate to Node. See [environment-isolation.md](environment-isolation.md).
-
-### Port Effort Estimate
-
-| Work                     | Effort | Notes                                                                                                                                                                                                            |
-| ------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hono API server          | Medium | In `shared/mcp/remote/node/`. Transport, fetch, log endpoints; session/auth middleware. See environment-isolation.md.                                                                                            |
-| createRemoteTransport    | Medium | In `shared/mcp/remote/`. Implements `Transport`; uses `/api/mcp/*`; subscribes to SSE event stream; forwards fetch_request, stdio_log events.                                                                    |
-| Node code org            | Small  | Move to `shared/auth/node/` and `shared/mcp/node/`; remote server in `shared/mcp/remote/node/`; update imports in TUI, CLI, tests.                                                                               |
-| Web client fetch wrapper | Small  | Fetch that POSTs to `/api/fetch`; handle `URLSearchParams` serialization.                                                                                                                                        |
-| Web client logger        | Small  | Logger that POSTs to `/api/log`, or omit initially.                                                                                                                                                              |
-| Web client refactor      | Large  | Replace `useConnection` with `InspectorClient` + `useInspectorClient`; migrate state; switch to `MessageEntry[]`; wire OAuth (BrowserOAuthStorage, BrowserNavigation); use web app's own `oauth/callback` route. |
-
-**Summary:** InspectorClient and the remote infrastructure (Hono API, createRemoteTransport, createRemoteFetch, createRemoteLogger) are implemented. The remaining effort is (1) refactoring the web client to use InspectorClient + `createRemoteTransport` instead of `useConnection`, and (2) optionally wiring the generic storage API (`/api/storage/:storeId`) for shared on-disk state with TUI/CLI.
+**Summary:** InspectorClient and the remote infrastructure (Hono API, createRemoteTransport, createRemoteFetch, createRemoteLogger, storage API) are implemented. The remaining effort is refactoring the web client to use InspectorClient + `createRemoteTransport` instead of `useConnection`.
 
 ## Web Client Integration Plan
 
@@ -412,30 +434,18 @@ The main `App.tsx` component manages extensive state including:
 - Active tab
 - Pending requests
 
-### Features Needed in InspectorClient for Web Client
-
-InspectorClient already provides:
-
-1. **Custom Headers** — `headers` in `SseServerConfig` and `StreamableHttpServerConfig`
-2. **Request Handlers** — Elicitation (built-in), roots (`getRoots`, `setRoots`, `rootsChange` event)
-3. **Completion Support** — `getCompletions()` method
-4. **Progress Notifications** — `progressNotification` event and timeout reset
-5. **Session Management** — Access via transport; `messageTrackingTransport` exposes `sessionId`
-
-No additional InspectorClient features are required for web client integration.
-
 ### Integration Challenges
 
 **1. OAuth Authentication**
 
 - Web client uses browser-based OAuth flow (authorization code with PKCE)
 - Requires browser redirects and callback handling
-- **Solution**: InspectorClient supports injectable OAuth storage, navigation, redirect URL, and fetchFn. Web client injects `BrowserOAuthStorage`, `BrowserNavigation`, and a redirect provider using `window.location.origin`. The web app implements its own `oauth/callback` route.
+- **Solution**: InspectorClient supports injectable OAuth components via `environment.oauth` (storage, navigation, redirectUrlProvider) and `environment.fetch` for auth requests. Web client injects `BrowserOAuthStorage` or `RemoteOAuthStorage`, `BrowserNavigation`, and a redirect provider using `window.location.origin`. The web app implements its own `oauth/callback` route.
 
-**2. Proxy Mode**
+**2. Remote Transport**
 
-- Web client connects through proxy server for stdio transports
-- **Solution**: Handle proxy URL construction in web client, pass final URL to `InspectorClient`
+- Web client must use remote transports for all transport types (stdio, SSE, streamable-http)
+- **Solution**: Use `createRemoteTransport` as the transport factory. This handles all transport types via the remote API server.
 
 **3. Custom Headers**
 
@@ -470,11 +480,10 @@ No additional InspectorClient features are required for web client integration.
 
 ### Integration Strategy
 
-InspectorClient already has the needed features (see "InspectorClient Readiness for Web App" above). The integration work is:
+InspectorClient already has the needed features (see "InspectorClient Readiness for Web App" above). The remaining integration work is:
 
-1. ~~**Environment isolation infra**~~ (done) — Hono API server, `createRemoteTransport`, `createRemoteFetch`, `createRemoteLogger`, Node code organization.
-2. **Web-specific adapters** — Create adapter that converts web client config to `MCPServerConfig`, handles proxy URL construction, and manages OAuth token injection into headers. Use `createRemoteFetch` (POST to `/api/fetch`), `createRemoteLogger` (POST to `/api/log`), and OAuth providers (`BrowserOAuthStorage`, `BrowserNavigation`).
-3. **Replace useConnection** — Use `InspectorClient` + `useInspectorClient` instead of `useConnection`; migrate state and request history to `MessageEntry[]`; wire OAuth via web app's `oauth/callback` route.
+1. **Web-specific adapters** — Create adapter that converts web client config to `MCPServerConfig` and manages OAuth token injection into headers. Use `createRemoteTransport` as the transport factory, `createRemoteFetch` (POST to `/api/fetch`) for OAuth, `createRemoteLogger` (POST to `/api/log`) for logging, and OAuth providers (`BrowserOAuthStorage`, `BrowserNavigation`, or `RemoteOAuthStorage` for shared state).
+2. **Replace useConnection** — Use `InspectorClient` + `useInspectorClient` instead of `useConnection`; migrate state and request history to `MessageEntry[]`; wire OAuth via web app's `oauth/callback` route.
 
 ### Benefits of Web Client Integration
 
@@ -487,72 +496,10 @@ InspectorClient already has the needed features (see "InspectorClient Readiness 
 
 ### Implementation Steps
 
-1. ~~Implement Hono API server in `shared/mcp/remote/node/` and `createRemoteTransport` in `shared/mcp/remote/`~~ (done)
-2. ~~Organize Node-only code in `shared/auth/node/` and `shared/mcp/node/`; remote server in `shared/mcp/remote/node/`~~ (done)
-3. Create adapter to convert web client config to `MCPServerConfig`; add fetch wrapper (`createRemoteFetch`), logger (`createRemoteLogger`), OAuth providers
-4. Replace `useConnection` with `InspectorClient` + `useInspectorClient`; migrate state to `MessageEntry[]`
+The remote infrastructure is complete (Hono API server, `createRemoteTransport`, `createRemoteFetch`, `createRemoteLogger`, storage abstraction, Node code organization). Remaining steps:
 
-## Technical Details
-
-### TypeScript Project References
-
-The shared package uses TypeScript Project References for build orchestration:
-
-**`shared/tsconfig.json`:**
-
-```json
-{
-  "compilerOptions": {
-    "composite": true,
-    "declaration": true,
-    "declarationMap": true
-  }
-}
-```
-
-**`cli/tsconfig.json` and `tui/tsconfig.json`:**
-
-```json
-{
-  "references": [{ "path": "../shared" }]
-}
-```
-
-This ensures:
-
-- Shared builds first (required for type resolution)
-- Type checking across workspace boundaries
-- Correct build ordering in CI
-
-### Build Process
-
-**Root `package.json` build script:**
-
-```json
-{
-  "scripts": {
-    "build": "npm run build-shared && npm run build-server && npm run build-client && npm run build-cli && npm run build-tui",
-    "build-shared": "cd shared && npm run build"
-  }
-}
-```
-
-**CI Workflow:**
-
-- Build shared package first
-- Then build dependent workspaces (CLI, TUI)
-- TypeScript Project References enforce this ordering
-
-### Module Resolution
-
-Workspaces import using package name:
-
-```typescript
-import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/inspectorClient.js";
-import { useInspectorClient } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
-```
-
-npm workspaces automatically resolve package names to the workspace package.
+1. Create adapter to convert web client config to `MCPServerConfig`; use `createRemoteTransport` as transport factory, `createRemoteFetch` for OAuth, `createRemoteLogger` for logging, and OAuth providers (`BrowserOAuthStorage`, `BrowserNavigation`, or `RemoteOAuthStorage` for shared state)
+2. Replace `useConnection` with `InspectorClient` + `useInspectorClient`; migrate state to `MessageEntry[]`
 
 ## Summary
 
@@ -570,10 +517,9 @@ The shared code architecture provides:
 - ✅ Phase 1: TUI integrated and using shared code
 - ✅ Phase 2: Shared package created and configured
 - ✅ Phase 3: CLI migrated to use shared code
-- ✅ Phase 4: TUI feature gaps addressed (OAuth, completions, elicitation, sampling, etc.)
+- ✅ Phase 4: InspectorClient feature support added (OAuth, completions, elicitation, sampling, etc.). See [tui-web-client-feature-gaps.md](tui-web-client-feature-gaps.md) for TUI implementation status.
 - 🔄 Phase 5: v2 web client integration (planned)
 
 **Next Steps:**
 
-1. Implement environment isolation infra: Hono API server in `shared/mcp/remote/node/`, `createRemoteTransport` in `shared/mcp/remote/`, Node code organization (see [environment-isolation.md](environment-isolation.md))
-2. Integrate `InspectorClient` with v2 web client: replace `useConnection` with `InspectorClient` + `useInspectorClient`, add fetch/logger wrappers
+1. Integrate `InspectorClient` with v2 web client: replace `useConnection` with `InspectorClient` + `useInspectorClient`, add adapters for config conversion and OAuth providers, wire OAuth providers

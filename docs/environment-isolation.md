@@ -2,11 +2,11 @@
 
 ## Overview
 
-**Environment isolation** is the design principle of separating pure, portable JavaScript from environment-specific code (Node.js, browser). The shared `InspectorClient` and auth logic must run in Node (CLI, TUI) and in the web UX—a combination of JavaScript in the browser and Node (API endpoints on the UX server or a separate proxy). Environment-specific APIs (e.g. `fs`, `child_process`, `sessionStorage`) are isolated behind abstractions or in separate modules.
+**Environment isolation** is the design principle of separating pure, portable JavaScript from environment-specific code (Node.js, browser). The shared `InspectorClient` (including OAuth support) must run in Node (CLI, TUI) and in the web UX—a combination of JavaScript in the browser and Node (API endpoints on the UX server or a separate remote server). Environment-specific APIs are isolated behind abstractions or in separate modules (e.g., Node.js's `fs` and `child_process`, or the browser's `sessionStorage`).
 
 We use the term **seams** for the individual integration points where environment-specific behavior plugs in. Each seam has an abstraction (interface or injection point) and one or more implementations per environment.
 
-**Dependency consolidation (future):** Instead of injecting many separate dependencies (storage, navigation, redirectUrlProvider, fetchFn, logger, etc.), consider a single `InspectorClientEnvironment` interface that defines all seams. Callers would pass one object; each environment (Node, browser, tests) provides its implementation bundle. Simplifies wiring, clarifies the contract, and keeps optional properties optional.
+**Dependency consolidation:** All environment-specific dependencies are consolidated into a single `InspectorClientEnvironment` interface. Callers pass one `environment` object; each environment (Node, browser, tests) provides its implementation bundle. This simplifies wiring, clarifies the contract, and keeps optional properties optional.
 
 ## Implemented Seams
 
@@ -14,144 +14,99 @@ These seams are already implemented in InspectorClient:
 
 | Seam                   | Abstraction                  | Node Implementation                                           | Browser Implementation                                                              |
 | ---------------------- | ---------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| **Transport creation** | `CreateTransport` (required) | `createTransportNode` (creates stdio, SSE, streamable-http)   | `createRemoteTransport` (creates `RemoteClientTransport` talking to remote)         |
 | **OAuth storage**      | `OAuthStorage`               | `NodeOAuthStorage` (file-based via Zustand)                   | `BrowserOAuthStorage` (sessionStorage via Zustand), `RemoteOAuthStorage` (HTTP API) |
 | **OAuth navigation**   | `OAuthNavigation`            | `CallbackNavigation` (e.g. opens URL via `open`)              | `BrowserNavigation` (redirects)                                                     |
 | **OAuth redirect URL** | `RedirectUrlProvider`        | `MutableRedirectUrlProvider` (populated from callback server) | Object literal using `window.location.origin`                                       |
-| **OAuth auth fetch**   | Optional top-level `fetchFn` | N/A (Node has no CORS)                                        | Caller provides fetch that POSTs to proxy when in browser                           |
-| **Transport creation** | `CreateTransport` (required) | `createTransportNode` (creates stdio, SSE, streamable-http)   | `createRemoteTransport` (creates `RemoteClientTransport` talking to remote)         |
+| **OAuth auth fetch**   | Optional `fetchFn`           | N/A (Node has no CORS)                                        | `createRemoteFetch` (POSTs to remote API when in browser)                           |
+| **Logging**            | Optional `logger`            | File-based pino logger                                        | `createRemoteLogger` (POSTs to `/api/log`)                                          |
 
-The caller provides storage, navigation, and redirect URL provider when configuring OAuth. InspectorClient accepts an optional top-level `fetchFn` used for both OAuth (discovery, registration, token exchange) and MCP transport HTTP requests. Fetches are tracked with `category: 'auth'` or `category: 'transport'` for the Requests tab. The web client must still implement the proxy endpoint and a fetch wrapper that routes requests through it.
+**InspectorClientEnvironment structure:**
 
-InspectorClient **requires** a `transportClientFactory` of type `CreateTransport`. Node environments (TUI, CLI) pass `createTransportNode` from `inspector-shared/mcp/node`. Web environments will pass `createRemoteTransport` from `inspector-shared/mcp/remote` (creates `RemoteClientTransport` instances connecting to the remote server).
+All environment-specific dependencies are consolidated into a single `environment` object passed to `InspectorClient`:
+
+```typescript
+interface InspectorClientEnvironment {
+  transport: CreateTransport; // Required
+  fetch?: typeof fetch; // Optional, for OAuth and transport HTTP
+  logger?: pino.Logger; // Optional, for InspectorClient events
+  oauth?: {
+    storage?: OAuthStorage;
+    navigation?: OAuthNavigation;
+    redirectUrlProvider?: RedirectUrlProvider;
+  };
+}
+```
+
+**Node usage example:**
+
+```typescript
+const client = new InspectorClient(config, {
+  environment: {
+    transport: createTransportNode,
+    logger: createFileLogger({ logPath: "/path/to/logs" }),
+    oauth: {
+      storage: new NodeOAuthStorage({ dataDir: "/path/to/data" }),
+      navigation: new ConsoleNavigation(),
+      redirectUrlProvider: createCallbackServerRedirectUrlProvider(),
+    },
+  },
+  oauth: {
+    clientId: "my-client-id",
+    clientSecret: "my-secret",
+  },
+});
+```
+
+**Browser usage example:**
+
+```typescript
+const client = new InspectorClient(config, {
+  environment: {
+    transport: createRemoteTransport({ baseUrl: "http://localhost:3000" }),
+    fetch: createRemoteFetch({ baseUrl: "http://localhost:3000" }),
+    logger: createRemoteLogger({ baseUrl: "http://localhost:3000" }),
+    oauth: {
+      storage: new RemoteOAuthStorage({ baseUrl: "http://localhost:3000" }),
+      navigation: new BrowserNavigation(),
+      redirectUrlProvider: () => `${window.location.origin}/oauth/callback`,
+    },
+  },
+  oauth: {
+    clientId: "my-client-id",
+  },
+});
+```
+
+Note: OAuth configuration (clientId, clientSecret, clientMetadataUrl, scope) is separate from environment components and goes in the top-level `oauth` property.
 
 ### How fetch is used
 
 We allow a supplied fetch for two reasons: (1) **run remotely to avoid CORS** (browser auth and, in theory, browser local transports to external MCP servers), and (2) **capture/record fetch requests** for the Requests tab.
 
-- **Auth:** InspectorClient builds `effectiveAuthFetch` = createFetchTracker(baseFetch, trackRequest) with baseFetch = options.fetchFn ?? fetch. Auth uses this for discovery, registration, token exchange, etc. Responses are not streaming (JSON). So a remoted fetch (e.g. `createRemoteFetch`) is fine for auth.
+- **Auth:** InspectorClient builds `effectiveAuthFetch` = createFetchTracker(baseFetch, trackRequest) with baseFetch = `environment.fetch ?? fetch`. Auth uses this for discovery, registration, token exchange, etc. Responses are not streaming (JSON). So a remoted fetch (e.g. `createRemoteFetch`) is fine for auth.
 
-- **Transports:** Transports (SSE, streamable-http) use fetch for HTTP and **must support streaming responses** (SSE stream, NDJSON stream). Recording is the **transport creator’s responsibility**: wrap the base fetch with createFetchTracker and pass onFetchRequest. The tracking wrapper **does support streaming** (it detects stream content-types and returns the original response without reading the body). So recording does not break streaming.
+- **Transports:** Transports (SSE, streamable-http) use fetch for HTTP and **must support streaming responses** (SSE stream, NDJSON stream). Recording is the **transport creator's responsibility**: wrap the base fetch with createFetchTracker and pass onFetchRequest. The tracking wrapper **does support streaming** (it detects stream content-types and returns the original response without reading the body). So recording does not break streaming.
 
-- **Node (createTransportNode):** Receives options.fetchFn from InspectorClient; uses (fetchFn ?? globalThis.fetch) wrapped with createFetchTracker for SSE/streamable-http. So if a non-streaming fetch were passed, transport would break; today callers use default or real fetch.
+- **Node (createTransportNode):** Receives `environment.fetch` from InspectorClient; uses (`environment.fetch ?? globalThis.fetch`) wrapped with createFetchTracker for SSE/streamable-http. So if a non-streaming fetch were passed, transport would break; today callers use default or real fetch.
 
-- **Remote:** The **server** creates the real transport with createTransportNode; it does not receive InspectorClient’s fetchFn (that’s on the client). So the server uses Node’s fetch for the transport. Recording is applied on the server (onFetchRequest → session → fetch_request events to client). The **client**’s RemoteClientTransport uses fetch only for its own HTTP (connect, GET events, send, disconnect). GET /api/mcp/events is SSE, so that fetch must support streaming. **Workaround:** createRemoteTransport does **not** pass InspectorClient’s fetchFn to RemoteClientTransport; it uses only the factory’s fetchFn (or undefined → globalThis.fetch). So the transport’s HTTP always uses a streaming-capable fetch. Auth can still use a remoted fetch via InspectorClient’s fetchFn (effectiveAuthFetch).
+- **Remote:** The **server** creates the real transport with createTransportNode; it does not receive InspectorClient's `environment.fetch` (that's on the client). So the server uses Node's fetch for the transport. Recording is applied on the server (onFetchRequest → session → fetch_request events to client). The **client**'s RemoteClientTransport uses fetch only for its own HTTP (connect, GET events, send, disconnect). GET /api/mcp/events is SSE, so that fetch must support streaming. **Workaround:** createRemoteTransport does **not** pass InspectorClient's `environment.fetch` to RemoteClientTransport; it uses only the factory's fetchFn (or undefined → globalThis.fetch). So the transport's HTTP always uses a streaming-capable fetch. Auth can still use a remoted fetch via InspectorClient's `environment.fetch` (effectiveAuthFetch).
 
 - **createRemoteFetch:** Intended for auth (and other non-streaming HTTP) only. It buffers the response body and cannot stream. Do not use as a general-purpose or transport-level fetchFn where the response might be streaming.
 
 ---
 
-## Implemented Remote Infrastructure
+## Remote API Server
 
-These remote seams are implemented. They fall into two groups: browser integration (new functionality for InspectorClient in the web UX) and code structure (refactoring so the shared package can run in the browser without pulling in Node-only code).
+**Status:** Implemented. The remote API server (`createRemoteApp` in `shared/mcp/remote/node/`) is a Hono-based server that hosts all Node-backed endpoints required by browser-based InspectorClient. This server runs alongside (or as) the UX server and exposes environment-specific functionality as HTTP APIs. The browser uses pure JavaScript wrappers that call these APIs where the Node-specific logic is implemented; InspectorClient remains unaware of whether it is talking to local or remote services.
 
-### Proxy Fetch (OAuth Auth Seam)
+**Rationale for Hono**
 
-**Status:** Implemented. InspectorClient accepts optional top-level `fetchFn` and uses it for both OAuth and transport HTTP requests. The web client must still implement the proxy endpoint (`POST /fetch`) and a client-side fetch wrapper that serializes requests and POSTs them to the proxy.
+Hono is lightweight, framework-agnostic, and supports Node. Using Hono keeps the API surface simple and consistent with the goal of a single server hosting transport, fetch, logging, and storage. The existing express setup could be migrated to Hono if desired, or the Hono server could run as a separate process. The critical point is that one server hosts all endpoints the web client needs; the exact framework is an implementation detail.
 
-**Problem**
+**Security**
 
-CORS blocks many auth-related HTTP requests in the browser: discovery, client registration, token exchange, scope discovery, and others. All auth functions must use a fetch that is not subject to CORS. For example, OAuth discovery requires requests to `/.well-known/oauth-authorization-server`; servers like GitHub MCP (`https://api.githubcopilot.com/mcp/`) do not include `Access-Control-Allow-Origin`, so discovery fails with:
-
-```
-Failed to start OAuth flow: Failed to discover OAuth metadata
-```
-
-**Solution:** Pass `fetchFn` to all SDK auth calls. The fetch function routes requests through the proxy server (Node.js), which has no CORS restrictions.
-
-**Implementation**
-
-**InspectorClient** (done): Accepts optional `fetchFn` and passes it to all auth calls.
-
-**`createRemoteFetch`** (in `shared/mcp/remote/`): Returns a fetch that POSTs to `/api/fetch`.
-
-**`POST /api/fetch`** (in `createRemoteApp`): Accepts `{ url, method?, headers?, body? }`, performs the fetch in Node, returns `{ ok, status, statusText, headers, body }`. Protected by `x-mcp-remote-auth` when `authToken` is set.
-
-**Client usage:** Pass `createRemoteFetch({ baseUrl, authToken?, fetchFn? })` as InspectorClient's `fetchFn` when in browser.
-
-**Limitations:** Requires proxy mode; direct connections still hit CORS. Proxy must be running; token must be set in config.
-
----
-
-### Remote Transports (Transport Seam)
-
-**Status:** Implemented.
-
-**Problem**
-
-The web client cannot use stdio transports (no `child_process` in browser) and faces CORS/header limitations with direct HTTP connections (e.g. `mcp-session-id` hidden, many servers don't send `Access-Control-Expose-Headers`). The current web client proxy server runs as a separate process with duplicate SDK clients and state.
-
-**Solution:** A **remote server** creates real SDK transports in Node and forwards JSON-RPC messages to/from the browser. The browser uses a `RemoteClientTransport` that talks to the remote; it implements the same `Transport` interface as local transports. The design is similar to the current web client proxy model. We will attempt to run it on the same server as the UX server (Vite dev server or equivalent), though with the option to run as a separate proxy if needed.
-
-**Implementation:** `createRemoteTransport` and `RemoteClientTransport` (in `shared/mcp/remote/`); `createRemoteApp` (in `shared/mcp/remote/node/`). Tests in `shared/__tests__/remote-transport.test.ts` cover stdio, SSE, streamable-http.
-
-**Endpoints (all implemented)**
-
-- `POST /api/mcp/connect` — Create session and transport (stdio, SSE, or streamable HTTP)
-- `POST /api/mcp/send` — Forward JSON-RPC message to MCP server
-- `GET /api/mcp/events` — Stream responses (SSE)
-- `POST /api/mcp/disconnect` — Cleanup session
-- `POST /api/fetch` — Proxy HTTP for OAuth (CORS fix)
-- `POST /api/log` — Receive log events from browser; forward to file logger when `logger` option is set
-
-**Design**
-
-The remote server forwards messages only; it holds no SDK `Client` and no protocol state. `InspectorClient` runs in the browser (or Node for CLI/TUI) and remains the single source of truth. For stdio servers, the browser always uses a remote transport; the remote server creates the real stdio transport in Node, so the browser never loads `StdioClientTransport` or `child_process`. When the underlying transport returns 401, the remote must return HTTP 401 (not 500) and `RemoteClientTransport` must throw `SseError(401)` or `StreamableHTTPError(401)` so OAuth triggers correctly. All remote endpoints require session token (`x-mcp-remote-auth`), origin validation, and timing-safe token comparison.
-
-**Event stream and message handlers**
-
-The remote server multiplexes multiple event types on the SSE stream (`/api/mcp/events`). The browser’s `RemoteClientTransport` subscribes to this stream and routes each event to the appropriate handler on the JavaScript side:
-
-- `event: message` + JSON-RPC data → pass to `transport.onmessage` (protocol messages)
-- `event: fetch_request` + `FetchRequestEntry` → call `onFetchRequest` (HTTP request/response tracking for the Requests tab)
-- `event: stdio_log` (or `notifications/message`) + stderr payload → call `onStderr` (console output from stdio transports)
-
-The remote server uses `createFetchTracker` when creating HTTP transports and emits `fetch_request` events when requests complete. For stdio transports, the remote server listens to the child process stderr and emits `stdio_log` (or equivalent) events. The `RemoteClientTransport` implements the same handler interface as local transports, so `InspectorClient` does not need to know whether it is using a local or remote transport.
-
----
-
-## Module Organization (Implemented)
-
-Environment-specific code is under `node` or `browser` subdirectories so the core `auth` and `mcp` modules stay portable.
-
-### Auth
-
-- **`shared/auth/`** — Types, interfaces, base providers, utilities (no `fs`, `window`, or `sessionStorage`). Exports storage interface, `CallbackNavigation`, `ConsoleNavigation`, `BaseOAuthClientProvider`, etc.
-- **`shared/auth/node/`** — Node-only: `NodeOAuthStorage`, `createOAuthCallbackServer`, `clearAllOAuthClientState` (moved from `storage-node.ts`, `oauth-callback-server.ts`). Package export: `"./auth/node"`.
-- **`shared/auth/browser/`** — Browser-only: `BrowserOAuthStorage` (sessionStorage), `BrowserNavigation`, `BrowserOAuthClientProvider` (moved from `storage-browser.ts` and `providers.ts`). Package export: `"./auth/browser"`.
-
-Node consumers (TUI, CLI, tests) import from `inspector-shared/auth/node`. Browser consumers import from `inspector-shared/auth/browser`. Core auth is imported from `inspector-shared/auth` only.
-
-### MCP
-
-Remote transport code follows the same pattern: portable client in the module root, Node-specific server under `node/`.
-
-- **`shared/mcp/`** — Portable: `InspectorClient`, types, `getServerType`, `createFetchTracker`, message tracking, etc. No Node-only APIs.
-- **`shared/mcp/node/`** — Node-only: `loadMcpServersConfig`, `argsToMcpServerConfig`, `createTransportNode` (moved from `config.ts` and `transport.ts`). Package export: `"./mcp/node"`.
-- **`shared/mcp/remote/`** — Portable: `createRemoteTransport`, `createRemoteFetch`, `createRemoteLogger`, `RemoteClientTransport`. Pure TypeScript; runs in browser, Deno, or Node. Package export: `"./mcp/remote"`.
-- **`shared/mcp/remote/node/`** — Node-only: remote server (Hono, spawn, etc.). The server that hosts `/api/mcp/*`, `/api/fetch`, `/api/log`. Package export: `"./mcp/remote/node"`.
-
-Node consumers (TUI, CLI) import from `inspector-shared/mcp/node` for config loading and transport creation. Web consumers import `createRemoteTransport` from `inspector-shared/mcp/remote`; the UX server or proxy runs the remote server from `inspector-shared/mcp/remote/node`.
-
-### Summary
-
-| Area    | Portable (no env APIs)                                          | Node (`./auth/node`, `./mcp/node`, `./mcp/remote/node`)          | Browser (`./auth/browser`, `./auth/remote`)                                            |
-| ------- | --------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Auth    | storage types, base providers, utils                            | NodeOAuthStorage, callback server                                | BrowserOAuthStorage, RemoteOAuthStorage, BrowserNavigation, BrowserOAuthClientProvider |
-| Storage | storage adapter interfaces, createOAuthStore                    | FileStorageAdapter                                               | RemoteStorageAdapter                                                                   |
-| MCP     | InspectorClient, types, getServerType                           | loadMcpServersConfig, createTransportNode                        | —                                                                                      |
-| Remote  | createRemoteTransport, createRemoteFetch, RemoteClientTransport | remote server (Hono, stdio spawn, fetch proxy, log, storage API) | —                                                                                      |
-
----
-
-### Logging
-
-**Status:** Implemented. InspectorClient accepts optional `logger` (pino `Logger`); TUI uses a file-based logger.
-
-## **Implementation:** `createRemoteLogger` (in `shared/mcp/remote/`) returns a pino logger that POSTs to `/api/log` via `pino/browser` transmit. `POST /api/log` (in `createRemoteApp`) forwards to a file logger when `createRemoteApp({ logger })` is passed. Tests in `shared/__tests__/remote-transport.test.ts` validate the flow.
-
-## API Implementation (Web App)
-
-For the web app, we would launch a **Hono server** that hosts all the Node-backed endpoints required by the browser-based InspectorClient. This server runs alongside (or as) the UX server and exposes the seams as HTTP APIs. The browser calls these endpoints via fetch wrappers and the `RemoteClientTransport`; InspectorClient remains unaware of whether it is talking to local or remote services.
+All endpoints require authentication via `x-mcp-remote-auth` header (Bearer token format), origin validation, and timing-safe token comparison. The auth token is generated from options, environment variable (`MCP_REMOTE_AUTH_TOKEN`), or randomly generated.
 
 **Endpoints**
 
@@ -161,25 +116,114 @@ For the web app, we would launch a **Hono server** that hosts all the Node-backe
 | `POST /api/mcp/send`           | Forward JSON-RPC message to MCP server                            | Remote transports |
 | `GET /api/mcp/events`          | Stream responses and side-channel events (SSE)                    | Remote transports |
 | `POST /api/mcp/disconnect`     | Cleanup session                                                   | Remote transports |
-| `POST /api/fetch`              | Proxy HTTP requests for OAuth and transport (CORS bypass)         | Proxy fetch       |
-| `POST /api/log`                | Receive log events from browser for server-side logging           | Logging           |
-| `GET /api/storage/:storeId`    | Read entire store (generic, e.g. oauth, preferences)              | Storage           |
-| `POST /api/storage/:storeId`   | Write entire store (generic)                                      | Storage           |
-| `DELETE /api/storage/:storeId` | Delete store (generic)                                            | Storage           |
-
-All endpoints require a session token (e.g. `x-mcp-remote-auth` header), origin validation, and timing-safe token comparison.
-
-**Rationale for Hono**
-
-Hono is lightweight, framework-agnostic, and supports Node. Using Hono keeps the API surface simple and consistent with the goal of a single server hosting transport, fetch, and logging. The existing proxy/express setup could be migrated to Hono if desired, or the Hono server could run as a separate process. The critical point is that one server hosts all endpoints the web client needs; the exact framework is an implementation detail.
+| `POST /api/fetch`              | Remote HTTP requests for OAuth (CORS bypass)                      | Remote fetch      |
+| `POST /api/log`                | Receive log events from browser for server-side logging           | Remote logging    |
+| `GET /api/storage/:storeId`    | Read entire store (generic, e.g. oauth, preferences)              | Remote storage    |
+| `POST /api/storage/:storeId`   | Write entire store (generic)                                      | Remote storage    |
+| `DELETE /api/storage/:storeId` | Delete store (generic)                                            | Remote storage    |
 
 **Out of scope for the API**
 
 - **OAuth callback** — The web app implements its own `oauth/callback` route. OAuth redirects hit the web app directly; the callback is not part of the remote API.
 
-**Generic storage (for shared on-disk state)**
+---
+
+## Remote Infrastructure Details
+
+These remote seams are implemented. They fall into two groups: browser integration (new functionality for InspectorClient in the web UX) and code structure (refactoring so the shared package can run in the browser without pulling in Node-only code).
+
+### Remote Transports (Transport Seam)
+
+**Status:** Implemented.
+
+**Problem**
+
+The browser cannot use stdio transports (no `child_process` in browser) and faces CORS/header limitations with direct HTTP connections (e.g. `mcp-session-id` hidden, many servers don't send `Access-Control-Expose-Headers`). The current web client server runs as a separate process with duplicate SDK clients and state.
+
+**Solution:** The browser always uses remote transports for all transport types (stdio, SSE, streamable-http). A **remote server** creates real SDK transports in Node and forwards JSON-RPC messages to/from the browser. The browser uses a `RemoteClientTransport` that talks to the remote; it implements the same `Transport` interface as local transports.
+
+**Why this design:** Unlike the current web client proxy (which maintains duplicate SDK clients and protocol state), the remote server is **stateless**—it only creates transports and forwards messages. `InspectorClient` runs in the browser and remains the single source of truth for protocol state, message tracking, and server data. This allows the same `InspectorClient` code to work identically in Node (CLI, TUI) and browser, with only the transport factory differing. We will attempt to run it on the same server as the UX server (Vite dev server or equivalent), though with the option to run as a separate remote server if needed.
+
+**Implementation:** `createRemoteTransport` and `RemoteClientTransport` (in `shared/mcp/remote/`); `createRemoteApp` (in `shared/mcp/remote/node/`). Tests in `shared/__tests__/remote-transport.test.ts` cover stdio, SSE, streamable-http.
+
+**Relevant endpoints:**
+
+- `POST /api/mcp/connect` — Create session and transport (stdio, SSE, or streamable HTTP). Accepts `{ config: MCPServerConfig, oauthTokens?: {...} }`, creates Node transport, returns `{ sessionId }`.
+- `POST /api/mcp/send` — Forward JSON-RPC message to MCP server. Accepts `{ message: JSONRPCMessage, relatedRequestId?: string }`, forwards to transport, returns response.
+- `GET /api/mcp/events` — Stream responses (SSE). Multiplexes `message`, `fetch_request`, and `stdio_log` events.
+- `POST /api/mcp/disconnect` — Cleanup session. Closes transport and removes session.
+
+**Design**
+
+The remote server forwards messages only; it holds no SDK `Client` and no protocol state. `InspectorClient` runs in the browser (or Node for CLI/TUI) and remains the single source of truth. The browser always uses remote transports for all transport types; the remote server creates the real transports (stdio, SSE, streamable-http) in Node, so the browser never loads Node-specific transport code or `child_process`.
+
+When the underlying transport returns 401 (e.g., OAuth required), the remote server preserves the status code and returns HTTP 401 (not 500). `RemoteClientTransport` receives the 401 response and throws an error with the status code preserved, allowing callers to detect authentication failures and trigger OAuth flow manually (consistent with the "authenticate first, then connect" pattern).
+
+**Event stream and message handlers**
+
+The remote server multiplexes multiple event types on the SSE stream (`/api/mcp/events`). The browser's `RemoteClientTransport` subscribes to this stream and routes each event to the appropriate handler on the JavaScript side:
+
+- `event: message` + JSON-RPC data → pass to `transport.onmessage` (protocol messages)
+- `event: fetch_request` + `FetchRequestEntry` → call `onFetchRequest` (HTTP request/response tracking for the Requests tab)
+- `event: stdio_log` (or `notifications/message`) + stderr payload → call `onStderr` (console output from stdio transports)
+
+The remote server uses `createFetchTracker` when creating HTTP transports and emits `fetch_request` events when requests complete. For stdio transports, the remote server listens to the child process stderr and emits `stdio_log` (or equivalent) events. The `RemoteClientTransport` implements the same handler interface as local transports, so `InspectorClient` does not need to know whether it is using a local or remote transport.
+
+---
+
+### Remote Fetch (OAuth Auth Seam)
+
+**Status:** Implemented.
+
+**Problem**
+
+CORS blocks many auth-related HTTP requests in the browser: discovery, client registration, token exchange, scope discovery, and others. All auth functions must use a fetch that is not subject to CORS. For example, OAuth discovery requires requests to `/.well-known/oauth-authorization-server`; servers like GitHub MCP (`https://api.githubcopilot.com/mcp/`) do not include `Access-Control-Allow-Origin`, so discovery fails with:
+
+```
+Failed to start OAuth flow: Failed to discover OAuth metadata
+```
+
+**Solution:** Pass `fetchFn` in `environment.fetch` to all SDK auth calls. The fetch function routes requests through the remote server (Node.js), which has no CORS restrictions.
+
+**Implementation**
+
+**InspectorClient** (done): Accepts optional `environment.fetch` and passes it to all auth calls.
+
+**`createRemoteFetch`** (in `shared/mcp/remote/`): Returns a fetch that POSTs to `/api/fetch`.
+
+**Relevant endpoint:**
+
+- `POST /api/fetch` — Accepts `{ url, method?, headers?, body? }`, performs the fetch in Node, returns `{ ok, status, statusText, headers, body }`. Protected by `x-mcp-remote-auth` when `authToken` is set.
+
+**Client usage:** Pass `createRemoteFetch({ baseUrl, authToken?, fetchFn? })` as `environment.fetch` when in browser.
+
+**Limitations:** Requires remote mode; direct connections still hit CORS. Remote server must be running; token must be set in config.
+
+---
+
+### Remote Logging
+
+**Status:** Implemented. InspectorClient accepts optional `environment.logger` (pino `Logger`); TUI uses a file-based logger.
+
+**Implementation:** `createRemoteLogger` (in `shared/mcp/remote/`) returns a pino logger that POSTs to `/api/log` via `pino/browser` transmit.
+
+**Relevant endpoint:**
+
+- `POST /api/log` — Receives log events from browser, forwards to file logger when `createRemoteApp({ logger })` is passed. Protected by `x-mcp-remote-auth` when `authToken` is set.
+
+Tests in `shared/__tests__/remote-transport.test.ts` validate the flow.
+
+---
+
+### Remote Storage (OAuth Storage Seam)
 
 **Status:** Implemented. The browser cannot read/write the filesystem directly, so a generic storage API enables shared on-disk state between web app and Node apps (TUI, CLI).
+
+**Problem**
+
+OAuth tokens and other state need to persist across sessions. In Node (TUI, CLI), we use file-based storage. In the browser, we need a way to share this state with Node apps when the web app runs alongside the Node process hosting the remote API.
+
+**Solution:** A generic storage API that treats stores as opaque JSON blobs (Zustand's persist format). The server stores entire stores as files; clients read/write entire stores via HTTP.
 
 **Implementation:**
 
@@ -190,12 +234,45 @@ Hono is lightweight, framework-agnostic, and supports Node. Using Hono keeps the
   - `NodeOAuthStorage` — uses `FileStorageAdapter` with Zustand persist middleware
   - `BrowserOAuthStorage` — uses Zustand with `sessionStorage` adapter (browser-only)
   - `RemoteOAuthStorage` — uses `RemoteStorageAdapter` for shared state with Node apps
-- **API endpoints** (in `createRemoteApp`):
-  - `GET /api/storage/:storeId` — returns entire store as JSON (empty object `{}` if not found)
-  - `POST /api/storage/:storeId` — overwrites entire store with provided JSON
-  - `DELETE /api/storage/:storeId` — deletes store (idempotent)
+
+**Relevant endpoints:**
+
+- `GET /api/storage/:storeId` — Returns entire store as JSON (empty object `{}` if not found). Protected by `x-mcp-remote-auth` when `authToken` is set.
+- `POST /api/storage/:storeId` — Overwrites entire store with provided JSON. Protected by `x-mcp-remote-auth` when `authToken` is set.
+- `DELETE /api/storage/:storeId` — Deletes store (idempotent). Protected by `x-mcp-remote-auth` when `authToken` is set.
 
 **Design:** The server treats stores as opaque JSON blobs (Zustand's persist format: `{ state: {...}, version: 0 }`). Store IDs are arbitrary (e.g. `oauth`, `inspector-settings`). All OAuth storage implementations use the same Zustand-backed pattern for consistency. `RemoteOAuthStorage` fetches the store on initialization, implements `OAuthStorage` against the in-memory structure, and persists changes via POST. This enables shared OAuth state when the web app runs alongside the Node process hosting the remote API (e.g. Vite dev server with Hono backend). Alternative: use `BrowserOAuthStorage` (sessionStorage) for browser-only state—no shared state with TUI/CLI.
+
+---
+
+## Module Organization (Implemented)
+
+Environment-specific code is under `node` or `browser` subdirectories so the core `auth` and `mcp` modules stay portable.
+
+### Auth
+
+| Module                 | Environment  | Contents                                                                                                                                                                                     | Package Export     |
+| ---------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `shared/auth/`         | Portable     | Types, interfaces, base providers, utilities (no `fs`, `window`, or `sessionStorage`). Exports storage interface, `CallbackNavigation`, `ConsoleNavigation`, `BaseOAuthClientProvider`, etc. | `"./auth"`         |
+| `shared/auth/node/`    | Node-only    | `NodeOAuthStorage`, `createOAuthCallbackServer`, `clearAllOAuthClientState`                                                                                                                  | `"./auth/node"`    |
+| `shared/auth/browser/` | Browser-only | `BrowserOAuthStorage` (sessionStorage), `BrowserNavigation`, `BrowserOAuthClientProvider`                                                                                                    | `"./auth/browser"` |
+
+**Usage:** Node consumers (TUI, CLI, tests) import from `inspector-shared/auth/node`. Browser consumers import from `inspector-shared/auth/browser`. Core auth is imported from `inspector-shared/auth` only.
+
+### MCP
+
+Remote transport code follows the same pattern: portable client in the module root, Node-specific server under `node/`.
+
+| Module                    | Environment | Contents                                                                                                                                      | Package Export        |
+| ------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `shared/mcp/`             | Portable    | `InspectorClient`, types, `getServerType`, `createFetchTracker`, message tracking, etc. No Node-only APIs.                                    | `"./mcp"`             |
+| `shared/mcp/node/`        | Node-only   | `loadMcpServersConfig`, `argsToMcpServerConfig`, `createTransportNode`                                                                        | `"./mcp/node"`        |
+| `shared/mcp/remote/`      | Portable    | `createRemoteTransport`, `createRemoteFetch`, `createRemoteLogger`, `RemoteClientTransport`. Pure TypeScript; runs in browser, Deno, or Node. | `"./mcp/remote"`      |
+| `shared/mcp/remote/node/` | Node-only   | Remote server (Hono, spawn, etc.). The server that hosts `/api/mcp/*`, `/api/fetch`, `/api/log`, `/api/storage/*`.                            | `"./mcp/remote/node"` |
+
+**Usage:** Node consumers (TUI, CLI) import from `inspector-shared/mcp/node` for config loading and transport creation. Web consumers import `createRemoteTransport` from `inspector-shared/mcp/remote`; the UX server or a separate remote server runs the remote API from `inspector-shared/mcp/remote/node`.
+
+---
 
 ## Summary
 
@@ -211,4 +288,4 @@ Hono is lightweight, framework-agnostic, and supports Node. Using Hono keeps the
 | Browser code organization | Implemented | `shared/auth/browser/`                                                                                                                                                           |
 | Config loading            | Implemented | In `shared/mcp/node/`                                                                                                                                                            |
 
-**Not yet wired:** The web client (`client/`) and server (`server/`) do not use the remote infrastructure. The web client still uses `useConnection` with direct SDK transports and the express proxy. Migrating to InspectorClient + `createRemoteTransport` + Hono remote server is pending.
+**Not yet wired:** The web client (`client/`) and server (`server/`) do not use the remote infrastructure. The web client still uses `useConnection` with direct SDK transports and the express server. Migrating to InspectorClient + `createRemoteTransport` + Hono remote server is pending.
