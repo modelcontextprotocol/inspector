@@ -2,8 +2,13 @@ import { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 import JsonView from "./JsonView";
 import { Button } from "@/components/ui/button";
-import { useResizable } from "../lib/hooks/useDraggablePane";
-import { Resizer } from "./Resizer";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
+import { usePanelToggle } from "@/hooks/use-panel-toggle";
+import { useState } from "react";
 
 const HistoryAndNotifications = ({
   requestHistory,
@@ -22,20 +27,8 @@ const HistoryAndNotifications = ({
   const [expandedNotifications, setExpandedNotifications] = useState<{
     [key: number]: boolean;
   }>({});
-
-  const {
-    size: notificationsWidth,
-    isDragging,
-    handleDragStart,
-    toggleCollapse,
-  } = useResizable({
-    initialSize: 50,
-    axis: "x",
-    reverse: true,
-    minSize: 0,
-    maxSize: 80,
-    unit: "%",
-  });
+  const { panelRef: historySubRef, toggle: toggleHistorySub } =
+    usePanelToggle();
 
   const toggleRequestExpansion = (index: number) => {
     setExpandedRequests((prev) => ({ ...prev, [index]: !prev[index] }));
@@ -46,8 +39,14 @@ const HistoryAndNotifications = ({
   };
 
   return (
-    <div className="bg-card overflow-hidden flex h-full">
-      <div className="flex-1 overflow-y-auto p-4 border-r border-border min-w-0">
+    <ResizablePanelGroup direction="horizontal" className="h-full">
+      <ResizablePanel
+        ref={historySubRef}
+        defaultSize={50}
+        minSize={0}
+        collapsible
+        className="overflow-y-auto p-4 border-r border-border"
+      >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">History</h2>
           <Button
@@ -122,92 +121,81 @@ const HistoryAndNotifications = ({
               ))}
           </ul>
         )}
-      </div>
+      </ResizablePanel>
 
-      <div
-        className="relative h-full flex-shrink-0 border-l border-border"
-        style={{
-          width: `${notificationsWidth}%`,
-          transition: isDragging ? "none" : "width 0.15s",
-        }}
+      <ResizableHandle withHandle onDoubleClick={toggleHistorySub} />
+
+      <ResizablePanel
+        defaultSize={50}
+        minSize={20}
+        className="overflow-y-auto p-4 h-full"
       >
-        <Resizer
-          axis="x"
-          onMouseDown={handleDragStart}
-          onDoubleClick={toggleCollapse}
-          className="absolute top-0 left-[-8px]"
-        />
-
-        <div className="h-full overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-4 h-full">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Server Notifications</h2>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onClearNotifications}
-                disabled={serverNotifications.length === 0}
-              >
-                Clear
-              </Button>
-            </div>
-            {serverNotifications.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400 italic">
-                No notifications yet
-              </p>
-            ) : (
-              <ul className="space-y-3">
-                {serverNotifications
-                  .slice()
-                  .reverse()
-                  .map((notification, index) => (
-                    <li
-                      key={index}
-                      className="text-sm text-foreground bg-secondary py-2 px-3 rounded"
-                    >
-                      <div
-                        className="flex justify-between items-center cursor-pointer"
-                        onClick={() =>
-                          toggleNotificationExpansion(
-                            serverNotifications.length - 1 - index,
-                          )
-                        }
-                      >
-                        <span className="font-mono">
-                          {serverNotifications.length - index}.{" "}
-                          {notification.method}
-                        </span>
-                        <span>
-                          {expandedNotifications[
-                            serverNotifications.length - 1 - index
-                          ]
-                            ? "▼"
-                            : "▶"}
-                        </span>
-                      </div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Server Notifications</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onClearNotifications}
+            disabled={serverNotifications.length === 0}
+          >
+            Clear
+          </Button>
+        </div>
+        {serverNotifications.length === 0 ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+            No notifications yet
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {serverNotifications
+              .slice()
+              .reverse()
+              .map((notification, index) => (
+                <li
+                  key={index}
+                  className="text-sm text-foreground bg-secondary py-2 px-3 rounded"
+                >
+                  <div
+                    className="flex justify-between items-center cursor-pointer"
+                    onClick={() =>
+                      toggleNotificationExpansion(
+                        serverNotifications.length - 1 - index,
+                      )
+                    }
+                  >
+                    <span className="font-mono">
+                      {serverNotifications.length - index}.{" "}
+                      {notification.method}
+                    </span>
+                    <span>
                       {expandedNotifications[
                         serverNotifications.length - 1 - index
-                      ] && (
-                        <div className="mt-2">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="font-semibold text-purple-600">
-                              Details:
-                            </span>
-                          </div>
-                          <JsonView
-                            data={JSON.stringify(notification, null, 2)}
-                            className="bg-background"
-                          />
-                        </div>
-                      )}
-                    </li>
-                  ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+                      ]
+                        ? "▼"
+                        : "▶"}
+                    </span>
+                  </div>
+                  {expandedNotifications[
+                    serverNotifications.length - 1 - index
+                  ] && (
+                    <div className="mt-2">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-semibold text-purple-600">
+                          Details:
+                        </span>
+                      </div>
+                      <JsonView
+                        data={JSON.stringify(notification, null, 2)}
+                        className="bg-background"
+                      />
+                    </div>
+                  )}
+                </li>
+              ))}
+          </ul>
+        )}
+      </ResizablePanel>
+    </ResizablePanelGroup>
   );
 };
 

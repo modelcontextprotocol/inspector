@@ -1,7 +1,7 @@
 import { Search, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo } from "react";
 
 type ListPaneProps<T> = {
   items: T[];
