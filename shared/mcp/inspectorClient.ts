@@ -55,6 +55,7 @@ import {
   ResourceListChangedNotificationSchema,
   PromptListChangedNotificationSchema,
   ResourceUpdatedNotificationSchema,
+  CallToolResultSchema,
   McpError,
   ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -930,8 +931,6 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     // Use CallToolResultSchema for validation
-    const { CallToolResultSchema } =
-      await import("@modelcontextprotocol/sdk/types.js");
     return await this.client.experimental.tasks.getTaskResult(
       taskId,
       CallToolResultSchema,

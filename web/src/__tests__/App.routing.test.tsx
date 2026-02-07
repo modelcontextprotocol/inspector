@@ -26,7 +26,15 @@ jest.mock("../utils/configUtils", () => ({
   getInitialSseUrl: jest.fn(() => "http://localhost:3001/sse"),
   getInitialCommand: jest.fn(() => "mcp-server-everything"),
   getInitialArgs: jest.fn(() => ""),
-  initializeInspectorConfig: jest.fn(() => ({})),
+  initializeInspectorConfig: jest.fn(() => ({
+    MCP_INSPECTOR_API_TOKEN: {
+      label: "API Token",
+      description:
+        "Auth token for authenticating with the Inspector API server",
+      value: "",
+      is_session_item: true,
+    },
+  })),
   saveInspectorConfig: jest.fn(),
 }));
 
@@ -53,6 +61,7 @@ const connectedInspectorClientState = {
   ...disconnectedInspectorClientState,
   status: "connected" as const,
   capabilities: {},
+  client: {}, // Mock client object - needed for hash setting logic
 };
 
 // Mock required dependencies, but unrelated to routing.

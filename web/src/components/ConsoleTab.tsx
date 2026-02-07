@@ -12,6 +12,7 @@ const ConsoleTab = ({ stderrLogs }: ConsoleTabProps) => {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
+      // @ts-expect-error - fractionalSecondDigits is valid but not in TypeScript types yet
       fractionalSecondDigits: 3,
     });
   };

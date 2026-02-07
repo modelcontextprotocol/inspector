@@ -255,13 +255,5 @@ export default defineConfig({
       "cross-spawn",
       "which",
     ],
-    // Force Vite to treat these as external (not bundled)
-    esbuildOptions: {
-      external: [
-        "@modelcontextprotocol/sdk/client/stdio.js",
-        "@modelcontextprotocol/inspector-shared/mcp/node",
-        "@modelcontextprotocol/inspector-shared/mcp/remote/node",
-      ],
-    },
   },
 });
