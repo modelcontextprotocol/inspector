@@ -1273,13 +1273,13 @@ const App = () => {
           {mcpClient ? (
             <Tabs
               value={activeTab}
-              className="w-full h-full p-4 flex flex-col"
+              className="w-full h-full p-4 flex flex-col overflow-hidden"
               onValueChange={(value) => {
                 setActiveTab(value);
                 window.location.hash = value;
               }}
             >
-              <TabsList className="mb-4 py-0 flex-shrink-0">
+              <TabsList className="mb-4 py-0 flex-shrink-0 w-full justify-start overflow-x-auto overflow-y-hidden no-scrollbar">
                 <TabsTrigger
                   value="resources"
                   disabled={!serverCapabilities?.resources}

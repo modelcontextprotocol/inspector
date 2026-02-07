@@ -111,4 +111,17 @@ h1 {
   body {
     @apply bg-background text-foreground;
   }
+  button, input {
+    @apply overflow-hidden;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 }
