@@ -1,27 +1,16 @@
 import {
-  ClientRequest,
   CompatibilityCallToolResult,
-  CompatibilityCallToolResultSchema,
   CreateMessageResult,
   EmptyResultSchema,
-  GetPromptResultSchema,
-  ListPromptsResultSchema,
-  ListResourcesResultSchema,
-  ListResourceTemplatesResultSchema,
-  ListToolsResultSchema,
-  ReadResourceResultSchema,
   Resource,
-  ResourceTemplate,
+  ResourceReference,
+  PromptReference,
   Root,
   ServerNotification,
   Tool,
   LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type {
-  AnySchema,
-  SchemaOutput,
-} from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
 import {
   hasValidMetaName,
@@ -33,6 +22,7 @@ import { OAuthStateMachine } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
 import { cleanParams } from "./utils/paramUtils";
 import type { JsonSchemaType } from "./utils/jsonUtils";
+import type { JsonValue } from "@modelcontextprotocol/inspector-shared/json/jsonUtils.js";
 import React, {
   Suspense,
   useCallback,
@@ -41,7 +31,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useConnection } from "./lib/hooks/useConnection";
+import { useInspectorClient } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
 import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { createWebEnvironment } from "./lib/adapters/environmentFactory";
 import { webConfigToMcpServerConfig } from "./lib/adapters/configAdapter";
@@ -61,9 +51,9 @@ import {
   Key,
   MessageSquare,
   Settings,
+  Terminal,
 } from "lucide-react";
 
-import { z } from "zod";
 import "./App.css";
 import AuthDebugger from "./components/AuthDebugger";
 import ConsoleTab from "./components/ConsoleTab";
@@ -117,17 +107,11 @@ const filterReservedMetadata = (
 };
 
 const App = () => {
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [resourceTemplates, setResourceTemplates] = useState<
-    ResourceTemplate[]
-  >([]);
   const [resourceContent, setResourceContent] = useState<string>("");
   const [resourceContentMap, setResourceContentMap] = useState<
     Record<string, string>
   >({});
-  const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
-  const [tools, setTools] = useState<Tool[]>([]);
   const [toolResult, setToolResult] =
     useState<CompatibilityCallToolResult | null>(null);
   const [errors, setErrors] = useState<Record<string, string | null>>({
@@ -257,7 +241,6 @@ const App = () => {
     setMetadata(sanitizedMetadata);
     localStorage.setItem("lastMetadata", JSON.stringify(sanitizedMetadata));
   };
-  const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
 
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
@@ -383,113 +366,75 @@ const App = () => {
     authToken,
   ]);
 
-  // Log InspectorClient status changes and expose for testing
-  useEffect(() => {
-    if (!inspectorClient) {
-      // Remove from window if client is destroyed
-      if ((window as any).__inspectorClient) {
-        delete (window as any).__inspectorClient;
-      }
-      return;
-    }
-
-    // Expose InspectorClient to window for manual testing
-    // In browser console, you can do:
-    //   window.__inspectorClient.connect()
-    //   window.__inspectorClient.disconnect()
-    //   window.__inspectorClient.getStatus()
-    const originalConnect = inspectorClient.connect.bind(inspectorClient);
-    (window as any).__inspectorClient = {
-      ...inspectorClient,
-      connect: async () => {
-        await originalConnect();
-        console.log(
-          "[InspectorClient] Connected! Tools:",
-          inspectorClient.getTools().length,
-        );
-        console.log(
-          "[InspectorClient] Resources:",
-          inspectorClient.getResources().length,
-        );
-        console.log(
-          "[InspectorClient] Prompts:",
-          inspectorClient.getPrompts().length,
-        );
-      },
-    };
-
-    const handleStatusChange = () => {
-      const status = inspectorClient.getStatus();
-      console.log("[InspectorClient] Status changed:", status);
-    };
-
-    inspectorClient.addEventListener("statusChange", handleStatusChange);
-
-    // Log initial status (only once)
-    const initialStatus = inspectorClient.getStatus();
-    console.log(
-      "[InspectorClient] Ready - Status:",
-      initialStatus,
-      "| Test with: window.__inspectorClient.connect()",
-    );
-
-    return () => {
-      inspectorClient.removeEventListener("statusChange", handleStatusChange);
-      if ((window as any).__inspectorClient) {
-        delete (window as any).__inspectorClient;
-      }
-    };
-  }, [inspectorClient]);
-
+  // Use InspectorClient hook
   const {
-    connectionStatus,
-    serverCapabilities,
-    serverImplementation,
-    mcpClient,
-    requestHistory,
-    clearRequestHistory,
-    makeRequest,
-    sendNotification,
-    handleCompletion,
-    completionsSupported,
+    status: connectionStatus,
+    capabilities: serverCapabilities,
+    serverInfo: serverImplementation,
+    client: mcpClient,
+    messages: inspectorMessages,
+    stderrLogs,
+    tools: inspectorTools,
+    resources: inspectorResources,
+    resourceTemplates: inspectorResourceTemplates,
+    prompts: inspectorPrompts,
     connect: connectMcpServer,
     disconnect: disconnectMcpServer,
-  } = useConnection({
-    transportType,
-    command,
-    args,
-    sseUrl,
-    env,
-    customHeaders,
-    oauthClientId,
-    oauthClientSecret,
-    oauthScope,
-    config,
-    connectionType,
-    onNotification: (notification) => {
-      setNotifications((prev) => [...prev, notification as ServerNotification]);
-    },
-    onPendingRequest: (request, resolve, reject) => {
+  } = useInspectorClient(inspectorClient);
+
+  // Extract server notifications from messages
+  useEffect(() => {
+    if (!inspectorClient) return;
+    const notifications = inspectorMessages
+      .filter((msg) => msg.direction === "notification" && msg.message)
+      .map((msg) => msg.message as ServerNotification);
+    setNotifications(notifications);
+  }, [inspectorMessages, inspectorClient]);
+
+  // Set up event listeners for sampling and elicitation
+  useEffect(() => {
+    if (!inspectorClient) return;
+
+    // Handle sampling requests
+    const handleNewPendingSample = (event: CustomEvent) => {
+      const sample = event.detail;
+      const numericId = getNumericId(sample.id);
       setPendingSampleRequests((prev) => [
         ...prev,
-        { id: nextRequestId.current++, request, resolve, reject },
+        {
+          id: numericId,
+          request: sample.request,
+          resolve: async (result: CreateMessageResult) => {
+            await sample.respond(result);
+          },
+          reject: async (error: Error) => {
+            await sample.reject(error);
+          },
+        },
       ]);
-    },
-    onElicitationRequest: (request, resolve) => {
+    };
+
+    // Handle elicitation requests
+    const handleNewPendingElicitation = (event: CustomEvent) => {
+      const elicitation = event.detail;
       const currentTab = lastToolCallOriginTabRef.current;
+      const numericId = getNumericId(elicitation.id);
 
       setPendingElicitationRequests((prev) => [
         ...prev,
         {
-          id: nextRequestId.current++,
+          id: numericId,
           request: {
-            id: nextRequestId.current,
-            message: request.params.message,
-            requestedSchema: request.params.requestedSchema,
+            id: numericId,
+            message: elicitation.request.params.message,
+            requestedSchema: elicitation.request.params.requestedSchema,
           },
           originatingTab: currentTab,
-          resolve,
-          decline: (error: Error) => {
+          resolve: async (result: any) => {
+            await elicitation.respond(result);
+          },
+          decline: async (error: Error) => {
+            elicitation.remove();
             console.error("Elicitation request rejected:", error);
           },
         },
@@ -497,11 +442,83 @@ const App = () => {
 
       setActiveTab("elicitations");
       window.location.hash = "elicitations";
+    };
+
+    inspectorClient.addEventListener(
+      "newPendingSample",
+      handleNewPendingSample,
+    );
+    inspectorClient.addEventListener(
+      "newPendingElicitation",
+      handleNewPendingElicitation,
+    );
+
+    return () => {
+      inspectorClient.removeEventListener(
+        "newPendingSample",
+        handleNewPendingSample,
+      );
+      inspectorClient.removeEventListener(
+        "newPendingElicitation",
+        handleNewPendingElicitation,
+      );
+    };
+  }, [inspectorClient]);
+
+  // Expose InspectorClient to window for debugging
+  useEffect(() => {
+    if (!inspectorClient) {
+      if ((window as any).__inspectorClient) {
+        delete (window as any).__inspectorClient;
+      }
+      return;
+    }
+
+    (window as any).__inspectorClient = inspectorClient;
+  }, [inspectorClient]);
+
+  const handleCompletion = useCallback(
+    async (
+      ref: ResourceReference | PromptReference,
+      argName: string,
+      value: string,
+      context?: Record<string, string>,
+      _signal?: AbortSignal,
+    ): Promise<string[]> => {
+      if (!inspectorClient) return [];
+      const result = await inspectorClient.getCompletions(
+        ref.type === "ref/resource"
+          ? { type: "ref/resource", uri: ref.uri }
+          : { type: "ref/prompt", name: ref.name },
+        argName,
+        value,
+        context,
+        undefined, // metadata
+      );
+      return result.values || [];
     },
-    getRoots: () => rootsRef.current,
-    defaultLoggingLevel: logLevel,
-    metadata,
-  });
+    [inspectorClient],
+  );
+
+  const completionsSupported =
+    serverCapabilities?.completions !== undefined &&
+    serverCapabilities.completions !== null;
+
+  // Map MCP protocol messages (requests/responses) to requestHistory format
+  // Filter out notifications - those go in the Notifications tab
+  const requestHistory = useMemo(() => {
+    return inspectorMessages
+      .filter((msg) => msg.direction === "request")
+      .map((msg) => ({
+        request: JSON.stringify(msg.message),
+        response: msg.response ? JSON.stringify(msg.response) : undefined,
+      }));
+  }, [inspectorMessages]);
+
+  const clearRequestHistory = useCallback(() => {
+    // InspectorClient doesn't have a clear method, so this is a no-op
+    // The history is managed internally by InspectorClient
+  }, []);
 
   useEffect(() => {
     if (serverCapabilities) {
@@ -515,6 +532,7 @@ const App = () => {
         "sampling",
         "elicitations",
         "roots",
+        "console",
         "auth",
       ];
 
@@ -711,40 +729,59 @@ const App = () => {
   }, [sseUrl]);
 
   useEffect(() => {
-    const headers: HeadersInit = {};
-    const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
-      getMCPProxyAuthToken(config);
-    if (proxyAuthToken) {
-      headers[proxyAuthTokenHeader] = `Bearer ${proxyAuthToken}`;
+    // Read initial config from HTML injection (window.__INITIAL_CONFIG__)
+    // This replaces the previous /config endpoint fetch
+    const initialConfig = (window as any).__INITIAL_CONFIG__;
+    if (initialConfig) {
+      if (initialConfig.defaultEnvironment) {
+        setEnv(initialConfig.defaultEnvironment);
+      }
+      if (initialConfig.defaultCommand) {
+        setCommand(initialConfig.defaultCommand);
+      }
+      if (initialConfig.defaultArgs) {
+        setArgs(initialConfig.defaultArgs);
+      }
+      if (initialConfig.defaultTransport) {
+        setTransportType(
+          initialConfig.defaultTransport as "stdio" | "sse" | "streamable-http",
+        );
+      }
+      if (initialConfig.defaultServerUrl) {
+        setSseUrl(initialConfig.defaultServerUrl);
+      }
     }
+  }, []);
 
-    fetch(`${getMCPProxyAddress(config)}/config`, { headers })
-      .then((response) => response.json())
-      .then((data) => {
-        setEnv(data.defaultEnvironment);
-        if (data.defaultCommand) {
-          setCommand(data.defaultCommand);
-        }
-        if (data.defaultArgs) {
-          setArgs(data.defaultArgs);
-        }
-        if (data.defaultTransport) {
-          setTransportType(
-            data.defaultTransport as "stdio" | "sse" | "streamable-http",
-          );
-        }
-        if (data.defaultServerUrl) {
-          setSseUrl(data.defaultServerUrl);
-        }
-      })
-      .catch((error) =>
-        console.error("Error fetching default environment:", error),
-      );
-  }, [config]);
-
+  // Sync roots with InspectorClient
   useEffect(() => {
+    if (!inspectorClient) return;
+
+    // Get initial roots from InspectorClient
+    const inspectorRoots = inspectorClient.getRoots();
+    if (
+      inspectorRoots.length !== roots.length ||
+      JSON.stringify(inspectorRoots) !== JSON.stringify(roots)
+    ) {
+      setRoots(inspectorRoots);
+    }
     rootsRef.current = roots;
-  }, [roots]);
+  }, [inspectorClient, roots]);
+
+  // Listen for roots changes from InspectorClient
+  useEffect(() => {
+    if (!inspectorClient) return;
+
+    const handleRootsChange = (event: CustomEvent<Root[]>) => {
+      setRoots(event.detail);
+      rootsRef.current = event.detail;
+    };
+
+    inspectorClient.addEventListener("rootsChange", handleRootsChange);
+    return () => {
+      inspectorClient.removeEventListener("rootsChange", handleRootsChange);
+    };
+  }, [inspectorClient]);
 
   useEffect(() => {
     if (mcpClient && !window.location.hash) {
@@ -778,8 +815,20 @@ const App = () => {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, [activeTab]);
 
+  // Map string IDs from InspectorClient to numbers for component compatibility
+  const stringIdToNumber = useRef<Map<string, number>>(new Map());
+  const nextNumericId = useRef(1);
+
+  const getNumericId = (stringId: string): number => {
+    if (!stringIdToNumber.current.has(stringId)) {
+      stringIdToNumber.current.set(stringId, nextNumericId.current++);
+    }
+    return stringIdToNumber.current.get(stringId)!;
+  };
+
   const handleApproveSampling = (id: number, result: CreateMessageResult) => {
     setPendingSampleRequests((prev) => {
+      // Find by numeric ID (stored in state)
       const request = prev.find((r) => r.id === id);
       request?.resolve(result);
       return prev.filter((r) => r.id !== id);
@@ -836,149 +885,189 @@ const App = () => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
   };
 
-  const sendMCPRequest = async <T extends AnySchema>(
-    request: ClientRequest,
-    schema: T,
-    tabKey?: keyof typeof errors,
-  ): Promise<SchemaOutput<T>> => {
+  const listResources = async () => {
+    if (!inspectorClient) {
+      throw new Error("InspectorClient is not connected");
+    }
     try {
-      const response = await makeRequest(request, schema);
-      if (tabKey !== undefined) {
-        clearError(tabKey);
-      }
-      return response;
+      const response = await inspectorClient.listResources(
+        nextResourceCursor,
+        metadata,
+      );
+      // InspectorClient manages resources state automatically via notifications
+      setNextResourceCursor(response.nextCursor);
+      clearError("resources");
     } catch (e) {
       const errorString = (e as Error).message ?? String(e);
-      if (tabKey !== undefined) {
-        setErrors((prev) => ({
-          ...prev,
-          [tabKey]: errorString,
-        }));
-      }
+      setErrors((prev) => ({
+        ...prev,
+        resources: errorString,
+      }));
       throw e;
     }
   };
 
-  const listResources = async () => {
-    const response = await sendMCPRequest(
-      {
-        method: "resources/list" as const,
-        params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
-      },
-      ListResourcesResultSchema,
-      "resources",
-    );
-    setResources(resources.concat(response.resources ?? []));
-    setNextResourceCursor(response.nextCursor);
-  };
-
   const listResourceTemplates = async () => {
-    const response = await sendMCPRequest(
-      {
-        method: "resources/templates/list" as const,
-        params: nextResourceTemplateCursor
-          ? { cursor: nextResourceTemplateCursor }
-          : {},
-      },
-      ListResourceTemplatesResultSchema,
-      "resources",
-    );
-    setResourceTemplates(
-      resourceTemplates.concat(response.resourceTemplates ?? []),
-    );
-    setNextResourceTemplateCursor(response.nextCursor);
+    if (!inspectorClient) {
+      throw new Error("InspectorClient is not connected");
+    }
+    try {
+      const response = await inspectorClient.listResourceTemplates(
+        nextResourceTemplateCursor,
+        metadata,
+      );
+      // InspectorClient manages resourceTemplates state automatically via notifications
+      setNextResourceTemplateCursor(response.nextCursor);
+      clearError("resources");
+    } catch (e) {
+      const errorString = (e as Error).message ?? String(e);
+      setErrors((prev) => ({
+        ...prev,
+        resources: errorString,
+      }));
+      throw e;
+    }
   };
 
   const getPrompt = async (name: string, args: Record<string, string> = {}) => {
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
-    const response = await sendMCPRequest(
-      {
-        method: "prompts/get" as const,
-        params: { name, arguments: args },
-      },
-      GetPromptResultSchema,
-      "prompts",
-    );
-    setPromptContent(JSON.stringify(response, null, 2));
+    if (!inspectorClient) {
+      throw new Error("InspectorClient is not connected");
+    }
+    try {
+      // Convert string args to JsonValue for InspectorClient
+      const jsonArgs: Record<string, JsonValue> = {};
+      for (const [key, value] of Object.entries(args)) {
+        jsonArgs[key] = value; // strings are valid JsonValue
+      }
+      const response = await inspectorClient.getPrompt(
+        name,
+        jsonArgs,
+        metadata,
+      );
+      setPromptContent(JSON.stringify(response, null, 2));
+      clearError("prompts");
+    } catch (e) {
+      const errorString = (e as Error).message ?? String(e);
+      setErrors((prev) => ({
+        ...prev,
+        prompts: errorString,
+      }));
+      throw e;
+    }
   };
 
   const readResource = async (uri: string) => {
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
-    const response = await sendMCPRequest(
-      {
-        method: "resources/read" as const,
-        params: { uri },
-      },
-      ReadResourceResultSchema,
-      "resources",
-    );
-    const content = JSON.stringify(response, null, 2);
-    setResourceContent(content);
-    setResourceContentMap((prev) => ({
-      ...prev,
-      [uri]: content,
-    }));
+    if (!inspectorClient) {
+      throw new Error("InspectorClient is not connected");
+    }
+    try {
+      const response = await inspectorClient.readResource(uri, metadata);
+      const content = JSON.stringify(response, null, 2);
+      setResourceContent(content);
+      setResourceContentMap((prev) => ({
+        ...prev,
+        [uri]: content,
+      }));
+      clearError("resources");
+    } catch (e) {
+      const errorString = (e as Error).message ?? String(e);
+      setErrors((prev) => ({
+        ...prev,
+        resources: errorString,
+      }));
+      throw e;
+    }
   };
 
   const subscribeToResource = async (uri: string) => {
-    if (!resourceSubscriptions.has(uri)) {
-      await sendMCPRequest(
-        {
-          method: "resources/subscribe" as const,
-          params: { uri },
-        },
-        z.object({}),
-        "resources",
-      );
+    if (!inspectorClient) {
+      throw new Error("InspectorClient is not connected");
+    }
+    try {
+      await inspectorClient.subscribeToResource(uri);
+      // InspectorClient manages subscriptions internally, but we track them for UI
       const clone = new Set(resourceSubscriptions);
       clone.add(uri);
       setResourceSubscriptions(clone);
+      clearError("resources");
+    } catch (e) {
+      const errorString = (e as Error).message ?? String(e);
+      setErrors((prev) => ({
+        ...prev,
+        resources: errorString,
+      }));
+      throw e;
     }
   };
 
   const unsubscribeFromResource = async (uri: string) => {
-    if (resourceSubscriptions.has(uri)) {
-      await sendMCPRequest(
-        {
-          method: "resources/unsubscribe" as const,
-          params: { uri },
-        },
-        z.object({}),
-        "resources",
-      );
+    if (!inspectorClient) {
+      throw new Error("InspectorClient is not connected");
+    }
+    try {
+      await inspectorClient.unsubscribeFromResource(uri);
+      // InspectorClient manages subscriptions internally, but we track them for UI
       const clone = new Set(resourceSubscriptions);
       clone.delete(uri);
       setResourceSubscriptions(clone);
+      clearError("resources");
+    } catch (e) {
+      const errorString = (e as Error).message ?? String(e);
+      setErrors((prev) => ({
+        ...prev,
+        resources: errorString,
+      }));
+      throw e;
     }
   };
 
   const listPrompts = async () => {
-    const response = await sendMCPRequest(
-      {
-        method: "prompts/list" as const,
-        params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
-      },
-      ListPromptsResultSchema,
-      "prompts",
-    );
-    setPrompts(response.prompts);
-    setNextPromptCursor(response.nextCursor);
+    if (!inspectorClient) {
+      throw new Error("InspectorClient is not connected");
+    }
+    try {
+      const response = await inspectorClient.listPrompts(
+        nextPromptCursor,
+        metadata,
+      );
+      // InspectorClient manages prompts state automatically via notifications
+      setNextPromptCursor(response.nextCursor);
+      clearError("prompts");
+    } catch (e) {
+      const errorString = (e as Error).message ?? String(e);
+      setErrors((prev) => ({
+        ...prev,
+        prompts: errorString,
+      }));
+      throw e;
+    }
   };
 
   const listTools = async () => {
-    const response = await sendMCPRequest(
-      {
-        method: "tools/list" as const,
-        params: nextToolCursor ? { cursor: nextToolCursor } : {},
-      },
-      ListToolsResultSchema,
-      "tools",
-    );
-    setTools(response.tools);
-    setNextToolCursor(response.nextCursor);
-    cacheToolOutputSchemas(response.tools);
+    if (!inspectorClient) {
+      throw new Error("InspectorClient is not connected");
+    }
+    try {
+      const response = await inspectorClient.listTools(
+        nextToolCursor,
+        metadata,
+      );
+      // InspectorClient manages tools state automatically via notifications
+      setNextToolCursor(response.nextCursor);
+      cacheToolOutputSchemas(response.tools);
+      clearError("tools");
+    } catch (e) {
+      const errorString = (e as Error).message ?? String(e);
+      setErrors((prev) => ({
+        ...prev,
+        tools: errorString,
+      }));
+      throw e;
+    }
   };
 
   const callTool = async (
@@ -988,35 +1077,53 @@ const App = () => {
   ) => {
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
+    if (!inspectorClient) {
+      throw new Error("InspectorClient is not connected");
+    }
+
     try {
       // Find the tool schema to clean parameters properly
-      const tool = tools.find((t) => t.name === name);
+      const tool = inspectorTools.find((t) => t.name === name);
       const cleanedParams = tool?.inputSchema
         ? cleanParams(params, tool.inputSchema as JsonSchemaType)
         : params;
 
       // Merge general metadata with tool-specific metadata
       // Tool-specific metadata takes precedence over general metadata
-      const mergedMetadata = {
+      const generalMetadata = {
         ...metadata, // General metadata
-        progressToken: progressTokenRef.current++,
-        ...toolMetadata, // Tool-specific metadata
+        progressToken: String(progressTokenRef.current++),
       };
+      const toolSpecificMetadata = toolMetadata
+        ? Object.fromEntries(
+            Object.entries(toolMetadata).map(([k, v]) => [k, String(v)]),
+          )
+        : undefined;
 
-      const response = await sendMCPRequest(
-        {
-          method: "tools/call" as const,
-          params: {
-            name,
-            arguments: cleanedParams,
-            _meta: mergedMetadata,
-          },
-        },
-        CompatibilityCallToolResultSchema,
-        "tools",
+      const invocation = await inspectorClient.callTool(
+        name,
+        cleanedParams as Record<string, JsonValue>,
+        generalMetadata,
+        toolSpecificMetadata,
       );
 
-      setToolResult(response);
+      // Convert ToolCallInvocation to CompatibilityCallToolResult
+      const compatibilityResult: CompatibilityCallToolResult = invocation.result
+        ? {
+            content: invocation.result.content || [],
+            isError: false,
+          }
+        : {
+            content: [
+              {
+                type: "text",
+                text: invocation.error || "Tool call failed",
+              },
+            ],
+            isError: true,
+          };
+
+      setToolResult(compatibilityResult);
       // Clear any validation errors since tool execution completed
       setErrors((prev) => ({ ...prev, tools: null }));
     } catch (e) {
@@ -1036,7 +1143,11 @@ const App = () => {
   };
 
   const handleRootsChange = async () => {
-    await sendNotification({ method: "notifications/roots/list_changed" });
+    if (!inspectorClient) {
+      throw new Error("InspectorClient is not connected");
+    }
+    // InspectorClient.setRoots() handles sending the notification internally
+    await inspectorClient.setRoots(roots);
   };
 
   const handleClearNotifications = () => {
@@ -1044,14 +1155,17 @@ const App = () => {
   };
 
   const sendLogLevelRequest = async (level: LoggingLevel) => {
-    await sendMCPRequest(
-      {
-        method: "logging/setLevel" as const,
-        params: { level },
-      },
-      z.object({}),
-    );
-    setLogLevel(level);
+    if (!inspectorClient) {
+      throw new Error("InspectorClient is not connected");
+    }
+    try {
+      await inspectorClient.setLoggingLevel(level);
+      setLogLevel(level);
+    } catch (e) {
+      const errorString = (e as Error).message ?? String(e);
+      console.error("Failed to set logging level:", errorString);
+      throw e;
+    }
   };
 
   const AuthDebuggerWrapper = () => (
@@ -1099,7 +1213,9 @@ const App = () => {
         className="bg-card border-r border-border flex flex-col h-full relative"
       >
         <Sidebar
-          connectionStatus={connectionStatus}
+          connectionStatus={
+            connectionStatus as "disconnected" | "connected" | "error"
+          }
           transportType={transportType}
           setTransportType={setTransportType}
           command={command}
@@ -1204,6 +1320,12 @@ const App = () => {
                   <FolderTree className="w-4 h-4 mr-2" />
                   Roots
                 </TabsTrigger>
+                {transportType === "stdio" && (
+                  <TabsTrigger value="console">
+                    <Terminal className="w-4 h-4 mr-2" />
+                    Console
+                  </TabsTrigger>
+                )}
                 <TabsTrigger value="auth">
                   <Key className="w-4 h-4 mr-2" />
                   Auth
@@ -1226,27 +1348,33 @@ const App = () => {
                       </p>
                     </div>
                     <PingTab
-                      onPingClick={() => {
-                        void sendMCPRequest(
-                          {
-                            method: "ping" as const,
-                          },
-                          EmptyResultSchema,
-                        );
+                      onPingClick={async () => {
+                        if (!mcpClient) {
+                          throw new Error("MCP client is not connected");
+                        }
+                        try {
+                          await mcpClient.request(
+                            { method: "ping" },
+                            EmptyResultSchema,
+                          );
+                        } catch (e) {
+                          console.error("Ping failed:", e);
+                          throw e;
+                        }
                       }}
                     />
                   </>
                 ) : (
                   <>
                     <ResourcesTab
-                      resources={resources}
-                      resourceTemplates={resourceTemplates}
+                      resources={inspectorResources}
+                      resourceTemplates={inspectorResourceTemplates}
                       listResources={() => {
                         clearError("resources");
                         listResources();
                       }}
                       clearResources={() => {
-                        setResources([]);
+                        // InspectorClient manages resources state - just clear cursor
                         setNextResourceCursor(undefined);
                       }}
                       listResourceTemplates={() => {
@@ -1254,7 +1382,7 @@ const App = () => {
                         listResourceTemplates();
                       }}
                       clearResourceTemplates={() => {
-                        setResourceTemplates([]);
+                        // InspectorClient manages resourceTemplates state - just clear cursor
                         setNextResourceTemplateCursor(undefined);
                       }}
                       readResource={(uri) => {
@@ -1286,13 +1414,13 @@ const App = () => {
                       error={errors.resources}
                     />
                     <PromptsTab
-                      prompts={prompts}
+                      prompts={inspectorPrompts}
                       listPrompts={() => {
                         clearError("prompts");
                         listPrompts();
                       }}
                       clearPrompts={() => {
-                        setPrompts([]);
+                        // InspectorClient manages prompts state - just clear cursor
                         setNextPromptCursor(undefined);
                       }}
                       getPrompt={(name, args) => {
@@ -1312,13 +1440,13 @@ const App = () => {
                       error={errors.prompts}
                     />
                     <ToolsTab
-                      tools={tools}
+                      tools={inspectorTools}
                       listTools={() => {
                         clearError("tools");
                         listTools();
                       }}
                       clearTools={() => {
-                        setTools([]);
+                        // InspectorClient manages tools state - just clear cursor and cache
                         setNextToolCursor(undefined);
                         cacheToolOutputSchemas([]);
                       }}
@@ -1346,15 +1474,21 @@ const App = () => {
                         readResource(uri);
                       }}
                     />
-                    <ConsoleTab />
+                    <ConsoleTab stderrLogs={stderrLogs} />
                     <PingTab
-                      onPingClick={() => {
-                        void sendMCPRequest(
-                          {
-                            method: "ping" as const,
-                          },
-                          EmptyResultSchema,
-                        );
+                      onPingClick={async () => {
+                        if (!mcpClient) {
+                          throw new Error("MCP client is not connected");
+                        }
+                        try {
+                          await mcpClient.request(
+                            { method: "ping" },
+                            EmptyResultSchema,
+                          );
+                        } catch (e) {
+                          console.error("Ping failed:", e);
+                          throw e;
+                        }
                       }}
                     />
                     <SamplingTab

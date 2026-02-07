@@ -4,6 +4,8 @@ import { defineConfig, type Plugin } from "vite";
 import { createRemoteApp } from "@modelcontextprotocol/inspector-shared/mcp/remote/node";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import pino from "pino";
+import { readFileSync } from "node:fs";
+import { getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 /**
  * Vite plugin that adds Hono middleware to handle /api/* routes
@@ -134,6 +136,52 @@ function honoMiddlewarePlugin(authToken: string): Plugin {
       // Mount at root - check path ourselves to avoid Connect prefix stripping
       // Only handle /api/* routes, let others pass through to Vite
       server.middlewares.use(honoMiddleware);
+
+      // Inject config into index.html for dev mode
+      server.middlewares.use((req, res, next) => {
+        if (req.url === "/" || req.url === "/index.html") {
+          try {
+            const indexPath = path.resolve(__dirname, "index.html");
+            let html = readFileSync(indexPath, "utf-8");
+
+            // Build initial config object from env vars
+            const defaultEnvironment = {
+              ...getDefaultEnvironment(),
+              ...(process.env.MCP_ENV_VARS
+                ? JSON.parse(process.env.MCP_ENV_VARS)
+                : {}),
+            };
+
+            const initialConfig = {
+              ...(process.env.MCP_INITIAL_COMMAND
+                ? { defaultCommand: process.env.MCP_INITIAL_COMMAND }
+                : {}),
+              ...(process.env.MCP_INITIAL_ARGS
+                ? { defaultArgs: process.env.MCP_INITIAL_ARGS.split(" ") }
+                : {}),
+              ...(process.env.MCP_INITIAL_TRANSPORT
+                ? { defaultTransport: process.env.MCP_INITIAL_TRANSPORT }
+                : {}),
+              ...(process.env.MCP_INITIAL_SERVER_URL
+                ? { defaultServerUrl: process.env.MCP_INITIAL_SERVER_URL }
+                : {}),
+              defaultEnvironment,
+            };
+
+            // Inject config as a script tag before closing </head>
+            const configScript = `<script>window.__INITIAL_CONFIG__ = ${JSON.stringify(initialConfig)};</script>`;
+            html = html.replace("</head>", `${configScript}</head>`);
+
+            res.setHeader("Content-Type", "text/html");
+            res.end(html);
+            return;
+          } catch (error) {
+            console.error("Error injecting config into index.html:", error);
+            // Fall through to Vite's default handling
+          }
+        }
+        next();
+      });
     },
   };
 }

@@ -6,6 +6,18 @@ This document provides a step-by-step plan for porting the `web/` application to
 
 **Goal:** The `web/` app should function identically to `client/` but use `InspectorClient` and the integrated Hono server instead of `useConnection` and the separate Express proxy.
 
+## Progress Summary
+
+- ✅ **Phase 1:** Integrate Hono Server into Vite - **COMPLETE**
+- ✅ **Phase 2:** Create Web Client Adapter - **COMPLETE**
+- ✅ **Phase 3:** Replace useConnection with InspectorClient - **COMPLETE** (All steps complete)
+- ⏸️ **Phase 4:** OAuth Integration - **NOT STARTED**
+- ⏸️ **Phase 5:** Remove Express Server Dependency - **PARTIALLY COMPLETE** (Step 5.3 done: `/config` endpoint replaced with HTML injection)
+- ⏸️ **Phase 6:** Testing and Validation - **NOT STARTED**
+- ⏸️ **Phase 7:** Cleanup - **NOT STARTED**
+
+**Current Status:** Core InspectorClient integration complete. All Phase 3 steps finished. Remaining work: OAuth integration (Phase 4), Express proxy removal (Phase 5), testing and cleanup.
+
 **Reference Documents:**
 
 - [Environment Isolation](./environment-isolation.md) - Details on remote infrastructure and seams
@@ -14,9 +26,11 @@ This document provides a step-by-step plan for porting the `web/` application to
 
 ---
 
-## Phase 1: Integrate Hono Server into Vite
+## Phase 1: Integrate Hono Server into Vite ✅ COMPLETE
 
 **Goal:** Integrate the Hono remote API server into Vite (dev) and create a production server, making `/api/*` endpoints available. The web app will continue using the existing proxy/useConnection during this phase, allowing us to validate that the new API endpoints are working before migrating the app to use them.
+
+**Status:** ✅ Complete - Hono server integrated into Vite dev mode and production server created. Both Express proxy and Hono server run simultaneously.
 
 **Validation:** After Phase 1, you should be able to:
 
@@ -27,11 +41,19 @@ This document provides a step-by-step plan for porting the `web/` application to
 
 ---
 
-### Step 1.1: Create Vite Plugin for Hono Middleware
+### Step 1.1: Create Vite Plugin for Hono Middleware ✅ COMPLETE
 
 **File:** `web/vite.config.ts`
 
+**Status:** ✅ Complete
+
 Create a Vite plugin that adds Hono middleware to handle `/api/*` routes. This runs alongside the existing Express proxy server (which the web app still uses).
+
+**As-Built:**
+
+- Implemented `honoMiddlewarePlugin` that mounts Hono middleware at root and checks for `/api` prefix
+- Fixed Connect middleware path stripping issue by mounting at root and checking path manually
+- Auth token passed via `process.env.MCP_REMOTE_AUTH_TOKEN` (read-only, set by start script)
 
 ```typescript
 import { defineConfig, Plugin } from "vite";
@@ -169,11 +191,19 @@ The auth token flow:
 
 ---
 
-### Step 1.2: Create Production Server
+### Step 1.2: Create Production Server ✅ COMPLETE
 
 **File:** `web/bin/server.js` (new file)
 
+**Status:** ✅ Complete
+
 Create a production server that serves static files and API routes:
+
+**As-Built:**
+
+- Created `web/bin/server.js` that serves static files and routes `/api/*` to `apiApp`
+- Static files served without authentication, API routes require auth token
+- Auth token read from `process.env.MCP_REMOTE_AUTH_TOKEN`
 
 ```typescript
 #!/usr/bin/env node
@@ -268,11 +298,19 @@ serve(
 
 ---
 
-### Step 1.3: Update Start Script (Keep Express Proxy for Now)
+### Step 1.3: Update Start Script (Keep Express Proxy for Now) ✅ COMPLETE
 
 **File:** `web/bin/start.js`
 
+**Status:** ✅ Complete
+
 **Important:** During Phase 1, both servers run:
+
+**As-Built:**
+
+- Start script generates both `proxySessionToken` (for Express) and `honoAuthToken` (for Hono)
+- Tokens passed explicitly via environment variables (for spawned processes) and URL params (for browser)
+- Both Express proxy and Vite/Hono server run simultaneously in dev/prod mode
 
 - **Hono server**: Serves static files (dev: via Vite middleware, prod: via `bin/server.js`) + `/api/*` endpoints
 - **Express proxy**: Handles web app API calls (`/mcp`, `/stdio`, `/sse`, etc.)
@@ -487,11 +525,13 @@ serve(
 
 ---
 
-## Phase 2: Create Web Client Adapter
+## Phase 2: Create Web Client Adapter ✅ COMPLETE
 
-### Step 2.1: Create Config to MCPServerConfig Adapter
+### Step 2.1: Create Config to MCPServerConfig Adapter ✅ COMPLETE
 
 **File:** `web/src/lib/adapters/configAdapter.ts` (new file)
+
+**Status:** ✅ Complete
 
 **Existing Code Reference:**
 
@@ -579,11 +619,19 @@ export function webConfigToMcpServerConfig(
 
 ---
 
-### Step 2.2: Create Environment Factory
+### Step 2.2: Create Environment Factory ✅ COMPLETE
 
 **File:** `web/src/lib/adapters/environmentFactory.ts` (new file)
 
+**Status:** ✅ Complete
+
 Create a factory function that builds the `InspectorClientEnvironment` object:
+
+**As-Built:**
+
+- Fixed "Illegal invocation" error by wrapping `window.fetch` to preserve `this` context: `const fetchFn: typeof fetch = (...args) => globalThis.fetch(...args)`
+- Uses `BrowserOAuthStorage` and `BrowserNavigation` for OAuth
+- `redirectUrlProvider` consistently returns `/oauth/callback` regardless of mode (mode stored in state, not URL)
 
 ```typescript
 import type { InspectorClientEnvironment } from "@modelcontextprotocol/inspector-shared/mcp/inspectorClient";
@@ -629,11 +677,13 @@ export function createWebEnvironment(
 
 ---
 
-## Phase 3: Replace useConnection with InspectorClient
+## Phase 3: Replace useConnection with InspectorClient ⏳ IN PROGRESS
 
-### Step 3.1: Understand useInspectorClient Interface
+### Step 3.1: Understand useInspectorClient Interface ✅ COMPLETE
 
 **Reference:** `shared/react/useInspectorClient.ts`
+
+**Status:** ✅ Complete - Hook interface understood and used throughout implementation
 
 The `useInspectorClient` hook returns:
 
@@ -660,11 +710,22 @@ interface UseInspectorClientResult {
 
 ---
 
-### Step 3.2: Update App.tsx to Use InspectorClient
+### Step 3.2: Update App.tsx to Use InspectorClient ✅ COMPLETE
 
 **File:** `web/src/App.tsx`
 
+**Status:** ✅ Complete
+
 **Changes:**
+
+**As-Built:**
+
+- Removed local state syncing (`useEffect` blocks) for resources, prompts, tools, resourceTemplates
+- Removed local state declarations - now using hook values directly (`inspectorResources`, `inspectorPrompts`, `inspectorTools`, `inspectorResourceTemplates`)
+- Updated all component props to use hook values
+- InspectorClient instance created in `useMemo` with proper dependencies
+- Auth token extracted from URL params (`MCP_REMOTE_AUTH_TOKEN`)
+- `useInspectorClient` hook used to get all state and methods
 
 1. **Replace imports:**
 
@@ -771,83 +832,94 @@ interface UseInspectorClientResult {
 
 ---
 
-### Step 3.3: Migrate State Format
+### Step 3.3: Migrate State Format ✅ COMPLETE
 
 **File:** `web/src/App.tsx`
 
+**Status:** ✅ Complete
+
 **Changes:**
 
-1. **Message History:**
-   - Current: `{ request: string, response?: string }[]`
-   - New: `MessageEntry[]` from `inspectorClient.getMessages()`
-   - Update components that display message history
+1. **Message History:** ✅ Complete
+   - **As-Built:** `requestHistory` now uses MCP protocol messages from `inspectorMessages`
+   - Filters `inspectorMessages` for `direction === "request"` (non-notification messages)
+   - Converts to format: `{ request: string, response?: string }[]` for `HistoryAndNotifications` component
+   - **Note:** History tab shows MCP protocol messages (requests/responses), not HTTP requests
 
-2. **Request History:**
-   - Current: Custom format
-   - New: `FetchRequestEntry[]` from `inspectorClient.getFetchRequests()`
-   - Update Requests tab to use new format
+2. **Request History:** ✅ Complete
+   - **As-Built:** Not using `FetchRequestEntry[]` - instead using MCP protocol messages for History tab
+   - `fetchRequests` removed from hook destructuring (not needed for current UI)
 
-3. **Stderr Logs:**
-   - Current: Custom format
-   - New: `StderrLogEntry[]` from `inspectorClient.getStderrLogs()`
-   - Update Console tab to use new format
+3. **Stderr Logs:** ✅ Complete
+   - `stderrLogs` destructured from hook and passed to `ConsoleTab`
+   - `ConsoleTab` displays `StderrLogEntry[]` with timestamps and messages
+   - **As-Built:** Console tab trigger added to UI, only shown when `transportType === "stdio"` (since stderr logs are only available for stdio transports)
+   - Console tab added to valid tabs list for routing
 
-4. **Server Data:**
-   - Tools, Resources, Prompts: Already provided by `useInspectorClient`
-   - Remove manual fetching logic (InspectorClient handles this)
+4. **Server Data:** ✅ Complete
+   - Tools, Resources, Prompts: Using hook values directly (`inspectorTools`, `inspectorResources`, `inspectorPrompts`)
+   - Manual fetching logic removed - InspectorClient handles this automatically
 
 ---
 
-### Step 3.4: Update Notification Handlers
+### Step 3.4: Update Notification Handlers ✅ COMPLETE
 
 **File:** `web/src/App.tsx`
 
+**Status:** ✅ Complete
+
 **Changes:**
 
-1. **Replace notification callbacks:**
+1. **Replace notification callbacks:** ✅ Complete
+   - **As-Built:** Notifications extracted from `inspectorMessages` via `useEffect`:
+     ```typescript
+     const notifications = inspectorMessages
+       .filter((msg) => msg.direction === "notification" && msg.message)
+       .map((msg) => msg.message as ServerNotification);
+     ```
+   - No separate event listeners needed - notifications come from message stream
 
-   ```typescript
-   // Remove
-   onNotification={(notification) => { ... }}
-   onStdErrNotification={(entry) => { ... }}
+2. **Update request handlers:** ✅ Complete
+   - **Elicitation:** ✅ Complete - Using `inspectorClient.addEventListener("newPendingElicitation", ...)`
+   - **Sampling:** ✅ Complete - Using `inspectorClient.addEventListener("newPendingSample", ...)`
+   - **Roots:** ✅ Complete - Using `inspectorClient.getRoots()`, `inspectorClient.setRoots()`, and listening to `rootsChange` event
+     - `handleRootsChange()` calls `inspectorClient.setRoots(roots)` which handles sending notification internally
+     - Roots synced with InspectorClient via `useEffect` and `rootsChange` event listener
 
-   // Add event listeners
-   useEffect(() => {
-     if (!inspectorClient) return;
-
-     const handleNotification = (event: CustomEvent) => {
-       // Handle notification
-     };
-
-     inspectorClient.addEventListener('notification', handleNotification);
-     return () => {
-       inspectorClient.removeEventListener('notification', handleNotification);
-     };
-   }, [inspectorClient]);
-   ```
-
-2. **Update request handlers:**
-   - Elicitation: Use `inspectorClient.getPendingElicitations()` and events
-   - Sampling: Use `inspectorClient.getPendingSamples()` and events
-   - Roots: Use `inspectorClient.getRoots()` and `inspectorClient.setRoots()`
+3. **Stderr Logs:** ✅ Complete
+   - **As-Built:** `stderrLogs` destructured from `useInspectorClient` hook
+   - `ConsoleTab` component updated to accept and display `StderrLogEntry[]`
+   - Displays timestamp and message for each stderr log entry
+   - Shows "No stderr output yet" when empty
 
 ---
 
-### Step 3.5: Update Method Calls
+### Step 3.5: Update Method Calls ✅ COMPLETE
 
 **File:** `web/src/App.tsx` and component files
+
+**Status:** ✅ Complete
 
 **Changes:**
 
 Replace all `mcpClient` method calls with `inspectorClient` methods:
 
-- `mcpClient.listTools()` → `inspectorClient.listTools()`
-- `mcpClient.callTool()` → `inspectorClient.callTool()`
-- `mcpClient.listResources()` → `inspectorClient.listResources()`
-- `mcpClient.readResource()` → `inspectorClient.readResource()`
-- `mcpClient.listPrompts()` → `inspectorClient.listPrompts()`
-- `mcpClient.getPrompt()` → `inspectorClient.getPrompt()`
-- etc.
+**As-Built:**
+
+- ✅ `listResources()` → `inspectorClient.listResources(cursor, metadata)`
+- ✅ `listResourceTemplates()` → `inspectorClient.listResourceTemplates(cursor, metadata)`
+- ✅ `readResource()` → `inspectorClient.readResource(uri, metadata)`
+- ✅ `subscribeToResource()` → `inspectorClient.subscribeToResource(uri)`
+- ✅ `unsubscribeFromResource()` → `inspectorClient.unsubscribeFromResource(uri)`
+- ✅ `listPrompts()` → `inspectorClient.listPrompts(cursor, metadata)`
+- ✅ `getPrompt()` → `inspectorClient.getPrompt(name, args, metadata)` (with JsonValue conversion)
+- ✅ `listTools()` → `inspectorClient.listTools(cursor, metadata)`
+- ✅ `callTool()` → `inspectorClient.callTool(name, args, generalMetadata, toolSpecificMetadata)` (with ToolCallInvocation → CompatibilityCallToolResult conversion)
+- ✅ `sendLogLevelRequest()` → `inspectorClient.setLoggingLevel(level)`
+- ✅ Ping → `mcpClient.request({ method: "ping" }, EmptyResultSchema)` (direct SDK call)
+- ✅ Removed `sendMCPRequest()` wrapper function
+- ✅ Removed `makeRequest()` wrapper function
+- ✅ All methods include proper error handling with `clearError()` calls
 
 ---
 
@@ -1007,7 +1079,9 @@ For initial port, use `BrowserOAuthStorage`. Can switch to `RemoteOAuthStorage` 
 
 ---
 
-## Phase 5: Remove Express Server Dependency
+## Phase 5: Remove Express Server Dependency ⏸️ PARTIALLY COMPLETE
+
+**Status:** ⏸️ Partially Complete - `/config` endpoint dependency removed via HTML template injection. Express proxy still runs but is no longer needed for OAuth callbacks (handled client-side by React routing) or MCP communication (handled by Hono server). It may still be referenced in legacy code paths.
 
 ### Step 5.1: Update Start Scripts
 
@@ -1034,16 +1108,49 @@ For initial port, use `BrowserOAuthStorage`. Can switch to `RemoteOAuthStorage` 
 
 ---
 
-### Step 5.3: Update App.tsx Proxy Dependencies
+### Step 5.3: Replace `/config` Endpoint with HTML Template Injection ✅ COMPLETE
 
-**File:** `web/src/App.tsx`
+**Files:** `web/bin/server.js`, `web/vite.config.ts`, `web/bin/start.js`, `web/src/App.tsx`
 
-**Changes:**
+**Status:** ✅ Complete
 
-- Remove `/config` endpoint fetch (no longer exists)
-- Remove proxy health check logic
-- Remove proxy auth token from URL params
-- Update connection status logic (no "error-connecting-to-proxy" status)
+**Approach:** Instead of fetching initial configuration from the Express proxy's `/config` endpoint, we inject configuration values directly into the HTML template served by the Hono server (prod) and Vite dev server (dev). This eliminates the dependency on the Express proxy for initial configuration.
+
+**Implementation:**
+
+1. **Start Script (`web/bin/start.js`):**
+   - Passes config values (command, args, transport, serverUrl, envVars) via environment variables (`MCP_INITIAL_COMMAND`, `MCP_INITIAL_ARGS`, `MCP_INITIAL_TRANSPORT`, `MCP_INITIAL_SERVER_URL`, `MCP_ENV_VARS`) to both Vite (dev) and Hono server (prod)
+
+2. **Hono Server (`web/bin/server.js`):**
+   - Intercepts requests to `/` (root)
+   - Reads `index.html` from dist folder
+   - Builds `initialConfig` object from env vars (includes `defaultEnvironment` from `getDefaultEnvironment()` + `MCP_ENV_VARS`)
+   - Injects `<script>window.__INITIAL_CONFIG__ = {...}</script>` before `</head>`
+   - Returns modified HTML
+
+3. **Vite Config (`web/vite.config.ts`):**
+   - Adds middleware to intercept `/` and `/index.html` requests
+   - Same injection logic as Hono server (reads from `index.html` source, injects config, returns modified HTML)
+
+4. **App.tsx (`web/src/App.tsx`):**
+   - Removed `/config` endpoint fetch
+   - Reads from `window.__INITIAL_CONFIG__` in a `useEffect` (runs once on mount)
+   - Applies config values to state (env, command, args, transport, serverUrl)
+
+**Benefits:**
+
+- No network request needed for initial config (available immediately)
+- Removes dependency on Express proxy for config
+- Clean URLs (no query params required for config)
+- Works in both dev and prod modes
+- Values available synchronously before React renders
+
+**As-Built:**
+
+- Config injection happens in both dev (Vite middleware) and prod (Hono server route)
+- Uses `getDefaultEnvironment()` from SDK to get default env vars (PATH, HOME, USER, etc.)
+- Merges with `MCP_ENV_VARS` if provided
+- Config object structure matches what `/config` endpoint returned: `{ defaultCommand?, defaultArgs?, defaultTransport?, defaultServerUrl?, defaultEnvironment }`
 
 ---
 
