@@ -71,8 +71,6 @@ interface SidebarProps {
   loggingSupported: boolean;
   config: InspectorConfig;
   setConfig: (config: InspectorConfig) => void;
-  connectionType: "direct" | "proxy";
-  setConnectionType: (type: "direct" | "proxy") => void;
   serverImplementation?:
     | (WithIcons & { name?: string; version?: string; websiteUrl?: string })
     | null;
@@ -105,8 +103,6 @@ const Sidebar = ({
   loggingSupported,
   config,
   setConfig,
-  connectionType,
-  setConnectionType,
   serverImplementation,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
@@ -119,8 +115,6 @@ const Sidebar = ({
   const [copiedServerFile, setCopiedServerFile] = useState(false);
   const { toast } = useToast();
 
-  const connectionTypeTip =
-    "Connect to server directly (requires CORS config on server) or via MCP Inspector Proxy";
   // Reusable error reporter for copy actions
   const reportError = useCallback(
     (error: unknown) => {
@@ -330,35 +324,6 @@ const Sidebar = ({
                   />
                 )}
               </div>
-
-              {/* Connection Type switch - only visible for non-STDIO transport types */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="space-y-2">
-                    <label
-                      className="text-sm font-medium"
-                      htmlFor="connection-type-select"
-                    >
-                      Connection Type
-                    </label>
-                    <Select
-                      value={connectionType}
-                      onValueChange={(value: "direct" | "proxy") =>
-                        setConnectionType(value)
-                      }
-                    >
-                      <SelectTrigger id="connection-type-select">
-                        <SelectValue placeholder="Select connection type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="proxy">Via Proxy</SelectItem>
-                        <SelectItem value="direct">Direct</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>{connectionTypeTip}</TooltipContent>
-              </Tooltip>
             </>
           )}
 
@@ -754,8 +719,6 @@ const Sidebar = ({
                       return "bg-green-500";
                     case "error":
                       return "bg-red-500";
-                    case "error-connecting-to-proxy":
-                      return "bg-red-500";
                     default:
                       return "bg-gray-500";
                   }
@@ -767,14 +730,12 @@ const Sidebar = ({
                     case "connected":
                       return "Connected";
                     case "error": {
-                      const hasProxyToken = config.MCP_PROXY_AUTH_TOKEN?.value;
-                      if (!hasProxyToken) {
-                        return "Connection Error - Did you add the proxy session token in Configuration?";
+                      const hasApiToken = config.MCP_INSPECTOR_API_TOKEN?.value;
+                      if (!hasApiToken) {
+                        return "Connection Error - Did you add the API token in Configuration?";
                       }
-                      return "Connection Error - Check if your MCP server is running and proxy token is correct";
+                      return "Connection Error - Check if your MCP server is running and API token is correct";
                     }
-                    case "error-connecting-to-proxy":
-                      return "Error Connecting to MCP Inspector Proxy - Check Console logs";
                     default:
                       return "Disconnected";
                   }

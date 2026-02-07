@@ -17,9 +17,10 @@ import type { MCPServerConfig } from "../../types.js";
 import { RemoteSession } from "./remote-session.js";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { API_SERVER_ENV_VARS } from "../constants.js";
 
 export interface RemoteServerOptions {
-  /** Optional auth token. If not provided, uses MCP_REMOTE_AUTH_TOKEN env var or generates one. */
+  /** Optional auth token. If not provided, uses API_SERVER_ENV_VARS.AUTH_TOKEN env var or generates one. */
   authToken?: string;
 
   /** Optional: validate Origin header against allowed origins (for CORS) */
@@ -267,7 +268,7 @@ export function createRemoteApp(
   // Determine auth token: options > env var > generate
   const authToken =
     options.authToken ||
-    process.env.MCP_REMOTE_AUTH_TOKEN ||
+    process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ||
     randomBytes(32).toString("hex");
 
   const app = new Hono();

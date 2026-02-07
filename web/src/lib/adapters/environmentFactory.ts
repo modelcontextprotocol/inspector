@@ -14,12 +14,12 @@ import type { RedirectUrlProvider } from "@modelcontextprotocol/inspector-shared
  * Creates an InspectorClientEnvironment for the web client.
  * This factory provides all the environment-specific implementations needed
  * by InspectorClient in a browser environment:
- * - Remote transport (via Hono API)
- * - Remote fetch (for OAuth, bypasses CORS)
- * - Remote logger (sends logs to server)
+ * - Inspector API transport (via Hono API server)
+ * - Inspector API fetch (for OAuth, bypasses CORS)
+ * - Inspector API logger (sends logs to server)
  * - Browser OAuth storage and navigation
  *
- * @param authToken - Auth token for authenticating with the remote API server
+ * @param authToken - Auth token for authenticating with the Inspector API server
  * @param redirectUrlProvider - Provider for OAuth redirect URLs
  * @returns Complete InspectorClientEnvironment ready for InspectorClient
  */

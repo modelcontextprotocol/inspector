@@ -1,7 +1,6 @@
 import { render, waitFor } from "@testing-library/react";
 import App from "../App";
-import { useConnection } from "../lib/hooks/useConnection";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { useInspectorClient } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
 
 // Mock auth dependencies first
 jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
@@ -23,11 +22,6 @@ jest.mock("../lib/auth", () => ({
 // Mock the config utils
 jest.mock("../utils/configUtils", () => ({
   ...jest.requireActual("../utils/configUtils"),
-  getMCPProxyAddress: jest.fn(() => "http://localhost:6277"),
-  getMCPProxyAuthToken: jest.fn(() => ({
-    token: "",
-    header: "X-MCP-Proxy-Auth",
-  })),
   getInitialTransportType: jest.fn(() => "stdio"),
   getInitialSseUrl: jest.fn(() => "http://localhost:3001/sse"),
   getInitialCommand: jest.fn(() => "mcp-server-everything"),
@@ -37,31 +31,28 @@ jest.mock("../utils/configUtils", () => ({
 }));
 
 // Default connection state is disconnected
-const disconnectedConnectionState = {
-  connectionStatus: "disconnected" as const,
-  serverCapabilities: null,
-  mcpClient: null,
-  requestHistory: [],
-  clearRequestHistory: jest.fn(),
-  makeRequest: jest.fn(),
-  sendNotification: jest.fn(),
-  handleCompletion: jest.fn(),
-  completionsSupported: false,
+const disconnectedInspectorClientState = {
+  status: "disconnected" as const,
+  messages: [],
+  stderrLogs: [],
+  fetchRequests: [],
+  tools: [],
+  resources: [],
+  resourceTemplates: [],
+  prompts: [],
+  capabilities: null,
+  serverInfo: null,
+  instructions: undefined,
+  client: null,
   connect: jest.fn(),
   disconnect: jest.fn(),
-  serverImplementation: null,
 };
 
 // Connected state for tests that need an active connection
-const connectedConnectionState = {
-  ...disconnectedConnectionState,
-  connectionStatus: "connected" as const,
-  serverCapabilities: {},
-  mcpClient: {
-    request: jest.fn(),
-    notification: jest.fn(),
-    close: jest.fn(),
-  } as unknown as Client,
+const connectedInspectorClientState = {
+  ...disconnectedInspectorClientState,
+  status: "connected" as const,
+  capabilities: {},
 };
 
 // Mock required dependencies, but unrelated to routing.
@@ -85,19 +76,22 @@ jest.mock("../components/Sidebar", () => ({
 // Mock fetch
 global.fetch = jest.fn().mockResolvedValue({ json: () => Promise.resolve({}) });
 
-// Use an empty module mock, so that mock state can be reset between tests.
-jest.mock("../lib/hooks/useConnection", () => ({
-  useConnection: jest.fn(),
-}));
+// Mock InspectorClient hook
+jest.mock(
+  "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js",
+  () => ({
+    useInspectorClient: jest.fn(),
+  }),
+);
 
 describe("App - URL Fragment Routing", () => {
-  const mockUseConnection = jest.mocked(useConnection);
+  const mockUseInspectorClient = jest.mocked(useInspectorClient);
 
   beforeEach(() => {
     jest.restoreAllMocks();
 
     // Inspector starts disconnected.
-    mockUseConnection.mockReturnValue(disconnectedConnectionState);
+    mockUseInspectorClient.mockReturnValue(disconnectedInspectorClientState);
   });
 
   test("does not set hash when starting disconnected", async () => {
@@ -133,9 +127,9 @@ describe("App - URL Fragment Routing", () => {
 
     for (const { capabilities, expected } of testCases) {
       window.location.hash = "";
-      mockUseConnection.mockReturnValue({
-        ...connectedConnectionState,
-        serverCapabilities: capabilities,
+      mockUseInspectorClient.mockReturnValue({
+        ...connectedInspectorClientState,
+        capabilities,
       });
 
       rerender(<App />);

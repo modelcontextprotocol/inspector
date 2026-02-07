@@ -9,18 +9,19 @@ import { fileURLToPath } from "url";
 import { randomBytes } from "node:crypto";
 import pino from "pino";
 import { readFileSync } from "node:fs";
-import { getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-shared/mcp/remote";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const distPath = join(__dirname, "../dist");
 
 const app = new Hono();
 
-// Read auth token from env (provided by start script via spawn env)
+// Read Inspector API auth token from env (provided by start script via spawn env)
 // createRemoteApp will use this, or generate one if not provided
 // The token is passed explicitly from start script, not written to process.env
 const authToken =
-  process.env.MCP_REMOTE_AUTH_TOKEN || randomBytes(32).toString("hex");
+  process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ||
+  randomBytes(32).toString("hex");
 
 // Add API routes first (more specific)
 const port = parseInt(process.env.CLIENT_PORT || "6274", 10);
@@ -56,10 +57,37 @@ app.get("/", async (c) => {
     let html = readFileSync(indexPath, "utf-8");
 
     // Build initial config object from env vars
-    const defaultEnvironment = {
-      ...getDefaultEnvironment(),
-      ...(process.env.MCP_ENV_VARS ? JSON.parse(process.env.MCP_ENV_VARS) : {}),
-    };
+    // Get default environment vars matching SDK's getDefaultEnvironment()
+    // This avoids importing Node-only stdio code
+    const defaultEnvironment = {};
+    const defaultEnvKeys =
+      process.platform === "win32"
+        ? [
+            "APPDATA",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "LOCALAPPDATA",
+            "PATH",
+            "PROCESSOR_ARCHITECTURE",
+            "SYSTEMDRIVE",
+            "SYSTEMROOT",
+            "TEMP",
+            "USERNAME",
+            "USERPROFILE",
+            "PROGRAMFILES",
+          ]
+        : ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"];
+    for (const key of defaultEnvKeys) {
+      const value = process.env[key];
+      if (value && !value.startsWith("()")) {
+        // Skip functions, which are a security risk
+        defaultEnvironment[key] = value;
+      }
+    }
+    // Merge with MCP_ENV_VARS if provided
+    if (process.env.MCP_ENV_VARS) {
+      Object.assign(defaultEnvironment, JSON.parse(process.env.MCP_ENV_VARS));
+    }
 
     const initialConfig = {
       ...(process.env.MCP_INITIAL_COMMAND

@@ -106,7 +106,7 @@ Hono is lightweight, framework-agnostic, and supports Node. Using Hono keeps the
 
 **Security**
 
-All endpoints require authentication via `x-mcp-remote-auth` header (Bearer token format), origin validation, and timing-safe token comparison. The auth token is generated from options, environment variable (`MCP_REMOTE_AUTH_TOKEN`), or randomly generated.
+All endpoints require authentication via `x-mcp-remote-auth` header (Bearer token format), origin validation, and timing-safe token comparison. The auth token is generated from options, environment variable (`MCP_INSPECTOR_API_TOKEN`), or randomly generated.
 
 **Endpoints**
 

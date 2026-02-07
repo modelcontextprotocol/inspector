@@ -6,7 +6,9 @@
  * Uses pino/browser so transmit works in both Node (tests) and browser.
  */
 
-import pino from "pino/browser";
+// @ts-expect-error - pino/browser.js exists but TypeScript doesn't have types for the .js extension
+// Node.js ESM requires explicit .js extension, and pino exports browser.js
+import pino from "pino/browser.js";
 import type { Logger, LogEvent } from "pino";
 
 export interface RemoteLoggerOptions {

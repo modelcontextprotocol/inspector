@@ -27,9 +27,10 @@ export interface RemoteTransportFactoryOptions {
  * connecting to the given remote server.
  *
  * @example
+ * import { API_SERVER_ENV_VARS } from '@modelcontextprotocol/inspector-shared/mcp/remote';
  * const createTransport = createRemoteTransport({
  *   baseUrl: 'http://localhost:3000',
- *   authToken: process.env.MCP_REMOTE_TOKEN,
+ *   authToken: process.env[API_SERVER_ENV_VARS.AUTH_TOKEN],
  * });
  * const inspector = new InspectorClient(config, {
  *   environment: {
