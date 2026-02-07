@@ -1,8 +1,6 @@
 import { InspectorConfig } from "@/lib/configurationTypes";
-import {
-  DEFAULT_MCP_PROXY_LISTEN_PORT,
-  DEFAULT_INSPECTOR_CONFIG,
-} from "@/lib/constants";
+import { DEFAULT_INSPECTOR_CONFIG } from "@/lib/constants";
+import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-shared/mcp/remote";
 
 const getSearchParam = (key: string): string | null => {
   try {
@@ -11,20 +9,6 @@ const getSearchParam = (key: string): string | null => {
   } catch {
     return null;
   }
-};
-
-export const getMCPProxyAddress = (config: InspectorConfig): string => {
-  let proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS.value as string;
-  if (proxyFullAddress) {
-    proxyFullAddress = proxyFullAddress.replace(/\/+$/, "");
-    return proxyFullAddress;
-  }
-
-  // Check for proxy port from query params, fallback to default
-  const proxyPort =
-    getSearchParam("MCP_PROXY_PORT") || DEFAULT_MCP_PROXY_LISTEN_PORT;
-
-  return `${window.location.protocol}//${window.location.hostname}:${proxyPort}`;
 };
 
 export const getMCPServerRequestTimeout = (config: InspectorConfig): number => {
@@ -43,16 +27,11 @@ export const getMCPServerRequestMaxTotalTimeout = (
   return config.MCP_REQUEST_MAX_TOTAL_TIMEOUT.value as number;
 };
 
-export const getMCPProxyAuthToken = (
+export const getInspectorApiToken = (
   config: InspectorConfig,
-): {
-  token: string;
-  header: string;
-} => {
-  return {
-    token: config.MCP_PROXY_AUTH_TOKEN.value as string,
-    header: "X-MCP-Proxy-Auth",
-  };
+): string | undefined => {
+  const token = config.MCP_INSPECTOR_API_TOKEN.value as string;
+  return token || undefined;
 };
 
 export const getInitialTransportType = ():
@@ -128,19 +107,56 @@ export const initializeInspectorConfig = (
   // Start with default config
   let baseConfig = { ...DEFAULT_INSPECTOR_CONFIG };
 
-  // Apply saved persistent config
+  // Helper function to filter config to only recognized keys
+  const filterRecognizedKeys = (
+    parsedConfig: Partial<InspectorConfig>,
+    source: string,
+  ): Partial<InspectorConfig> => {
+    const filtered: Partial<InspectorConfig> = {};
+    const removedKeys: string[] = [];
+
+    for (const key in parsedConfig) {
+      if (key in DEFAULT_INSPECTOR_CONFIG) {
+        filtered[key as keyof InspectorConfig] =
+          parsedConfig[key as keyof InspectorConfig];
+      } else {
+        removedKeys.push(key);
+      }
+    }
+
+    // Log removed keys for debugging
+    if (removedKeys.length > 0) {
+      console.warn(
+        `[Inspector Config] Removed unrecognized keys from ${source}:`,
+        removedKeys.join(", "),
+      );
+    }
+
+    return filtered;
+  };
+
+  // Apply saved persistent config (filtered to recognized keys only)
   if (savedPersistentConfig) {
     const parsedPersistentConfig = JSON.parse(savedPersistentConfig);
-    baseConfig = { ...baseConfig, ...parsedPersistentConfig };
+    const filteredPersistentConfig = filterRecognizedKeys(
+      parsedPersistentConfig,
+      "localStorage",
+    );
+    baseConfig = { ...baseConfig, ...filteredPersistentConfig };
   }
 
-  // Apply saved ephemeral config
+  // Apply saved ephemeral config (filtered to recognized keys only)
   if (savedEphemeralConfig) {
     const parsedEphemeralConfig = JSON.parse(savedEphemeralConfig);
-    baseConfig = { ...baseConfig, ...parsedEphemeralConfig };
+    const filteredEphemeralConfig = filterRecognizedKeys(
+      parsedEphemeralConfig,
+      "sessionStorage",
+    );
+    baseConfig = { ...baseConfig, ...filteredEphemeralConfig };
   }
 
   // Ensure all config items have the latest labels/descriptions from defaults
+  // (All keys at this point are guaranteed to exist in DEFAULT_INSPECTOR_CONFIG)
   for (const [key, value] of Object.entries(baseConfig)) {
     baseConfig[key as keyof InspectorConfig] = {
       ...value,
@@ -152,8 +168,18 @@ export const initializeInspectorConfig = (
     };
   }
 
-  // Apply query param overrides
+  // Apply query param overrides (including API token from URL)
   const overrides = getConfigOverridesFromQueryParams(DEFAULT_INSPECTOR_CONFIG);
+
+  // Check for API token in URL params (API_SERVER_ENV_VARS.AUTH_TOKEN)
+  const apiTokenFromUrl = getSearchParam(API_SERVER_ENV_VARS.AUTH_TOKEN);
+  if (apiTokenFromUrl) {
+    overrides.MCP_INSPECTOR_API_TOKEN = {
+      ...DEFAULT_INSPECTOR_CONFIG.MCP_INSPECTOR_API_TOKEN,
+      value: apiTokenFromUrl,
+    };
+  }
+
   return { ...baseConfig, ...overrides };
 };
 

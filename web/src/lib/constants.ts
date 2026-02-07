@@ -29,13 +29,7 @@ export const getServerSpecificKey = (
   return `[${serverUrl}] ${baseKey}`;
 };
 
-export type ConnectionStatus =
-  | "disconnected"
-  | "connected"
-  | "error"
-  | "error-connecting-to-proxy";
-
-export const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
+export type ConnectionStatus = "disconnected" | "connected" | "error";
 
 /**
  * Default configuration for the MCP Inspector, Currently persisted in local_storage in the Browser.
@@ -62,17 +56,10 @@ export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
     value: 60000,
     is_session_item: false,
   },
-  MCP_PROXY_FULL_ADDRESS: {
-    label: "Inspector Proxy Address",
+  MCP_INSPECTOR_API_TOKEN: {
+    label: "API Token",
     description:
-      "Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577",
-    value: "",
-    is_session_item: false,
-  },
-  MCP_PROXY_AUTH_TOKEN: {
-    label: "Proxy Session Token",
-    description:
-      "Session token for authenticating with the MCP Proxy Server (displayed in proxy console on startup)",
+      "Auth token for authenticating with the Inspector API server (displayed in console on startup)",
     value: "",
     is_session_item: true,
   },

@@ -6,8 +6,8 @@ export type ConfigItem = {
 };
 
 /**
- * Configuration interface for the MCP Inspector, including settings for the MCP Client,
- * Proxy Server, and Inspector UI/UX.
+ * Configuration interface for the MCP Inspector, including settings for the MCP Client
+ * and Inspector UI/UX.
  *
  * Note: Configuration related to which MCP Server to use or any other MCP Server
  * specific settings are outside the scope of this interface as of now.
@@ -32,12 +32,7 @@ export type InspectorConfig = {
   MCP_REQUEST_MAX_TOTAL_TIMEOUT: ConfigItem;
 
   /**
-   * The full address of the MCP Proxy Server, in case it is running on a non-default address. Example: http://10.1.1.22:5577
+   * Auth token for authenticating with the Inspector API server. This token is displayed in the console on startup.
    */
-  MCP_PROXY_FULL_ADDRESS: ConfigItem;
-
-  /**
-   * Session token for authenticating with the MCP Proxy Server. This token is displayed in the proxy server console on startup.
-   */
-  MCP_PROXY_AUTH_TOKEN: ConfigItem;
+  MCP_INSPECTOR_API_TOKEN: ConfigItem;
 };

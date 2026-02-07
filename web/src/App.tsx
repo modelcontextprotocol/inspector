@@ -67,8 +67,6 @@ import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
-  getMCPProxyAddress,
-  getMCPProxyAuthToken,
   getInitialSseUrl,
   getInitialTransportType,
   getInitialCommand,
@@ -126,14 +124,6 @@ const App = () => {
   const [transportType, setTransportType] = useState<
     "stdio" | "sse" | "streamable-http"
   >(getInitialTransportType);
-  const [connectionType, setConnectionType] = useState<"direct" | "proxy">(
-    () => {
-      return (
-        (localStorage.getItem("lastConnectionType") as "direct" | "proxy") ||
-        "proxy"
-      );
-    },
-  );
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
@@ -284,11 +274,11 @@ const App = () => {
     handleDragStart: handleSidebarDragStart,
   } = useDraggableSidebar(320);
 
-  // Get auth token from URL params (for InspectorClient)
+  // Get auth token from config (which reads from URL params via initializeInspectorConfig)
   const authToken = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get("MCP_REMOTE_AUTH_TOKEN") || undefined;
-  }, []);
+    const token = config.MCP_INSPECTOR_API_TOKEN.value as string;
+    return token || undefined;
+  }, [config]);
 
   // Create InspectorClient instance (for testing - not wired to UI yet)
   const inspectorClient = useMemo(() => {
@@ -298,7 +288,7 @@ const App = () => {
       return null;
     }
 
-    // Need auth token for remote API
+    // Need auth token for Inspector API
     if (!authToken) {
       console.log("[InspectorClient] No auth token available");
       return null;
@@ -568,10 +558,6 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastTransportType", transportType);
   }, [transportType]);
-
-  useEffect(() => {
-    localStorage.setItem("lastConnectionType", connectionType);
-  }, [connectionType]);
 
   useEffect(() => {
     if (bearerToken) {
@@ -1241,8 +1227,6 @@ const App = () => {
           logLevel={logLevel}
           sendLogLevelRequest={sendLogLevelRequest}
           loggingSupported={!!serverCapabilities?.logging || false}
-          connectionType={connectionType}
-          setConnectionType={setConnectionType}
           serverImplementation={serverImplementation}
         />
         <div

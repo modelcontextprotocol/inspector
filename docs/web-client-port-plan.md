@@ -53,7 +53,7 @@ Create a Vite plugin that adds Hono middleware to handle `/api/*` routes. This r
 
 - Implemented `honoMiddlewarePlugin` that mounts Hono middleware at root and checks for `/api` prefix
 - Fixed Connect middleware path stripping issue by mounting at root and checking path manually
-- Auth token passed via `process.env.MCP_REMOTE_AUTH_TOKEN` (read-only, set by start script)
+- Auth token passed via `process.env.MCP_INSPECTOR_API_TOKEN` (read-only, set by start script)
 
 ```typescript
 import { defineConfig, Plugin } from "vite";
@@ -152,7 +152,7 @@ export default defineConfig({
     react(),
     // Auth token is passed via env var (read-only, set by start script)
     // Vite plugin reads it and passes explicitly to createRemoteApp
-    honoMiddlewarePlugin(process.env.MCP_REMOTE_AUTH_TOKEN || ""),
+    honoMiddlewarePlugin(process.env.MCP_INSPECTOR_API_TOKEN || ""),
   ],
   // ... rest of config
 });
@@ -167,9 +167,9 @@ export default defineConfig({
 
 The auth token flow:
 
-1. **Start script (`bin/start.js`)**: Reads `process.env.MCP_REMOTE_AUTH_TOKEN` or generates one
+1. **Start script (`bin/start.js`)**: Reads `process.env.MCP_INSPECTOR_API_TOKEN` or generates one
 2. **Vite plugin**: Receives token via env var (read-only, passed to spawned process). Plugin reads it and passes explicitly to `createRemoteApp()`
-3. **Client browser**: Receives token via URL params (`?MCP_REMOTE_AUTH_TOKEN=...`)
+3. **Client browser**: Receives token via URL params (`?MCP_INSPECTOR_API_TOKEN=...`)
 
 **Key principle:** We never write to `process.env` to pass values between our own code. The token is:
 
@@ -203,7 +203,7 @@ Create a production server that serves static files and API routes:
 
 - Created `web/bin/server.js` that serves static files and routes `/api/*` to `apiApp`
 - Static files served without authentication, API routes require auth token
-- Auth token read from `process.env.MCP_REMOTE_AUTH_TOKEN`
+- Auth token read from `process.env.MCP_INSPECTOR_API_TOKEN`
 
 ```typescript
 #!/usr/bin/env node
@@ -226,7 +226,7 @@ const app = new Hono();
 // createRemoteApp will use this, or generate one if not provided
 // The token is passed explicitly from start script, not written to process.env
 const authToken =
-  process.env.MCP_REMOTE_AUTH_TOKEN || randomBytes(32).toString("hex");
+  process.env.MCP_INSPECTOR_API_TOKEN || randomBytes(32).toString("hex");
 
 // Note: createRemoteApp returns the authToken it uses, so we could also
 // let it generate one and return it, but for consistency we generate/read it here
@@ -337,7 +337,7 @@ serve(
        env: {
          ...process.env,
          CLIENT_PORT,
-         MCP_REMOTE_AUTH_TOKEN: honoAuthToken, // Pass token to Vite (read-only)
+         MCP_INSPECTOR_API_TOKEN: honoAuthToken, // Pass token to Vite (read-only)
          // Note: Express proxy still uses MCP_PROXY_AUTH_TOKEN (different token)
        },
        signal: abort.signal,
@@ -346,7 +346,7 @@ serve(
 
      // Include auth token in URL for client (Phase 3 will use this)
      const params = new URLSearchParams();
-     params.set("MCP_REMOTE_AUTH_TOKEN", honoAuthToken);
+     params.set("MCP_INSPECTOR_API_TOKEN", honoAuthToken);
      const url = `http://${host}:${CLIENT_PORT}/?${params.toString()}`;
 
      setTimeout(() => {
@@ -396,7 +396,7 @@ serve(
        env: {
          ...process.env,
          CLIENT_PORT,
-         MCP_REMOTE_AUTH_TOKEN: honoAuthToken, // Pass token explicitly
+         MCP_INSPECTOR_API_TOKEN: honoAuthToken, // Pass token explicitly
        },
        signal: abort.signal,
        echoOutput: true,
@@ -420,7 +420,7 @@ serve(
      const proxySessionToken =
        process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
      const honoAuthToken =
-       process.env.MCP_REMOTE_AUTH_TOKEN || randomBytes(32).toString("hex");
+       process.env.MCP_INSPECTOR_API_TOKEN || randomBytes(32).toString("hex");
 
      const abort = new AbortController();
      let cancelled = false;
@@ -521,7 +521,7 @@ serve(
    - In dev mode: Both Express proxy (port 6277) and Hono API (port 6274/api/\*) run simultaneously
    - Web app continues using Express proxy (no changes needed yet)
    - Hono API endpoints are available for validation/testing
-   - Separate auth tokens: `MCP_PROXY_AUTH_TOKEN` (Express) and `MCP_REMOTE_AUTH_TOKEN` (Hono)
+   - Separate auth tokens: `MCP_PROXY_AUTH_TOKEN` (Express) and `MCP_INSPECTOR_API_TOKEN` (Hono)
 
 ---
 
@@ -724,7 +724,7 @@ interface UseInspectorClientResult {
 - Removed local state declarations - now using hook values directly (`inspectorResources`, `inspectorPrompts`, `inspectorTools`, `inspectorResourceTemplates`)
 - Updated all component props to use hook values
 - InspectorClient instance created in `useMemo` with proper dependencies
-- Auth token extracted from URL params (`MCP_REMOTE_AUTH_TOKEN`)
+- Auth token extracted from URL params (`MCP_INSPECTOR_API_TOKEN`)
 - `useInspectorClient` hook used to get all state and methods
 
 1. **Replace imports:**
@@ -746,7 +746,7 @@ interface UseInspectorClientResult {
    // Get auth token from URL params (set by start script) or localStorage
    const authToken = useMemo(() => {
      const params = new URLSearchParams(window.location.search);
-     return params.get("MCP_REMOTE_AUTH_TOKEN") || null;
+     return params.get("MCP_INSPECTOR_API_TOKEN") || null;
    }, []);
 
    const inspectorClient = useMemo(() => {

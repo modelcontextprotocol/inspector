@@ -5,7 +5,7 @@ import { createRemoteApp } from "@modelcontextprotocol/inspector-shared/mcp/remo
 import type { IncomingMessage, ServerResponse } from "node:http";
 import pino from "pino";
 import { readFileSync } from "node:fs";
-import { getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-shared/mcp/remote";
 
 /**
  * Vite plugin that adds Hono middleware to handle /api/* routes
@@ -17,7 +17,7 @@ function honoMiddlewarePlugin(authToken: string): Plugin {
       // createRemoteApp returns { app, authToken } - we pass authToken explicitly
       // If not provided, it will read from env or generate one
       const { app: honoApp } = createRemoteApp({
-        authToken, // Pass token explicitly (from start script)
+        authToken, // Pass Inspector API token explicitly (from start script)
         storageDir: process.env.MCP_STORAGE_DIR,
         allowedOrigins: [
           `http://localhost:${process.env.CLIENT_PORT || "6274"}`,
@@ -145,12 +145,40 @@ function honoMiddlewarePlugin(authToken: string): Plugin {
             let html = readFileSync(indexPath, "utf-8");
 
             // Build initial config object from env vars
-            const defaultEnvironment = {
-              ...getDefaultEnvironment(),
-              ...(process.env.MCP_ENV_VARS
-                ? JSON.parse(process.env.MCP_ENV_VARS)
-                : {}),
-            };
+            // Get default environment vars matching SDK's getDefaultEnvironment()
+            // This avoids importing Node-only stdio code that would be bundled for browser
+            const defaultEnvironment: Record<string, string> = {};
+            const defaultEnvKeys =
+              process.platform === "win32"
+                ? [
+                    "APPDATA",
+                    "HOMEDRIVE",
+                    "HOMEPATH",
+                    "LOCALAPPDATA",
+                    "PATH",
+                    "PROCESSOR_ARCHITECTURE",
+                    "SYSTEMDRIVE",
+                    "SYSTEMROOT",
+                    "TEMP",
+                    "USERNAME",
+                    "USERPROFILE",
+                    "PROGRAMFILES",
+                  ]
+                : ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"];
+            for (const key of defaultEnvKeys) {
+              const value = process.env[key];
+              if (value && !value.startsWith("()")) {
+                // Skip functions, which are a security risk
+                defaultEnvironment[key] = value;
+              }
+            }
+            // Merge with MCP_ENV_VARS if provided
+            if (process.env.MCP_ENV_VARS) {
+              Object.assign(
+                defaultEnvironment,
+                JSON.parse(process.env.MCP_ENV_VARS),
+              );
+            }
 
             const initialConfig = {
               ...(process.env.MCP_INITIAL_COMMAND
@@ -190,9 +218,9 @@ function honoMiddlewarePlugin(authToken: string): Plugin {
 export default defineConfig({
   plugins: [
     react(),
-    // Auth token is passed via env var (read-only, set by start script)
+    // Inspector API auth token is passed via env var (read-only, set by start script)
     // Vite plugin reads it and passes explicitly to createRemoteApp
-    honoMiddlewarePlugin(process.env.MCP_REMOTE_AUTH_TOKEN || ""),
+    honoMiddlewarePlugin(process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] || ""),
   ],
   server: {
     host: true,
@@ -201,6 +229,8 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+    // Prevent bundling Node.js-only modules
+    conditions: ["browser", "module", "import"],
   },
   build: {
     minify: false,
@@ -208,6 +238,30 @@ export default defineConfig({
       output: {
         manualChunks: undefined,
       },
+      external: [
+        // Prevent bundling Node.js-only stdio transport code
+        "@modelcontextprotocol/sdk/client/stdio.js",
+        "cross-spawn",
+        "which",
+      ],
+    },
+  },
+  optimizeDeps: {
+    exclude: [
+      // Exclude Node.js-only modules from pre-bundling
+      "@modelcontextprotocol/sdk/client/stdio.js",
+      "@modelcontextprotocol/inspector-shared/mcp/node",
+      "@modelcontextprotocol/inspector-shared/mcp/remote/node",
+      "cross-spawn",
+      "which",
+    ],
+    // Force Vite to treat these as external (not bundled)
+    esbuildOptions: {
+      external: [
+        "@modelcontextprotocol/sdk/client/stdio.js",
+        "@modelcontextprotocol/inspector-shared/mcp/node",
+        "@modelcontextprotocol/inspector-shared/mcp/remote/node",
+      ],
     },
   },
 });

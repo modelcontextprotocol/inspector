@@ -24,11 +24,6 @@ jest.mock("../lib/auth", () => ({
 // Mock the config utils
 jest.mock("../utils/configUtils", () => ({
   ...jest.requireActual("../utils/configUtils"),
-  getMCPProxyAddress: jest.fn(() => "http://localhost:6277"),
-  getMCPProxyAuthToken: jest.fn((config: InspectorConfig) => ({
-    token: config.MCP_PROXY_AUTH_TOKEN.value,
-    header: "X-MCP-Proxy-Auth",
-  })),
   getInitialTransportType: jest.fn(() => "stdio"),
   getInitialSseUrl: jest.fn(() => "http://localhost:3001/sse"),
   getInitialCommand: jest.fn(() => "mcp-server-everything"),
@@ -38,26 +33,31 @@ jest.mock("../utils/configUtils", () => ({
 }));
 
 // Get references to the mocked functions
-const mockGetMCPProxyAuthToken = configUtils.getMCPProxyAuthToken as jest.Mock;
 const mockInitializeInspectorConfig =
   configUtils.initializeInspectorConfig as jest.Mock;
 
-// Mock other dependencies
-jest.mock("../lib/hooks/useConnection", () => ({
-  useConnection: () => ({
-    connectionStatus: "disconnected",
-    serverCapabilities: null,
-    mcpClient: null,
-    requestHistory: [],
-    clearRequestHistory: jest.fn(),
-    makeRequest: jest.fn(),
-    sendNotification: jest.fn(),
-    handleCompletion: jest.fn(),
-    completionsSupported: false,
-    connect: jest.fn(),
-    disconnect: jest.fn(),
+// Mock InspectorClient hook
+jest.mock(
+  "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js",
+  () => ({
+    useInspectorClient: () => ({
+      status: "disconnected",
+      messages: [],
+      stderrLogs: [],
+      fetchRequests: [],
+      tools: [],
+      resources: [],
+      resourceTemplates: [],
+      prompts: [],
+      capabilities: null,
+      serverInfo: null,
+      instructions: undefined,
+      client: null,
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+    }),
   }),
-}));
+);
 
 jest.mock("../lib/hooks/useDraggablePane", () => ({
   useDraggablePane: () => ({
@@ -94,100 +94,25 @@ describe("App - Config Endpoint", () => {
 
   afterEach(() => {
     jest.clearAllMocks();
-
-    // Reset getMCPProxyAuthToken to default behavior
-    mockGetMCPProxyAuthToken.mockImplementation((config: InspectorConfig) => ({
-      token: config.MCP_PROXY_AUTH_TOKEN.value,
-      header: "X-MCP-Proxy-Auth",
-    }));
   });
 
-  test("sends X-MCP-Proxy-Auth header when fetching config with proxy auth token", async () => {
-    const mockConfig = {
-      ...DEFAULT_INSPECTOR_CONFIG,
-      MCP_PROXY_AUTH_TOKEN: {
-        ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
-        value: "test-proxy-token",
-      },
+  // Note: These tests are for the old /config endpoint which has been removed.
+  // Config is now injected via HTML template (window.__INITIAL_CONFIG__).
+  // These tests should be updated or removed to test the new HTML injection approach.
+
+  test("initializes config from HTML injection", async () => {
+    // Mock window.__INITIAL_CONFIG__
+    (window as any).__INITIAL_CONFIG__ = {
+      defaultEnvironment: { TEST_ENV: "test" },
+      defaultCommand: "test-command",
+      defaultArgs: ["test-arg1", "test-arg2"],
     };
 
-    // Mock initializeInspectorConfig to return our test config
-    mockInitializeInspectorConfig.mockReturnValue(mockConfig);
-
-    render(<App />);
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "http://localhost:6277/config",
-        {
-          headers: {
-            "X-MCP-Proxy-Auth": "Bearer test-proxy-token",
-          },
-        },
-      );
-    });
-  });
-
-  test("does not send auth header when proxy auth token is empty", async () => {
     const mockConfig = {
       ...DEFAULT_INSPECTOR_CONFIG,
-      MCP_PROXY_AUTH_TOKEN: {
-        ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
-        value: "",
-      },
-    };
-
-    // Mock initializeInspectorConfig to return our test config
-    mockInitializeInspectorConfig.mockReturnValue(mockConfig);
-
-    render(<App />);
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "http://localhost:6277/config",
-        {
-          headers: {},
-        },
-      );
-    });
-  });
-
-  test("uses custom header name if getMCPProxyAuthToken returns different header", async () => {
-    const mockConfig = {
-      ...DEFAULT_INSPECTOR_CONFIG,
-      MCP_PROXY_AUTH_TOKEN: {
-        ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
-        value: "test-proxy-token",
-      },
-    };
-
-    // Mock to return a custom header name
-    mockGetMCPProxyAuthToken.mockReturnValue({
-      token: "test-proxy-token",
-      header: "X-Custom-Auth",
-    });
-    mockInitializeInspectorConfig.mockReturnValue(mockConfig);
-
-    render(<App />);
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "http://localhost:6277/config",
-        {
-          headers: {
-            "X-Custom-Auth": "Bearer test-proxy-token",
-          },
-        },
-      );
-    });
-  });
-
-  test("config endpoint response updates app state", async () => {
-    const mockConfig = {
-      ...DEFAULT_INSPECTOR_CONFIG,
-      MCP_PROXY_AUTH_TOKEN: {
-        ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
-        value: "test-proxy-token",
+      MCP_INSPECTOR_API_TOKEN: {
+        ...DEFAULT_INSPECTOR_CONFIG.MCP_INSPECTOR_API_TOKEN,
+        value: "test-api-token",
       },
     };
 
@@ -195,47 +120,9 @@ describe("App - Config Endpoint", () => {
 
     render(<App />);
 
+    // App should initialize without fetching /config endpoint
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(global.fetch).not.toHaveBeenCalled();
     });
-
-    // Verify the fetch was called with correct parameters
-    expect(global.fetch).toHaveBeenCalledWith(
-      "http://localhost:6277/config",
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          "X-MCP-Proxy-Auth": "Bearer test-proxy-token",
-        }),
-      }),
-    );
-  });
-
-  test("handles config endpoint errors gracefully", async () => {
-    const mockConfig = {
-      ...DEFAULT_INSPECTOR_CONFIG,
-      MCP_PROXY_AUTH_TOKEN: {
-        ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
-        value: "test-proxy-token",
-      },
-    };
-
-    mockInitializeInspectorConfig.mockReturnValue(mockConfig);
-
-    // Mock fetch to reject
-    (global.fetch as jest.Mock).mockRejectedValue(new Error("Network error"));
-
-    // Spy on console.error
-    const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation();
-
-    render(<App />);
-
-    await waitFor(() => {
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "Error fetching default environment:",
-        expect.any(Error),
-      );
-    });
-
-    consoleErrorSpy.mockRestore();
   });
 });
