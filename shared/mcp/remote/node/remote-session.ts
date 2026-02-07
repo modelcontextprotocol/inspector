@@ -17,6 +17,8 @@ export class RemoteSession {
   public transport!: Transport;
   private eventQueue: SessionEvent[] = [];
   private eventConsumer: ((event: SessionEvent) => void) | null = null;
+  private transportDead: boolean = false;
+  private transportError: string | null = null;
 
   constructor(sessionId: string) {
     this.sessionId = sessionId;
@@ -35,8 +37,37 @@ export class RemoteSession {
     }
   }
 
-  clearEventConsumer(): void {
+  clearEventConsumer(): boolean {
     this.eventConsumer = null;
+    // If transport is dead and no client connected, signal to cleanup
+    return this.transportDead;
+  }
+
+  markTransportDead(error: string): void {
+    this.transportDead = true;
+    this.transportError = error;
+    // Send error event if client is connected
+    if (this.eventConsumer) {
+      this.pushEvent({
+        type: "transport_error",
+        data: {
+          error,
+          code: -32000, // MCP error code for connection closed
+        },
+      });
+    }
+  }
+
+  isTransportDead(): boolean {
+    return this.transportDead;
+  }
+
+  getTransportError(): string | null {
+    return this.transportError;
+  }
+
+  hasEventConsumer(): boolean {
+    return this.eventConsumer !== null;
   }
 
   pushEvent(event: SessionEvent): void {

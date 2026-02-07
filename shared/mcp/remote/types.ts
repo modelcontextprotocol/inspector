@@ -27,7 +27,11 @@ export interface RemoteSendRequest {
   relatedRequestId?: string | number;
 }
 
-export type RemoteEventType = "message" | "fetch_request" | "stdio_log";
+export type RemoteEventType =
+  | "message"
+  | "fetch_request"
+  | "stdio_log"
+  | "transport_error";
 
 export interface RemoteEventMessage {
   type: "message";
@@ -44,7 +48,16 @@ export interface RemoteEventStdioLog {
   data: { timestamp: string; message: string };
 }
 
+export interface RemoteEventTransportError {
+  type: "transport_error";
+  data: {
+    error: string;
+    code?: string | number;
+  };
+}
+
 export type RemoteEvent =
   | RemoteEventMessage
   | RemoteEventFetchRequest
-  | RemoteEventStdioLog;
+  | RemoteEventStdioLog
+  | RemoteEventTransportError;

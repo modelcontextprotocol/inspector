@@ -37,10 +37,14 @@ import React, {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { useConnection } from "./lib/hooks/useConnection";
+import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import { createWebEnvironment } from "./lib/adapters/environmentFactory";
+import { webConfigToMcpServerConfig } from "./lib/adapters/configAdapter";
 import {
   useDraggablePane,
   useDraggableSidebar,
@@ -296,6 +300,146 @@ const App = () => {
     isDragging: isSidebarDragging,
     handleDragStart: handleSidebarDragStart,
   } = useDraggableSidebar(320);
+
+  // Get auth token from URL params (for InspectorClient)
+  const authToken = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("MCP_REMOTE_AUTH_TOKEN") || undefined;
+  }, []);
+
+  // Create InspectorClient instance (for testing - not wired to UI yet)
+  const inspectorClient = useMemo(() => {
+    // Can't create without config
+    if (!command && !sseUrl) {
+      console.log("[InspectorClient] No config available yet");
+      return null;
+    }
+
+    // Need auth token for remote API
+    if (!authToken) {
+      console.log("[InspectorClient] No auth token available");
+      return null;
+    }
+
+    try {
+      const config = webConfigToMcpServerConfig(
+        transportType,
+        command,
+        args,
+        sseUrl,
+        env,
+        customHeaders,
+      );
+
+      const redirectUrlProvider = {
+        getRedirectUrl: (_mode: "normal" | "guided") =>
+          `${window.location.origin}/oauth/callback`,
+      };
+
+      const environment = createWebEnvironment(authToken, redirectUrlProvider);
+
+      const client = new InspectorClient(config, {
+        environment,
+        autoFetchServerContents: true,
+        maxMessages: 1000,
+        maxStderrLogEvents: 1000,
+        maxFetchRequests: 1000,
+        oauth: {
+          clientId: oauthClientId || undefined,
+          clientSecret: oauthClientSecret || undefined,
+          scope: oauthScope || undefined,
+        },
+      });
+
+      console.log("[InspectorClient] Created successfully", {
+        transportType,
+        hasCommand: !!command,
+        hasSseUrl: !!sseUrl,
+        authTokenPresent: !!authToken,
+        config:
+          config.type === "stdio"
+            ? { type: "stdio", command, args: config.args, env: config.env }
+            : { type: config.type, url: sseUrl },
+        fullConfig: config, // Log the full config being sent
+      });
+
+      return client;
+    } catch (error) {
+      console.error("[InspectorClient] Failed to create:", error);
+      return null;
+    }
+  }, [
+    transportType,
+    command,
+    args,
+    sseUrl,
+    // Use JSON.stringify for objects/arrays to prevent unnecessary re-creation
+    // Only recreate if the actual content changes, not just the reference
+    JSON.stringify(env),
+    JSON.stringify(customHeaders),
+    oauthClientId,
+    oauthClientSecret,
+    oauthScope,
+    authToken,
+  ]);
+
+  // Log InspectorClient status changes and expose for testing
+  useEffect(() => {
+    if (!inspectorClient) {
+      // Remove from window if client is destroyed
+      if ((window as any).__inspectorClient) {
+        delete (window as any).__inspectorClient;
+      }
+      return;
+    }
+
+    // Expose InspectorClient to window for manual testing
+    // In browser console, you can do:
+    //   window.__inspectorClient.connect()
+    //   window.__inspectorClient.disconnect()
+    //   window.__inspectorClient.getStatus()
+    const originalConnect = inspectorClient.connect.bind(inspectorClient);
+    (window as any).__inspectorClient = {
+      ...inspectorClient,
+      connect: async () => {
+        await originalConnect();
+        console.log(
+          "[InspectorClient] Connected! Tools:",
+          inspectorClient.getTools().length,
+        );
+        console.log(
+          "[InspectorClient] Resources:",
+          inspectorClient.getResources().length,
+        );
+        console.log(
+          "[InspectorClient] Prompts:",
+          inspectorClient.getPrompts().length,
+        );
+      },
+    };
+
+    const handleStatusChange = () => {
+      const status = inspectorClient.getStatus();
+      console.log("[InspectorClient] Status changed:", status);
+    };
+
+    inspectorClient.addEventListener("statusChange", handleStatusChange);
+
+    // Log initial status (only once)
+    const initialStatus = inspectorClient.getStatus();
+    console.log(
+      "[InspectorClient] Ready - Status:",
+      initialStatus,
+      "| Test with: window.__inspectorClient.connect()",
+    );
+
+    return () => {
+      inspectorClient.removeEventListener("statusChange", handleStatusChange);
+      if ((window as any).__inspectorClient) {
+        delete (window as any).__inspectorClient;
+      }
+    };
+  }, [inspectorClient]);
 
   const {
     connectionStatus,
