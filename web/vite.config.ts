@@ -40,8 +40,14 @@ function honoMiddlewarePlugin(authToken: string): Plugin {
         next: (err?: unknown) => void,
       ) => {
         try {
-          // Convert Node req/res to Web Standard Request
-          const url = `http://${req.headers.host}${req.url}`;
+          // Only handle /api/* routes, let others pass through to Vite
+          const path = req.url || "";
+          if (!path.startsWith("/api")) {
+            return next();
+          }
+
+          const url = `http://${req.headers.host}${path}`;
+
           const headers = new Headers();
           Object.entries(req.headers).forEach(([key, value]) => {
             if (value) {
@@ -75,18 +81,48 @@ function honoMiddlewarePlugin(authToken: string): Plugin {
             res.setHeader(key, value);
           });
 
+          // For SSE streams, we need to stream data immediately without buffering
+          const isSSE = response.headers
+            .get("content-type")
+            ?.includes("text/event-stream");
+          if (isSSE) {
+            // Disable buffering for SSE
+            res.setHeader("X-Accel-Buffering", "no");
+            res.setHeader("Cache-Control", "no-cache");
+            res.setHeader("Connection", "keep-alive");
+          }
+
           if (response.body) {
             const reader = response.body.getReader();
             const pump = async () => {
-              const { done, value } = await reader.read();
-              if (done) {
+              try {
+                const { done, value } = await reader.read();
+                if (done) {
+                  res.end();
+                } else {
+                  // Write immediately without buffering
+                  res.write(Buffer.from(value), (err) => {
+                    if (err) {
+                      console.error("[Hono Middleware] Write error:", err);
+                      reader.cancel().catch(() => {});
+                      res.end();
+                    }
+                  });
+                  // Continue pumping (don't await, but handle errors)
+                  pump().catch((err) => {
+                    console.error("[Hono Middleware] Pump error:", err);
+                    reader.cancel().catch(() => {});
+                    res.end();
+                  });
+                }
+              } catch (err) {
+                console.error("[Hono Middleware] Read error:", err);
+                reader.cancel().catch(() => {});
                 res.end();
-              } else {
-                res.write(Buffer.from(value));
-                await pump();
               }
             };
-            await pump();
+            // Start pumping (don't await - let it run in background for SSE)
+            pump();
           } else {
             res.end();
           }
@@ -95,9 +131,9 @@ function honoMiddlewarePlugin(authToken: string): Plugin {
         }
       };
 
-      // Mount at root - routes inside createRemoteApp already have /api/ prefix
+      // Mount at root - check path ourselves to avoid Connect prefix stripping
       // Only handle /api/* routes, let others pass through to Vite
-      server.middlewares.use("/api", honoMiddleware);
+      server.middlewares.use(honoMiddleware);
     },
   };
 }

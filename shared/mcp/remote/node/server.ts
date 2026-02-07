@@ -318,16 +318,59 @@ export function createRemoteApp(
 
     session.setTransport(transport);
     transport.onmessage = (msg) => session.onMessage(msg);
+
+    // Track if transport closes/errors during start - this matches local behavior
+    // If transport.start() throws, we catch it. If it resolves but transport closes immediately,
+    // we detect that too (process failure after spawn).
+    let transportFailed = false;
+    let transportError: string | null = null;
+
+    const originalOnclose = transport.onclose;
+    const originalOnerror = transport.onerror;
+
+    // Set up error handlers BEFORE calling start() so we catch failures during start
+    transport.onerror = (err) => {
+      transportFailed = true;
+      transportError = err instanceof Error ? err.message : String(err);
+      originalOnerror?.(err);
+    };
+
     transport.onclose = () => {
-      sessions.delete(sessionId);
+      const session = sessions.get(sessionId);
+      if (session) {
+        // Mark transport as dead but don't delete session yet
+        // We'll notify client via SSE and cleanup when client disconnects
+        const errorMsg =
+          transportError || "Transport closed - process may have exited";
+        session.markTransportDead(errorMsg);
+        // If no client connected, can cleanup immediately
+        if (!session.hasEventConsumer()) {
+          sessions.delete(sessionId);
+        }
+      } else {
+        // Session not created yet - failed during start
+        transportFailed = true;
+        transportError =
+          transportError ||
+          "Transport closed during start - process may have failed";
+      }
+      originalOnclose?.();
     };
 
     try {
+      // transport.start() should throw if process fails to start
+      // If it resolves, the process should be running
       await transport.start();
+
+      // Check if transport failed during start (onerror/onclose fired synchronously)
+      if (transportFailed) {
+        const errorMsg = transportError || "Transport failed during start";
+        return c.json({ error: `Failed to start transport: ${errorMsg}` }, 500);
+      }
     } catch (err) {
+      // transport.start() threw - this is the expected failure path
       const msg = err instanceof Error ? err.message : String(err);
       // Preserve 401 status if the underlying error is a 401
-      // This allows clients to detect auth failures
       const is401 =
         (err as { code?: number }).code === 401 ||
         msg.includes("401") ||
@@ -337,6 +380,8 @@ export function createRemoteApp(
         is401 ? 401 : 500,
       );
     }
+
+    // Transport started successfully - add to sessions
     sessions.set(sessionId, session);
 
     return c.json({ sessionId });
@@ -358,6 +403,12 @@ export function createRemoteApp(
     const session = sessions.get(sessionId);
     if (!session) {
       return c.json({ error: "Session not found" }, 404);
+    }
+
+    // Check if transport is dead - return error immediately (matches local behavior)
+    if (session.isTransportDead()) {
+      const errorMsg = session.getTransportError() || "Transport closed";
+      return c.json({ error: errorMsg }, 500);
     }
 
     try {
@@ -392,15 +443,24 @@ export function createRemoteApp(
       });
 
       stream.onAbort(() => {
-        session.clearEventConsumer();
+        // Client disconnected - clear event consumer
+        const shouldCleanup = session.clearEventConsumer();
         stream.close();
+
+        // If transport is dead and no client connected, cleanup session
+        if (shouldCleanup || session.isTransportDead()) {
+          sessions.delete(sessionId);
+        }
       });
 
       // Keep the stream open until the client disconnects. Hono's streamSSE
       // closes the stream when this callback returns, so we must not return
       // until the connection is aborted.
       await new Promise<void>((resolve) => {
-        stream.onAbort(resolve);
+        stream.onAbort(() => {
+          // Cleanup happens in onAbort handler above
+          resolve();
+        });
       });
     });
   });

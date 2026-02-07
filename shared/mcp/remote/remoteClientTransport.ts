@@ -156,6 +156,7 @@ export class RemoteClientTransport implements Transport {
       config: this.config,
       oauthTokens,
     };
+
     const res = await this.fetchFn(`${this.baseUrl}/api/mcp/connect`, {
       method: "POST",
       headers: this.headers,
@@ -234,12 +235,26 @@ export class RemoteClientTransport implements Transport {
               timestamp: new Date(parsed.data.timestamp),
               message: parsed.data.message,
             });
+          } else if (parsed.type === "transport_error") {
+            // Transport died - notify client and close (matches local behavior)
+            const error = new Error(parsed.data.error);
+            if (parsed.data.code !== undefined) {
+              (error as { code?: number | string }).code = parsed.data.code;
+            }
+            this.onerror?.(error);
+            // Also trigger onclose to match local transport behavior
+            if (!this.closed) {
+              this.closed = true;
+              this.onclose?.();
+            }
           }
         } catch (err) {
+          // JSON parse error or other processing error - report but continue
           this.onerror?.(err instanceof Error ? err : new Error(String(err)));
         }
       }
     } catch (err) {
+      // Stream reading error (network issue, abort, etc.)
       if (!this.closed && err instanceof Error && err.name !== "AbortError") {
         this.onerror?.(err);
       }
