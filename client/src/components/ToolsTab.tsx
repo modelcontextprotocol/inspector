@@ -34,8 +34,10 @@ import {
   AlertCircle,
   Copy,
   CheckCheck,
+  Plus,
+  Type,
 } from "lucide-react";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
@@ -107,6 +109,9 @@ const ToolsTab = ({
     { id: string; key: string; value: string }[]
   >([]);
   const [hasValidationErrors, setHasValidationErrors] = useState(false);
+  const [multilineFields, setMultilineFields] = useState<Set<string>>(
+    new Set(),
+  );
   const formRefs = useRef<Record<string, DynamicJsonFormRef | null>>({});
   const searchRef = useRef<HTMLInputElement>(null);
   const { panelRef: toolsRef, toggle: toggleTools } = usePanelToggle();
@@ -118,6 +123,18 @@ const ToolsTab = ({
       searchRef.current?.focus();
     }
   }, [tools.length]);
+
+  const toggleMultiline = useCallback((key: string) => {
+    setMultilineFields((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
 
   const enableHistory = config.MCP_ENABLE_BROWSER_HISTORY?.value !== false;
 
@@ -431,34 +448,87 @@ const ToolsTab = ({
                                 </SelectContent>
                               </Select>
                             ) : prop.type === "string" ? (
-                              <Textarea
-                                id={key}
-                                name={key}
-                                autoComplete={enableHistory ? "on" : "off"}
-                                placeholder={prop.description}
-                                value={
-                                  params[key] === undefined
-                                    ? ""
-                                    : String(params[key])
-                                }
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  if (value === "") {
-                                    // Field cleared - set to undefined
-                                    setParams({
-                                      ...params,
-                                      [key]: undefined,
-                                    });
-                                  } else {
-                                    // Field has value - keep as string
-                                    setParams({
-                                      ...params,
-                                      [key]: value,
-                                    });
+                              <div className="flex gap-1 mt-1">
+                                <div className="flex-1 min-w-0">
+                                  {multilineFields.has(key) ? (
+                                    <Textarea
+                                      id={key}
+                                      name={key}
+                                      autoComplete={
+                                        enableHistory ? "on" : "off"
+                                      }
+                                      placeholder={prop.description}
+                                      value={
+                                        params[key] === undefined
+                                          ? ""
+                                          : String(params[key])
+                                      }
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        if (value === "") {
+                                          setParams({
+                                            ...params,
+                                            [key]: undefined,
+                                          });
+                                        } else {
+                                          setParams({
+                                            ...params,
+                                            [key]: value,
+                                          });
+                                        }
+                                      }}
+                                      className="w-full"
+                                    />
+                                  ) : (
+                                    <Input
+                                      id={key}
+                                      name={key}
+                                      autoComplete={
+                                        enableHistory ? "on" : "off"
+                                      }
+                                      placeholder={prop.description}
+                                      value={
+                                        params[key] === undefined
+                                          ? ""
+                                          : String(params[key])
+                                      }
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        if (value === "") {
+                                          setParams({
+                                            ...params,
+                                            [key]: undefined,
+                                          });
+                                        } else {
+                                          setParams({
+                                            ...params,
+                                            [key]: value,
+                                          });
+                                        }
+                                      }}
+                                      className="w-full"
+                                    />
+                                  )}
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                                  onClick={() => toggleMultiline(key)}
+                                  title={
+                                    multilineFields.has(key)
+                                      ? "Switch to single line"
+                                      : "Switch to multi-line"
                                   }
-                                }}
-                                className="mt-1"
-                              />
+                                >
+                                  {multilineFields.has(key) ? (
+                                    <Type className="h-4 w-4" />
+                                  ) : (
+                                    <Plus className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </div>
                             ) : prop.type === "object" ||
                               prop.type === "array" ? (
                               <div className="mt-1">
