@@ -134,6 +134,7 @@ async function startDevClient(clientOptions) {
     SERVER_PORT,
     authDisabled,
     sessionToken,
+    honoAuthToken,
     abort,
     cancelled,
   } = clientOptions;
@@ -143,21 +144,39 @@ async function startDevClient(clientOptions) {
 
   const client = spawn(clientCommand, clientArgs, {
     cwd: resolve(__dirname, ".."),
-    env: { ...process.env, CLIENT_PORT },
+    env: {
+      ...process.env,
+      CLIENT_PORT,
+      // Pass token to Vite (read-only)
+      MCP_REMOTE_AUTH_TOKEN: honoAuthToken,
+      // Note: Express proxy still uses MCP_PROXY_AUTH_TOKEN (different token)
+    },
     signal: abort.signal,
     echoOutput: true,
   });
 
-  const url = getClientUrl(
-    CLIENT_PORT,
-    authDisabled,
-    sessionToken,
-    SERVER_PORT,
-  );
+  // Include auth token in URL for client (Phase 3 will use this)
+  const params = new URLSearchParams();
+  params.set("MCP_REMOTE_AUTH_TOKEN", honoAuthToken);
+  if (SERVER_PORT && SERVER_PORT !== DEFAULT_MCP_PROXY_LISTEN_PORT) {
+    params.set("MCP_PROXY_PORT", SERVER_PORT);
+  }
+  if (!authDisabled) {
+    params.set("MCP_PROXY_AUTH_TOKEN", sessionToken);
+  }
+  const url =
+    params.size > 0
+      ? `http://${host}:${CLIENT_PORT}/?${params.toString()}`
+      : `http://${host}:${CLIENT_PORT}`;
 
   // Give vite time to start before opening or logging the URL
   setTimeout(() => {
-    console.log(`\n🚀 MCP Inspector is up and running at:\n   ${url}\n`);
+    console.log(`\n🚀 MCP Inspector Web is up and running at:\n   ${url}\n`);
+    console.log(`   Static files served by: Vite (dev) / Hono server (prod)\n`);
+    console.log(`   Hono API endpoints: ${url}/api/*\n`);
+    console.log(
+      `   Express proxy: http://localhost:${SERVER_PORT} (web app API calls)\n`,
+    );
     if (process.env.MCP_AUTO_OPEN_ENABLED !== "false") {
       console.log("🌐 Opening browser...");
       open(url);
@@ -179,34 +198,16 @@ async function startDevClient(clientOptions) {
 }
 
 async function startProdClient(clientOptions) {
-  const {
-    CLIENT_PORT,
-    SERVER_PORT,
-    authDisabled,
-    sessionToken,
-    abort,
-    cancelled,
-  } = clientOptions;
-  const inspectorClientPath = resolve(
-    __dirname,
-    "../..",
-    "client",
-    "bin",
-    "client.js",
-  );
+  const { CLIENT_PORT, honoAuthToken, abort } = clientOptions;
+  const honoServerPath = resolve(__dirname, "server.js");
 
-  const url = getClientUrl(
-    CLIENT_PORT,
-    authDisabled,
-    sessionToken,
-    SERVER_PORT,
-  );
-
-  await spawnPromise("node", [inspectorClientPath], {
+  // Hono server serves static files + /api/* endpoints
+  // Pass auth token explicitly via env var (read-only, server reads it)
+  await spawnPromise("node", [honoServerPath], {
     env: {
       ...process.env,
       CLIENT_PORT,
-      INSPECTOR_URL: url,
+      MCP_REMOTE_AUTH_TOKEN: honoAuthToken, // Pass token explicitly
     },
     signal: abort.signal,
     echoOutput: true,
@@ -274,9 +275,11 @@ async function main() {
       : "Starting MCP inspector...",
   );
 
-  // Use provided token from environment or generate a new one
-  const sessionToken =
+  // Generate auth tokens (separate tokens for Express proxy and Hono API)
+  const proxySessionToken =
     process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
+  const honoAuthToken =
+    process.env.MCP_REMOTE_AUTH_TOKEN || randomBytes(32).toString("hex");
   const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
 
   const abort = new AbortController();
@@ -289,44 +292,88 @@ async function main() {
 
   let server, serverOk;
 
-  try {
-    const serverOptions = {
-      SERVER_PORT,
-      CLIENT_PORT,
-      sessionToken,
-      envVars,
-      abort,
-      command,
-      mcpServerArgs,
-      transport,
-      serverUrl,
-    };
-
-    const result = isDev
-      ? await startDevServer(serverOptions)
-      : await startProdServer(serverOptions);
-
-    server = result.server;
-    serverOk = result.serverOk;
-  } catch (error) {}
-
-  if (serverOk) {
+  if (isDev) {
+    // In dev mode: start Express proxy (web app uses this) AND Vite with Hono middleware
     try {
-      const clientOptions = {
-        CLIENT_PORT,
+      const serverOptions = {
         SERVER_PORT,
-        authDisabled,
-        sessionToken,
+        CLIENT_PORT,
+        sessionToken: proxySessionToken,
+        envVars,
         abort,
-        cancelled,
+        command,
+        mcpServerArgs,
+        transport,
+        serverUrl,
       };
 
-      await (isDev
-        ? startDevClient(clientOptions)
-        : startProdClient(clientOptions));
-    } catch (e) {
-      if (!cancelled || process.env.DEBUG) throw e;
+      const result = await startDevServer(serverOptions);
+      server = result.server;
+      serverOk = result.serverOk;
+    } catch (error) {
+      // Continue even if Express proxy fails - Hono API still works
+      console.warn("Express proxy failed to start:", error);
+      serverOk = false;
     }
+
+    if (serverOk) {
+      // Start Vite with Hono middleware (runs alongside Express proxy)
+      try {
+        const clientOptions = {
+          CLIENT_PORT,
+          SERVER_PORT,
+          authDisabled,
+          sessionToken: proxySessionToken,
+          honoAuthToken, // Pass Hono auth token explicitly
+          abort,
+          cancelled,
+        };
+        await startDevClient(clientOptions);
+      } catch (e) {
+        if (!cancelled || process.env.DEBUG) throw e;
+      }
+    }
+  } else {
+    // In prod mode: start Express proxy (web app uses this) AND Hono server
+    try {
+      const serverOptions = {
+        SERVER_PORT,
+        CLIENT_PORT,
+        sessionToken: proxySessionToken,
+        envVars,
+        abort,
+        command,
+        mcpServerArgs,
+        transport,
+        serverUrl,
+      };
+
+      const result = await startProdServer(serverOptions);
+      server = result.server;
+      serverOk = result.serverOk;
+    } catch (error) {
+      console.warn("Express proxy failed to start:", error);
+      serverOk = false;
+    }
+
+    if (serverOk) {
+      // Start Hono server (serves static files + /api/* endpoints)
+      try {
+        const clientOptions = {
+          CLIENT_PORT,
+          honoAuthToken, // Pass token explicitly
+          abort,
+          cancelled,
+        };
+        await startProdClient(clientOptions);
+      } catch (e) {
+        if (!cancelled || process.env.DEBUG) throw e;
+      }
+    }
+
+    // Both servers run:
+    // - Hono server (via startProdClient) serves static files + /api/* endpoints
+    // - Express proxy (via startProdServer) handles web app API calls
   }
 
   return 0;
