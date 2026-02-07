@@ -127,7 +127,9 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
 
     // Use a ref to manage debouncing timeouts to avoid parsing JSON
     // on every keystroke which would be inefficient and error-prone
-    const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+    const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+      undefined,
+    );
 
     // Debounce JSON parsing and parent updates to handle typing gracefully
     const debouncedUpdateParent = useCallback(
