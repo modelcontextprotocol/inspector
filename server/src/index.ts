@@ -172,12 +172,38 @@ const updateHeadersInPlace = (
   }
 };
 
+const getAllowedOrigins = (): string[] => {
+  const clientPort = process.env.CLIENT_PORT || "6274";
+  const defaultOrigins = [
+    `http://localhost:${clientPort}`,
+    `http://127.0.0.1:${clientPort}`,
+    `http://[::1]:${clientPort}`,
+  ];
+
+  const raw = process.env.ALLOWED_ORIGINS;
+  if (!raw) return defaultOrigins;
+
+  const fromEnv = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  return fromEnv.length ? fromEnv : defaultOrigins;
+};
+
+const allowedOrigins = getAllowedOrigins();
+
 const app = express();
-app.use(cors());
-app.use((req, res, next) => {
-  res.header("Access-Control-Expose-Headers", "mcp-session-id");
-  next();
-});
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      // Allow non-browser clients (no Origin header).
+      if (!origin) return cb(null, true);
+      return cb(null, allowedOrigins.includes(origin));
+    },
+    exposedHeaders: ["mcp-session-id"],
+  }),
+);
 
 const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Web app transports by web app sessionId
 const serverTransports: Map<string, Transport> = new Map<string, Transport>(); // Server Transports by web app sessionId
@@ -195,13 +221,6 @@ const originValidationMiddleware = (
   next: express.NextFunction,
 ) => {
   const origin = req.headers.origin;
-
-  // Default origins based on CLIENT_PORT or use environment variable
-  const clientPort = process.env.CLIENT_PORT || "6274";
-  const defaultOrigin = `http://localhost:${clientPort}`;
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
-    defaultOrigin,
-  ];
 
   if (origin && !allowedOrigins.includes(origin)) {
     console.error(`Invalid origin: ${origin}`);
