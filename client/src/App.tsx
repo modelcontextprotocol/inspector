@@ -1272,7 +1272,7 @@ const App = () => {
                       window.location.hash = value;
                     }}
                   >
-                    <TabsList className="mb-4 py-0 flex-shrink-0 w-full justify-start overflow-x-auto overflow-y-hidden no-scrollbar">
+                    <TabsList className="mb-4 py-0 flex-shrink-0 w-full justify-start overflow-x-auto overflow-y-hidden no-scrollbar flex-nowrap h-auto">
                       <TabsTrigger
                         value="resources"
                         disabled={!serverCapabilities?.resources}
