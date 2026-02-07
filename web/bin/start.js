@@ -135,6 +135,11 @@ async function startDevClient(clientOptions) {
     authDisabled,
     sessionToken,
     honoAuthToken,
+    command,
+    mcpServerArgs,
+    transport,
+    serverUrl,
+    envVars,
     abort,
     cancelled,
   } = clientOptions;
@@ -142,15 +147,26 @@ async function startDevClient(clientOptions) {
   const host = process.env.HOST || "localhost";
   const clientArgs = ["vite", "--port", CLIENT_PORT, "--host", host];
 
+  // Prepare config values for injection into HTML
+  const configEnv = {
+    ...process.env,
+    CLIENT_PORT,
+    MCP_REMOTE_AUTH_TOKEN: honoAuthToken, // Pass token to Vite (read-only)
+    // Pass config values for HTML injection
+    ...(command ? { MCP_INITIAL_COMMAND: command } : {}),
+    ...(mcpServerArgs && mcpServerArgs.length > 0
+      ? { MCP_INITIAL_ARGS: mcpServerArgs.join(" ") }
+      : {}),
+    ...(transport ? { MCP_INITIAL_TRANSPORT: transport } : {}),
+    ...(serverUrl ? { MCP_INITIAL_SERVER_URL: serverUrl } : {}),
+    ...(envVars && Object.keys(envVars).length > 0
+      ? { MCP_ENV_VARS: JSON.stringify(envVars) }
+      : {}),
+  };
+
   const client = spawn(clientCommand, clientArgs, {
     cwd: resolve(__dirname, ".."),
-    env: {
-      ...process.env,
-      CLIENT_PORT,
-      // Pass token to Vite (read-only)
-      MCP_REMOTE_AUTH_TOKEN: honoAuthToken,
-      // Note: Express proxy still uses MCP_PROXY_AUTH_TOKEN (different token)
-    },
+    env: configEnv,
     signal: abort.signal,
     echoOutput: true,
   });
@@ -198,16 +214,35 @@ async function startDevClient(clientOptions) {
 }
 
 async function startProdClient(clientOptions) {
-  const { CLIENT_PORT, honoAuthToken, abort } = clientOptions;
+  const {
+    CLIENT_PORT,
+    honoAuthToken,
+    abort,
+    command,
+    mcpServerArgs,
+    transport,
+    serverUrl,
+    envVars,
+  } = clientOptions;
   const honoServerPath = resolve(__dirname, "server.js");
 
   // Hono server serves static files + /api/* endpoints
-  // Pass auth token explicitly via env var (read-only, server reads it)
+  // Pass auth token and config values explicitly via env vars (read-only, server reads them)
   await spawnPromise("node", [honoServerPath], {
     env: {
       ...process.env,
       CLIENT_PORT,
       MCP_REMOTE_AUTH_TOKEN: honoAuthToken, // Pass token explicitly
+      // Pass config values for HTML injection
+      ...(command ? { MCP_INITIAL_COMMAND: command } : {}),
+      ...(mcpServerArgs && mcpServerArgs.length > 0
+        ? { MCP_INITIAL_ARGS: mcpServerArgs.join(" ") }
+        : {}),
+      ...(transport ? { MCP_INITIAL_TRANSPORT: transport } : {}),
+      ...(serverUrl ? { MCP_INITIAL_SERVER_URL: serverUrl } : {}),
+      ...(envVars && Object.keys(envVars).length > 0
+        ? { MCP_ENV_VARS: JSON.stringify(envVars) }
+        : {}),
     },
     signal: abort.signal,
     echoOutput: true,
@@ -325,6 +360,11 @@ async function main() {
           authDisabled,
           sessionToken: proxySessionToken,
           honoAuthToken, // Pass Hono auth token explicitly
+          command,
+          mcpServerArgs,
+          transport,
+          serverUrl,
+          envVars,
           abort,
           cancelled,
         };
@@ -362,6 +402,11 @@ async function main() {
         const clientOptions = {
           CLIENT_PORT,
           honoAuthToken, // Pass token explicitly
+          command,
+          mcpServerArgs,
+          transport,
+          serverUrl,
+          envVars,
           abort,
           cancelled,
         };
