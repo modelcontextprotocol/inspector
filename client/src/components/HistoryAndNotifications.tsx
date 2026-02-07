@@ -8,7 +8,6 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { usePanelToggle } from "@/hooks/use-panel-toggle";
-import { useState } from "react";
 
 const HistoryAndNotifications = ({
   requestHistory,
