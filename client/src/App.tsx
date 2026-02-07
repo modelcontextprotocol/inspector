@@ -1212,7 +1212,7 @@ const App = () => {
     <SidebarProvider>
       <ResizablePanelGroup
         direction="horizontal"
-        className="h-screen w-screen bg-background overflow-hidden"
+        className="h-full w-screen bg-background overflow-hidden"
       >
         <ResizablePanel
           ref={sidebarRef}
