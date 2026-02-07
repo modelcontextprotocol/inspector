@@ -373,13 +373,24 @@ const App = () => {
   } = useInspectorClient(inspectorClient);
 
   // Extract server notifications from messages
-  useEffect(() => {
-    if (!inspectorClient) return;
-    const notifications = inspectorMessages
+  // Use useMemo to stabilize the array reference and prevent infinite loops
+  const extractedNotifications = useMemo(() => {
+    return inspectorMessages
       .filter((msg) => msg.direction === "notification" && msg.message)
       .map((msg) => msg.message as ServerNotification);
-    setNotifications(notifications);
-  }, [inspectorMessages, inspectorClient]);
+  }, [inspectorMessages]);
+
+  // Use ref to track previous serialized value to prevent infinite loops
+  const previousNotificationsRef = useRef<string>("[]");
+
+  useEffect(() => {
+    // Compare by serializing to avoid infinite loops from reference changes
+    const currentSerialized = JSON.stringify(extractedNotifications);
+    if (currentSerialized !== previousNotificationsRef.current) {
+      setNotifications(extractedNotifications);
+      previousNotificationsRef.current = currentSerialized;
+    }
+  }, [extractedNotifications]);
 
   // Set up event listeners for sampling and elicitation
   useEffect(() => {
@@ -726,7 +737,12 @@ const App = () => {
         setCommand(initialConfig.defaultCommand);
       }
       if (initialConfig.defaultArgs) {
-        setArgs(initialConfig.defaultArgs);
+        // Convert array to space-separated string if needed
+        // Server injects defaultArgs as array, but args state expects string
+        const argsValue = Array.isArray(initialConfig.defaultArgs)
+          ? initialConfig.defaultArgs.join(" ")
+          : initialConfig.defaultArgs;
+        setArgs(argsValue);
       }
       if (initialConfig.defaultTransport) {
         setTransportType(
@@ -740,19 +756,16 @@ const App = () => {
   }, []);
 
   // Sync roots with InspectorClient
+  // Only run when inspectorClient changes, not when roots changes (to avoid infinite loop)
+  // The rootsChange event listener handles updates after initial sync
   useEffect(() => {
     if (!inspectorClient) return;
 
     // Get initial roots from InspectorClient
     const inspectorRoots = inspectorClient.getRoots();
-    if (
-      inspectorRoots.length !== roots.length ||
-      JSON.stringify(inspectorRoots) !== JSON.stringify(roots)
-    ) {
-      setRoots(inspectorRoots);
-    }
-    rootsRef.current = roots;
-  }, [inspectorClient, roots]);
+    setRoots(inspectorRoots);
+    rootsRef.current = inspectorRoots;
+  }, [inspectorClient]);
 
   // Listen for roots changes from InspectorClient
   useEffect(() => {

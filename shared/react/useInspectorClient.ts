@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { InspectorClient } from "../mcp/index.js";
 import type { TypedEvent } from "../mcp/inspectorClientEventTarget.js";
 import type {
@@ -71,6 +71,13 @@ export function useInspectorClient(
     inspectorClient?.getInstructions(),
   );
 
+  // Use refs to track previous serialized values to prevent infinite loops
+  // InspectorClient.getMessages()/getStderrLogs()/getFetchRequests() return new arrays
+  // each time, so we need to compare content, not references
+  const previousMessagesRef = useRef<string>("[]");
+  const previousStderrLogsRef = useRef<string>("[]");
+  const previousFetchRequestsRef = useRef<string>("[]");
+
   // Subscribe to all InspectorClient events
   useEffect(() => {
     if (!inspectorClient) {
@@ -85,14 +92,23 @@ export function useInspectorClient(
       setCapabilities(undefined);
       setServerInfo(undefined);
       setInstructions(undefined);
+      previousMessagesRef.current = "[]";
+      previousStderrLogsRef.current = "[]";
+      previousFetchRequestsRef.current = "[]";
       return;
     }
 
     // Initial state
     setStatus(inspectorClient.getStatus());
-    setMessages(inspectorClient.getMessages());
-    setStderrLogs(inspectorClient.getStderrLogs());
-    setFetchRequests(inspectorClient.getFetchRequests());
+    const initialMessages = inspectorClient.getMessages();
+    const initialStderrLogs = inspectorClient.getStderrLogs();
+    const initialFetchRequests = inspectorClient.getFetchRequests();
+    setMessages(initialMessages);
+    setStderrLogs(initialStderrLogs);
+    setFetchRequests(initialFetchRequests);
+    previousMessagesRef.current = JSON.stringify(initialMessages);
+    previousStderrLogsRef.current = JSON.stringify(initialStderrLogs);
+    previousFetchRequestsRef.current = JSON.stringify(initialFetchRequests);
     setTools(inspectorClient.getTools());
     setResources(inspectorClient.getResources());
     setResourceTemplates(inspectorClient.getResourceTemplates());
@@ -108,17 +124,35 @@ export function useInspectorClient(
 
     const onMessagesChange = () => {
       // messagesChange is a void event, so we fetch
-      setMessages(inspectorClient.getMessages());
+      // Compare by serializing to avoid infinite loops from reference changes
+      const newMessages = inspectorClient.getMessages();
+      const serialized = JSON.stringify(newMessages);
+      if (serialized !== previousMessagesRef.current) {
+        setMessages(newMessages);
+        previousMessagesRef.current = serialized;
+      }
     };
 
     const onStderrLogsChange = () => {
       // stderrLogsChange is a void event, so we fetch
-      setStderrLogs(inspectorClient.getStderrLogs());
+      // Compare by serializing to avoid infinite loops from reference changes
+      const newStderrLogs = inspectorClient.getStderrLogs();
+      const serialized = JSON.stringify(newStderrLogs);
+      if (serialized !== previousStderrLogsRef.current) {
+        setStderrLogs(newStderrLogs);
+        previousStderrLogsRef.current = serialized;
+      }
     };
 
     const onFetchRequestsChange = () => {
       // fetchRequestsChange is a void event, so we fetch
-      setFetchRequests(inspectorClient.getFetchRequests());
+      // Compare by serializing to avoid infinite loops from reference changes
+      const newFetchRequests = inspectorClient.getFetchRequests();
+      const serialized = JSON.stringify(newFetchRequests);
+      if (serialized !== previousFetchRequestsRef.current) {
+        setFetchRequests(newFetchRequests);
+        previousFetchRequestsRef.current = serialized;
+      }
     };
 
     const onToolsChange = (event: TypedEvent<"toolsChange">) => {
