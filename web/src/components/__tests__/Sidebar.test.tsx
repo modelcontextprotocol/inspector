@@ -922,32 +922,6 @@ describe("Sidebar", () => {
       );
     });
 
-    it("should update MCP server proxy address", () => {
-      const setConfig = jest.fn();
-      renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });
-
-      openConfigSection();
-
-      const proxyAddressInput = screen.getByTestId(
-        "MCP_PROXY_FULL_ADDRESS-input",
-      );
-      fireEvent.change(proxyAddressInput, {
-        target: { value: "http://localhost:8080" },
-      });
-
-      expect(setConfig).toHaveBeenCalledWith(
-        expect.objectContaining({
-          MCP_PROXY_FULL_ADDRESS: {
-            label: "Inspector Proxy Address",
-            description:
-              "Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577",
-            value: "http://localhost:8080",
-            is_session_item: false,
-          },
-        }),
-      );
-    });
-
     it("should update max total timeout", () => {
       const setConfig = jest.fn();
       renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });

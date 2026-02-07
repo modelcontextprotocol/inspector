@@ -13,7 +13,18 @@ module.exports = {
         tsconfig: "tsconfig.jest.json",
       },
     ],
+    // Transform ESM .js files from shared/build
+    "^.+\\.js$": [
+      "ts-jest",
+      {
+        tsconfig: "tsconfig.jest.json",
+      },
+    ],
   },
+  transformIgnorePatterns: [
+    // Don't ignore shared/build - we need to transform those ESM .js files
+    "node_modules/(?!@modelcontextprotocol/inspector-shared)",
+  ],
   extensionsToTreatAsEsm: [".ts", ".tsx"],
   testRegex: "(/__tests__/.*|(\\.|/)(test|spec))\\.(jsx?|tsx?)$",
   // Exclude directories and files that don't need to be tested
