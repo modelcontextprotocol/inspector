@@ -939,47 +939,173 @@ Replace all `mcpClient` method calls with `inspectorClient` methods:
 
 ## Phase 4: OAuth Integration
 
-### Step 4.1: Understand Current OAuth Callback Flow
+**Status:** ⏸️ NOT STARTED
 
-**Current Architecture:**
-
-1. **OAuth callback is NOT served by the proxy server** - it's handled entirely by the web app via React Router
-2. **OAuth provider redirects to:** `http://localhost:6274/oauth/callback?code=...`
-3. **React Router handles the route:** `App.tsx` checks `window.location.pathname === "/oauth/callback"` and renders `OAuthCallback` component
-4. **Current callback processing:** Uses `InspectorOAuthClientProvider` + SDK's `auth()` function, which makes requests to the proxy server's `/mcp` endpoint
-
-**After Porting:**
-
-- Same route handling (React Router still catches `/oauth/callback`)
-- Replace `InspectorOAuthClientProvider` + `auth()` with `InspectorClient.completeOAuthFlow()`
-- Redirect URL remains: `window.location.origin + "/oauth/callback"` (provided by `redirectUrlProvider` in environment)
+**Goal:** Replace custom OAuth implementation (`InspectorOAuthClientProvider`, `OAuthStateMachine`, manual state management) with `InspectorClient`'s built-in OAuth support, matching the TUI implementation pattern.
 
 ---
 
-### Step 4.2: Update OAuth Callback Component
+### Architecture Overview
+
+**Current State (Web App):**
+
+- Custom `InspectorOAuthClientProvider` and `DebugInspectorOAuthClientProvider` classes (`web/src/lib/auth.ts`)
+- Custom `OAuthStateMachine` class (`web/src/lib/oauth-state-machine.ts`) - duplicates shared implementation
+- Manual OAuth state management via `AuthGuidedState` in `App.tsx`
+- `OAuthCallback` component uses SDK `auth()` directly
+- `AuthDebugger` component uses custom state machine for guided flow
+- `OAuthFlowProgress` component displays custom state
+
+**Target State (After Port):**
+
+- Use `InspectorClient` OAuth methods: `authenticate()`, `completeOAuthFlow()`, `beginGuidedAuth()`, `proceedOAuthStep()`, `getOAuthState()`, `getOAuthTokens()`
+- Use shared `BrowserOAuthStorage` and `BrowserNavigation` (already configured in `createWebEnvironment`)
+- Listen to `InspectorClient` OAuth events: `oauthStepChange`, `oauthComplete`, `oauthError`
+- Remove custom OAuth providers and state machine
+- Simplify components to read from `InspectorClient.getOAuthState()`
+
+**Reference Implementation (TUI):**
+
+- TUI uses `InspectorClient` OAuth methods directly
+- Quick Auth: Creates callback server → sets redirect URL → calls `authenticate()` → waits for callback → calls `completeOAuthFlow()`
+- Guided Auth: Calls `beginGuidedAuth()` → listens to `oauthStepChange` events → calls `proceedOAuthStep()` for each step
+- OAuth state synced via `inspectorClient.getOAuthState()` and `oauthStepChange` events
+
+---
+
+### Step 4.1: Follow TUI Pattern - Components Manage OAuth State Directly
+
+**Approach:** Follow the TUI pattern where components that need OAuth state manage it directly, rather than extending the hook.
+
+**Rationale:** TUI's `AuthTab` component doesn't use `useInspectorClient` for OAuth state. Instead, it:
+
+1. Receives `inspectorClient` as a prop
+2. Uses `useState` to manage `oauthState` locally
+3. Uses `useEffect` to sync state by calling `inspectorClient.getOAuthState()` directly
+4. Listens to `oauthStepChange` and `oauthComplete` events directly on `inspectorClient`
+
+**Alternative Approach (Optional):** We could extend `useInspectorClient` to expose OAuth state, which would be more DRY if multiple components need it. However, since only `AuthDebugger` needs OAuth state in the web app, following the TUI pattern is simpler and more consistent.
+
+**Implementation Pattern (for AuthDebugger):**
+
+```typescript
+const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
+  const { toast } = useToast();
+  const [oauthState, setOauthState] = useState<AuthGuidedState | undefined>(
+    undefined,
+  );
+  const [isInitiatingAuth, setIsInitiatingAuth] = useState(false);
+
+  // Sync oauthState from InspectorClient (TUI pattern)
+  useEffect(() => {
+    if (!inspectorClient) {
+      setOauthState(undefined);
+      return;
+    }
+
+    const update = () => setOauthState(inspectorClient.getOAuthState());
+    update();
+
+    const onStepChange = () => update();
+    inspectorClient.addEventListener("oauthStepChange", onStepChange);
+    inspectorClient.addEventListener("oauthComplete", onStepChange);
+    inspectorClient.addEventListener("oauthError", onStepChange);
+
+    return () => {
+      inspectorClient.removeEventListener("oauthStepChange", onStepChange);
+      inspectorClient.removeEventListener("oauthComplete", onStepChange);
+      inspectorClient.removeEventListener("oauthError", onStepChange);
+    };
+  }, [inspectorClient]);
+
+  // OAuth methods call InspectorClient directly
+  const handleQuickOAuth = useCallback(async () => {
+    if (!inspectorClient) return;
+    setIsInitiatingAuth(true);
+    try {
+      await inspectorClient.authenticate();
+    } catch (error) {
+      // Handle error
+    } finally {
+      setIsInitiatingAuth(false);
+    }
+  }, [inspectorClient]);
+
+  const handleGuidedOAuth = useCallback(async () => {
+    if (!inspectorClient) return;
+    setIsInitiatingAuth(true);
+    try {
+      await inspectorClient.beginGuidedAuth();
+    } catch (error) {
+      // Handle error
+    } finally {
+      setIsInitiatingAuth(false);
+    }
+  }, [inspectorClient]);
+
+  const proceedToNextStep = useCallback(async () => {
+    if (!inspectorClient) return;
+    setIsInitiatingAuth(true);
+    try {
+      await inspectorClient.proceedOAuthStep();
+    } catch (error) {
+      // Handle error
+    } finally {
+      setIsInitiatingAuth(false);
+    }
+  }, [inspectorClient]);
+
+  // ... rest of component uses oauthState ...
+};
+```
+
+**Benefits of This Approach:**
+
+- Matches TUI implementation exactly
+- No changes needed to shared hook (avoids affecting TUI)
+- Simpler - OAuth state only where needed
+- Components have direct access to `inspectorClient` methods
+
+**Note:** If we later need OAuth state in multiple components, we can refactor to extend the hook then. For now, following TUI pattern is the simplest path.
+
+---
+
+### Step 4.2: Update OAuth Callback Component (Normal Flow)
 
 **File:** `web/src/components/OAuthCallback.tsx`
 
+**Current Implementation:**
+
+- Uses `InspectorOAuthClientProvider` + SDK `auth()` function
+- Reads `serverUrl` from `sessionStorage`
+- Calls `onConnect(serverUrl)` after success
+
 **Changes:**
 
-1. **Remove dependency on `InspectorOAuthClientProvider` and SDK `auth()`:**
+1. **Remove custom provider imports:**
 
    ```typescript
    // Remove
    import { InspectorOAuthClientProvider } from "../lib/auth";
-   import { auth } from "@modelcontextprotocol/sdk/client/auth";
+   import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+   import { SESSION_KEYS } from "../lib/constants";
 
-   // The component will receive inspectorClient as a prop instead
+   // Add
+   import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
    ```
 
-2. **Update component to use InspectorClient:**
+2. **Update component props:**
 
    ```typescript
    interface OAuthCallbackProps {
      inspectorClient: InspectorClient | null;
      onConnect: () => void;
    }
+   ```
 
+3. **Update callback handler:**
+
+   ```typescript
    const OAuthCallback = ({ inspectorClient, onConnect }: OAuthCallbackProps) => {
      const { toast } = useToast();
      const hasProcessedRef = useRef(false);
@@ -1001,6 +1127,10 @@ Replace all `mcpClient` method calls with `inspectorClient` methods:
            return notifyError(generateOAuthErrorDescription(params));
          }
 
+         if (!params.code) {
+           return notifyError("Missing authorization code");
+         }
+
          try {
            // Use InspectorClient's OAuth method instead of SDK auth()
            await inspectorClient.completeOAuthFlow(params.code);
@@ -1016,7 +1146,9 @@ Replace all `mcpClient` method calls with `inspectorClient` methods:
            onConnect();
          } catch (error) {
            console.error("OAuth callback error:", error);
-           return notifyError(`Unexpected error occurred: ${error}`);
+           return notifyError(
+             `OAuth flow failed: ${error instanceof Error ? error.message : String(error)}`,
+           );
          }
        };
 
@@ -1033,15 +1165,93 @@ Replace all `mcpClient` method calls with `inspectorClient` methods:
    };
    ```
 
+**Key Changes:**
+
+- Removed `sessionStorage` dependency (server URL comes from `InspectorClient` config)
+- Replaced `InspectorOAuthClientProvider` + `auth()` with `inspectorClient.completeOAuthFlow()`
+- Simplified error handling (InspectorClient handles OAuth errors internally)
+
 ---
 
-### Step 4.3: Update App.tsx OAuth Callback Route
+### Step 4.3: Update OAuth Debug Callback Component
 
-**File:** `web/src/App.tsx`
+**File:** `web/src/components/OAuthDebugCallback.tsx`
+
+**Current Implementation:**
+
+- Similar to `OAuthCallback` but for debug flow
+- Restores `AuthGuidedState` from `sessionStorage`
+- Passes `authorizationCode` and `restoredState` to `onConnect`
 
 **Changes:**
 
-1. **Pass inspectorClient to OAuthCallback:**
+1. **Update to use InspectorClient:**
+
+   ```typescript
+   interface OAuthDebugCallbackProps {
+     inspectorClient: InspectorClient | null;
+     onConnect: (authorizationCode: string) => void;
+   }
+
+   const OAuthDebugCallback = ({
+     inspectorClient,
+     onConnect,
+   }: OAuthDebugCallbackProps) => {
+     useEffect(() => {
+       let isProcessed = false;
+
+       const handleCallback = async () => {
+         if (isProcessed || !inspectorClient) return;
+         isProcessed = true;
+
+         const params = parseOAuthCallbackParams(window.location.search);
+         if (!params.successful || !params.code) {
+           // Display error in UI (already handled by component)
+           return;
+         }
+
+         // For debug flow, we still need to complete the flow manually
+         // The guided flow state is managed by InspectorClient internally
+         try {
+           await inspectorClient.completeOAuthFlow(params.code);
+           onConnect(params.code);
+         } catch (error) {
+           console.error("OAuth debug callback error:", error);
+         }
+       };
+
+       handleCallback().finally(() => {
+         if (window.location.pathname !== "/oauth/callback/debug") {
+           window.history.replaceState({}, document.title, "/");
+         }
+       });
+
+       return () => {
+         isProcessed = true;
+       };
+     }, [inspectorClient, onConnect]);
+
+     // ... rest of component (display code for manual copying) ...
+   };
+   ```
+
+**Note:** The debug callback may need to work differently if we're using guided flow. We may need to check `InspectorClient.getOAuthState()` to see if we're in guided mode and handle accordingly.
+
+---
+
+### Step 4.4: Update App.tsx OAuth Routes and Handlers
+
+**File:** `web/src/App.tsx`
+
+**Current Implementation:**
+
+- Routes `/oauth/callback` and `/oauth/callback/debug` render callback components
+- `onOAuthConnect` and `onOAuthDebugConnect` handlers manage state
+- OAuth config (clientId, clientSecret, scope) stored in component state
+
+**Changes:**
+
+1. **Update OAuth callback routes:**
 
    ```typescript
    if (window.location.pathname === "/oauth/callback") {
@@ -1057,39 +1267,432 @@ Replace all `mcpClient` method calls with `inspectorClient` methods:
        </Suspense>
      );
    }
+
+   if (window.location.pathname === "/oauth/callback/debug") {
+     const OAuthDebugCallback = React.lazy(
+       () => import("./components/OAuthDebugCallback"),
+     );
+     return (
+       <Suspense fallback={<div>Loading...</div>}>
+         <OAuthDebugCallback
+           inspectorClient={inspectorClient}
+           onConnect={async (code: string) => {
+             // Debug callback completion - may trigger guided flow continuation
+             // InspectorClient handles this internally via completeOAuthFlow
+             await connectMcpServer();
+           }}
+         />
+       </Suspense>
+     );
+   }
    ```
 
-2. **Update OAuth handlers:**
+2. **Remove `onOAuthConnect` and `onOAuthDebugConnect` handlers** - connection is handled directly in callback components
+
+3. **Add OAuth authentication handler (for Quick Auth):**
 
    ```typescript
-   // Replace custom OAuth flow with InspectorClient methods
-   const handleOAuthAuth = useCallback(async () => {
+   const handleQuickOAuth = useCallback(async () => {
      if (!inspectorClient) return;
-     const authUrl = await inspectorClient.authenticate();
-     // Navigate to authUrl (BrowserNavigation handles this automatically)
-     // Or manually: window.location.href = authUrl.href;
-   }, [inspectorClient]);
 
-   // OAuth completion is now handled in OAuthCallback component
-   // No separate handler needed
+     try {
+       // InspectorClient.authenticate() returns the authorization URL
+       // BrowserNavigation (configured in environment) automatically redirects
+       const authUrl = await inspectorClient.authenticate();
+       // Navigation happens automatically via BrowserNavigation
+       // No manual redirect needed
+     } catch (error) {
+       console.error("OAuth authentication failed:", error);
+       // Show error toast
+     }
+   }, [inspectorClient]);
    ```
 
-3. **Remove `onOAuthConnect` handler** (if it exists) - connection is handled directly in `OAuthCallback` component
+**Note:** `BrowserNavigation` automatically redirects when `redirectToAuthorization()` is called, so we don't need manual `window.location.href` assignment.
 
 ---
 
-### Step 4.4: Update OAuth Storage
+### Step 4.5: Refactor AuthDebugger Component to Use InspectorClient
+
+**File:** `web/src/components/AuthDebugger.tsx`
+
+**Current Implementation:**
+
+- Uses custom `OAuthStateMachine` and `DebugInspectorOAuthClientProvider`
+- Manages `AuthGuidedState` manually via `updateAuthState`
+- Has "Guided OAuth Flow" and "Quick OAuth Flow" buttons
+
+**Changes:**
+
+1. **Update component props:**
+
+   ```typescript
+   interface AuthDebuggerProps {
+     inspectorClient: InspectorClient | null;
+     onBack: () => void;
+   }
+   ```
+
+2. **Remove custom state machine and provider:**
+
+   ```typescript
+   // Remove
+   import { OAuthStateMachine } from "../lib/oauth-state-machine";
+   import { DebugInspectorOAuthClientProvider } from "../lib/auth";
+   import type { AuthGuidedState } from "../lib/auth-types";
+
+   // Add
+   import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+   import type { AuthGuidedState } from "@modelcontextprotocol/inspector-shared/auth/types.js";
+   ```
+
+3. **Follow TUI pattern - manage OAuth state directly:**
+
+   ```typescript
+   const AuthDebugger = ({
+     inspectorClient,
+     onBack,
+   }: AuthDebuggerProps) => {
+     const { toast } = useToast();
+     const [oauthState, setOauthState] = useState<AuthGuidedState | undefined>(
+       undefined,
+     );
+     const [isInitiatingAuth, setIsInitiatingAuth] = useState(false);
+
+     // Sync oauthState from InspectorClient (TUI pattern - Step 4.1)
+     useEffect(() => {
+       if (!inspectorClient) {
+         setOauthState(undefined);
+         return;
+       }
+
+       const update = () => setOauthState(inspectorClient.getOAuthState());
+       update();
+
+       const onStepChange = () => update();
+       inspectorClient.addEventListener("oauthStepChange", onStepChange);
+       inspectorClient.addEventListener("oauthComplete", onStepChange);
+       inspectorClient.addEventListener("oauthError", onStepChange);
+
+       return () => {
+         inspectorClient.removeEventListener("oauthStepChange", onStepChange);
+         inspectorClient.removeEventListener("oauthComplete", onStepChange);
+         inspectorClient.removeEventListener("oauthError", onStepChange);
+       };
+     }, [inspectorClient]);
+   ```
+
+4. **Update Quick OAuth handler:**
+
+   ```typescript
+   const handleQuickOAuth = useCallback(async () => {
+     if (!inspectorClient) return;
+
+     setIsInitiatingAuth(true);
+     try {
+       // Quick Auth: normal flow (automatic redirect via BrowserNavigation)
+       await inspectorClient.authenticate();
+       // BrowserNavigation handles redirect automatically
+     } catch (error) {
+       console.error("Quick OAuth failed:", error);
+       toast({
+         title: "OAuth Error",
+         description: error instanceof Error ? error.message : String(error),
+         variant: "destructive",
+       });
+     } finally {
+       setIsInitiatingAuth(false);
+     }
+   }, [inspectorClient, toast]);
+   ```
+
+5. **Update Guided OAuth handler:**
+
+   ```typescript
+   const handleGuidedOAuth = useCallback(async () => {
+     if (!inspectorClient) return;
+
+     setIsInitiatingAuth(true);
+     try {
+       // Start guided flow
+       await inspectorClient.beginGuidedAuth();
+       // State updates via oauthStepChange events (handled in useEffect above)
+     } catch (error) {
+       console.error("Guided OAuth start failed:", error);
+       toast({
+         title: "OAuth Error",
+         description: error instanceof Error ? error.message : String(error),
+         variant: "destructive",
+       });
+     } finally {
+       setIsInitiatingAuth(false);
+     }
+   }, [inspectorClient, toast]);
+   ```
+
+6. **Update proceed to next step handler:**
+
+   ```typescript
+   const proceedToNextStep = useCallback(async () => {
+     if (!inspectorClient || !oauthState) return;
+
+     setIsInitiatingAuth(true);
+     try {
+       await inspectorClient.proceedOAuthStep();
+
+       // If we're at authorization_code step and have URL, open it
+       // BrowserNavigation should handle redirect automatically, but we can
+       // also open in new tab for better UX
+       if (
+         oauthState.oauthStep === "authorization_code" &&
+         oauthState.authorizationUrl
+       ) {
+         window.open(oauthState.authorizationUrl.href, "_blank");
+       }
+     } catch (error) {
+       console.error("OAuth step failed:", error);
+       toast({
+         title: "OAuth Error",
+         description: error instanceof Error ? error.message : String(error),
+         variant: "destructive",
+       });
+     } finally {
+       setIsInitiatingAuth(false);
+     }
+   }, [inspectorClient, oauthState, toast]);
+   ```
+
+7. **Update clear OAuth handler:**
+
+   ```typescript
+   const handleClearOAuth = useCallback(async () => {
+     if (!inspectorClient) return;
+
+     // InspectorClient doesn't have clearOAuth method yet
+     // We may need to add this, or clear storage directly via environment
+     // For now, tokens persist until InspectorClient is recreated
+     toast({
+       title: "OAuth Cleared",
+       description: "OAuth tokens will be cleared on next connection",
+       variant: "default",
+     });
+   }, [inspectorClient, toast]);
+   ```
+
+8. **Update component to use `oauthState` from local state:**
+
+   ```typescript
+   // Replace all `authState` references with `oauthState` from local useState
+   // Remove `authState` and `updateAuthState` props
+   // Check for existing tokens on mount (if needed):
+   useEffect(() => {
+     if (inspectorClient && !oauthState?.oauthTokens) {
+       inspectorClient.getOAuthTokens().then((tokens) => {
+         if (tokens) {
+           // State will be updated via getOAuthState() in sync effect
+           setOauthState(inspectorClient.getOAuthState());
+         }
+       });
+     }
+   }, [inspectorClient, oauthState]);
+   ```
+
+**Note:** We may need to add a `clearOAuth()` method to `InspectorClient` or access the storage instance to clear tokens. This can be done in a follow-up if needed.
+
+---
+
+### Step 4.6: Update OAuthFlowProgress Component
+
+**File:** `web/src/components/OAuthFlowProgress.tsx`
+
+**Current Implementation:**
+
+- Receives `authState`, `updateAuthState`, and `proceedToNextStep` as props
+- Uses custom `DebugInspectorOAuthClientProvider` to fetch client info
+
+**Changes:**
+
+1. **Update component props:**
+
+   ```typescript
+   interface OAuthFlowProgressProps {
+     oauthState: AuthGuidedState | undefined;
+     proceedToNextStep: () => Promise<void>;
+   }
+   ```
+
+   **Note:** Component receives `oauthState` as prop (from `AuthDebugger`'s local state) rather than accessing `inspectorClient` directly. This keeps the component simpler and follows React best practices.
+
+2. **Remove custom provider usage:**
+
+   ```typescript
+   // Remove
+   import { DebugInspectorOAuthClientProvider } from "../lib/auth";
+
+   // Add
+   import type { AuthGuidedState } from "@modelcontextprotocol/inspector-shared/auth/types.js";
+   import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
+   ```
+
+3. **Update component to use `oauthState` prop:**
+
+   ```typescript
+   export const OAuthFlowProgress = ({
+     oauthState,
+     proceedToNextStep,
+   }: OAuthFlowProgressProps) => {
+     const { toast } = useToast();
+     const [clientInfo, setClientInfo] = useState<OAuthClientInformation | null>(
+       null,
+     );
+
+     // Get client info from oauthState
+     useEffect(() => {
+       if (oauthState?.oauthClientInfo) {
+         setClientInfo(oauthState.oauthClientInfo);
+       }
+     }, [oauthState]);
+   ```
+
+4. **Update step rendering to use `oauthState`:**
+
+   ```typescript
+   // Replace `authState` references with `oauthState`
+   const currentStepIdx = steps.findIndex((s) => s === oauthState?.oauthStep);
+
+   const getStepProps = (stepName: OAuthStep) => ({
+     isComplete:
+       currentStepIdx > steps.indexOf(stepName) ||
+       currentStepIdx === steps.length - 1,
+     isCurrent: oauthState?.oauthStep === stepName,
+     error: oauthState?.oauthStep === stepName ? oauthState.latestError : null,
+   });
+   ```
+
+5. **Update `AuthDebugger` to pass `oauthState` prop:**
+
+   ```typescript
+   // In AuthDebugger component:
+   <OAuthFlowProgress
+     oauthState={oauthState}
+     proceedToNextStep={proceedToNextStep}
+   />
+   ```
+
+---
+
+### Step 4.7: Remove Custom OAuth Code
+
+**Files to Delete:**
+
+- `web/src/lib/auth.ts` - Custom `InspectorOAuthClientProvider` and `DebugInspectorOAuthClientProvider`
+- `web/src/lib/oauth-state-machine.ts` - Custom `OAuthStateMachine` (duplicates shared implementation)
+- `web/src/lib/auth-types.ts` - Custom `AuthGuidedState` type (use shared type instead)
+
+**Files to Update:**
+
+- `web/src/components/AuthDebugger.tsx` - Remove imports of deleted files
+- `web/src/components/OAuthFlowProgress.tsx` - Remove imports of deleted files
+- `web/src/App.tsx` - Remove imports of deleted files, remove `authState` state management
+
+**Note:** `web/src/utils/oauthUtils.ts` (OAuth URL parsing utilities) should be kept as it's still needed.
+
+---
+
+### Step 4.8: Update Environment Factory (Already Complete)
 
 **File:** `web/src/lib/adapters/environmentFactory.ts`
 
-**Decision:** Choose storage strategy:
+**Status:** ✅ Already configured correctly
 
-- **Option A:** `BrowserOAuthStorage` (sessionStorage) - Browser-only, no shared state
-- **Option B:** `RemoteOAuthStorage` (HTTP API) - Shared state with TUI/CLI
+The environment factory already uses `BrowserOAuthStorage` and `BrowserNavigation` from shared:
 
-For initial port, use `BrowserOAuthStorage`. Can switch to `RemoteOAuthStorage` later if shared state is needed.
+```typescript
+import {
+  BrowserOAuthStorage,
+  BrowserNavigation,
+} from "@modelcontextprotocol/inspector-shared/auth/browser/index.js";
 
-**Note:** OAuth tokens are stored automatically by `InspectorClient` using the storage provided in `environment.oauth.storage`. No manual token management needed.
+export function createWebEnvironment(
+  authToken: string | undefined,
+  redirectUrlProvider: RedirectUrlProvider,
+): InspectorClientEnvironment {
+  // ...
+  oauth: {
+    storage: new BrowserOAuthStorage(),
+    navigation: new BrowserNavigation(),
+    redirectUrlProvider,
+  },
+}
+```
+
+**No changes needed.**
+
+---
+
+### Step 4.9: Update Tests
+
+**Files to Update:**
+
+- `web/src/components/__tests__/AuthDebugger.test.tsx` - Mock `InspectorClient` OAuth methods instead of custom providers
+- `web/src/components/__tests__/OAuthCallback.test.tsx` (if exists) - Update to use `InspectorClient`
+- `web/src/__tests__/App.config.test.tsx` - Verify OAuth config is passed to `InspectorClient`
+
+**Test Strategy:**
+
+1. Mock `InspectorClient` methods: `authenticate()`, `completeOAuthFlow()`, `beginGuidedAuth()`, `proceedOAuthStep()`, `getOAuthState()`, `getOAuthTokens()`
+2. Test that OAuth callbacks call `inspectorClient.completeOAuthFlow()` with correct code
+3. Test that guided flow calls `beginGuidedAuth()` and `proceedOAuthStep()` correctly
+4. Test that OAuth state updates via `oauthStepChange` events
+
+---
+
+### Implementation Order
+
+1. **Step 4.1:** Follow TUI pattern - components manage OAuth state directly (no hook changes needed)
+2. **Step 4.2:** Update `OAuthCallback` component (normal flow)
+3. **Step 4.3:** Update `OAuthDebugCallback` component (debug flow)
+4. **Step 4.4:** Update `App.tsx` routes and handlers
+5. **Step 4.5:** Refactor `AuthDebugger` component (includes OAuth state management from Step 4.1)
+6. **Step 4.6:** Update `OAuthFlowProgress` component
+7. **Step 4.7:** Remove custom OAuth code (cleanup)
+8. **Step 4.9:** Update tests
+
+**Dependencies:**
+
+- Step 4.1 is a pattern decision (no code changes) - components will manage OAuth state directly
+- Steps 4.2-4.4 can be done independently (they don't need OAuth state)
+- Step 4.5 implements the OAuth state management pattern from Step 4.1
+- Step 4.6 depends on Step 4.5 (receives `oauthState` as prop)
+- Step 4.7 should be done last (after all components updated)
+- Step 4.9 should be done alongside component updates
+
+---
+
+### Migration Notes
+
+**Breaking Changes:**
+
+- `OAuthCallback` and `OAuthDebugCallback` now require `inspectorClient` prop
+- `AuthDebugger` no longer uses `authState` prop (reads from `InspectorClient`)
+- `OAuthFlowProgress` no longer uses `authState` prop
+
+**Backward Compatibility:**
+
+- OAuth redirect URLs remain the same (`/oauth/callback`, `/oauth/callback/debug`)
+- OAuth storage location remains the same (sessionStorage via `BrowserOAuthStorage`)
+- OAuth flow behavior remains the same (normal vs guided)
+
+**Testing Checklist:**
+
+- [ ] Quick OAuth flow (normal mode) works end-to-end
+- [ ] Guided OAuth flow works step-by-step
+- [ ] OAuth callback handles success case
+- [ ] OAuth callback handles error cases
+- [ ] OAuth tokens persist across page reloads
+- [ ] OAuth state updates correctly via events
+- [ ] Clear OAuth functionality works (if implemented)
+- [ ] OAuth works with both SSE and streamable-http transports
 
 ---
 
@@ -1293,3 +1896,21 @@ The port is complete when:
 - Test incrementally - don't try to port everything at once
 - Use feature flags if needed to test new code alongside old code
 - The web app can be deleted from the PR after POC is complete (if not merging)
+
+---
+
+## Issues
+
+Why are the List Tools/Prompts/Resources buttons greyed out?
+
+- Need to set autoFetchServerContents: false (don't load tools/resources/prompts on start)
+- We have support to list tools/resources/prompts using paging (returning and accepting a cursor)
+  - Those listXxxx functions don't update the loaded list state or send any list changed events
+  - Our listAllXxxx functions call the page list functions in a loop, accumulate loaded items, and send change events when finished
+    - When we modify the listXxxx functions to modify list state we will have to make sure the listAllXxxx functions don't do that anymore
+    - When calling listXxxx from listAllXxxx the listXxxx function should not set events (listAllXxxx will do it when finished)
+  - We need the listXxxx functions to update list state and send change events
+    - If a listXxxx function is called with no cursor, reset the list (we are "reloading" the list)
+- Need InspectorClient.clearTools() (and prompts/resources)
+
+Future: Extend useInspectorClient to expose OAuth state (for guided flow in web and TUI)
