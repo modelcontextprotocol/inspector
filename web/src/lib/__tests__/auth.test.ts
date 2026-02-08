@@ -141,6 +141,8 @@ describe("discoverScopes", () => {
   test.each(undefinedCases)(
     "$name",
     async ({ mockResolves, mockRejects, serverUrl, resourceMetadata }) => {
+      const consoleSpy = jest.spyOn(console, "debug").mockImplementation();
+
       if (mockRejects) {
         mockDiscoverAuth.mockRejectedValue(mockRejects);
       } else {
@@ -148,6 +150,16 @@ describe("discoverScopes", () => {
       }
 
       const result = await discoverScopes(serverUrl, resourceMetadata);
+
+      // Verify debug message was logged when OAuth discovery fails
+      if (mockRejects) {
+        expect(consoleSpy).toHaveBeenCalledWith(
+          "OAuth scope discovery failed:",
+          expect.any(Error),
+        );
+      }
+
+      consoleSpy.mockRestore();
 
       expect(result).toBeUndefined();
     },
