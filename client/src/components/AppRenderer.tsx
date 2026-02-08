@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   Tool,
   ContentBlock,
+  CallToolResult,
+  CallToolResultSchema,
   ServerNotification,
   LoggingMessageNotificationParams,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -35,6 +37,8 @@ const AppRenderer = ({
   onNotification,
 }: AppRendererProps) => {
   const [error, setError] = useState<string | null>(null);
+  const [toolResult, setToolResult] = useState<CallToolResult | undefined>();
+  const latestRunIdRef = useRef(0);
   const { toast } = useToast();
 
   const hostContext: McpUiHostContext = useMemo(
@@ -85,6 +89,67 @@ const AppRenderer = ({
     }
   };
 
+  useEffect(() => {
+    if (!mcpClient) {
+      setToolResult(undefined);
+      return;
+    }
+
+    const runId = ++latestRunIdRef.current;
+    const abortController = new AbortController();
+    setToolResult(undefined);
+
+    const runTool = async () => {
+      try {
+        const result = await mcpClient.request(
+          {
+            method: "tools/call",
+            params: {
+              name: tool.name,
+              arguments: toolInput ?? {},
+            },
+          },
+          CallToolResultSchema,
+          { signal: abortController.signal },
+        );
+
+        if (
+          abortController.signal.aborted ||
+          runId !== latestRunIdRef.current
+        ) {
+          return;
+        }
+
+        setToolResult(result);
+      } catch (runError) {
+        if (
+          abortController.signal.aborted ||
+          runId !== latestRunIdRef.current
+        ) {
+          return;
+        }
+
+        const message =
+          runError instanceof Error ? runError.message : String(runError);
+        setToolResult({
+          content: [
+            {
+              type: "text",
+              text: message,
+            },
+          ],
+          isError: true,
+        });
+      }
+    };
+
+    void runTool();
+
+    return () => {
+      abortController.abort();
+    };
+  }, [mcpClient, tool.name, toolInput]);
+
   if (!mcpClient) {
     return (
       <Alert>
@@ -115,6 +180,7 @@ const AppRenderer = ({
           toolName={tool.name}
           hostContext={hostContext}
           toolInput={toolInput}
+          toolResult={toolResult}
           sandbox={{
             url: new URL(sandboxPath, window.location.origin),
           }}
