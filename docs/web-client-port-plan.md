@@ -1901,16 +1901,11 @@ The port is complete when:
 
 ## Issues
 
-Why are the List Tools/Prompts/Resources buttons greyed out?
+There is a slight wrinkle to Web app tool loading (maybe also prompts/resources)
 
-- Need to set autoFetchServerContents: false (don't load tools/resources/prompts on start)
-- We have support to list tools/resources/prompts using paging (returning and accepting a cursor)
-  - Those listXxxx functions don't update the loaded list state or send any list changed events
-  - Our listAllXxxx functions call the page list functions in a loop, accumulate loaded items, and send change events when finished
-    - When we modify the listXxxx functions to modify list state we will have to make sure the listAllXxxx functions don't do that anymore
-    - When calling listXxxx from listAllXxxx the listXxxx function should not set events (listAllXxxx will do it when finished)
-  - We need the listXxxx functions to update list state and send change events
-    - If a listXxxx function is called with no cursor, reset the list (we are "reloading" the list)
-- Need InspectorClient.clearTools() (and prompts/resources)
+- When we get a tools/list_changed notification (which the everything server sends on startup)
+- It triggers a loadAllTools, which sends an event and refreshes the tools in the UX
+- This behavior is built into InspectorClient, but maybe should be deferred to the client
+  - If the client wants the list reloaded on change notification, it can just listen for the event and do it
 
 Future: Extend useInspectorClient to expose OAuth state (for guided flow in web and TUI)

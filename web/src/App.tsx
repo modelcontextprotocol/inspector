@@ -311,7 +311,7 @@ const App = () => {
 
       const client = new InspectorClient(config, {
         environment,
-        autoFetchServerContents: true,
+        autoFetchServerContents: false,
         maxMessages: 1000,
         maxStderrLogEvents: 1000,
         maxFetchRequests: 1000,
@@ -879,7 +879,7 @@ const App = () => {
         nextResourceCursor,
         metadata,
       );
-      // InspectorClient manages resources state automatically via notifications
+      // InspectorClient now updates resources state automatically (accumulates when cursor provided)
       setNextResourceCursor(response.nextCursor);
       clearError("resources");
     } catch (e) {
@@ -901,7 +901,7 @@ const App = () => {
         nextResourceTemplateCursor,
         metadata,
       );
-      // InspectorClient manages resourceTemplates state automatically via notifications
+      // InspectorClient now updates resourceTemplates state automatically (accumulates when cursor provided)
       setNextResourceTemplateCursor(response.nextCursor);
       clearError("resources");
     } catch (e) {
@@ -1019,7 +1019,7 @@ const App = () => {
         nextPromptCursor,
         metadata,
       );
-      // InspectorClient manages prompts state automatically via notifications
+      // InspectorClient now updates prompts state automatically (accumulates when cursor provided)
       setNextPromptCursor(response.nextCursor);
       clearError("prompts");
     } catch (e) {
@@ -1041,7 +1041,7 @@ const App = () => {
         nextToolCursor,
         metadata,
       );
-      // InspectorClient manages tools state automatically via notifications
+      // InspectorClient now updates tools state automatically (accumulates when cursor provided)
       setNextToolCursor(response.nextCursor);
       cacheToolOutputSchemas(response.tools);
       clearError("tools");
@@ -1357,7 +1357,10 @@ const App = () => {
                         listResources();
                       }}
                       clearResources={() => {
-                        // InspectorClient manages resources state - just clear cursor
+                        // InspectorClient now has clearResources() method
+                        if (inspectorClient) {
+                          inspectorClient.clearResources();
+                        }
                         setNextResourceCursor(undefined);
                       }}
                       listResourceTemplates={() => {
@@ -1365,7 +1368,10 @@ const App = () => {
                         listResourceTemplates();
                       }}
                       clearResourceTemplates={() => {
-                        // InspectorClient manages resourceTemplates state - just clear cursor
+                        // InspectorClient now has clearResourceTemplates() method
+                        if (inspectorClient) {
+                          inspectorClient.clearResourceTemplates();
+                        }
                         setNextResourceTemplateCursor(undefined);
                       }}
                       readResource={(uri) => {
@@ -1403,7 +1409,10 @@ const App = () => {
                         listPrompts();
                       }}
                       clearPrompts={() => {
-                        // InspectorClient manages prompts state - just clear cursor
+                        // InspectorClient now has clearPrompts() method
+                        if (inspectorClient) {
+                          inspectorClient.clearPrompts();
+                        }
                         setNextPromptCursor(undefined);
                       }}
                       getPrompt={(name, args) => {
@@ -1429,7 +1438,10 @@ const App = () => {
                         listTools();
                       }}
                       clearTools={() => {
-                        // InspectorClient manages tools state - just clear cursor and cache
+                        // InspectorClient now has clearTools() method
+                        if (inspectorClient) {
+                          inspectorClient.clearTools();
+                        }
                         setNextToolCursor(undefined);
                         cacheToolOutputSchemas([]);
                       }}

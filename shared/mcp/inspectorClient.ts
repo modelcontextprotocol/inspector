@@ -870,6 +870,38 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Clear all tools and dispatch change event
+   */
+  clearTools(): void {
+    this.tools = [];
+    this.dispatchTypedEvent("toolsChange", this.tools);
+  }
+
+  /**
+   * Clear all resources and dispatch change event
+   */
+  clearResources(): void {
+    this.resources = [];
+    this.dispatchTypedEvent("resourcesChange", this.resources);
+  }
+
+  /**
+   * Clear all resource templates and dispatch change event
+   */
+  clearResourceTemplates(): void {
+    this.resourceTemplates = [];
+    this.dispatchTypedEvent("resourceTemplatesChange", this.resourceTemplates);
+  }
+
+  /**
+   * Clear all prompts and dispatch change event
+   */
+  clearPrompts(): void {
+    this.prompts = [];
+    this.dispatchTypedEvent("promptsChange", this.prompts);
+  }
+
+  /**
    * Get all active tasks
    */
   getClientTasks(): Task[] {
@@ -1086,51 +1118,82 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Internal method to list tools without updating state or dispatching events
-   * Used by callTool() to find tools without triggering state changes
+   * Fetch a specific tool by name without side effects (no state updates, no events)
+   * First checks if the tool is already loaded, then fetches pages until found or exhausted
+   * Used by callTool/callToolStream to check tool schema before calling
+   * @param name Tool name to fetch
    * @param metadata Optional metadata to include in the request
-   * @returns Array of tools
+   * @returns The tool if found, undefined otherwise
    */
-  private async listAllToolsInternal(
+  private async fetchTool(
+    name: string,
     metadata?: Record<string, string>,
-  ): Promise<Tool[]> {
+  ): Promise<Tool | undefined> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    try {
-      const allTools: Tool[] = [];
-      let cursor: string | undefined;
-      let pageCount = 0;
 
+    // First check if tool is already loaded
+    const existingTool = this.tools.find((t) => t.name === name);
+    if (existingTool) {
+      return existingTool;
+    }
+
+    // Tool not found, fetch pages until we find it
+    // Use client directly to avoid modifying this.tools
+    let cursor: string | undefined;
+    let pageCount = 0;
+
+    try {
       do {
-        const result = await this.listTools(cursor, metadata);
-        allTools.push(...result.tools);
-        cursor = result.nextCursor;
+        const params: any =
+          metadata && Object.keys(metadata).length > 0
+            ? { _meta: metadata }
+            : {};
+        if (cursor) {
+          params.cursor = cursor;
+        }
+        const response = await this.client.listTools(
+          params,
+          this.getRequestOptions(metadata?.progressToken),
+        );
+        const tools = response.tools || [];
+
+        // Check if we found the tool
+        const tool = tools.find((t) => t.name === name);
+        if (tool) {
+          return tool; // Found it, return early
+        }
+
+        cursor = response.nextCursor;
         pageCount++;
         if (pageCount >= MAX_PAGES) {
           throw new Error(
-            `Maximum pagination limit (${MAX_PAGES} pages) reached while listing tools`,
+            `Maximum pagination limit (${MAX_PAGES} pages) reached while searching for tool "${name}"`,
           );
         }
       } while (cursor);
 
-      return allTools;
+      // Tool not found after searching all pages
+      return undefined;
     } catch (error) {
       throw new Error(
-        `Failed to list tools: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to fetch tool "${name}": ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
 
   /**
    * List available tools with pagination support
-   * @param cursor Optional cursor for pagination
+   * @param cursor Optional cursor for pagination. If not provided, clears existing tools and starts fresh.
    * @param metadata Optional metadata to include in the request
+   * @param suppressEvents If true, does not dispatch toolsChange event (default: false)
    * @returns Object containing tools array and optional nextCursor
    */
   async listTools(
     cursor?: string,
     metadata?: Record<string, string>,
+    suppressEvents: boolean = false,
   ): Promise<{ tools: Tool[]; nextCursor?: string }> {
     if (!this.client) {
       throw new Error("Client is not connected");
@@ -1144,8 +1207,24 @@ export class InspectorClient extends InspectorClientEventTarget {
       params,
       this.getRequestOptions(metadata?.progressToken),
     );
+    const tools = response.tools || [];
+
+    // Update internal state: reset if no cursor, append if cursor provided
+    if (cursor) {
+      // Append to existing tools
+      this.tools.push(...tools);
+    } else {
+      // Clear and start fresh
+      this.tools = tools;
+    }
+
+    // Dispatch change event unless suppressed
+    if (!suppressEvents) {
+      this.dispatchTypedEvent("toolsChange", this.tools);
+    }
+
     return {
-      tools: response.tools || [],
+      tools,
       nextCursor: response.nextCursor,
     };
   }
@@ -1160,22 +1239,36 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     try {
-      const allTools = await this.listAllToolsInternal(metadata);
+      // Store current tool names before fetching
+      const currentNames = new Set(this.tools.map((t) => t.name));
+
+      // Fetch all pages (suppress events during pagination)
+      let cursor: string | undefined;
+      let pageCount = 0;
+
+      do {
+        const result = await this.listTools(cursor, metadata, true);
+        cursor = result.nextCursor;
+        pageCount++;
+        if (pageCount >= MAX_PAGES) {
+          throw new Error(
+            `Maximum pagination limit (${MAX_PAGES} pages) reached while listing tools`,
+          );
+        }
+      } while (cursor);
 
       // Find removed tool names by comparing with current tools
-      const currentNames = new Set(this.tools.map((t) => t.name));
-      const newNames = new Set(allTools.map((t) => t.name));
+      const newNames = new Set(this.tools.map((t) => t.name));
       // Clear cache for removed tools
       for (const name of currentNames) {
         if (!newNames.has(name)) {
           this.cacheInternal.clearToolCallResult(name);
         }
       }
-      // Update internal state
-      this.tools = allTools;
-      // Dispatch change event
+
+      // Dispatch final change event (listTools calls were suppressed)
       this.dispatchTypedEvent("toolsChange", this.tools);
-      return allTools;
+      return this.tools;
     } catch (error) {
       throw new Error(
         `Failed to list all tools: ${error instanceof Error ? error.message : String(error)}`,
@@ -1203,8 +1296,7 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     // Check if tool requires task support BEFORE try block
     // This ensures the error is thrown and not caught
-    const tools = await this.listAllToolsInternal(generalMetadata);
-    const tool = tools.find((t) => t.name === name);
+    const tool = await this.fetchTool(name, generalMetadata);
     if (tool?.execution?.taskSupport === "required") {
       throw new Error(
         `Tool "${name}" requires task support. Use callToolStream() instead of callTool().`,
@@ -1340,8 +1432,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     try {
-      const tools = await this.listAllToolsInternal(generalMetadata);
-      const tool = tools.find((t) => t.name === name);
+      const tool = await this.fetchTool(name, generalMetadata);
 
       let convertedArgs: Record<string, JsonValue> = args;
 
@@ -1558,13 +1649,15 @@ export class InspectorClient extends InspectorClientEventTarget {
 
   /**
    * List available resources with pagination support
-   * @param cursor Optional cursor for pagination
+   * @param cursor Optional cursor for pagination. If not provided, clears existing resources and starts fresh.
    * @param metadata Optional metadata to include in the request
+   * @param suppressEvents If true, does not dispatch resourcesChange event (default: false)
    * @returns Object containing resources array and optional nextCursor
    */
   async listResources(
     cursor?: string,
     metadata?: Record<string, string>,
+    suppressEvents: boolean = false,
   ): Promise<{ resources: Resource[]; nextCursor?: string }> {
     if (!this.client) {
       throw new Error("Client is not connected");
@@ -1578,8 +1671,24 @@ export class InspectorClient extends InspectorClientEventTarget {
       params,
       this.getRequestOptions(metadata?.progressToken),
     );
+    const resources = response.resources || [];
+
+    // Update internal state: reset if no cursor, append if cursor provided
+    if (cursor) {
+      // Append to existing resources
+      this.resources.push(...resources);
+    } else {
+      // Clear and start fresh
+      this.resources = resources;
+    }
+
+    // Dispatch change event unless suppressed
+    if (!suppressEvents) {
+      this.dispatchTypedEvent("resourcesChange", this.resources);
+    }
+
     return {
-      resources: response.resources || [],
+      resources,
       nextCursor: response.nextCursor,
     };
   }
@@ -1596,13 +1705,16 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     try {
-      const allResources: Resource[] = [];
+      // Store current URIs before fetching (capture before first page resets the list)
+      const currentUris = new Set(this.resources.map((r) => r.uri));
+
+      // Fetch all pages (suppress events during pagination)
+      // First page resets the list, subsequent pages append
       let cursor: string | undefined;
       let pageCount = 0;
 
       do {
-        const result = await this.listResources(cursor, metadata);
-        allResources.push(...result.resources);
+        const result = await this.listResources(cursor, metadata, true);
         cursor = result.nextCursor;
         pageCount++;
         if (pageCount >= MAX_PAGES) {
@@ -1612,21 +1724,21 @@ export class InspectorClient extends InspectorClientEventTarget {
         }
       } while (cursor);
 
-      // Find removed URIs by comparing with current resources
-      const currentUris = new Set(this.resources.map((r) => r.uri));
-      const newUris = new Set(allResources.map((r) => r.uri));
-      // Clear cache for removed resources
-      for (const uri of currentUris) {
-        if (!newUris.has(uri)) {
-          this.cacheInternal.clearResource(uri);
+      // Find removed URIs by comparing previous state with new state
+      const newUris = new Set(this.resources.map((r) => r.uri));
+      // Clear cache for removed resources (only if we had resources before)
+      if (currentUris.size > 0) {
+        for (const uri of currentUris) {
+          if (!newUris.has(uri)) {
+            this.cacheInternal.clearResource(uri);
+          }
         }
       }
-      // Update internal state
-      this.resources = allResources;
-      // Dispatch change event
+
+      // Dispatch final change event (listResources calls were suppressed)
       this.dispatchTypedEvent("resourcesChange", this.resources);
       // Note: Cached content for existing resources is automatically preserved
-      return allResources;
+      return this.resources;
     } catch (error) {
       throw new Error(
         `Failed to list all resources: ${error instanceof Error ? error.message : String(error)}`,
@@ -1748,13 +1860,15 @@ export class InspectorClient extends InspectorClientEventTarget {
 
   /**
    * List resource templates with pagination support
-   * @param cursor Optional cursor for pagination
+   * @param cursor Optional cursor for pagination. If not provided, clears existing resource templates and starts fresh.
    * @param metadata Optional metadata to include in the request
+   * @param suppressEvents If true, does not dispatch resourceTemplatesChange event (default: false)
    * @returns Object containing resourceTemplates array and optional nextCursor
    */
   async listResourceTemplates(
     cursor?: string,
     metadata?: Record<string, string>,
+    suppressEvents: boolean = false,
   ): Promise<{ resourceTemplates: ResourceTemplate[]; nextCursor?: string }> {
     if (!this.client) {
       throw new Error("Client is not connected");
@@ -1769,8 +1883,27 @@ export class InspectorClient extends InspectorClientEventTarget {
         params,
         this.getRequestOptions(metadata?.progressToken),
       );
+      const resourceTemplates = response.resourceTemplates || [];
+
+      // Update internal state: reset if no cursor, append if cursor provided
+      if (cursor) {
+        // Append to existing resource templates
+        this.resourceTemplates.push(...resourceTemplates);
+      } else {
+        // Clear and start fresh
+        this.resourceTemplates = resourceTemplates;
+      }
+
+      // Dispatch change event unless suppressed
+      if (!suppressEvents) {
+        this.dispatchTypedEvent(
+          "resourceTemplatesChange",
+          this.resourceTemplates,
+        );
+      }
+
       return {
-        resourceTemplates: response.resourceTemplates || [],
+        resourceTemplates,
         nextCursor: response.nextCursor,
       };
     } catch (error) {
@@ -1792,13 +1925,17 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     try {
-      const allTemplates: ResourceTemplate[] = [];
+      // Store current uriTemplates before fetching
+      const currentUriTemplates = new Set(
+        this.resourceTemplates.map((t) => t.uriTemplate),
+      );
+
+      // Fetch all pages (suppress events during pagination)
       let cursor: string | undefined;
       let pageCount = 0;
 
       do {
-        const result = await this.listResourceTemplates(cursor, metadata);
-        allTemplates.push(...result.resourceTemplates);
+        const result = await this.listResourceTemplates(cursor, metadata, true);
         cursor = result.nextCursor;
         pageCount++;
         if (pageCount >= MAX_PAGES) {
@@ -1809,25 +1946,23 @@ export class InspectorClient extends InspectorClientEventTarget {
       } while (cursor);
 
       // Find removed uriTemplates by comparing with current templates
-      const currentUriTemplates = new Set(
+      const newUriTemplates = new Set(
         this.resourceTemplates.map((t) => t.uriTemplate),
       );
-      const newUriTemplates = new Set(allTemplates.map((t) => t.uriTemplate));
       // Clear cache for removed templates
       for (const uriTemplate of currentUriTemplates) {
         if (!newUriTemplates.has(uriTemplate)) {
           this.cacheInternal.clearResourceTemplate(uriTemplate);
         }
       }
-      // Update internal state
-      this.resourceTemplates = allTemplates;
-      // Dispatch change event
+
+      // Dispatch final change event (listResourceTemplates calls were suppressed)
       this.dispatchTypedEvent(
         "resourceTemplatesChange",
         this.resourceTemplates,
       );
       // Note: Cached content for existing templates is automatically preserved
-      return allTemplates;
+      return this.resourceTemplates;
     } catch (error) {
       throw new Error(
         `Failed to list all resource templates: ${error instanceof Error ? error.message : String(error)}`,
@@ -1837,13 +1972,15 @@ export class InspectorClient extends InspectorClientEventTarget {
 
   /**
    * List available prompts with pagination support
-   * @param cursor Optional cursor for pagination
+   * @param cursor Optional cursor for pagination. If not provided, clears existing prompts and starts fresh.
    * @param metadata Optional metadata to include in the request
+   * @param suppressEvents If true, does not dispatch promptsChange event (default: false)
    * @returns Object containing prompts array and optional nextCursor
    */
   async listPrompts(
     cursor?: string,
     metadata?: Record<string, string>,
+    suppressEvents: boolean = false,
   ): Promise<{ prompts: Prompt[]; nextCursor?: string }> {
     if (!this.client) {
       throw new Error("Client is not connected");
@@ -1857,8 +1994,24 @@ export class InspectorClient extends InspectorClientEventTarget {
       params,
       this.getRequestOptions(metadata?.progressToken),
     );
+    const prompts = response.prompts || [];
+
+    // Update internal state: reset if no cursor, append if cursor provided
+    if (cursor) {
+      // Append to existing prompts
+      this.prompts.push(...prompts);
+    } else {
+      // Clear and start fresh
+      this.prompts = prompts;
+    }
+
+    // Dispatch change event unless suppressed
+    if (!suppressEvents) {
+      this.dispatchTypedEvent("promptsChange", this.prompts);
+    }
+
     return {
-      prompts: response.prompts || [],
+      prompts,
       nextCursor: response.nextCursor,
     };
   }
@@ -1873,13 +2026,15 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     try {
-      const allPrompts: Prompt[] = [];
+      // Store current prompt names before fetching
+      const currentNames = new Set(this.prompts.map((p) => p.name));
+
+      // Fetch all pages (suppress events during pagination)
       let cursor: string | undefined;
       let pageCount = 0;
 
       do {
-        const result = await this.listPrompts(cursor, metadata);
-        allPrompts.push(...result.prompts);
+        const result = await this.listPrompts(cursor, metadata, true);
         cursor = result.nextCursor;
         pageCount++;
         if (pageCount >= MAX_PAGES) {
@@ -1890,20 +2045,18 @@ export class InspectorClient extends InspectorClientEventTarget {
       } while (cursor);
 
       // Find removed prompt names by comparing with current prompts
-      const currentNames = new Set(this.prompts.map((p) => p.name));
-      const newNames = new Set(allPrompts.map((p) => p.name));
+      const newNames = new Set(this.prompts.map((p) => p.name));
       // Clear cache for removed prompts
       for (const name of currentNames) {
         if (!newNames.has(name)) {
           this.cacheInternal.clearPrompt(name);
         }
       }
-      // Update internal state
-      this.prompts = allPrompts;
-      // Dispatch change event
+
+      // Dispatch final change event (listPrompts calls were suppressed)
       this.dispatchTypedEvent("promptsChange", this.prompts);
       // Note: Cached content for existing prompts is automatically preserved
-      return allPrompts;
+      return this.prompts;
     } catch (error) {
       throw new Error(
         `Failed to list all prompts: ${error instanceof Error ? error.message : String(error)}`,

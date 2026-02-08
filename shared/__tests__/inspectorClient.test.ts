@@ -712,6 +712,197 @@ describe("InspectorClient", () => {
       const allTools = await client.listAllTools();
       expect(allTools.length).toBe(10);
     });
+
+    it("should suppress events during listAllTools pagination and emit final event", async () => {
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: createNumberedTools(6),
+        maxPageSize: {
+          tools: 2,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      const events: TypedEvent<"toolsChange">[] = [];
+      client.addEventListener("toolsChange", (e) => {
+        events.push(e);
+      });
+
+      // listAllTools should suppress events during pagination and emit one final event
+      await client.listAllTools();
+      expect(client.getTools().length).toBe(6);
+      // Should only emit one event (final), not one per page
+      expect(events.length).toBe(1);
+      expect(events[0]!.detail.length).toBe(6);
+    });
+
+    it("should accumulate tools when paginating with cursor", async () => {
+      // Disconnect and create a new server with pagination
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      // Create server with 6 tools and page size of 2
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: createNumberedTools(6),
+        maxPageSize: {
+          tools: 2,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Initially empty
+      expect(client.getTools().length).toBe(0);
+
+      // First page (no cursor) - should clear and load 2 tools
+      const page1 = await client.listTools();
+      expect(page1.tools.length).toBe(2);
+      expect(client.getTools().length).toBe(2);
+      expect(client.getTools()[0]?.name).toBe("tool-1");
+      expect(client.getTools()[1]?.name).toBe("tool-2");
+
+      // Second page (with cursor) - should append 2 more tools
+      const page2 = await client.listTools(page1.nextCursor);
+      expect(page2.tools.length).toBe(2);
+      expect(client.getTools().length).toBe(4);
+      expect(client.getTools()[2]?.name).toBe("tool-3");
+      expect(client.getTools()[3]?.name).toBe("tool-4");
+
+      // Third page (with cursor) - should append 2 more tools
+      const page3 = await client.listTools(page2.nextCursor);
+      expect(page3.tools.length).toBe(2);
+      expect(client.getTools().length).toBe(6);
+      expect(client.getTools()[4]?.name).toBe("tool-5");
+      expect(client.getTools()[5]?.name).toBe("tool-6");
+
+      // Calling without cursor again should reset
+      const page1Again = await client.listTools();
+      expect(page1Again.tools.length).toBe(2);
+      expect(client.getTools().length).toBe(2);
+      expect(client.getTools()[0]?.name).toBe("tool-1");
+    });
+
+    it("should emit toolsChange events when paginating", async () => {
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: createNumberedTools(6),
+        maxPageSize: {
+          tools: 2,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      const events: TypedEvent<"toolsChange">[] = [];
+      client.addEventListener("toolsChange", (e) => {
+        events.push(e);
+      });
+
+      // First page should emit event
+      const page1 = await client.listTools();
+      expect(events.length).toBe(1);
+      expect(events[0]!.detail.length).toBe(2);
+
+      // Second page should emit event (with cursor, appends)
+      await client.listTools(page1.nextCursor);
+      expect(events.length).toBe(2);
+      expect(events[1]!.detail.length).toBe(4);
+    });
+
+    it("should clear tools and emit event", async () => {
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: createNumberedTools(3),
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Load some tools
+      await client.listAllTools();
+      expect(client.getTools().length).toBe(3);
+
+      const events: TypedEvent<"toolsChange">[] = [];
+      client.addEventListener("toolsChange", (e) => {
+        events.push(e);
+      });
+
+      // Clear should emit event and empty the list
+      client.clearTools();
+      expect(client.getTools().length).toBe(0);
+      expect(events.length).toBe(1);
+      expect(events[0]!.detail.length).toBe(0);
+    });
   });
 
   describe("Resource Methods", () => {
@@ -810,6 +1001,241 @@ describe("InspectorClient", () => {
       // listAllResources should get all 10 resources
       const allResources = await client.listAllResources();
       expect(allResources.length).toBe(10);
+    });
+
+    it("should suppress events during listAllResources pagination and emit final event", async () => {
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: createNumberedResources(6),
+        maxPageSize: {
+          resources: 2,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      const events: TypedEvent<"resourcesChange">[] = [];
+      client.addEventListener("resourcesChange", (e) => {
+        events.push(e);
+      });
+
+      // listAllResources should suppress events during pagination and emit one final event
+      await client.listAllResources();
+      expect(client.getResources().length).toBe(6);
+      // Should only emit one event (final), not one per page
+      expect(events.length).toBe(1);
+      expect(events[0]!.detail.length).toBe(6);
+    });
+
+    it("should accumulate resources when paginating with cursor", async () => {
+      // Disconnect and create a new server with pagination
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      // Create server with 6 resources and page size of 2
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: createNumberedResources(6),
+        maxPageSize: {
+          resources: 2,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Initially empty
+      expect(client.getResources().length).toBe(0);
+
+      // First page (no cursor) - should clear and load 2 resources
+      const page1 = await client.listResources();
+      expect(page1.resources.length).toBe(2);
+      expect(client.getResources().length).toBe(2);
+      expect(client.getResources()[0]?.uri).toBe("test://resource-1");
+      expect(client.getResources()[1]?.uri).toBe("test://resource-2");
+
+      // Second page (with cursor) - should append 2 more resources
+      const page2 = await client.listResources(page1.nextCursor);
+      expect(page2.resources.length).toBe(2);
+      expect(client.getResources().length).toBe(4);
+      expect(client.getResources()[2]?.uri).toBe("test://resource-3");
+      expect(client.getResources()[3]?.uri).toBe("test://resource-4");
+
+      // Third page (with cursor) - should append 2 more resources
+      const page3 = await client.listResources(page2.nextCursor);
+      expect(page3.resources.length).toBe(2);
+      expect(client.getResources().length).toBe(6);
+      expect(client.getResources()[4]?.uri).toBe("test://resource-5");
+      expect(client.getResources()[5]?.uri).toBe("test://resource-6");
+
+      // Calling without cursor again should reset
+      const page1Again = await client.listResources();
+      expect(page1Again.resources.length).toBe(2);
+      expect(client.getResources().length).toBe(2);
+      expect(client.getResources()[0]?.uri).toBe("test://resource-1");
+    });
+
+    it("should emit resourcesChange events when paginating", async () => {
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: createNumberedResources(6),
+        maxPageSize: {
+          resources: 2,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      const events: TypedEvent<"resourcesChange">[] = [];
+      client.addEventListener("resourcesChange", (e) => {
+        events.push(e);
+      });
+
+      // First page should emit event
+      const page1 = await client.listResources();
+      expect(events.length).toBe(1);
+      expect(events[0]!.detail.length).toBe(2);
+
+      // Second page should emit event (with cursor, appends)
+      await client.listResources(page1.nextCursor);
+      expect(events.length).toBe(2);
+      expect(events[1]!.detail.length).toBe(4);
+    });
+
+    it("should not emit events when suppressEvents is true", async () => {
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: createNumberedResources(6),
+        maxPageSize: {
+          resources: 2,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      const events: TypedEvent<"resourcesChange">[] = [];
+      client.addEventListener("resourcesChange", (e) => {
+        events.push(e);
+      });
+
+      // Suppress events - should update state but not emit
+      await client.listResources(undefined, undefined, true);
+      expect(client.getResources().length).toBe(2);
+      expect(events.length).toBe(0);
+
+      // Normal call should emit
+      await client.listResources();
+      expect(events.length).toBe(1);
+    });
+
+    it("should clear resources and emit event", async () => {
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resources: createNumberedResources(3),
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Load some resources
+      await client.listAllResources();
+      expect(client.getResources().length).toBe(3);
+
+      const events: TypedEvent<"resourcesChange">[] = [];
+      client.addEventListener("resourcesChange", (e) => {
+        events.push(e);
+      });
+
+      // Clear should emit event and empty the list
+      client.clearResources();
+      expect(client.getResources().length).toBe(0);
+      expect(events.length).toBe(1);
+      expect(events[0]!.detail.length).toBe(0);
     });
   });
 
@@ -1001,6 +1427,124 @@ describe("InspectorClient", () => {
       const allTemplates = await client.listAllResourceTemplates();
       expect(allTemplates.length).toBe(10);
     });
+
+    it("should accumulate resource templates when paginating with cursor", async () => {
+      // Disconnect and create a new server with pagination
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      // Create server with 6 templates and page size of 2
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resourceTemplates: createNumberedResourceTemplates(6),
+        maxPageSize: {
+          resourceTemplates: 2,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Initially empty
+      expect(client.getResourceTemplates().length).toBe(0);
+
+      // First page (no cursor) - should clear and load 2 templates
+      const page1 = await client.listResourceTemplates();
+      expect(page1.resourceTemplates.length).toBe(2);
+      expect(client.getResourceTemplates().length).toBe(2);
+      expect(client.getResourceTemplates()[0]?.uriTemplate).toBe(
+        "test://template-1/{param}",
+      );
+      expect(client.getResourceTemplates()[1]?.uriTemplate).toBe(
+        "test://template-2/{param}",
+      );
+
+      // Second page (with cursor) - should append 2 more templates
+      const page2 = await client.listResourceTemplates(page1.nextCursor);
+      expect(page2.resourceTemplates.length).toBe(2);
+      expect(client.getResourceTemplates().length).toBe(4);
+      expect(client.getResourceTemplates()[2]?.uriTemplate).toBe(
+        "test://template-3/{param}",
+      );
+      expect(client.getResourceTemplates()[3]?.uriTemplate).toBe(
+        "test://template-4/{param}",
+      );
+
+      // Third page (with cursor) - should append 2 more templates
+      const page3 = await client.listResourceTemplates(page2.nextCursor);
+      expect(page3.resourceTemplates.length).toBe(2);
+      expect(client.getResourceTemplates().length).toBe(6);
+      expect(client.getResourceTemplates()[4]?.uriTemplate).toBe(
+        "test://template-5/{param}",
+      );
+      expect(client.getResourceTemplates()[5]?.uriTemplate).toBe(
+        "test://template-6/{param}",
+      );
+
+      // Calling without cursor again should reset
+      const page1Again = await client.listResourceTemplates();
+      expect(page1Again.resourceTemplates.length).toBe(2);
+      expect(client.getResourceTemplates().length).toBe(2);
+      expect(client.getResourceTemplates()[0]?.uriTemplate).toBe(
+        "test://template-1/{param}",
+      );
+    });
+
+    it("should clear resource templates and emit event", async () => {
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        resourceTemplates: createNumberedResourceTemplates(3),
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Load some templates
+      await client.listAllResourceTemplates();
+      expect(client.getResourceTemplates().length).toBe(3);
+
+      const events: TypedEvent<"resourceTemplatesChange">[] = [];
+      client.addEventListener("resourceTemplatesChange", (e) => {
+        events.push(e);
+      });
+
+      // Clear should emit event and empty the list
+      client.clearResourceTemplates();
+      expect(client.getResourceTemplates().length).toBe(0);
+      expect(events.length).toBe(1);
+      expect(events[0]!.detail.length).toBe(0);
+    });
   });
 
   describe("Prompt Methods", () => {
@@ -1088,6 +1632,197 @@ describe("InspectorClient", () => {
       // listAllPrompts should get all 10 prompts
       const allPrompts = await client.listAllPrompts();
       expect(allPrompts.length).toBe(10);
+    });
+
+    it("should suppress events during listAllPrompts pagination and emit final event", async () => {
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        prompts: createNumberedPrompts(6),
+        maxPageSize: {
+          prompts: 2,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      const events: TypedEvent<"promptsChange">[] = [];
+      client.addEventListener("promptsChange", (e) => {
+        events.push(e);
+      });
+
+      // listAllPrompts should suppress events during pagination and emit one final event
+      await client.listAllPrompts();
+      expect(client.getPrompts().length).toBe(6);
+      // Should only emit one event (final), not one per page
+      expect(events.length).toBe(1);
+      expect(events[0]!.detail.length).toBe(6);
+    });
+
+    it("should accumulate prompts when paginating with cursor", async () => {
+      // Disconnect and create a new server with pagination
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      // Create server with 6 prompts and page size of 2
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        prompts: createNumberedPrompts(6),
+        maxPageSize: {
+          prompts: 2,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Initially empty
+      expect(client.getPrompts().length).toBe(0);
+
+      // First page (no cursor) - should clear and load 2 prompts
+      const page1 = await client.listPrompts();
+      expect(page1.prompts.length).toBe(2);
+      expect(client.getPrompts().length).toBe(2);
+      expect(client.getPrompts()[0]?.name).toBe("prompt-1");
+      expect(client.getPrompts()[1]?.name).toBe("prompt-2");
+
+      // Second page (with cursor) - should append 2 more prompts
+      const page2 = await client.listPrompts(page1.nextCursor);
+      expect(page2.prompts.length).toBe(2);
+      expect(client.getPrompts().length).toBe(4);
+      expect(client.getPrompts()[2]?.name).toBe("prompt-3");
+      expect(client.getPrompts()[3]?.name).toBe("prompt-4");
+
+      // Third page (with cursor) - should append 2 more prompts
+      const page3 = await client.listPrompts(page2.nextCursor);
+      expect(page3.prompts.length).toBe(2);
+      expect(client.getPrompts().length).toBe(6);
+      expect(client.getPrompts()[4]?.name).toBe("prompt-5");
+      expect(client.getPrompts()[5]?.name).toBe("prompt-6");
+
+      // Calling without cursor again should reset
+      const page1Again = await client.listPrompts();
+      expect(page1Again.prompts.length).toBe(2);
+      expect(client.getPrompts().length).toBe(2);
+      expect(client.getPrompts()[0]?.name).toBe("prompt-1");
+    });
+
+    it("should emit promptsChange events when paginating", async () => {
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        prompts: createNumberedPrompts(6),
+        maxPageSize: {
+          prompts: 2,
+        },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      const events: TypedEvent<"promptsChange">[] = [];
+      client.addEventListener("promptsChange", (e) => {
+        events.push(e);
+      });
+
+      // First page should emit event
+      const page1 = await client.listPrompts();
+      expect(events.length).toBe(1);
+      expect(events[0]!.detail.length).toBe(2);
+
+      // Second page should emit event (with cursor, appends)
+      await client.listPrompts(page1.nextCursor);
+      expect(events.length).toBe(2);
+      expect(events[1]!.detail.length).toBe(4);
+    });
+
+    it("should clear prompts and emit event", async () => {
+      await client.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        prompts: createNumberedPrompts(3),
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+          autoFetchServerContents: false,
+        },
+      );
+
+      await client.connect();
+
+      // Load some prompts
+      await client.listAllPrompts();
+      expect(client.getPrompts().length).toBe(3);
+
+      const events: TypedEvent<"promptsChange">[] = [];
+      client.addEventListener("promptsChange", (e) => {
+        events.push(e);
+      });
+
+      // Clear should emit event and empty the list
+      client.clearPrompts();
+      expect(client.getPrompts().length).toBe(0);
+      expect(events.length).toBe(1);
+      expect(events[0]!.detail.length).toBe(0);
     });
   });
 
@@ -3051,10 +3786,7 @@ describe("InspectorClient", () => {
 
       await client.connect();
 
-      // First list resources to populate the list
-      await client.listResources();
-
-      // Load a resource to populate cache
+      // Load a resource to populate cache (before listing)
       const uri = "demo://resource/static/document/architecture.md";
       await client.readResource(uri);
       expect(client.cache.getResource(uri)).not.toBeNull();
@@ -3070,6 +3802,7 @@ describe("InspectorClient", () => {
         );
       });
 
+      // listAllResources will reset and reload all resources
       const resources = await client.listAllResources();
       const event = await resourcesChangePromise;
 
@@ -3136,14 +3869,11 @@ describe("InspectorClient", () => {
       );
       await client.connect();
 
-      // First list resources to populate the list
-      await client.listResources();
-
-      // Load uri1 again to populate cache
+      // Load the remaining resource to populate cache
       await client.readResource(uri1);
 
-      // List resources (should only have uri1 now)
-      await client.listResources();
+      // listAllResources clears cache for removed resources
+      await client.listAllResources();
 
       // Cache for uri1 should be preserved, uri2 should be cleared
       expect(client.cache.getResource(uri1)).not.toBeNull();
