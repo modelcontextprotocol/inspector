@@ -284,13 +284,11 @@ const App = () => {
   const inspectorClient = useMemo(() => {
     // Can't create without config
     if (!command && !sseUrl) {
-      console.log("[InspectorClient] No config available yet");
       return null;
     }
 
     // Need auth token for Inspector API
     if (!authToken) {
-      console.log("[InspectorClient] No auth token available");
       return null;
     }
 
@@ -322,18 +320,6 @@ const App = () => {
           clientSecret: oauthClientSecret || undefined,
           scope: oauthScope || undefined,
         },
-      });
-
-      console.log("[InspectorClient] Created successfully", {
-        transportType,
-        hasCommand: !!command,
-        hasSseUrl: !!sseUrl,
-        authTokenPresent: !!authToken,
-        config:
-          config.type === "stdio"
-            ? { type: "stdio", command, args: config.args, env: config.env }
-            : { type: config.type, url: sseUrl },
-        fullConfig: config, // Log the full config being sent
       });
 
       return client;
