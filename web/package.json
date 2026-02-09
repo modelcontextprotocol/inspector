@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.0",
-    "@modelcontextprotocol/inspector-shared": "workspace:*",
+    "@modelcontextprotocol/inspector-shared": "*",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@radix-ui/react-checkbox": "^1.1.4",
     "@radix-ui/react-dialog": "^1.1.3",
