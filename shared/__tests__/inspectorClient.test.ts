@@ -102,7 +102,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -120,7 +120,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -140,7 +140,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true,
+          autoSyncLists: true,
         },
       );
 
@@ -162,7 +162,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -204,7 +204,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -229,7 +229,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -255,7 +255,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           maxMessages: 5,
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -278,7 +278,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -302,7 +302,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -334,7 +334,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -366,7 +366,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -398,7 +398,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -434,7 +434,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           maxFetchRequests: 3,
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -462,7 +462,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -491,7 +491,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -517,7 +517,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true,
+          autoSyncLists: true,
         },
       );
 
@@ -537,7 +537,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -555,7 +555,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true,
+          autoSyncLists: true,
         },
       );
 
@@ -581,7 +581,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -672,7 +672,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -736,7 +736,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -780,7 +780,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -840,7 +840,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -882,7 +882,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -915,7 +915,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -962,7 +962,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1026,7 +1026,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1070,7 +1070,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1130,7 +1130,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1175,7 +1175,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1216,7 +1216,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1255,7 +1255,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1325,7 +1325,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1367,7 +1367,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1453,7 +1453,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1524,7 +1524,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1557,7 +1557,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -1593,7 +1593,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1657,7 +1657,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1701,7 +1701,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1761,7 +1761,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1803,7 +1803,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -1845,7 +1845,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           progress: true,
         },
       );
@@ -1916,7 +1916,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           progress: false, // Disable progress
         },
       );
@@ -1973,7 +1973,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           progress: true,
         },
       );
@@ -2034,7 +2034,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           progress: true,
           timeout: 2000,
           resetTimeoutOnProgress: true,
@@ -2080,7 +2080,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           progress: true,
           timeout: 350,
           resetTimeoutOnProgress: true,
@@ -2125,7 +2125,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           progress: true,
           timeout: 150,
           resetTimeoutOnProgress: false,
@@ -2164,7 +2164,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           initialLoggingLevel: "debug",
         },
       );
@@ -2189,7 +2189,7 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           pipeStderr: true,
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -2216,7 +2216,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -2242,7 +2242,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -2264,7 +2264,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -2298,7 +2298,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           sample: true, // Enable sampling capability
         },
       );
@@ -2394,7 +2394,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -2452,7 +2452,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -2510,7 +2510,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -2571,7 +2571,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           elicit: true, // Enable elicitation capability
         },
       );
@@ -2674,7 +2674,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           elicit: { url: true }, // Enable elicitation capability
         },
       );
@@ -2779,7 +2779,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           roots: initialRoots, // Enable roots capability
         },
       );
@@ -2831,7 +2831,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           roots: [], // Enable roots capability with empty array
         },
       );
@@ -2916,7 +2916,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -2966,7 +2966,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3002,7 +3002,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3061,7 +3061,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3110,7 +3110,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3139,7 +3139,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3164,7 +3164,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true,
+          autoSyncLists: true,
         },
       );
 
@@ -3222,7 +3222,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3248,7 +3248,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -3291,7 +3291,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true, // Auto-fetch to populate templates
+          autoSyncLists: true, // Auto-fetch to populate templates
         },
       );
       await client.connect();
@@ -3343,7 +3343,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true, // Auto-fetch to populate prompts
+          autoSyncLists: true, // Auto-fetch to populate prompts
         },
       );
       await client.connect();
@@ -3390,7 +3390,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true, // Auto-fetch to populate tools
+          autoSyncLists: true, // Auto-fetch to populate tools
         },
       );
       await client.connect();
@@ -3439,7 +3439,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -3486,7 +3486,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -3522,7 +3522,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -3561,7 +3561,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3585,7 +3585,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3619,7 +3619,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3646,7 +3646,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3674,7 +3674,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3702,7 +3702,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           listChangedNotifications: {
             tools: false,
             resources: true,
@@ -3735,7 +3735,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3780,7 +3780,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3830,7 +3830,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3864,7 +3864,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -3897,7 +3897,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -3951,7 +3951,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -4007,7 +4007,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true, // Auto-fetch to populate initial state
+          autoSyncLists: true, // Auto-fetch to populate initial state
         },
       );
 
@@ -4048,6 +4048,111 @@ describe("InspectorClient", () => {
       await server.stop();
     });
 
+    it("should fire toolsListChanged event when server sends tools/list_changed notification", async () => {
+      const { createAddToolTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool(), createAddToolTool()],
+        listChanged: { tools: true },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          autoSyncLists: false, // Don't auto-reload
+        },
+      );
+
+      await client.connect();
+
+      // Wait for toolsListChanged event
+      const toolsListChangedPromise = new Promise<CustomEvent>((resolve) => {
+        client.addEventListener(
+          "toolsListChanged",
+          (event) => {
+            resolve(event);
+          },
+          { once: true },
+        );
+      });
+
+      // Add a new tool (this will send list_changed notification)
+      await client.callTool("addTool", {
+        name: "newTool",
+        description: "A new test tool",
+      });
+      await toolsListChangedPromise;
+
+      // Event should have fired (notification received)
+      // But tools should NOT be reloaded since autoSyncLists is false
+      const tools = client.getTools();
+      expect(tools.find((t) => t.name === "newTool")).toBeUndefined();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
+    it("should reload tools when autoSyncLists is true and toolsListChanged fires", async () => {
+      const { createAddToolTool } =
+        await import("../test/test-server-fixtures.js");
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool(), createAddToolTool()],
+        listChanged: { tools: true },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          autoSyncLists: true, // Auto-reload enabled
+        },
+      );
+
+      await client.connect();
+
+      const events: CustomEvent[] = [];
+      client.addEventListener("toolsListChanged", (event) => {
+        events.push(event);
+      });
+      client.addEventListener("toolsChange", (event) => {
+        events.push(event);
+      });
+
+      // Add a new tool (this will send list_changed notification)
+      await client.callTool("addTool", {
+        name: "newTool",
+        description: "A new test tool",
+      });
+
+      // Wait a bit for events to fire
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Should have received both events
+      expect(events.length).toBeGreaterThanOrEqual(2);
+      expect(events.some((e) => e.type === "toolsListChanged")).toBe(true);
+      expect(events.some((e) => e.type === "toolsChange")).toBe(true);
+
+      // Tools should be reloaded
+      const tools = client.getTools();
+      expect(tools.find((t) => t.name === "newTool")).toBeDefined();
+
+      await client.disconnect();
+      await server.stop();
+    });
+
     it("should handle resources/list_changed notification and reload resources and templates", async () => {
       const { createAddResourceTool } =
         await import("../test/test-server-fixtures.js");
@@ -4068,7 +4173,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true,
+          autoSyncLists: true,
         },
       );
 
@@ -4142,7 +4247,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true,
+          autoSyncLists: true,
         },
       );
 
@@ -4198,7 +4303,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true,
+          autoSyncLists: true,
           listChangedNotifications: {
             tools: false, // Disable tools listChanged handler
             resources: true,
@@ -4271,7 +4376,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true,
+          autoSyncLists: true,
         },
       );
 
@@ -4304,7 +4409,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true,
+          autoSyncLists: true,
         },
       );
 
@@ -4361,7 +4466,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true,
+          autoSyncLists: true,
         },
       );
 
@@ -4418,7 +4523,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: true,
+          autoSyncLists: true,
         },
       );
 
@@ -4473,7 +4578,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -4507,7 +4612,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -4543,7 +4648,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -4577,7 +4682,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -4616,7 +4721,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -4655,7 +4760,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -4705,7 +4810,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -4755,7 +4860,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -4790,7 +4895,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -4852,7 +4957,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
 
@@ -4915,7 +5020,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -5235,7 +5340,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -5280,7 +5385,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -5340,7 +5445,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           elicit: true,
         },
       );
@@ -5403,7 +5508,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           sample: true,
         },
       );
@@ -5470,7 +5575,7 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           progress: true,
         },
       );

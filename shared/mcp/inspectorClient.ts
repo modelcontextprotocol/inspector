@@ -175,10 +175,12 @@ export interface InspectorClientOptions {
   pipeStderr?: boolean;
 
   /**
-   * Whether to automatically fetch server contents (tools, resources, prompts) on connect
-   * (default: true for backward compatibility with TUI)
+   * Whether to automatically sync lists (tools, resources, prompts) on connect and when
+   * list_changed notifications are received (default: true)
+   * If false, lists must be loaded manually via listTools(), listResources(), etc.
+   * Note: This only controls reloading; listChangedNotifications controls subscription.
    */
-  autoFetchServerContents?: boolean;
+  autoSyncLists?: boolean;
 
   /**
    * Initial logging level to set after connection (if server supports logging)
@@ -214,7 +216,9 @@ export interface InspectorClientOptions {
 
   /**
    * Whether to enable listChanged notification handlers (default: true)
-   * If enabled, InspectorClient will automatically reload lists when notifications are received
+   * If enabled, InspectorClient will subscribe to list_changed notifications and fire
+   * corresponding events (toolsListChanged, resourcesListChanged, promptsListChanged).
+   * If autoSyncLists is also true, lists will be automatically reloaded when notifications arrive.
    */
   listChangedNotifications?: {
     tools?: boolean; // default: true
@@ -292,7 +296,7 @@ export class InspectorClient extends InspectorClientEventTarget {
   private maxStderrLogEvents: number;
   private maxFetchRequests: number;
   private pipeStderr: boolean;
-  private autoFetchServerContents: boolean;
+  private autoSyncLists: boolean;
   private initialLoggingLevel?: LoggingLevel;
   private sample: boolean;
   private elicit: boolean | { form?: boolean; url?: boolean };
@@ -354,7 +358,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.maxStderrLogEvents = options.maxStderrLogEvents ?? 1000;
     this.maxFetchRequests = options.maxFetchRequests ?? 1000;
     this.pipeStderr = options.pipeStderr ?? false;
-    this.autoFetchServerContents = options.autoFetchServerContents ?? true;
+    this.autoSyncLists = options.autoSyncLists ?? true;
     this.initialLoggingLevel = options.initialLoggingLevel;
     this.sample = options.sample ?? true;
     this.elicit = options.elicit ?? true;
@@ -609,8 +613,8 @@ export class InspectorClient extends InspectorClientEventTarget {
       }
 
       // Auto-fetch server contents (tools, resources, prompts) if enabled
-      if (this.autoFetchServerContents) {
-        await this.fetchServerContents();
+      if (this.autoSyncLists) {
+        await this.loadAllLists();
       }
 
       // Set up sampling request handler if sampling capability is enabled
@@ -680,7 +684,12 @@ export class InspectorClient extends InspectorClientEventTarget {
           this.client.setNotificationHandler(
             ToolListChangedNotificationSchema,
             async () => {
-              await this.listAllTools();
+              // Always fire notification event (for tracking)
+              this.dispatchTypedEvent("toolsListChanged");
+              // Only reload if autoSyncLists is enabled
+              if (this.autoSyncLists) {
+                await this.listAllTools();
+              }
             },
           );
         }
@@ -695,9 +704,14 @@ export class InspectorClient extends InspectorClientEventTarget {
           this.client.setNotificationHandler(
             ResourceListChangedNotificationSchema,
             async () => {
-              // Resource templates are part of the resources capability
-              await this.listAllResources();
-              await this.listAllResourceTemplates();
+              // Always fire notification event (for tracking)
+              this.dispatchTypedEvent("resourcesListChanged");
+              // Only reload if autoSyncLists is enabled
+              if (this.autoSyncLists) {
+                // Resource templates are part of the resources capability
+                await this.listAllResources();
+                await this.listAllResourceTemplates();
+              }
             },
           );
         }
@@ -710,7 +724,12 @@ export class InspectorClient extends InspectorClientEventTarget {
           this.client.setNotificationHandler(
             PromptListChangedNotificationSchema,
             async () => {
-              await this.listAllPrompts();
+              // Always fire notification event (for tracking)
+              this.dispatchTypedEvent("promptsListChanged");
+              // Only reload if autoSyncLists is enabled
+              if (this.autoSyncLists) {
+                await this.listAllPrompts();
+              }
             },
           );
         }
@@ -2215,11 +2234,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Fetch server contents (tools, resources, prompts) by sending MCP requests.
-   * Only runs when autoFetchServerContents is enabled.
+   * Load all lists (tools, resources, prompts) by sending MCP requests.
+   * Only runs when autoSyncLists is enabled.
    * listChanged auto-refresh is implemented via notification handlers in connect().
    */
-  private async fetchServerContents(): Promise<void> {
+  private async loadAllLists(): Promise<void> {
     if (!this.client) {
       return;
     }

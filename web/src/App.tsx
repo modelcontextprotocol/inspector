@@ -311,7 +311,7 @@ const App = () => {
 
       const client = new InspectorClient(config, {
         environment,
-        autoFetchServerContents: false,
+        autoSyncLists: false,
         maxMessages: 1000,
         maxStderrLogEvents: 1000,
         maxFetchRequests: 1000,

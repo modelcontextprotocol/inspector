@@ -97,7 +97,7 @@ describe("Remote transport e2e", () => {
       environment: {
         transport: createTransport,
       },
-      autoFetchServerContents: false,
+      autoSyncLists: false,
       maxMessages: 100,
       maxFetchRequests: 100,
       maxStderrLogEvents: 100,
@@ -546,7 +546,7 @@ describe("Remote transport e2e", () => {
             transport: createTransport,
             logger: remoteLogger,
           },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           maxMessages: 100,
           maxFetchRequests: 100,
           maxStderrLogEvents: 100,

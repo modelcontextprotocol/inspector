@@ -25,7 +25,7 @@ describe("InspectorClient OAuth", () => {
     };
     client = new InspectorClient(config, {
       environment: { transport: createTransportNode },
-      autoFetchServerContents: false,
+      autoSyncLists: false,
     });
   });
 
@@ -60,7 +60,7 @@ describe("InspectorClient OAuth", () => {
               redirectUrlProvider: oauthConfig.redirectUrlProvider,
             },
           },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           oauth: {
             clientId: oauthConfig.clientId,
             clientSecret: oauthConfig.clientSecret,
@@ -92,7 +92,7 @@ describe("InspectorClient OAuth", () => {
               redirectUrlProvider: oauthConfig.redirectUrlProvider,
             },
           },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           oauth: {
             clientId: oauthConfig.clientId,
             clientSecret: oauthConfig.clientSecret,
@@ -124,7 +124,7 @@ describe("InspectorClient OAuth", () => {
               redirectUrlProvider: oauthConfig.redirectUrlProvider,
             },
           },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           oauth: {
             clientId: oauthConfig.clientId,
             clientSecret: oauthConfig.clientSecret,
@@ -210,7 +210,7 @@ describe("InspectorClient OAuth", () => {
               redirectUrlProvider: oauthConfig.redirectUrlProvider,
             },
           },
-          autoFetchServerContents: false,
+          autoSyncLists: false,
           oauth: {
             clientId: oauthConfig.clientId,
             clientSecret: oauthConfig.clientSecret,

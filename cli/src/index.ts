@@ -174,7 +174,7 @@ async function callMethod(args: Args): Promise<void> {
       transport: createTransportNode,
     },
     clientIdentity,
-    autoFetchServerContents: false, // CLI doesn't need auto-fetching, it calls methods directly
+    autoSyncLists: false, // CLI doesn't need auto-syncing, it calls methods directly
     initialLoggingLevel: "debug", // Set debug logging level for CLI
     progress: false, // CLI doesn't use progress; avoids SDK injecting progressToken into _meta
     sample: false, // CLI doesn't need sampling capability

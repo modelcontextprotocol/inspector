@@ -61,7 +61,7 @@ describe("InspectorClient OAuth fetchFn", () => {
             redirectUrlProvider: oauthConfig.redirectUrlProvider,
           },
         },
-        autoFetchServerContents: false,
+        autoSyncLists: false,
         oauth: {
           clientId: oauthConfig.clientId,
           clientSecret: oauthConfig.clientSecret,
@@ -100,7 +100,7 @@ describe("InspectorClient OAuth fetchFn", () => {
             redirectUrlProvider: oauthConfig.redirectUrlProvider,
           },
         },
-        autoFetchServerContents: false,
+        autoSyncLists: false,
         oauth: {
           clientId: oauthConfig.clientId,
           clientSecret: oauthConfig.clientSecret,
@@ -149,7 +149,7 @@ describe("InspectorClient OAuth fetchFn", () => {
             redirectUrlProvider: oauthConfig.redirectUrlProvider,
           },
         },
-        autoFetchServerContents: false,
+        autoSyncLists: false,
         oauth: {
           clientId: oauthConfig.clientId,
           clientSecret: oauthConfig.clientSecret,

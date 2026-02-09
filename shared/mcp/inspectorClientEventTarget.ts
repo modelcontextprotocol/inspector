@@ -96,6 +96,10 @@ export interface InspectorClientEventMap {
   messagesChange: void;
   stderrLogsChange: void;
   fetchRequestsChange: void;
+  // List changed notification events (fired when server sends list_changed notifications)
+  toolsListChanged: void;
+  resourcesListChanged: void;
+  promptsListChanged: void;
   // OAuth events
   oauthAuthorizationRequired: {
     url: URL;

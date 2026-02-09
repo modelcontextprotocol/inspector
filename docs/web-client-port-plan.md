@@ -1901,11 +1901,4 @@ The port is complete when:
 
 ## Issues
 
-There is a slight wrinkle to Web app tool loading (maybe also prompts/resources)
-
-- When we get a tools/list_changed notification (which the everything server sends on startup)
-- It triggers a loadAllTools, which sends an event and refreshes the tools in the UX
-- This behavior is built into InspectorClient, but maybe should be deferred to the client
-  - If the client wants the list reloaded on change notification, it can just listen for the event and do it
-
 Future: Extend useInspectorClient to expose OAuth state (for guided flow in web and TUI)
