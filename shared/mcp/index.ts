@@ -51,3 +51,9 @@ export {
   convertToolParameters,
   convertPromptArguments,
 } from "../json/jsonUtils.js";
+
+// Re-export session storage types
+export type {
+  InspectorClientStorage,
+  InspectorClientSessionState,
+} from "./sessionStorage.js";

@@ -268,6 +268,8 @@ OAuth tokens and other state need to persist across sessions. In Node (TUI, CLI)
 
 **Web App Usage:** The web app uses `BrowserOAuthStorage` (sessionStorage) for browser-only OAuth state. This provides isolation between browser sessions but does not share state with TUI/CLI. To enable shared OAuth state with Node apps, switch to `RemoteOAuthStorage` in `createWebEnvironment()`.
 
+**Session persistence across OAuth:** InspectorClient can optionally persist session state (e.g. fetch history) across the OAuth redirect. This is an InspectorClient feature that reuses the same remote storage seam: the web app passes optional `sessionStorage` (e.g. `RemoteInspectorClientStorage`) and `sessionId` (from the OAuth `state` parameter). InspectorClient saves session before navigating to the auth provider and restores it when the client is recreated after the callback. Store IDs follow the pattern `inspector-session-{sessionId}` and use the existing `GET/POST /api/storage/:storeId` endpoints.
+
 ---
 
 ## Module Organization

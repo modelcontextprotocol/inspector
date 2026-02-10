@@ -84,6 +84,11 @@ import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/au
 import type pino from "pino";
 import { silentLogger } from "../auth/logger.js";
 import { createFetchTracker } from "./fetchTracking.js";
+import type {
+  InspectorClientStorage,
+  InspectorClientSessionState,
+} from "./sessionStorage.js";
+import { parseOAuthState } from "../auth/utils.js";
 
 /**
  * Consolidated environment interface that defines all environment-specific seams.
@@ -273,6 +278,19 @@ export interface InspectorClientOptions {
      */
     scope?: string;
   };
+
+  /**
+   * Optional storage for persisting session state across page navigations.
+   * When provided, InspectorClient will save/restore fetch requests, etc.
+   * during OAuth flows.
+   */
+  sessionStorage?: InspectorClientStorage;
+
+  /**
+   * Optional session ID. If not provided, will be extracted from OAuth state
+   * when OAuth flow starts. Used as key for sessionStorage.
+   */
+  sessionId?: string;
 }
 
 /**
@@ -340,6 +358,9 @@ export class InspectorClient extends InspectorClientEventTarget {
   private transportClientFactory: CreateTransport;
   private fetchFn?: typeof fetch;
   private effectiveAuthFetch: typeof fetch;
+  // Session storage support
+  private sessionStorage?: InspectorClientOptions["sessionStorage"];
+  private sessionId?: string;
 
   constructor(
     private transportConfig: MCPServerConfig,
@@ -376,6 +397,23 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     // Effective auth fetch: base fetch + tracking with category 'auth'
     this.effectiveAuthFetch = this.buildEffectiveAuthFetch();
+
+    // Session storage support
+    this.sessionStorage = options.sessionStorage;
+    this.sessionId = options.sessionId;
+
+    // Restore session if sessionId provided
+    if (this.sessionId && this.sessionStorage) {
+      this.restoreSession().catch((error) => {
+        this.logger.warn(
+          {
+            sessionId: this.sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "Failed to restore session",
+        );
+      });
+    }
 
     // Merge OAuth config with environment components
     if (options.oauth || options.environment.oauth) {
@@ -2369,6 +2407,99 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Get current session ID (from OAuth state authId)
+   */
+  getSessionId(): string | undefined {
+    return this.sessionId;
+  }
+
+  /**
+   * Set session ID (typically extracted from OAuth state)
+   */
+  setSessionId(sessionId: string): void {
+    this.sessionId = sessionId;
+  }
+
+  /**
+   * Save current session state to storage
+   */
+  async saveSession(): Promise<void> {
+    if (!this.sessionStorage || !this.sessionId) {
+      return;
+    }
+
+    const state: InspectorClientSessionState = {
+      fetchRequests: [...this.fetchRequests], // Copy array, timestamps will be serialized by storage
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    try {
+      await this.sessionStorage.saveSession(this.sessionId, state);
+      this.logger.debug(
+        {
+          sessionId: this.sessionId,
+          fetchRequestCount: this.fetchRequests.length,
+        },
+        "Session state saved",
+      );
+    } catch (error) {
+      this.logger.warn(
+        {
+          sessionId: this.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Failed to save session state",
+      );
+    }
+  }
+
+  /**
+   * Restore session state from storage
+   */
+  private async restoreSession(): Promise<void> {
+    if (!this.sessionStorage || !this.sessionId) {
+      return;
+    }
+
+    try {
+      const state = await this.sessionStorage.loadSession(this.sessionId);
+      if (!state) {
+        return;
+      }
+
+      // Restore fetch requests (convert timestamp strings back to Date objects)
+      if (state.fetchRequests && state.fetchRequests.length > 0) {
+        this.fetchRequests = state.fetchRequests.map((req) => ({
+          ...req,
+          timestamp:
+            req.timestamp instanceof Date
+              ? req.timestamp
+              : typeof req.timestamp === "string"
+                ? new Date(req.timestamp)
+                : new Date(req.timestamp as any),
+        }));
+        this.dispatchTypedEvent("fetchRequestsChange");
+        this.logger.debug(
+          {
+            sessionId: this.sessionId,
+            fetchRequestCount: this.fetchRequests.length,
+          },
+          "Session state restored",
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        {
+          sessionId: this.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Failed to restore session state",
+      );
+    }
+  }
+
+  /**
    * Get current roots
    */
   getRoots(): Root[] {
@@ -2602,6 +2733,17 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Failed to capture authorization URL");
     }
 
+    // Extract sessionId from OAuth state parameter in authorization URL
+    const stateParam = capturedUrl.searchParams.get("state");
+    if (stateParam) {
+      const parsedState = parseOAuthState(stateParam);
+      if (parsedState?.authId) {
+        this.sessionId = parsedState.authId;
+        // Save session before navigation
+        await this.saveSession();
+      }
+    }
+
     // Backfill oauthState so getOAuthState() returns consistent shape (normal flow)
     const clientInfo = await provider.clientInformation();
     this.oauthState = {
@@ -2699,6 +2841,17 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     if (!state?.authorizationUrl) {
       throw new Error("Failed to generate authorization URL");
+    }
+
+    // Extract sessionId from OAuth state parameter in authorization URL
+    const stateParam = state.authorizationUrl.searchParams.get("state");
+    if (stateParam) {
+      const parsedState = parseOAuthState(stateParam);
+      if (parsedState?.authId) {
+        this.sessionId = parsedState.authId;
+        // Save session before navigation
+        await this.saveSession();
+      }
     }
 
     this.dispatchTypedEvent("oauthAuthorizationRequired", {

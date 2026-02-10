@@ -40,9 +40,9 @@ const OAuthCallback = ({
         // If we have a code, store it and return early
         if (params.successful && params.code) {
           // Store code in sessionStorage for potential auto-fill (future enhancement)
-          if (parsedState?.random) {
+          if (parsedState?.authId) {
             sessionStorage.setItem(
-              `oauth_guided_code_${parsedState.random}`,
+              `oauth_guided_code_${parsedState.authId}`,
               params.code,
             );
           }

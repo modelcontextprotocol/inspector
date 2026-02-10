@@ -129,18 +129,18 @@ describe("OAuth Utils", () => {
   describe("parseOAuthState", () => {
     it("should parse normal prefix", () => {
       const parsed = parseOAuthState("normal:abc123def456");
-      expect(parsed).toEqual({ mode: "normal", random: "abc123def456" });
+      expect(parsed).toEqual({ mode: "normal", authId: "abc123def456" });
     });
 
     it("should parse guided prefix", () => {
       const parsed = parseOAuthState("guided:a1b2c3d4e5f6");
-      expect(parsed).toEqual({ mode: "guided", random: "a1b2c3d4e5f6" });
+      expect(parsed).toEqual({ mode: "guided", authId: "a1b2c3d4e5f6" });
     });
 
     it("should parse legacy 64-char hex as normal", () => {
       const hex = "a".repeat(64);
       const parsed = parseOAuthState(hex);
-      expect(parsed).toEqual({ mode: "normal", random: hex });
+      expect(parsed).toEqual({ mode: "normal", authId: hex });
     });
 
     it("should return null for invalid state", () => {

@@ -59,32 +59,32 @@ export type OAuthStateMode = "normal" | "guided";
 
 /**
  * Generate OAuth state with mode prefix for single-redirect-URL flow.
- * Format: {mode}:{random} (e.g. "guided:a1b2c3...").
- * The random part is 64 hex chars for CSRF protection.
+ * Format: {mode}:{authId} (e.g. "guided:a1b2c3...").
+ * The authId part is 64 hex chars for CSRF protection and serves as session identifier.
  */
 export const generateOAuthStateWithMode = (mode: OAuthStateMode): string => {
-  const random = generateOAuthState();
-  return `${mode}:${random}`;
+  const authId = generateOAuthState();
+  return `${mode}:${authId}`;
 };
 
 /**
- * Parse OAuth state to extract mode and random part.
+ * Parse OAuth state to extract mode and authId part.
  * Returns null if invalid.
  * Legacy state (plain 64-char hex, no prefix) is treated as mode "normal".
  */
 export const parseOAuthState = (
   state: string,
-): { mode: OAuthStateMode; random: string } | null => {
+): { mode: OAuthStateMode; authId: string } | null => {
   if (!state || typeof state !== "string") return null;
   if (state.startsWith("normal:")) {
-    return { mode: "normal", random: state.slice(7) };
+    return { mode: "normal", authId: state.slice(7) };
   }
   if (state.startsWith("guided:")) {
-    return { mode: "guided", random: state.slice(7) };
+    return { mode: "guided", authId: state.slice(7) };
   }
   // Legacy: plain 64-char hex
   if (/^[a-f0-9]{64}$/i.test(state)) {
-    return { mode: "normal", random: state };
+    return { mode: "normal", authId: state };
   }
   return null;
 };

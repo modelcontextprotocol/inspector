@@ -33,6 +33,8 @@ import {
   type InspectorClientOptions,
 } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { createWebEnvironment } from "./lib/adapters/environmentFactory";
+import { RemoteInspectorClientStorage } from "@modelcontextprotocol/inspector-shared/mcp/remote/index.js";
+import { parseOAuthState } from "@modelcontextprotocol/inspector-shared/auth/index.js";
 import { webConfigToMcpServerConfig } from "./lib/adapters/configAdapter";
 import { useToast } from "./lib/hooks/useToast";
 import {
@@ -50,6 +52,7 @@ import {
   Hash,
   Key,
   MessageSquare,
+  Network,
   Settings,
   Terminal,
 } from "lucide-react";
@@ -60,6 +63,7 @@ import ConsoleTab from "./components/ConsoleTab";
 import HistoryAndNotifications from "./components/HistoryAndNotifications";
 import PingTab from "./components/PingTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
+import RequestsTab from "./components/RequestsTab";
 import ResourcesTab from "./components/ResourcesTab";
 import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
@@ -367,6 +371,17 @@ const App = () => {
       return inspectorClient;
     }
 
+    // Extract sessionId from OAuth callback if present
+    let sessionId: string | undefined;
+    const urlParams = new URLSearchParams(window.location.search);
+    const stateParam = urlParams.get("state");
+    if (stateParam) {
+      const parsedState = parseOAuthState(stateParam);
+      if (parsedState?.authId) {
+        sessionId = parsedState.authId;
+      }
+    }
+
     // Create new InspectorClient
     try {
       const mcpConfig = webConfigToMcpServerConfig(
@@ -388,6 +403,15 @@ const App = () => {
         redirectUrlProvider,
       );
 
+      // Create session storage for persisting state across OAuth redirects
+      const baseUrl = `${window.location.protocol}//${window.location.host}`;
+      const fetchFn: typeof fetch = (...args) => globalThis.fetch(...args);
+      const sessionStorage = new RemoteInspectorClientStorage({
+        baseUrl,
+        authToken: currentToken,
+        fetchFn,
+      });
+
       // Only include oauth config if at least one OAuth field is provided
       // This prevents InspectorClient from initializing OAuth when not needed
       const hasOAuthConfig = oauthClientId || oauthClientSecret || oauthScope;
@@ -398,6 +422,8 @@ const App = () => {
         maxMessages: 1000,
         maxStderrLogEvents: 1000,
         maxFetchRequests: 1000,
+        sessionStorage,
+        sessionId,
       };
 
       if (hasOAuthConfig) {
@@ -412,6 +438,7 @@ const App = () => {
       inspectorClientTokenRef.current = currentToken;
       console.log(
         "[ensureInspectorClient] Creating new InspectorClient, calling setInspectorClient",
+        { sessionId },
       );
       setInspectorClient(client);
       console.log(
@@ -449,6 +476,7 @@ const App = () => {
     client: mcpClient,
     messages: inspectorMessages,
     stderrLogs,
+    fetchRequests,
     tools: inspectorTools,
     resources: inspectorResources,
     resourceTemplates: inspectorResourceTemplates,
@@ -1289,11 +1317,11 @@ const App = () => {
         />
       </div>
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 flex flex-col min-h-0 overflow-auto">
           {connectionStatus === "connected" ? (
             <Tabs
               value={activeTab}
-              className="w-full p-4"
+              className="w-full p-4 flex flex-col flex-1 min-h-0"
               onValueChange={(value) => {
                 setActiveTab(value);
                 window.location.hash = value;
@@ -1324,6 +1352,10 @@ const App = () => {
                 <TabsTrigger value="ping">
                   <Bell className="w-4 h-4 mr-2" />
                   Ping
+                </TabsTrigger>
+                <TabsTrigger value="requests">
+                  <Network className="w-4 h-4 mr-2" />
+                  Requests
                 </TabsTrigger>
                 <TabsTrigger value="sampling" className="relative">
                   <Hash className="w-4 h-4 mr-2" />
@@ -1530,6 +1562,7 @@ const App = () => {
                         }
                       }}
                     />
+                    <RequestsTab fetchRequests={fetchRequests} />
                     <SamplingTab
                       pendingRequests={pendingSampleRequests}
                       onApprove={handleApproveSampling}

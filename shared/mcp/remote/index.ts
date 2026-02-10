@@ -19,6 +19,10 @@ export {
   createRemoteLogger,
   type RemoteLoggerOptions,
 } from "./createRemoteLogger.js";
+export {
+  RemoteInspectorClientStorage,
+  type RemoteInspectorClientStorageOptions,
+} from "./sessionStorage.js";
 export type {
   RemoteConnectRequest,
   RemoteConnectResponse,
