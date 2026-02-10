@@ -16,6 +16,7 @@ type Args = {
   args: string[];
   envArgs: Record<string, string>;
   cli: boolean;
+  dev?: boolean;
   transport?: "stdio" | "sse" | "streamable-http";
   serverUrl?: string;
   headers?: Record<string, string>;
@@ -29,6 +30,7 @@ type CliOptions = {
   config?: string;
   server?: string;
   cli?: boolean;
+  dev?: boolean;
   transport?: string;
   serverUrl?: string;
   header?: Record<string, string>;
@@ -140,6 +142,10 @@ async function runWeb(args: Args): Promise<void> {
 
   // Build arguments to pass to start.js
   const startArgs: string[] = [];
+
+  if (args.dev) {
+    startArgs.push("--dev");
+  }
 
   // Pass environment variables
   for (const [key, value] of Object.entries(args.envArgs)) {
@@ -356,6 +362,7 @@ function parseArgs(): Args {
     .option("--config <path>", "config file path")
     .option("--server <n>", "server name from config file")
     .option("--cli", "enable CLI mode")
+    .option("--dev", "run web in dev mode (Vite)")
     .option("--tui", "enable TUI mode")
     .option("--transport <type>", "transport type (stdio, sse, http)")
     .option("--server-url <url>", "server URL for SSE/HTTP transport")
@@ -416,6 +423,7 @@ function parseArgs(): Args {
         args: [...(config.args || []), ...finalArgs],
         envArgs: { ...(config.env || {}), ...(options.e || {}) },
         cli: options.cli || false,
+        dev: options.dev || false,
         transport: "stdio",
         headers: options.header,
       };
@@ -425,6 +433,7 @@ function parseArgs(): Args {
         args: finalArgs,
         envArgs: options.e || {},
         cli: options.cli || false,
+        dev: options.dev || false,
         transport: config.type,
         serverUrl: config.url,
         headers: options.header,
@@ -436,6 +445,7 @@ function parseArgs(): Args {
         args: [...((config as any).args || []), ...finalArgs],
         envArgs: { ...((config as any).env || {}), ...(options.e || {}) },
         cli: options.cli || false,
+        dev: options.dev || false,
         transport: "stdio",
         headers: options.header,
       };
@@ -457,6 +467,7 @@ function parseArgs(): Args {
     args,
     envArgs: options.e || {},
     cli: options.cli || false,
+    dev: options.dev || false,
     transport: transport as "stdio" | "sse" | "streamable-http" | undefined,
     serverUrl: options.serverUrl,
     headers: options.header,

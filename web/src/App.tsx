@@ -75,6 +75,7 @@ import {
   getInitialTransportType,
   getInitialCommand,
   getInitialArgs,
+  getInspectorApiToken,
   initializeInspectorConfig,
   saveInspectorConfig,
 } from "./utils/configUtils";
@@ -87,6 +88,7 @@ import {
   migrateFromLegacyAuth,
 } from "./lib/types/customHeaders";
 import MetadataTab from "./components/MetadataTab";
+import TokenLoginScreen from "./components/TokenLoginScreen";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
@@ -297,13 +299,6 @@ const App = () => {
   }, [command, sseUrl]);
 
   const ensureInspectorClient = useCallback((): InspectorClient | null => {
-    console.log("[ensureInspectorClient] Called", {
-      inspectorClientState: inspectorClient,
-      command,
-      sseUrl,
-      transportType,
-    });
-
     // Read current token from config ref to ensure we always get the latest value
     const currentConfig = configRef.current;
     const configItem = currentConfig.MCP_INSPECTOR_API_TOKEN;
@@ -314,21 +309,8 @@ const App = () => {
       typeof tokenValue === "string" ? tokenValue : String(tokenValue || "");
     const currentToken = tokenString.trim() || undefined;
 
-    console.log("[ensureInspectorClient] Token check", {
-      tokenValue,
-      tokenString,
-      currentToken: !!currentToken,
-    });
-
     // Check if API token is set
     if (!currentToken) {
-      console.error("[ensureInspectorClient] No API token found.", {
-        configItem,
-        tokenValue,
-        tokenString,
-        trimmed: currentToken,
-        currentConfig,
-      });
       toast({
         title: "API Token Required",
         description: "Please set the API Token in Configuration to connect.",
@@ -340,12 +322,6 @@ const App = () => {
     // Check if server config is set (handle empty strings)
     const hasCommand = command && command.trim().length > 0;
     const hasSseUrl = sseUrl && sseUrl.trim().length > 0;
-    console.log("[ensureInspectorClient] Server config check", {
-      command,
-      hasCommand,
-      sseUrl,
-      hasSseUrl,
-    });
 
     if (!hasCommand && !hasSseUrl) {
       toast({
@@ -436,17 +412,9 @@ const App = () => {
 
       const client = new InspectorClient(mcpConfig, clientOptions);
       inspectorClientTokenRef.current = currentToken;
-      console.log(
-        "[ensureInspectorClient] Creating new InspectorClient, calling setInspectorClient",
-        { sessionId },
-      );
       setInspectorClient(client);
-      console.log(
-        "[ensureInspectorClient] setInspectorClient called, returning client",
-      );
       return client;
     } catch (error) {
-      console.error("[App] InspectorClient failed to create:", error);
       toast({
         title: "Failed to Create Client",
         description: error instanceof Error ? error.message : String(error),
@@ -484,21 +452,25 @@ const App = () => {
     disconnect: disconnectMcpServer,
   } = useInspectorClient(inspectorClient);
 
-  // Wrap connect to ensure InspectorClient exists first
+  // Wrap connect to ensure InspectorClient exists first; show toast on error
   const connectMcpServer = useCallback(async () => {
-    console.log(
-      "[connectMcpServer] Called, inspectorClient state:",
-      inspectorClient,
-    );
     const client = ensureInspectorClient();
-    console.log("[connectMcpServer] ensureInspectorClient returned:", client);
-    if (!client) {
-      console.log("[connectMcpServer] No client, returning early");
-      return; // Error already shown in ensureInspectorClient
+    if (!client) return; // Error already shown in ensureInspectorClient
+
+    try {
+      await client.connect();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast({
+        title: "Connection failed",
+        description: message,
+        variant: "destructive",
+      });
+      if (client.getStatus() === "connecting") {
+        await client.disconnect();
+      }
     }
-    console.log("[connectMcpServer] Calling client.connect() directly");
-    await client.connect();
-  }, [ensureInspectorClient, inspectorClient]);
+  }, [ensureInspectorClient, inspectorClient, toast]);
 
   // Extract server notifications from messages
   // Use useMemo to stabilize the array reference and prevent infinite loops
@@ -752,35 +724,72 @@ const App = () => {
     void connectMcpServer();
   }, [connectMcpServer]);
 
+  const handleTokenSubmit = useCallback(
+    (token: string) => {
+      setConfig((prev) => ({
+        ...prev,
+        MCP_INSPECTOR_API_TOKEN: {
+          ...prev.MCP_INSPECTOR_API_TOKEN,
+          value: token,
+        },
+      }));
+      // Persist immediately so refresh/callback keeps the token
+      saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, {
+        ...config,
+        MCP_INSPECTOR_API_TOKEN: {
+          ...config.MCP_INSPECTOR_API_TOKEN,
+          value: token,
+        },
+      });
+    },
+    [config],
+  );
+
+  // Fetch initial server config from /api/config (same in dev and prod; requires API token in URL)
+  const fetchedInitialConfigRef = useRef(false);
   useEffect(() => {
-    // Read initial config from HTML injection (window.__INITIAL_CONFIG__)
-    // This replaces the previous /config endpoint fetch
-    const initialConfig = (window as any).__INITIAL_CONFIG__;
-    if (initialConfig) {
-      if (initialConfig.defaultEnvironment) {
-        setEnv(initialConfig.defaultEnvironment);
-      }
-      if (initialConfig.defaultCommand) {
-        setCommand(initialConfig.defaultCommand);
-      }
-      if (initialConfig.defaultArgs) {
-        // Convert array to space-separated string if needed
-        // Server injects defaultArgs as array, but args state expects string
-        const argsValue = Array.isArray(initialConfig.defaultArgs)
-          ? initialConfig.defaultArgs.join(" ")
-          : initialConfig.defaultArgs;
-        setArgs(argsValue);
-      }
-      if (initialConfig.defaultTransport) {
-        setTransportType(
-          initialConfig.defaultTransport as "stdio" | "sse" | "streamable-http",
+    if (fetchedInitialConfigRef.current) return;
+    const token = getInspectorApiToken(config);
+    if (!token) return;
+    fetchedInitialConfigRef.current = true;
+
+    const url = new URL("/api/config", window.location.origin);
+    fetch(url.toString(), {
+      headers: { "x-mcp-remote-auth": `Bearer ${token}` },
+    })
+      .then((res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data: Record<string, unknown> | null) => {
+        if (!data) return;
+        if (
+          data.defaultEnvironment &&
+          typeof data.defaultEnvironment === "object"
+        ) {
+          setEnv(data.defaultEnvironment as Record<string, string>);
+        }
+        setCommand((data.defaultCommand as string) ?? "");
+        const argsVal = data.defaultArgs;
+        setArgs(
+          Array.isArray(argsVal)
+            ? argsVal.join(" ")
+            : typeof argsVal === "string"
+              ? argsVal
+              : "",
         );
-      }
-      if (initialConfig.defaultServerUrl) {
-        setSseUrl(initialConfig.defaultServerUrl);
-      }
-    }
-  }, []);
+        const transport = data.defaultTransport as
+          | "stdio"
+          | "sse"
+          | "streamable-http"
+          | undefined;
+        setTransportType(transport || "stdio");
+        setSseUrl((data.defaultServerUrl as string) ?? "");
+      })
+      .catch(() => {
+        fetchedInitialConfigRef.current = false;
+      });
+  }, [config]);
 
   // Sync roots with InspectorClient
   // Only run when inspectorClient changes, not when roots changes (to avoid infinite loop)
@@ -840,6 +849,18 @@ const App = () => {
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, [activeTab]);
+
+  // When transport is stdio, Requests tab is hidden; switch away if it was selected
+  useEffect(() => {
+    if (
+      connectionStatus === "connected" &&
+      transportType === "stdio" &&
+      activeTab === "requests"
+    ) {
+      setActiveTab("ping");
+      window.location.hash = "ping";
+    }
+  }, [connectionStatus, transportType, activeTab]);
 
   // Map string IDs from InspectorClient to numbers for component compatibility
   const stringIdToNumber = useRef<Map<string, number>>(new Map());
@@ -1210,16 +1231,10 @@ const App = () => {
   const hasOAuthCallbackParams =
     urlParams.has("code") || urlParams.has("error");
 
-  // Log URL state for debugging OAuth callback routing
-  if (hasOAuthCallbackParams) {
-    console.log("[App] OAuth callback detected in URL:", {
-      pathname: window.location.pathname,
-      search: window.location.search,
-      hash: window.location.hash,
-      fullUrl: window.location.href,
-      hasCode: urlParams.has("code"),
-      hasError: urlParams.has("error"),
-    });
+  // No API token: show login screen so user can enter token (e.g. opened app without CLI)
+  // Once token is set we persist it; OAuth return flow relies on token in localStorage.
+  if (!getInspectorApiToken(config)) {
+    return <TokenLoginScreen onTokenSubmit={handleTokenSubmit} />;
   }
 
   // Handle OAuth callback - check pathname OR presence of callback params
@@ -1353,10 +1368,12 @@ const App = () => {
                   <Bell className="w-4 h-4 mr-2" />
                   Ping
                 </TabsTrigger>
-                <TabsTrigger value="requests">
-                  <Network className="w-4 h-4 mr-2" />
-                  Requests
-                </TabsTrigger>
+                {transportType !== "stdio" && (
+                  <TabsTrigger value="requests">
+                    <Network className="w-4 h-4 mr-2" />
+                    Requests
+                  </TabsTrigger>
+                )}
                 <TabsTrigger value="sampling" className="relative">
                   <Hash className="w-4 h-4 mr-2" />
                   Sampling
@@ -1395,7 +1412,7 @@ const App = () => {
                 </TabsTrigger>
               </TabsList>
 
-              <div className="w-full">
+              <div className="w-full flex-1 flex flex-col min-h-0">
                 {!serverCapabilities?.resources &&
                 !serverCapabilities?.prompts &&
                 !serverCapabilities?.tools ? (
@@ -1562,7 +1579,9 @@ const App = () => {
                         }
                       }}
                     />
-                    <RequestsTab fetchRequests={fetchRequests} />
+                    {transportType !== "stdio" && (
+                      <RequestsTab fetchRequests={fetchRequests} />
+                    )}
                     <SamplingTab
                       pendingRequests={pendingSampleRequests}
                       onApprove={handleApproveSampling}

@@ -18,8 +18,8 @@ const ConsoleTab = ({ stderrLogs }: ConsoleTabProps) => {
   };
 
   return (
-    <TabsContent value="console" className="h-96">
-      <div className="bg-gray-900 text-gray-100 p-4 rounded-lg h-full font-mono text-sm overflow-auto">
+    <TabsContent value="console" className="flex-1 flex flex-col min-h-0 mt-0">
+      <div className="flex-1 min-h-0 bg-gray-900 text-gray-100 p-4 rounded-lg font-mono text-sm overflow-auto">
         {stderrLogs.length === 0 ? (
           <div className="opacity-50">No stderr output yet</div>
         ) : (

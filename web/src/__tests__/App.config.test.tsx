@@ -16,6 +16,10 @@ jest.mock("../utils/configUtils", () => ({
   getInitialSseUrl: jest.fn(() => "http://localhost:3001/sse"),
   getInitialCommand: jest.fn(() => "mcp-server-everything"),
   getInitialArgs: jest.fn(() => ""),
+  getInspectorApiToken: jest.fn(
+    (config: InspectorConfig) =>
+      config.MCP_INSPECTOR_API_TOKEN?.value || undefined,
+  ),
   initializeInspectorConfig: jest.fn(() => DEFAULT_INSPECTOR_CONFIG),
   saveInspectorConfig: jest.fn(),
 }));
@@ -71,11 +75,14 @@ describe("App - Config Endpoint", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
       json: () =>
         Promise.resolve({
           defaultEnvironment: { TEST_ENV: "test" },
           defaultCommand: "test-command",
-          defaultArgs: "test-args",
+          defaultArgs: ["test-arg1", "test-arg2"],
+          defaultTransport: "stdio",
+          defaultServerUrl: "",
         }),
     });
   });
@@ -84,18 +91,7 @@ describe("App - Config Endpoint", () => {
     jest.clearAllMocks();
   });
 
-  // Note: These tests are for the old /config endpoint which has been removed.
-  // Config is now injected via HTML template (window.__INITIAL_CONFIG__).
-  // These tests should be updated or removed to test the new HTML injection approach.
-
-  test("initializes config from HTML injection", async () => {
-    // Mock window.__INITIAL_CONFIG__
-    (window as any).__INITIAL_CONFIG__ = {
-      defaultEnvironment: { TEST_ENV: "test" },
-      defaultCommand: "test-command",
-      defaultArgs: ["test-arg1", "test-arg2"],
-    };
-
+  test("fetches /api/config when API token is present and applies response", async () => {
     const mockConfig = {
       ...DEFAULT_INSPECTOR_CONFIG,
       MCP_INSPECTOR_API_TOKEN: {
@@ -108,9 +104,15 @@ describe("App - Config Endpoint", () => {
 
     render(<App />);
 
-    // App should initialize without fetching /config endpoint
     await waitFor(() => {
-      expect(global.fetch).not.toHaveBeenCalled();
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/config"),
+        expect.objectContaining({
+          headers: {
+            "x-mcp-remote-auth": "Bearer test-api-token",
+          },
+        }),
+      );
     });
   });
 });

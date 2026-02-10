@@ -47,17 +47,9 @@ const OAuthCallback = ({
             );
           }
           // Don't redirect - let the component render the code display
-          console.log(
-            "[OAuthCallback] Guided mode, no client available - showing code for manual copy",
-            { code: params.code.substring(0, 10) + "..." },
-          );
           return;
         }
         // Even without a code yet, don't try to create a client in guided mode without one
-        // Return early to avoid calling ensureInspectorClient() which would show a toast
-        console.log(
-          "[OAuthCallback] Guided mode, no client available - skipping client creation",
-        );
         return;
       }
 
@@ -204,11 +196,12 @@ const OAuthCallback = ({
             variant: "default",
           });
 
-          // Trigger auto-connect
+          // Connect first, then navigate. If we navigate first we lose the callback URL
+          // (state param with sessionId), so a retry or connect from main page wouldn't restore session.
           await client.connect();
           onConnect();
-          // Redirect to root after connecting
-          window.history.replaceState({}, document.title, "/");
+          const targetPath = "/" + (window.location.hash || "");
+          window.history.replaceState({}, document.title, targetPath);
         }
       } catch (error) {
         console.error("OAuth callback error:", error);
@@ -238,18 +231,6 @@ const OAuthCallback = ({
   const isGuidedMode = parsedState?.mode === "guided";
   const params = parseOAuthCallbackParams(window.location.search);
   const hasCode = params.successful && "code" in params && !!params.code;
-
-  // Log current URL state for debugging
-  console.log("[OAuthCallback] Render state:", {
-    pathname: window.location.pathname,
-    search: window.location.search,
-    hash: window.location.hash,
-    fullUrl: window.location.href,
-    hasCode,
-    isGuidedMode,
-    parsedState,
-    inspectorClient: !!inspectorClient,
-  });
 
   // If guided mode and no client, show code for manual copying
   // Check both /oauth/callback and / paths (in case redirect happened)

@@ -50,69 +50,14 @@ app.use("/api/*", async (c, next) => {
   return apiApp.fetch(c.req.raw);
 });
 
-// Inject config into index.html before serving static files
+// Serve index.html for root (config is fetched from GET /api/config by the client)
 app.get("/", async (c) => {
   try {
     const indexPath = join(distPath, "index.html");
-    let html = readFileSync(indexPath, "utf-8");
-
-    // Build initial config object from env vars
-    // Get default environment vars matching SDK's getDefaultEnvironment()
-    // This avoids importing Node-only stdio code
-    const defaultEnvironment = {};
-    const defaultEnvKeys =
-      process.platform === "win32"
-        ? [
-            "APPDATA",
-            "HOMEDRIVE",
-            "HOMEPATH",
-            "LOCALAPPDATA",
-            "PATH",
-            "PROCESSOR_ARCHITECTURE",
-            "SYSTEMDRIVE",
-            "SYSTEMROOT",
-            "TEMP",
-            "USERNAME",
-            "USERPROFILE",
-            "PROGRAMFILES",
-          ]
-        : ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"];
-    for (const key of defaultEnvKeys) {
-      const value = process.env[key];
-      if (value && !value.startsWith("()")) {
-        // Skip functions, which are a security risk
-        defaultEnvironment[key] = value;
-      }
-    }
-    // Merge with MCP_ENV_VARS if provided
-    if (process.env.MCP_ENV_VARS) {
-      Object.assign(defaultEnvironment, JSON.parse(process.env.MCP_ENV_VARS));
-    }
-
-    const initialConfig = {
-      ...(process.env.MCP_INITIAL_COMMAND
-        ? { defaultCommand: process.env.MCP_INITIAL_COMMAND }
-        : {}),
-      ...(process.env.MCP_INITIAL_ARGS
-        ? { defaultArgs: process.env.MCP_INITIAL_ARGS.split(" ") }
-        : {}),
-      ...(process.env.MCP_INITIAL_TRANSPORT
-        ? { defaultTransport: process.env.MCP_INITIAL_TRANSPORT }
-        : {}),
-      ...(process.env.MCP_INITIAL_SERVER_URL
-        ? { defaultServerUrl: process.env.MCP_INITIAL_SERVER_URL }
-        : {}),
-      defaultEnvironment,
-    };
-
-    // Inject config as a script tag before closing </head>
-    const configScript = `<script>window.__INITIAL_CONFIG__ = ${JSON.stringify(initialConfig)};</script>`;
-    html = html.replace("</head>", `${configScript}</head>`);
-
+    const html = readFileSync(indexPath, "utf-8");
     return c.html(html);
   } catch (error) {
-    console.error("Error injecting config into index.html:", error);
-    // Fallback to regular static serving
+    console.error("Error serving index.html:", error);
     return c.notFound();
   }
 });

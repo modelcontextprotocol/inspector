@@ -133,6 +133,7 @@ All endpoints require authentication via `x-mcp-remote-auth` header (Bearer toke
 
 | Endpoint                       | Purpose                                                           | Seam              |
 | ------------------------------ | ----------------------------------------------------------------- | ----------------- |
+| `GET /api/config`              | Return initial server config (command, args, transport, URL, env) | Config            |
 | `POST /api/mcp/connect`        | Create session and client transport (stdio, SSE, streamable HTTP) | Remote transports |
 | `POST /api/mcp/send`           | Forward JSON-RPC message to MCP server                            | Remote transports |
 | `GET /api/mcp/events`          | Stream responses and side-channel events (SSE)                    | Remote transports |
@@ -314,7 +315,7 @@ The current web client and server functionality has been ported to a new web app
   - `BrowserOAuthStorage` and `BrowserNavigation` for OAuth flows
 - **Lazy Client Creation:** Uses `ensureInspectorClient()` helper that validates API token before creating client
 - **OAuth Integration:** Single redirect URL (`/oauth/callback`) with mode encoded in state parameter; supports both normal and guided flows
-- **Config Injection:** Initial config injected into HTML template (no `/config` endpoint needed)
+- **Initial Config:** Web app fetches `GET /api/config` (with `x-mcp-remote-auth`) on load; response sets command, args, transport, server URL, and env. Same in dev and prod.
 
 **Hono Integration:**
 

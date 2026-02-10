@@ -164,10 +164,13 @@ async function main() {
       } else {
         envVars[envVar] = "";
       }
-    } else if (!command && !isDev) {
-      command = arg;
-    } else if (!isDev) {
-      mcpServerArgs.push(arg);
+    } else if (!parsingFlags) {
+      // After "--", first arg is command, rest are server args (same in dev and prod)
+      if (command === null) {
+        command = arg;
+      } else {
+        mcpServerArgs.push(arg);
+      }
     }
   }
 

@@ -1,6 +1,6 @@
 /**
  * Hono-based remote server for MCP transports.
- * Hosts /api/mcp/connect, send, events, disconnect, /api/fetch, /api/log, /api/storage/:storeId.
+ * Hosts /api/config, /api/mcp/connect, send, events, disconnect, /api/fetch, /api/log, /api/storage/:storeId.
  */
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -168,6 +168,70 @@ function getDefaultStorageDir(): string {
 }
 
 /**
+ * Build initial config object from process.env for GET /api/config.
+ * Same shape as previously injected via __INITIAL_CONFIG__.
+ */
+function buildInitialConfigFromEnv(): {
+  defaultCommand?: string;
+  defaultArgs?: string[];
+  defaultTransport?: string;
+  defaultServerUrl?: string;
+  defaultEnvironment: Record<string, string>;
+} {
+  const defaultEnvKeys =
+    process.platform === "win32"
+      ? [
+          "APPDATA",
+          "HOMEDRIVE",
+          "HOMEPATH",
+          "LOCALAPPDATA",
+          "PATH",
+          "PROCESSOR_ARCHITECTURE",
+          "SYSTEMDRIVE",
+          "SYSTEMROOT",
+          "TEMP",
+          "USERNAME",
+          "USERPROFILE",
+          "PROGRAMFILES",
+        ]
+      : ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"];
+
+  const defaultEnvironment: Record<string, string> = {};
+  for (const key of defaultEnvKeys) {
+    const value = process.env[key];
+    if (value && !value.startsWith("()")) {
+      defaultEnvironment[key] = value;
+    }
+  }
+  if (process.env.MCP_ENV_VARS) {
+    try {
+      Object.assign(
+        defaultEnvironment,
+        JSON.parse(process.env.MCP_ENV_VARS) as Record<string, string>,
+      );
+    } catch {
+      // Ignore invalid MCP_ENV_VARS
+    }
+  }
+
+  return {
+    ...(process.env.MCP_INITIAL_COMMAND
+      ? { defaultCommand: process.env.MCP_INITIAL_COMMAND }
+      : {}),
+    ...(process.env.MCP_INITIAL_ARGS
+      ? { defaultArgs: process.env.MCP_INITIAL_ARGS.split(" ") }
+      : {}),
+    ...(process.env.MCP_INITIAL_TRANSPORT
+      ? { defaultTransport: process.env.MCP_INITIAL_TRANSPORT }
+      : {}),
+    ...(process.env.MCP_INITIAL_SERVER_URL
+      ? { defaultServerUrl: process.env.MCP_INITIAL_SERVER_URL }
+      : {}),
+    defaultEnvironment,
+  };
+}
+
+/**
  * Validate storeId to prevent path traversal attacks.
  * Store IDs must be alphanumeric, hyphens, underscores only, and not empty.
  */
@@ -283,6 +347,11 @@ export function createRemoteApp(
   // Apply auth middleware to all routes
   // Auth is always enabled (token from options, env var, or generated)
   app.use("*", createAuthMiddleware(authToken));
+
+  app.get("/api/config", (c) => {
+    const initialConfig = buildInitialConfigFromEnv();
+    return c.json(initialConfig);
+  });
 
   app.post("/api/mcp/connect", async (c) => {
     let body: RemoteConnectRequest;
