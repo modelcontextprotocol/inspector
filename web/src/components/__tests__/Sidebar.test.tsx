@@ -61,8 +61,6 @@ describe("Sidebar", () => {
     loggingSupported: true,
     config: DEFAULT_INSPECTOR_CONFIG,
     setConfig: jest.fn(),
-    connectionType: "proxy" as const,
-    setConnectionType: jest.fn(),
   };
 
   const renderSidebar = (props = {}) => {

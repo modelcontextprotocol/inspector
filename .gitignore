@@ -7,6 +7,9 @@ server/build
 client/dist
 client/tsconfig.app.tsbuildinfo
 client/tsconfig.node.tsbuildinfo
+web/tsconfig.app.tsbuildinfo
+web/tsconfig.node.tsbuildinfo
+web/tsconfig.jest.tsbuildinfo
 cli/build
 tui/build
 shared/build

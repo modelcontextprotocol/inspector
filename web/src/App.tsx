@@ -10,15 +10,11 @@ import {
   Tool,
   LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
-import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
 import {
   hasValidMetaName,
   hasValidMetaPrefix,
   isReservedMetaKey,
 } from "@/utils/metaUtils";
-import { AuthGuidedState, EMPTY_GUIDED_STATE } from "./lib/auth-types";
-import { OAuthStateMachine } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
 import { cleanParams } from "./utils/paramUtils";
 import type { JsonSchemaType } from "./utils/jsonUtils";
@@ -32,9 +28,13 @@ import React, {
   useState,
 } from "react";
 import { useInspectorClient } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
-import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import {
+  InspectorClient,
+  type InspectorClientOptions,
+} from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { createWebEnvironment } from "./lib/adapters/environmentFactory";
 import { webConfigToMcpServerConfig } from "./lib/adapters/configAdapter";
+import { useToast } from "./lib/hooks/useToast";
 import {
   useDraggablePane,
   useDraggableSidebar,
@@ -203,9 +203,6 @@ const App = () => {
   >([]);
   const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
 
-  const [authState, setAuthState] =
-    useState<AuthGuidedState>(EMPTY_GUIDED_STATE);
-
   // Metadata state - persisted in localStorage
   const [metadata, setMetadata] = useState<Record<string, string>>(() => {
     const savedMetadata = localStorage.getItem("lastMetadata");
@@ -221,10 +218,6 @@ const App = () => {
     }
     return {};
   });
-
-  const updateAuthState = (updates: Partial<AuthGuidedState>) => {
-    setAuthState((prev) => ({ ...prev, ...updates }));
-  };
 
   const handleMetadataChange = (newMetadata: Record<string, string>) => {
     const sanitizedMetadata = filterReservedMetadata(newMetadata);
@@ -274,26 +267,109 @@ const App = () => {
     handleDragStart: handleSidebarDragStart,
   } = useDraggableSidebar(320);
 
-  // Get auth token from config (which reads from URL params via initializeInspectorConfig)
-  const authToken = useMemo(() => {
-    const token = config.MCP_INSPECTOR_API_TOKEN.value as string;
-    return token || undefined;
-  }, [config]);
+  // InspectorClient is created lazily when needed (connect/auth operations)
+  const [inspectorClient, setInspectorClient] =
+    useState<InspectorClient | null>(null);
+  // Track the token used to create the current inspectorClient
+  const inspectorClientTokenRef = useRef<string | undefined>(undefined);
 
-  // Create InspectorClient instance (for testing - not wired to UI yet)
-  const inspectorClient = useMemo(() => {
-    // Can't create without config
-    if (!command && !sseUrl) {
+  const { toast } = useToast();
+
+  // Helper function to ensure InspectorClient exists and is created with current token
+  // We use a ref to always read the latest config value, avoiding stale closure issues
+  const configRef = useRef(config);
+  // Update ref synchronously whenever config changes (before useEffect runs)
+  configRef.current = config;
+
+  // Helper to check if we can create InspectorClient (without actually creating it)
+  const canCreateInspectorClient = useCallback((): boolean => {
+    const currentConfig = configRef.current;
+    const configItem = currentConfig.MCP_INSPECTOR_API_TOKEN;
+    const tokenValue = configItem?.value;
+    const tokenString =
+      typeof tokenValue === "string" ? tokenValue : String(tokenValue || "");
+    const currentToken = tokenString.trim() || undefined;
+    return !!currentToken && (!!command || !!sseUrl);
+  }, [command, sseUrl]);
+
+  const ensureInspectorClient = useCallback((): InspectorClient | null => {
+    console.log("[ensureInspectorClient] Called", {
+      inspectorClientState: inspectorClient,
+      command,
+      sseUrl,
+      transportType,
+    });
+
+    // Read current token from config ref to ensure we always get the latest value
+    const currentConfig = configRef.current;
+    const configItem = currentConfig.MCP_INSPECTOR_API_TOKEN;
+    const tokenValue = configItem?.value;
+
+    // Handle different value types (string, number, boolean, etc.)
+    const tokenString =
+      typeof tokenValue === "string" ? tokenValue : String(tokenValue || "");
+    const currentToken = tokenString.trim() || undefined;
+
+    console.log("[ensureInspectorClient] Token check", {
+      tokenValue,
+      tokenString,
+      currentToken: !!currentToken,
+    });
+
+    // Check if API token is set
+    if (!currentToken) {
+      console.error("[ensureInspectorClient] No API token found.", {
+        configItem,
+        tokenValue,
+        tokenString,
+        trimmed: currentToken,
+        currentConfig,
+      });
+      toast({
+        title: "API Token Required",
+        description: "Please set the API Token in Configuration to connect.",
+        variant: "destructive",
+      });
       return null;
     }
 
-    // Need auth token for Inspector API
-    if (!authToken) {
+    // Check if server config is set (handle empty strings)
+    const hasCommand = command && command.trim().length > 0;
+    const hasSseUrl = sseUrl && sseUrl.trim().length > 0;
+    console.log("[ensureInspectorClient] Server config check", {
+      command,
+      hasCommand,
+      sseUrl,
+      hasSseUrl,
+    });
+
+    if (!hasCommand && !hasSseUrl) {
+      toast({
+        title: "Server Configuration Required",
+        description: "Please configure the server command or URL.",
+        variant: "destructive",
+      });
       return null;
     }
 
+    // If inspectorClient exists, check if token changed
+    if (inspectorClient && inspectorClientTokenRef.current !== currentToken) {
+      toast({
+        title: "API Token Changed",
+        description: "API token has changed. Please disconnect and reconnect.",
+        variant: "destructive",
+      });
+      return null;
+    }
+
+    // If inspectorClient exists and token matches, return it
+    if (inspectorClient && inspectorClientTokenRef.current === currentToken) {
+      return inspectorClient;
+    }
+
+    // Create new InspectorClient
     try {
-      const config = webConfigToMcpServerConfig(
+      const mcpConfig = webConfigToMcpServerConfig(
         transportType,
         command,
         args,
@@ -307,39 +383,62 @@ const App = () => {
           `${window.location.origin}/oauth/callback`,
       };
 
-      const environment = createWebEnvironment(authToken, redirectUrlProvider);
+      const environment = createWebEnvironment(
+        currentToken,
+        redirectUrlProvider,
+      );
 
-      const client = new InspectorClient(config, {
+      // Only include oauth config if at least one OAuth field is provided
+      // This prevents InspectorClient from initializing OAuth when not needed
+      const hasOAuthConfig = oauthClientId || oauthClientSecret || oauthScope;
+
+      const clientOptions: InspectorClientOptions = {
         environment,
         autoSyncLists: false,
         maxMessages: 1000,
         maxStderrLogEvents: 1000,
         maxFetchRequests: 1000,
-        oauth: {
+      };
+
+      if (hasOAuthConfig) {
+        clientOptions.oauth = {
           clientId: oauthClientId || undefined,
           clientSecret: oauthClientSecret || undefined,
           scope: oauthScope || undefined,
-        },
-      });
+        };
+      }
 
+      const client = new InspectorClient(mcpConfig, clientOptions);
+      inspectorClientTokenRef.current = currentToken;
+      console.log(
+        "[ensureInspectorClient] Creating new InspectorClient, calling setInspectorClient",
+      );
+      setInspectorClient(client);
+      console.log(
+        "[ensureInspectorClient] setInspectorClient called, returning client",
+      );
       return client;
     } catch (error) {
-      console.error("[InspectorClient] Failed to create:", error);
+      console.error("[App] InspectorClient failed to create:", error);
+      toast({
+        title: "Failed to Create Client",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "destructive",
+      });
       return null;
     }
   }, [
-    transportType,
     command,
-    args,
     sseUrl,
-    // Use JSON.stringify for objects/arrays to prevent unnecessary re-creation
-    // Only recreate if the actual content changes, not just the reference
-    JSON.stringify(env),
-    JSON.stringify(customHeaders),
+    transportType,
+    args,
+    env,
+    customHeaders,
     oauthClientId,
     oauthClientSecret,
     oauthScope,
-    authToken,
+    inspectorClient,
+    toast,
   ]);
 
   // Use InspectorClient hook
@@ -354,9 +453,24 @@ const App = () => {
     resources: inspectorResources,
     resourceTemplates: inspectorResourceTemplates,
     prompts: inspectorPrompts,
-    connect: connectMcpServer,
     disconnect: disconnectMcpServer,
   } = useInspectorClient(inspectorClient);
+
+  // Wrap connect to ensure InspectorClient exists first
+  const connectMcpServer = useCallback(async () => {
+    console.log(
+      "[connectMcpServer] Called, inspectorClient state:",
+      inspectorClient,
+    );
+    const client = ensureInspectorClient();
+    console.log("[connectMcpServer] ensureInspectorClient returned:", client);
+    if (!client) {
+      console.log("[connectMcpServer] No client, returning early");
+      return; // Error already shown in ensureInspectorClient
+    }
+    console.log("[connectMcpServer] Calling client.connect() directly");
+    await client.connect();
+  }, [ensureInspectorClient, inspectorClient]);
 
   // Extract server notifications from messages
   // Use useMemo to stabilize the array reference and prevent infinite loops
@@ -605,111 +719,10 @@ const App = () => {
     saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
   }, [config]);
 
-  const onOAuthConnect = useCallback(
-    (serverUrl: string) => {
-      setSseUrl(serverUrl);
-      setIsAuthDebuggerVisible(false);
-      void connectMcpServer();
-    },
-    [connectMcpServer],
-  );
-
-  const onOAuthDebugConnect = useCallback(
-    async ({
-      authorizationCode,
-      errorMsg,
-      restoredState,
-    }: {
-      authorizationCode?: string;
-      errorMsg?: string;
-      restoredState?: AuthGuidedState;
-    }) => {
-      setIsAuthDebuggerVisible(true);
-
-      if (errorMsg) {
-        updateAuthState({
-          latestError: new Error(errorMsg),
-        });
-        return;
-      }
-
-      if (restoredState && authorizationCode) {
-        let currentState: AuthGuidedState = {
-          ...restoredState,
-          authorizationCode,
-          oauthStep: "token_request",
-          isInitiatingAuth: true,
-          statusMessage: null,
-          latestError: null,
-        };
-
-        try {
-          const stateMachine = new OAuthStateMachine(sseUrl, (updates) => {
-            currentState = { ...currentState, ...updates };
-          });
-
-          while (
-            currentState.oauthStep !== "complete" &&
-            currentState.oauthStep !== "authorization_code"
-          ) {
-            await stateMachine.executeStep(currentState);
-          }
-
-          if (currentState.oauthStep === "complete") {
-            updateAuthState({
-              ...currentState,
-              statusMessage: {
-                type: "success",
-                message: "Authentication completed successfully",
-              },
-              isInitiatingAuth: false,
-            });
-          }
-        } catch (error) {
-          console.error("OAuth continuation error:", error);
-          updateAuthState({
-            latestError:
-              error instanceof Error ? error : new Error(String(error)),
-            statusMessage: {
-              type: "error",
-              message: `Failed to complete OAuth flow: ${error instanceof Error ? error.message : String(error)}`,
-            },
-            isInitiatingAuth: false,
-          });
-        }
-      } else if (authorizationCode) {
-        updateAuthState({
-          authorizationCode,
-          oauthStep: "token_request",
-        });
-      }
-    },
-    [sseUrl],
-  );
-
-  useEffect(() => {
-    const loadOAuthTokens = async () => {
-      try {
-        if (sseUrl) {
-          const key = getServerSpecificKey(SESSION_KEYS.TOKENS, sseUrl);
-          const tokens = sessionStorage.getItem(key);
-          if (tokens) {
-            const parsedTokens = await OAuthTokensSchema.parseAsync(
-              JSON.parse(tokens),
-            );
-            updateAuthState({
-              oauthTokens: parsedTokens,
-              oauthStep: "complete",
-            });
-          }
-        }
-      } catch (error) {
-        console.error("Error loading OAuth tokens:", error);
-      }
-    };
-
-    loadOAuthTokens();
-  }, [sseUrl]);
+  const onOAuthConnect = useCallback(() => {
+    setIsAuthDebuggerVisible(false);
+    void connectMcpServer();
+  }, [connectMcpServer]);
 
   useEffect(() => {
     // Read initial config from HTML injection (window.__INITIAL_CONFIG__)
@@ -1156,33 +1169,64 @@ const App = () => {
   const AuthDebuggerWrapper = () => (
     <TabsContent value="auth">
       <AuthDebugger
-        serverUrl={sseUrl}
+        inspectorClient={inspectorClient}
+        ensureInspectorClient={ensureInspectorClient}
+        canCreateInspectorClient={canCreateInspectorClient}
         onBack={() => setIsAuthDebuggerVisible(false)}
-        authState={authState}
-        updateAuthState={updateAuthState}
       />
     </TabsContent>
   );
 
-  if (window.location.pathname === "/oauth/callback") {
+  // Check for OAuth callback params (even if pathname is wrong - some OAuth servers redirect incorrectly)
+  const urlParams = new URLSearchParams(window.location.search);
+  const hasOAuthCallbackParams =
+    urlParams.has("code") || urlParams.has("error");
+
+  // Log URL state for debugging OAuth callback routing
+  if (hasOAuthCallbackParams) {
+    console.log("[App] OAuth callback detected in URL:", {
+      pathname: window.location.pathname,
+      search: window.location.search,
+      hash: window.location.hash,
+      fullUrl: window.location.href,
+      hasCode: urlParams.has("code"),
+      hasError: urlParams.has("error"),
+    });
+  }
+
+  // Handle OAuth callback - check pathname OR presence of callback params
+  // (Some OAuth servers redirect to root instead of /oauth/callback)
+  if (
+    window.location.pathname === "/oauth/callback" ||
+    (hasOAuthCallbackParams && window.location.pathname === "/")
+  ) {
     const OAuthCallback = React.lazy(
       () => import("./components/OAuthCallback"),
     );
     return (
       <Suspense fallback={<div>Loading...</div>}>
-        <OAuthCallback onConnect={onOAuthConnect} />
+        <OAuthCallback
+          inspectorClient={inspectorClient}
+          ensureInspectorClient={ensureInspectorClient}
+          onConnect={onOAuthConnect}
+        />
       </Suspense>
     );
   }
 
-  if (window.location.pathname === "/oauth/callback/debug") {
-    const OAuthDebugCallback = React.lazy(
-      () => import("./components/OAuthDebugCallback"),
-    );
-    return (
-      <Suspense fallback={<div>Loading...</div>}>
-        <OAuthDebugCallback onConnect={onOAuthDebugConnect} />
-      </Suspense>
+  // If we have OAuth callback params but wrong pathname (and not root), log it
+  if (
+    hasOAuthCallbackParams &&
+    window.location.pathname !== "/oauth/callback" &&
+    window.location.pathname !== "/"
+  ) {
+    console.warn(
+      "[App] OAuth callback params detected but unexpected pathname:",
+      {
+        pathname: window.location.pathname,
+        search: window.location.search,
+        fullUrl: window.location.href,
+      },
     );
   }
 
@@ -1246,7 +1290,7 @@ const App = () => {
       </div>
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
-          {mcpClient ? (
+          {connectionStatus === "connected" ? (
             <Tabs
               value={activeTab}
               className="w-full p-4"

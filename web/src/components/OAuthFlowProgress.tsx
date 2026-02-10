@@ -1,9 +1,10 @@
-import { AuthGuidedState, OAuthStep } from "@/lib/auth-types";
+import type { AuthGuidedState } from "@modelcontextprotocol/inspector-shared/auth/types.js";
+import type { OAuthStep } from "@modelcontextprotocol/inspector-shared/auth/types.js";
+import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { CheckCircle2, Circle, ExternalLink } from "lucide-react";
 import { Button } from "./ui/button";
-import { DebugInspectorOAuthClientProvider } from "@/lib/auth";
-import { useEffect, useMemo, useState } from "react";
-import { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { useEffect, useState } from "react";
+import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { validateRedirectUrl } from "@/utils/urlValidation";
 import { useToast } from "@/lib/hooks/useToast";
 
@@ -52,10 +53,9 @@ const OAuthStepDetails = ({
 };
 
 interface OAuthFlowProgressProps {
-  serverUrl: string;
-  authState: AuthGuidedState;
-  updateAuthState: (updates: Partial<AuthGuidedState>) => void;
+  oauthState: AuthGuidedState | undefined;
   proceedToNextStep: () => Promise<void>;
+  ensureInspectorClient: () => InspectorClient | null;
 }
 
 const steps: Array<OAuthStep> = [
@@ -68,55 +68,43 @@ const steps: Array<OAuthStep> = [
 ];
 
 export const OAuthFlowProgress = ({
-  serverUrl,
-  authState,
-  updateAuthState,
+  oauthState,
   proceedToNextStep,
+  ensureInspectorClient,
 }: OAuthFlowProgressProps) => {
   const { toast } = useToast();
-  const provider = useMemo(
-    () => new DebugInspectorOAuthClientProvider(serverUrl),
-    [serverUrl],
-  );
   const [clientInfo, setClientInfo] = useState<OAuthClientInformation | null>(
     null,
   );
+  // Local state for authorization code input (synced from oauthState but allows typing)
+  const [localAuthCode, setLocalAuthCode] = useState<string>("");
 
-  const currentStepIdx = steps.findIndex((s) => s === authState.oauthStep);
+  // Sync local state from oauthState when it changes
+  useEffect(() => {
+    if (oauthState?.authorizationCode) {
+      setLocalAuthCode(oauthState.authorizationCode);
+    } else {
+      setLocalAuthCode("");
+    }
+  }, [oauthState?.authorizationCode]);
+
+  const currentStepIdx = oauthState
+    ? steps.findIndex((s) => s === oauthState.oauthStep)
+    : -1;
 
   useEffect(() => {
-    const fetchClientInfo = async () => {
-      if (authState.oauthClientInfo) {
-        setClientInfo(authState.oauthClientInfo);
-      } else {
-        try {
-          const info = await provider.clientInformation();
-          if (info) {
-            setClientInfo(info);
-          }
-        } catch (error) {
-          console.error("Failed to fetch client information:", error);
-        }
-      }
-    };
-
-    if (currentStepIdx > steps.indexOf("client_registration")) {
-      fetchClientInfo();
+    if (oauthState?.oauthClientInfo) {
+      setClientInfo(oauthState.oauthClientInfo);
     }
-  }, [
-    provider,
-    authState.oauthStep,
-    authState.oauthClientInfo,
-    currentStepIdx,
-  ]);
+  }, [oauthState]);
 
   // Helper to get step props
   const getStepProps = (stepName: OAuthStep) => ({
     isComplete:
       currentStepIdx > steps.indexOf(stepName) ||
       currentStepIdx === steps.length - 1, // last step is "complete"
-    isCurrent: authState.oauthStep === stepName,
-    error: authState.oauthStep === stepName ? authState.latestError : null,
+    isCurrent: oauthState?.oauthStep === stepName,
+    error: oauthState?.oauthStep === stepName ? oauthState.latestError : null,
   });
 
   return (
@@ -131,53 +119,26 @@ export const OAuthFlowProgress = ({
           label="Metadata Discovery"
           {...getStepProps("metadata_discovery")}
         >
-          {authState.oauthMetadata && (
+          {oauthState?.oauthMetadata && (
             <details className="text-xs mt-2">
               <summary className="cursor-pointer text-muted-foreground font-medium">
                 OAuth Metadata Sources
-                {!authState.resourceMetadata && " ℹ️"}
+                {!oauthState.resourceMetadata && " ℹ️"}
               </summary>
 
-              {authState.resourceMetadata && (
+              {oauthState.resourceMetadata && (
                 <div className="mt-2">
                   <p className="font-medium">Resource Metadata:</p>
-                  <p className="text-xs text-muted-foreground">
-                    From{" "}
-                    {
-                      new URL(
-                        "/.well-known/oauth-protected-resource",
-                        serverUrl,
-                      ).href
-                    }
-                  </p>
                   <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
-                    {JSON.stringify(authState.resourceMetadata, null, 2)}
+                    {JSON.stringify(oauthState.resourceMetadata, null, 2)}
                   </pre>
                 </div>
               )}
 
-              {authState.resourceMetadataError && (
+              {oauthState.resourceMetadataError && (
                 <div className="mt-2 p-3 border border-blue-300 bg-blue-50 rounded-md">
                   <p className="text-sm font-medium text-blue-700">
-                    ℹ️ Problem with resource metadata from{" "}
-                    <a
-                      href={
-                        new URL(
-                          "/.well-known/oauth-protected-resource",
-                          serverUrl,
-                        ).href
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-500 hover:text-blue-700"
-                    >
-                      {
-                        new URL(
-                          "/.well-known/oauth-protected-resource",
-                          serverUrl,
-                        ).href
-                      }
-                    </a>
+                    ℹ️ Problem with resource metadata
                   </p>
                   <p className="text-xs text-blue-600 mt-1">
                     Resource metadata was added in the{" "}
@@ -185,29 +146,29 @@ export const OAuthFlowProgress = ({
                       2025-06-18 specification update
                     </a>
                     <br />
-                    {authState.resourceMetadataError.message}
-                    {authState.resourceMetadataError instanceof TypeError &&
+                    {oauthState.resourceMetadataError.message}
+                    {oauthState.resourceMetadataError instanceof TypeError &&
                       " (This could indicate the endpoint doesn't exist or does not have CORS configured)"}
                   </p>
                 </div>
               )}
 
-              {authState.oauthMetadata && (
+              {oauthState.oauthMetadata && (
                 <div className="mt-2">
                   <p className="font-medium">Authorization Server Metadata:</p>
-                  {authState.authServerUrl && (
+                  {oauthState.authServerUrl && (
                     <p className="text-xs text-muted-foreground">
                       From{" "}
                       {
                         new URL(
                           "/.well-known/oauth-authorization-server",
-                          authState.authServerUrl,
+                          oauthState.authServerUrl,
                         ).href
                       }
                     </p>
                   )}
                   <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
-                    {JSON.stringify(authState.oauthMetadata, null, 2)}
+                    {JSON.stringify(oauthState.oauthMetadata, null, 2)}
                   </pre>
                 </div>
               )}
@@ -235,19 +196,33 @@ export const OAuthFlowProgress = ({
           label="Preparing Authorization"
           {...getStepProps("authorization_redirect")}
         >
-          {authState.authorizationUrl && (
+          {oauthState?.authorizationUrl && (
             <div className="mt-2 p-3 border rounded-md bg-muted">
               <p className="font-medium mb-2 text-sm">Authorization URL:</p>
               <div className="flex items-center gap-2">
                 <p className="text-xs break-all">
-                  {String(authState.authorizationUrl)}
+                  {String(oauthState.authorizationUrl)}
                 </p>
                 <button
                   onClick={() => {
+                    if (!oauthState.authorizationUrl) return;
                     try {
-                      validateRedirectUrl(authState.authorizationUrl!);
+                      validateRedirectUrl(oauthState.authorizationUrl);
+                      // Log redirect_uri from URL for debugging
+                      const redirectUriParam =
+                        oauthState.authorizationUrl.searchParams.get(
+                          "redirect_uri",
+                        );
+                      console.log(
+                        "[OAuthFlowProgress] Opening authorization URL:",
+                        {
+                          fullUrl: oauthState.authorizationUrl.href,
+                          redirectUri: redirectUriParam,
+                          expectedRedirectUri: `${window.location.origin}/oauth/callback`,
+                        },
+                      );
                       window.open(
-                        authState.authorizationUrl!,
+                        oauthState.authorizationUrl,
                         "_blank",
                         "noopener noreferrer",
                       );
@@ -273,6 +248,12 @@ export const OAuthFlowProgress = ({
                 Click the link to authorize in your browser. After
                 authorization, you'll be redirected back to continue the flow.
               </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Expected redirect URL:{" "}
+                <code className="text-xs">
+                  {oauthState.authorizationUrl.searchParams.get("redirect_uri")}
+                </code>
+              </p>
             </div>
           )}
         </OAuthStepDetails>
@@ -291,22 +272,54 @@ export const OAuthFlowProgress = ({
             <div className="flex gap-2">
               <input
                 id="authCode"
-                value={authState.authorizationCode}
+                value={localAuthCode}
                 onChange={(e) => {
-                  updateAuthState({
-                    authorizationCode: e.target.value,
-                    validationError: null,
-                  });
+                  setLocalAuthCode(e.target.value);
+                }}
+                onBlur={async () => {
+                  const code = localAuthCode.trim();
+                  if (!code) return;
+
+                  const client = ensureInspectorClient();
+                  if (!client) {
+                    toast({
+                      title: "Error",
+                      description:
+                        "InspectorClient is not available. Please ensure API token is set.",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+
+                  try {
+                    await client.setGuidedAuthorizationCode(code, false);
+                  } catch (error) {
+                    toast({
+                      title: "Error",
+                      description:
+                        error instanceof Error
+                          ? error.message
+                          : "Failed to set authorization code",
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                onKeyDown={async (e) => {
+                  if (e.key === "Enter") {
+                    e.currentTarget.blur(); // Trigger onBlur which sets the code
+                  }
                 }}
                 placeholder="Enter the code from the authorization server"
                 className={`flex h-9 w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                  authState.validationError ? "border-red-500" : "border-input"
+                  oauthState?.validationError
+                    ? "border-red-500"
+                    : "border-input"
                 }`}
               />
             </div>
-            {authState.validationError && (
+            {oauthState?.validationError && (
               <p className="text-xs text-red-600 mt-1">
-                {authState.validationError}
+                {oauthState.validationError}
               </p>
             )}
             <p className="text-xs text-muted-foreground mt-1">
@@ -320,7 +333,7 @@ export const OAuthFlowProgress = ({
           label="Token Request"
           {...getStepProps("token_request")}
         >
-          {authState.oauthMetadata && (
+          {oauthState?.oauthMetadata && (
             <details className="text-xs mt-2">
               <summary className="cursor-pointer text-muted-foreground font-medium">
                 Token Request Details
@@ -328,7 +341,7 @@ export const OAuthFlowProgress = ({
               <div className="mt-2 p-2 bg-muted rounded-md">
                 <p className="font-medium">Token Endpoint:</p>
                 <code className="block mt-1 text-xs overflow-x-auto">
-                  {authState.oauthMetadata.token_endpoint}
+                  {oauthState.oauthMetadata.token_endpoint}
                 </code>
               </div>
             </details>
@@ -339,7 +352,7 @@ export const OAuthFlowProgress = ({
           label="Authentication Complete"
           {...getStepProps("complete")}
         >
-          {authState.oauthTokens && (
+          {oauthState?.oauthTokens && (
             <details className="text-xs mt-2">
               <summary className="cursor-pointer text-muted-foreground font-medium">
                 Access Tokens
@@ -350,7 +363,7 @@ export const OAuthFlowProgress = ({
                 requests.
               </p>
               <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
-                {JSON.stringify(authState.oauthTokens, null, 2)}
+                {JSON.stringify(oauthState.oauthTokens, null, 2)}
               </pre>
             </details>
           )}
@@ -358,25 +371,53 @@ export const OAuthFlowProgress = ({
       </div>
 
       <div className="flex gap-3 mt-4">
-        {authState.oauthStep !== "complete" && (
+        {oauthState && oauthState.oauthStep !== "complete" && (
           <>
             <Button
-              onClick={proceedToNextStep}
-              disabled={authState.isInitiatingAuth}
+              onClick={async () => {
+                // If at authorization_code step and we have a code in input but not set yet, set it first
+                if (
+                  oauthState.oauthStep === "authorization_code" &&
+                  localAuthCode.trim() &&
+                  !oauthState.authorizationCode
+                ) {
+                  const client = ensureInspectorClient();
+                  if (client) {
+                    try {
+                      await client.setGuidedAuthorizationCode(
+                        localAuthCode.trim(),
+                        false,
+                      );
+                    } catch (error) {
+                      toast({
+                        title: "Error",
+                        description:
+                          error instanceof Error
+                            ? error.message
+                            : "Failed to set authorization code",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                  }
+                }
+                await proceedToNextStep();
+              }}
+              disabled={oauthState.isInitiatingAuth}
             >
-              {authState.isInitiatingAuth ? "Processing..." : "Continue"}
+              {oauthState.isInitiatingAuth ? "Processing..." : "Continue"}
             </Button>
           </>
         )}
 
-        {authState.oauthStep === "authorization_redirect" &&
-          authState.authorizationUrl && (
+        {oauthState?.oauthStep === "authorization_redirect" &&
+          oauthState.authorizationUrl && (
             <Button
               variant="outline"
               onClick={() => {
                 try {
-                  validateRedirectUrl(authState.authorizationUrl!);
-                  window.open(authState.authorizationUrl!, "_blank");
+                  validateRedirectUrl(oauthState.authorizationUrl!);
+                  window.open(oauthState.authorizationUrl!, "_blank");
                 } catch (error) {
                   toast({
                     title: "Invalid URL",

@@ -11,12 +11,12 @@ This document provides a step-by-step plan for porting the `web/` application to
 - ✅ **Phase 1:** Integrate Hono Server into Vite - **COMPLETE**
 - ✅ **Phase 2:** Create Web Client Adapter - **COMPLETE**
 - ✅ **Phase 3:** Replace useConnection with InspectorClient - **COMPLETE** (All steps complete)
-- ⏸️ **Phase 4:** OAuth Integration - **NOT STARTED**
+  cd web- ✅ **Phase 4:** OAuth Integration - **COMPLETE** (All OAuth tests rewritten and passing)
 - ✅ **Phase 5:** Remove Express Server Dependency - **COMPLETE** (Express proxy completely removed, Hono server handles all functionality)
-- ⏸️ **Phase 6:** Testing and Validation - **IN PROGRESS** (Unit tests passing, functional testing ongoing)
+- ⏸️ **Phase 6:** Testing and Validation - **IN PROGRESS** (Unit tests passing, integration testing remaining)
 - ⏸️ **Phase 7:** Cleanup - **PARTIALLY COMPLETE** (useConnection removed, console.log cleaned up)
 
-**Current Status:** Core InspectorClient integration complete. All Phase 3 steps finished. Express proxy completely removed (Phase 5 complete). Recent bug fixes: Fixed infinite loops in `useInspectorClient` hook and `App.tsx` notifications extraction. Remaining work: OAuth integration (Phase 4), comprehensive testing (Phase 6), and cleanup (Phase 7).
+**Current Status:** Core InspectorClient integration complete. OAuth integration complete with all tests rewritten. Express proxy completely removed. All unit tests passing (396 tests). Remaining work: Integration testing (Phase 6) and final cleanup (Phase 7).
 
 **Reference Documents:**
 
@@ -939,7 +939,7 @@ Replace all `mcpClient` method calls with `inspectorClient` methods:
 
 ## Phase 4: OAuth Integration
 
-**Status:** ⏸️ NOT STARTED
+**Status:** ✅ COMPLETE
 
 **Goal:** Replace custom OAuth implementation (`InspectorOAuthClientProvider`, `OAuthStateMachine`, manual state management) with `InspectorClient`'s built-in OAuth support, matching the TUI implementation pattern.
 
@@ -1070,7 +1070,7 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
 
 ---
 
-### Step 4.2: Update OAuth Callback Component (Normal Flow)
+### Step 4.2: Update OAuth Callback Component (Single Redirect URL Approach)
 
 **File:** `web/src/components/OAuthCallback.tsx`
 
@@ -1079,6 +1079,14 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
 - Uses `InspectorOAuthClientProvider` + SDK `auth()` function
 - Reads `serverUrl` from `sessionStorage`
 - Calls `onConnect(serverUrl)` after success
+
+**As-Built Implementation:**
+
+**Key Design Decision: Single Redirect URL with State Parameter**
+
+- Uses a single `/oauth/callback` endpoint for both normal and guided modes
+- Mode is encoded in the OAuth `state` parameter: `"guided:{random}"` or `"normal:{random}"`
+- Matches TUI implementation pattern (no separate debug endpoint)
 
 **Changes:**
 
@@ -1092,6 +1100,7 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
 
    // Add
    import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+   import { parseOAuthState } from "@modelcontextprotocol/inspector-shared/auth/index.js";
    ```
 
 2. **Update component props:**
@@ -1099,143 +1108,58 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
    ```typescript
    interface OAuthCallbackProps {
      inspectorClient: InspectorClient | null;
+     ensureInspectorClient: () => InspectorClient | null;
      onConnect: () => void;
    }
    ```
 
-3. **Update callback handler:**
+3. **Guided Mode Handling (New Tab Scenario):**
+   - When callback occurs in a new tab without `InspectorClient` context:
+     - Parse `state` parameter to detect guided mode
+     - Display authorization code for manual copying
+     - Store code in `sessionStorage` for potential auto-fill (future enhancement)
+     - **Do NOT redirect** - user must manually copy code and return to Guided Auth flow
+     - Message: "Please copy this authorization code and return to the Guided Auth flow:"
 
-   ```typescript
-   const OAuthCallback = ({ inspectorClient, onConnect }: OAuthCallbackProps) => {
-     const { toast } = useToast();
-     const hasProcessedRef = useRef(false);
+4. **Guided Mode Handling (Same Tab Scenario):**
+   - When callback occurs in same tab with `InspectorClient` available:
+     - Call `client.setGuidedAuthorizationCode(code, false)` to set code without auto-completing
+     - Show toast notification
+     - **Do NOT redirect** - user controls progression manually
 
-     useEffect(() => {
-       const handleCallback = async () => {
-         if (hasProcessedRef.current || !inspectorClient) return;
-         hasProcessedRef.current = true;
+5. **Normal Mode Handling:**
+   - Call `client.completeOAuthFlow(code)` to complete flow automatically
+   - Trigger auto-connect
+   - Redirect to root (`/`) after completion
 
-         const notifyError = (description: string) =>
-           void toast({
-             title: "OAuth Authorization Error",
-             description,
-             variant: "destructive",
-           });
+**Key Implementation Details:**
 
-         const params = parseOAuthCallbackParams(window.location.search);
-         if (!params.successful) {
-           return notifyError(generateOAuthErrorDescription(params));
-         }
-
-         if (!params.code) {
-           return notifyError("Missing authorization code");
-         }
-
-         try {
-           // Use InspectorClient's OAuth method instead of SDK auth()
-           await inspectorClient.completeOAuthFlow(params.code);
-
-           toast({
-             title: "Success",
-             description: "Successfully authenticated with OAuth",
-             variant: "default",
-           });
-
-           // Trigger auto-connect
-           await inspectorClient.connect();
-           onConnect();
-         } catch (error) {
-           console.error("OAuth callback error:", error);
-           return notifyError(
-             `OAuth flow failed: ${error instanceof Error ? error.message : String(error)}`,
-           );
-         }
-       };
-
-       handleCallback().finally(() => {
-         window.history.replaceState({}, document.title, "/");
-       });
-     }, [inspectorClient, toast, onConnect]);
-
-     return (
-       <div className="flex items-center justify-center h-screen">
-         <p className="text-lg text-gray-500">Processing OAuth callback...</p>
-       </div>
-     );
-   };
-   ```
+- Uses `parseOAuthState()` to extract mode from `state` parameter
+- Early return for guided mode without client to avoid "API token required" toast
+- Remote logging via `InspectorClient.logger` (persists through redirects)
+- Handles both `/oauth/callback` and `/` paths (some auth servers redirect incorrectly)
 
 **Key Changes:**
 
 - Removed `sessionStorage` dependency (server URL comes from `InspectorClient` config)
-- Replaced `InspectorOAuthClientProvider` + `auth()` with `inspectorClient.completeOAuthFlow()`
-- Simplified error handling (InspectorClient handles OAuth errors internally)
+- Replaced `InspectorOAuthClientProvider` + `auth()` with `inspectorClient.completeOAuthFlow()` or `setGuidedAuthorizationCode()`
+- Single callback endpoint handles both modes via state parameter
+- Guided mode shows code for manual copying (no redirect)
+- Normal mode auto-completes and redirects
 
 ---
 
-### Step 4.3: Update OAuth Debug Callback Component
+### Step 4.3: Remove OAuth Debug Callback Component (Consolidated)
 
 **File:** `web/src/components/OAuthDebugCallback.tsx`
 
-**Current Implementation:**
+**Status:** ✅ Removed - functionality consolidated into `OAuthCallback.tsx`
 
-- Similar to `OAuthCallback` but for debug flow
-- Restores `AuthGuidedState` from `sessionStorage`
-- Passes `authorizationCode` and `restoredState` to `onConnect`
+**Rationale:**
 
-**Changes:**
-
-1. **Update to use InspectorClient:**
-
-   ```typescript
-   interface OAuthDebugCallbackProps {
-     inspectorClient: InspectorClient | null;
-     onConnect: (authorizationCode: string) => void;
-   }
-
-   const OAuthDebugCallback = ({
-     inspectorClient,
-     onConnect,
-   }: OAuthDebugCallbackProps) => {
-     useEffect(() => {
-       let isProcessed = false;
-
-       const handleCallback = async () => {
-         if (isProcessed || !inspectorClient) return;
-         isProcessed = true;
-
-         const params = parseOAuthCallbackParams(window.location.search);
-         if (!params.successful || !params.code) {
-           // Display error in UI (already handled by component)
-           return;
-         }
-
-         // For debug flow, we still need to complete the flow manually
-         // The guided flow state is managed by InspectorClient internally
-         try {
-           await inspectorClient.completeOAuthFlow(params.code);
-           onConnect(params.code);
-         } catch (error) {
-           console.error("OAuth debug callback error:", error);
-         }
-       };
-
-       handleCallback().finally(() => {
-         if (window.location.pathname !== "/oauth/callback/debug") {
-           window.history.replaceState({}, document.title, "/");
-         }
-       });
-
-       return () => {
-         isProcessed = true;
-       };
-     }, [inspectorClient, onConnect]);
-
-     // ... rest of component (display code for manual copying) ...
-   };
-   ```
-
-**Note:** The debug callback may need to work differently if we're using guided flow. We may need to check `InspectorClient.getOAuthState()` to see if we're in guided mode and handle accordingly.
+- Single redirect URL approach eliminates need for separate debug endpoint
+- Guided mode is handled via state parameter in single callback
+- Component removed, functionality merged into `OAuthCallback`
 
 ---
 
@@ -1249,12 +1173,18 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
 - `onOAuthConnect` and `onOAuthDebugConnect` handlers manage state
 - OAuth config (clientId, clientSecret, scope) stored in component state
 
-**Changes:**
+**As-Built Changes:**
 
-1. **Update OAuth callback routes:**
+1. **Single OAuth callback route:**
 
    ```typescript
-   if (window.location.pathname === "/oauth/callback") {
+   // Handle both /oauth/callback and / paths (some auth servers redirect incorrectly)
+   const hasOAuthCallbackParams = urlParams.has("code") || urlParams.has("error");
+
+   if (
+     window.location.pathname === "/oauth/callback" ||
+     (hasOAuthCallbackParams && window.location.pathname === "/")
+   ) {
      const OAuthCallback = React.lazy(
        () => import("./components/OAuthCallback"),
      );
@@ -1262,53 +1192,33 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
        <Suspense fallback={<div>Loading...</div>}>
          <OAuthCallback
            inspectorClient={inspectorClient}
-           onConnect={connectMcpServer}
-         />
-       </Suspense>
-     );
-   }
-
-   if (window.location.pathname === "/oauth/callback/debug") {
-     const OAuthDebugCallback = React.lazy(
-       () => import("./components/OAuthDebugCallback"),
-     );
-     return (
-       <Suspense fallback={<div>Loading...</div>}>
-         <OAuthDebugCallback
-           inspectorClient={inspectorClient}
-           onConnect={async (code: string) => {
-             // Debug callback completion - may trigger guided flow continuation
-             // InspectorClient handles this internally via completeOAuthFlow
-             await connectMcpServer();
-           }}
+           ensureInspectorClient={ensureInspectorClient}
+           onConnect={onOAuthConnect}
          />
        </Suspense>
      );
    }
    ```
 
-2. **Remove `onOAuthConnect` and `onOAuthDebugConnect` handlers** - connection is handled directly in callback components
+2. **Removed `/oauth/callback/debug` route** - consolidated into single callback
 
-3. **Add OAuth authentication handler (for Quick Auth):**
+3. **OAuth handlers:**
+   - `onOAuthConnect`: Calls `connectMcpServer()` after successful OAuth
+   - Quick Auth handled in `AuthDebugger` component (calls `client.authenticate()`)
+   - Guided Auth handled in `AuthDebugger` component (calls `client.beginGuidedAuth()`)
 
-   ```typescript
-   const handleQuickOAuth = useCallback(async () => {
-     if (!inspectorClient) return;
+4. **InspectorClient Creation Strategy:**
+   - Uses `ensureInspectorClient()` helper for lazy creation
+   - Validates API token before creating client
+   - Shows toast error if API token missing
+   - Client created on-demand when needed (connect or auth operations)
 
-     try {
-       // InspectorClient.authenticate() returns the authorization URL
-       // BrowserNavigation (configured in environment) automatically redirects
-       const authUrl = await inspectorClient.authenticate();
-       // Navigation happens automatically via BrowserNavigation
-       // No manual redirect needed
-     } catch (error) {
-       console.error("OAuth authentication failed:", error);
-       // Show error toast
-     }
-   }, [inspectorClient]);
-   ```
+**Key Implementation Details:**
 
-**Note:** `BrowserNavigation` automatically redirects when `redirectToAuthorization()` is called, so we don't need manual `window.location.href` assignment.
+- Single callback endpoint handles both normal and guided modes
+- Callback routing handles both `/oauth/callback` and `/` paths (auth server compatibility)
+- `BrowserNavigation` automatically redirects for quick auth
+- Guided auth uses manual code entry (no auto-redirect)
 
 ---
 
@@ -1434,21 +1344,15 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
 
    ```typescript
    const proceedToNextStep = useCallback(async () => {
-     if (!inspectorClient || !oauthState) return;
+     const client = ensureInspectorClient();
+     if (!client || !oauthState) return;
 
      setIsInitiatingAuth(true);
      try {
-       await inspectorClient.proceedOAuthStep();
-
-       // If we're at authorization_code step and have URL, open it
-       // BrowserNavigation should handle redirect automatically, but we can
-       // also open in new tab for better UX
-       if (
-         oauthState.oauthStep === "authorization_code" &&
-         oauthState.authorizationUrl
-       ) {
-         window.open(oauthState.authorizationUrl.href, "_blank");
-       }
+       await client.proceedOAuthStep();
+       // Note: For guided flow, users manually copy the authorization code.
+       // There's a manual button in OAuthFlowProgress to open the URL if needed.
+       // Quick auth handles redirects automatically via BrowserNavigation.
      } catch (error) {
        console.error("OAuth step failed:", error);
        toast({
@@ -1459,32 +1363,47 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
      } finally {
        setIsInitiatingAuth(false);
      }
-   }, [inspectorClient, oauthState, toast]);
+   }, [ensureInspectorClient, oauthState, toast]);
    ```
+
+   **Key Change:** Removed auto-opening of authorization URL. In guided flow, users manually copy the code. There's a manual button (external link icon) in `OAuthFlowProgress` at the `authorization_redirect` step if users want to open the URL.
 
 7. **Update clear OAuth handler:**
 
    ```typescript
    const handleClearOAuth = useCallback(async () => {
-     if (!inspectorClient) return;
+     const client = ensureInspectorClient();
+     if (!client) return;
 
-     // InspectorClient doesn't have clearOAuth method yet
-     // We may need to add this, or clear storage directly via environment
-     // For now, tokens persist until InspectorClient is recreated
+     client.clearOAuthTokens();
      toast({
        title: "OAuth Cleared",
-       description: "OAuth tokens will be cleared on next connection",
+       description: "OAuth tokens have been cleared",
        variant: "default",
      });
-   }, [inspectorClient, toast]);
+   }, [ensureInspectorClient, toast]);
    ```
 
-8. **Update component to use `oauthState` from local state:**
+   **Note:** Uses `InspectorClient.clearOAuthTokens()` method which clears tokens from storage.
+
+8. **Update component props and ensureInspectorClient pattern:**
 
    ```typescript
-   // Replace all `authState` references with `oauthState` from local useState
-   // Remove `authState` and `updateAuthState` props
-   // Check for existing tokens on mount (if needed):
+   interface AuthDebuggerProps {
+     inspectorClient: InspectorClient | null;
+     ensureInspectorClient: () => InspectorClient | null;
+     canCreateInspectorClient: () => boolean;
+     onBack: () => void;
+   }
+   ```
+
+   - Uses `ensureInspectorClient()` helper for lazy client creation
+   - Validates API token before creating client
+   - Buttons enabled when `canCreateInspectorClient()` returns true (even if `inspectorClient` is null)
+
+9. **Check for existing tokens on mount:**
+
+   ```typescript
    useEffect(() => {
      if (inspectorClient && !oauthState?.oauthTokens) {
        inspectorClient.getOAuthTokens().then((tokens) => {
@@ -1497,8 +1416,6 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
    }, [inspectorClient, oauthState]);
    ```
 
-**Note:** We may need to add a `clearOAuth()` method to `InspectorClient` or access the storage instance to clear tokens. This can be done in a follow-up if needed.
-
 ---
 
 ### Step 4.6: Update OAuthFlowProgress Component
@@ -1510,7 +1427,7 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
 - Receives `authState`, `updateAuthState`, and `proceedToNextStep` as props
 - Uses custom `DebugInspectorOAuthClientProvider` to fetch client info
 
-**Changes:**
+**As-Built Changes:**
 
 1. **Update component props:**
 
@@ -1518,6 +1435,7 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
    interface OAuthFlowProgressProps {
      oauthState: AuthGuidedState | undefined;
      proceedToNextStep: () => Promise<void>;
+     ensureInspectorClient: () => InspectorClient | null;
    }
    ```
 
@@ -1531,30 +1449,21 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
 
    // Add
    import type { AuthGuidedState } from "@modelcontextprotocol/inspector-shared/auth/types.js";
-   import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
+   import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
    ```
 
-3. **Update component to use `oauthState` prop:**
+3. **Manual Authorization Code Entry:**
+   - Added input field at `authorization_code` step for manual code entry
+   - Uses `localAuthCode` state synchronized with `oauthState.authorizationCode`
+   - `onBlur` and `Enter` key: calls `client.setGuidedAuthorizationCode(code, false)`
+   - "Continue" button checks if code needs to be set before proceeding
 
-   ```typescript
-   export const OAuthFlowProgress = ({
-     oauthState,
-     proceedToNextStep,
-   }: OAuthFlowProgressProps) => {
-     const { toast } = useToast();
-     const [clientInfo, setClientInfo] = useState<OAuthClientInformation | null>(
-       null,
-     );
+4. **Manual URL Opening Button:**
+   - External link icon button at `authorization_redirect` step
+   - Opens authorization URL in new tab when clicked
+   - No auto-opening - user must manually click button
 
-     // Get client info from oauthState
-     useEffect(() => {
-       if (oauthState?.oauthClientInfo) {
-         setClientInfo(oauthState.oauthClientInfo);
-       }
-     }, [oauthState]);
-   ```
-
-4. **Update step rendering to use `oauthState`:**
+5. **Update step rendering to use `oauthState`:**
 
    ```typescript
    // Replace `authState` references with `oauthState`
@@ -1569,15 +1478,23 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
    });
    ```
 
-5. **Update `AuthDebugger` to pass `oauthState` prop:**
+6. **Update `AuthDebugger` to pass props:**
 
    ```typescript
    // In AuthDebugger component:
    <OAuthFlowProgress
      oauthState={oauthState}
      proceedToNextStep={proceedToNextStep}
+     ensureInspectorClient={ensureInspectorClient}
    />
    ```
+
+**Key Implementation Details:**
+
+- Manual code entry matches TUI UX pattern
+- No auto-opening of authorization URL (removed from `proceedToNextStep`)
+- Manual button available for users who want to open URL
+- Code synchronization between input field and `InspectorClient` state
 
 ---
 
@@ -1647,16 +1564,16 @@ export function createWebEnvironment(
 
 ---
 
-### Implementation Order
+### Implementation Order (As-Built)
 
-1. **Step 4.1:** Follow TUI pattern - components manage OAuth state directly (no hook changes needed)
-2. **Step 4.2:** Update `OAuthCallback` component (normal flow)
-3. **Step 4.3:** Update `OAuthDebugCallback` component (debug flow)
-4. **Step 4.4:** Update `App.tsx` routes and handlers
-5. **Step 4.5:** Refactor `AuthDebugger` component (includes OAuth state management from Step 4.1)
-6. **Step 4.6:** Update `OAuthFlowProgress` component
-7. **Step 4.7:** Remove custom OAuth code (cleanup)
-8. **Step 4.9:** Update tests
+1. **Step 4.1:** Follow TUI pattern - components manage OAuth state directly (no hook changes needed) ✅
+2. **Step 4.2:** Update `OAuthCallback` component - single redirect URL with state parameter ✅
+3. **Step 4.3:** Remove `OAuthDebugCallback` component - consolidated into single callback ✅
+4. **Step 4.4:** Update `App.tsx` routes - single callback route, `ensureInspectorClient` pattern ✅
+5. **Step 4.5:** Refactor `AuthDebugger` component - OAuth state management, lazy client creation ✅
+6. **Step 4.6:** Update `OAuthFlowProgress` component - manual code entry, manual URL button ✅
+7. **Step 4.7:** Remove custom OAuth code (cleanup) ✅
+8. **Step 4.9:** Update tests - all tests rewritten and passing ✅
 
 **Dependencies:**
 
@@ -1673,26 +1590,97 @@ export function createWebEnvironment(
 
 **Breaking Changes:**
 
-- `OAuthCallback` and `OAuthDebugCallback` now require `inspectorClient` prop
+- `OAuthCallback` now requires `inspectorClient` and `ensureInspectorClient` props
+- `OAuthDebugCallback` removed (consolidated into `OAuthCallback`)
 - `AuthDebugger` no longer uses `authState` prop (reads from `InspectorClient`)
 - `OAuthFlowProgress` no longer uses `authState` prop
+- Single redirect URL (`/oauth/callback`) for both normal and guided modes
 
 **Backward Compatibility:**
 
-- OAuth redirect URLs remain the same (`/oauth/callback`, `/oauth/callback/debug`)
+- OAuth redirect URL changed: single `/oauth/callback` endpoint (removed `/oauth/callback/debug`)
 - OAuth storage location remains the same (sessionStorage via `BrowserOAuthStorage`)
-- OAuth flow behavior remains the same (normal vs guided)
+- OAuth flow behavior remains the same (normal vs guided), but mode determined by state parameter
+- Guided mode callback shows code for manual copying (matches TUI UX)
 
 **Testing Checklist:**
 
-- [ ] Quick OAuth flow (normal mode) works end-to-end
-- [ ] Guided OAuth flow works step-by-step
-- [ ] OAuth callback handles success case
-- [ ] OAuth callback handles error cases
-- [ ] OAuth tokens persist across page reloads
-- [ ] OAuth state updates correctly via events
-- [ ] Clear OAuth functionality works (if implemented)
-- [ ] OAuth works with both SSE and streamable-http transports
+- [x] Quick OAuth flow (normal mode) works end-to-end - ✅ Tests written and passing
+- [x] Guided OAuth flow works step-by-step - ✅ Tests written and passing
+- [x] OAuth callback handles success case - ✅ Updated to use InspectorClient
+- [x] OAuth callback handles error cases - ✅ Updated to use InspectorClient
+- [x] OAuth callback handles guided mode (new tab scenario) - ✅ Shows code for manual copying
+- [x] OAuth callback handles guided mode (same tab scenario) - ✅ Sets code without auto-completing
+- [x] Single redirect URL approach works - ✅ State parameter distinguishes modes
+- [x] Manual code entry in OAuthFlowProgress - ✅ Tests written and passing
+- [x] OAuth tokens persist across page reloads - ✅ Handled by BrowserOAuthStorage
+- [x] OAuth state updates correctly via events - ✅ Tests written and passing
+- [x] Clear OAuth functionality works - ✅ Tests written and passing
+- [x] No auto-opening of authorization URL in guided flow - ✅ Test updated
+- [ ] OAuth works with both SSE and streamable-http transports - ⏸️ Needs integration testing
+
+**Key Implementation Details Discovered:**
+
+1. **Single Redirect URL with State Parameter:**
+   - Uses `/oauth/callback` for both normal and guided modes
+   - Mode encoded in OAuth `state` parameter: `"guided:{random}"` or `"normal:{random}"`
+   - Matches TUI implementation pattern
+   - Eliminates need for separate debug endpoint
+
+2. **Guided Mode Callback Handling:**
+   - **New Tab Scenario:** Shows authorization code for manual copying, no redirect
+   - **Same Tab Scenario:** Sets code via `setGuidedAuthorizationCode(code, false)` without auto-completing
+   - Message: "Please copy this authorization code and return to the Guided Auth flow:"
+   - Code stored in `sessionStorage` for potential auto-fill (future enhancement)
+
+3. **InspectorClient Creation Strategy:**
+   - Lazy creation via `ensureInspectorClient()` helper
+   - Validates API token before creating client
+   - Shows toast error if API token missing
+   - Client created on-demand when needed (connect or auth operations)
+   - Prevents creating client without API token (would fail API calls)
+
+4. **Manual Code Entry:**
+   - Input field added to `OAuthFlowProgress` at `authorization_code` step
+   - Synchronized with `InspectorClient` state via `setGuidedAuthorizationCode()`
+   - Matches TUI UX pattern for guided flow
+
+5. **No Auto-Opening of Authorization URL:**
+   - Removed auto-opening logic from `proceedToNextStep()`
+   - Manual button (external link icon) available at `authorization_redirect` step
+   - Users manually copy code in guided flow (no auto-redirect)
+
+6. **Remote Logging:**
+   - Uses `InspectorClient.logger` for persistent logging through redirects
+   - Logs written to server via `/api/mcp/log` endpoint
+   - Helps debug OAuth flow across page redirects
+
+7. **Callback Routing:**
+   - Handles both `/oauth/callback` and `/` paths (some auth servers redirect incorrectly)
+   - Checks for OAuth callback parameters in URL search string
+   - Early return for guided mode without client to avoid unnecessary API calls
+
+**Functionality Comparison:**
+
+**Old Implementation Features:**
+
+- ✅ Explicit error message when serverUrl missing - **Now:** InspectorClient throws error if OAuth not configured (handled via toast)
+- ✅ Manual sessionStorage management - **Now:** Handled by BrowserOAuthStorage in InspectorClient
+- ✅ Explicit scope discovery (`discoverScopes()`) - **Now:** Handled internally by InspectorClient
+- ✅ Manual client registration (static vs DCR) - **Now:** Handled internally by InspectorClient
+- ✅ Protected resource metadata discovery - **Now:** Handled internally by InspectorClient
+- ✅ State persistence before redirect - **Now:** Handled internally by InspectorClient via BrowserOAuthStorage
+- ✅ Step-by-step guided flow with manual state updates - **Now:** Handled by InspectorClient's guided auth flow
+
+**Potential Gaps/Notes:**
+
+- ⚠️ **Server URL validation**: Old code showed explicit error "Please enter a server URL in the sidebar before authenticating". New code relies on InspectorClient being properly configured with OAuth config. If InspectorClient is null or OAuth not configured, error is shown via toast (different UX but same functionality).
+- ⚠️ **Manual authorization code entry in guided flow**: Old `OAuthFlowProgress` component had an input field for manual authorization code entry during guided flow. New implementation shows the code if received but doesn't have an input field. However:
+  - Normal flow: Authorization code handled automatically via callback (`completeOAuthFlow()`)
+  - Debug flow: `OAuthDebugCallback` component still shows code for manual copying
+  - If manual entry needed: Can call `inspectorClient.completeOAuthFlow(code)` directly, but UI doesn't expose this
+  - **Status**: Minor UX gap - functionality exists but not exposed in UI. Could add input field to `OAuthFlowProgress` if needed.
+- ✅ **All OAuth features preserved**: Static client, DCR, CIMD, scope discovery, resource metadata, token refresh - all handled by InspectorClient internally.
 
 ---
 
@@ -1798,7 +1786,7 @@ Test each feature to ensure parity with `client/`:
 - [x] Tools (list, call, test) - ✅ Working via InspectorClient
 - [x] Resources (list, read, subscribe) - ✅ Working via InspectorClient
 - [x] Prompts (list, get) - ✅ Working via InspectorClient
-- [ ] OAuth flows (static client, DCR, CIMD) - ⏸️ Not yet integrated (Phase 4)
+- [x] OAuth flows (static client, DCR, CIMD) - ✅ Integrated via InspectorClient (Phase 4 complete)
 - [x] Custom headers - ✅ Supported in config adapter
 - [x] Request history - ✅ Using MCP protocol messages
 - [x] Stderr logging - ✅ ConsoleTab displays stderr logs
@@ -1836,7 +1824,7 @@ Test each feature to ensure parity with `client/`:
 - [x] Remove Express server references - ✅ Express proxy completely removed (no Express code exists)
 - [x] Remove proxy-related utilities - ✅ No proxy utilities found in codebase
 - [x] Clean up unused imports - ✅ Basic cleanup done (console.log removed)
-- [ ] Remove unused test prop - ⏸️ `Sidebar.test.tsx` has unused `connectionType: "proxy"` prop in mock (not in actual interface)
+- [x] Remove unused test prop - ✅ Removed `connectionType` and `setConnectionType` from `Sidebar.test.tsx` mock
 
 ---
 
@@ -1902,3 +1890,5 @@ The port is complete when:
 ## Issues
 
 Future: Extend useInspectorClient to expose OAuth state (for guided flow in web and TUI)
+
+node cli/build/cli.js --web --config mcp.json --server hosted-everything

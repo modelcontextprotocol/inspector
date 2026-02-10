@@ -691,6 +691,19 @@ const Sidebar = ({
                 <Button
                   data-testid="connect-button"
                   onClick={() => {
+                    const hasApiToken = config.MCP_INSPECTOR_API_TOKEN?.value;
+                    if (!hasApiToken) {
+                      console.error(
+                        "[Sidebar] API Token is required to connect. Please set it in Configuration.",
+                      );
+                      toast({
+                        title: "API Token Required",
+                        description:
+                          "Please set the API Token in Configuration to connect.",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
                     onDisconnect();
                     onConnect();
                   }}
@@ -705,7 +718,25 @@ const Sidebar = ({
               </div>
             )}
             {connectionStatus !== "connected" && (
-              <Button className="w-full" onClick={onConnect}>
+              <Button
+                className="w-full"
+                onClick={() => {
+                  const hasApiToken = config.MCP_INSPECTOR_API_TOKEN?.value;
+                  if (!hasApiToken) {
+                    console.error(
+                      "[Sidebar] API Token is required to connect. Please set it in Configuration.",
+                    );
+                    toast({
+                      title: "API Token Required",
+                      description:
+                        "Please set the API Token in Configuration to connect.",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  onConnect();
+                }}
+              >
                 <Play className="w-4 h-4 mr-2" />
                 Connect
               </Button>

@@ -2709,7 +2709,66 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Completes OAuth flow with authorization code
+   * Set authorization code for guided OAuth flow.
+   * Validates that the client is in guided OAuth mode (has active state machine).
+   * @param authorizationCode The authorization code from the OAuth callback
+   * @param completeFlow If true, automatically proceed through all remaining steps to completion.
+   *                     If false, only set the code and wait for manual progression via proceedOAuthStep().
+   *                     Defaults to false for manual step-by-step control.
+   * @throws Error if not in guided OAuth flow or not at authorization_code step
+   */
+  async setGuidedAuthorizationCode(
+    authorizationCode: string,
+    completeFlow: boolean = false,
+  ): Promise<void> {
+    if (!this.oauthStateMachine || !this.oauthState) {
+      throw new Error(
+        "Not in guided OAuth flow. Call beginGuidedAuth() first.",
+      );
+    }
+    const currentStep = this.oauthState.oauthStep;
+    if (currentStep !== "authorization_code") {
+      throw new Error(
+        `Cannot set authorization code at step ${currentStep}. Expected step: authorization_code`,
+      );
+    }
+
+    this.oauthState.authorizationCode = authorizationCode;
+
+    if (completeFlow) {
+      // Execute current step (authorization_code -> token_request)
+      await this.oauthStateMachine.executeStep(this.oauthState);
+      // Continue through remaining steps until complete
+      // TypeScript doesn't track that executeStep mutates oauthState.oauthStep,
+      // so we use a type assertion to acknowledge the step changes dynamically
+      let step: OAuthStep = this.oauthState.oauthStep;
+      while (step !== "complete") {
+        await this.oauthStateMachine.executeStep(this.oauthState);
+        step = this.oauthState.oauthStep;
+      }
+
+      if (!this.oauthState.oauthTokens) {
+        throw new Error("Failed to exchange authorization code for tokens");
+      }
+
+      this.dispatchTypedEvent("oauthComplete", {
+        tokens: this.oauthState.oauthTokens,
+      });
+    } else {
+      // Manual mode: dispatch event to notify listeners that code was set
+      // (step transitions will happen when user calls proceedOAuthStep())
+      this.dispatchTypedEvent("oauthStepChange", {
+        step: this.oauthState.oauthStep,
+        previousStep: this.oauthState.oauthStep,
+        state: { authorizationCode },
+      });
+    }
+  }
+
+  /**
+   * Completes OAuth flow with authorization code.
+   * For guided mode, this calls setGuidedAuthorizationCode(code, true) internally.
+   * For normal mode, uses SDK auth() directly.
    */
   async completeOAuthFlow(authorizationCode: string): Promise<void> {
     if (!this.oauthConfig) {
@@ -2718,21 +2777,8 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     try {
       if (this.oauthStateMachine && this.oauthState) {
-        // Guided mode - use state machine
-        this.oauthState.authorizationCode = authorizationCode;
-        await this.oauthStateMachine.executeStep(this.oauthState);
-        // Continue through remaining steps
-        while (this.oauthState.oauthStep !== "complete") {
-          await this.oauthStateMachine.executeStep(this.oauthState);
-        }
-
-        if (!this.oauthState.oauthTokens) {
-          throw new Error("Failed to exchange authorization code for tokens");
-        }
-
-        this.dispatchTypedEvent("oauthComplete", {
-          tokens: this.oauthState.oauthTokens,
-        });
+        // Guided mode - use setGuidedAuthorizationCode with completeFlow=true
+        await this.setGuidedAuthorizationCode(authorizationCode, true);
       } else {
         // Normal mode - use SDK auth() with authorization code
         const provider = await this.createOAuthProvider("normal");

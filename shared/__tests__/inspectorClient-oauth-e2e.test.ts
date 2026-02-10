@@ -750,6 +750,205 @@ describe("InspectorClient OAuth E2E", () => {
         expect(client.getStatus()).toBe("connected");
       });
 
+      it("should set authorization code without completing flow (completeFlow=false)", async () => {
+        const staticClientId = "test-static-set-code-false";
+        const staticClientSecret = "test-static-secret-set-code-false";
+
+        const serverConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            staticClients: [
+              {
+                clientId: staticClientId,
+                clientSecret: staticClientSecret,
+                redirectUris: [testRedirectUrl],
+              },
+            ],
+          }),
+        };
+
+        server = new TestServerHttp(serverConfig);
+        const port = await server.start();
+        const serverUrl = `http://localhost:${port}`;
+
+        const oauthConfig = createOAuthClientConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        });
+        const clientConfig: InspectorClientOptions = {
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
+        };
+
+        client = new InspectorClient(
+          {
+            type: transport.clientType,
+            url: `${serverUrl}${transport.endpoint}`,
+          } as MCPServerConfig,
+          clientConfig,
+        );
+
+        // Start guided auth and progress to authorization_code step
+        await client.beginGuidedAuth();
+        while (true) {
+          const state = client.getOAuthState();
+          if (state?.oauthStep === "authorization_code") {
+            break;
+          }
+          await client.proceedOAuthStep();
+        }
+
+        const stateBefore = client.getOAuthState();
+        expect(stateBefore?.oauthStep).toBe("authorization_code");
+        expect(stateBefore?.authorizationCode).toBe("");
+
+        const authUrl = stateBefore?.authorizationUrl;
+        if (!authUrl) throw new Error("Expected authorizationUrl");
+        const authCode = await completeOAuthAuthorization(authUrl);
+
+        // Set code without completing flow
+        const stepEvents: Array<{ step: string; previousStep: string }> = [];
+        client.addEventListener("oauthStepChange", (event) => {
+          stepEvents.push({
+            step: event.detail.step,
+            previousStep: event.detail.previousStep,
+          });
+        });
+
+        await client.setGuidedAuthorizationCode(authCode, false);
+
+        // Verify code was set but flow didn't complete
+        const stateAfter = client.getOAuthState();
+        expect(stateAfter?.oauthStep).toBe("authorization_code");
+        expect(stateAfter?.authorizationCode).toBe(authCode);
+        expect(stateAfter?.oauthTokens).toBeFalsy();
+
+        // Should have dispatched one event (code set, but step unchanged)
+        expect(stepEvents.length).toBe(1);
+        expect(stepEvents[0]?.step).toBe("authorization_code");
+        expect(stepEvents[0]?.previousStep).toBe("authorization_code");
+
+        // Now manually proceed to complete
+        await client.proceedOAuthStep(); // authorization_code -> token_request
+        await client.proceedOAuthStep(); // token_request -> complete
+
+        const finalState = client.getOAuthState();
+        expect(finalState?.oauthStep).toBe("complete");
+        expect(finalState?.oauthTokens).toBeDefined();
+      });
+
+      it("should set authorization code and complete flow (completeFlow=true)", async () => {
+        const staticClientId = "test-static-set-code-true";
+        const staticClientSecret = "test-static-secret-set-code-true";
+
+        const serverConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            staticClients: [
+              {
+                clientId: staticClientId,
+                clientSecret: staticClientSecret,
+                redirectUris: [testRedirectUrl],
+              },
+            ],
+          }),
+        };
+
+        server = new TestServerHttp(serverConfig);
+        const port = await server.start();
+        const serverUrl = `http://localhost:${port}`;
+
+        const oauthConfig = createOAuthClientConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        });
+        const clientConfig: InspectorClientOptions = {
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
+        };
+
+        client = new InspectorClient(
+          {
+            type: transport.clientType,
+            url: `${serverUrl}${transport.endpoint}`,
+          } as MCPServerConfig,
+          clientConfig,
+        );
+
+        // Start guided auth and progress to authorization_code step
+        await client.beginGuidedAuth();
+        while (true) {
+          const state = client.getOAuthState();
+          if (state?.oauthStep === "authorization_code") {
+            break;
+          }
+          await client.proceedOAuthStep();
+        }
+
+        const stateBefore = client.getOAuthState();
+        expect(stateBefore?.oauthStep).toBe("authorization_code");
+        expect(stateBefore?.authorizationCode).toBe("");
+
+        const authUrl = stateBefore?.authorizationUrl;
+        if (!authUrl) throw new Error("Expected authorizationUrl");
+        const authCode = await completeOAuthAuthorization(authUrl);
+
+        // Set code with completeFlow=true (should auto-complete)
+        const stepEvents: Array<{ step: string; previousStep: string }> = [];
+        client.addEventListener("oauthStepChange", (event) => {
+          stepEvents.push({
+            step: event.detail.step,
+            previousStep: event.detail.previousStep,
+          });
+        });
+
+        await client.setGuidedAuthorizationCode(authCode, true);
+
+        // Verify flow completed automatically
+        const stateAfter = client.getOAuthState();
+        expect(stateAfter?.oauthStep).toBe("complete");
+        expect(stateAfter?.authorizationCode).toBe(authCode);
+        expect(stateAfter?.oauthTokens).toBeDefined();
+
+        // Should have dispatched step change events for transitions (not for code setting)
+        // authorization_code -> token_request -> complete
+        expect(stepEvents.length).toBeGreaterThanOrEqual(2);
+        const lastEvent = stepEvents[stepEvents.length - 1];
+        expect(lastEvent?.step).toBe("complete");
+      });
+
       it("runGuidedAuth continues from already-started guided flow", async () => {
         const staticClientId = "test-run-from-started";
         const staticClientSecret = "test-secret-run-from-started";
