@@ -719,6 +719,12 @@ const App = () => {
     saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
   }, [config]);
 
+  // Persist immediately when config changes from Sidebar so new tabs (e.g. OAuth callback) have it
+  const setConfigAndPersist = useCallback((newConfig: InspectorConfig) => {
+    setConfig(newConfig);
+    saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, newConfig);
+  }, []);
+
   const onOAuthConnect = useCallback(() => {
     setIsAuthDebuggerVisible(false);
     void connectMcpServer();
@@ -1230,6 +1236,36 @@ const App = () => {
   const urlParams = new URLSearchParams(window.location.search);
   const hasOAuthCallbackParams =
     urlParams.has("code") || urlParams.has("error");
+  const stateParam = urlParams.get("state");
+  const isGuidedOAuthCallback =
+    hasOAuthCallbackParams &&
+    (window.location.pathname === "/oauth/callback" ||
+      window.location.pathname === "/") &&
+    stateParam != null &&
+    parseOAuthState(stateParam)?.mode === "guided";
+
+  // Guided auth callback in another tab: show callback UI (code to copy) without requiring API token.
+  // That tab has its own sessionStorage and won't have the token from the opener tab.
+  if (isGuidedOAuthCallback) {
+    const OAuthCallback = React.lazy(
+      () => import("./components/OAuthCallback"),
+    );
+    return (
+      <Suspense
+        fallback={
+          <div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground">
+            Loading...
+          </div>
+        }
+      >
+        <OAuthCallback
+          inspectorClient={null}
+          ensureInspectorClient={() => null}
+          onConnect={() => {}}
+        />
+      </Suspense>
+    );
+  }
 
   // No API token: show login screen so user can enter token (e.g. opened app without CLI)
   // Once token is set we persist it; OAuth return flow relies on token in localStorage.
@@ -1299,7 +1335,7 @@ const App = () => {
           env={env}
           setEnv={setEnv}
           config={config}
-          setConfig={setConfig}
+          setConfig={setConfigAndPersist}
           customHeaders={customHeaders}
           setCustomHeaders={setCustomHeaders}
           oauthClientId={oauthClientId}

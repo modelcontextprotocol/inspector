@@ -1,11 +1,87 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { parseOAuthState } from "@modelcontextprotocol/inspector-shared/auth/index.js";
+import useTheme from "@/lib/hooks/useTheme";
 import { useToast } from "@/lib/hooks/useToast";
 import {
   generateOAuthErrorDescription,
   parseOAuthCallbackParams,
 } from "@/utils/oauthUtils.ts";
+import { Button } from "@/components/ui/button";
+import { Check, Copy, KeyRound } from "lucide-react";
+
+function GuidedAuthCodeDisplay({
+  code,
+  toast,
+}: {
+  code: string;
+  toast: (opts: {
+    title: string;
+    description?: string;
+    variant?: "default" | "destructive";
+  }) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast({
+        title: "Copy failed",
+        description: "Could not copy to clipboard",
+        variant: "destructive",
+      });
+    }
+  }, [code, toast]);
+
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="w-full max-w-[42rem] rounded-lg border border-border bg-card p-8 shadow-sm">
+        <div className="flex flex-col items-center gap-6">
+          <div className="flex items-center gap-3">
+            <KeyRound className="h-10 w-10 text-muted-foreground" />
+            <h1 className="text-2xl font-semibold text-foreground">
+              MCP Inspector
+            </h1>
+          </div>
+          <p className="text-sm text-muted-foreground text-center">
+            Please copy this authorization code and return to the Guided Auth
+            flow:
+          </p>
+          <div className="w-full flex items-center gap-2">
+            <code className="block flex-1 min-w-0 p-2 bg-muted rounded-sm overflow-x-auto text-xs text-foreground font-mono">
+              {code}
+            </code>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {copied && (
+                <span className="text-xs text-muted-foreground">Copied!</span>
+              )}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleCopy}
+                aria-label="Copy code"
+                title="Copy to clipboard"
+              >
+                {copied ? (
+                  <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground text-center">
+            Close this tab and paste the code in the OAuth flow to complete
+            authentication.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface OAuthCallbackProps {
   inspectorClient: InspectorClient | null;
@@ -18,6 +94,7 @@ const OAuthCallback = ({
   ensureInspectorClient,
   onConnect,
 }: OAuthCallbackProps) => {
+  useTheme(); // Apply saved theme to document so standalone (e.g. new-tab) callback obeys theme
   const { toast } = useToast();
   const hasProcessedRef = useRef(false);
 
@@ -239,30 +316,14 @@ const OAuthCallback = ({
     window.location.pathname === "/oauth/callback" ||
     window.location.pathname === "/";
   if (isCallbackPath && isGuidedMode && !inspectorClient && hasCode) {
-    // In new tab scenario, inspectorClient prop will be null
-    // Just show the code without trying to create a client
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="mt-4 p-4 bg-secondary rounded-md max-w-md">
-          <p className="mb-2 text-sm">
-            Please copy this authorization code and return to the Guided Auth
-            flow:
-          </p>
-          <code className="block p-2 bg-muted rounded-sm overflow-x-auto text-xs">
-            {params.code}
-          </code>
-          <p className="mt-4 text-xs text-muted-foreground">
-            Close this tab and paste the code in the OAuth flow to complete
-            authentication.
-          </p>
-        </div>
-      </div>
-    );
+    return <GuidedAuthCodeDisplay code={params.code} toast={toast} />;
   }
 
   return (
-    <div className="flex items-center justify-center h-screen">
-      <p className="text-lg text-gray-500">Processing OAuth callback...</p>
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <p className="text-lg text-muted-foreground">
+        Processing OAuth callback...
+      </p>
     </div>
   );
 };

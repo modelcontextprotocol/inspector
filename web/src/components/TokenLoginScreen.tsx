@@ -30,17 +30,21 @@ const TokenLoginScreen = ({ onTokenSubmit }: TokenLoginScreenProps) => {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-md rounded-lg border border-border bg-card p-8 shadow-sm">
+      <div className="w-full max-w-[34rem] rounded-lg border border-border bg-card p-8 shadow-sm">
         <div className="flex flex-col items-center gap-6">
           <div className="flex items-center gap-3">
             <KeyRound className="h-10 w-10 text-muted-foreground" />
-            <h1 className="text-2xl font-semibold">MCP Inspector</h1>
+            <h1 className="text-2xl font-semibold text-foreground">
+              MCP Inspector
+            </h1>
           </div>
           <p className="text-sm text-muted-foreground text-center">
             Enter the API token to continue. The token is provided when you run
             the inspector from the CLI (e.g.{" "}
-            <code className="rounded bg-muted px-1">npm run web</code>) and is
-            included in the URL when the browser opens.
+            <code className="rounded bg-muted px-1 text-foreground">
+              npm run web
+            </code>
+            ) and is included in the URL when the browser opens.
           </p>
           <form onSubmit={handleSubmit} className="w-full space-y-4">
             <div className="space-y-2">

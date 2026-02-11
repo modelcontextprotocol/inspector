@@ -180,7 +180,14 @@ export const initializeInspectorConfig = (
     };
   }
 
-  return { ...baseConfig, ...overrides };
+  const finalConfig = { ...baseConfig, ...overrides };
+
+  // Persist immediately when we got token from URL so new tabs (e.g. OAuth callback) have it
+  if (apiTokenFromUrl) {
+    saveInspectorConfig(localStorageKey, finalConfig);
+  }
+
+  return finalConfig;
 };
 
 export const saveInspectorConfig = (
