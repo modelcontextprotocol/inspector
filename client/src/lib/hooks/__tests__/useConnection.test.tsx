@@ -518,7 +518,10 @@ describe("useConnection", () => {
         }),
         expect.objectContaining({
           capabilities: expect.objectContaining({
-            elicitation: {},
+            elicitation: expect.objectContaining({
+              form: {},
+              url: {},
+            }),
           }),
         }),
       );
