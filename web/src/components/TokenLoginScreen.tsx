@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import useTheme from "@/lib/hooks/useTheme";
 import { KeyRound } from "lucide-react";
 
 export interface TokenLoginScreenProps {
@@ -14,6 +15,7 @@ export interface TokenLoginScreenProps {
  * on submit we persist it and load the main app.
  */
 const TokenLoginScreen = ({ onTokenSubmit }: TokenLoginScreenProps) => {
+  useTheme(); // Apply saved theme so new-tab / direct load obeys theme
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
 
