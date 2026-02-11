@@ -81,11 +81,29 @@ jest.mock(
   }),
 );
 
+// jsdom does not provide window.matchMedia; useTheme calls it.
+const mockMatchMedia = (matches = false) => ({
+  matches,
+  addEventListener: jest.fn(),
+  removeEventListener: jest.fn(),
+  dispatchEvent: jest.fn(),
+  onchange: null,
+  addListener: jest.fn(),
+  removeListener: jest.fn(),
+  media: "",
+});
+
 describe("App - URL Fragment Routing", () => {
   const mockUseInspectorClient = jest.mocked(useInspectorClient);
 
   beforeEach(() => {
     jest.restoreAllMocks();
+
+    window.matchMedia = jest
+      .fn()
+      .mockImplementation((query: string) =>
+        mockMatchMedia(false),
+      ) as unknown as typeof window.matchMedia;
 
     // Inspector starts disconnected.
     mockUseInspectorClient.mockReturnValue(disconnectedInspectorClientState);
