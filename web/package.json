@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-web",
-  "version": "0.18.0",
+  "version": "0.20.0",
   "description": "Web application for the Model Context Protocol inspector",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",

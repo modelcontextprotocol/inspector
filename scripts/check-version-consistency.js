@@ -137,6 +137,7 @@ if (!fs.existsSync(lockPath)) {
         { path: "server", name: "@modelcontextprotocol/inspector-server" },
         { path: "cli", name: "@modelcontextprotocol/inspector-cli" },
         { path: "tui", name: "@modelcontextprotocol/inspector-tui" },
+        { path: "web", name: "@modelcontextprotocol/inspector-web" },
       ];
 
       workspacePackages.forEach(({ path, name }) => {
