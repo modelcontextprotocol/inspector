@@ -2,7 +2,7 @@ import { useCallback, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { DebugInspectorOAuthClientProvider } from "../lib/auth";
 import { AlertCircle } from "lucide-react";
-import { AuthGuidedState, EMPTY_GUIDED_STATE } from "../lib/auth-types";
+import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
 import { OAuthStateMachine } from "../lib/oauth-state-machine";
 import { SESSION_KEYS } from "../lib/constants";
@@ -11,8 +11,8 @@ import { validateRedirectUrl } from "@/utils/urlValidation";
 export interface AuthDebuggerProps {
   serverUrl: string;
   onBack: () => void;
-  authState: AuthGuidedState;
-  updateAuthState: (updates: Partial<AuthGuidedState>) => void;
+  authState: AuthDebuggerState;
+  updateAuthState: (updates: Partial<AuthDebuggerState>) => void;
 }
 
 interface StatusMessageProps {
@@ -143,7 +143,7 @@ const AuthDebugger = ({
     updateAuthState({ isInitiatingAuth: true, statusMessage: null });
     try {
       // Step through the OAuth flow using the state machine instead of the auth() function
-      let currentState: AuthGuidedState = {
+      let currentState: AuthDebuggerState = {
         ...authState,
         oauthStep: "metadata_discovery",
         authorizationUrl: null,
@@ -223,7 +223,7 @@ const AuthDebugger = ({
       );
       serverAuthProvider.clear();
       updateAuthState({
-        ...EMPTY_GUIDED_STATE,
+        ...EMPTY_DEBUGGER_STATE,
         statusMessage: {
           type: "success",
           message: "OAuth tokens cleared successfully",

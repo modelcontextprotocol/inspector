@@ -30,7 +30,7 @@ import {
   hasValidMetaPrefix,
   isReservedMetaKey,
 } from "@/utils/metaUtils";
-import { AuthGuidedState, EMPTY_GUIDED_STATE } from "./lib/auth-types";
+import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
 import { OAuthStateMachine } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
 import { cleanParams } from "./utils/paramUtils";
@@ -238,7 +238,7 @@ const App = () => {
   const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
 
   const [authState, setAuthState] =
-    useState<AuthGuidedState>(EMPTY_GUIDED_STATE);
+    useState<AuthDebuggerState>(EMPTY_DEBUGGER_STATE);
 
   // Metadata state - persisted in localStorage
   const [metadata, setMetadata] = useState<Record<string, string>>(() => {
@@ -256,7 +256,7 @@ const App = () => {
     return {};
   });
 
-  const updateAuthState = (updates: Partial<AuthGuidedState>) => {
+  const updateAuthState = (updates: Partial<AuthDebuggerState>) => {
     setAuthState((prev) => ({ ...prev, ...updates }));
   };
 
@@ -575,7 +575,7 @@ const App = () => {
     }: {
       authorizationCode?: string;
       errorMsg?: string;
-      restoredState?: AuthGuidedState;
+      restoredState?: AuthDebuggerState;
     }) => {
       setIsAuthDebuggerVisible(true);
 
@@ -587,7 +587,7 @@ const App = () => {
       }
 
       if (restoredState && authorizationCode) {
-        let currentState: AuthGuidedState = {
+        let currentState: AuthDebuggerState = {
           ...restoredState,
           authorizationCode,
           oauthStep: "token_request",

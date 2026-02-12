@@ -24,7 +24,7 @@ export interface StatusMessage {
 }
 
 // Single state interface for OAuth state
-export interface AuthGuidedState {
+export interface AuthDebuggerState {
   isInitiatingAuth: boolean;
   oauthTokens: OAuthTokens | null;
   oauthStep: OAuthStep;
@@ -41,7 +41,7 @@ export interface AuthGuidedState {
   validationError: string | null;
 }
 
-export const EMPTY_GUIDED_STATE: AuthGuidedState = {
+export const EMPTY_DEBUGGER_STATE: AuthDebuggerState = {
   isInitiatingAuth: false,
   oauthTokens: null,
   oauthStep: "metadata_discovery",

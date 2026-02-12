@@ -4,7 +4,7 @@ import {
   generateOAuthErrorDescription,
   parseOAuthCallbackParams,
 } from "@/utils/oauthUtils.ts";
-import { AuthGuidedState } from "@/lib/auth-types";
+import { AuthDebuggerState } from "@/lib/auth-types";
 
 interface OAuthCallbackProps {
   onConnect: ({
@@ -14,7 +14,7 @@ interface OAuthCallbackProps {
   }: {
     authorizationCode?: string;
     errorMsg?: string;
-    restoredState?: AuthGuidedState;
+    restoredState?: AuthDebuggerState;
   }) => void;
 }
 

@@ -1,4 +1,4 @@
-import { AuthGuidedState, OAuthStep } from "@/lib/auth-types";
+import { AuthDebuggerState, OAuthStep } from "@/lib/auth-types";
 import { CheckCircle2, Circle, ExternalLink } from "lucide-react";
 import { Button } from "./ui/button";
 import { DebugInspectorOAuthClientProvider } from "@/lib/auth";
@@ -53,8 +53,8 @@ const OAuthStepDetails = ({
 
 interface OAuthFlowProgressProps {
   serverUrl: string;
-  authState: AuthGuidedState;
-  updateAuthState: (updates: Partial<AuthGuidedState>) => void;
+  authState: AuthDebuggerState;
+  updateAuthState: (updates: Partial<AuthDebuggerState>) => void;
   proceedToNextStep: () => Promise<void>;
 }
 

@@ -1,4 +1,4 @@
-import { OAuthStep, AuthGuidedState } from "./auth-types";
+import { OAuthStep, AuthDebuggerState } from "./auth-types";
 import { DebugInspectorOAuthClientProvider, discoverScopes } from "./auth";
 import {
   discoverAuthorizationServerMetadata,
@@ -15,10 +15,10 @@ import {
 import { generateOAuthState } from "@/utils/oauthUtils";
 
 export interface StateMachineContext {
-  state: AuthGuidedState;
+  state: AuthDebuggerState;
   serverUrl: string;
   provider: DebugInspectorOAuthClientProvider;
-  updateState: (updates: Partial<AuthGuidedState>) => void;
+  updateState: (updates: Partial<AuthDebuggerState>) => void;
 }
 
 export interface StateTransition {
@@ -210,10 +210,10 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
 export class OAuthStateMachine {
   constructor(
     private serverUrl: string,
-    private updateState: (updates: Partial<AuthGuidedState>) => void,
+    private updateState: (updates: Partial<AuthDebuggerState>) => void,
   ) {}
 
-  async executeStep(state: AuthGuidedState): Promise<void> {
+  async executeStep(state: AuthDebuggerState): Promise<void> {
     const provider = new DebugInspectorOAuthClientProvider(this.serverUrl);
     const context: StateMachineContext = {
       state,

@@ -55,7 +55,7 @@ import {
   discoverOAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import { OAuthMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { EMPTY_GUIDED_STATE } from "@/lib/auth-types";
+import { EMPTY_DEBUGGER_STATE } from "@/lib/auth-types";
 
 // Mock local auth module
 jest.mock("@/lib/auth", () => ({
@@ -142,7 +142,7 @@ Object.defineProperty(window, "sessionStorage", {
 });
 
 describe("AuthDebugger", () => {
-  const defaultAuthState = EMPTY_GUIDED_STATE;
+  const defaultAuthState = EMPTY_DEBUGGER_STATE;
 
   const defaultProps = {
     serverUrl: "https://example.com/mcp",
