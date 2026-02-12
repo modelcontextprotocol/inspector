@@ -35,7 +35,7 @@
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
     "pino": "^9.6.0",
-    "react": "^19.2.3"
+    "react": "^18.3.1"
   },
   "dependencies": {
     "hono": "^4.6.0",
@@ -44,9 +44,8 @@
   "devDependencies": {
     "@hono/node-server": "^1.19.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
+    "@types/react": "^18.3.23",
     "pino": "^9.6.0",
-    "@types/react": "^19.2.7",
-    "react": "^19.2.3",
     "typescript": "^5.4.2",
     "vitest": "^4.0.17"
   }

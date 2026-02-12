@@ -215,12 +215,7 @@ export function InfoTab({
 
           {/* Fixed keyboard help footer at bottom - only show when focused */}
           {focused && (
-            <Box
-              flexShrink={0}
-              height={1}
-              justifyContent="center"
-              backgroundColor="gray"
-            >
+            <Box flexShrink={0} height={1} justifyContent="center">
               <Text bold color="white">
                 ↑/↓ to scroll, + to zoom
               </Text>

@@ -94,7 +94,13 @@ export async function waitForStateFile<T = unknown>(
   await vi.waitFor(
     async () => {
       const raw = await fs.readFile(filePath, "utf-8");
-      const parsed = JSON.parse(raw) as unknown;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw) as unknown;
+      } catch {
+        // File may be mid-write or contain partial/corrupt JSON; retry
+        throw new Error("waitForStateFile predicate not met");
+      }
       if (!predicate(parsed)) {
         throw new Error("waitForStateFile predicate not met");
       }

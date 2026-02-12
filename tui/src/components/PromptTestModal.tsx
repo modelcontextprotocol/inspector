@@ -194,7 +194,6 @@ export function PromptTestModal({
         flexDirection="column"
         paddingX={1}
         paddingY={1}
-        backgroundColor="black"
       >
         {/* Header */}
         <Box flexShrink={0} marginBottom={1}>

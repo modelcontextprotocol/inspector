@@ -71,8 +71,8 @@ function extractHeaders(req: Request): Record<string, string> {
 // With this test server, your test can hold an instance and you can get the server's recorded message history at any time.
 //
 export class TestServerHttp {
-  private mcpServer: McpServer;
   private config: ServerConfig;
+  private readonly configWithCallback: ServerConfig;
   private readonly serverControl: ServerControl;
   private _closing = false;
   private recordedRequests: RecordedRequest[] = [];
@@ -81,20 +81,21 @@ export class TestServerHttp {
   private baseUrl?: string;
   private currentRequestHeaders?: Record<string, string>;
   private currentLogLevel: string | null = null;
+  /** One McpServer per connection (SSE and streamable-http both use this; SDK allows only one transport per server) */
+  private mcpServersBySession?: Map<string, McpServer>;
 
   constructor(config: ServerConfig) {
     this.config = config;
     this.serverControl = {
       isClosing: () => this._closing,
     };
-    const configWithCallback: ServerConfig = {
+    this.configWithCallback = {
       ...config,
       onLogLevelSet: (level: string) => {
         this.currentLogLevel = level;
       },
       serverControl: this.serverControl,
     };
-    this.mcpServer = createMcpServer(configWithCallback);
   }
 
   /**
@@ -186,8 +187,9 @@ export class TestServerHttp {
       setupOAuthRoutes(app, this.config.oauth, placeholderUrl);
     }
 
-    // Store transports by sessionId - each transport instance manages ONE session
+    // Store transports and one McpServer per session (SDK allows only one transport per server)
     const transports: Map<string, StreamableHTTPServerTransport> = new Map();
+    this.mcpServersBySession = new Map();
 
     // Bearer token middleware for MCP routes if requireAuth
     const mcpMiddleware: express.RequestHandler[] = [];
@@ -225,22 +227,27 @@ export class TestServerHttp {
           }
         }
       } else {
-        // New session - create a new transport instance
+        // New session - create a new transport and a new McpServer (one server per connection)
+        const sessionMcpServer = createMcpServer(this.configWithCallback);
         const newTransport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => crypto.randomUUID(),
           onsessioninitialized: (sessionId: string) => {
             transports.set(sessionId, newTransport);
+            this.mcpServersBySession!.set(sessionId, sessionMcpServer);
           },
-          onsessionclosed: (sessionId: string) => {
+          onsessionclosed: async (sessionId: string) => {
+            const mcp = this.mcpServersBySession?.get(sessionId);
             transports.delete(sessionId);
+            this.mcpServersBySession?.delete(sessionId);
+            if (mcp) await mcp.close();
           },
         });
 
         // Set up message interception for this transport
         this.setupMessageInterception(newTransport);
 
-        // Connect the MCP server to this transport
-        await this.mcpServer.connect(newTransport);
+        // Connect this session's MCP server to this transport
+        await sessionMcpServer.connect(newTransport);
 
         try {
           await newTransport.handleRequest(req, res, req.body);
@@ -325,27 +332,33 @@ export class TestServerHttp {
       sseMiddleware.push(createBearerTokenMiddleware(this.config.oauth));
     }
 
-    // Store transports by sessionId (like the SDK example)
+    // One McpServer per connection (same pattern as streamable-http)
+    this.mcpServersBySession = new Map();
     const sseTransports: Map<string, SSEServerTransport> = new Map();
 
     // GET handler for SSE connection (establishes the SSE stream)
     app.get("/sse", ...sseMiddleware, async (req: Request, res: Response) => {
       this.currentRequestHeaders = extractHeaders(req);
+      const sessionMcpServer = createMcpServer(this.configWithCallback);
       const sseTransport = new SSEServerTransport("/sse", res);
 
-      // Store transport by sessionId immediately (before connecting)
-      sseTransports.set(sseTransport.sessionId, sseTransport);
+      const sessionId = sseTransport.sessionId;
+      sseTransports.set(sessionId, sseTransport);
+      this.mcpServersBySession!.set(sessionId, sessionMcpServer);
 
       // Clean up on connection close
-      res.on("close", () => {
-        sseTransports.delete(sseTransport.sessionId);
+      res.on("close", async () => {
+        const mcp = this.mcpServersBySession?.get(sessionId);
+        sseTransports.delete(sessionId);
+        this.mcpServersBySession?.delete(sessionId);
+        if (mcp) await mcp.close();
       });
 
       // Intercept messages
       this.setupMessageInterception(sseTransport);
 
-      // Connect server to transport (this automatically calls start())
-      await this.mcpServer.connect(sseTransport);
+      // Connect this connection's MCP server to this transport
+      await sessionMcpServer.connect(sseTransport);
     });
 
     // POST handler for SSE message sending (SSE uses GET for stream, POST for sending messages)
@@ -394,7 +407,14 @@ export class TestServerHttp {
    */
   async stop(): Promise<void> {
     this._closing = true;
-    await this.mcpServer.close();
+    // Close all per-connection McpServers (SSE and streamable-http both use the map)
+    if (this.mcpServersBySession) {
+      for (const mcp of this.mcpServersBySession.values()) {
+        await mcp.close();
+      }
+      this.mcpServersBySession.clear();
+      this.mcpServersBySession = undefined;
+    }
 
     if (this.transport) {
       await this.transport.close();

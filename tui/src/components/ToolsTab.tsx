@@ -236,12 +236,7 @@ export function ToolsTab({
 
             {/* Fixed footer - only show when details pane is focused */}
             {focusedPane === "details" && (
-              <Box
-                flexShrink={0}
-                height={1}
-                justifyContent="center"
-                backgroundColor="gray"
-              >
+              <Box flexShrink={0} height={1} justifyContent="center">
                 <Text bold color="white">
                   ↑/↓ to scroll, + to zoom
                 </Text>

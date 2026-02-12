@@ -372,12 +372,7 @@ export function AuthTab({
       </Box>
 
       {focused && (
-        <Box
-          flexShrink={0}
-          height={1}
-          justifyContent="center"
-          backgroundColor="gray"
-        >
+        <Box flexShrink={0} height={1} justifyContent="center">
           <Text bold color="white">
             ←/→ select, G/Q/S or Enter run, ↑/↓ scroll
           </Text>

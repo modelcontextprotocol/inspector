@@ -57,7 +57,10 @@ import {
   normalizeObjectSchema,
 } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
-import { completable } from "@modelcontextprotocol/sdk/server/completable.js";
+import {
+  completable,
+  isCompletable,
+} from "@modelcontextprotocol/sdk/server/completable.js";
 import type { PromptArgument } from "@modelcontextprotocol/sdk/types.js";
 
 // Empty object JSON schema constant (from SDK's mcp.js)
@@ -651,20 +654,22 @@ export function createMcpServer(config: ServerConfig): McpServer {
           prompt.completions,
         )) {
           if (enhancedSchema[argName]) {
-            // Wrap the existing schema with completable
-            enhancedSchema[argName] = completable(
-              enhancedSchema[argName],
-              async (
-                value: any,
-                context?: { arguments?: Record<string, string> },
-              ) => {
-                const result = completeCallback(
-                  String(value),
-                  context?.arguments,
-                );
-                return Array.isArray(result) ? result : await result;
-              },
-            );
+            // Wrap with completable only if not already wrapped (avoids "Cannot redefine property" when createMcpServer is called multiple times with shared config)
+            if (!isCompletable(enhancedSchema[argName])) {
+              enhancedSchema[argName] = completable(
+                enhancedSchema[argName],
+                async (
+                  value: any,
+                  context?: { arguments?: Record<string, string> },
+                ) => {
+                  const result = completeCallback(
+                    String(value),
+                    context?.arguments,
+                  );
+                  return Array.isArray(result) ? result : await result;
+                },
+              );
+            }
           }
         }
         argsSchema = enhancedSchema;
