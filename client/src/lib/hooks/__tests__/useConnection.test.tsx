@@ -520,11 +520,64 @@ describe("useConnection", () => {
           capabilities: expect.objectContaining({
             elicitation: expect.objectContaining({
               form: {},
-              url: {},
             }),
           }),
         }),
       );
+    });
+
+    test("declines URL elicitation requests and continues supporting form requests", async () => {
+      const mockOnElicitationRequest = jest.fn();
+      const propsWithElicitation = {
+        ...defaultProps,
+        onElicitationRequest: mockOnElicitationRequest,
+      };
+
+      const { result } = renderHook(() => useConnection(propsWithElicitation));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const elicitRequestHandlerCall =
+        mockClient.setRequestHandler.mock.calls.find((call) => {
+          try {
+            const schema = call[0];
+            const testRequest = {
+              method: "elicitation/create",
+              params: {
+                mode: "url",
+                message: "please continue",
+                url: "https://example.com",
+                elicitationId: "id-1",
+              },
+            };
+            const parseResult =
+              schema.safeParse && schema.safeParse(testRequest);
+            return parseResult?.success;
+          } catch {
+            return false;
+          }
+        });
+
+      expect(elicitRequestHandlerCall).toBeDefined();
+      const [, handler] = elicitRequestHandlerCall;
+
+      let urlResult: unknown;
+      await act(async () => {
+        urlResult = await handler({
+          method: "elicitation/create",
+          params: {
+            mode: "url",
+            message: "please continue",
+            url: "https://example.com",
+            elicitationId: "id-1",
+          },
+        });
+      });
+
+      expect(urlResult).toEqual({ action: "decline" });
+      expect(mockOnElicitationRequest).not.toHaveBeenCalled();
     });
 
     test("sets up elicitation request handler when onElicitationRequest is provided", async () => {

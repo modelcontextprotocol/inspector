@@ -454,7 +454,6 @@ export function useConnection({
         sampling: {},
         elicitation: {
           form: {},
-          url: {},
         },
         roots: {
           listChanged: true,
@@ -1059,6 +1058,14 @@ export function useConnection({
 
       if (onElicitationRequest) {
         client.setRequestHandler(ElicitRequestSchema, (request) => {
+          const requestedMode = (
+            request as { params?: { mode?: "form" | "url" } }
+          ).params?.mode;
+
+          if (requestedMode === "url") {
+            return Promise.resolve({ action: "decline" });
+          }
+
           const taskSpec = (request as { params?: { task?: { ttl?: number } } })
             .params?.task;
 
