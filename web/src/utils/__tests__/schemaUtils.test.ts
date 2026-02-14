@@ -465,7 +465,7 @@ describe("Output Schema Validation", () => {
     });
 
     test("handles invalid output schemas gracefully", () => {
-      const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
+      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
       const toolsWithInvalidSchema: Tool[] = [
         {

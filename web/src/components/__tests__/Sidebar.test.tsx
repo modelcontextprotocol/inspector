@@ -1,27 +1,26 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { describe, it, beforeEach, jest } from "@jest/globals";
 import Sidebar from "../Sidebar";
 import { DEFAULT_INSPECTOR_CONFIG } from "@/lib/constants";
 import { InspectorConfig } from "@/lib/configurationTypes";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Mock theme hook
-jest.mock("../../lib/hooks/useTheme", () => ({
+vi.mock("../../lib/hooks/useTheme", () => ({
   __esModule: true,
-  default: () => ["light", jest.fn()],
+  default: () => ["light", vi.fn()],
 }));
 
 // Mock toast hook
-const mockToast = jest.fn();
-jest.mock("@/lib/hooks/useToast", () => ({
+const mockToast = vi.fn();
+vi.mock("@/lib/hooks/useToast", () => ({
   useToast: () => ({
     toast: mockToast,
   }),
 }));
 
 // Mock navigator clipboard
-const mockClipboardWrite = jest.fn(() => Promise.resolve());
+const mockClipboardWrite = vi.fn(() => Promise.resolve());
 Object.defineProperty(navigator, "clipboard", {
   value: {
     writeText: mockClipboardWrite,
@@ -29,38 +28,38 @@ Object.defineProperty(navigator, "clipboard", {
 });
 
 // Setup fake timers
-jest.useFakeTimers();
+vi.useFakeTimers();
 
 describe("Sidebar", () => {
   const defaultProps = {
     connectionStatus: "disconnected" as const,
     transportType: "stdio" as const,
-    setTransportType: jest.fn(),
+    setTransportType: vi.fn(),
     command: "",
-    setCommand: jest.fn(),
+    setCommand: vi.fn(),
     args: "",
-    setArgs: jest.fn(),
+    setArgs: vi.fn(),
     sseUrl: "",
-    setSseUrl: jest.fn(),
+    setSseUrl: vi.fn(),
     oauthClientId: "",
-    setOauthClientId: jest.fn(),
+    setOauthClientId: vi.fn(),
     oauthClientSecret: "",
-    setOauthClientSecret: jest.fn(),
+    setOauthClientSecret: vi.fn(),
     oauthScope: "",
-    setOauthScope: jest.fn(),
+    setOauthScope: vi.fn(),
     env: {},
-    setEnv: jest.fn(),
+    setEnv: vi.fn(),
     customHeaders: [],
-    setCustomHeaders: jest.fn(),
-    onConnect: jest.fn(),
-    onDisconnect: jest.fn(),
+    setCustomHeaders: vi.fn(),
+    onConnect: vi.fn(),
+    onDisconnect: vi.fn(),
     stdErrNotifications: [],
-    clearStdErrNotifications: jest.fn(),
+    clearStdErrNotifications: vi.fn(),
     logLevel: "info" as const,
-    sendLogLevelRequest: jest.fn(),
+    sendLogLevelRequest: vi.fn(),
     loggingSupported: true,
     config: DEFAULT_INSPECTOR_CONFIG,
-    setConfig: jest.fn(),
+    setConfig: vi.fn(),
   };
 
   const renderSidebar = (props = {}) => {
@@ -72,13 +71,13 @@ describe("Sidebar", () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    jest.clearAllTimers();
+    vi.clearAllMocks();
+    vi.clearAllTimers();
   });
 
   describe("Command and arguments", () => {
     it("should trim whitespace from command input on blur", () => {
-      const setCommand = jest.fn();
+      const setCommand = vi.fn();
       renderSidebar({ command: "  node server.js  ", setCommand });
 
       const commandInput = screen.getByLabelText("Command");
@@ -88,7 +87,7 @@ describe("Sidebar", () => {
     });
 
     it("should handle whitespace-only command input on blur", () => {
-      const setCommand = jest.fn();
+      const setCommand = vi.fn();
       renderSidebar({ command: "   ", setCommand });
 
       const commandInput = screen.getByLabelText("Command");
@@ -98,7 +97,7 @@ describe("Sidebar", () => {
     });
 
     it("should not affect command without surrounding whitespace", () => {
-      const setCommand = jest.fn();
+      const setCommand = vi.fn();
       renderSidebar({ command: "node", setCommand });
 
       const commandInput = screen.getByLabelText("Command");
@@ -116,7 +115,7 @@ describe("Sidebar", () => {
 
     describe("Basic Operations", () => {
       it("should add a new environment variable", () => {
-        const setEnv = jest.fn();
+        const setEnv = vi.fn();
         renderSidebar({ env: {}, setEnv });
 
         openEnvVarsSection();
@@ -128,7 +127,7 @@ describe("Sidebar", () => {
       });
 
       it("should remove an environment variable", () => {
-        const setEnv = jest.fn();
+        const setEnv = vi.fn();
         const initialEnv = { TEST_KEY: "test_value" };
         renderSidebar({ env: initialEnv, setEnv });
 
@@ -141,7 +140,7 @@ describe("Sidebar", () => {
       });
 
       it("should update environment variable value", () => {
-        const setEnv = jest.fn();
+        const setEnv = vi.fn();
         const initialEnv = { TEST_KEY: "test_value" };
         renderSidebar({ env: initialEnv, setEnv });
 
@@ -173,7 +172,7 @@ describe("Sidebar", () => {
 
     describe("Key Editing", () => {
       it("should maintain order when editing first key", () => {
-        const setEnv = jest.fn();
+        const setEnv = vi.fn();
         const initialEnv = {
           FIRST_KEY: "first_value",
           SECOND_KEY: "second_value",
@@ -194,7 +193,7 @@ describe("Sidebar", () => {
       });
 
       it("should maintain order when editing middle key", () => {
-        const setEnv = jest.fn();
+        const setEnv = vi.fn();
         const initialEnv = {
           FIRST_KEY: "first_value",
           SECOND_KEY: "second_value",
@@ -217,7 +216,7 @@ describe("Sidebar", () => {
       });
 
       it("should maintain order when editing last key", () => {
-        const setEnv = jest.fn();
+        const setEnv = vi.fn();
         const initialEnv = {
           FIRST_KEY: "first_value",
           SECOND_KEY: "second_value",
@@ -238,7 +237,7 @@ describe("Sidebar", () => {
       });
 
       it("should maintain order during key editing", () => {
-        const setEnv = jest.fn();
+        const setEnv = vi.fn();
         const initialEnv = {
           KEY1: "value1",
           KEY2: "value2",
@@ -269,7 +268,7 @@ describe("Sidebar", () => {
 
     describe("Multiple Operations", () => {
       it("should maintain state after multiple key edits", () => {
-        const setEnv = jest.fn();
+        const setEnv = vi.fn();
         const initialEnv = {
           FIRST_KEY: "first_value",
           SECOND_KEY: "second_value",
@@ -339,7 +338,7 @@ describe("Sidebar", () => {
 
     describe("Edge Cases", () => {
       it("should handle empty key", () => {
-        const setEnv = jest.fn();
+        const setEnv = vi.fn();
         const initialEnv = { TEST_KEY: "test_value" };
         renderSidebar({ env: initialEnv, setEnv });
 
@@ -352,7 +351,7 @@ describe("Sidebar", () => {
       });
 
       it("should handle special characters in key", () => {
-        const setEnv = jest.fn();
+        const setEnv = vi.fn();
         const initialEnv = { TEST_KEY: "test_value" };
         renderSidebar({ env: initialEnv, setEnv });
 
@@ -365,7 +364,7 @@ describe("Sidebar", () => {
       });
 
       it("should handle unicode characters in key", () => {
-        const setEnv = jest.fn();
+        const setEnv = vi.fn();
         const initialEnv = { TEST_KEY: "test_value" };
         renderSidebar({ env: initialEnv, setEnv });
 
@@ -378,7 +377,7 @@ describe("Sidebar", () => {
       });
 
       it("should handle a very long key name", () => {
-        const setEnv = jest.fn();
+        const setEnv = vi.fn();
         const initialEnv = { TEST_KEY: "test_value" };
         renderSidebar({ env: initialEnv, setEnv });
 
@@ -434,7 +433,7 @@ describe("Sidebar", () => {
       await act(async () => {
         const { serverEntry } = getCopyButtons();
         fireEvent.click(serverEntry);
-        jest.runAllTimers();
+        vi.runAllTimers();
       });
 
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
@@ -470,7 +469,7 @@ describe("Sidebar", () => {
       await act(async () => {
         const { serversFile } = getCopyButtons();
         fireEvent.click(serversFile);
-        jest.runAllTimers();
+        vi.runAllTimers();
       });
 
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
@@ -497,7 +496,7 @@ describe("Sidebar", () => {
       await act(async () => {
         const { serverEntry } = getCopyButtons();
         fireEvent.click(serverEntry);
-        jest.runAllTimers();
+        vi.runAllTimers();
       });
 
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
@@ -525,7 +524,7 @@ describe("Sidebar", () => {
       await act(async () => {
         const { serversFile } = getCopyButtons();
         fireEvent.click(serversFile);
-        jest.runAllTimers();
+        vi.runAllTimers();
       });
 
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
@@ -552,7 +551,7 @@ describe("Sidebar", () => {
       await act(async () => {
         const { serverEntry } = getCopyButtons();
         fireEvent.click(serverEntry);
-        jest.runAllTimers();
+        vi.runAllTimers();
       });
 
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
@@ -580,7 +579,7 @@ describe("Sidebar", () => {
       await act(async () => {
         const { serversFile } = getCopyButtons();
         fireEvent.click(serversFile);
-        jest.runAllTimers();
+        vi.runAllTimers();
       });
 
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
@@ -613,7 +612,7 @@ describe("Sidebar", () => {
       await act(async () => {
         const { serverEntry } = getCopyButtons();
         fireEvent.click(serverEntry);
-        jest.runAllTimers();
+        vi.runAllTimers();
       });
 
       expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
@@ -637,7 +636,7 @@ describe("Sidebar", () => {
     };
 
     it("should update bearer token via custom headers", async () => {
-      const setCustomHeaders = jest.fn();
+      const setCustomHeaders = vi.fn();
       renderSidebar({
         customHeaders: [],
         setCustomHeaders,
@@ -661,7 +660,7 @@ describe("Sidebar", () => {
     });
 
     it("should update header name via custom headers", () => {
-      const setCustomHeaders = jest.fn();
+      const setCustomHeaders = vi.fn();
       renderSidebar({
         customHeaders: [
           {
@@ -689,7 +688,7 @@ describe("Sidebar", () => {
     });
 
     it("should clear bearer token via custom headers", () => {
-      const setCustomHeaders = jest.fn();
+      const setCustomHeaders = vi.fn();
       renderSidebar({
         customHeaders: [
           {
@@ -854,7 +853,7 @@ describe("Sidebar", () => {
     });
 
     it("should allow editing existing headers", () => {
-      const setCustomHeaders = jest.fn();
+      const setCustomHeaders = vi.fn();
       renderSidebar({
         customHeaders: [
           {
@@ -897,7 +896,7 @@ describe("Sidebar", () => {
     };
 
     it("should update MCP server request timeout", () => {
-      const setConfig = jest.fn();
+      const setConfig = vi.fn();
       renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });
 
       openConfigSection();
@@ -921,7 +920,7 @@ describe("Sidebar", () => {
     });
 
     it("should update max total timeout", () => {
-      const setConfig = jest.fn();
+      const setConfig = vi.fn();
       renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });
 
       openConfigSection();
@@ -947,7 +946,7 @@ describe("Sidebar", () => {
     });
 
     it("should handle invalid timeout values entered by user", () => {
-      const setConfig = jest.fn();
+      const setConfig = vi.fn();
       renderSidebar({ config: DEFAULT_INSPECTOR_CONFIG, setConfig });
 
       openConfigSection();
@@ -971,7 +970,7 @@ describe("Sidebar", () => {
     });
 
     it("should maintain configuration state after multiple updates", () => {
-      const setConfig = jest.fn();
+      const setConfig = vi.fn();
       const { rerender } = renderSidebar({
         config: DEFAULT_INSPECTOR_CONFIG,
         setConfig,

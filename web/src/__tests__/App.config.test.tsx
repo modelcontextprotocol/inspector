@@ -1,3 +1,4 @@
+import type { Mock } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import App from "../App";
 import { DEFAULT_INSPECTOR_CONFIG } from "../lib/constants";
@@ -5,31 +6,34 @@ import { InspectorConfig } from "../lib/configurationTypes";
 import * as configUtils from "../utils/configUtils";
 
 // Mock auth dependencies first
-jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
-  auth: jest.fn(),
+vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
+  auth: vi.fn(),
 }));
 
-// Mock the config utils
-jest.mock("../utils/configUtils", () => ({
-  ...jest.requireActual("../utils/configUtils"),
-  getInitialTransportType: jest.fn(() => "stdio"),
-  getInitialSseUrl: jest.fn(() => "http://localhost:3001/sse"),
-  getInitialCommand: jest.fn(() => "mcp-server-everything"),
-  getInitialArgs: jest.fn(() => ""),
-  getInspectorApiToken: jest.fn(
-    (config: InspectorConfig) =>
-      config.MCP_INSPECTOR_API_TOKEN?.value || undefined,
-  ),
-  initializeInspectorConfig: jest.fn(() => DEFAULT_INSPECTOR_CONFIG),
-  saveInspectorConfig: jest.fn(),
-}));
+// Mock the config utils (async factory so we can spread importActual)
+vi.mock("../utils/configUtils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils/configUtils")>();
+  return {
+    ...actual,
+    getInitialTransportType: vi.fn(() => "stdio"),
+    getInitialSseUrl: vi.fn(() => "http://localhost:3001/sse"),
+    getInitialCommand: vi.fn(() => "mcp-server-everything"),
+    getInitialArgs: vi.fn(() => ""),
+    getInspectorApiToken: vi.fn(
+      (config: InspectorConfig) =>
+        config.MCP_INSPECTOR_API_TOKEN?.value || undefined,
+    ),
+    initializeInspectorConfig: vi.fn(() => DEFAULT_INSPECTOR_CONFIG),
+    saveInspectorConfig: vi.fn(),
+  };
+});
 
 // Get references to the mocked functions
 const mockInitializeInspectorConfig =
-  configUtils.initializeInspectorConfig as jest.Mock;
+  configUtils.initializeInspectorConfig as Mock;
 
 // Mock InspectorClient hook
-jest.mock(
+vi.mock(
   "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js",
   () => ({
     useInspectorClient: () => ({
@@ -45,36 +49,36 @@ jest.mock(
       serverInfo: null,
       instructions: undefined,
       client: null,
-      connect: jest.fn(),
-      disconnect: jest.fn(),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
     }),
   }),
 );
 
-jest.mock("../lib/hooks/useDraggablePane", () => ({
+vi.mock("../lib/hooks/useDraggablePane", () => ({
   useDraggablePane: () => ({
     height: 300,
-    handleDragStart: jest.fn(),
+    handleDragStart: vi.fn(),
   }),
   useDraggableSidebar: () => ({
     width: 320,
     isDragging: false,
-    handleDragStart: jest.fn(),
+    handleDragStart: vi.fn(),
   }),
 }));
 
-jest.mock("../components/Sidebar", () => ({
+vi.mock("../components/Sidebar", () => ({
   __esModule: true,
   default: () => <div>Sidebar</div>,
 }));
 
 // Mock fetch
-global.fetch = jest.fn();
+global.fetch = vi.fn();
 
 describe("App - Config Endpoint", () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-    (global.fetch as jest.Mock).mockResolvedValue({
+    vi.clearAllMocks();
+    (global.fetch as Mock).mockResolvedValue({
       ok: true,
       json: () =>
         Promise.resolve({
@@ -88,7 +92,7 @@ describe("App - Config Endpoint", () => {
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   test("fetches /api/config when API token is present and applies response", async () => {

@@ -1,7 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  afterAll,
+  vi,
+} from "vitest";
+import * as path from "node:path";
+import * as os from "node:os";
+import * as fs from "node:fs/promises";
 import { InspectorClient } from "../mcp/inspectorClient.js";
 import { createTransportNode } from "../mcp/node/transport.js";
 import type { MCPServerConfig } from "../mcp/types.js";
+import { NodeOAuthStorage } from "../auth/node/storage-node.js";
 import { TestServerHttp } from "../test/test-server-http.js";
 import { waitForEvent } from "../test/test-helpers.js";
 import { getDefaultServerConfig } from "../test/test-server-fixtures.js";
@@ -13,8 +25,30 @@ import {
 import { clearOAuthTestData } from "../test/test-server-oauth.js";
 import type { InspectorClientOptions } from "../mcp/inspectorClient.js";
 
+const oauthTestStatePath = path.join(
+  os.tmpdir(),
+  `mcp-oauth-${process.pid}-inspectorClient-oauth.json`,
+);
+
+function createTestOAuthConfig(
+  options: Parameters<typeof createOAuthClientConfig>[0],
+) {
+  return {
+    ...createOAuthClientConfig(options),
+    storage: new NodeOAuthStorage(oauthTestStatePath),
+  };
+}
+
 describe("InspectorClient OAuth", () => {
   let client: InspectorClient;
+
+  afterAll(async () => {
+    try {
+      await fs.unlink(oauthTestStatePath);
+    } catch {
+      // Ignore if file does not exist or already removed
+    }
+  });
 
   beforeEach(() => {
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -42,7 +76,7 @@ describe("InspectorClient OAuth", () => {
 
   describe("OAuth Configuration", () => {
     it("should set OAuth configuration", () => {
-      const oauthConfig = createOAuthClientConfig({
+      const oauthConfig = createTestOAuthConfig({
         mode: "static",
         clientId: "test-client-id",
         clientSecret: "test-secret",
@@ -75,7 +109,7 @@ describe("InspectorClient OAuth", () => {
     });
 
     it("should set OAuth configuration with clientMetadataUrl for CIMD", () => {
-      const oauthConfig = createOAuthClientConfig({
+      const oauthConfig = createTestOAuthConfig({
         mode: "cimd",
         clientMetadataUrl: "https://example.com/client-metadata.json",
         redirectUrl: "http://localhost:3000/callback",
@@ -108,7 +142,7 @@ describe("InspectorClient OAuth", () => {
 
   describe("OAuth Token Management", () => {
     beforeEach(() => {
-      const oauthConfig = createOAuthClientConfig({
+      const oauthConfig = createTestOAuthConfig({
         mode: "static",
         clientId: "test-client-id",
         redirectUrl: "http://localhost:3000/callback",
@@ -190,7 +224,7 @@ describe("InspectorClient OAuth", () => {
       const port = await testServer.start();
       const serverUrl = `http://localhost:${port}`;
 
-      const oauthConfig = createOAuthClientConfig({
+      const oauthConfig = createTestOAuthConfig({
         mode: "static",
         clientId: staticClientId,
         clientSecret: staticClientSecret,
@@ -281,7 +315,7 @@ describe("InspectorClient OAuth", () => {
       const serverUrl = `http://localhost:${port}`;
 
       // Create client with OAuth config pointing to test server
-      const oauthConfig = createOAuthClientConfig({
+      const oauthConfig = createTestOAuthConfig({
         mode: "static",
         clientId: staticClientId,
         clientSecret: staticClientSecret,
@@ -340,7 +374,7 @@ describe("InspectorClient OAuth", () => {
       const port = await testServer.start();
       const serverUrl = `http://localhost:${port}`;
 
-      const oauthConfig = createOAuthClientConfig({
+      const oauthConfig = createTestOAuthConfig({
         mode: "static",
         clientId: "test-error-client",
         clientSecret: "test-error-secret",
@@ -425,7 +459,7 @@ describe("InspectorClient OAuth", () => {
       const port = await testServer.start();
       const serverUrl = `http://localhost:${port}`;
 
-      const oauthConfig = createOAuthClientConfig({
+      const oauthConfig = createTestOAuthConfig({
         mode: "static",
         clientId: staticClientId,
         clientSecret: staticClientSecret,

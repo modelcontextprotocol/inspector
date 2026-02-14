@@ -5,6 +5,6 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["__tests__/**/*.test.ts"],
-    testTimeout: 15000, // 15 seconds - CLI tests spawn subprocesses that need time
+    exclude: ["**/node_modules/**", "**/build/**"],
   },
 });

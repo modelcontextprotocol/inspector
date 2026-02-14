@@ -1,6 +1,5 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { describe, it, expect, jest } from "@jest/globals";
 import { useRef } from "react";
 import DynamicJsonForm, { DynamicJsonFormRef } from "../DynamicJsonForm";
 import type { JsonSchemaType } from "@/utils/jsonUtils";
@@ -13,14 +12,14 @@ describe("DynamicJsonForm String Fields", () => {
         description: "Test string field",
       } satisfies JsonSchemaType,
       value: undefined,
-      onChange: jest.fn(),
+      onChange: vi.fn(),
     };
     return render(<DynamicJsonForm {...defaultProps} {...props} />);
   };
 
   describe("Type Validation", () => {
     it("should handle numeric input as string type", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       renderForm({ onChange });
 
       const input = screen.getByRole("textbox");
@@ -43,7 +42,7 @@ describe("DynamicJsonForm String Fields", () => {
         description: "Test string or null field",
       };
       render(
-        <DynamicJsonForm schema={schema} value={null} onChange={jest.fn()} />,
+        <DynamicJsonForm schema={schema} value={null} onChange={vi.fn()} />,
       );
       const input = screen.getByRole("textbox");
       expect(input).toHaveProperty("type", "text");
@@ -57,7 +56,7 @@ describe("DynamicJsonForm String Fields", () => {
         format: "email",
         description: "Email address",
       };
-      render(<DynamicJsonForm schema={schema} value="" onChange={jest.fn()} />);
+      render(<DynamicJsonForm schema={schema} value="" onChange={vi.fn()} />);
 
       const input = screen.getByRole("textbox");
       expect(input).toHaveProperty("type", "email");
@@ -69,7 +68,7 @@ describe("DynamicJsonForm String Fields", () => {
         format: "uri",
         description: "Website URL",
       };
-      render(<DynamicJsonForm schema={schema} value="" onChange={jest.fn()} />);
+      render(<DynamicJsonForm schema={schema} value="" onChange={vi.fn()} />);
 
       const input = screen.getByRole("textbox");
       expect(input).toHaveProperty("type", "url");
@@ -81,7 +80,7 @@ describe("DynamicJsonForm String Fields", () => {
         format: "date",
         description: "Birth date",
       };
-      render(<DynamicJsonForm schema={schema} value="" onChange={jest.fn()} />);
+      render(<DynamicJsonForm schema={schema} value="" onChange={vi.fn()} />);
 
       const input = screen.getByDisplayValue("");
       expect(input).toHaveProperty("type", "date");
@@ -93,7 +92,7 @@ describe("DynamicJsonForm String Fields", () => {
         format: "date-time",
         description: "Event datetime",
       };
-      render(<DynamicJsonForm schema={schema} value="" onChange={jest.fn()} />);
+      render(<DynamicJsonForm schema={schema} value="" onChange={vi.fn()} />);
 
       const input = screen.getByDisplayValue("");
       expect(input).toHaveProperty("type", "datetime-local");
@@ -107,7 +106,7 @@ describe("DynamicJsonForm String Fields", () => {
         enum: ["option1", "option2", "option3"],
         description: "Select an option",
       };
-      render(<DynamicJsonForm schema={schema} value="" onChange={jest.fn()} />);
+      render(<DynamicJsonForm schema={schema} value="" onChange={vi.fn()} />);
 
       const select = screen.getByRole("combobox");
       expect(select.tagName).toBe("SELECT");
@@ -125,7 +124,7 @@ describe("DynamicJsonForm String Fields", () => {
         ],
         description: "Select with labels",
       };
-      render(<DynamicJsonForm schema={schema} value="" onChange={jest.fn()} />);
+      render(<DynamicJsonForm schema={schema} value="" onChange={vi.fn()} />);
 
       const options = screen.getAllByRole("option");
       expect(options[1]).toHaveProperty("textContent", "Label 1");
@@ -133,7 +132,7 @@ describe("DynamicJsonForm String Fields", () => {
     });
 
     it("should call onChange with selected oneOf value", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       const schema: JsonSchemaType = {
         type: "string",
         oneOf: [
@@ -151,7 +150,7 @@ describe("DynamicJsonForm String Fields", () => {
     });
 
     it("should call onChange with selected enum value", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       const schema: JsonSchemaType = {
         type: "string",
         enum: ["option1", "option2"],
@@ -167,7 +166,7 @@ describe("DynamicJsonForm String Fields", () => {
 
     it("should render JSON Schema spec compliant oneOf with const for labeled enums", () => {
       // Example from JSON Schema spec: labeled enums using oneOf with const
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       const schema: JsonSchemaType = {
         type: "string",
         title: "Traffic Light",
@@ -204,7 +203,7 @@ describe("DynamicJsonForm String Fields", () => {
     });
 
     it("should render anyOf with const/title for labeled options and show description", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       const schema: JsonSchemaType = {
         type: "string",
         title: "Heroes",
@@ -229,7 +228,7 @@ describe("DynamicJsonForm String Fields", () => {
     });
 
     it("should render legacy enum with enumNames as labels", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       const schema: JsonSchemaType = {
         type: "string",
         title: "Pets",
@@ -261,7 +260,7 @@ describe("DynamicJsonForm String Fields", () => {
         maxLength: 10,
         description: "Username",
       };
-      render(<DynamicJsonForm schema={schema} value="" onChange={jest.fn()} />);
+      render(<DynamicJsonForm schema={schema} value="" onChange={vi.fn()} />);
 
       const input = screen.getByRole("textbox");
       expect(input).toHaveProperty("minLength", 3);
@@ -274,7 +273,7 @@ describe("DynamicJsonForm String Fields", () => {
         pattern: "^[A-Za-z]+$",
         description: "Letters only",
       };
-      render(<DynamicJsonForm schema={schema} value="" onChange={jest.fn()} />);
+      render(<DynamicJsonForm schema={schema} value="" onChange={vi.fn()} />);
 
       const input = screen.getByRole("textbox");
       expect(input).toHaveProperty("pattern", "^[A-Za-z]+$");
@@ -290,7 +289,7 @@ describe("DynamicJsonForm Integer Fields", () => {
         description: "Test integer field",
       } satisfies JsonSchemaType,
       value: undefined,
-      onChange: jest.fn(),
+      onChange: vi.fn(),
     };
     return render(<DynamicJsonForm {...defaultProps} {...props} />);
   };
@@ -304,7 +303,7 @@ describe("DynamicJsonForm Integer Fields", () => {
     });
 
     it("should pass integer values to onChange", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       renderForm({ onChange });
 
       const input = screen.getByRole("spinbutton");
@@ -316,7 +315,7 @@ describe("DynamicJsonForm Integer Fields", () => {
     });
 
     it("should not pass string values to onChange", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       renderForm({ onChange });
 
       const input = screen.getByRole("spinbutton");
@@ -334,9 +333,7 @@ describe("DynamicJsonForm Integer Fields", () => {
         maximum: 100,
         description: "Age",
       };
-      render(
-        <DynamicJsonForm schema={schema} value={0} onChange={jest.fn()} />,
-      );
+      render(<DynamicJsonForm schema={schema} value={0} onChange={vi.fn()} />);
 
       const input = screen.getByRole("spinbutton");
       expect(input).toHaveProperty("min", "0");
@@ -344,7 +341,7 @@ describe("DynamicJsonForm Integer Fields", () => {
     });
 
     it("should only accept integer values", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       const schema: JsonSchemaType = {
         type: "integer",
         description: "Count",
@@ -360,7 +357,7 @@ describe("DynamicJsonForm Integer Fields", () => {
 
   describe("Edge Cases", () => {
     it("should handle non-numeric input by not calling onChange", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       renderForm({ onChange });
 
       const input = screen.getByRole("spinbutton");
@@ -380,9 +377,7 @@ describe("DynamicJsonForm Number Fields", () => {
         maximum: 99.9,
         description: "Score",
       };
-      render(
-        <DynamicJsonForm schema={schema} value={0} onChange={jest.fn()} />,
-      );
+      render(<DynamicJsonForm schema={schema} value={0} onChange={vi.fn()} />);
 
       const input = screen.getByRole("spinbutton");
       expect(input).toHaveProperty("min", "0.5");
@@ -390,7 +385,7 @@ describe("DynamicJsonForm Number Fields", () => {
     });
 
     it("should accept decimal values", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       const schema: JsonSchemaType = {
         type: "number",
         description: "Temperature",
@@ -413,7 +408,7 @@ describe("DynamicJsonForm Boolean Fields", () => {
         description: "Enable notifications",
       };
       render(
-        <DynamicJsonForm schema={schema} value={false} onChange={jest.fn()} />,
+        <DynamicJsonForm schema={schema} value={false} onChange={vi.fn()} />,
       );
 
       const checkbox = screen.getByRole("checkbox");
@@ -421,7 +416,7 @@ describe("DynamicJsonForm Boolean Fields", () => {
     });
 
     it("should call onChange with boolean value", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       const schema: JsonSchemaType = {
         type: "boolean",
         description: "Accept terms",
@@ -442,7 +437,7 @@ describe("DynamicJsonForm Boolean Fields", () => {
         description: "Enable dark mode",
       };
       render(
-        <DynamicJsonForm schema={schema} value={false} onChange={jest.fn()} />,
+        <DynamicJsonForm schema={schema} value={false} onChange={vi.fn()} />,
       );
 
       const checkbox = screen.getByRole("checkbox");
@@ -476,9 +471,7 @@ describe("DynamicJsonForm Object Fields", () => {
           },
         },
       };
-      render(
-        <DynamicJsonForm schema={schema} value={{}} onChange={jest.fn()} />,
-      );
+      render(<DynamicJsonForm schema={schema} value={{}} onChange={vi.fn()} />);
 
       const textInputs = screen.getAllByRole("textbox");
       const numberInput = screen.getByRole("spinbutton");
@@ -491,7 +484,7 @@ describe("DynamicJsonForm Object Fields", () => {
     });
 
     it("should handle object field changes correctly", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       const schema: JsonSchemaType = {
         type: "object",
         properties: {
@@ -512,7 +505,7 @@ describe("DynamicJsonForm Object Fields", () => {
     });
 
     it("should handle nested object values correctly", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       const schema: JsonSchemaType = {
         type: "object",
         properties: {
@@ -553,9 +546,7 @@ describe("DynamicJsonForm Object Fields", () => {
         },
         required: ["name"],
       };
-      render(
-        <DynamicJsonForm schema={schema} value={{}} onChange={jest.fn()} />,
-      );
+      render(<DynamicJsonForm schema={schema} value={{}} onChange={vi.fn()} />);
 
       const inputs = screen.getAllByRole("textbox");
       const nameInput = inputs[0];
@@ -580,9 +571,7 @@ describe("DynamicJsonForm Object Fields", () => {
         },
         required: ["name"],
       };
-      render(
-        <DynamicJsonForm schema={schema} value={{}} onChange={jest.fn()} />,
-      );
+      render(<DynamicJsonForm schema={schema} value={{}} onChange={vi.fn()} />);
 
       const nameLabel = screen.getByText("Name");
       const optionalLabel = screen.getByText("Optional");
@@ -610,7 +599,7 @@ describe("DynamicJsonForm Complex Fields", () => {
         },
       } as unknown as JsonSchemaType,
       value: undefined,
-      onChange: jest.fn(),
+      onChange: vi.fn(),
     };
     return render(<DynamicJsonForm {...defaultProps} {...props} />);
   };
@@ -642,7 +631,7 @@ describe("DynamicJsonForm Complex Fields", () => {
     });
 
     it("should pass changed values to onChange in JSON mode", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       renderForm({ onChange });
 
       // Switch to JSON mode first
@@ -662,10 +651,10 @@ describe("DynamicJsonForm Complex Fields", () => {
 });
 
 describe("DynamicJsonForm Copy JSON Functionality", () => {
-  const mockWriteText = jest.fn(() => Promise.resolve());
+  const mockWriteText = vi.fn(() => Promise.resolve());
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     Object.assign(navigator, {
       clipboard: {
         writeText: mockWriteText,
@@ -682,7 +671,7 @@ describe("DynamicJsonForm Copy JSON Functionality", () => {
         },
       } as unknown as JsonSchemaType,
       value: { nested: "test value" },
-      onChange: jest.fn(),
+      onChange: vi.fn(),
     };
     return render(<DynamicJsonForm {...defaultProps} {...props} />);
   };
@@ -709,7 +698,7 @@ describe("DynamicJsonForm Copy JSON Functionality", () => {
         <DynamicJsonForm
           schema={simpleSchema}
           value="test"
-          onChange={jest.fn()}
+          onChange={vi.fn()}
         />,
       );
 
@@ -750,7 +739,7 @@ describe("DynamicJsonForm Validation Functionality", () => {
           },
         } as unknown as JsonSchemaType,
         value: { nested: "test value" },
-        onChange: jest.fn(),
+        onChange: vi.fn(),
         ref: formRef,
       };
 
@@ -802,7 +791,7 @@ describe("DynamicJsonForm Validation Functionality", () => {
               ref={formRef}
               schema={simpleSchema}
               value="test"
-              onChange={jest.fn()}
+              onChange={vi.fn()}
             />
             <button
               onClick={() => {
@@ -938,7 +927,7 @@ describe("DynamicJsonForm Validation Functionality", () => {
                 },
               }}
               value={{ test: "value" }}
-              onChange={jest.fn()}
+              onChange={vi.fn()}
             />
             <button
               onClick={() => {

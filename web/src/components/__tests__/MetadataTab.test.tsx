@@ -11,7 +11,7 @@ import {
 describe("MetadataTab", () => {
   const defaultProps = {
     metadata: {},
-    onMetadataChange: jest.fn(),
+    onMetadataChange: vi.fn(),
   };
 
   const renderMetadataTab = (props = {}) => {
@@ -23,7 +23,7 @@ describe("MetadataTab", () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe("Initial Rendering", () => {
@@ -170,7 +170,7 @@ describe("MetadataTab", () => {
     });
 
     it("should remove entry when remove button is clicked", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({
         metadata: { key1: "value1", key2: "value2" },
         onMetadataChange,
@@ -183,7 +183,7 @@ describe("MetadataTab", () => {
     });
 
     it("should remove correct entry when multiple entries exist", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({
         metadata: {
           FIRST: "first-value",
@@ -203,7 +203,7 @@ describe("MetadataTab", () => {
     });
 
     it("should show empty state message after removing all entries", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({
         metadata: { key1: "value1" },
         onMetadataChange,
@@ -218,7 +218,7 @@ describe("MetadataTab", () => {
 
   describe("Editing Entries", () => {
     it("should update key when key input is changed", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({
         metadata: { oldKey: "value1" },
         onMetadataChange,
@@ -231,7 +231,7 @@ describe("MetadataTab", () => {
     });
 
     it("should update value when value input is changed", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({
         metadata: { key1: "oldValue" },
         onMetadataChange,
@@ -244,7 +244,7 @@ describe("MetadataTab", () => {
     });
 
     it("should handle editing multiple entries independently", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({
         metadata: {
           key1: "value1",
@@ -287,7 +287,7 @@ describe("MetadataTab", () => {
     `(
       "should display an error for $description",
       ({ value, message, shouldDisableValue }) => {
-        const onMetadataChange = jest.fn();
+        const onMetadataChange = vi.fn();
         renderMetadataTab({ onMetadataChange });
 
         const addButton = screen.getByRole("button", { name: /add entry/i });
@@ -309,7 +309,7 @@ describe("MetadataTab", () => {
 
   describe("Data Validation and Trimming", () => {
     it("should trim whitespace from keys and values", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({ onMetadataChange });
 
       const addButton = screen.getByRole("button", { name: /add entry/i });
@@ -327,7 +327,7 @@ describe("MetadataTab", () => {
     });
 
     it("should exclude entries with empty keys or values after trimming", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({ onMetadataChange });
 
       const addButton = screen.getByRole("button", { name: /add entry/i });
@@ -351,7 +351,7 @@ describe("MetadataTab", () => {
     });
 
     it("should exclude entries with whitespace-only keys or values", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({ onMetadataChange });
 
       const addButton = screen.getByRole("button", { name: /add entry/i });
@@ -375,7 +375,7 @@ describe("MetadataTab", () => {
     });
 
     it("should handle mixed valid and invalid entries", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({ onMetadataChange });
 
       const addButton = screen.getByRole("button", { name: /add entry/i });
@@ -451,7 +451,7 @@ describe("MetadataTab", () => {
 
   describe("Edge Cases", () => {
     it("should flag invalid names that contain unsupported characters", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({ onMetadataChange });
 
       const addButton = screen.getByRole("button", { name: /add entry/i });
@@ -472,7 +472,7 @@ describe("MetadataTab", () => {
     });
 
     it("should reject unicode names that do not start with an alphanumeric character", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({ onMetadataChange });
 
       const addButton = screen.getByRole("button", { name: /add entry/i });
@@ -489,7 +489,7 @@ describe("MetadataTab", () => {
     });
 
     it("should handle very long keys and values", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({ onMetadataChange });
 
       const addButton = screen.getByRole("button", { name: /add entry/i });
@@ -510,7 +510,7 @@ describe("MetadataTab", () => {
     });
 
     it("should handle duplicate keys by keeping the last one", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({ onMetadataChange });
 
       const addButton = screen.getByRole("button", { name: /add entry/i });
@@ -536,7 +536,7 @@ describe("MetadataTab", () => {
 
   describe("Integration with Parent Component", () => {
     it("should not call onMetadataChange when component mounts with existing data", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({
         metadata: { key1: "value1" },
         onMetadataChange,
@@ -546,7 +546,7 @@ describe("MetadataTab", () => {
     });
 
     it("should call onMetadataChange only when user makes changes", () => {
-      const onMetadataChange = jest.fn();
+      const onMetadataChange = vi.fn();
       renderMetadataTab({
         metadata: { key1: "value1" },
         onMetadataChange,
@@ -577,7 +577,7 @@ describe("MetadataTab", () => {
         <Tabs defaultValue="metadata">
           <MetadataTab
             metadata={{ key2: "value2", key3: "value3" }}
-            onMetadataChange={jest.fn()}
+            onMetadataChange={vi.fn()}
           />
         </Tabs>,
       );

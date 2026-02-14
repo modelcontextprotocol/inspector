@@ -97,10 +97,11 @@ export function createTestServerStdio(config: ServerConfig): TestServerStdio {
 }
 
 /**
- * Get the path to the test MCP server script
+ * Get the path to the test MCP server script.
+ * Uses the actual loaded module path so it works when loaded from source (.ts) or build (.js).
  */
 export function getTestMcpServerPath(): string {
-  return path.resolve(__dirname, "test-server-stdio.ts");
+  return fileURLToPath(import.meta.url);
 }
 
 /**

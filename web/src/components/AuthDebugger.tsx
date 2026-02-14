@@ -125,15 +125,10 @@ const AuthDebugger = ({
           "OAuth authorization URL generated - about to redirect",
         );
       }
-      // Log to console as well (will be lost on redirect but useful for debugging)
-      console.log("[AuthDebugger] Authorization URL:", authUrl.href);
-      console.log(
-        "[AuthDebugger] Redirect URI param:",
-        authUrl.searchParams.get("redirect_uri"),
-      );
       // BrowserNavigation handles redirect automatically
     } catch (error) {
-      console.error("Quick OAuth failed:", error);
+      const logger = (client as any).logger;
+      if (logger) logger.error({ err: error }, "Quick OAuth failed");
       toast({
         title: "OAuth Error",
         description: error instanceof Error ? error.message : String(error),
@@ -156,7 +151,8 @@ const AuthDebugger = ({
       await client.beginGuidedAuth();
       // State updates via oauthStepChange events (handled in useEffect above)
     } catch (error) {
-      console.error("Guided OAuth start failed:", error);
+      const logger = (client as any).logger;
+      if (logger) logger.error({ err: error }, "Guided OAuth start failed");
       toast({
         title: "OAuth Error",
         description: error instanceof Error ? error.message : String(error),
@@ -184,7 +180,8 @@ const AuthDebugger = ({
       // There's a manual button in OAuthFlowProgress to open the URL if needed.
       // Quick auth handles redirects automatically via BrowserNavigation.
     } catch (error) {
-      console.error("OAuth step failed:", error);
+      const logger = (client as any).logger;
+      if (logger) logger.error({ err: error }, "OAuth step failed");
       toast({
         title: "OAuth Error",
         description: error instanceof Error ? error.message : String(error),
@@ -209,7 +206,8 @@ const AuthDebugger = ({
         variant: "default",
       });
     } catch (error) {
-      console.error("Clear OAuth failed:", error);
+      const logger = (client as any).logger;
+      if (logger) logger.error({ err: error }, "Clear OAuth failed");
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : String(error),

@@ -6,13 +6,18 @@ import {
   act,
 } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { describe, it, beforeEach, jest } from "@jest/globals";
+import type { Mock } from "vitest";
 import AuthDebugger, { AuthDebuggerProps } from "../AuthDebugger";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
 import { EMPTY_GUIDED_STATE } from "@modelcontextprotocol/inspector-shared/auth/types.js";
 import type { AuthGuidedState } from "@modelcontextprotocol/inspector-shared/auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+
+const mockToast = vi.fn();
+vi.mock("@/lib/hooks/useToast", () => ({
+  useToast: () => ({ toast: mockToast }),
+}));
 
 const mockOAuthTokens: OAuthTokens = {
   access_token: "test_access_token",
@@ -44,35 +49,48 @@ const mockOAuthStateInProgress: AuthGuidedState = {
   },
 };
 
+// Type for mock client so we can call .mockReturnValue etc. on methods
+type MockInspectorClient = InspectorClient & {
+  _triggerEvent: (event: string) => void;
+  getOAuthState: Mock<() => AuthGuidedState | undefined>;
+  getOAuthTokens: Mock<() => Promise<OAuthTokens | undefined>>;
+  authenticate: Mock<() => Promise<URL>>;
+  beginGuidedAuth: Mock<() => Promise<void>>;
+  proceedOAuthStep: Mock<() => Promise<void>>;
+  clearOAuthTokens: Mock<() => void>;
+  addEventListener: Mock;
+  removeEventListener: Mock;
+};
+
 // Create a mock InspectorClient factory
-const createMockInspectorClient = (): InspectorClient => {
+const createMockInspectorClient = (): MockInspectorClient => {
   const eventListeners: Map<string, Set<() => void>> = new Map();
 
   const mockClient = {
-    getOAuthState: jest.fn<() => AuthGuidedState | undefined>(() => undefined),
-    getOAuthTokens: jest.fn<() => Promise<OAuthTokens | undefined>>(() =>
+    getOAuthState: vi.fn<() => AuthGuidedState | undefined>(() => undefined),
+    getOAuthTokens: vi.fn<() => Promise<OAuthTokens | undefined>>(() =>
       Promise.resolve(undefined),
     ),
-    authenticate: jest.fn<() => Promise<URL>>(() =>
+    authenticate: vi.fn<() => Promise<URL>>(() =>
       Promise.resolve(new URL("https://oauth.example.com/authorize")),
     ),
-    beginGuidedAuth: jest.fn<() => Promise<void>>(() => Promise.resolve()),
-    proceedOAuthStep: jest.fn<() => Promise<void>>(() => Promise.resolve()),
-    clearOAuthTokens: jest.fn<() => void>(() => {}),
-    addEventListener: jest.fn((event: string, handler: () => void) => {
+    beginGuidedAuth: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+    proceedOAuthStep: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+    clearOAuthTokens: vi.fn<() => void>(() => {}),
+    addEventListener: vi.fn((event: string, handler: () => void) => {
       if (!eventListeners.has(event)) {
         eventListeners.set(event, new Set());
       }
       eventListeners.get(event)!.add(handler);
     }),
-    removeEventListener: jest.fn((event: string, handler: () => void) => {
+    removeEventListener: vi.fn((event: string, handler: () => void) => {
       eventListeners.get(event)?.delete(handler);
     }),
     // Helper to trigger events in tests
     _triggerEvent: (event: string) => {
       eventListeners.get(event)?.forEach((handler) => handler());
     },
-  } as unknown as InspectorClient & { _triggerEvent: (event: string) => void };
+  } as unknown as MockInspectorClient;
 
   return mockClient;
 };
@@ -81,28 +99,28 @@ describe("AuthDebugger", () => {
   let mockInspectorClient: ReturnType<typeof createMockInspectorClient>;
   const defaultProps: AuthDebuggerProps = {
     inspectorClient: null,
-    ensureInspectorClient: jest.fn(() => null),
-    canCreateInspectorClient: jest.fn(() => false),
-    onBack: jest.fn(),
+    ensureInspectorClient: vi.fn(() => null),
+    canCreateInspectorClient: vi.fn(() => false),
+    onBack: vi.fn(),
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     mockInspectorClient = createMockInspectorClient();
     defaultProps.inspectorClient = mockInspectorClient;
-    defaultProps.onBack = jest.fn();
+    defaultProps.onBack = vi.fn();
     // Setup default mocks for ensureInspectorClient and canCreateInspectorClient
-    (defaultProps.ensureInspectorClient as jest.Mock).mockReturnValue(
+    (defaultProps.ensureInspectorClient as Mock).mockReturnValue(
       mockInspectorClient,
     );
-    (defaultProps.canCreateInspectorClient as jest.Mock).mockReturnValue(true);
+    (defaultProps.canCreateInspectorClient as Mock).mockReturnValue(true);
 
     // Suppress console errors in tests
-    jest.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   const renderAuthDebugger = (props: Partial<AuthDebuggerProps> = {}) => {
@@ -126,7 +144,7 @@ describe("AuthDebugger", () => {
     });
 
     it("should call onBack when Back button is clicked", async () => {
-      const onBack = jest.fn();
+      const onBack = vi.fn();
       await act(async () => {
         renderAuthDebugger({ onBack });
       });
@@ -207,9 +225,12 @@ describe("AuthDebugger", () => {
       });
 
       await waitFor(() => {
-        expect(console.error).toHaveBeenCalledWith(
-          "Quick OAuth failed:",
-          error,
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "OAuth Error",
+            description: "Authentication failed",
+            variant: "destructive",
+          }),
         );
       });
     });
@@ -282,9 +303,12 @@ describe("AuthDebugger", () => {
       });
 
       await waitFor(() => {
-        expect(console.error).toHaveBeenCalledWith(
-          "Guided OAuth start failed:",
-          error,
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "OAuth Error",
+            description: "Guided auth failed",
+            variant: "destructive",
+          }),
         );
       });
     });
@@ -430,7 +454,7 @@ describe("AuthDebugger", () => {
       // Component shows first 25 chars + "..."
       const tokenPrefix = mockOAuthTokens.access_token.substring(0, 25);
       // The token text appears in the component (might appear multiple times)
-      const tokenElements = screen.getAllByText((content, element) => {
+      const tokenElements = screen.getAllByText((_content, element) => {
         return element?.textContent?.includes(tokenPrefix) ?? false;
       });
       expect(tokenElements.length).toBeGreaterThan(0);
@@ -500,9 +524,12 @@ describe("AuthDebugger", () => {
       });
 
       await waitFor(() => {
-        expect(console.error).toHaveBeenCalledWith(
-          "Clear OAuth failed:",
-          error,
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "Error",
+            description: "Clear failed",
+            variant: "destructive",
+          }),
         );
       });
     });
@@ -551,7 +578,7 @@ describe("AuthDebugger", () => {
     });
 
     it("should NOT auto-open authorization URL when clicking Continue at authorization_code step", async () => {
-      const openSpy = jest.spyOn(window, "open").mockImplementation(() => null);
+      const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
       mockInspectorClient.getOAuthState.mockReturnValue(
         mockOAuthStateInProgress,
       );

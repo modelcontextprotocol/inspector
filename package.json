@@ -50,6 +50,7 @@
     "test-cli": "cd cli && npm run test",
     "test-shared": "cd shared && npm run test",
     "test:e2e": "MCP_AUTO_OPEN_ENABLED=false npm run test:e2e --workspace=client",
+    "test:unit": "vitest run",
     "prettier-fix": "prettier --write .",
     "prettier-check": "prettier --check .",
     "lint": "prettier --check . && cd client && npm run lint",
@@ -83,7 +84,8 @@
     "playwright": "^1.56.1",
     "prettier": "^3.7.1",
     "rimraf": "^6.0.1",
-    "typescript": "^5.4.2"
+    "typescript": "^5.4.2",
+    "vitest": "^4.0.17"
   },
   "overrides": {
     "get-intrinsic": "1.3.0"

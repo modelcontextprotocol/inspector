@@ -1,12 +1,38 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  afterAll,
+} from "vitest";
+import * as path from "node:path";
+import * as os from "node:os";
+import * as fs from "node:fs/promises";
 import { InspectorClient } from "../mcp/inspectorClient.js";
 import { createTransportNode } from "../mcp/node/transport.js";
 import type { MCPServerConfig } from "../mcp/types.js";
+import { NodeOAuthStorage } from "../auth/node/storage-node.js";
 import { createOAuthClientConfig } from "../test/test-server-fixtures.js";
 import type {
   InspectorClientOptions,
   InspectorClientEnvironment,
 } from "../mcp/inspectorClient.js";
+
+const oauthTestStatePath = path.join(
+  os.tmpdir(),
+  `mcp-oauth-${process.pid}-inspectorClient-oauth-fetchFn.json`,
+);
+
+function createTestOAuthConfig(
+  options: Parameters<typeof createOAuthClientConfig>[0],
+) {
+  return {
+    ...createOAuthClientConfig(options),
+    storage: new NodeOAuthStorage(oauthTestStatePath),
+  };
+}
 
 const mockAuth = vi.fn();
 vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
@@ -15,6 +41,14 @@ vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
 
 describe("InspectorClient OAuth fetchFn", () => {
   let client: InspectorClient;
+
+  afterAll(async () => {
+    try {
+      await fs.unlink(oauthTestStatePath);
+    } catch {
+      // Ignore if file does not exist or already removed
+    }
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -43,7 +77,7 @@ describe("InspectorClient OAuth fetchFn", () => {
 
   it("should pass fetchFn to auth() when provided", async () => {
     const mockFetchFn = vi.fn();
-    const oauthConfig = createOAuthClientConfig({
+    const oauthConfig = createTestOAuthConfig({
       mode: "static",
       clientId: "test-client",
       redirectUrl: "http://localhost:3000/callback",
@@ -83,7 +117,7 @@ describe("InspectorClient OAuth fetchFn", () => {
   });
 
   it("should pass fetchFn to auth() when not provided (uses default fetch)", async () => {
-    const oauthConfig = createOAuthClientConfig({
+    const oauthConfig = createTestOAuthConfig({
       mode: "static",
       clientId: "test-client",
       redirectUrl: "http://localhost:3000/callback",
@@ -131,7 +165,7 @@ describe("InspectorClient OAuth fetchFn", () => {
       },
     );
 
-    const oauthConfig = createOAuthClientConfig({
+    const oauthConfig = createTestOAuthConfig({
       mode: "static",
       clientId: "test-client",
       redirectUrl: "http://localhost:3000/callback",

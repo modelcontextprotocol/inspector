@@ -1,55 +1,94 @@
-import { render, screen } from "@testing-library/react";
-import { Tabs } from "@/components/ui/tabs";
-import SamplingTab, { PendingRequest } from "../SamplingTab";
+/**
+ * Unit tests for SamplingTab: when pending requests are passed in,
+ * they are rendered and Approve/Reject call the correct callbacks.
+ * Mirrors the behavior asserted in client's App.samplingNavigation.test.tsx
+ * and shared's inspectorClient.test.ts (sampling event + respond/reject).
+ */
+import { fireEvent, render, screen } from "@testing-library/react";
+import SamplingTab from "../SamplingTab";
+import { Tabs } from "../ui/tabs";
+import type {
+  CreateMessageRequest,
+  CreateMessageResult,
+} from "@modelcontextprotocol/sdk/types.js";
 
-describe("Sampling tab", () => {
-  const mockOnApprove = jest.fn();
-  const mockOnReject = jest.fn();
+function renderSamplingTab(props: React.ComponentProps<typeof SamplingTab>) {
+  return render(
+    <Tabs value="sampling">
+      <SamplingTab {...props} />
+    </Tabs>,
+  );
+}
 
-  const renderSamplingTab = (pendingRequests: PendingRequest[]) =>
-    render(
-      <Tabs defaultValue="sampling">
-        <SamplingTab
-          pendingRequests={pendingRequests}
-          onApprove={mockOnApprove}
-          onReject={mockOnReject}
-        />
-      </Tabs>,
+vi.mock("../SamplingRequest", () => ({
+  default: ({
+    request,
+    onApprove,
+    onReject,
+  }: {
+    request: { id: number };
+    onApprove: (id: number, result: CreateMessageResult) => void;
+    onReject: (id: number) => void;
+  }) => (
+    <div data-testid="sampling-request">
+      <span>request-{request.id}</span>
+      <button
+        type="button"
+        onClick={() =>
+          onApprove(request.id, {
+            model: "m",
+            stopReason: "endTurn",
+            role: "assistant",
+            content: { type: "text", text: "" },
+          })
+        }
+      >
+        Approve
+      </button>
+      <button type="button" onClick={() => onReject(request.id)}>
+        Reject
+      </button>
+    </div>
+  ),
+}));
+
+const sampleRequest: CreateMessageRequest = {
+  method: "sampling/createMessage",
+  params: { messages: [], maxTokens: 1 },
+};
+
+describe("SamplingTab", () => {
+  it("renders pending requests and Approve calls onApprove with id and result", () => {
+    const onApprove = vi.fn();
+    const onReject = vi.fn();
+    renderSamplingTab({
+      pendingRequests: [{ id: 1, request: sampleRequest }],
+      onApprove,
+      onReject,
+    });
+
+    expect(screen.getByTestId("sampling-request")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Approve/i }));
+
+    expect(onApprove).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ model: "m", role: "assistant" }),
     );
-
-  it("should render 'No pending requests' when there are no pending requests", () => {
-    renderSamplingTab([]);
-    expect(
-      screen.getByText(
-        "When the server requests LLM sampling, requests will appear here for approval.",
-      ),
-    ).toBeTruthy();
-    expect(screen.findByText("No pending requests")).toBeTruthy();
+    expect(onReject).not.toHaveBeenCalled();
   });
 
-  it("should render the correct number of requests", () => {
-    renderSamplingTab(
-      Array.from({ length: 5 }, (_, i) => ({
-        id: i,
-        request: {
-          method: "sampling/createMessage",
-          params: {
-            messages: [
-              {
-                role: "user",
-                content: {
-                  type: "text",
-                  text: "What files are in the current directory?",
-                },
-              },
-            ],
-            systemPrompt: "You are a helpful file system assistant.",
-            includeContext: "thisServer",
-            maxTokens: 100,
-          },
-        },
-      })),
-    );
-    expect(screen.getAllByTestId("sampling-request").length).toBe(5);
+  it("Reject calls onReject with id", () => {
+    const onApprove = vi.fn();
+    const onReject = vi.fn();
+    renderSamplingTab({
+      pendingRequests: [{ id: 2, request: sampleRequest }],
+      onApprove,
+      onReject,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Reject/i }));
+
+    expect(onReject).toHaveBeenCalledWith(2);
+    expect(onApprove).not.toHaveBeenCalled();
   });
 });

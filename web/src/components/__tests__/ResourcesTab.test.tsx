@@ -5,21 +5,21 @@ import ResourcesTab from "../ResourcesTab";
 import { ResourceTemplate, Resource } from "@modelcontextprotocol/sdk/types.js";
 
 // Mock the hooks and components
-jest.mock("@/lib/hooks/useCompletionState", () => ({
+vi.mock("@/lib/hooks/useCompletionState", () => ({
   useCompletionState: () => ({
     completions: {},
-    clearCompletions: jest.fn(),
-    requestCompletions: jest.fn(),
+    clearCompletions: vi.fn(),
+    requestCompletions: vi.fn(),
   }),
 }));
 
-jest.mock("../JsonView", () => {
-  return function MockJsonView({ data }: { data: string }) {
+vi.mock("../JsonView", () => ({
+  default: function MockJsonView({ data }: { data: string }) {
     return <div data-testid="json-view">{data}</div>;
-  };
-});
+  },
+}));
 
-jest.mock("@/components/ui/combobox", () => ({
+vi.mock("@/components/ui/combobox", () => ({
   Combobox: ({
     id,
     value,
@@ -41,7 +41,7 @@ jest.mock("@/components/ui/combobox", () => ({
   ),
 }));
 
-jest.mock("@/components/ui/label", () => ({
+vi.mock("@/components/ui/label", () => ({
   Label: ({
     htmlFor,
     children,
@@ -55,7 +55,7 @@ jest.mock("@/components/ui/label", () => ({
   ),
 }));
 
-jest.mock("@/components/ui/button", () => ({
+vi.mock("@/components/ui/button", () => ({
   Button: ({
     children,
     onClick,
@@ -79,15 +79,15 @@ jest.mock("@/components/ui/button", () => ({
 }));
 
 describe("ResourcesTab - Template Query Parameters", () => {
-  const mockListResources = jest.fn();
-  const mockClearResources = jest.fn();
-  const mockListResourceTemplates = jest.fn();
-  const mockClearResourceTemplates = jest.fn();
-  const mockReadResource = jest.fn();
-  const mockSetSelectedResource = jest.fn();
-  const mockHandleCompletion = jest.fn();
-  const mockSubscribeToResource = jest.fn();
-  const mockUnsubscribeFromResource = jest.fn();
+  const mockListResources = vi.fn();
+  const mockClearResources = vi.fn();
+  const mockListResourceTemplates = vi.fn();
+  const mockClearResourceTemplates = vi.fn();
+  const mockReadResource = vi.fn();
+  const mockSetSelectedResource = vi.fn();
+  const mockHandleCompletion = vi.fn();
+  const mockSubscribeToResource = vi.fn();
+  const mockUnsubscribeFromResource = vi.fn();
 
   const mockResourceTemplate: ResourceTemplate = {
     name: "Users API",
@@ -131,7 +131,7 @@ describe("ResourcesTab - Template Query Parameters", () => {
     );
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it("should parse and display template variables from URI template", () => {

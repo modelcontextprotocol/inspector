@@ -1,6 +1,5 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { describe, it, beforeEach, jest } from "@jest/globals";
 import ListPane from "../ListPane";
 
 describe("ListPane", () => {
@@ -12,9 +11,9 @@ describe("ListPane", () => {
 
   const defaultProps = {
     items: mockItems,
-    listItems: jest.fn(),
-    clearItems: jest.fn(),
-    setSelectedItem: jest.fn(),
+    listItems: vi.fn(),
+    clearItems: vi.fn(),
+    setSelectedItem: vi.fn(),
     renderItem: (item: (typeof mockItems)[0]) => <div>{item.name}</div>,
     title: "List tools",
     buttonText: "Load Tools",
@@ -25,7 +24,7 @@ describe("ListPane", () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe("Rendering", () => {

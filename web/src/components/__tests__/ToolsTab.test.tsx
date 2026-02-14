@@ -1,6 +1,5 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { describe, it, jest, beforeEach } from "@jest/globals";
 import ToolsTab from "../ToolsTab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Tabs } from "@/components/ui/tabs";
@@ -63,16 +62,16 @@ describe("ToolsTab", () => {
 
   const defaultProps = {
     tools: mockTools,
-    listTools: jest.fn(),
-    clearTools: jest.fn(),
-    callTool: jest.fn(async () => {}),
+    listTools: vi.fn(),
+    clearTools: vi.fn(),
+    callTool: vi.fn(async () => {}),
     selectedTool: null,
-    setSelectedTool: jest.fn(),
+    setSelectedTool: vi.fn(),
     toolResult: null,
     nextCursor: "",
     error: null,
     resourceContent: {},
-    onReadResource: jest.fn(),
+    onReadResource: vi.fn(),
   };
 
   const renderToolsTab = (props = {}) => {
@@ -159,7 +158,7 @@ describe("ToolsTab", () => {
   });
 
   it("should allow specifying null value", async () => {
-    const mockCallTool = jest.fn();
+    const mockCallTool = vi.fn();
     const toolWithNullableField = mockTools[3];
 
     renderToolsTab({
@@ -195,7 +194,7 @@ describe("ToolsTab", () => {
   });
 
   it("should support tri-state nullable boolean (null -> false -> true -> null)", async () => {
-    const mockCallTool = jest.fn();
+    const mockCallTool = vi.fn();
     const toolWithNullableBoolean: Tool = {
       name: "testTool",
       description: "Tool with nullable boolean",
@@ -306,7 +305,7 @@ describe("ToolsTab", () => {
     });
 
     // Mock callTool to return our promise
-    const mockCallTool = jest.fn().mockReturnValue(mockPromise);
+    const mockCallTool = vi.fn().mockReturnValue(mockPromise);
 
     renderToolsTab({
       selectedTool: mockTools[0],
@@ -624,7 +623,7 @@ describe("ToolsTab", () => {
 
   describe("Resource Link Content Type", () => {
     it("should render resource_link content type and handle expansion", async () => {
-      const mockOnReadResource = jest.fn();
+      const mockOnReadResource = vi.fn();
       const resourceContent = {
         "test://static/resource/1": JSON.stringify({
           contents: [
@@ -784,7 +783,7 @@ describe("ToolsTab", () => {
 
   describe("Metadata submission", () => {
     it("should send metadata values when provided", async () => {
-      const callToolMock = jest.fn(async () => {});
+      const callToolMock = vi.fn(async () => {});
 
       renderToolsTab({ selectedTool: mockTools[0], callTool: callToolMock });
 
@@ -888,7 +887,7 @@ describe("ToolsTab", () => {
 
     beforeEach(() => {
       // Mock scrollIntoView for Radix UI Select
-      Element.prototype.scrollIntoView = jest.fn();
+      Element.prototype.scrollIntoView = vi.fn();
     });
 
     it("should render enum parameter as dropdown", () => {
@@ -949,7 +948,7 @@ describe("ToolsTab", () => {
     };
 
     it("should prevent tool execution when JSON validation fails", async () => {
-      const mockCallTool = jest.fn();
+      const mockCallTool = vi.fn();
       renderToolsTab({
         tools: [toolWithJsonParams],
         selectedTool: toolWithJsonParams,
@@ -977,7 +976,7 @@ describe("ToolsTab", () => {
     });
 
     it("should allow tool execution when JSON validation passes", async () => {
-      const mockCallTool = jest.fn();
+      const mockCallTool = vi.fn();
       renderToolsTab({
         tools: [toolWithJsonParams],
         selectedTool: toolWithJsonParams,
@@ -1012,7 +1011,7 @@ describe("ToolsTab", () => {
     });
 
     it("should handle mixed valid and invalid JSON parameters", async () => {
-      const mockCallTool = jest.fn();
+      const mockCallTool = vi.fn();
       renderToolsTab({
         tools: [toolWithJsonParams],
         selectedTool: toolWithJsonParams,
@@ -1040,7 +1039,7 @@ describe("ToolsTab", () => {
     });
 
     it("should work with tools that have no JSON parameters", async () => {
-      const mockCallTool = jest.fn();
+      const mockCallTool = vi.fn();
       const simpleToolWithStringParam: Tool = {
         name: "simpleTool",
         description: "Tool with simple parameters",
@@ -1084,7 +1083,7 @@ describe("ToolsTab", () => {
     });
 
     it("should handle empty JSON parameters correctly", async () => {
-      const mockCallTool = jest.fn();
+      const mockCallTool = vi.fn();
       renderToolsTab({
         tools: [toolWithJsonParams],
         selectedTool: toolWithJsonParams,

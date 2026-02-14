@@ -24,11 +24,11 @@ const mockRequest: PendingRequest = {
 };
 
 describe("Form to handle sampling response", () => {
-  const mockOnApprove = jest.fn();
-  const mockOnReject = jest.fn();
+  const mockOnApprove = vi.fn();
+  const mockOnReject = vi.fn();
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it("should call onApprove with correct text content when Approve button is clicked", () => {

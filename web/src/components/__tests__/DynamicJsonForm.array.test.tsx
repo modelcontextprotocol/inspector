@@ -1,6 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { describe, it, expect, jest } from "@jest/globals";
 import DynamicJsonForm from "../DynamicJsonForm";
 import type { JsonSchemaType } from "@/utils/jsonUtils";
 
@@ -16,7 +15,7 @@ describe("DynamicJsonForm Array Fields", () => {
         },
       } satisfies JsonSchemaType,
       value: [],
-      onChange: jest.fn(),
+      onChange: vi.fn(),
     };
     return render(<DynamicJsonForm {...defaultProps} {...props} />);
   };
@@ -34,7 +33,7 @@ describe("DynamicJsonForm Array Fields", () => {
         },
       } satisfies JsonSchemaType,
       value: [],
-      onChange: jest.fn(),
+      onChange: vi.fn(),
     };
     return render(<DynamicJsonForm {...defaultProps} {...props} />);
   };
@@ -62,7 +61,7 @@ describe("DynamicJsonForm Array Fields", () => {
     });
 
     it("should add new items when Add Item button is clicked", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       renderSimpleArrayForm({ value: ["item1"], onChange });
 
       const addButton = screen.getByText("Add Item");
@@ -72,7 +71,7 @@ describe("DynamicJsonForm Array Fields", () => {
     });
 
     it("should remove items when Remove button is clicked", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       renderSimpleArrayForm({ value: ["item1", "item2"], onChange });
 
       const removeButtons = screen.getAllByText("Remove");
@@ -82,7 +81,7 @@ describe("DynamicJsonForm Array Fields", () => {
     });
 
     it("should update item values when input changes", () => {
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       renderSimpleArrayForm({ value: ["item1"], onChange });
 
       const input = screen.getByRole("textbox");
@@ -187,7 +186,7 @@ describe("DynamicJsonForm Array Fields", () => {
         maxItems: 3,
         items: { type: "string", enum: ["red", "green", "blue"] },
       } as JsonSchemaType;
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       render(
         <DynamicJsonForm schema={schema} value={["red"]} onChange={onChange} />,
       );
@@ -203,7 +202,7 @@ describe("DynamicJsonForm Array Fields", () => {
       expect(screen.getByText(/Select at most 3/i)).toBeInTheDocument();
 
       // Select another option by toggling option.selected
-      const colorOptions = screen.getAllByRole("option");
+      const colorOptions = screen.getAllByRole("option") as HTMLOptionElement[];
       // options: red, green, blue
       colorOptions[0].selected = true; // red
       colorOptions[2].selected = true; // blue
@@ -223,7 +222,7 @@ describe("DynamicJsonForm Array Fields", () => {
           ],
         } as unknown as JsonSchemaType,
       } as unknown as JsonSchemaType;
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       render(
         <DynamicJsonForm
           schema={schema}
@@ -245,7 +244,7 @@ describe("DynamicJsonForm Array Fields", () => {
       expect(options[2]).toHaveProperty("textContent", "Trout");
 
       // Select fish-2 and fish-3
-      const fishOptions = screen.getAllByRole("option");
+      const fishOptions = screen.getAllByRole("option") as HTMLOptionElement[];
       // options: Tuna (fish-1), Salmon (fish-2), Trout (fish-3)
       fishOptions[0].selected = false; // deselect fish-1
       fishOptions[1].selected = true; // fish-2
@@ -258,7 +257,7 @@ describe("DynamicJsonForm Array Fields", () => {
         type: "array" as const,
         items: { type: "integer" as const },
       };
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       renderSimpleArrayForm({ schema, value: [1, 2], onChange });
 
       const inputs = screen.getAllByRole("spinbutton");
@@ -277,7 +276,7 @@ describe("DynamicJsonForm Array Fields", () => {
         type: "array" as const,
         items: { type: "boolean" as const },
       };
-      const onChange = jest.fn();
+      const onChange = vi.fn();
       renderSimpleArrayForm({ schema, value: [true, false], onChange });
 
       const checkboxes = screen.getAllByRole("checkbox");

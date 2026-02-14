@@ -110,26 +110,14 @@ export const initializeInspectorConfig = (
   // Helper function to filter config to only recognized keys
   const filterRecognizedKeys = (
     parsedConfig: Partial<InspectorConfig>,
-    source: string,
   ): Partial<InspectorConfig> => {
     const filtered: Partial<InspectorConfig> = {};
-    const removedKeys: string[] = [];
 
     for (const key in parsedConfig) {
       if (key in DEFAULT_INSPECTOR_CONFIG) {
         filtered[key as keyof InspectorConfig] =
           parsedConfig[key as keyof InspectorConfig];
-      } else {
-        removedKeys.push(key);
       }
-    }
-
-    // Log removed keys for debugging
-    if (removedKeys.length > 0) {
-      console.warn(
-        `[Inspector Config] Removed unrecognized keys from ${source}:`,
-        removedKeys.join(", "),
-      );
     }
 
     return filtered;
@@ -140,7 +128,6 @@ export const initializeInspectorConfig = (
     const parsedPersistentConfig = JSON.parse(savedPersistentConfig);
     const filteredPersistentConfig = filterRecognizedKeys(
       parsedPersistentConfig,
-      "localStorage",
     );
     baseConfig = { ...baseConfig, ...filteredPersistentConfig };
   }
@@ -148,10 +135,7 @@ export const initializeInspectorConfig = (
   // Apply saved ephemeral config (filtered to recognized keys only)
   if (savedEphemeralConfig) {
     const parsedEphemeralConfig = JSON.parse(savedEphemeralConfig);
-    const filteredEphemeralConfig = filterRecognizedKeys(
-      parsedEphemeralConfig,
-      "sessionStorage",
-    );
+    const filteredEphemeralConfig = filterRecognizedKeys(parsedEphemeralConfig);
     baseConfig = { ...baseConfig, ...filteredEphemeralConfig };
   }
 

@@ -80,9 +80,23 @@ export interface WaitForStateFileOptions {
   interval?: number;
 }
 
+const DEBUG_WAIT_FOR_STATE_FILE = process.env.DEBUG_WAIT_FOR_STATE_FILE === "1";
+
+function truncate(s: string, maxLen: number): string {
+  if (s.length <= maxLen) return s;
+  return s.slice(0, maxLen) + `... (${s.length} chars total)`;
+}
+
 /**
  * Poll state file until `predicate(parsed)` returns true, then return the parsed value.
  * Uses vi.waitFor under the hood. For use with Zustand persist state.json files.
+ *
+ * On failure, the thrown error includes:
+ * - Whether the failure was a JSON parse error or predicate returned false.
+ * - A truncated snippet of what was read (to distinguish partial write vs wrong content).
+ * - Attempt count (to see if we timed out early or after many retries).
+ *
+ * Run with DEBUG_WAIT_FOR_STATE_FILE=1 to log every attempt (parse ok/fail, predicate result).
  */
 export async function waitForStateFile<T = unknown>(
   filePath: string,
@@ -91,18 +105,50 @@ export async function waitForStateFile<T = unknown>(
 ): Promise<T> {
   const { timeout = 2000, interval = 50 } = options ?? {};
   let result: T | undefined;
+  let attemptCount = 0;
+
   await vi.waitFor(
     async () => {
-      const raw = await fs.readFile(filePath, "utf-8");
+      attemptCount += 1;
+      let raw: string;
+      try {
+        raw = await fs.readFile(filePath, "utf-8");
+      } catch (readErr) {
+        const msg = (readErr as NodeJS.ErrnoException).code ?? String(readErr);
+        if (DEBUG_WAIT_FOR_STATE_FILE) {
+          console.error(
+            `[waitForStateFile] attempt ${attemptCount} read failed:`,
+            msg,
+          );
+        }
+        throw new Error(
+          `waitForStateFile failed: file read error (${msg}). File: ${filePath}. Attempts: ${attemptCount}. Run with DEBUG_WAIT_FOR_STATE_FILE=1 for per-attempt logs.`,
+        );
+      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(raw) as unknown;
       } catch {
-        // File may be mid-write or contain partial/corrupt JSON; retry
-        throw new Error("waitForStateFile predicate not met");
+        if (DEBUG_WAIT_FOR_STATE_FILE) {
+          console.error(
+            `[waitForStateFile] attempt ${attemptCount} JSON parse failed. Raw (first 300):`,
+            truncate(raw, 300),
+          );
+        }
+        throw new Error(
+          `waitForStateFile failed: JSON parse error (file may be mid-write or corrupt). File: ${filePath}. Attempts: ${attemptCount}. Raw snippet: ${truncate(raw, 200)}. Run with DEBUG_WAIT_FOR_STATE_FILE=1 for per-attempt logs.`,
+        );
       }
-      if (!predicate(parsed)) {
-        throw new Error("waitForStateFile predicate not met");
+      const predOk = predicate(parsed);
+      if (DEBUG_WAIT_FOR_STATE_FILE) {
+        console.error(
+          `[waitForStateFile] attempt ${attemptCount} parse ok, predicate: ${predOk}`,
+        );
+      }
+      if (!predOk) {
+        throw new Error(
+          `waitForStateFile failed: predicate returned false. File: ${filePath}. Attempts: ${attemptCount}. Parsed snippet: ${truncate(JSON.stringify(parsed), 200)}. Run with DEBUG_WAIT_FOR_STATE_FILE=1 for per-attempt logs.`,
+        );
       }
       result = parsed as T;
       return true;

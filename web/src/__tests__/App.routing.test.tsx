@@ -1,34 +1,38 @@
 import { render, waitFor } from "@testing-library/react";
+import type { UseInspectorClientResult } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
 import App from "../App";
 import { useInspectorClient } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
 
 // Mock auth dependencies first
-jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
-  auth: jest.fn(),
+vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
+  auth: vi.fn(),
 }));
 
-// Mock the config utils
-jest.mock("../utils/configUtils", () => ({
-  ...jest.requireActual("../utils/configUtils"),
-  getInitialTransportType: jest.fn(() => "stdio"),
-  getInitialSseUrl: jest.fn(() => "http://localhost:3001/sse"),
-  getInitialCommand: jest.fn(() => "mcp-server-everything"),
-  getInitialArgs: jest.fn(() => ""),
-  initializeInspectorConfig: jest.fn(() => ({
-    MCP_INSPECTOR_API_TOKEN: {
-      label: "API Token",
-      description:
-        "Auth token for authenticating with the Inspector API server",
-      value: "",
-      is_session_item: true,
-    },
-  })),
-  saveInspectorConfig: jest.fn(),
-}));
+// Mock the config utils (async factory so we can spread importActual)
+vi.mock("../utils/configUtils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils/configUtils")>();
+  return {
+    ...actual,
+    getInitialTransportType: vi.fn(() => "stdio"),
+    getInitialSseUrl: vi.fn(() => "http://localhost:3001/sse"),
+    getInitialCommand: vi.fn(() => "mcp-server-everything"),
+    getInitialArgs: vi.fn(() => ""),
+    initializeInspectorConfig: vi.fn(() => ({
+      MCP_INSPECTOR_API_TOKEN: {
+        label: "API Token",
+        description:
+          "Auth token for authenticating with the Inspector API server",
+        value: "test-token",
+        is_session_item: true,
+      },
+    })),
+    saveInspectorConfig: vi.fn(),
+  };
+});
 
-// Default connection state is disconnected
-const disconnectedInspectorClientState = {
-  status: "disconnected" as const,
+// Default connection state is disconnected (cast for mock)
+const disconnectedInspectorClientState: UseInspectorClientResult = {
+  status: "disconnected",
   messages: [],
   stderrLogs: [],
   fetchRequests: [],
@@ -36,72 +40,73 @@ const disconnectedInspectorClientState = {
   resources: [],
   resourceTemplates: [],
   prompts: [],
-  capabilities: null,
-  serverInfo: null,
+  capabilities: {},
+  serverInfo: { name: "", version: "" },
   instructions: undefined,
   client: null,
-  connect: jest.fn(),
-  disconnect: jest.fn(),
+  connect: vi.fn(),
+  disconnect: vi.fn(),
 };
 
 // Connected state for tests that need an active connection
-const connectedInspectorClientState = {
+const connectedInspectorClientState: UseInspectorClientResult = {
   ...disconnectedInspectorClientState,
-  status: "connected" as const,
+  status: "connected",
   capabilities: {},
-  client: {}, // Mock client object - needed for hash setting logic
+  client: {} as UseInspectorClientResult["client"], // Mock client - needed for hash setting logic
+  serverInfo: { name: "", version: "" },
 };
 
 // Mock required dependencies, but unrelated to routing.
-jest.mock("../lib/hooks/useDraggablePane", () => ({
+vi.mock("../lib/hooks/useDraggablePane", () => ({
   useDraggablePane: () => ({
     height: 300,
-    handleDragStart: jest.fn(),
+    handleDragStart: vi.fn(),
   }),
   useDraggableSidebar: () => ({
     width: 320,
     isDragging: false,
-    handleDragStart: jest.fn(),
+    handleDragStart: vi.fn(),
   }),
 }));
 
-jest.mock("../components/Sidebar", () => ({
+vi.mock("../components/Sidebar", () => ({
   __esModule: true,
   default: () => <div>Sidebar</div>,
 }));
 
 // Mock fetch
-global.fetch = jest.fn().mockResolvedValue({ json: () => Promise.resolve({}) });
+global.fetch = vi.fn().mockResolvedValue({ json: () => Promise.resolve({}) });
 
 // Mock InspectorClient hook
-jest.mock(
+vi.mock(
   "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js",
   () => ({
-    useInspectorClient: jest.fn(),
+    useInspectorClient: vi.fn(),
   }),
 );
 
 // jsdom does not provide window.matchMedia; useTheme calls it.
 const mockMatchMedia = (matches = false) => ({
   matches,
-  addEventListener: jest.fn(),
-  removeEventListener: jest.fn(),
-  dispatchEvent: jest.fn(),
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
   onchange: null,
-  addListener: jest.fn(),
-  removeListener: jest.fn(),
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
   media: "",
 });
 
 describe("App - URL Fragment Routing", () => {
-  const mockUseInspectorClient = jest.mocked(useInspectorClient);
+  const mockUseInspectorClient = vi.mocked(useInspectorClient);
 
   beforeEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
 
-    window.matchMedia = jest
+    window.matchMedia = vi
       .fn()
-      .mockImplementation((query: string) =>
+      .mockImplementation((_query: string) =>
         mockMatchMedia(false),
       ) as unknown as typeof window.matchMedia;
 

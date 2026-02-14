@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
@@ -14,6 +14,7 @@ import { InspectorClient } from "../mcp/inspectorClient.js";
 import { createRemoteTransport } from "../mcp/remote/createRemoteTransport.js";
 import { createRemoteFetch } from "../mcp/remote/createRemoteFetch.js";
 import { RemoteOAuthStorage } from "../auth/remote/storage-remote.js";
+import { NodeOAuthStorage } from "../auth/node/storage-node.js";
 import { createRemoteApp } from "../mcp/remote/node/server.js";
 import { TestServerHttp } from "../test/test-server-http.js";
 import { getDefaultServerConfig } from "../test/test-server-fixtures.js";
@@ -32,6 +33,20 @@ import {
 } from "../test/test-server-oauth.js";
 import type { InspectorClientOptions } from "../mcp/inspectorClient.js";
 import type { MCPServerConfig } from "../mcp/types.js";
+
+const oauthTestStatePath = join(
+  tmpdir(),
+  `mcp-oauth-${process.pid}-inspectorClient-oauth-remote-storage-e2e.json`,
+);
+
+function createTestOAuthConfig(
+  options: Parameters<typeof createOAuthClientConfig>[0],
+) {
+  return {
+    ...createOAuthClientConfig(options),
+    storage: new NodeOAuthStorage(oauthTestStatePath),
+  };
+}
 
 type TransportType = "sse" | "streamable-http";
 
@@ -104,6 +119,14 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
     clearOAuthTestData();
     tempDir = mkdtempSync(join(tmpdir(), "inspector-remote-storage-test-"));
     vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterAll(() => {
+    try {
+      unlinkSync(oauthTestStatePath);
+    } catch {
+      // Ignore if file does not exist or already removed
+    }
   });
 
   afterEach(async () => {
@@ -183,7 +206,7 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
           authToken: remoteAuthToken!,
         });
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -273,7 +296,7 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
         });
 
         // First client: complete OAuth flow
-        const oauthConfig1 = createOAuthClientConfig({
+        const oauthConfig1 = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -325,7 +348,7 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
           authToken: remoteAuthToken!,
         });
 
-        const oauthConfig2 = createOAuthClientConfig({
+        const oauthConfig2 = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -414,7 +437,7 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
           authToken: remoteAuthToken!,
         });
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "dcr",
           redirectUrl: testRedirectUrl,
         });

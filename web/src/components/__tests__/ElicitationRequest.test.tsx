@@ -1,11 +1,10 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { describe, it, jest, beforeEach, afterEach } from "@jest/globals";
 import ElicitationRequest from "../ElicitationRequest";
 import { PendingElicitationRequest } from "../ElicitationTab";
 
-jest.mock("../DynamicJsonForm", () => {
-  return function MockDynamicJsonForm({
+vi.mock("../DynamicJsonForm", () => ({
+  default: function MockDynamicJsonForm({
     value,
     onChange,
   }: {
@@ -32,18 +31,18 @@ jest.mock("../DynamicJsonForm", () => {
         />
       </div>
     );
-  };
-});
+  },
+}));
 
 describe("ElicitationRequest", () => {
-  const mockOnResolve = jest.fn();
+  const mockOnResolve = vi.fn();
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   const createMockRequest = (

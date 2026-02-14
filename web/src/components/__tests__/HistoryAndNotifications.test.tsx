@@ -1,15 +1,14 @@
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { useState } from "react";
-import { describe, it, expect, jest } from "@jest/globals";
 import HistoryAndNotifications from "../HistoryAndNotifications";
 import { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 
 // Mock JsonView component
-jest.mock("../JsonView", () => {
-  return function JsonView({ data }: { data: string }) {
+vi.mock("../JsonView", () => ({
+  default: function JsonView({ data }: { data: string }) {
     return <div data-testid="json-view">{data}</div>;
-  };
-});
+  },
+}));
 
 describe("HistoryAndNotifications", () => {
   const mockRequestHistory = [

@@ -19,7 +19,8 @@
   ],
   "scripts": {
     "build": "tsc",
-    "dev": "NODE_PATH=../node_modules:./node_modules:$NODE_PATH tsx tui.tsx"
+    "dev": "NODE_PATH=../node_modules:./node_modules:$NODE_PATH tsx tui.tsx",
+    "test": "vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/inspector-shared": "*",
@@ -37,6 +38,7 @@
     "@types/node": "^25.0.3",
     "@types/react": "^18.3.23",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.17"
   }
 }

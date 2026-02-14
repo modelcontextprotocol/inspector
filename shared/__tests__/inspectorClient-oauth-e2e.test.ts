@@ -4,7 +4,15 @@
  * Tests are parameterized to run against both SSE and streamable-http transports
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  afterAll,
+  vi,
+} from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -31,6 +39,20 @@ import {
 } from "../auth/node/index.js";
 import type { InspectorClientOptions } from "../mcp/inspectorClient.js";
 import type { MCPServerConfig } from "../mcp/types.js";
+
+const oauthTestStatePath = path.join(
+  os.tmpdir(),
+  `mcp-oauth-${process.pid}-inspectorClient-oauth-e2e.json`,
+);
+
+function createTestOAuthConfig(
+  options: Parameters<typeof createOAuthClientConfig>[0],
+) {
+  return {
+    ...createOAuthClientConfig(options),
+    storage: new NodeOAuthStorage(oauthTestStatePath),
+  };
+}
 
 type TransportType = "sse" | "streamable-http";
 
@@ -60,6 +82,14 @@ describe("InspectorClient OAuth E2E", () => {
   let server: TestServerHttp;
   let client: InspectorClient;
   const testRedirectUrl = "http://localhost:3001/oauth/callback";
+
+  afterAll(async () => {
+    try {
+      await fs.unlink(oauthTestStatePath);
+    } catch {
+      // Ignore if file does not exist or already removed
+    }
+  });
 
   beforeEach(() => {
     clearOAuthTestData();
@@ -107,7 +137,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         // Create client with static OAuth config
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -180,7 +210,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -264,7 +294,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -355,7 +385,7 @@ describe("InspectorClient OAuth E2E", () => {
         const serverUrl = `http://localhost:${port}`;
 
         // Create client with CIMD config
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "cimd",
           clientMetadataUrl: metadataUrl,
           redirectUrl: testRedirectUrl,
@@ -432,7 +462,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "cimd",
           clientMetadataUrl: metadataUrl,
           redirectUrl: testRedirectUrl,
@@ -492,7 +522,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "dcr",
           redirectUrl: testRedirectUrl,
         });
@@ -547,7 +577,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "dcr",
           redirectUrl: testRedirectUrl,
         });
@@ -616,7 +646,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "dcr",
           redirectUrl: testRedirectUrl,
         });
@@ -687,7 +717,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -773,7 +803,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -876,7 +906,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -972,7 +1002,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -1047,7 +1077,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -1111,7 +1141,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "dcr",
           redirectUrl,
         });
@@ -1165,7 +1195,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "dcr",
           redirectUrl,
         });
@@ -1237,7 +1267,7 @@ describe("InspectorClient OAuth E2E", () => {
       const port = await server.start();
       const serverUrl = `http://localhost:${port}`;
 
-      const oauthConfig = createOAuthClientConfig({
+      const oauthConfig = createTestOAuthConfig({
         mode: "static",
         clientId: staticClientId,
         clientSecret: staticClientSecret,
@@ -1305,7 +1335,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -1375,7 +1405,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -1485,7 +1515,7 @@ describe("InspectorClient OAuth E2E", () => {
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
 
-        const oauthConfig = createOAuthClientConfig({
+        const oauthConfig = createTestOAuthConfig({
           mode: "static",
           clientId: staticClientId,
           clientSecret: staticClientSecret,
@@ -1563,7 +1593,7 @@ describe("InspectorClient OAuth E2E", () => {
       const port = await server.start();
       const serverUrl = `http://localhost:${port}`;
 
-      const oauthConfig = createOAuthClientConfig({
+      const oauthConfig = createTestOAuthConfig({
         mode: "static",
         clientId: staticClientId,
         clientSecret: staticClientSecret,
@@ -1639,7 +1669,7 @@ describe("InspectorClient OAuth E2E", () => {
       const port = await server.start();
       const serverUrl = `http://localhost:${port}`;
 
-      const oauthConfig = createOAuthClientConfig({
+      const oauthConfig = createTestOAuthConfig({
         mode: "static",
         clientId: staticClientId,
         clientSecret: staticClientSecret,
@@ -1745,7 +1775,7 @@ describe("InspectorClient OAuth E2E", () => {
       const port = await server.start();
       const serverUrl = `http://localhost:${port}`;
 
-      const oauthConfig = createOAuthClientConfig({
+      const oauthConfig = createTestOAuthConfig({
         mode: "static",
         clientId: staticClientId,
         clientSecret: staticClientSecret,

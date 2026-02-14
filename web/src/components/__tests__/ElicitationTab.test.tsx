@@ -3,7 +3,7 @@ import { Tabs } from "@/components/ui/tabs";
 import ElicitationTab, { PendingElicitationRequest } from "../ElicitationTab";
 
 describe("Elicitation tab", () => {
-  const mockOnResolve = jest.fn();
+  const mockOnResolve = vi.fn();
 
   const renderElicitationTab = (pendingRequests: PendingElicitationRequest[]) =>
     render(

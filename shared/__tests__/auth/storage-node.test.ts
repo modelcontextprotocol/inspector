@@ -14,10 +14,16 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { waitForStateFile } from "../../test/test-helpers.js";
 
+// Unique path per process so parallel test files don't share the same state file
+const testStatePath = path.join(
+  os.tmpdir(),
+  `mcp-inspector-oauth-${process.pid}-storage-node.json`,
+);
+
 describe("NodeOAuthStorage", () => {
   let storage: NodeOAuthStorage;
   const testServerUrl = "http://localhost:3000";
-  const stateFilePath = getStateFilePath();
+  const stateFilePath = testStatePath;
 
   beforeEach(async () => {
     // Clean up any existing state file
@@ -28,14 +34,14 @@ describe("NodeOAuthStorage", () => {
     }
 
     // Reset store state by clearing all servers
-    const store = getOAuthStore();
+    const store = getOAuthStore(testStatePath);
     const state = store.getState();
     // Clear all server states
     Object.keys(state.servers).forEach((url) => {
       state.clearServerState(url);
     });
 
-    storage = new NodeOAuthStorage();
+    storage = new NodeOAuthStorage(testStatePath);
   });
 
   afterEach(async () => {
@@ -47,7 +53,7 @@ describe("NodeOAuthStorage", () => {
     }
 
     // Reset store state
-    const store = getOAuthStore();
+    const store = getOAuthStore(testStatePath);
     const state = store.getState();
     Object.keys(state.servers).forEach((url) => {
       state.clearServerState(url);
@@ -81,7 +87,7 @@ describe("NodeOAuthStorage", () => {
       };
 
       // Store as preregistered by directly setting it in the store
-      const store = getOAuthStore();
+      const store = getOAuthStore(testStatePath);
       store.getState().setServerState(testServerUrl, {
         preregisteredClientInformation: preregisteredInfo,
       });
@@ -347,7 +353,7 @@ describe("NodeOAuthStorage", () => {
 });
 
 describe("OAuth Store (Zustand)", () => {
-  const stateFilePath = getStateFilePath();
+  const stateFilePath = testStatePath;
 
   beforeEach(async () => {
     try {
@@ -366,20 +372,23 @@ describe("OAuth Store (Zustand)", () => {
   });
 
   it("should create a new store", () => {
-    const store = getOAuthStore();
+    const store = getOAuthStore(testStatePath);
     expect(store).toBeDefined();
     expect(store.getState).toBeDefined();
     expect(store.setState).toBeDefined();
   });
 
   it("should return the same store instance via getOAuthStore", () => {
-    const store1 = getOAuthStore();
-    const store2 = getOAuthStore();
+    const store1 = getOAuthStore(testStatePath);
+    const store2 = getOAuthStore(testStatePath);
     expect(store1).toBe(store2);
   });
 
   it("should persist state to file", async () => {
-    const store = getOAuthStore();
+    if (process.env.DEBUG_WAIT_FOR_STATE_FILE === "1") {
+      console.error("[storage-node.test] state file path:", stateFilePath);
+    }
+    const store = getOAuthStore(testStatePath);
     const serverUrl = "http://localhost:3000";
     const clientInfo: OAuthClientInformation = {
       client_id: "test-client-id",
