@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-core",
-  "version": "0.18.0",
+  "version": "0.20.0",
   "private": true,
   "type": "module",
   "main": "./build/mcp/index.js",
