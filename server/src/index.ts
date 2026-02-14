@@ -31,7 +31,7 @@ import mcpProxy from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 
 const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 
@@ -802,7 +802,15 @@ app.get(
   (req, res) => {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
-    const filePath = join(__dirname, "..", "static", "sandbox_proxy.html");
+
+    // Production: static/ is copied into build/ alongside index.js
+    let filePath = join(__dirname, "static", "sandbox_proxy.html");
+
+    // Dev (tsx): static/ is a sibling of src/, one level up from __dirname
+    if (!existsSync(filePath)) {
+      filePath = join(__dirname, "..", "static", "sandbox_proxy.html");
+    }
+
     let sandboxHtml;
 
     try {
