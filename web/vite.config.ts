@@ -1,18 +1,65 @@
 import react from "@vitejs/plugin-react";
 import path from "path";
+import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { defineConfig, type Plugin } from "vite";
 import { createRemoteApp } from "@modelcontextprotocol/inspector-shared/mcp/remote/node";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import pino from "pino";
 import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-shared/mcp/remote";
 
+const SANDBOX_PORT = 6277;
+
 /**
  * Vite plugin that adds Hono middleware to handle /api/* routes
+ * and starts the MCP Apps sandbox server on 6277 (same process).
  */
 function honoMiddlewarePlugin(authToken: string): Plugin {
   return {
     name: "hono-api-middleware",
     configureServer(server) {
+      // Sandbox for MCP Apps (different origin; same process as Vite dev server)
+      const sandboxHtmlPath = path.join(
+        __dirname,
+        "static",
+        "sandbox_proxy.html",
+      );
+      let sandboxHtml: string;
+      try {
+        sandboxHtml = readFileSync(sandboxHtmlPath, "utf-8");
+      } catch {
+        sandboxHtml =
+          "<!DOCTYPE html><html><body>Sandbox not loaded</body></html>";
+      }
+      const sandboxServer = createServer((req, res) => {
+        if (
+          req.method !== "GET" ||
+          (req.url !== "/sandbox" && req.url !== "/sandbox/")
+        ) {
+          res.writeHead(404, { "Content-Type": "text/plain" });
+          res.end("Not Found");
+          return;
+        }
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+          Pragma: "no-cache",
+        });
+        res.end(sandboxHtml);
+      });
+      sandboxServer.listen(SANDBOX_PORT, "localhost", () => {
+        console.log(
+          `   Sandbox (MCP Apps): http://localhost:${SANDBOX_PORT}/sandbox`,
+        );
+      });
+      sandboxServer.on("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE") {
+          console.error(
+            `Sandbox: port ${SANDBOX_PORT} in use. MCP Apps tab may not work.`,
+          );
+        }
+      });
+
       // createRemoteApp returns { app, authToken } - we pass authToken explicitly
       // If not provided, it will read from env or generate one
       const { app: honoApp } = createRemoteApp({

@@ -22,7 +22,8 @@ client/playwright-report/
 client/results.json
 client/test-results/
 client/e2e/test-results/
-mcp.json
+# Only ignore mcp.json at repo root (test configs in test/ are committed)
+/mcp.json
 .claude/settings.local.json
 
 # Environment variables

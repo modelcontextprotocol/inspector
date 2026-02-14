@@ -16,8 +16,8 @@
   ],
   "scripts": {
     "dev": "vite --port 6274",
-    "build": "tsc -b && vite build",
-    "start": "node bin/server.js",
+    "build": "vite build && tsc -p tsconfig.server.json",
+    "start": "node dist/server.js",
     "lint": "eslint .",
     "preview": "vite preview --port 6274",
     "test": "vitest run",
@@ -26,6 +26,8 @@
     "cleanup:e2e": "node e2e/global-teardown.js"
   },
   "dependencies": {
+    "@mcp-ui/client": "^6.0.0",
+    "@modelcontextprotocol/ext-apps": "^1.0.0",
     "@hono/node-server": "^1.19.0",
     "@modelcontextprotocol/inspector-shared": "*",
     "@modelcontextprotocol/sdk": "^1.25.2",

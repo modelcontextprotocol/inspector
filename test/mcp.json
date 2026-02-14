@@ -1,0 +1,32 @@
+{
+    "mcpServers": {
+      "everything": {
+        "command": "npx",
+        "args": ["@modelcontextprotocol/server-everything"],
+        "env": {
+          "HELLO": "Hello MCP!"
+        }
+      },
+      "myserver": {
+        "command": "node",
+        "args": ["build/index.js", "arg1", "arg2"],
+        "env": {
+          "KEY": "value",
+          "KEY2": "value2"
+        }
+      },
+      "hosted-everything": {
+        "type": "streamable-http",
+        "url": "https://example-server.modelcontextprotocol.io/mcp"
+      },
+      "github": {
+        "type": "streamable-http",
+        "url": "https://api.githubcopilot.com/mcp"
+      },
+      "stytch": {
+        "type": "streamable-http",
+        "url": "https://stytch-as-demo.val.run/mcp"
+      }
+    }
+  }
+  

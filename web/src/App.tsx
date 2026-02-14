@@ -45,6 +45,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
+  AppWindow,
   Bell,
   Files,
   FolderTree,
@@ -69,6 +70,7 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import AppsTab from "./components/AppsTab";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
   getInitialSseUrl,
@@ -629,6 +631,7 @@ const App = () => {
         ...(serverCapabilities?.resources ? ["resources"] : []),
         ...(serverCapabilities?.prompts ? ["prompts"] : []),
         ...(serverCapabilities?.tools ? ["tools"] : []),
+        ...(serverCapabilities?.tools ? ["apps"] : []),
         "ping",
         "sampling",
         "elicitations",
@@ -912,6 +915,7 @@ const App = () => {
             ...(serverCapabilities?.resources ? ["resources"] : []),
             ...(serverCapabilities?.prompts ? ["prompts"] : []),
             ...(serverCapabilities?.tools ? ["tools"] : []),
+            ...(serverCapabilities?.tools ? ["apps"] : []),
             "ping",
             "sampling",
             "elicitations",
@@ -1122,6 +1126,13 @@ const App = () => {
       throw e;
     }
   };
+
+  // When switching to Apps tab, ensure tools are listed so app tools are available
+  useEffect(() => {
+    if (mcpClient && activeTab === "apps" && serverCapabilities?.tools) {
+      void listTools();
+    }
+  }, [mcpClient, activeTab, serverCapabilities?.tools]);
 
   const callTool = async (
     name: string,
@@ -1400,6 +1411,10 @@ const App = () => {
                   <Hammer className="w-4 h-4 mr-2" />
                   Tools
                 </TabsTrigger>
+                <TabsTrigger value="apps" disabled={!serverCapabilities?.tools}>
+                  <AppWindow className="w-4 h-4 mr-2" />
+                  Apps
+                </TabsTrigger>
                 <TabsTrigger value="ping">
                   <Bell className="w-4 h-4 mr-2" />
                   Ping
@@ -1559,6 +1574,19 @@ const App = () => {
                       promptContent={promptContent}
                       nextCursor={nextPromptCursor}
                       error={errors.prompts}
+                    />
+                    <AppsTab
+                      sandboxPath={`http://${window.location.hostname}:6277/sandbox`}
+                      tools={inspectorTools}
+                      listTools={() => {
+                        clearError("tools");
+                        listTools();
+                      }}
+                      error={errors.tools}
+                      mcpClient={mcpClient}
+                      onNotification={(notification) => {
+                        setNotifications((prev) => [...prev, notification]);
+                      }}
                     />
                     <ToolsTab
                       tools={inspectorTools}

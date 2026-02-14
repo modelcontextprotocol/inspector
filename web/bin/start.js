@@ -94,7 +94,7 @@ async function startProdClient(clientOptions) {
     serverUrl,
     envVars,
   } = clientOptions;
-  const honoServerPath = resolve(__dirname, "server.js");
+  const honoServerPath = resolve(__dirname, "../dist/server.js");
 
   // Inspector API server (Hono) serves static files + /api/* endpoints
   // Pass Inspector API auth token and config values explicitly via env vars (read-only, server reads them)
