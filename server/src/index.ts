@@ -802,7 +802,7 @@ app.get(
   (req, res) => {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
-    const filePath = join(__dirname, "..", "static", "sandbox_proxy.html");
+    const filePath = join(__dirname, "static", "sandbox_proxy.html");
     let sandboxHtml;
 
     try {
