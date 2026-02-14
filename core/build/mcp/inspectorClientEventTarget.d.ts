@@ -1,0 +1,136 @@
+/**
+ * Type-safe EventTarget for InspectorClient events
+ *
+ * This module provides a base class with overloaded addEventListener/removeEventListener
+ * methods and a dispatchTypedEvent method that give compile-time type safety for event
+ * names and event detail types.
+ */
+import type { ConnectionStatus, MessageEntry, StderrLogEntry, FetchRequestEntry, PromptGetInvocation, ResourceReadInvocation, ResourceTemplateReadInvocation } from "./types.js";
+import type { Tool, Resource, ResourceTemplate, Prompt, ServerCapabilities, Implementation, Root, Progress, ProgressToken, Task, CallToolResult, McpError } from "@modelcontextprotocol/sdk/types.js";
+import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
+import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
+import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
+import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+/**
+ * Maps event names to their detail types for CustomEvents
+ */
+export interface InspectorClientEventMap {
+    statusChange: ConnectionStatus;
+    toolsChange: Tool[];
+    resourcesChange: Resource[];
+    resourceTemplatesChange: ResourceTemplate[];
+    promptsChange: Prompt[];
+    capabilitiesChange: ServerCapabilities | undefined;
+    serverInfoChange: Implementation | undefined;
+    instructionsChange: string | undefined;
+    message: MessageEntry;
+    stderrLog: StderrLogEntry;
+    fetchRequest: FetchRequestEntry;
+    error: Error;
+    resourceUpdated: {
+        uri: string;
+    };
+    progressNotification: Progress & {
+        progressToken?: ProgressToken;
+    };
+    toolCallResultChange: {
+        toolName: string;
+        params: Record<string, any>;
+        result: any;
+        timestamp: Date;
+        success: boolean;
+        error?: string;
+        metadata?: Record<string, string>;
+    };
+    resourceContentChange: {
+        uri: string;
+        content: ResourceReadInvocation;
+        timestamp: Date;
+    };
+    resourceTemplateContentChange: {
+        uriTemplate: string;
+        content: ResourceTemplateReadInvocation;
+        params: Record<string, string>;
+        timestamp: Date;
+    };
+    promptContentChange: {
+        name: string;
+        content: PromptGetInvocation;
+        timestamp: Date;
+    };
+    pendingSamplesChange: SamplingCreateMessage[];
+    newPendingSample: SamplingCreateMessage;
+    pendingElicitationsChange: ElicitationCreateMessage[];
+    newPendingElicitation: ElicitationCreateMessage;
+    rootsChange: Root[];
+    resourceSubscriptionsChange: string[];
+    taskCreated: {
+        taskId: string;
+        task: Task;
+    };
+    taskStatusChange: {
+        taskId: string;
+        task: Task;
+    };
+    taskCompleted: {
+        taskId: string;
+        result: CallToolResult;
+    };
+    taskFailed: {
+        taskId: string;
+        error: McpError;
+    };
+    taskCancelled: {
+        taskId: string;
+    };
+    tasksChange: Task[];
+    connect: void;
+    disconnect: void;
+    messagesChange: void;
+    stderrLogsChange: void;
+    fetchRequestsChange: void;
+    toolsListChanged: void;
+    resourcesListChanged: void;
+    promptsListChanged: void;
+    oauthAuthorizationRequired: {
+        url: URL;
+    };
+    oauthComplete: {
+        tokens: OAuthTokens;
+    };
+    oauthError: {
+        error: Error;
+    };
+    oauthStepChange: {
+        step: OAuthStep;
+        previousStep: OAuthStep;
+        state: Partial<AuthGuidedState>;
+    };
+}
+/**
+ * Typed event class that extends CustomEvent with type-safe detail
+ */
+export declare class TypedEvent<K extends keyof InspectorClientEventMap> extends CustomEvent<InspectorClientEventMap[K]> {
+    constructor(type: K, detail: InspectorClientEventMap[K]);
+}
+/**
+ * Type-safe EventTarget for InspectorClient events
+ *
+ * Provides overloaded addEventListener/removeEventListener methods that
+ * give compile-time type safety for event names and event detail types.
+ * Extends the standard EventTarget, so all standard EventTarget functionality
+ * is still available.
+ */
+export declare class InspectorClientEventTarget extends EventTarget {
+    /**
+     * Dispatch a type-safe event
+     * For void events, no detail parameter is required (or allowed)
+     * For events with payloads, the detail parameter is required
+     */
+    dispatchTypedEvent<K extends keyof InspectorClientEventMap>(type: K, ...args: InspectorClientEventMap[K] extends void ? [] : [detail: InspectorClientEventMap[K]]): void;
+    addEventListener<K extends keyof InspectorClientEventMap>(type: K, listener: (event: TypedEvent<K>) => void, options?: boolean | AddEventListenerOptions): void;
+    addEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions): void;
+    removeEventListener<K extends keyof InspectorClientEventMap>(type: K, listener: (event: TypedEvent<K>) => void, options?: boolean | EventListenerOptions): void;
+    removeEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | EventListenerOptions): void;
+}
+//# sourceMappingURL=inspectorClientEventTarget.d.ts.map

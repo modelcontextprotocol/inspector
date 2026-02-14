@@ -24,7 +24,7 @@ This document describes OAuth 2.1 support in the TUI for MCP servers that requir
 
 | Component               | Status                                                                                                                        |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **Callback server**     | Done. `shared/auth/oauth-callback-server.ts`, single path `/oauth/callback`, serves both normal and guided flows.             |
+| **Callback server**     | Done. `core/auth/oauth-callback-server.ts`, single path `/oauth/callback`, serves both normal and guided flows.               |
 | **TUI integration**     | Done. Auth available for all HTTP servers (SSE, streamable-http). Auth tab with Guided / Quick / Clear.                       |
 | **Quick Auth**          | Done. `authenticate()`, callback server, `openUrl`, `completeOAuthFlow`.                                                      |
 | **Guided Auth**         | Done. `beginGuidedAuth`, `proceedOAuthStep`, `runGuidedAuth`. Step progress UI, Space to advance, Enter to run to completion. |
@@ -80,7 +80,7 @@ The random part is 32 bytes (64 hex chars) for CSRF protection. Legacy state (pl
 
 ### Implementation
 
-- `generateOAuthStateWithMode(mode)` and `parseOAuthState(state)` in `shared/auth/utils.ts`
+- `generateOAuthStateWithMode(mode)` and `parseOAuthState(state)` in `core/auth/utils.ts`
 - `BaseOAuthClientProvider.state()` uses mode-embedded state
 - `redirect_uris` returns a single URL for both modes
 - Callback server serves `/oauth/callback` only
@@ -91,8 +91,8 @@ The random part is 32 bytes (64 hex chars) for CSRF protection. Legacy state (pl
 
 ### Location
 
-- `shared/auth/oauth-callback-server.ts`
-- Exported from `@modelcontextprotocol/inspector-shared/auth`
+- `core/auth/oauth-callback-server.ts`
+- Exported from `@modelcontextprotocol/inspector-core/auth`
 
 ### API
 
@@ -180,5 +180,5 @@ stop(): Promise<void>;
 
 - [OAuth Support in InspectorClient](./oauth-inspectorclient-design.md)
 - [TUI and Web Client Feature Gaps](./tui-web-client-feature-gaps.md)
-- `shared/auth/`: providers, state-machine, utils, storage-node, oauth-callback-server
-- `shared/mcp/inspectorClient.ts`: `authenticate`, `beginGuidedAuth`, `runGuidedAuth`, `proceedOAuthStep`, `completeOAuthFlow`, `authProvider`
+- `core/auth/`: providers, state-machine, utils, storage-node, oauth-callback-server
+- `core/mcp/inspectorClient.ts`: `authenticate`, `beginGuidedAuth`, `runGuidedAuth`, `proceedOAuthStep`, `completeOAuthFlow`, `authProvider`

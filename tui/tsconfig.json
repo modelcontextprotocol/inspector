@@ -14,5 +14,5 @@
   },
   "include": ["src/**/*", "tui.tsx"],
   "exclude": ["node_modules", "build"],
-  "references": [{ "path": "../shared" }]
+  "references": [{ "path": "../core" }]
 }

@@ -37,7 +37,7 @@
   <!-- Shared Package -->
   <rect x="300" y="200" width="400" height="280" class="shared" />
   <text x="500" y="225" text-anchor="middle" class="title">Shared Package</text>
-  <text x="500" y="245" text-anchor="middle" class="small">@modelcontextprotocol/inspector-shared</text>
+  <text x="500" y="245" text-anchor="middle" class="small">@modelcontextprotocol/inspector-core</text>
 
   <!-- InspectorClient -->
   <rect x="320" y="260" width="360" height="60" class="box" />
@@ -46,19 +46,19 @@
 
   <!-- Shared modules -->
   <rect x="330" y="340" width="160" height="50" class="box" />
-  <text x="410" y="360" text-anchor="middle" class="text">shared/mcp/</text>
+  <text x="410" y="360" text-anchor="middle" class="text">core/mcp/</text>
   <text x="410" y="378" text-anchor="middle" class="small">MCP Client/Server</text>
 
   <rect x="510" y="340" width="160" height="50" class="box" />
-  <text x="590" y="360" text-anchor="middle" class="text">shared/react/</text>
+  <text x="590" y="360" text-anchor="middle" class="text">core/react/</text>
   <text x="590" y="378" text-anchor="middle" class="small">React Hooks</text>
 
   <rect x="330" y="410" width="160" height="50" class="box" />
-  <text x="410" y="430" text-anchor="middle" class="text">shared/json/</text>
+  <text x="410" y="430" text-anchor="middle" class="text">core/json/</text>
   <text x="410" y="448" text-anchor="middle" class="small">JSON Utils</text>
 
   <rect x="510" y="410" width="160" height="50" class="box" />
-  <text x="590" y="430" text-anchor="middle" class="text">shared/test/</text>
+  <text x="590" y="430" text-anchor="middle" class="text">core/test/</text>
   <text x="590" y="448" text-anchor="middle" class="small">Test Fixtures</text>
 
   <!-- MCP SDK -->

@@ -3,10 +3,10 @@ import path from "path";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { defineConfig, type Plugin } from "vite";
-import { createRemoteApp } from "@modelcontextprotocol/inspector-shared/mcp/remote/node";
+import { createRemoteApp } from "@modelcontextprotocol/inspector-core/mcp/remote/node";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import pino from "pino";
-import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-shared/mcp/remote";
+import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-core/mcp/remote";
 
 const SANDBOX_PORT = 6277;
 
@@ -226,8 +226,8 @@ export default defineConfig({
     exclude: [
       // Exclude Node.js-only modules from pre-bundling
       "@modelcontextprotocol/sdk/client/stdio.js",
-      "@modelcontextprotocol/inspector-shared/mcp/node",
-      "@modelcontextprotocol/inspector-shared/mcp/remote/node",
+      "@modelcontextprotocol/inspector-core/mcp/node",
+      "@modelcontextprotocol/inspector-core/mcp/remote/node",
       "cross-spawn",
       "which",
     ],

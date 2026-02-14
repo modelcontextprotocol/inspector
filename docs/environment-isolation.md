@@ -112,7 +112,7 @@ const client = new InspectorClient(config, {
 
 ## Remote API Server
 
-The remote API server (`createRemoteApp` in `shared/mcp/remote/node/`) is a Hono-based server that hosts all Node-backed endpoints required by browser-based InspectorClient. The server is integrated directly into the Vite dev server (same origin as the web client) and exposes environment-specific functionality as HTTP APIs. The browser uses pure JavaScript wrappers that call these APIs where the Node-specific logic is implemented; InspectorClient remains unaware of whether it is talking to local or remote services.
+The remote API server (`createRemoteApp` in `core/mcp/remote/node/`) is a Hono-based server that hosts all Node-backed endpoints required by browser-based InspectorClient. The server is integrated directly into the Vite dev server (same origin as the web client) and exposes environment-specific functionality as HTTP APIs. The browser uses pure JavaScript wrappers that call these APIs where the Node-specific logic is implemented; InspectorClient remains unaware of whether it is talking to local or remote services.
 
 **Rationale for Hono**
 
@@ -162,7 +162,7 @@ The browser cannot use stdio transports (no `child_process` in browser) and face
 
 Unlike a proxy that maintains duplicate SDK clients and protocol state, the remote server is **stateless**—it only creates transports and forwards messages. `InspectorClient` runs in the browser and remains the single source of truth for protocol state, message tracking, and server data. This allows the same `InspectorClient` code to work identically in Node (CLI, TUI) and browser, with only the transport factory differing. The remote server runs on the same server as the UX server (Vite dev server or equivalent), though it can run as a separate remote server if needed.
 
-**Implementation:** `createRemoteTransport` and `RemoteClientTransport` (in `shared/mcp/remote/`); `createRemoteApp` (in `shared/mcp/remote/node/`). Tests in `shared/__tests__/remote-transport.test.ts` cover stdio, SSE, streamable-http.
+**Implementation:** `createRemoteTransport` and `RemoteClientTransport` (in `core/mcp/remote/`); `createRemoteApp` (in `core/mcp/remote/node/`). Tests in `core/__tests__/remote-transport.test.ts` cover stdio, SSE, streamable-http.
 
 **Relevant endpoints:**
 
@@ -211,7 +211,7 @@ Failed to start OAuth flow: Failed to discover OAuth metadata
 
 **InspectorClient:** Accepts optional `environment.fetch` and builds `effectiveAuthFetch` = createFetchTracker(baseFetch, trackRequest) with baseFetch = `environment.fetch ?? fetch`. All OAuth HTTP requests use this effective fetch.
 
-**`createRemoteFetch`** (in `shared/mcp/remote/`): Returns a fetch function that POSTs to `/api/fetch`. The remote server performs the actual HTTP request in Node and returns the response. OAuth responses are JSON (not streaming), so the buffered response from `createRemoteFetch` is sufficient.
+**`createRemoteFetch`** (in `core/mcp/remote/`): Returns a fetch function that POSTs to `/api/fetch`. The remote server performs the actual HTTP request in Node and returns the response. OAuth responses are JSON (not streaming), so the buffered response from `createRemoteFetch` is sufficient.
 
 **Relevant endpoint:**
 
@@ -231,13 +231,13 @@ The CLI and TUI use a file-based logger.
 
 Browser clients are unable to write to the server console or the file system, so an optional remote logger may be provided by a browser client user of InspectorClient. The browser client uses a remote logger to forward log events to the server (Node endpoints) where configured loggers may write to the system console, a file-based log, or any other supported Pino log target.
 
-**Implementation:** `createRemoteLogger` (in `shared/mcp/remote/`) returns a pino logger that POSTs to `/api/log` via `pino/browser` transmit.
+**Implementation:** `createRemoteLogger` (in `core/mcp/remote/`) returns a pino logger that POSTs to `/api/log` via `pino/browser` transmit.
 
 **Relevant endpoint:**
 
 - `POST /api/log` — Receives log events from browser, forwards to file logger when `createRemoteApp({ logger })` is passed. Protected by `x-mcp-remote-auth` when `authToken` is set.
 
-Tests in `shared/__tests__/remote-transport.test.ts` validate the flow.
+Tests in `core/__tests__/remote-transport.test.ts` validate the flow.
 
 ---
 
@@ -251,7 +251,7 @@ OAuth tokens and other state need to persist across sessions. In Node (TUI, CLI)
 
 **Implementation:**
 
-- **Storage adapters** (`shared/storage/adapters/`): Reusable Zustand storage adapters:
+- **Storage adapters** (`core/storage/adapters/`): Reusable Zustand storage adapters:
   - `FileStorageAdapter` — file-based storage for Node (uses `fs/promises`)
   - `RemoteStorageAdapter` — HTTP-based storage for browser (uses `/api/storage/:storeId`)
 - **OAuth storage implementations**:
@@ -279,26 +279,26 @@ Environment-specific code is under `node` or `browser` subdirectories so the cor
 
 ### Auth
 
-| Module                 | Environment  | Contents                                                                                                                                                                                     | Package Export     |
-| ---------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `shared/auth/`         | Portable     | Types, interfaces, base providers, utilities (no `fs`, `window`, or `sessionStorage`). Exports storage interface, `CallbackNavigation`, `ConsoleNavigation`, `BaseOAuthClientProvider`, etc. | `"./auth"`         |
-| `shared/auth/node/`    | Node-only    | `NodeOAuthStorage`, `createOAuthCallbackServer`, `clearAllOAuthClientState`                                                                                                                  | `"./auth/node"`    |
-| `shared/auth/browser/` | Browser-only | `BrowserOAuthStorage` (sessionStorage), `BrowserNavigation`, `BrowserOAuthClientProvider`                                                                                                    | `"./auth/browser"` |
+| Module               | Environment  | Contents                                                                                                                                                                                     | Package Export     |
+| -------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `core/auth/`         | Portable     | Types, interfaces, base providers, utilities (no `fs`, `window`, or `sessionStorage`). Exports storage interface, `CallbackNavigation`, `ConsoleNavigation`, `BaseOAuthClientProvider`, etc. | `"./auth"`         |
+| `core/auth/node/`    | Node-only    | `NodeOAuthStorage`, `createOAuthCallbackServer`, `clearAllOAuthClientState`                                                                                                                  | `"./auth/node"`    |
+| `core/auth/browser/` | Browser-only | `BrowserOAuthStorage` (sessionStorage), `BrowserNavigation`, `BrowserOAuthClientProvider`                                                                                                    | `"./auth/browser"` |
 
-**Usage:** Node consumers (TUI, CLI, tests) import from `inspector-shared/auth/node`. Browser consumers import from `inspector-shared/auth/browser`. Core auth is imported from `inspector-shared/auth` only.
+**Usage:** Node consumers (TUI, CLI, tests) import from `inspector-core/auth/node`. Browser consumers import from `inspector-core/auth/browser`. Core auth is imported from `inspector-core/auth` only.
 
 ### MCP
 
 Remote transport code follows the same pattern: portable client in the module root, Node-specific server under `node/`.
 
-| Module                    | Environment | Contents                                                                                                                                      | Package Export        |
-| ------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| `shared/mcp/`             | Portable    | `InspectorClient`, types, `getServerType`, `createFetchTracker`, message tracking, etc. No Node-only APIs.                                    | `"./mcp"`             |
-| `shared/mcp/node/`        | Node-only   | `loadMcpServersConfig`, `argsToMcpServerConfig`, `createTransportNode`                                                                        | `"./mcp/node"`        |
-| `shared/mcp/remote/`      | Portable    | `createRemoteTransport`, `createRemoteFetch`, `createRemoteLogger`, `RemoteClientTransport`. Pure TypeScript; runs in browser, Deno, or Node. | `"./mcp/remote"`      |
-| `shared/mcp/remote/node/` | Node-only   | Remote server (Hono, spawn, etc.). The server that hosts `/api/mcp/*`, `/api/fetch`, `/api/log`, `/api/storage/*`.                            | `"./mcp/remote/node"` |
+| Module                  | Environment | Contents                                                                                                                                      | Package Export        |
+| ----------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `core/mcp/`             | Portable    | `InspectorClient`, types, `getServerType`, `createFetchTracker`, message tracking, etc. No Node-only APIs.                                    | `"./mcp"`             |
+| `core/mcp/node/`        | Node-only   | `loadMcpServersConfig`, `argsToMcpServerConfig`, `createTransportNode`                                                                        | `"./mcp/node"`        |
+| `core/mcp/remote/`      | Portable    | `createRemoteTransport`, `createRemoteFetch`, `createRemoteLogger`, `RemoteClientTransport`. Pure TypeScript; runs in browser, Deno, or Node. | `"./mcp/remote"`      |
+| `core/mcp/remote/node/` | Node-only   | Remote server (Hono, spawn, etc.). The server that hosts `/api/mcp/*`, `/api/fetch`, `/api/log`, `/api/storage/*`.                            | `"./mcp/remote/node"` |
 
-**Usage:** Node consumers (TUI, CLI) import from `inspector-shared/mcp/node` for config loading and transport creation. Web consumers import `createRemoteTransport` from `inspector-shared/mcp/remote`; the UX server or a separate remote server runs the remote API from `inspector-shared/mcp/remote/node`.
+**Usage:** Node consumers (TUI, CLI) import from `inspector-core/mcp/node` for config loading and transport creation. Web consumers import `createRemoteTransport` from `inspector-core/mcp/remote`; the UX server or a separate remote server runs the remote API from `inspector-core/mcp/remote/node`.
 
 ---
 

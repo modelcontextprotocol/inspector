@@ -1,6 +1,6 @@
 import { TabsContent } from "@/components/ui/tabs";
 import JsonView from "./JsonView";
-import type { FetchRequestEntry } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import type { FetchRequestEntry } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 

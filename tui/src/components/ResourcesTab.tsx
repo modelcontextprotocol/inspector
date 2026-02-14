@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
-import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface ResourceTemplate {

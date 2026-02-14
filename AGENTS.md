@@ -5,11 +5,10 @@
 ## Build Commands
 
 - Build all: `npm run build`
-- Build client: `npm run build-client`
-- Build server: `npm run build-server`
+- Build web: `npm run build-web`
 - Development mode: `npm run dev` (use `npm run dev:windows` on Windows)
 - Format code: `npm run prettier-fix`
-- Client lint: `cd client && npm run lint`
+- Web lint: `cd web && npm run lint`
 
 ## Code Style Guidelines
 
@@ -23,13 +22,14 @@
   - kebab-case for file names
 - Use async/await for asynchronous operations
 - Implement proper error handling with try/catch blocks
-- Use Tailwind CSS for styling in the client
+- Use Tailwind CSS for styling in the web app
 - Keep components small and focused on a single responsibility
 
 ## Project Organization
 
 The project is organized as a monorepo with workspaces:
 
-- `client/`: React frontend with Vite, TypeScript and Tailwind
-- `server/`: Express backend with TypeScript
+- `web/`: Web application (Vite, TypeScript, Tailwind)
+- `core/`: Core shared code used by web, CLI, and TUI
 - `cli/`: Command-line interface for testing and invoking MCP server methods directly
+- `tui/`: Terminal user interface

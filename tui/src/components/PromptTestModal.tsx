@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { Form } from "ink-form";
-import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import { promptArgsToForm } from "../utils/promptArgsToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 

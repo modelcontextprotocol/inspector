@@ -15,22 +15,22 @@ import type {
   MCPServerConfig,
   InspectorClientOptions,
   InspectorClientEnvironment,
-} from "@modelcontextprotocol/inspector-shared/mcp/index.js";
-import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+} from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import {
   loadMcpServersConfig,
   createTransportNode,
-} from "@modelcontextprotocol/inspector-shared/mcp/node/index.js";
-import { useInspectorClient } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
+} from "@modelcontextprotocol/inspector-core/mcp/node/index.js";
+import { useInspectorClient } from "@modelcontextprotocol/inspector-core/react/useInspectorClient.js";
 import {
   CallbackNavigation,
   MutableRedirectUrlProvider,
-} from "@modelcontextprotocol/inspector-shared/auth";
+} from "@modelcontextprotocol/inspector-core/auth";
 import {
   createOAuthCallbackServer,
   type OAuthCallbackServer,
   NodeOAuthStorage,
-} from "@modelcontextprotocol/inspector-shared/auth/node/index.js";
+} from "@modelcontextprotocol/inspector-core/auth/node/index.js";
 import { tuiLogger } from "./logger.js";
 import { openUrl } from "./utils/openUrl.js";
 import { Tabs, type TabType, tabs as tabList } from "./components/Tabs.js";

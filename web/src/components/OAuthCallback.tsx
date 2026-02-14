@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
-import { parseOAuthState } from "@modelcontextprotocol/inspector-shared/auth/index.js";
+import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import { parseOAuthState } from "@modelcontextprotocol/inspector-core/auth/index.js";
 import useTheme from "@/lib/hooks/useTheme";
 import { useToast } from "@/lib/hooks/useToast";
 import {

@@ -127,11 +127,11 @@ vi.mock("../lib/adapters/environmentFactory", () => ({
 }));
 
 vi.mock(
-  "@modelcontextprotocol/inspector-shared/mcp/index.js",
+  "@modelcontextprotocol/inspector-core/mcp/index.js",
   async (importOriginal) => {
     const actual =
       await importOriginal<
-        typeof import("@modelcontextprotocol/inspector-shared/mcp/index.js")
+        typeof import("@modelcontextprotocol/inspector-core/mcp/index.js")
       >();
     function MockInspectorClient() {
       return createFakeInspectorClient();
@@ -145,11 +145,11 @@ vi.mock(
 
 // Wrap real hook: when App has a client in state, force status "connected" so main pane shows Tabs
 vi.mock(
-  "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js",
+  "@modelcontextprotocol/inspector-core/react/useInspectorClient.js",
   async (importOriginal) => {
     const actual =
       await importOriginal<
-        typeof import("@modelcontextprotocol/inspector-shared/react/useInspectorClient.js")
+        typeof import("@modelcontextprotocol/inspector-core/react/useInspectorClient.js")
       >();
     return {
       useInspectorClient: (client: unknown) => {

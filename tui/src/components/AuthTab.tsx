@@ -5,11 +5,11 @@ import { SelectableItem } from "./SelectableItem.js";
 import type {
   MCPServerConfig,
   InspectorClient,
-} from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+} from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import type {
   AuthGuidedState,
   OAuthStep,
-} from "@modelcontextprotocol/inspector-shared/auth";
+} from "@modelcontextprotocol/inspector-core/auth";
 
 const STEP_LABELS: Record<OAuthStep, string> = {
   metadata_discovery: "Metadata Discovery",

@@ -1,6 +1,6 @@
-import type { AuthGuidedState } from "@modelcontextprotocol/inspector-shared/auth/types.js";
-import type { OAuthStep } from "@modelcontextprotocol/inspector-shared/auth/types.js";
-import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import type { AuthGuidedState } from "@modelcontextprotocol/inspector-core/auth/types.js";
+import type { OAuthStep } from "@modelcontextprotocol/inspector-core/auth/types.js";
+import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import { CheckCircle2, Circle, ExternalLink } from "lucide-react";
 import { Button } from "./ui/button";
 import { useEffect, useState } from "react";

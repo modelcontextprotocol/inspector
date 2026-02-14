@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import { parseOAuthCallbackParams } from "@/utils/oauthUtils.ts";
 
 interface OAuthDebugCallbackProps {

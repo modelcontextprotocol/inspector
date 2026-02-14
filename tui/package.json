@@ -23,7 +23,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-shared": "*",
+    "@modelcontextprotocol/inspector-core": "*",
     "pino": "^9.6.0",
     "commander": "^13.1.0",
     "@modelcontextprotocol/sdk": "^1.25.2",

@@ -18,7 +18,7 @@ import {
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
 import { cleanParams } from "./utils/paramUtils";
 import type { JsonSchemaType } from "./utils/jsonUtils";
-import type { JsonValue } from "@modelcontextprotocol/inspector-shared/json/jsonUtils.js";
+import type { JsonValue } from "@modelcontextprotocol/inspector-core/json/jsonUtils.js";
 import React, {
   Suspense,
   useCallback,
@@ -27,14 +27,14 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useInspectorClient } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
+import { useInspectorClient } from "@modelcontextprotocol/inspector-core/react/useInspectorClient.js";
 import {
   InspectorClient,
   type InspectorClientOptions,
-} from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+} from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import { createWebEnvironment } from "./lib/adapters/environmentFactory";
-import { RemoteInspectorClientStorage } from "@modelcontextprotocol/inspector-shared/mcp/remote/index.js";
-import { parseOAuthState } from "@modelcontextprotocol/inspector-shared/auth/index.js";
+import { RemoteInspectorClientStorage } from "@modelcontextprotocol/inspector-core/mcp/remote/index.js";
+import { parseOAuthState } from "@modelcontextprotocol/inspector-core/auth/index.js";
 import { webConfigToMcpServerConfig } from "./lib/adapters/configAdapter";
 import { useToast } from "./lib/hooks/useToast";
 import {

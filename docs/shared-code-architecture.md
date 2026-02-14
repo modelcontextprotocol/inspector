@@ -47,7 +47,7 @@ inspector/
 ├── tui/              # TUI workspace (uses shared code)
 ├── client/           # Web client workspace (to be migrated)
 ├── server/           # Proxy server workspace
-├── shared/           # Shared code workspace package
+├── core/           # Shared code workspace package
 │   ├── mcp/          # MCP client/server interaction
 │   ├── react/        # Shared React code
 │   ├── json/         # JSON utilities
@@ -55,13 +55,13 @@ inspector/
 └── package.json      # Root workspace config
 ```
 
-### Shared Package (`@modelcontextprotocol/inspector-shared`)
+### Shared Package (`@modelcontextprotocol/inspector-core`)
 
-The `shared/` directory is a **workspace package** that:
+The `core/` directory is a **workspace package** that:
 
 - **Private** (`"private": true`) - internal-only, not published
-- **Built separately** - compiles to `shared/build/` with TypeScript declarations
-- **Referenced via package name** - workspaces import using `@modelcontextprotocol/inspector-shared/*`
+- **Built separately** - compiles to `core/build/` with TypeScript declarations
+- **Referenced via package name** - workspaces import using `@modelcontextprotocol/inspector-core/*`
 - **Uses TypeScript Project References** - CLI and TUI reference shared for build ordering and type resolution
 - **React peer dependency** - declares React 19.2.3 as peer dependency (consumers provide React)
 
@@ -71,7 +71,7 @@ The `shared/` directory is a **workspace package** that:
 
 ### Overview
 
-`InspectorClient` (`shared/mcp/inspectorClient.ts`) is a comprehensive wrapper around the MCP SDK `Client` that manages the creation and lifecycle of the MCP client and transport. It provides:
+`InspectorClient` (`core/mcp/inspectorClient.ts`) is a comprehensive wrapper around the MCP SDK `Client` that manages the creation and lifecycle of the MCP client and transport. It provides:
 
 - **Unified Client Interface**: Single class handles all client operations
 - **Client and Transport Lifecycle**: Manages creation, connection, and cleanup of MCP SDK `Client` and `Transport` instances
@@ -182,13 +182,13 @@ The shared package is organized with environment-specific code separated into `n
 
 **Main modules:**
 
-- **`shared/mcp/`** - `InspectorClient` and core MCP functionality
-- **`shared/mcp/remote/`** - Remote transport infrastructure (portable client code)
-- **`shared/auth/`** - OAuth infrastructure (portable base code)
-- **`shared/storage/`** - Storage abstraction layer
-- **`shared/react/`** - `useInspectorClient` React hook
-- **`shared/json/`** - JSON utilities
-- **`shared/test/`** - Test fixtures and harness servers
+- **`core/mcp/`** - `InspectorClient` and core MCP functionality
+- **`core/mcp/remote/`** - Remote transport infrastructure (portable client code)
+- **`core/auth/`** - OAuth infrastructure (portable base code)
+- **`core/storage/`** - Storage abstraction layer
+- **`core/react/`** - `useInspectorClient` React hook
+- **`core/json/`** - JSON utilities
+- **`core/test/`** - Test fixtures and harness servers
 
 For detailed module organization, environment-specific modules, and package exports, see [environment-isolation.md](environment-isolation.md).
 
@@ -206,9 +206,9 @@ The TUI was integrated from the [`mcp-inspect`](https://github.com/TeamSparkAI/m
 
 ### Phase 2: Extract to Shared Package (Complete)
 
-All MCP-related code was moved from TUI to `shared/` to enable reuse:
+All MCP-related code was moved from TUI to `core/` to enable reuse:
 
-**Moved to `shared/mcp/`:**
+**Moved to `core/mcp/`:**
 
 - `inspectorClient.ts` - Main client wrapper
 - `transport.ts` - Transport creation
@@ -216,17 +216,17 @@ All MCP-related code was moved from TUI to `shared/` to enable reuse:
 - `types.ts` - Shared types
 - `messageTrackingTransport.ts` - Message tracking wrapper
 
-**Moved to `shared/react/`:**
+**Moved to `core/react/`:**
 
 - `useInspectorClient.ts` - React hook
 
-**Moved to `shared/test/`:**
+**Moved to `core/test/`:**
 
 - Test fixtures and harness servers (from CLI tests)
 
 **Configuration:**
 
-- Created `shared/package.json` as workspace package
+- Created `core/package.json` as workspace package
 - Configured TypeScript Project References
 - Set React 19.2.3 as peer dependency
 - Aligned all workspaces to React 19.2.3
@@ -239,7 +239,7 @@ The CLI was migrated to use `InspectorClient` from the shared package:
 
 - Replaced direct SDK `Client` usage with `InspectorClient`
 - Moved CLI helper functions (`tools.ts`, `resources.ts`, `prompts.ts`) into `InspectorClient` as methods
-- Extracted JSON utilities to `shared/json/jsonUtils.ts`
+- Extracted JSON utilities to `core/json/jsonUtils.ts`
 - Deleted `cli/src/client/` directory
 - Implemented local `argsToMcpServerConfig()` function in CLI to convert CLI arguments to `MCPServerConfig`
 - CLI now uses `inspectorClient.listTools()`, `inspectorClient.callTool()`, etc. directly
@@ -339,13 +339,13 @@ Per [environment-isolation.md](environment-isolation.md):
 
 **Implemented (remote infrastructure):**
 
-- **Hono API server** — In `shared/mcp/remote/node/`. Endpoints for transport (`/api/mcp/connect`, `send`, `events`, `disconnect`), proxy fetch (`/api/fetch`), logging (`/api/log`), and storage (`/api/storage/:storeId`).
-- **createRemoteTransport + RemoteClientTransport** — In `shared/mcp/remote/` (portable). Browser transport that talks to the remote server.
-- **createRemoteFetch** — In `shared/mcp/remote/`. Fetch that POSTs to `/api/fetch` for OAuth (CORS bypass).
-- **createRemoteLogger** — In `shared/mcp/remote/`. Pino logger that POSTs to `/api/log` via `pino/browser` transmit.
+- **Hono API server** — In `core/mcp/remote/node/`. Endpoints for transport (`/api/mcp/connect`, `send`, `events`, `disconnect`), proxy fetch (`/api/fetch`), logging (`/api/log`), and storage (`/api/storage/:storeId`).
+- **createRemoteTransport + RemoteClientTransport** — In `core/mcp/remote/` (portable). Browser transport that talks to the remote server.
+- **createRemoteFetch** — In `core/mcp/remote/`. Fetch that POSTs to `/api/fetch` for OAuth (CORS bypass).
+- **createRemoteLogger** — In `core/mcp/remote/`. Pino logger that POSTs to `/api/log` via `pino/browser` transmit.
 - **Storage abstraction** — `FileStorageAdapter` (Node), `RemoteStorageAdapter` (browser), `RemoteOAuthStorage` (HTTP API). All OAuth storage implementations use Zustand persist middleware for consistency.
 - **Generic storage API** — `GET/POST/DELETE /api/storage/:storeId` endpoints for shared on-disk state between web app and TUI/CLI. See [environment-isolation.md](environment-isolation.md).
-- **Node code organization** — `shared/auth/node/`, `shared/mcp/node/`, `shared/mcp/remote/node/`.
+- **Node code organization** — `core/auth/node/`, `core/mcp/node/`, `core/mcp/remote/node/`.
 
 **Summary:** InspectorClient and the remote infrastructure (Hono API, createRemoteTransport, createRemoteFetch, createRemoteLogger, storage API) are implemented. The remaining effort is:
 

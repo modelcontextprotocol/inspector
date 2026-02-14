@@ -1,4 +1,4 @@
-import type { MCPServerConfig } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import type { MCPServerConfig } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import type { CustomHeaders } from "../types/customHeaders";
 import { headersToRecord } from "../types/customHeaders";
 

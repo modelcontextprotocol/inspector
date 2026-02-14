@@ -4,7 +4,7 @@ import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type {
   MCPServerConfig,
   ServerState,
-} from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+} from "@modelcontextprotocol/inspector-core/mcp/index.js";
 
 interface InfoTabProps {
   serverName: string | null;

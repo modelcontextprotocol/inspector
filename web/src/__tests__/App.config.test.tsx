@@ -34,7 +34,7 @@ const mockInitializeInspectorConfig =
 
 // Mock InspectorClient hook
 vi.mock(
-  "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js",
+  "@modelcontextprotocol/inspector-core/react/useInspectorClient.js",
   () => ({
     useInspectorClient: () => ({
       status: "disconnected",

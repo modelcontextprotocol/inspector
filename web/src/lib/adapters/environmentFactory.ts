@@ -1,14 +1,14 @@
-import type { InspectorClientEnvironment } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import type { InspectorClientEnvironment } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import {
   createRemoteTransport,
   createRemoteFetch,
   createRemoteLogger,
-} from "@modelcontextprotocol/inspector-shared/mcp/remote/index.js";
+} from "@modelcontextprotocol/inspector-core/mcp/remote/index.js";
 import {
   BrowserOAuthStorage,
   BrowserNavigation,
-} from "@modelcontextprotocol/inspector-shared/auth/browser/index.js";
-import type { RedirectUrlProvider } from "@modelcontextprotocol/inspector-shared/auth/index.js";
+} from "@modelcontextprotocol/inspector-core/auth/browser/index.js";
+import type { RedirectUrlProvider } from "@modelcontextprotocol/inspector-core/auth/index.js";
 
 /**
  * Creates an InspectorClientEnvironment for the web client.

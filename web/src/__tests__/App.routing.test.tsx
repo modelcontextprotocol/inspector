@@ -1,7 +1,7 @@
 import { render, waitFor } from "@testing-library/react";
-import type { UseInspectorClientResult } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
+import type { UseInspectorClientResult } from "@modelcontextprotocol/inspector-core/react/useInspectorClient.js";
 import App from "../App";
-import { useInspectorClient } from "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js";
+import { useInspectorClient } from "@modelcontextprotocol/inspector-core/react/useInspectorClient.js";
 
 // Mock auth dependencies first
 vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
@@ -80,7 +80,7 @@ global.fetch = vi.fn().mockResolvedValue({ json: () => Promise.resolve({}) });
 
 // Mock InspectorClient hook
 vi.mock(
-  "@modelcontextprotocol/inspector-shared/react/useInspectorClient.js",
+  "@modelcontextprotocol/inspector-core/react/useInspectorClient.js",
   () => ({
     useInspectorClient: vi.fn(),
   }),

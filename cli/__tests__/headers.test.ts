@@ -5,11 +5,11 @@ import {
   expectOutputContains,
   expectCliSuccess,
 } from "./helpers/assertions.js";
-import { createTestServerHttp } from "../../shared/test/test-server-http.js";
+import { createTestServerHttp } from "../../core/test/test-server-http.js";
 import {
   createEchoTool,
   createTestServerInfo,
-} from "../../shared/test/test-server-fixtures.js";
+} from "../../core/test/test-server-fixtures.js";
 
 describe("Header Parsing and Validation", () => {
   describe("Valid Headers", () => {

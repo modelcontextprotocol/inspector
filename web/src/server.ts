@@ -7,8 +7,8 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import pino from "pino";
-import { createRemoteApp } from "@modelcontextprotocol/inspector-shared/mcp/remote/node";
-import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-shared/mcp/remote";
+import { createRemoteApp } from "@modelcontextprotocol/inspector-core/mcp/remote/node";
+import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-core/mcp/remote";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // When run as dist/server.js, __dirname is dist/; index and assets live there

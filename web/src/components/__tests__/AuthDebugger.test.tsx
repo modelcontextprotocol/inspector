@@ -9,9 +9,9 @@ import "@testing-library/jest-dom";
 import type { Mock } from "vitest";
 import AuthDebugger, { AuthDebuggerProps } from "../AuthDebugger";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
-import { EMPTY_GUIDED_STATE } from "@modelcontextprotocol/inspector-shared/auth/types.js";
-import type { AuthGuidedState } from "@modelcontextprotocol/inspector-shared/auth/types.js";
+import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import { EMPTY_GUIDED_STATE } from "@modelcontextprotocol/inspector-core/auth/types.js";
+import type { AuthGuidedState } from "@modelcontextprotocol/inspector-core/auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 const mockToast = vi.fn();

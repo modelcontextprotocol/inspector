@@ -28,9 +28,9 @@ jobs:
           cd ..
           npm ci --ignore-scripts
 
-      - name: Build shared package
+      - name: Build core package
         working-directory: .
-        run: npm run build-shared
+        run: npm run build-core
 
       - name: Build CLI
         working-directory: .

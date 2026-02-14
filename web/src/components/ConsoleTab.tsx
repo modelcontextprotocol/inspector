@@ -1,5 +1,5 @@
 import { TabsContent } from "@/components/ui/tabs";
-import type { StderrLogEntry } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+import type { StderrLogEntry } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 
 interface ConsoleTabProps {
   stderrLogs: StderrLogEntry[];

@@ -58,7 +58,7 @@ Create a Vite plugin that adds Hono middleware to handle `/api/*` routes. This r
 ```typescript
 import { defineConfig, Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { createRemoteApp } from "@modelcontextprotocol/inspector-shared/mcp/remote/node";
+import { createRemoteApp } from "@modelcontextprotocol/inspector-core/mcp/remote/node";
 import { randomBytes } from "node:crypto";
 import type { ConnectMiddleware } from "vite";
 
@@ -160,7 +160,7 @@ export default defineConfig({
 
 **Dependencies needed:**
 
-- `@modelcontextprotocol/inspector-shared` (already in workspace)
+- `@modelcontextprotocol/inspector-core` (already in workspace)
 - `node:crypto` for `randomBytes`
 
 **Auth Token Handling:**
@@ -211,11 +211,11 @@ Create a production server that serves static files and API routes:
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import { createRemoteApp } from "@modelcontextprotocol/inspector-shared/mcp/remote/node";
+import { createRemoteApp } from "@modelcontextprotocol/inspector-core/mcp/remote/node";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { randomBytes } from "node:crypto";
-import { createFileLogger } from "@modelcontextprotocol/inspector-shared/mcp/node/logger";
+import { createFileLogger } from "@modelcontextprotocol/inspector-core/mcp/node/logger";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const distPath = join(__dirname, "../dist");
@@ -541,7 +541,7 @@ serve(
 Create an adapter that converts the web client's configuration format to `MCPServerConfig`:
 
 ```typescript
-import type { MCPServerConfig } from "@modelcontextprotocol/inspector-shared/mcp/types";
+import type { MCPServerConfig } from "@modelcontextprotocol/inspector-core/mcp/types";
 import type { CustomHeaders } from "../types/customHeaders";
 
 export function webConfigToMcpServerConfig(
@@ -634,13 +634,13 @@ Create a factory function that builds the `InspectorClientEnvironment` object:
 - `redirectUrlProvider` consistently returns `/oauth/callback` regardless of mode (mode stored in state, not URL)
 
 ```typescript
-import type { InspectorClientEnvironment } from "@modelcontextprotocol/inspector-shared/mcp/inspectorClient";
-import { createRemoteTransport } from "@modelcontextprotocol/inspector-shared/mcp/remote/createRemoteTransport";
-import { createRemoteFetch } from "@modelcontextprotocol/inspector-shared/mcp/remote/createRemoteFetch";
-import { createRemoteLogger } from "@modelcontextprotocol/inspector-shared/mcp/remote/createRemoteLogger";
-import { BrowserOAuthStorage } from "@modelcontextprotocol/inspector-shared/auth/browser";
-import { BrowserNavigation } from "@modelcontextprotocol/inspector-shared/auth/browser";
-import type { RedirectUrlProvider } from "@modelcontextprotocol/inspector-shared/auth/types";
+import type { InspectorClientEnvironment } from "@modelcontextprotocol/inspector-core/mcp/inspectorClient";
+import { createRemoteTransport } from "@modelcontextprotocol/inspector-core/mcp/remote/createRemoteTransport";
+import { createRemoteFetch } from "@modelcontextprotocol/inspector-core/mcp/remote/createRemoteFetch";
+import { createRemoteLogger } from "@modelcontextprotocol/inspector-core/mcp/remote/createRemoteLogger";
+import { BrowserOAuthStorage } from "@modelcontextprotocol/inspector-core/auth/browser";
+import { BrowserNavigation } from "@modelcontextprotocol/inspector-core/auth/browser";
+import type { RedirectUrlProvider } from "@modelcontextprotocol/inspector-core/auth/types";
 
 export function createWebEnvironment(
   authToken: string | undefined,
@@ -734,7 +734,7 @@ interface UseInspectorClientResult {
    import { useConnection } from "./lib/hooks/useConnection";
 
    // Add
-   import { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/inspectorClient";
+   import { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/inspectorClient";
    import { useInspectorClientWeb } from "./lib/hooks/useInspectorClientWeb";
    import { createWebEnvironment } from "./lib/adapters/environmentFactory";
    import { webConfigToMcpServerConfig } from "./lib/adapters/configAdapter";
@@ -1099,8 +1099,8 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
    import { SESSION_KEYS } from "../lib/constants";
 
    // Add
-   import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
-   import { parseOAuthState } from "@modelcontextprotocol/inspector-shared/auth/index.js";
+   import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+   import { parseOAuthState } from "@modelcontextprotocol/inspector-core/auth/index.js";
    ```
 
 2. **Update component props:**
@@ -1252,8 +1252,8 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
    import type { AuthGuidedState } from "../lib/auth-types";
 
    // Add
-   import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
-   import type { AuthGuidedState } from "@modelcontextprotocol/inspector-shared/auth/types.js";
+   import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+   import type { AuthGuidedState } from "@modelcontextprotocol/inspector-core/auth/types.js";
    ```
 
 3. **Follow TUI pattern - manage OAuth state directly:**
@@ -1448,8 +1448,8 @@ const AuthDebugger = ({ inspectorClient, onBack }: AuthDebuggerProps) => {
    import { DebugInspectorOAuthClientProvider } from "../lib/auth";
 
    // Add
-   import type { AuthGuidedState } from "@modelcontextprotocol/inspector-shared/auth/types.js";
-   import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
+   import type { AuthGuidedState } from "@modelcontextprotocol/inspector-core/auth/types.js";
+   import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
    ```
 
 3. **Manual Authorization Code Entry:**
@@ -1528,7 +1528,7 @@ The environment factory already uses `BrowserOAuthStorage` and `BrowserNavigatio
 import {
   BrowserOAuthStorage,
   BrowserNavigation,
-} from "@modelcontextprotocol/inspector-shared/auth/browser/index.js";
+} from "@modelcontextprotocol/inspector-core/auth/browser/index.js";
 
 export function createWebEnvironment(
   authToken: string | undefined,

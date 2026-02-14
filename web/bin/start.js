@@ -5,7 +5,7 @@ import { resolve, dirname } from "path";
 import { spawnPromise, spawn } from "spawn-rx";
 import { fileURLToPath } from "url";
 import { randomBytes } from "crypto";
-import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-shared/mcp/remote";
+import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-core/mcp/remote";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

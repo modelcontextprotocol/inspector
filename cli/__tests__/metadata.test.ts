@@ -5,12 +5,12 @@ import {
   expectCliFailure,
   expectValidJson,
 } from "./helpers/assertions.js";
-import { createTestServerHttp } from "../../shared/test/test-server-http.js";
+import { createTestServerHttp } from "../../core/test/test-server-http.js";
 import {
   createEchoTool,
   createAddTool,
   createTestServerInfo,
-} from "../../shared/test/test-server-fixtures.js";
+} from "../../core/test/test-server-fixtures.js";
 import { NO_SERVER_SENTINEL } from "./helpers/fixtures.js";
 
 describe("Metadata Tests", () => {

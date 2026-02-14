@@ -1,6 +1,6 @@
 import { InspectorConfig } from "@/lib/configurationTypes";
 import { DEFAULT_INSPECTOR_CONFIG } from "@/lib/constants";
-import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-shared/mcp/remote";
+import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-core/mcp/remote";
 
 const getSearchParam = (key: string): string | null => {
   try {

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertCircle } from "lucide-react";
-import type { InspectorClient } from "@modelcontextprotocol/inspector-shared/mcp/index.js";
-import type { AuthGuidedState } from "@modelcontextprotocol/inspector-shared/auth/types.js";
+import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import type { AuthGuidedState } from "@modelcontextprotocol/inspector-core/auth/types.js";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
 import { useToast } from "@/lib/hooks/useToast";
 

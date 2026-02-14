@@ -8,7 +8,7 @@ This document outlines the design and implementation plan for adding MCP OAuth 2
 
 ## Goals
 
-1. **Extract General-Purpose OAuth Logic**: Copy reusable OAuth components from `client/src/lib/` and `client/src/utils/` to `shared/auth/` (leaving originals in place)
+1. **Extract General-Purpose OAuth Logic**: Copy reusable OAuth components from `client/src/lib/` and `client/src/utils/` to `core/auth/` (leaving originals in place)
 2. **Abstract Platform Dependencies**: Create interfaces for storage, navigation, and redirect URLs to support both browser and Node.js environments
 3. **Integrate with InspectorClient**: Add OAuth support to `InspectorClient` with both direct and indirect (401-triggered) OAuth flow initiation
 4. **Support All Client Identification Modes**: Support static/preregistered clients, DCR (Dynamic Client Registration), and CIMD (Client ID Metadata Documents)
@@ -45,7 +45,7 @@ This guided mode should be considered a core requirement for InspectorClient OAu
 ### Target Architecture
 
 ```
-shared/auth/
+core/auth/
 ├── storage.ts              # Storage abstraction using Zustand with persistence
 ├── providers.ts            # Abstract OAuth client provider base class
 ├── state-machine.ts        # OAuth state machine (general-purpose logic)
@@ -55,10 +55,10 @@ shared/auth/
 ├── store.ts                # Zustand store for OAuth state (vanilla, no React deps)
 └── __tests__/              # Tests
 
-shared/mcp/
+core/mcp/
 └── inspectorClient.ts      # InspectorClient with OAuth integration
 
-shared/react/
+core/react/
 └── auth/                   # Optional: Shareable React hooks for OAuth state
     └── hooks.ts            # React hooks (useOAuthStore, etc.) - requires React peer dep
                             # Note: UI components cannot be shared between TUI (Ink) and web (DOM)
@@ -244,14 +244,14 @@ abstract class BaseOAuthClientProvider implements OAuthClientProvider {
 
 ## Module Structure
 
-### `shared/auth/store.ts`
+### `core/auth/store.ts`
 
 **Exports** (vanilla-only, no React dependencies):
 
 - `createOAuthStore()` - Factory function to create Zustand store
 - `getOAuthStore()` - Vanilla API for accessing store (no React dependency)
 
-**Note**: React hooks (if needed) would be in `shared/react/auth/hooks.ts` as an optional export that requires React as a peer dependency.
+**Note**: React hooks (if needed) would be in `core/react/auth/hooks.ts` as an optional export that requires React as a peer dependency.
 
 **Store Implementation**:
 
@@ -266,7 +266,7 @@ abstract class BaseOAuthClientProvider implements OAuthClientProvider {
 - Stores single JSON file: `~/.mcp-inspector/oauth/state.json`
 - Handles file creation, reading, and writing atomically
 
-### `shared/auth/providers.ts`
+### `core/auth/providers.ts`
 
 **Exports**:
 
@@ -281,7 +281,7 @@ abstract class BaseOAuthClientProvider implements OAuthClientProvider {
 - Token and client information management
 - Support for `clientMetadataUrl` for CIMD mode
 
-### `shared/auth/state-machine.ts`
+### `core/auth/state-machine.ts`
 
 **Exports**:
 
@@ -296,7 +296,7 @@ abstract class BaseOAuthClientProvider implements OAuthClientProvider {
 - Removes web-specific dependencies (sessionStorage, window.location)
 - General-purpose state transition logic
 
-### `shared/auth/utils.ts`
+### `core/auth/utils.ts`
 
 **Exports**:
 
@@ -308,14 +308,14 @@ abstract class BaseOAuthClientProvider implements OAuthClientProvider {
 
 - `generateOAuthState()` checks for `globalThis.crypto` first (browser), falls back to Node.js `crypto.randomBytes()`
 
-### `shared/auth/types.ts`
+### `core/auth/types.ts`
 
 **Exports**:
 
 - `CallbackParams` type (from `oauthUtils.ts`)
 - Re-export SDK OAuth types as needed
 
-### `shared/auth/discovery.ts`
+### `core/auth/discovery.ts`
 
 **Exports**:
 
@@ -323,7 +323,7 @@ abstract class BaseOAuthClientProvider implements OAuthClientProvider {
 
 **Note**: This is already general-purpose (uses only SDK functions), just needs to be moved.
 
-### `shared/react/auth/` (Optional - Shareable React Hooks Only)
+### `core/react/auth/` (Optional - Shareable React Hooks Only)
 
 **What Can Be Shared**:
 
@@ -731,53 +731,53 @@ InspectorClient previously detected 401 in `connect()` and request methods, call
 
 **Goal**: Copy general-purpose OAuth code to shared package with abstractions (leaving web client code unchanged)
 
-1. **Create Zustand Store** (`shared/auth/store.ts`)
+1. **Create Zustand Store** (`core/auth/store.ts`)
    - Install Zustand dependency (with persist middleware support)
    - Create `createOAuthStore()` factory function
    - Implement browser storage adapter (sessionStorage) for Zustand persist
    - Implement file storage adapter (Node.js fs) for Zustand persist
    - Export vanilla API (`getOAuthStore()`) only (no React dependencies)
-   - React hooks (if needed) would be in separate `shared/react/auth/hooks.ts` file
+   - React hooks (if needed) would be in separate `core/react/auth/hooks.ts` file
    - Add `getServerSpecificKey()` helper
 
-2. **Create Redirect URL Abstraction** (`shared/auth/providers.ts` - part 1)
+2. **Create Redirect URL Abstraction** (`core/auth/providers.ts` - part 1)
    - Define `RedirectUrlProvider` interface with `getRedirectUrl()` and `getDebugRedirectUrl()` methods
    - Implement `BrowserRedirectUrlProvider` (returns normal and debug URLs based on `window.location.origin`)
    - Implement `LocalServerRedirectUrlProvider` (constructor takes `port`, returns normal and debug URLs)
    - Implement `ManualRedirectUrlProvider` (constructor takes `baseUrl`, returns normal and debug URLs)
    - **Key**: Both URLs are available, both are registered with OAuth server, mode determines which is used for current flow
 
-3. **Create Navigation Abstraction** (`shared/auth/providers.ts` - part 2)
+3. **Create Navigation Abstraction** (`core/auth/providers.ts` - part 2)
    - Define `OAuthNavigation` interface
    - Implement `BrowserNavigation`
    - Implement `ConsoleNavigation`
    - Implement `CallbackNavigation`
 
-4. **Create Base OAuth Provider** (`shared/auth/providers.ts` - part 3)
+4. **Create Base OAuth Provider** (`core/auth/providers.ts` - part 3)
    - Create `BaseOAuthClientProvider` abstract class
    - Implement shared SDK interface methods
    - Move storage, redirect URL, and navigation logic to base class
    - Add support for `clientMetadataUrl` (CIMD mode)
 
-5. **Create Provider Implementations** (`shared/auth/providers.ts` - part 4)
+5. **Create Provider Implementations** (`core/auth/providers.ts` - part 4)
    - Create `BrowserOAuthClientProvider` (extends base, uses sessionStorage directly - for web client reference)
    - Create `NodeOAuthClientProvider` (extends base, uses Zustand store - for InspectorClient/CLI/TUI)
    - Support all three client identification modes: static, DCR, CIMD
 
-6. **Copy OAuth Utilities** (`shared/auth/utils.ts`)
+6. **Copy OAuth Utilities** (`core/auth/utils.ts`)
    - Copy `parseOAuthCallbackParams()` from `client/src/utils/oauthUtils.ts`
    - Copy `generateOAuthErrorDescription()` from `client/src/utils/oauthUtils.ts`
    - Adapt `generateOAuthState()` to support both browser and Node.js
 
-7. **Copy OAuth State Machine** (`shared/auth/state-machine.ts`)
+7. **Copy OAuth State Machine** (`core/auth/state-machine.ts`)
    - Copy `OAuthStateMachine` class from `client/src/lib/oauth-state-machine.ts`
    - Copy `oauthTransitions` object
    - Update to use abstract `OAuthClientProvider` instead of `DebugInspectorOAuthClientProvider`
 
-8. **Copy Scope Discovery** (`shared/auth/discovery.ts`)
+8. **Copy Scope Discovery** (`core/auth/discovery.ts`)
    - Copy `discoverScopes()` from `client/src/lib/auth.ts`
 
-9. **Create Types Module** (`shared/auth/types.ts`)
+9. **Create Types Module** (`core/auth/types.ts`)
    - Copy `CallbackParams` type from `client/src/utils/oauthUtils.ts`
    - Re-export SDK OAuth types as needed
 
@@ -906,7 +906,7 @@ OAuth testing requires a full OAuth 2.1 authorization server that can:
 
 The OAuth test server will integrate with the existing `composable-test-server.ts` infrastructure:
 
-1. **Extend `ServerConfig` Interface** (`shared/test/composable-test-server.ts`):
+1. **Extend `ServerConfig` Interface** (`core/test/composable-test-server.ts`):
 
    ```typescript
    export interface ServerConfig {
@@ -969,7 +969,7 @@ The OAuth test server will integrate with the existing `composable-test-server.t
    }
    ```
 
-2. **Extend `TestServerHttp`** (`shared/test/test-server-http.ts`):
+2. **Extend `TestServerHttp`** (`core/test/test-server-http.ts`):
    - Install better-auth OAuth router on Express app (before MCP routes)
    - Add Bearer token verification middleware on `/mcp` endpoint
    - Return 401 if `requireAuth: true` and no valid token present
@@ -990,7 +990,7 @@ The OAuth test server will integrate with the existing `composable-test-server.t
    - This allows tests to programmatically complete the OAuth flow without browser automation
    - For true E2E tests requiring user interaction, better-auth's built-in UI can be used
 
-3. **Create OAuth Test Fixtures** (`shared/test/test-server-fixtures.ts`):
+3. **Create OAuth Test Fixtures** (`core/test/test-server-fixtures.ts`):
 
    ```typescript
    /**
@@ -1147,9 +1147,9 @@ if (authUrl) {
 ### Implementation Steps
 
 1. **Install better-auth dependency** (or chosen OAuth library)
-   - Add to `shared/package.json` as dev dependency
+   - Add to `core/package.json` as dev dependency
 
-2. **Create OAuth test server wrapper** (`shared/test/oauth-test-server.ts`)
+2. **Create OAuth test server wrapper** (`core/test/oauth-test-server.ts`)
    - Wrap better-auth configuration
    - Integrate with Express app in `TestServerHttp`
    - Handle static clients, DCR, CIMD modes
@@ -1286,7 +1286,7 @@ See **"Token Injection and authProvider"** above for details.
 **Future Migration Options** (not implemented now, but design should support):
 
 1. **Option A: Web Client Uses Shared Auth Code Directly**
-   - Web client imports from `shared/auth/`
+   - Web client imports from `core/auth/`
    - Uses `BrowserOAuthClientProvider` from shared
    - Uses Zustand store with sessionStorage adapter
    - Minimal changes to web client code
@@ -1306,7 +1306,7 @@ See **"Token Injection and authProvider"** above for details.
 
 - Shared auth code should be usable independently (not require InspectorClient)
 - InspectorClient should be usable independently (not require web client)
-- React hooks in `shared/react/auth/hooks.ts` can be shared (pure logic, no rendering)
+- React hooks in `core/react/auth/hooks.ts` can be shared (pure logic, no rendering)
 - React UI components cannot be shared (TUI uses Ink, web uses DOM) - each client implements its own
 
 ### Breaking Changes

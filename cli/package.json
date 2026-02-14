@@ -30,7 +30,7 @@
     "vitest": "^4.0.17"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-shared": "*",
+    "@modelcontextprotocol/inspector-core": "*",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "commander": "^13.1.0",
     "express": "^5.1.0",

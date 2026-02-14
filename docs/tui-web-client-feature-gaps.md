@@ -103,7 +103,7 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 
 **InspectorClient Support:**
 
-- OAuth 2.1 support in shared package (`shared/auth/`), integrated via `authProvider` on HTTP transports (SSE, streamable-http)
+- OAuth 2.1 support in shared package (`core/auth/`), integrated via `authProvider` on HTTP transports (SSE, streamable-http)
 - **Static/Preregistered Clients**: ✅ Supported
 - **DCR (Dynamic Client Registration)**: ✅ Supported
 - **CIMD (Client ID Metadata Documents)**: ✅ Supported via `clientMetadataUrl` in OAuth config
@@ -131,7 +131,7 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 
 **Code References:**
 
-- InspectorClient OAuth: `shared/mcp/inspectorClient.ts` (OAuth options, `authenticate`, `authenticateGuided`, `completeOAuthFlow`, events), `shared/auth/`
+- InspectorClient OAuth: `core/mcp/inspectorClient.ts` (OAuth options, `authenticate`, `authenticateGuided`, `completeOAuthFlow`, events), `core/auth/`
 - Web client: `client/src/lib/hooks/useConnection.ts`, `client/src/lib/auth.ts`, `client/src/lib/oauth-state-machine.ts`
 - Design: [OAuth Support in InspectorClient](./oauth-inspectorclient-design.md)
 
@@ -169,7 +169,7 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 
 **Code References:**
 
-- `InspectorClient`: `shared/mcp/inspectorClient.ts` (lines 85-87, 225-226, 401-417, 573-600)
+- `InspectorClient`: `core/mcp/inspectorClient.ts` (lines 85-87, 225-226, 401-417, 573-600)
 - Web client: `client/src/components/SamplingTab.tsx`
 - Web client: `client/src/components/SamplingRequest.tsx`
 - Web client: `client/src/App.tsx` (lines 328-333, 637-652)
@@ -247,9 +247,9 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 
 **Code References:**
 
-- `InspectorClient`: `shared/mcp/inspectorClient.ts` (lines 90-92, 227-228, 420-433, 606-639)
-- `ElicitationCreateMessage`: `shared/mcp/elicitationCreateMessage.ts`
-- Test fixtures: `shared/test/test-server-fixtures.ts` (`createCollectElicitationTool`, `createCollectUrlElicitationTool`)
+- `InspectorClient`: `core/mcp/inspectorClient.ts` (lines 90-92, 227-228, 420-433, 606-639)
+- `ElicitationCreateMessage`: `core/mcp/elicitationCreateMessage.ts`
+- Test fixtures: `core/test/test-server-fixtures.ts` (`createCollectElicitationTool`, `createCollectUrlElicitationTool`)
 - Web client: `client/src/components/ElicitationTab.tsx`
 - Web client: `client/src/components/ElicitationRequest.tsx` (form-based only)
 - Web client: `client/src/App.tsx` (lines 334-356, 653-669)
@@ -369,7 +369,7 @@ Tasks (SEP-1686) were introduced in MCP version 2025-11-25 to support long-runni
 
 **Code References:**
 
-- `InspectorClient`: `shared/mcp/inspectorClient.ts` (lines 902-966) - `getCompletions()` method
+- `InspectorClient`: `core/mcp/inspectorClient.ts` (lines 902-966) - `getCompletions()` method
 - Web client: `client/src/lib/hooks/useConnection.ts` (lines 309, 384-386)
 - Web client: `client/src/lib/hooks/useCompletionState.ts`
 - Web client: `client/src/components/ResourcesTab.tsx` (lines 88-101)
@@ -447,8 +447,8 @@ The SDK runs timeout reset **only** when a per-request `onprogress` callback exi
 
 **Code References:**
 
-- InspectorClient: `shared/mcp/inspectorClient.ts` - `getRequestOptions(progressToken?)` builds per-request `onprogress`, injects token into dispatched events
-- InspectorClient: `shared/mcp/inspectorClient.ts` - `callTool`, `callToolStream`, `getPrompt`, `readResource`, list methods pass `metadata?.progressToken` into `getRequestOptions`
+- InspectorClient: `core/mcp/inspectorClient.ts` - `getRequestOptions(progressToken?)` builds per-request `onprogress`, injects token into dispatched events
+- InspectorClient: `core/mcp/inspectorClient.ts` - `callTool`, `callToolStream`, `getPrompt`, `readResource`, list methods pass `metadata?.progressToken` into `getRequestOptions`
 - Web client: `client/src/App.tsx` (lines 840-892) - Progress token generation and tool call
 - Web client: `client/src/lib/hooks/useConnection.ts` (lines 214-226) - Progress callback setup
 - SDK: `@modelcontextprotocol/sdk` `shared/protocol` - `DEFAULT_REQUEST_TIMEOUT_MSEC` (60_000), `RequestOptions` (`timeout`, `resetTimeoutOnProgress`, `maxTotalTimeout`), `Progress` type
@@ -518,7 +518,7 @@ The TUI automatically supports `listChanged` notifications through `InspectorCli
 **Code References:**
 
 - Web client: `client/src/lib/hooks/useConnection.ts` (lines 422-424, 699-704) - Capability declaration and notification handlers
-- InspectorClient: `shared/mcp/inspectorClient.ts` (listChanged handlers in `connect()`, ~lines 537-573) - Auto-refresh on `list_changed`
+- InspectorClient: `core/mcp/inspectorClient.ts` (listChanged handlers in `connect()`, ~lines 537-573) - Auto-refresh on `list_changed`
 
 ### 8. Roots Support
 
@@ -569,7 +569,7 @@ Roots are file system paths (as `file://` URIs) that define which directories an
 
 **Code References:**
 
-- `InspectorClient`: `shared/mcp/inspectorClient.ts` - `getRoots()`, `setRoots()`, roots/list handler, and notification support
+- `InspectorClient`: `core/mcp/inspectorClient.ts` - `getRoots()`, `setRoots()`, roots/list handler, and notification support
 - Web client: `client/src/components/RootsTab.tsx` - Roots management UI
 - Web client: `client/src/lib/hooks/useConnection.ts` (lines 422-424, 357) - Capability declaration and `getRoots` callback
 - Web client: `client/src/App.tsx` (lines 1225-1229) - RootsTab usage
@@ -632,8 +632,8 @@ Custom headers are used to send additional HTTP headers when connecting to MCP s
 
 - Web client: `client/src/components/CustomHeaders.tsx` - Header management UI component
 - Web client: `client/src/lib/hooks/useConnection.ts` (lines 453-514) - Header processing and transport creation
-- `InspectorClient`: `shared/mcp/config.ts` (lines 118-129) - Headers in `MCPServerConfig`
-- `InspectorClient`: `shared/mcp/transport.ts` (lines 100-134) - Headers passed to SDK transports
+- `InspectorClient`: `core/mcp/config.ts` (lines 118-129) - Headers in `MCPServerConfig`
+- `InspectorClient`: `core/mcp/transport.ts` (lines 100-134) - Headers passed to SDK transports
 
 ## Implementation Priority
 
