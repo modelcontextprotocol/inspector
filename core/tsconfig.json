@@ -25,7 +25,8 @@
     "__tests__/**/*.ts",
     "__tests__/**/*.tsx",
     "auth/**/*.ts",
-    "storage/**/*.ts"
+    "storage/**/*.ts",
+    "logging/**/*.ts"
   ],
   "exclude": ["node_modules", "build"]
 }

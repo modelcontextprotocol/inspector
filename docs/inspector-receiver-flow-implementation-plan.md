@@ -1,6 +1,6 @@
 # Receiver-side flow implementation plan (InspectorClient)
 
-This document is a read-to-implement plan for adding receiver-side task support to InspectorClient: when the server sends `sampling/createMessage` or `elicit` with `params.task`, the client creates a receiver task, returns a task reference immediately, and the server polls `tasks/get` and `tasks/result`; the existing Sampling/Elicitations UX resolves the task when the user responds. It is based on a review of InspectorClient and inspector-main’s useConnection.
+This document is a ready-to-implement plan for adding receiver-side task support to InspectorClient: when the server sends `sampling/createMessage` or `elicit` with `params.task`, the client creates a receiver task, returns a task reference immediately, and the server polls `tasks/get` and `tasks/result`; the existing Sampling/Elicitations UX resolves the task when the user responds. It is based on a review of InspectorClient and the old `client` app’s useConnection.
 
 ---
 
@@ -11,9 +11,9 @@ InspectorClient deals with two kinds of tasks; the naming in this plan keeps the
 **Client tasks (existing)**
 
 - **Direction:** Client → server. We send a request that creates a task on the **server** (e.g. `tools/call` with `task: { ttl }`). The server returns a task reference.
-- **Storage:** `clientTasks: Map<string, Task>` holds those references.
+- **Storage:** `trackedClientTasks: Map<string, Task>` holds those references.
 - **Flow:** We poll the server with `tasks/get` and `tasks/result` until the task completes. The work runs on the server.
-- **Naming:** Existing methods (getTask, getTaskResult, listTasks, etc.) operate on client tasks.
+- **Naming:** Client-task APIs: `getClientTask`, `getClientTaskResult`, `listClientTasks`, `cancelClientTask`; state accessors `getTrackedClientTasks`, `updateTrackedClientTask`.
 
 **Receiver tasks (new)**
 
@@ -42,8 +42,8 @@ Same MCP task protocol; opposite roles. Client tasks = we poll the server. Recei
 
 **State:**
 
-- `pendingSamples: SamplingCreateMessage[]`, `pendingElicitations: ElicitationCreateMessage[]` (lines 344–346); `clientTasks: Map<string, Task>` (362) for **caller-side** tasks (tool-call task references from the server). **No** map or ref for receiver-side task records.
-- `disconnect()` (819–865) clears `pendingSamples`, `pendingElicitations`, `clientTasks`; it does **not** clear any receiver-task store (none exists).
+- `pendingSamples: SamplingCreateMessage[]`, `pendingElicitations: ElicitationCreateMessage[]` (lines 344–346); `trackedClientTasks: Map<string, Task>` for **caller-side** tasks (tool-call task references from the server). **No** map or ref for receiver-side task records.
+- `disconnect()` (819–865) clears `pendingSamples`, `pendingElicitations`, `trackedClientTasks`; it does **not** clear any receiver-task store (none exists).
 
 **Notifications:**
 
@@ -102,7 +102,7 @@ Same MCP task protocol; opposite roles. Client tasks = we poll the server. Recei
   Update the record in `receiverTaskRecords` for `task.taskId` (set `record.task = task`), then call `emitReceiverTaskStatus(task)`.
 
 **Receiver-task accessors (used by protocol handlers and internally):**  
-Name all receiver-task methods explicitly so they are not confused with client-task APIs (getTask, getTaskResult, listTasks).
+Name all receiver-task methods explicitly so they are not confused with client-task APIs (`getClientTask`, `getClientTaskResult`, `listClientTasks`).
 
 - **`getReceiverTask(taskId: string): ReceiverTaskRecord | undefined`**  
   Return `receiverTaskRecords.get(taskId)`. Used by the `tasks/get` handler and by cancel logic.
@@ -153,7 +153,7 @@ Register handlers for ListTasksRequestSchema, GetTaskRequestSchema, GetTaskPaylo
 
 ### 3.8 disconnect()
 
-- Before clearing `clientTasks`, iterate `receiverTaskRecords` and clear any `cleanupTimeoutId` (clearTimeout), then `receiverTaskRecords.clear()`.
+- Before clearing `trackedClientTasks`, iterate `receiverTaskRecords` and clear any `cleanupTimeoutId` (clearTimeout), then `receiverTaskRecords.clear()`.
 
 ### 3.9 SDK imports
 

@@ -16,7 +16,8 @@
   ],
   "scripts": {
     "dev": "vite --port 6274",
-    "build": "vite build && tsc -p tsconfig.server.json",
+    "typecheck": "tsc -p tsconfig.app.json",
+    "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
     "start": "node dist/server.js",
     "lint": "eslint .",
     "preview": "vite preview --port 6274",

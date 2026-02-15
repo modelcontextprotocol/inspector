@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertCircle } from "lucide-react";
 import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import { silentLogger } from "@modelcontextprotocol/inspector-core/logging";
 import type { AuthGuidedState } from "@modelcontextprotocol/inspector-core/auth/types.js";
+import type { WebEnvironmentResult } from "@/lib/adapters/environmentFactory";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
 import { useToast } from "@/lib/hooks/useToast";
 
@@ -10,6 +12,8 @@ export interface AuthDebuggerProps {
   inspectorClient: InspectorClient | null;
   ensureInspectorClient: () => InspectorClient | null;
   canCreateInspectorClient: () => boolean;
+  /** Logger from the same env as InspectorClient (for OAuth/auth logging). */
+  logger?: WebEnvironmentResult["logger"] | null;
   onBack: () => void;
 }
 
@@ -57,8 +61,10 @@ const AuthDebugger = ({
   inspectorClient,
   ensureInspectorClient,
   canCreateInspectorClient,
+  logger,
   onBack,
 }: AuthDebuggerProps) => {
+  const log = logger ?? silentLogger;
   const { toast } = useToast();
   const [oauthState, setOauthState] = useState<AuthGuidedState | undefined>(
     undefined,
@@ -109,26 +115,22 @@ const AuthDebugger = ({
     try {
       // Quick Auth: normal flow (automatic redirect via BrowserNavigation)
       const authUrl = await client.authenticate();
-      // Log to InspectorClient's logger (persists through redirects)
-      const clientLogger = (client as InspectorClient).logger;
-      if (clientLogger) {
-        clientLogger.info(
-          {
-            component: "AuthDebugger",
-            action: "authenticate",
-            authorizationUrl: authUrl.href,
-            redirectUri: authUrl.searchParams.get("redirect_uri"),
-            expectedRedirectUri: `${window.location.origin}/oauth/callback`,
-            currentOrigin: window.location.origin,
-            currentPathname: window.location.pathname,
-          },
-          "OAuth authorization URL generated - about to redirect",
-        );
-      }
+      // Log via app-provided logger (same as InspectorClient's env logger)
+      log.info(
+        {
+          component: "AuthDebugger",
+          action: "authenticate",
+          authorizationUrl: authUrl.href,
+          redirectUri: authUrl.searchParams.get("redirect_uri"),
+          expectedRedirectUri: `${window.location.origin}/oauth/callback`,
+          currentOrigin: window.location.origin,
+          currentPathname: window.location.pathname,
+        },
+        "OAuth authorization URL generated - about to redirect",
+      );
       // BrowserNavigation handles redirect automatically
     } catch (error) {
-      const logger = (client as InspectorClient).logger;
-      if (logger) logger.error({ err: error }, "Quick OAuth failed");
+      log.error({ err: error }, "Quick OAuth failed");
       toast({
         title: "OAuth Error",
         description: error instanceof Error ? error.message : String(error),
@@ -137,7 +139,7 @@ const AuthDebugger = ({
     } finally {
       setIsInitiatingAuth(false);
     }
-  }, [ensureInspectorClient, toast]);
+  }, [ensureInspectorClient, log, toast]);
 
   const handleGuidedOAuth = useCallback(async () => {
     const client = ensureInspectorClient();
@@ -151,8 +153,7 @@ const AuthDebugger = ({
       await client.beginGuidedAuth();
       // State updates via oauthStepChange events (handled in useEffect above)
     } catch (error) {
-      const logger = (client as InspectorClient).logger;
-      if (logger) logger.error({ err: error }, "Guided OAuth start failed");
+      log.error({ err: error }, "Guided OAuth start failed");
       toast({
         title: "OAuth Error",
         description: error instanceof Error ? error.message : String(error),
@@ -161,7 +162,7 @@ const AuthDebugger = ({
     } finally {
       setIsInitiatingAuth(false);
     }
-  }, [ensureInspectorClient, toast]);
+  }, [ensureInspectorClient, log, toast]);
 
   const proceedToNextStep = useCallback(async () => {
     const client = ensureInspectorClient();
@@ -180,8 +181,7 @@ const AuthDebugger = ({
       // There's a manual button in OAuthFlowProgress to open the URL if needed.
       // Quick auth handles redirects automatically via BrowserNavigation.
     } catch (error) {
-      const logger = (client as InspectorClient).logger;
-      if (logger) logger.error({ err: error }, "OAuth step failed");
+      log.error({ err: error }, "OAuth step failed");
       toast({
         title: "OAuth Error",
         description: error instanceof Error ? error.message : String(error),
@@ -190,7 +190,7 @@ const AuthDebugger = ({
     } finally {
       setIsInitiatingAuth(false);
     }
-  }, [ensureInspectorClient, oauthState, toast]);
+  }, [ensureInspectorClient, log, oauthState, toast]);
 
   const handleClearOAuth = useCallback(async () => {
     const client = ensureInspectorClient();
@@ -206,15 +206,14 @@ const AuthDebugger = ({
         variant: "default",
       });
     } catch (error) {
-      const logger = (client as InspectorClient).logger;
-      if (logger) logger.error({ err: error }, "Clear OAuth failed");
+      log.error({ err: error }, "Clear OAuth failed");
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : String(error),
         variant: "destructive",
       });
     }
-  }, [ensureInspectorClient, toast]);
+  }, [ensureInspectorClient, log, toast]);
 
   return (
     <div className="w-full p-4">

@@ -40,9 +40,9 @@ export type { OAuthStateMode } from "./utils.js";
 // Discovery
 export { discoverScopes } from "./discovery.js";
 
-// Logging
-export type { InspectorClientLogger } from "./logger.js";
-export { silentLogger } from "./logger.js";
+// Logging (re-exported from core/logging for backward compatibility)
+export type { InspectorClientLogger } from "../logging/index.js";
+export { silentLogger } from "../logging/index.js";
 // State Machine
 export type { StateMachineContext, StateTransition } from "./state-machine.js";
 export { oauthTransitions, OAuthStateMachine } from "./state-machine.js";

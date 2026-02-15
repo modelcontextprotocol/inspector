@@ -31,7 +31,10 @@ import {
   InspectorClient,
   type InspectorClientOptions,
 } from "@modelcontextprotocol/inspector-core/mcp/index.js";
-import { createWebEnvironment } from "./lib/adapters/environmentFactory";
+import {
+  createWebEnvironment,
+  type WebEnvironmentResult,
+} from "./lib/adapters/environmentFactory";
 import { RemoteInspectorClientStorage } from "@modelcontextprotocol/inspector-core/mcp/remote/index.js";
 import { parseOAuthState } from "@modelcontextprotocol/inspector-core/auth/index.js";
 import { webConfigToMcpServerConfig } from "./lib/adapters/configAdapter";
@@ -279,6 +282,10 @@ const App = () => {
   // InspectorClient is created lazily when needed (connect/auth operations)
   const [inspectorClient, setInspectorClient] =
     useState<InspectorClient | null>(null);
+  // Same logger passed to InspectorClient (from createWebEnvironment); exposed for AuthDebugger/OAuthCallback
+  const [inspectorLogger, setInspectorLogger] = useState<
+    WebEnvironmentResult["logger"] | null
+  >(null);
   // Track the token used to create the current inspectorClient
   const inspectorClientTokenRef = useRef<string | undefined>(undefined);
 
@@ -376,10 +383,11 @@ const App = () => {
         getRedirectUrl: () => `${window.location.origin}/oauth/callback`,
       };
 
-      const environment = createWebEnvironment(
+      const { environment, logger } = createWebEnvironment(
         currentToken,
         redirectUrlProvider,
       );
+      setInspectorLogger(logger !== undefined ? logger : null);
 
       // Create session storage for persisting state across OAuth redirects
       const baseUrl = `${window.location.protocol}//${window.location.host}`;
@@ -1236,7 +1244,7 @@ const App = () => {
         while (!taskCompleted) {
           try {
             await new Promise((resolve) => setTimeout(resolve, pollInterval));
-            const taskStatus = await inspectorClient.getTask(taskId);
+            const taskStatus = await inspectorClient.getClientTask(taskId);
 
             if (
               taskStatus.status === "completed" ||
@@ -1245,7 +1253,8 @@ const App = () => {
             ) {
               taskCompleted = true;
               if (taskStatus.status === "completed") {
-                const result = await inspectorClient.getTaskResult(taskId);
+                const result =
+                  await inspectorClient.getClientTaskResult(taskId);
                 setToolResult(result as CompatibilityCallToolResult);
               } else {
                 setToolResult({
@@ -1258,7 +1267,7 @@ const App = () => {
                   isError: true,
                 });
               }
-              void inspectorClient.listTasks();
+              void inspectorClient.listClientTasks();
             } else {
               const pollingResponseMeta =
                 rawResult &&
@@ -1279,7 +1288,7 @@ const App = () => {
                   "io.modelcontextprotocol/related-task": { taskId },
                 },
               } as CompatibilityCallToolResult);
-              void inspectorClient.listTasks();
+              void inspectorClient.listClientTasks();
             }
           } catch (pollingError) {
             setToolResult({
@@ -1365,6 +1374,7 @@ const App = () => {
         inspectorClient={inspectorClient}
         ensureInspectorClient={ensureInspectorClient}
         canCreateInspectorClient={canCreateInspectorClient}
+        logger={inspectorLogger}
         onBack={() => setIsAuthDebuggerVisible(false)}
       />
     </TabsContent>
@@ -1399,6 +1409,7 @@ const App = () => {
         <OAuthCallback
           inspectorClient={null}
           ensureInspectorClient={() => null}
+          logger={null}
           onConnect={() => {}}
         />
       </Suspense>
@@ -1425,6 +1436,7 @@ const App = () => {
         <OAuthCallback
           inspectorClient={inspectorClient}
           ensureInspectorClient={ensureInspectorClient}
+          logger={inspectorLogger}
           onConnect={onOAuthConnect}
         />
       </Suspense>

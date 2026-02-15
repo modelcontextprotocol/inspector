@@ -19,6 +19,8 @@
     "./mcp/node/*": "./build/mcp/node/*",
     "./auth/browser": "./build/auth/browser/index.js",
     "./auth/browser/*": "./build/auth/browser/*",
+    "./logging": "./build/logging/index.js",
+    "./logging/*": "./build/logging/*",
     "./mcp/remote": "./build/mcp/remote/index.js",
     "./mcp/remote/*": "./build/mcp/remote/*",
     "./mcp/remote/node": "./build/mcp/remote/node/index.js",

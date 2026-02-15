@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import type { WebEnvironmentResult } from "@/lib/adapters/environmentFactory";
 import { parseOAuthState } from "@modelcontextprotocol/inspector-core/auth/index.js";
+import { silentLogger } from "@modelcontextprotocol/inspector-core/logging";
 import useTheme from "@/lib/hooks/useTheme";
 import { useToast } from "@/lib/hooks/useToast";
 import {
@@ -86,14 +88,18 @@ function GuidedAuthCodeDisplay({
 interface OAuthCallbackProps {
   inspectorClient: InspectorClient | null;
   ensureInspectorClient: () => InspectorClient | null;
+  /** Logger from the same env as InspectorClient (for OAuth callback logging). */
+  logger?: WebEnvironmentResult["logger"] | null;
   onConnect: () => void;
 }
 
 const OAuthCallback = ({
   inspectorClient,
   ensureInspectorClient,
+  logger,
   onConnect,
 }: OAuthCallbackProps) => {
+  const log = logger ?? silentLogger;
   useTheme(); // Apply saved theme to document so standalone (e.g. new-tab) callback obeys theme
   const { toast } = useToast();
   const hasProcessedRef = useRef(false);
@@ -134,22 +140,19 @@ const OAuthCallback = ({
       // At this point, we're either not in guided mode, or we're in guided mode WITH a client
       const client = inspectorClient || ensureInspectorClient();
 
-      // Log to InspectorClient's logger if available (persists through redirects)
-      const clientLogger = client ? (client as InspectorClient).logger : null;
-      if (clientLogger) {
-        clientLogger.info(
-          {
-            component: "OAuthCallback",
-            action: "callback_received",
-            pathname: window.location.pathname,
-            search: window.location.search,
-            hash: window.location.hash,
-            fullUrl: window.location.href,
-            expectedPathname: "/oauth/callback",
-          },
-          "OAuth callback handler invoked",
-        );
-      }
+      // Log via app-provided logger (same as InspectorClient's env logger)
+      log.info(
+        {
+          component: "OAuthCallback",
+          action: "callback_received",
+          pathname: window.location.pathname,
+          search: window.location.search,
+          hash: window.location.hash,
+          fullUrl: window.location.href,
+          expectedPathname: "/oauth/callback",
+        },
+        "OAuth callback handler invoked",
+      );
       const notifyError = (description: string) =>
         void toast({
           title: "OAuth Authorization Error",
@@ -157,37 +160,31 @@ const OAuthCallback = ({
           variant: "destructive",
         });
 
-      if (clientLogger) {
-        clientLogger.info(
-          {
-            component: "OAuthCallback",
-            action: "parse_params",
-            successful: params.successful,
-            hasCode:
-              params.successful && "code" in params ? !!params.code : false,
-            hasState: !!stateParam,
-            state: stateParam,
-            error: params.successful ? null : params.error,
-            errorDescription: params.successful
-              ? null
-              : params.error_description,
-          },
-          "Parsed OAuth callback parameters",
-        );
-      }
+      log.info(
+        {
+          component: "OAuthCallback",
+          action: "parse_params",
+          successful: params.successful,
+          hasCode:
+            params.successful && "code" in params ? !!params.code : false,
+          hasState: !!stateParam,
+          state: stateParam,
+          error: params.successful ? null : params.error,
+          errorDescription: params.successful ? null : params.error_description,
+        },
+        "Parsed OAuth callback parameters",
+      );
 
       if (!params.successful) {
-        if (clientLogger) {
-          clientLogger.error(
-            {
-              component: "OAuthCallback",
-              action: "callback_error",
-              error: params.error,
-              errorDescription: params.error_description,
-            },
-            "OAuth callback parameters indicate failure",
-          );
-        }
+        log.error(
+          {
+            component: "OAuthCallback",
+            action: "callback_error",
+            error: params.error,
+            errorDescription: params.error_description,
+          },
+          "OAuth callback parameters indicate failure",
+        );
         return notifyError(generateOAuthErrorDescription(params));
       }
 
@@ -195,19 +192,17 @@ const OAuthCallback = ({
         return notifyError("Missing authorization code");
       }
 
-      if (clientLogger) {
-        clientLogger.info(
-          {
-            component: "OAuthCallback",
-            action: "detect_mode",
-            parsedState,
-            isGuidedMode,
-            hasClient: !!client,
-            currentOAuthStep: client?.getOAuthStep(),
-          },
-          "Detected OAuth flow mode",
-        );
-      }
+      log.info(
+        {
+          component: "OAuthCallback",
+          action: "detect_mode",
+          parsedState,
+          isGuidedMode,
+          hasClient: !!client,
+          currentOAuthStep: client?.getOAuthStep(),
+        },
+        "Detected OAuth flow mode",
+      );
 
       // If no client and not guided mode, show error
       if (!client) {
@@ -226,17 +221,15 @@ const OAuthCallback = ({
           // User will click "Next" in Auth Debugger to proceed
           const currentStep = client.getOAuthStep();
           if (currentStep !== "authorization_code") {
-            if (clientLogger) {
-              clientLogger.warn(
-                {
-                  component: "OAuthCallback",
-                  action: "unexpected_step",
-                  currentStep,
-                  expectedStep: "authorization_code",
-                },
-                "Received authorization code but not at authorization_code step",
-              );
-            }
+            log.warn(
+              {
+                component: "OAuthCallback",
+                action: "unexpected_step",
+                currentStep,
+                expectedStep: "authorization_code",
+              },
+              "Received authorization code but not at authorization_code step",
+            );
             return notifyError(
               `Unexpected OAuth step: ${currentStep}. Expected: authorization_code`,
             );
@@ -244,15 +237,13 @@ const OAuthCallback = ({
 
           await client.setGuidedAuthorizationCode(params.code, false);
 
-          if (clientLogger) {
-            clientLogger.info(
-              {
-                component: "OAuthCallback",
-                action: "code_set_for_guided",
-              },
-              "Authorization code set for guided flow. User should proceed manually.",
-            );
-          }
+          log.info(
+            {
+              component: "OAuthCallback",
+              action: "code_set_for_guided",
+            },
+            "Authorization code set for guided flow. User should proceed manually.",
+          );
 
           toast({
             title: "Authorization Code Received",
@@ -282,16 +273,14 @@ const OAuthCallback = ({
         }
       } catch (error) {
         console.error("OAuth callback error:", error);
-        if (clientLogger) {
-          clientLogger.error(
-            {
-              component: "OAuthCallback",
-              action: "callback_error",
-              error: error instanceof Error ? error.message : String(error),
-            },
-            "OAuth callback processing failed",
-          );
-        }
+        log.error(
+          {
+            component: "OAuthCallback",
+            action: "callback_error",
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "OAuth callback processing failed",
+        );
         return notifyError(
           `OAuth flow failed: ${error instanceof Error ? error.message : String(error)}`,
         );

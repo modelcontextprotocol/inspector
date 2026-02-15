@@ -107,7 +107,7 @@ MCP apps work (remaining)
 
 Goal: Parity with v1 client (plus CIMD)
 
-- Backward compatability with env vars (including proxy token -> api token)
+- Receiver task support
 - Add OAuth CIMD support (easy)
 - Generally review/test all features of web app
 - Add "sampling with tools" support
