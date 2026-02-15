@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "./build",
+    "rootDir": ".",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": [
+    "mcp/**/*.ts",
+    "react/**/*.ts",
+    "react/**/*.tsx",
+    "json/**/*.ts",
+    "test/**/*.ts",
+    "__tests__/**/*.ts",
+    "__tests__/**/*.tsx",
+    "auth/**/*.ts",
+    "storage/**/*.ts"
+  ],
+  "exclude": ["node_modules", "build"]
+}

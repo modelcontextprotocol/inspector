@@ -30,11 +30,11 @@ jobs:
         run: npm run check-version
 
       - name: Check linting
-        working-directory: ./client
+        working-directory: ./web
         run: npm run lint
 
-      - name: Run client tests
-        working-directory: ./client
+      - name: Run web tests
+        working-directory: ./web
         run: npm test
 
       - run: npm run build

@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700">
+  <defs>
+    <style>
+      .box { fill: #f8f9fa; stroke: #333; stroke-width: 2; rx: 5; }
+      .shared { fill: #e1f5ff; stroke: #0066cc; stroke-width: 2; }
+      .ui { fill: #fff4e1; stroke: #cc8800; stroke-width: 2; }
+      .sdk { fill: #e1ffe1; stroke: #00cc00; stroke-width: 2; }
+      .server { fill: #f0e1ff; stroke: #6600cc; stroke-width: 2; }
+      .text { font-family: Arial, sans-serif; font-size: 14px; fill: #333; }
+      .title { font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; fill: #333; }
+      .small { font-family: Arial, sans-serif; font-size: 11px; fill: #666; }
+      .arrow { stroke: #333; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#333" />
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="500" y="30" text-anchor="middle" class="title">MCP Inspector Shared Code Architecture</text>
+
+  <!-- User Interfaces - Centered -->
+  <rect x="200" y="60" width="150" height="80" class="ui" />
+  <text x="275" y="85" text-anchor="middle" class="title">CLI</text>
+  <text x="275" y="105" text-anchor="middle" class="small">Workspace</text>
+
+  <rect x="400" y="60" width="150" height="80" class="ui" />
+  <text x="475" y="85" text-anchor="middle" class="title">TUI</text>
+  <text x="475" y="105" text-anchor="middle" class="small">Workspace</text>
+  <text x="475" y="120" text-anchor="middle" class="small">React + Ink</text>
+
+  <rect x="600" y="60" width="150" height="80" class="ui" />
+  <text x="675" y="85" text-anchor="middle" class="title">Web Client</text>
+  <text x="675" y="105" text-anchor="middle" class="small">Workspace</text>
+  <text x="675" y="120" text-anchor="middle" class="small">React</text>
+
+  <!-- Shared Package -->
+  <rect x="300" y="200" width="400" height="280" class="shared" />
+  <text x="500" y="225" text-anchor="middle" class="title">Shared Package</text>
+  <text x="500" y="245" text-anchor="middle" class="small">@modelcontextprotocol/inspector-core</text>
+
+  <!-- InspectorClient -->
+  <rect x="320" y="260" width="360" height="60" class="box" />
+  <text x="500" y="285" text-anchor="middle" class="title">InspectorClient</text>
+  <text x="500" y="305" text-anchor="middle" class="small">Core Wrapper - Manages Client &amp; Transport Lifecycle</text>
+
+  <!-- Shared modules -->
+  <rect x="330" y="340" width="160" height="50" class="box" />
+  <text x="410" y="360" text-anchor="middle" class="text">core/mcp/</text>
+  <text x="410" y="378" text-anchor="middle" class="small">MCP Client/Server</text>
+
+  <rect x="510" y="340" width="160" height="50" class="box" />
+  <text x="590" y="360" text-anchor="middle" class="text">core/react/</text>
+  <text x="590" y="378" text-anchor="middle" class="small">React Hooks</text>
+
+  <rect x="330" y="410" width="160" height="50" class="box" />
+  <text x="410" y="430" text-anchor="middle" class="text">core/json/</text>
+  <text x="410" y="448" text-anchor="middle" class="small">JSON Utils</text>
+
+  <rect x="510" y="410" width="160" height="50" class="box" />
+  <text x="590" y="430" text-anchor="middle" class="text">core/test/</text>
+  <text x="590" y="448" text-anchor="middle" class="small">Test Fixtures</text>
+
+  <!-- MCP SDK -->
+  <rect x="50" y="550" width="200" height="100" class="sdk" />
+  <text x="150" y="575" text-anchor="middle" class="title">MCP SDK</text>
+  <rect x="70" y="585" width="160" height="25" class="box" />
+  <text x="150" y="602" text-anchor="middle" class="text">Client</text>
+  <rect x="70" y="615" width="160" height="25" class="box" />
+  <text x="150" y="632" text-anchor="middle" class="text">Transports</text>
+
+  <!-- MCP Server -->
+  <rect x="750" y="550" width="200" height="100" class="server" />
+  <text x="850" y="575" text-anchor="middle" class="title">MCP Server</text>
+  <text x="850" y="600" text-anchor="middle" class="small">External</text>
+  <text x="850" y="615" text-anchor="middle" class="small">stdio/SSE/HTTP</text>
+
+  <!-- Arrows: User Interfaces to Shared Package (outermost boxes) -->
+  <line x1="275" y1="140" x2="500" y2="200" class="arrow" />
+  <line x1="475" y1="140" x2="500" y2="200" class="arrow" />
+  <line x1="675" y1="140" x2="500" y2="200" class="arrow" />
+
+  <!-- Arrow: Shared Package to MCP SDK (outermost boxes) -->
+  <line x1="300" y1="400" x2="150" y2="550" class="arrow" />
+
+  <!-- Arrow: MCP SDK to Server (outermost boxes) -->
+  <line x1="250" y1="600" x2="750" y2="600" class="arrow" />
+</svg>
