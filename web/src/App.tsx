@@ -371,8 +371,7 @@ const App = () => {
       );
 
       const redirectUrlProvider = {
-        getRedirectUrl: (_mode: "normal" | "guided") =>
-          `${window.location.origin}/oauth/callback`,
+        getRedirectUrl: () => `${window.location.origin}/oauth/callback`,
       };
 
       const environment = createWebEnvironment(
@@ -471,7 +470,7 @@ const App = () => {
         await client.disconnect();
       }
     }
-  }, [ensureInspectorClient, inspectorClient, toast]);
+  }, [ensureInspectorClient, toast]);
 
   // Extract server notifications from messages
   // Use useMemo to stabilize the array reference and prevent infinite loops
@@ -532,7 +531,7 @@ const App = () => {
             requestedSchema: elicitation.request.params.requestedSchema,
           },
           originatingTab: currentTab,
-          resolve: async (result: any) => {
+          resolve: async (result: ElicitationResponse) => {
             await elicitation.respond(result);
           },
           decline: async (error: Error) => {
@@ -569,14 +568,17 @@ const App = () => {
 
   // Expose InspectorClient to window for debugging
   useEffect(() => {
+    const win = window as Window & {
+      __inspectorClient?: typeof inspectorClient;
+    };
     if (!inspectorClient) {
-      if ((window as any).__inspectorClient) {
-        delete (window as any).__inspectorClient;
+      if (win.__inspectorClient) {
+        delete win.__inspectorClient;
       }
       return;
     }
 
-    (window as any).__inspectorClient = inspectorClient;
+    win.__inspectorClient = inspectorClient;
   }, [inspectorClient]);
 
   const handleCompletion = useCallback(
@@ -585,6 +587,7 @@ const App = () => {
       argName: string,
       value: string,
       context?: Record<string, string>,
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- required by handleCompletion signature
       _signal?: AbortSignal,
     ): Promise<string[]> => {
       if (!inspectorClient) return [];
@@ -1135,6 +1138,8 @@ const App = () => {
     ) {
       void listTools();
     }
+    // Intentionally omit listTools from deps: we only want to run when tab/capabilities/connection change
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- listTools identity is not stable; adding it would re-run every render
   }, [connectionStatus, activeTab, serverCapabilities?.tools]);
 
   const callTool = async (

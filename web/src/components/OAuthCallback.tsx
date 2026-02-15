@@ -135,7 +135,7 @@ const OAuthCallback = ({
       const client = inspectorClient || ensureInspectorClient();
 
       // Log to InspectorClient's logger if available (persists through redirects)
-      const clientLogger = client ? (client as any).logger : null;
+      const clientLogger = client ? (client as InspectorClient).logger : null;
       if (clientLogger) {
         clientLogger.info(
           {

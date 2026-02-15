@@ -43,7 +43,7 @@ const { app: apiApp } = createRemoteApp({
     : undefined,
 });
 
-app.use("/api/*", async (c, next) => {
+app.use("/api/*", async (c) => {
   return apiApp.fetch(c.req.raw);
 });
 

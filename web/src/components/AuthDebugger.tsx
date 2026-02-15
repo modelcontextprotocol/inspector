@@ -110,7 +110,7 @@ const AuthDebugger = ({
       // Quick Auth: normal flow (automatic redirect via BrowserNavigation)
       const authUrl = await client.authenticate();
       // Log to InspectorClient's logger (persists through redirects)
-      const clientLogger = (client as any).logger;
+      const clientLogger = (client as InspectorClient).logger;
       if (clientLogger) {
         clientLogger.info(
           {
@@ -127,7 +127,7 @@ const AuthDebugger = ({
       }
       // BrowserNavigation handles redirect automatically
     } catch (error) {
-      const logger = (client as any).logger;
+      const logger = (client as InspectorClient).logger;
       if (logger) logger.error({ err: error }, "Quick OAuth failed");
       toast({
         title: "OAuth Error",
@@ -151,7 +151,7 @@ const AuthDebugger = ({
       await client.beginGuidedAuth();
       // State updates via oauthStepChange events (handled in useEffect above)
     } catch (error) {
-      const logger = (client as any).logger;
+      const logger = (client as InspectorClient).logger;
       if (logger) logger.error({ err: error }, "Guided OAuth start failed");
       toast({
         title: "OAuth Error",
@@ -180,7 +180,7 @@ const AuthDebugger = ({
       // There's a manual button in OAuthFlowProgress to open the URL if needed.
       // Quick auth handles redirects automatically via BrowserNavigation.
     } catch (error) {
-      const logger = (client as any).logger;
+      const logger = (client as InspectorClient).logger;
       if (logger) logger.error({ err: error }, "OAuth step failed");
       toast({
         title: "OAuth Error",
@@ -206,7 +206,7 @@ const AuthDebugger = ({
         variant: "default",
       });
     } catch (error) {
-      const logger = (client as any).logger;
+      const logger = (client as InspectorClient).logger;
       if (logger) logger.error({ err: error }, "Clear OAuth failed");
       toast({
         title: "Error",

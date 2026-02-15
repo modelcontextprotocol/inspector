@@ -92,6 +92,7 @@ const AppRenderer = ({
 
   const handleMessage = async (
     params: McpUiMessageRequest["params"],
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- required by RequestHandlerExtra signature
     _extra: RequestHandlerExtra,
   ): Promise<McpUiMessageResult> => {
     const message = params.content
