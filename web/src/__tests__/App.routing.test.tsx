@@ -43,7 +43,7 @@ const disconnectedInspectorClientState: UseInspectorClientResult = {
   capabilities: {},
   serverInfo: { name: "", version: "" },
   instructions: undefined,
-  client: null,
+  appRendererClient: null,
   connect: vi.fn(),
   disconnect: vi.fn(),
 };
@@ -53,7 +53,7 @@ const connectedInspectorClientState: UseInspectorClientResult = {
   ...disconnectedInspectorClientState,
   status: "connected",
   capabilities: {},
-  client: {} as UseInspectorClientResult["client"], // Mock client - needed for hash setting logic
+  appRendererClient: {} as UseInspectorClientResult["appRendererClient"], // Mock - needed for hash setting logic
   serverInfo: { name: "", version: "" },
 };
 

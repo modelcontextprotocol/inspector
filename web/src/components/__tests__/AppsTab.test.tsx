@@ -68,7 +68,7 @@ describe("AppsTab", () => {
     tools: [] as Tool[],
     listTools,
     error: null as string | null,
-    mcpClient: mockMcpClient,
+    appRendererClient: mockMcpClient,
   };
 
   beforeEach(() => {

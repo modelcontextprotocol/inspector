@@ -7,7 +7,7 @@ import type {
   MessageEntry,
   FetchRequestEntry,
 } from "../mcp/index.js";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { AppRendererClient } from "../mcp/index.js";
 import type {
   ServerCapabilities,
   Implementation,
@@ -28,7 +28,7 @@ export interface UseInspectorClientResult {
   capabilities?: ServerCapabilities;
   serverInfo?: Implementation;
   instructions?: string;
-  client: Client | null;
+  appRendererClient: AppRendererClient | null;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
 }
@@ -266,7 +266,7 @@ export function useInspectorClient(
     capabilities,
     serverInfo,
     instructions,
-    client: inspectorClient?.getClient() ?? null,
+    appRendererClient: inspectorClient?.getAppRendererClient() ?? null,
     connect,
     disconnect,
   };

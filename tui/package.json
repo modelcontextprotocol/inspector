@@ -27,7 +27,6 @@
     "pino": "^9.6.0",
     "commander": "^13.1.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
-    "fullscreen-ink": "^0.1.0",
     "ink": "^5.2.1",
     "ink-form": "^2.0.1",
     "ink-scroll-view": "^0.3.6",

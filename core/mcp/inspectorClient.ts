@@ -1,4 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+
+/**
+ * Type for the client-like object passed to AppRenderer / @mcp-ui.
+ * Structurally compatible with the MCP SDK Client but denotes the app-renderer
+ * proxy, not the raw client. Use this type when passing the client to the Apps tab.
+ */
+export type AppRendererClient = Client;
 import type {
   MCPServerConfig,
   StderrLogEntry,
@@ -49,6 +56,7 @@ import type {
 import {
   CreateMessageRequestSchema,
   ElicitRequestSchema,
+  EmptyResultSchema,
   ListRootsRequestSchema,
   RootsListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
@@ -305,6 +313,7 @@ const MAX_PAGES = 100;
 
 export class InspectorClient extends InspectorClientEventTarget {
   private client: Client | null = null;
+  private appRendererClientProxy: AppRendererClient | null = null;
   private transport: any = null;
   private baseTransport: any = null;
   private messages: MessageEntry[] = [];
@@ -463,6 +472,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       clientOptions.capabilities = capabilities;
     }
 
+    this.appRendererClientProxy = null;
     this.client = new Client(
       options.clientIdentity ?? {
         name: "@modelcontextprotocol/inspector",
@@ -840,6 +850,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.subscribedResources.clear();
     // Clear active tasks on disconnect
     this.clientTasks.clear();
+    this.appRendererClientProxy = null;
     this.capabilities = undefined;
     this.serverInfo = undefined;
     this.instructions = undefined;
@@ -853,13 +864,42 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Get the underlying MCP Client
+   * Returns a client proxy for use by AppRenderer / @mcp-ui. Delegates to the
+   * internal MCP Client. Returns null when not connected. Use this instead of
+   * accessing the raw client so behavior can be adapted here later if needed.
    */
-  getClient(): Client {
+  getAppRendererClient(): AppRendererClient | null {
+    if (!this.client || this.status !== "connected") return null;
+    if (this.appRendererClientProxy !== null)
+      return this.appRendererClientProxy;
+    const target = this.client;
+    this.appRendererClientProxy = new Proxy(this.client, {
+      get(proxyTarget, prop, receiver) {
+        const value = Reflect.get(proxyTarget, prop, receiver);
+        if (prop === "setNotificationHandler" && typeof value === "function") {
+          return (...args: Parameters<Client["setNotificationHandler"]>) => {
+            // Add behavior here (e.g. wrap handler, log, filter)
+            return value.apply(target, args);
+          };
+        }
+        return value;
+      },
+    }) as AppRendererClient;
+    return this.appRendererClientProxy;
+  }
+
+  /**
+   * Send a ping request to the server. Resolves when the server responds.
+   */
+  async ping(): Promise<void> {
     if (!this.client) {
       throw new Error("Client not initialized");
     }
-    return this.client;
+    await this.client.request(
+      { method: "ping" },
+      EmptyResultSchema,
+      this.getRequestOptions(),
+    );
   }
 
   /**

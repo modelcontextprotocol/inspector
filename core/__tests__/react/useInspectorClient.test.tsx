@@ -50,7 +50,7 @@ class MockInspectorClient extends InspectorClientEventTarget {
   getInstructions() {
     return undefined;
   }
-  getClient() {
+  getAppRendererClient() {
     return null;
   }
 
@@ -79,7 +79,7 @@ describe("useInspectorClient", () => {
     expect(result.current.status).toBe("disconnected");
     expect(result.current.messages).toEqual([]);
     expect(result.current.tools).toEqual([]);
-    expect(result.current.client).toBeNull();
+    expect(result.current.appRendererClient).toBeNull();
 
     await act(async () => {
       await result.current.connect();

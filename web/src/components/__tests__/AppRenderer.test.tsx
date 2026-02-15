@@ -3,7 +3,7 @@ import "@testing-library/jest-dom";
 import { describe, it, beforeEach, vi } from "vitest";
 import AppRenderer from "../AppRenderer";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { AppRendererClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import type { RequestHandlerExtra } from "@mcp-ui/client";
 import type { McpUiMessageResult } from "@modelcontextprotocol/ext-apps/app-bridge";
 
@@ -61,12 +61,12 @@ describe("AppRenderer", () => {
     request: vi.fn(),
     getServerCapabilities: vi.fn().mockReturnValue({}),
     setNotificationHandler: vi.fn(),
-  } as unknown as Client;
+  } as unknown as AppRendererClient;
 
   const defaultProps = {
     sandboxPath: "/sandbox",
     tool: mockTool,
-    mcpClient: mockClient,
+    appRendererClient: mockClient,
   };
 
   beforeEach(() => {
@@ -74,8 +74,8 @@ describe("AppRenderer", () => {
     mockCallTool.mockResolvedValue({ content: [] });
   });
 
-  it("should display waiting state when mcpClient is null", () => {
-    render(<AppRenderer {...defaultProps} mcpClient={null} />);
+  it("should display waiting state when appRendererClient is null", () => {
+    render(<AppRenderer {...defaultProps} appRendererClient={null} />);
     expect(screen.getByText(/Waiting for MCP client/i)).toBeInTheDocument();
   });
 

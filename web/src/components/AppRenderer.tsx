@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from "react";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { AppRendererClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import {
   Tool,
   ContentBlock,
@@ -23,7 +23,7 @@ import { useToast } from "@/lib/hooks/useToast";
 interface AppRendererProps {
   sandboxPath: string;
   tool: Tool;
-  mcpClient: Client | null;
+  appRendererClient: AppRendererClient | null;
   toolInput?: Record<string, unknown>;
   onNotification?: (notification: ServerNotification) => void;
 }
@@ -37,7 +37,7 @@ type ToolResultState =
 const AppRenderer = ({
   sandboxPath,
   tool,
-  mcpClient,
+  appRendererClient,
   toolInput,
   onNotification,
 }: AppRendererProps) => {
@@ -59,13 +59,13 @@ const AppRenderer = ({
 
   // When tool and toolInput are ready, call tools/call and pass result to the app (PR 1075 tool-result)
   useEffect(() => {
-    if (!mcpClient || !tool?.name) return;
+    if (!appRendererClient || !tool?.name) return;
 
     const args = toolInput ?? {};
     const currentRun = ++runIdRef.current;
     setToolResultState({ status: "loading" });
 
-    mcpClient
+    appRendererClient
       .callTool({
         name: tool.name,
         arguments: args as Record<string, unknown>,
@@ -79,7 +79,7 @@ const AppRenderer = ({
         const message = err instanceof Error ? err.message : String(err);
         setToolResultState({ status: "error", error: message });
       });
-  }, [mcpClient, tool?.name, toolInput]);
+  }, [appRendererClient, tool?.name, toolInput]);
 
   const handleOpenLink = async ({ url }: { url: string }) => {
     let isError = true;
@@ -126,7 +126,7 @@ const AppRenderer = ({
         ? { content: [{ type: "text" as const, text: toolResultState.error }] }
         : undefined;
 
-  if (!mcpClient) {
+  if (!appRendererClient) {
     return (
       <Alert>
         <AlertCircle className="h-4 w-4" />
@@ -149,7 +149,7 @@ const AppRenderer = ({
         style={{ minHeight: "400px" }}
       >
         <McpUiAppRenderer
-          client={mcpClient}
+          client={appRendererClient}
           onOpenLink={handleOpenLink}
           onMessage={handleMessage}
           onLoggingMessage={handleLoggingMessage}

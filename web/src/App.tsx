@@ -1,7 +1,6 @@
 import {
   CompatibilityCallToolResult,
   CreateMessageResult,
-  EmptyResultSchema,
   Resource,
   ResourceReference,
   PromptReference,
@@ -443,7 +442,7 @@ const App = () => {
     status: connectionStatus,
     capabilities: serverCapabilities,
     serverInfo: serverImplementation,
-    client: mcpClient,
+    appRendererClient,
     messages: inspectorMessages,
     stderrLogs,
     fetchRequests,
@@ -828,7 +827,7 @@ const App = () => {
   }, [inspectorClient]);
 
   useEffect(() => {
-    if (mcpClient && !window.location.hash) {
+    if (connectionStatus === "connected" && !window.location.hash) {
       const defaultTab = serverCapabilities?.resources
         ? "resources"
         : serverCapabilities?.prompts
@@ -837,7 +836,7 @@ const App = () => {
             ? "tools"
             : "ping";
       window.location.hash = defaultTab;
-    } else if (!mcpClient && window.location.hash) {
+    } else if (connectionStatus !== "connected" && window.location.hash) {
       // Clear hash when disconnected - completely remove the fragment
       window.history.replaceState(
         null,
@@ -845,7 +844,7 @@ const App = () => {
         window.location.pathname + window.location.search,
       );
     }
-  }, [mcpClient, serverCapabilities]);
+  }, [connectionStatus, serverCapabilities]);
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -1129,10 +1128,14 @@ const App = () => {
 
   // When switching to Apps tab, ensure tools are listed so app tools are available
   useEffect(() => {
-    if (mcpClient && activeTab === "apps" && serverCapabilities?.tools) {
+    if (
+      connectionStatus === "connected" &&
+      activeTab === "apps" &&
+      serverCapabilities?.tools
+    ) {
       void listTools();
     }
-  }, [mcpClient, activeTab, serverCapabilities?.tools]);
+  }, [connectionStatus, activeTab, serverCapabilities?.tools]);
 
   const callTool = async (
     name: string,
@@ -1476,14 +1479,11 @@ const App = () => {
                     </div>
                     <PingTab
                       onPingClick={async () => {
-                        if (!mcpClient) {
+                        if (!inspectorClient) {
                           throw new Error("MCP client is not connected");
                         }
                         try {
-                          await mcpClient.request(
-                            { method: "ping" },
-                            EmptyResultSchema,
-                          );
+                          await inspectorClient.ping();
                         } catch (e) {
                           console.error("Ping failed:", e);
                           throw e;
@@ -1583,7 +1583,7 @@ const App = () => {
                         listTools();
                       }}
                       error={errors.tools}
-                      mcpClient={mcpClient}
+                      appRendererClient={appRendererClient}
                       onNotification={(notification) => {
                         setNotifications((prev) => [...prev, notification]);
                       }}
@@ -1629,14 +1629,11 @@ const App = () => {
                     <ConsoleTab stderrLogs={stderrLogs} />
                     <PingTab
                       onPingClick={async () => {
-                        if (!mcpClient) {
+                        if (!inspectorClient) {
                           throw new Error("MCP client is not connected");
                         }
                         try {
-                          await mcpClient.request(
-                            { method: "ping" },
-                            EmptyResultSchema,
-                          );
+                          await inspectorClient.ping();
                         } catch (e) {
                           console.error("Ping failed:", e);
                           throw e;

@@ -337,7 +337,6 @@ function App({
     capabilities: inspectorCapabilities,
     serverInfo: inspectorServerInfo,
     instructions: inspectorInstructions,
-    client: inspectorClient,
     connect: connectInspector,
     disconnect: disconnectInspector,
   } = useInspectorClient(selectedInspectorClient);
@@ -1460,7 +1459,6 @@ function App({
               <PromptsTab
                 key={`prompts-${selectedServer}`}
                 prompts={currentServerState.prompts}
-                client={inspectorClient}
                 inspectorClient={selectedInspectorClient}
                 width={contentWidth}
                 height={contentHeight}
@@ -1497,11 +1495,11 @@ function App({
               />
             ) : activeTab === "tools" &&
               currentServerState?.status === "connected" &&
-              inspectorClient ? (
+              selectedInspectorClient ? (
               <ToolsTab
                 key={`tools-${selectedServer}`}
                 tools={currentServerState.tools}
-                client={inspectorClient}
+                isConnected={inspectorStatus === "connected"}
                 width={contentWidth}
                 height={contentHeight}
                 onCountChange={(count) =>
@@ -1591,7 +1589,6 @@ function App({
               />
             ) : activeTab === "logging" && selectedInspectorClient ? (
               <NotificationsTab
-                client={inspectorClient}
                 stderrLogs={inspectorStderrLogs}
                 width={contentWidth}
                 height={contentHeight}

@@ -1,6 +1,7 @@
 import React, { useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
+import { ModalBackdrop } from "./ModalBackdrop.js";
 
 interface DetailsModalProps {
   title: string;
@@ -72,6 +73,10 @@ export function DetailsModal({
       justifyContent="center"
       alignItems="center"
     >
+      <ModalBackdrop
+        width={terminalDimensions.width}
+        height={terminalDimensions.height}
+      />
       {/* Modal Content */}
       <Box
         width={modalWidth}

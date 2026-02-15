@@ -5,6 +5,7 @@ export { InspectorClient } from "./inspectorClient.js";
 export type {
   InspectorClientOptions,
   InspectorClientEnvironment,
+  AppRendererClient,
 } from "./inspectorClient.js";
 
 // Re-export type-safe event target types for consumers

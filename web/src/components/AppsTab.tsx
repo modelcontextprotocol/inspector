@@ -11,7 +11,7 @@ import {
   Minimize2,
 } from "lucide-react";
 import { Tool, ServerNotification } from "@modelcontextprotocol/sdk/types.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { AppRendererClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
 import AppRenderer from "./AppRenderer";
 import ListPane from "./ListPane";
@@ -41,7 +41,7 @@ interface AppsTabProps {
   tools: Tool[];
   listTools: () => void;
   error: string | null;
-  mcpClient: Client | null;
+  appRendererClient: AppRendererClient | null;
   onNotification?: (notification: ServerNotification) => void;
 }
 
@@ -54,7 +54,7 @@ const AppsTab = ({
   tools,
   listTools,
   error,
-  mcpClient,
+  appRendererClient,
   onNotification,
 }: AppsTabProps) => {
   const [appTools, setAppTools] = useState<Tool[]>([]);
@@ -489,7 +489,7 @@ const AppsTab = ({
                           <AppRenderer
                             sandboxPath={sandboxPath}
                             tool={selectedTool}
-                            mcpClient={mcpClient}
+                            appRendererClient={appRendererClient}
                             toolInput={params}
                             onNotification={onNotification}
                           />

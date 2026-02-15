@@ -48,7 +48,7 @@ vi.mock(
       capabilities: null,
       serverInfo: null,
       instructions: undefined,
-      client: null,
+      appRendererClient: null,
       connect: vi.fn(),
       disconnect: vi.fn(),
     }),

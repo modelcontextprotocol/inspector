@@ -4,6 +4,7 @@ import { Form } from "ink-form";
 import { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import { schemaToForm } from "../utils/schemaToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
+import { ModalBackdrop } from "./ModalBackdrop.js";
 
 interface ToolTestModalProps {
   tool: any;
@@ -181,6 +182,10 @@ export function ToolTestModal({
       justifyContent="center"
       alignItems="center"
     >
+      <ModalBackdrop
+        width={terminalDimensions.width}
+        height={terminalDimensions.height}
+      />
       {/* Modal Content */}
       <Box
         width={modalWidth}

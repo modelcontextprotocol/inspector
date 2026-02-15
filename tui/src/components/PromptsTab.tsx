@@ -6,8 +6,7 @@ import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface PromptsTabProps {
   prompts: any[];
-  client: any; // SDK Client (from inspectorClient.getClient())
-  inspectorClient: InspectorClient | null; // InspectorClient for getPrompt
+  inspectorClient: InspectorClient | null;
   width: number;
   height: number;
   onCountChange?: (count: number) => void;
@@ -19,7 +18,6 @@ interface PromptsTabProps {
 
 export function PromptsTab({
   prompts,
-  client,
   inspectorClient,
   width,
   height,

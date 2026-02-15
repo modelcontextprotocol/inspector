@@ -29,7 +29,7 @@ If we get auth server metadata, then we know definitively whether DCR or CIMD ar
   - It's highly unlikely that CIMD would be supported by an auth server without metadata
   - It's possible that DCR could be supported
 
-Here are some sampole CIMD files:
+Here are some sample CIMD files:
 
 - MCPJam - https://www.mcpjam.com/.well-known/oauth/client-metadata.json
 - VS Code - https://vscode.dev/oauth/client-metadata.json
@@ -60,7 +60,7 @@ Auth:
 
 ## Auth Issues (for v2?)
 
-Found issues with servers not supporting the registeration of multiple callback URLs
+Found issues with servers not supporting the registration of multiple callback URLs
 
 - Consolidated quick/guided into one endpoint (embedded "mode" in oauth state token, use a single endpoint)
 
@@ -78,7 +78,7 @@ CIMD - Need static document for Inspector
 
 clientMetadataUrl
 
-- After we makde one for Inspector, make it the default for --client-metadata-url
+- After we make one for Inspector, make it the default for --client-metadata-url
 
 Create CIMD file and test in TUI
 

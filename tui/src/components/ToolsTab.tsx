@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface ToolsTabProps {
   tools: any[];
-  client: Client | null;
+  isConnected: boolean;
   width: number;
   height: number;
   onCountChange?: (count: number) => void;
@@ -18,7 +17,7 @@ interface ToolsTabProps {
 
 export function ToolsTab({
   tools,
-  client,
+  isConnected,
   width,
   height,
   onCountChange,
@@ -42,7 +41,7 @@ export function ToolsTab({
   useInput(
     (input: string, key: Key) => {
       // Handle Enter key to test tool (works from both list and details)
-      if (key.return && selectedTool && client && onTestTool) {
+      if (key.return && selectedTool && isConnected && onTestTool) {
         onTestTool(selectedTool);
         return;
       }
@@ -184,7 +183,7 @@ export function ToolsTab({
               >
                 {selectedTool.name}
               </Text>
-              {client && (
+              {isConnected && (
                 <Text>
                   <Text color="cyan" bold>
                     [Enter to Test]

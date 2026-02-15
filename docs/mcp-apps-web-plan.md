@@ -6,8 +6,8 @@ This document outlines a detailed plan to add MCP Apps support to the web app. T
 
 ## Phases
 
-- **Phase 1 (initial):** Get to a working version quickly so we can verify MCP apps functionality. Use a **fixed sandbox port (6277)** and pass the **raw MCP Client** from `InspectorClient.getClient()` to mcp-ui. Accept the known limitation: when an app is open, mcp-ui's `setNotificationHandler` overwrites InspectorClient's, so Tools/Resources/Prompts list updates may stop until the app is closed. No proxy, no dynamic port, no sandbox API.
-- **Phase 2 (follow-on):** Production-ready plumbing. **Dynamic port and on-demand sandbox server** (ephemeral server, bind to port 0 or on-demand start; expose sandbox URL via API). **Client proxy** via `InspectorClient.getAppClient()` that intercepts `setNotificationHandler` and multiplexes so both InspectorClient and the app receive notifications. Phase 2 removes the single-handler limitation and avoids fixed-port conflicts.
+- **Phase 1 (initial):** Get to a working version quickly so we can verify MCP apps functionality. Use a **fixed sandbox port (6277)** and pass a **client proxy** from `InspectorClient.getAppRendererClient()` to mcp-ui (see **AppRendererClient** below). Accept the known limitation: when an app is open, mcp-ui's `setNotificationHandler` overwrites InspectorClient's, so Tools/Resources/Prompts list updates may stop until the app is closed—until Phase 2 multiplexing is implemented. No dynamic port, no sandbox API.
+- **Phase 2 (follow-on):** Production-ready plumbing. **Dynamic port and on-demand sandbox server** (ephemeral server, bind to port 0 or on-demand start; expose sandbox URL via API). **Notification multiplexing:** use the existing **AppRendererClient** proxy’s `setNotificationHandler` interception to route app handlers to InspectorClient’s multiplexer (`addAppNotificationHandler`), so both InspectorClient and the app receive notifications. Phase 2 removes the single-handler limitation and avoids fixed-port conflicts.
 
 ## 1. Context and references
 
@@ -44,30 +44,31 @@ This document outlines a detailed plan to add MCP Apps support to the web app. T
 
 - **Primitives:** Standard MCP only. The View (iframe) asks the Host to run **resources/read** (including `ui://` URIs for the app HTML) and **tools/call**. The Host bridges by passing the **raw MCP Client** to McpUiAppRenderer; the library calls `client.request({ method: "resources/read", params: { uri } })` and `client.request({ method: "tools/call", params })` on that client. So the transport and primitives are the same connection InspectorClient already uses.
 - **Events server → host:** There are no app-specific server notifications. The Host gets tool results from **responses** to tools/call and then pushes `ui/notifications/tool-input` / `ui/notifications/tool-result` to the View over postMessage. So "events" to the app are synthesized by the Host from data it already has.
-- **Bidirectional bridge:** Yes. The client (host) must bridge comms back to the server: when the app calls a tool or reads a resource, the Host uses the same MCP connection to perform the request. **Phase 1** passes the raw Client from `getClient()` to mcp-ui. **Phase 2** passes a Client proxy from `getAppClient()` (see 1.5).
+- **Bidirectional bridge:** Yes. The client (host) must bridge comms back to the server: when the app calls a tool or reads a resource, the Host uses the same MCP connection to perform the request. Web passes **AppRendererClient** from `getAppRendererClient()` to mcp-ui (see 1.5).
 
-**Why the plan said "no InspectorClient changes" (and why that's incomplete):**
+**Why we use AppRendererClient (and not the raw Client):**
 
-- At the **API** level, InspectorClient already exposes `getClient()`, `getTools()`, `listTools()`, and the hook exposes `tools`, `client`, and listTools-style usage. So for "can the app layer call resources/read and tools/call?" the answer is yes, via the existing Client.
-- **But:** The **SDK Client** allows only **one** `setNotificationHandler` per notification method. **InspectorClient** registers handlers in `connect()` for `notifications/tools/list_changed`, etc. **@mcp-ui/client** also registers for those same methods when McpUiAppRenderer mounts. If we pass the raw SDK Client (`getClient()`) into AppRenderer (Phase 1), mcp-ui's `setNotificationHandler` overwrites InspectorClient's and list updates break while an app is open. **Phase 2 fix:** Use a Client proxy from `getAppClient()` that routes `setNotificationHandler` into InspectorClient's multiplexer (see 1.5). The client package uses useConnection and a separate MCP client, not InspectorClient, so it has the same single-handler bug when an app is open.
+- The **SDK Client** allows only **one** `setNotificationHandler` per notification method. **InspectorClient** registers handlers in `connect()` for `notifications/tools/list_changed`, etc. **@mcp-ui/client** also registers for those same methods when McpUiAppRenderer mounts. If we passed the raw SDK Client into AppRenderer, mcp-ui's `setNotificationHandler` would overwrite InspectorClient's and list updates would break while an app is open.
+- **Solution (implemented):** InspectorClient no longer exposes the raw client. It exposes **`getAppRendererClient()`**, which returns an **AppRendererClient**—a **proxy** that delegates to the internal MCP Client. The proxy **intercepts only `setNotificationHandler`**. In Phase 1 the interception is a pass-through (we can add behavior later). In **Phase 2** we will route intercepted `setNotificationHandler` calls to InspectorClient's multiplexer (`addAppNotificationHandler`) so both InspectorClient and the app receive notifications. Web receives `appRendererClient` from the hook and passes it to AppsTab/AppRenderer.
 
 **Phase 1 vs Phase 2**
 
-- **Phase 1:** Web passes **`inspectorClient.getClient()`** directly to AppRenderer. Simple and gets MCP apps working. Known limitation: when an app is open, mcp-ui's `setNotificationHandler` overwrites InspectorClient's, so Tools/Resources/Prompts lists may not update until the app is closed.
-- **Phase 2:** InspectorClient exposes **`getAppClient()`** that returns a Client-shaped proxy. The proxy forwards most calls to the internal client and **intercepts only `setNotificationHandler`**, routing it to InspectorClient's multiplexer (`addAppNotificationHandler`). InspectorClient's single SDK registration then dispatches to its own logic and to all app handlers. Web passes the proxy so both InspectorClient and the app receive list_changed. Optional later: shared "is app tool" helper (e.g. wrap `getToolUiResourceUri`).
+- **Phase 1 (as-built):** Web passes **`appRendererClient`** from `useInspectorClient` (which calls `inspectorClient.getAppRendererClient()`) to AppRenderer. The proxy is **cached** in InspectorClient so the same reference is returned for the lifetime of the connection—avoiding React effect loops. Known limitation: when an app is open, mcp-ui's `setNotificationHandler` still overwrites InspectorClient's (interception is pass-through until Phase 2), so Tools/Resources/Prompts lists may not update until the app is closed.
+- **Phase 2:** Use the existing **AppRendererClient** proxy’s `setNotificationHandler` hook: instead of forwarding to the internal client, call **`inspectorClient.addAppNotificationHandler(schema, handler)`**. InspectorClient’s single SDK registration (in `connect()`) will dispatch to its own logic and to all handlers registered via `addAppNotificationHandler`. Web already passes the proxy; no change needed. Optional later: shared "is app tool" helper (e.g. wrap `getToolUiResourceUri`).
 
-### 1.5 Client proxy and notification multiplexing (Phase 2)
+### 1.5 AppRendererClient proxy and notification multiplexing
 
-**What mcp-ui actually calls:** In addition to `request()`, `setNotificationHandler()`, and `getServerCapabilities()`, mcp-ui **calls `listTools()`** and **`readResource()`**. So the proxy must implement the full `Client` interface (typed as `Client`). We implement it in a way that allows interception where needed.
+**What we implemented:** InspectorClient exposes **`getAppRendererClient(): AppRendererClient | null`**. The return type **AppRendererClient** is a type alias for the MCP SDK `Client`; it denotes the app-renderer–scoped proxy, not the raw client. The hook exposes **`appRendererClient`** (not `client`); web passes **`appRendererClient`** to AppsTab and AppRenderer so it’s clear this is the proxy for the Apps tab only.
 
-**Phase 2 implementation plan:** InspectorClient exposes **`getAppClient()`** that returns a Client-typed proxy. The proxy can be implemented however we like:
+**How the proxy works:**
 
-- **First cut:** The proxy **forwards most methods to InspectorClient's internal client** (the same instance used by InspectorClient). So we don't have to add request(), ping(), complete(), listTools(), readResource(), etc. to InspectorClient's public API; the proxy just passes through. **Only `setNotificationHandler` is intercepted:** the proxy does not forward it to the internal client. Instead it calls `inspectorClient.addAppNotificationHandler(schema, handler)`, so app-layer handlers are added to a list. InspectorClient's single SDK registration (in `connect()`) already runs its own logic; we extend it to also invoke every handler in that app-layer list. Result: full Client interface, minimal InspectorClient API surface, handler conflict fixed.
-- **Later (optional):** We can change the proxy to delegate only to InspectorClient's public methods (no direct use of the internal client) if we want to hide the client entirely; that would require exposing whatever Client methods are needed on InspectorClient.
+- The proxy is a **JavaScript `Proxy`** around InspectorClient’s internal MCP Client. It **forwards all property/method access** to the internal client (so `callTool`, `listTools`, `readResource`, `request`, etc. behave identically).
+- **Only `setNotificationHandler` is intercepted:** the proxy’s `get` handler returns a wrapper that can add behavior before delegating. Currently the wrapper just forwards to the internal client (pass-through). **Phase 2:** change the wrapper to call **`inspectorClient.addAppNotificationHandler(schema, handler)`** instead of forwarding, so app handlers are registered in a list; InspectorClient’s existing SDK registration in `connect()` will be extended to also invoke every handler in that list. Result: both InspectorClient and the app receive list_changed (and any other notifications).
+- The proxy is **cached** in InspectorClient (`appRendererClientProxy`). We create it once when first needed (when connected) and return the same instance until disconnect or reconnect. That keeps the reference stable across React renders and prevents effect loops in AppRenderer.
 
-**InspectorClient changes:** (1) Expose **`getAppClient()`** that returns the Client proxy (the proxy holds a reference to the internal client and to InspectorClient for the multiplexer). (2) Expose **`addAppNotificationHandler(notificationSchema, handler)`** and optionally **`removeAppNotificationHandler`**. (3) In `connect()`, when registering the single SDK handler per notification method, have that handler run InspectorClient's existing logic and then call every handler registered via `addAppNotificationHandler` for that method.
+**Phase 2 implementation (remaining):** (1) Expose **`addAppNotificationHandler(notificationSchema, handler)`** (and optionally **`removeAppNotificationHandler`**) on InspectorClient. (2) In the AppRendererClient proxy’s `setNotificationHandler` wrapper, call **`addAppNotificationHandler`** instead of forwarding to the internal client. (3) In `connect()`, when registering the single SDK handler per notification method, have that handler run InspectorClient’s existing logic and then call every handler registered via `addAppNotificationHandler` for that method.
 
-**Result:** Web calls `inspectorClient.getAppClient()` and passes the result to AppRenderer. The proxy is a full `Client`; only setNotificationHandler is intercepted so both InspectorClient and the app receive list_changed (and any other notifications).
+**Result:** Web already calls `inspectorClient.getAppRendererClient()` (via the hook) and passes `appRendererClient` to AppRenderer. Once Phase 2 multiplexing is wired, only the proxy’s `setNotificationHandler` implementation and InspectorClient’s dispatch logic need to change; no web or prop renames required.
 
 ---
 
@@ -76,8 +77,8 @@ This document outlines a detailed plan to add MCP Apps support to the web app. T
 - **Reuse behavior and structure** from the client's AppsTab and AppRenderer.
 - **Add** the same npm deps to web (`@mcp-ui/client`, `@modelcontextprotocol/ext-apps`).
 - **Implement** in web: AppsTab and AppRenderer (copy/adapt from client, including PR 1075 tool-result handling).
-- **Phase 1:** Fixed sandbox port (6277); pass `getClient()` to mcp-ui; wire Apps tab with fixed sandbox URL.
-- **Phase 2:** Dynamic/on-demand sandbox server and sandbox URL API; Client proxy via `getAppClient()`; web uses proxy and API sandbox URL.
+- **Phase 1:** Fixed sandbox port (6277); pass **AppRendererClient** from `getAppRendererClient()` (via hook as `appRendererClient`) to mcp-ui; wire Apps tab with fixed sandbox URL.
+- **Phase 2:** Dynamic/on-demand sandbox server and sandbox URL API; notification multiplexing via the existing AppRendererClient’s `setNotificationHandler` interception; web already uses the proxy.
 - **Tests:** Add web tests for AppsTab and AppRenderer (Vitest), mirroring client coverage where useful; optionally port or adapt client tests.
 
 ---
@@ -127,7 +128,7 @@ This document outlines a detailed plan to add MCP Apps support to the web app. T
   - Replace client-specific imports with web paths:
     - `@/components/ui/tabs`, `@/components/ui/button`, `@/components/ui/alert`, etc. (already in web).
     - `@/utils/jsonUtils`, `@/utils/schemaUtils` (and any schema/param helpers like `generateDefaultValue`, `isPropertyRequired`, `normalizeUnionType`, `resolveRef`) - use web's equivalents; copy from client only if a helper is missing in web.
-  - Keep the same props interface in spirit: `sandboxPath`, `tools`, `listTools`, `error`, `mcpClient`, `onNotification`. Types: `Tool[]`, `Client | null` (Phase 1: from `getClient()`; Phase 2: from `getAppClient()` proxy), `ServerNotification`.
+  - Keep the same props interface in spirit: `sandboxPath`, `tools`, `listTools`, `error`, `appRendererClient`, `onNotification`. Types: `Tool[]`, `AppRendererClient | null` (from `getAppRendererClient()` via the hook), `ServerNotification`.
   - Keep app detection: `getToolUiResourceUri` from `@modelcontextprotocol/ext-apps/app-bridge`; filter tools with `hasUIMetadata`.
   - Keep layout and behavior: ListPane for app list, form for selected app input, AppRenderer when "Open App" is used, maximize/minimize, back to input.
   - Remove or replace any client-only references (e.g. `getMCPProxyAddress`); use the new sandbox helper instead.
@@ -139,7 +140,7 @@ This document outlines a detailed plan to add MCP Apps support to the web app. T
 - **Target:** `web/src/components/AppRenderer.tsx`.
 - **Changes:**
   - Imports: Use web paths for UI (`@/components/ui/alert`, `@/lib/hooks/useToast`), and keep `@mcp-ui/client` and `@modelcontextprotocol/ext-apps` (for types if needed).
-  - Props: Same as client: `sandboxPath`, `tool`, `mcpClient` (type `Client | null` - Phase 1: from `getClient()`; Phase 2: from `getAppClient()` proxy), `toolInput`, `onNotification`. **Add** support for **tool result** (PR 1075): either a `toolResult` prop or an internal call to `callTool` and pass result into `McpUiAppRenderer` so the iframe receives `ui/notifications/tool-result`. Implement:
+  - Props: Same as client: `sandboxPath`, `tool`, `appRendererClient` (type `AppRendererClient | null` from `getAppRendererClient()` via the hook), `toolInput`, `onNotification`. **Add** support for **tool result** (PR 1075): either a `toolResult` prop or an internal call to `callTool` and pass result into `McpUiAppRenderer` so the iframe receives `ui/notifications/tool-result`. Implement:
     - When tool/toolInput (or initial mount) is ready, call MCP `tools/call` with the selected tool and current arguments (if the app expects initial result).
     - Pass the result into the renderer as `toolResult` so the iframe gets `ui/notifications/tool-result`.
     - Use AbortController + run-id (or similar) so that when the user switches app or restarts, stale results are ignored.
@@ -154,22 +155,22 @@ This document outlines a detailed plan to add MCP Apps support to the web app. T
 - **validTabs:** In every place where `validTabs` is derived (e.g. hash sync and "originating tab" after sampling/requests), add `"apps"` so that:
   - Navigating to `#apps` is valid when connected.
   - When a request completes and restores the originating tab, `"apps"` can be restored.
-- **listTools when Apps tab is active:** Add an effect similar to client: when `mcpClient && activeTab === "apps" && serverCapabilities?.tools`, call `listTools()`. This keeps the tools list (and thus app tools) up to date when the user opens the Apps tab.
+- **listTools when Apps tab is active:** Add an effect similar to client: when connected and `activeTab === "apps"` and `serverCapabilities?.tools`, call `listTools()`. (As-built: we use `connectionStatus === "connected"` for the connection check.) This keeps the tools list (and thus app tools) up to date when the user opens the Apps tab.
 - **Render AppsTab:** Inside the same Tabs content area as Resources/Prompts/Tools, add:
   - `<TabsContent value="apps">` containing `<AppsTab ... />`.
 - **AppsTab props:**
-  - **Phase 1:** `sandboxPath` = fixed URL (e.g. `http://${window.location.hostname}:6277` or from config). `mcpClient={mcpClient}` where `mcpClient` is from useInspectorClient's `client` (i.e. `getClient()`). Accept that Tools/Resources/Prompts list updates may stop while an app is open.
-  - **Phase 2:** `sandboxPath={sandboxUrl}` from API (e.g. GET /api/sandbox-url). `mcpClient={inspectorClient.getAppClient()}` so mcp-ui gets the proxy and both InspectorClient and app receive notifications.
+  - **Phase 1 (as-built):** `sandboxPath` = fixed URL (e.g. `http://${window.location.hostname}:6277/sandbox`). `appRendererClient={appRendererClient}` where `appRendererClient` is from useInspectorClient (i.e. `getAppRendererClient()`). Accept that Tools/Resources/Prompts list updates may stop while an app is open until Phase 2 multiplexing.
+  - **Phase 2:** `sandboxPath={sandboxUrl}` from API (e.g. GET /api/sandbox-url). Same `appRendererClient` from hook; proxy’s `setNotificationHandler` interception will route to multiplexer so both InspectorClient and app receive notifications.
   - Both phases: `tools={inspectorTools}`, `listTools={() => { clearError("tools"); listTools(); }}`, `error={errors.tools}`, `onNotification={(notification) => setNotifications(prev => [...prev, notification])}`. Reuse the same notifications state used elsewhere.
 
-### 4.6 Implement Client proxy and multiplexed notification handling (Phase 2 only)
+### 4.6 Multiplexed notification handling (Phase 2 only)
 
-- **Design (see 1.5):** InspectorClient exposes **`getAppClient()`** returning a Client proxy. The proxy forwards most methods to InspectorClient's internal client; only **`setNotificationHandler`** is intercepted and routed to **`addAppNotificationHandler`**. No need to expose request(), ping(), listTools(), etc. on InspectorClient.
+- **Design (see 1.5):** The **AppRendererClient** proxy is already implemented in InspectorClient: **`getAppRendererClient()`** returns a cached Proxy that forwards to the internal client and **intercepts `setNotificationHandler`**. Web already passes `appRendererClient` from the hook to AppRenderer. Phase 2 only needs to wire the interception to a multiplexer.
 - **Tasks:**
-  1. **Client proxy in shared** (e.g. `shared/mcp/clientProxy.ts` or similar): Class that holds a reference to the internal Client (from InspectorClient) and to InspectorClient. Implements the full `Client` interface by forwarding each method to the internal client, **except** `setNotificationHandler`, which calls `inspectorClient.addAppNotificationHandler(schema, handler)` instead.
-  2. **InspectorClient:** Expose **`getAppClient()`** (returns the proxy, created with a reference to the internal client and to this). Expose **`addAppNotificationHandler(notificationSchema, handler)`** and optionally **`removeAppNotificationHandler`**. In `connect()`, ensure the single SDK notification registration dispatches to InspectorClient's existing logic and then to every handler in the app-layer list for that method.
-  3. **Web:** Switch from passing `getClient()` to passing `inspectorClient.getAppClient()` to AppRenderer.
-- **Scope:** shared (Client proxy class, InspectorClient multiplexer API); web (use getAppClient() instead of getClient() for Apps tab).
+  1. **InspectorClient:** Expose **`addAppNotificationHandler(notificationSchema, handler)`** and optionally **`removeAppNotificationHandler`**. In `connect()`, ensure the single SDK notification registration dispatches to InspectorClient's existing logic and then to every handler registered via `addAppNotificationHandler` for that method.
+  2. **AppRendererClient proxy:** In the proxy’s `setNotificationHandler` wrapper (in `getAppRendererClient()`), call **`this.addAppNotificationHandler(schema, handler)`** instead of forwarding to the internal client. App handlers are then in the multiplexer list; InspectorClient’s SDK registration will invoke them.
+  3. **Web:** No change; already passes `appRendererClient` from the hook.
+- **Scope:** core (InspectorClient multiplexer API and proxy wrapper behavior).
 - **Order:** Phase 2; after Phase 1 is working and we want to fix the list-update limitation and add dynamic sandbox.
 
 ### 4.7 Optional: Shared helper for "app tool" detection
@@ -190,7 +191,7 @@ This document outlines a detailed plan to add MCP Apps support to the web app. T
   - Error display.
   - Mock AppRenderer and, if needed, `getToolUiResourceUri` (or use real ext-apps).
 - **AppRenderer:** Add `web/src/components/__tests__/AppRenderer.test.tsx`. Cover:
-  - Waiting state when `mcpClient` is null.
+  - Waiting state when `appRendererClient` is null.
   - Renders McpUiAppRenderer when client is ready; passes toolName, sandbox, hostContext, toolInput (and toolResult if added).
   - onMessage → toast.
   - Optional: mock tools/call and assert toolResult is passed through (for PR 1075 behavior).
@@ -252,13 +253,13 @@ For each: `"type": "stdio", "command": "npx", "args": ["-y", "--silent", "--regi
 2. Sandbox on fixed port 6277 (4.2 Phase 1): server serves sandbox_proxy.html on 6277; web uses `http://<host>:6277` as sandboxPath.
 3. Port AppRenderer (4.4), including tool-result behavior from PR 1075, and add tests (5.1).
 4. Port AppsTab (4.3) and add tests (5.1).
-5. Wire Apps tab in App (4.5 Phase 1): add tab, validTabs, listTools effect; pass fixed sandbox URL and `mcpClient` from useInspectorClient (getClient()) to AppsTab.
+5. Wire Apps tab in App (4.5 Phase 1): add tab, validTabs, listTools effect; pass fixed sandbox URL and `appRendererClient` from useInspectorClient (getAppRendererClient()) to AppsTab.
 6. Manual check with an MCP server that has app tools (5.2). Verify apps load and work; accept that list updates may stall while an app is open.
 
 **Phase 2 (release plumbing)**
 
 7. Ephemeral/dynamic sandbox server and sandbox URL API (4.2 Phase 2); web fetches sandbox URL from API.
-8. Client proxy and multiplexed notification handling (4.6); web passes getAppClient() to AppsTab instead of getClient().
+8. Multiplexed notification handling (4.6): implement addAppNotificationHandler and wire the AppRendererClient proxy’s setNotificationHandler to it; web already passes appRendererClient.
 9. Optional: shared app-tool helper (4.7) and cleanup (e.g. remove debug logs).
 
 ---
@@ -282,7 +283,7 @@ For each: `"type": "stdio", "command": "npx", "args": ["-y", "--silent", "--regi
 - [x] Port AppRenderer to web with tool-result support from PR 1075 (4.4).
 - [x] Port AppsTab to web (4.3); remove or gate console.log (per PR 1044 discussion).
 - [x] ListPane: only show Clear when `clearItems` passed (optional prop); AppsTab does not pass it (3.3 / PR 1044).
-- [x] Add "Apps" tab and validTabs entries in web App; pass getClient() and fixed sandbox URL (4.5 Phase 1).
+- [x] Add "Apps" tab and validTabs entries in web App; pass appRendererClient (from getAppRendererClient() via hook) and fixed sandbox URL (4.5 Phase 1).
 - [x] Effect: listTools when activeTab === "apps" and server has tools (4.5).
 - [x] Add Vitest tests for AppsTab and AppRenderer (5.1); parity with client test count (AppsTab 20 tests, AppRenderer 5 tests).
 - [x] Manual test with app-capable servers (5.2): all 19 servers in `test/mcpapps.json` verified in web app.
@@ -290,7 +291,7 @@ For each: `"type": "stdio", "command": "npx", "args": ["-y", "--silent", "--regi
 **Phase 2**
 
 - [ ] Ephemeral/dynamic sandbox server and sandbox URL API (4.2 Phase 2); web consumes API.
-- [ ] Client proxy and InspectorClient multiplexer (4.6); web passes getAppClient() to AppsTab/AppRenderer.
+- [ ] Notification multiplexer (4.6): addAppNotificationHandler + wire AppRendererClient’s setNotificationHandler to it; web already passes appRendererClient.
 - [ ] Optional: shared app-tool helper (4.7) and cleanup.
 
 ---
@@ -303,6 +304,7 @@ Summary of how Phase 1 was actually implemented where it differed from the plan.
 - **Web server in TypeScript:** The app server lives in `web/src/server.ts` (TypeScript), built with `tsc -p tsconfig.server.json` and emitted as `dist/server.js`. `web/bin/server.js` was removed. `bin/start.js` (the only remaining JS in bin) spawns `dist/server.js` for prod.
 - **Sandbox URL in app:** `sandboxPath` is `http://${window.location.hostname}:6277/sandbox` (Phase 1 fixed URL).
 - **ListPane:** `clearItems` is optional; the Clear button is only rendered when `clearItems` is provided. AppsTab does not pass `clearItems`.
-- **AppRenderer tool-result (PR 1075):** On mount/update, when `mcpClient`, `tool`, and `toolInput` are set, we call `mcpClient.callTool({ name, arguments })` and pass the result to `McpUiAppRenderer` as `toolResult`. A run-id ref is used to ignore stale results; on failure we pass an error-shaped result so the app UI does not hang.
+- **AppRenderer tool-result (PR 1075):** On mount/update, when `appRendererClient`, `tool`, and `toolInput` are set, we call `appRendererClient.callTool({ name, arguments })` and pass the result to `McpUiAppRenderer` as `toolResult`. A run-id ref is used to ignore stale results; on failure we pass an error-shaped result so the app UI does not hang.
+- **AppRendererClient and handler interception:** InspectorClient no longer exposes the raw MCP client. It exposes **`getAppRendererClient(): AppRendererClient | null`**. The hook returns **`appRendererClient`** (so naming is consistent in web). The AppRendererClient is a **cached** JavaScript Proxy around the internal client: same instance for the lifetime of the connection (cleared on disconnect and when creating a new client), so React dependency arrays stay stable and the Apps tab does not loop. The proxy forwards all methods; **only `setNotificationHandler` is intercepted**. The interceptor currently passes through to the internal client. Phase 2 will change it to call **`addAppNotificationHandler`** so both InspectorClient and the app receive notifications and list updates continue while an app is open.
 - **Test configs:** Top-level `test/` holds config files for manual testing. `test/mcpapps.json` has 19 MCP app server entries. Root `mcp.json` is gitignored via `/mcp.json` (root only) so `test/mcp.json` and `test/mcpapps.json` are committed.
 - **Manual verification:** All 19 MCP app servers in `test/mcpapps.json` have been manually verified to work in the web app (connect, open Apps tab, select app, open and interact).

@@ -74,7 +74,7 @@ function createFakeInspectorClient() {
     getCapabilities: () => ({ resources: {}, prompts: {}, tools: {} }),
     getServerInfo: () => ({ name: "", version: "" }),
     getInstructions: () => undefined,
-    getClient: () => ({}),
+    getAppRendererClient: () => ({}),
     connect: vi.fn().mockResolvedValue(undefined),
     disconnect: vi.fn().mockResolvedValue(undefined),
     getRoots: () => [],

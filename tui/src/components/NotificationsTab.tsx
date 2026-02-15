@@ -1,11 +1,9 @@
 import React, { useEffect, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { StderrLogEntry } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 
 interface NotificationsTabProps {
-  client: Client | null;
   stderrLogs: StderrLogEntry[];
   width: number;
   height: number;
@@ -14,7 +12,6 @@ interface NotificationsTabProps {
 }
 
 export function NotificationsTab({
-  client,
   stderrLogs,
   width,
   height,
