@@ -97,3 +97,35 @@ Testing
 - Static client: https://api.githubcopilot.com/mcp (works, requires client_id AND client_secret)
 - DCR: https://example-server.modelcontextprotocol.io/mcp (works)
 - CIMD: https://stytch-as-demo.val.run/mcp (works - as long as client_id and client_uri use the same domain)
+
+## v1.5 branch
+
+MCP apps work (remaining)
+
+- Fix handler multiplexing in AppRendererClient
+- Configurable sandbox port, create sandbox server on demand if dynamic port
+
+Goal: Parity with v1 client (plus CIMD)
+
+- Backward compatability with env vars (including proxy token -> api token)
+- Add OAuth CIMD support (easy)
+- Generally review/test all features of web app
+- Add "sampling with tools" support
+  - https://github.com/modelcontextprotocol/inspector/issues/932
+
+Run playwright tests on web app
+
+Review open v1 bugs (esp auth bugs) to see which ones still apply
+
+Review v1 project boards for any other low-hanging fruit
+
+Research oauth device flow (esp for CLI/TUI)
+
+### TUI
+
+Close feature gap
+Implement test strategy (vitest + Playwright?)
+Better test tool forms
+
+- UX (cleaner, maybe ditch ink-forms, see if it can be styled better?)
+- Functionality (data types, arrays, arrays of objects, etc)
