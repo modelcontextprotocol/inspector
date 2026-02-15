@@ -8,7 +8,10 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import pino from "pino";
 import { createRemoteApp } from "@modelcontextprotocol/inspector-core/mcp/remote/node";
-import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-core/mcp/remote";
+import {
+  API_SERVER_ENV_VARS,
+  LEGACY_AUTH_TOKEN_ENV,
+} from "@modelcontextprotocol/inspector-core/mcp/remote";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // When run as dist/server.js, __dirname is dist/; index and assets live there
@@ -21,6 +24,7 @@ const app = new Hono();
 
 const authToken =
   process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ??
+  process.env[LEGACY_AUTH_TOKEN_ENV] ??
   randomBytes(32).toString("hex");
 
 const port = parseInt(process.env.CLIENT_PORT || "6274", 10);

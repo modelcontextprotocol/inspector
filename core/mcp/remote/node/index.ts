@@ -8,4 +8,4 @@ export {
   type CreateRemoteAppResult,
 } from "./server.js";
 // Re-export constants from base remote directory (browser-safe)
-export { API_SERVER_ENV_VARS } from "../constants.js";
+export { API_SERVER_ENV_VARS, LEGACY_AUTH_TOKEN_ENV } from "../constants.js";

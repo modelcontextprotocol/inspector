@@ -5039,6 +5039,67 @@ describe("InspectorClient", () => {
       expect(Array.isArray(result.tasks)).toBe(true);
     });
 
+    it("should run tool as task (callTool with taskOptions returns task reference, poll getTask/getTaskResult yields result)", async () => {
+      // Same path as web App "Run as task": callTool with taskOptions -> task reference -> poll until completed
+      const invocation = await client.callTool(
+        "optionalTask",
+        { message: "e2e-run-as-task" },
+        undefined,
+        undefined,
+        { ttl: 5000 },
+      );
+
+      expect(invocation.success).toBe(true);
+      expect(invocation.result).toBeDefined();
+      expect(typeof invocation.result).toBe("object");
+      const rawResult = invocation.result as Record<string, unknown>;
+      expect(rawResult.task).toBeDefined();
+      const taskRef = rawResult.task as {
+        taskId: string;
+        status: string;
+        pollInterval?: number;
+      };
+      expect(taskRef.taskId).toBeDefined();
+      expect(typeof taskRef.taskId).toBe("string");
+      expect(taskRef.taskId.length).toBeGreaterThan(0);
+      expect(taskRef.status).toBeDefined();
+      expect(typeof taskRef.status).toBe("string");
+
+      const taskId = taskRef.taskId;
+      const pollIntervalMs = taskRef.pollInterval ?? 1000;
+      const timeoutMs = 12000;
+      const start = Date.now();
+      let task = await client.getTask(taskId);
+      while (
+        task.status !== "completed" &&
+        task.status !== "failed" &&
+        task.status !== "cancelled"
+      ) {
+        expect(Date.now() - start).toBeLessThan(timeoutMs);
+        await new Promise((r) => setTimeout(r, pollIntervalMs));
+        task = await client.getTask(taskId);
+      }
+
+      expect(task.status).toBe("completed");
+
+      const result = await client.getTaskResult(taskId);
+      expect(result).toBeDefined();
+      expect(result).toHaveProperty("content");
+      expect(Array.isArray(result.content)).toBe(true);
+      expect(result.content.length).toBe(1);
+      const firstContent = result.content[0];
+      expect(firstContent).toBeDefined();
+      expect(firstContent!.type).toBe("text");
+      expect(firstContent!).toHaveProperty("text");
+      const resultText = JSON.parse((firstContent as { text: string }).text);
+      expect(resultText.message).toBe("Task completed: e2e-run-as-task");
+      expect(resultText.taskId).toBe(taskId);
+
+      const listResult = await client.listTasks();
+      const found = listResult.tasks.some((t) => t.taskId === taskId);
+      expect(found).toBe(true);
+    });
+
     it("should call tool with task support using callToolStream", async () => {
       const taskCreatedEvents: Array<{ taskId: string; task: Task }> = [];
       const taskStatusEvents: Array<{ taskId: string; task: Task }> = [];
@@ -5204,6 +5265,22 @@ describe("InspectorClient", () => {
         const resultText = JSON.parse(firstContent.text);
         expect(resultText.taskId).toBe(taskId);
       }
+    });
+
+    it("should accept taskOptions (ttl) in callToolStream", async () => {
+      const result = await client.callToolStream(
+        "simpleTask",
+        { message: "ttl-test" },
+        undefined,
+        undefined,
+        { ttl: 99999 },
+      );
+      expect(result.success).toBe(true);
+      expect(result.result).toBeDefined();
+      const tasks = client.getClientTasks();
+      const task = tasks.find((t) => t.taskId && t.status === "completed");
+      expect(task).toBeDefined();
+      expect(task).toHaveProperty("ttl");
     });
 
     it("should get task by taskId", async () => {

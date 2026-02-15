@@ -4,6 +4,7 @@ import {
   resetRequestTimeoutOnProgress,
   getMCPServerRequestMaxTotalTimeout,
   getInspectorApiToken,
+  getMCPTaskTtl,
   getInitialTransportType,
   getInitialSseUrl,
   getInitialCommand,
@@ -75,6 +76,23 @@ describe("configUtils", () => {
         },
       };
       expect(getInspectorApiToken(config)).toBe("test-token");
+    });
+  });
+
+  describe("getMCPTaskTtl", () => {
+    it("returns default task TTL from config", () => {
+      expect(getMCPTaskTtl(DEFAULT_INSPECTOR_CONFIG)).toBe(60000);
+    });
+
+    it("returns custom value when config is overridden", () => {
+      const config: InspectorConfig = {
+        ...DEFAULT_INSPECTOR_CONFIG,
+        MCP_TASK_TTL: {
+          ...DEFAULT_INSPECTOR_CONFIG.MCP_TASK_TTL,
+          value: 120000,
+        },
+      };
+      expect(getMCPTaskTtl(config)).toBe(120000);
     });
   });
 

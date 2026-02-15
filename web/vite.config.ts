@@ -6,7 +6,10 @@ import { defineConfig, type Plugin } from "vite";
 import { createRemoteApp } from "@modelcontextprotocol/inspector-core/mcp/remote/node";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import pino from "pino";
-import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-core/mcp/remote";
+import {
+  API_SERVER_ENV_VARS,
+  LEGACY_AUTH_TOKEN_ENV,
+} from "@modelcontextprotocol/inspector-core/mcp/remote";
 
 const SANDBOX_PORT = 6277;
 
@@ -196,7 +199,11 @@ export default defineConfig({
     react(),
     // Inspector API auth token is passed via env var (read-only, set by start script)
     // Vite plugin reads it and passes explicitly to createRemoteApp
-    honoMiddlewarePlugin(process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] || ""),
+    honoMiddlewarePlugin(
+      process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ||
+        process.env[LEGACY_AUTH_TOKEN_ENV] ||
+        "",
+    ),
   ],
   server: {
     host: true,

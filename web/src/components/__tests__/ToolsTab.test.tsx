@@ -68,6 +68,8 @@ describe("ToolsTab", () => {
     selectedTool: null,
     setSelectedTool: vi.fn(),
     toolResult: null,
+    isPollingTask: false,
+    serverSupportsTaskToolCalls: false,
     nextCursor: "",
     error: null,
     resourceContent: {},
@@ -129,6 +131,7 @@ describe("ToolsTab", () => {
         count: 42,
       },
       undefined,
+      false,
     );
   });
 
@@ -154,7 +157,152 @@ describe("ToolsTab", () => {
         num: -42,
       },
       undefined,
+      false,
     );
+  });
+
+  describe("Run as task", () => {
+    const toolWithOptionalTask: Tool = {
+      ...mockTools[0],
+      execution: { taskSupport: "optional" },
+    };
+    const toolWithForbiddenTask: Tool = {
+      ...mockTools[0],
+      name: "tool-forbidden",
+      execution: { taskSupport: "forbidden" },
+    };
+    const toolWithRequiredTask: Tool = {
+      ...mockTools[0],
+      name: "tool-required",
+      execution: { taskSupport: "required" },
+    };
+
+    it("should not show Run as task checkbox when server does not support task tool calls", () => {
+      renderToolsTab({
+        selectedTool: mockTools[0],
+        serverSupportsTaskToolCalls: false,
+      });
+      expect(
+        screen.queryByRole("checkbox", { name: /run as task/i }),
+      ).toBeNull();
+    });
+
+    it("should show Run as task checkbox when server supports task tool calls and a tool is selected", () => {
+      renderToolsTab({
+        selectedTool: mockTools[0],
+        serverSupportsTaskToolCalls: true,
+      });
+      expect(
+        screen.getByRole("checkbox", { name: /run as task/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("should show checkbox unchecked and enabled when tool taskSupport is optional", async () => {
+      renderToolsTab({
+        selectedTool: toolWithOptionalTask,
+        serverSupportsTaskToolCalls: true,
+      });
+      const checkbox = screen.getByRole("checkbox", { name: /run as task/i });
+      expect(checkbox).not.toBeChecked();
+      expect(checkbox).not.toBeDisabled();
+    });
+
+    it("should show checkbox unchecked and disabled when tool taskSupport is forbidden", () => {
+      renderToolsTab({
+        selectedTool: toolWithForbiddenTask,
+        serverSupportsTaskToolCalls: true,
+      });
+      const checkbox = screen.getByRole("checkbox", { name: /run as task/i });
+      expect(checkbox).not.toBeChecked();
+      expect(checkbox).toBeDisabled();
+    });
+
+    it("should show checkbox checked and disabled when tool taskSupport is required", () => {
+      renderToolsTab({
+        selectedTool: toolWithRequiredTask,
+        serverSupportsTaskToolCalls: true,
+      });
+      const checkbox = screen.getByRole("checkbox", { name: /run as task/i });
+      expect(checkbox).toBeChecked();
+      expect(checkbox).toBeDisabled();
+    });
+
+    it("should call callTool with runAsTask true when optional and checkbox is checked and Run Tool clicked", async () => {
+      const mockCallTool = vi.fn(async () => {});
+      renderToolsTab({
+        selectedTool: toolWithOptionalTask,
+        serverSupportsTaskToolCalls: true,
+        callTool: mockCallTool,
+      });
+      const runAsTaskCheckbox = screen.getByRole("checkbox", {
+        name: /run as task/i,
+      });
+      await act(async () => {
+        fireEvent.click(runAsTaskCheckbox);
+      });
+      expect(runAsTaskCheckbox).toBeChecked();
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+      expect(mockCallTool).toHaveBeenCalledWith(
+        toolWithOptionalTask.name,
+        expect.any(Object),
+        undefined,
+        true,
+      );
+    });
+
+    it("should call callTool with runAsTask true when taskSupport is required without user checking checkbox", async () => {
+      const mockCallTool = vi.fn(async () => {});
+      renderToolsTab({
+        selectedTool: toolWithRequiredTask,
+        serverSupportsTaskToolCalls: true,
+        callTool: mockCallTool,
+      });
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+      expect(mockCallTool).toHaveBeenCalledWith(
+        toolWithRequiredTask.name,
+        expect.any(Object),
+        undefined,
+        true,
+      );
+    });
+
+    it("should call callTool with runAsTask false when taskSupport is forbidden", async () => {
+      const mockCallTool = vi.fn(async () => {});
+      renderToolsTab({
+        selectedTool: toolWithForbiddenTask,
+        serverSupportsTaskToolCalls: true,
+        callTool: mockCallTool,
+      });
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+      expect(mockCallTool).toHaveBeenCalledWith(
+        toolWithForbiddenTask.name,
+        expect.any(Object),
+        undefined,
+        false,
+      );
+    });
+
+    it("should show Polling Task... and disable button when isPollingTask is true", () => {
+      renderToolsTab({
+        selectedTool: mockTools[0],
+        serverSupportsTaskToolCalls: true,
+        isPollingTask: true,
+      });
+      const runButton = screen.getByRole("button", {
+        name: /polling task/i,
+      });
+      expect(runButton).toBeInTheDocument();
+      expect(runButton).toBeDisabled();
+    });
   });
 
   it("should allow specifying null value", async () => {
@@ -190,6 +338,7 @@ describe("ToolsTab", () => {
         num: null,
       },
       undefined,
+      false,
     );
   });
 
@@ -233,6 +382,7 @@ describe("ToolsTab", () => {
         optionalBoolean: null,
       },
       undefined,
+      false,
     );
 
     // State 2: Uncheck null checkbox -> should set value to false and enable input
@@ -254,6 +404,7 @@ describe("ToolsTab", () => {
         optionalBoolean: false,
       },
       undefined,
+      false,
     );
 
     // State 3: Check boolean checkbox -> should set value to true
@@ -276,6 +427,7 @@ describe("ToolsTab", () => {
         optionalBoolean: true,
       },
       undefined,
+      false,
     );
 
     // State 4: Check null checkbox again -> should set value back to null and disable input
@@ -294,6 +446,7 @@ describe("ToolsTab", () => {
         optionalBoolean: null,
       },
       undefined,
+      false,
     );
   });
 
@@ -815,6 +968,7 @@ describe("ToolsTab", () => {
         mockTools[0].name,
         expect.any(Object),
         { requestId: "abc123" },
+        false,
       );
     });
   });
@@ -1079,6 +1233,7 @@ describe("ToolsTab", () => {
           count: 5,
         },
         undefined,
+        false,
       );
     });
 

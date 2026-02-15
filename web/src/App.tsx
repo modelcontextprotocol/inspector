@@ -77,6 +77,7 @@ import {
   getInitialCommand,
   getInitialArgs,
   getInspectorApiToken,
+  getMCPTaskTtl,
   initializeInspectorConfig,
   saveInspectorConfig,
 } from "./utils/configUtils";
@@ -136,6 +137,7 @@ const App = () => {
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
 
+  const [isPollingTask, setIsPollingTask] = useState(false);
   const [config, setConfig] = useState<InspectorConfig>(() =>
     initializeInspectorConfig(CONFIG_LOCAL_STORAGE_KEY),
   );
@@ -451,6 +453,12 @@ const App = () => {
     prompts: inspectorPrompts,
     disconnect: disconnectMcpServer,
   } = useInspectorClient(inspectorClient);
+
+  // Server supports task-augmented tools/call per SDK: capabilities.tasks.requests.tools.call
+  const serverSupportsTaskToolCalls = useMemo(
+    () => !!serverCapabilities?.tasks?.requests?.tools?.call,
+    [serverCapabilities?.tasks?.requests?.tools?.call],
+  );
 
   // Wrap connect to ensure InspectorClient exists first; show toast on error
   const connectMcpServer = useCallback(async () => {
@@ -1146,6 +1154,7 @@ const App = () => {
     name: string,
     params: Record<string, unknown>,
     toolMetadata?: Record<string, unknown>,
+    runAsTask?: boolean,
   ) => {
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
@@ -1172,33 +1181,143 @@ const App = () => {
           )
         : undefined;
 
+      const taskOptions =
+        runAsTask === true ? { ttl: getMCPTaskTtl(config) } : undefined;
+
       const invocation = await inspectorClient.callTool(
         name,
         cleanedParams as Record<string, JsonValue>,
         generalMetadata,
         toolSpecificMetadata,
+        taskOptions,
       );
 
-      // Convert ToolCallInvocation to CompatibilityCallToolResult
-      const compatibilityResult: CompatibilityCallToolResult = invocation.result
-        ? {
-            content: invocation.result.content || [],
-            isError: false,
-          }
-        : {
-            content: [
-              {
-                type: "text",
-                text: invocation.error || "Tool call failed",
-              },
-            ],
-            isError: true,
-          };
+      // Check if server returned a task reference (task-augmented execution)
+      const rawResult = invocation.result as
+        | (Record<string, unknown> & {
+            task?: { taskId: string; status: string; pollInterval?: number };
+          })
+        | null
+        | undefined;
+      const isTaskResult = (
+        res: unknown,
+      ): res is {
+        task: { taskId: string; status: string; pollInterval?: number };
+      } =>
+        !!res &&
+        typeof res === "object" &&
+        "task" in res &&
+        !!(res as Record<string, unknown>).task &&
+        typeof (res as Record<string, unknown>).task === "object" &&
+        "taskId" in (res as { task: Record<string, unknown> }).task;
 
-      setToolResult(compatibilityResult);
+      if (runAsTask && rawResult && isTaskResult(rawResult)) {
+        const taskId = rawResult.task.taskId;
+        const pollInterval = rawResult.task.pollInterval ?? 1000;
+        setIsPollingTask(true);
+        const initialResponseMeta =
+          rawResult && typeof rawResult === "object" && "_meta" in rawResult
+            ? ((rawResult as { _meta?: Record<string, unknown> })._meta ?? {})
+            : undefined;
+        setToolResult({
+          content: [
+            {
+              type: "text",
+              text: `Task created: ${taskId}. Polling for status...`,
+            },
+          ],
+          _meta: {
+            ...(initialResponseMeta || {}),
+            "io.modelcontextprotocol/related-task": { taskId },
+          },
+        } as CompatibilityCallToolResult);
+
+        let taskCompleted = false;
+        while (!taskCompleted) {
+          try {
+            await new Promise((resolve) => setTimeout(resolve, pollInterval));
+            const taskStatus = await inspectorClient.getTask(taskId);
+
+            if (
+              taskStatus.status === "completed" ||
+              taskStatus.status === "failed" ||
+              taskStatus.status === "cancelled"
+            ) {
+              taskCompleted = true;
+              if (taskStatus.status === "completed") {
+                const result = await inspectorClient.getTaskResult(taskId);
+                setToolResult(result as CompatibilityCallToolResult);
+              } else {
+                setToolResult({
+                  content: [
+                    {
+                      type: "text",
+                      text: `Task ${taskStatus.status}: ${taskStatus.statusMessage ?? "No additional information"}`,
+                    },
+                  ],
+                  isError: true,
+                });
+              }
+              void inspectorClient.listTasks();
+            } else {
+              const pollingResponseMeta =
+                rawResult &&
+                typeof rawResult === "object" &&
+                "_meta" in rawResult
+                  ? ((rawResult as { _meta?: Record<string, unknown> })._meta ??
+                    {})
+                  : undefined;
+              setToolResult({
+                content: [
+                  {
+                    type: "text",
+                    text: `Task status: ${taskStatus.status}${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Polling...`,
+                  },
+                ],
+                _meta: {
+                  ...(pollingResponseMeta || {}),
+                  "io.modelcontextprotocol/related-task": { taskId },
+                },
+              } as CompatibilityCallToolResult);
+              void inspectorClient.listTasks();
+            }
+          } catch (pollingError) {
+            setToolResult({
+              content: [
+                {
+                  type: "text",
+                  text: `Error polling task status: ${pollingError instanceof Error ? pollingError.message : String(pollingError)}`,
+                },
+              ],
+              isError: true,
+            });
+            taskCompleted = true;
+          }
+        }
+        setIsPollingTask(false);
+      } else {
+        // Convert ToolCallInvocation to CompatibilityCallToolResult
+        const compatibilityResult: CompatibilityCallToolResult =
+          invocation.result
+            ? {
+                content: invocation.result.content || [],
+                isError: false,
+              }
+            : {
+                content: [
+                  {
+                    type: "text",
+                    text: invocation.error || "Tool call failed",
+                  },
+                ],
+                isError: true,
+              };
+        setToolResult(compatibilityResult);
+      }
       // Clear any validation errors since tool execution completed
       setErrors((prev) => ({ ...prev, tools: null }));
     } catch (e) {
+      setIsPollingTask(false);
       const toolResult: CompatibilityCallToolResult = {
         content: [
           {
@@ -1611,10 +1730,11 @@ const App = () => {
                         name: string,
                         params: Record<string, unknown>,
                         metadata?: Record<string, unknown>,
+                        runAsTask?: boolean,
                       ) => {
                         clearError("tools");
                         setToolResult(null);
-                        await callTool(name, params, metadata);
+                        await callTool(name, params, metadata, runAsTask);
                       }}
                       selectedTool={selectedTool}
                       setSelectedTool={(tool) => {
@@ -1623,6 +1743,8 @@ const App = () => {
                         setToolResult(null);
                       }}
                       toolResult={toolResult}
+                      isPollingTask={isPollingTask}
+                      serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
                       nextCursor={nextToolCursor}
                       error={errors.tools}
                       resourceContent={resourceContentMap}

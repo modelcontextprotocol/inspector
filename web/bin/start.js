@@ -5,7 +5,10 @@ import { resolve, dirname } from "path";
 import { spawnPromise, spawn } from "spawn-rx";
 import { fileURLToPath } from "url";
 import { randomBytes } from "crypto";
-import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-core/mcp/remote";
+import {
+  API_SERVER_ENV_VARS,
+  LEGACY_AUTH_TOKEN_ENV,
+} from "@modelcontextprotocol/inspector-core/mcp/remote";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -182,9 +185,10 @@ async function main() {
       : "Starting MCP inspector...",
   );
 
-  // Generate Inspector API auth token
+  // Generate Inspector API auth token (honor legacy MCP_PROXY_AUTH_TOKEN if present)
   const inspectorApiToken =
     process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ||
+    process.env[LEGACY_AUTH_TOKEN_ENV] ||
     randomBytes(32).toString("hex");
 
   const abort = new AbortController();

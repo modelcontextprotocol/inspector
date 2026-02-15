@@ -34,6 +34,10 @@ export const getInspectorApiToken = (
   return token || undefined;
 };
 
+export const getMCPTaskTtl = (config: InspectorConfig): number => {
+  return config.MCP_TASK_TTL.value as number;
+};
+
 export const getInitialTransportType = ():
   | "stdio"
   | "sse"
@@ -155,8 +159,10 @@ export const initializeInspectorConfig = (
   // Apply query param overrides (including API token from URL)
   const overrides = getConfigOverridesFromQueryParams(DEFAULT_INSPECTOR_CONFIG);
 
-  // Check for API token in URL params (API_SERVER_ENV_VARS.AUTH_TOKEN)
-  const apiTokenFromUrl = getSearchParam(API_SERVER_ENV_VARS.AUTH_TOKEN);
+  // Check for API token in URL params (new name first, then legacy MCP_PROXY_AUTH_TOKEN)
+  const apiTokenFromUrl =
+    getSearchParam(API_SERVER_ENV_VARS.AUTH_TOKEN) ??
+    getSearchParam("MCP_PROXY_AUTH_TOKEN");
   if (apiTokenFromUrl) {
     overrides.MCP_INSPECTOR_API_TOKEN = {
       ...DEFAULT_INSPECTOR_CONFIG.MCP_INSPECTOR_API_TOKEN,

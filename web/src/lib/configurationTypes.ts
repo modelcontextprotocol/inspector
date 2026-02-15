@@ -35,4 +35,9 @@ export type InspectorConfig = {
    * Auth token for authenticating with the Inspector API server. This token is displayed in the console on startup.
    */
   MCP_INSPECTOR_API_TOKEN: ConfigItem;
+
+  /**
+   * Default Time-to-Live (TTL) in milliseconds for newly created tasks.
+   */
+  MCP_TASK_TTL: ConfigItem;
 };

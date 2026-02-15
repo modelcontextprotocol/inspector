@@ -29,6 +29,7 @@ import {
   type MessageTrackingCallbacks,
 } from "./messageTrackingTransport.js";
 import type {
+  CallToolRequest,
   JSONRPCRequest,
   JSONRPCNotification,
   JSONRPCResultResponse,
@@ -1379,6 +1380,7 @@ export class InspectorClient extends InspectorClientEventTarget {
    * @param args Tool arguments
    * @param generalMetadata Optional general metadata
    * @param toolSpecificMetadata Optional tool-specific metadata (takes precedence over general)
+   * @param taskOptions Optional task options (e.g. ttl) for task-augmented requests
    * @returns Tool call response
    */
   async callTool(
@@ -1386,6 +1388,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     args: Record<string, JsonValue>,
     generalMetadata?: Record<string, string>,
     toolSpecificMetadata?: Record<string, string>,
+    taskOptions?: { ttl?: number },
   ): Promise<ToolCallInvocation> {
     if (!this.client) {
       throw new Error("Client is not connected");
@@ -1435,12 +1438,22 @@ export class InspectorClient extends InspectorClientEventTarget {
           ? mergedMetadata
           : undefined;
 
+      const callParams: {
+        name: string;
+        arguments: Record<string, JsonValue>;
+        _meta?: Record<string, string>;
+        task?: { ttl: number };
+      } = {
+        name: name,
+        arguments: convertedArgs,
+        _meta: metadata,
+      };
+      if (taskOptions?.ttl != null) {
+        callParams.task = { ttl: taskOptions.ttl };
+      }
+
       const result = await this.client.callTool(
-        {
-          name: name,
-          arguments: convertedArgs,
-          _meta: metadata,
-        },
+        callParams,
         undefined,
         this.getRequestOptions(metadata?.progressToken),
       );
@@ -1517,6 +1530,7 @@ export class InspectorClient extends InspectorClientEventTarget {
    * @param args Tool arguments
    * @param generalMetadata Optional general metadata
    * @param toolSpecificMetadata Optional tool-specific metadata (takes precedence over general)
+   * @param taskOptions Optional task options (e.g. ttl) for task-augmented requests
    * @returns Tool call response
    */
   async callToolStream(
@@ -1524,6 +1538,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     args: Record<string, JsonValue>,
     generalMetadata?: Record<string, string>,
     toolSpecificMetadata?: Record<string, string>,
+    taskOptions?: { ttl?: number },
   ): Promise<ToolCallInvocation> {
     if (!this.client) {
       throw new Error("Client is not connected");
@@ -1565,15 +1580,18 @@ export class InspectorClient extends InspectorClientEventTarget {
 
       // Call the streaming API
       // Metadata should be in the params, not in options
-      const streamParams: any = {
+      const streamParams: Record<string, unknown> = {
         name: name,
         arguments: convertedArgs,
       };
       if (metadata) {
         streamParams._meta = metadata;
       }
+      if (taskOptions?.ttl != null) {
+        streamParams.task = { ttl: taskOptions.ttl };
+      }
       const stream = this.client.experimental.tasks.callToolStream(
-        streamParams,
+        streamParams as CallToolRequest["params"],
         undefined, // Use default CallToolResultSchema
         this.getRequestOptions(metadata?.progressToken),
       );

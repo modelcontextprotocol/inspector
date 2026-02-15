@@ -64,6 +64,8 @@ const ToolsTab = ({
   selectedTool,
   setSelectedTool,
   toolResult,
+  isPollingTask = false,
+  serverSupportsTaskToolCalls = false,
   nextCursor,
   error,
   resourceContent,
@@ -76,10 +78,13 @@ const ToolsTab = ({
     name: string,
     params: Record<string, unknown>,
     metadata?: Record<string, unknown>,
+    runAsTask?: boolean,
   ) => Promise<void>;
   selectedTool: Tool | null;
   setSelectedTool: (tool: Tool | null) => void;
   toolResult: CompatibilityCallToolResult | null;
+  isPollingTask?: boolean;
+  serverSupportsTaskToolCalls?: boolean;
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
   resourceContent: Record<string, string>;
@@ -87,6 +92,10 @@ const ToolsTab = ({
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isToolRunning, setIsToolRunning] = useState(false);
+  const [runAsTask, setRunAsTask] = useState(false);
+  const taskSupport = selectedTool?.execution?.taskSupport ?? "forbidden";
+  const effectiveRunAsTask =
+    taskSupport === "required" || (taskSupport === "optional" && runAsTask);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
   const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
   const [metadataEntries, setMetadataEntries] = useState<
@@ -132,6 +141,13 @@ const ToolsTab = ({
     // Clear form refs for the previous tool
     formRefs.current = {};
   }, [selectedTool]);
+
+  // Sync runAsTask when selected tool changes: required -> checked, forbidden -> unchecked
+  useEffect(() => {
+    const support = selectedTool?.execution?.taskSupport ?? "forbidden";
+    if (support === "required") setRunAsTask(true);
+    else if (support === "forbidden") setRunAsTask(false);
+  }, [selectedTool?.execution?.taskSupport, selectedTool?.name]);
 
   const hasReservedMetadataEntry = metadataEntries.some(({ key }) => {
     const trimmedKey = key.trim();
@@ -655,56 +671,83 @@ const ToolsTab = ({
                       </div>
                     </div>
                   )}
-                <Button
-                  onClick={async () => {
-                    // Validate JSON inputs before calling tool
-                    if (checkValidationErrors()) return;
-
-                    try {
-                      setIsToolRunning(true);
-                      const metadata = metadataEntries.reduce<
-                        Record<string, unknown>
-                      >((acc, { key, value }) => {
-                        const trimmedKey = key.trim();
-                        if (
-                          trimmedKey !== "" &&
-                          hasValidMetaPrefix(trimmedKey) &&
-                          !isReservedMetaKey(trimmedKey) &&
-                          hasValidMetaName(trimmedKey)
-                        ) {
-                          acc[trimmedKey] = value;
+                <div className="flex items-center space-x-2">
+                  {selectedTool && serverSupportsTaskToolCalls && (
+                    <>
+                      <Checkbox
+                        id="run-as-task"
+                        checked={taskSupport === "required" || runAsTask}
+                        disabled={
+                          taskSupport === "forbidden" ||
+                          taskSupport === "required"
                         }
-                        return acc;
-                      }, {});
-                      await callTool(
-                        selectedTool.name,
-                        params,
-                        Object.keys(metadata).length ? metadata : undefined,
-                      );
-                    } finally {
-                      setIsToolRunning(false);
-                    }
-                  }}
-                  disabled={
-                    isToolRunning ||
-                    hasValidationErrors ||
-                    hasReservedMetadataEntry ||
-                    hasInvalidMetaPrefixEntry ||
-                    hasInvalidMetaNameEntry
-                  }
-                >
-                  {isToolRunning ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Running...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4 mr-2" />
-                      Run Tool
+                        onCheckedChange={(checked) => {
+                          if (taskSupport === "optional")
+                            setRunAsTask(checked === true);
+                        }}
+                      />
+                      <Label
+                        htmlFor="run-as-task"
+                        className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
+                      >
+                        Run as task
+                      </Label>
                     </>
                   )}
-                </Button>
+                  <Button
+                    onClick={async () => {
+                      // Validate JSON inputs before calling tool
+                      if (checkValidationErrors()) return;
+
+                      try {
+                        setIsToolRunning(true);
+                        const metadata = metadataEntries.reduce<
+                          Record<string, unknown>
+                        >((acc, { key, value }) => {
+                          const trimmedKey = key.trim();
+                          if (
+                            trimmedKey !== "" &&
+                            hasValidMetaPrefix(trimmedKey) &&
+                            !isReservedMetaKey(trimmedKey) &&
+                            hasValidMetaName(trimmedKey)
+                          ) {
+                            acc[trimmedKey] = value;
+                          }
+                          return acc;
+                        }, {});
+                        await callTool(
+                          selectedTool!.name,
+                          params,
+                          Object.keys(metadata).length ? metadata : undefined,
+                          effectiveRunAsTask,
+                        );
+                      } finally {
+                        setIsToolRunning(false);
+                      }
+                    }}
+                    disabled={
+                      !selectedTool ||
+                      isToolRunning ||
+                      isPollingTask ||
+                      hasValidationErrors ||
+                      hasReservedMetadataEntry ||
+                      hasInvalidMetaPrefixEntry ||
+                      hasInvalidMetaNameEntry
+                    }
+                  >
+                    {isToolRunning || isPollingTask ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        {isPollingTask ? "Polling Task..." : "Running..."}
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4 mr-2" />
+                        Run Tool
+                      </>
+                    )}
+                  </Button>
+                </div>
                 <div className="flex gap-2">
                   <Button
                     onClick={async () => {
