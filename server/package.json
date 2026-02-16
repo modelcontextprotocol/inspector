@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-server",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "Server-side application for the Model Context Protocol inspector",
   "license": "SEE LICENSE IN LICENSE",
   "author": "Model Context Protocol a Series of LF Projects, LLC.",
@@ -11,17 +11,18 @@
     "mcp-inspector-server": "build/index.js"
   },
   "files": [
-    "build"
+    "build",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && shx cp -R static build",
     "start": "node build/index.js",
     "dev": "tsx watch --clear-screen=false src/index.ts",
     "dev:windows": "tsx watch --clear-screen=false src/index.ts < NUL"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
-    "@types/express": "^4.17.23",
+    "@types/express": "^5.0.0",
     "@types/shell-quote": "^1.7.5",
     "@types/ws": "^8.5.12",
     "tsx": "^4.19.0",
@@ -32,8 +33,10 @@
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "shell-quote": "^1.8.3",
+    "shx": "^0.3.4",
     "spawn-rx": "^5.1.2",
     "ws": "^8.18.0",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "express-rate-limit": "^8.2.1"
   }
 }

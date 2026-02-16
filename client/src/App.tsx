@@ -52,6 +52,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
+  AppWindow,
   Bell,
   Files,
   FolderTree,
@@ -76,6 +77,7 @@ import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import TasksTab from "./components/TasksTab";
+import AppsTab from "./components/AppsTab";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
   getMCPProxyAddress,
@@ -127,6 +129,9 @@ const App = () => {
   const [resourceContentMap, setResourceContentMap] = useState<
     Record<string, string>
   >({});
+  const [fetchingResources, setFetchingResources] = useState<Set<string>>(
+    new Set(),
+  );
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
   const [tools, setTools] = useState<Tool[]>([]);
@@ -311,11 +316,13 @@ const App = () => {
       ...(serverCapabilities?.prompts ? ["prompts"] : []),
       ...(serverCapabilities?.tools ? ["tools"] : []),
       ...(serverCapabilities?.tasks ? ["tasks"] : []),
+      "apps",
       "ping",
       "sampling",
       "elicitations",
       "roots",
       "auth",
+      "metadata",
     ];
 
     if (!validTabs.includes(originatingTab)) return;
@@ -447,11 +454,13 @@ const App = () => {
         ...(serverCapabilities?.prompts ? ["prompts"] : []),
         ...(serverCapabilities?.tools ? ["tools"] : []),
         ...(serverCapabilities?.tasks ? ["tasks"] : []),
+        "apps",
         "ping",
         "sampling",
         "elicitations",
         "roots",
         "auth",
+        "metadata",
       ];
 
       const isValidTab = validTabs.includes(hash);
@@ -479,6 +488,13 @@ const App = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mcpClient, activeTab]);
+
+  useEffect(() => {
+    if (mcpClient && activeTab === "apps" && serverCapabilities?.tools) {
+      void listTools();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mcpClient, activeTab, serverCapabilities?.tools]);
 
   useEffect(() => {
     localStorage.setItem("lastCommand", command);
@@ -764,11 +780,13 @@ const App = () => {
             ...(serverCapabilities?.prompts ? ["prompts"] : []),
             ...(serverCapabilities?.tools ? ["tools"] : []),
             ...(serverCapabilities?.tasks ? ["tasks"] : []),
+            "apps",
             "ping",
             "sampling",
             "elicitations",
             "roots",
             "auth",
+            "metadata",
           ];
 
           if (validTabs.includes(originatingTab)) {
@@ -858,22 +876,48 @@ const App = () => {
   };
 
   const readResource = async (uri: string) => {
+    if (fetchingResources.has(uri) || resourceContentMap[uri]) {
+      return;
+    }
+
+    console.log("[App] Reading resource:", uri);
+    setFetchingResources((prev) => new Set(prev).add(uri));
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
-    const response = await sendMCPRequest(
-      {
-        method: "resources/read" as const,
-        params: { uri },
-      },
-      ReadResourceResultSchema,
-      "resources",
-    );
-    const content = JSON.stringify(response, null, 2);
-    setResourceContent(content);
-    setResourceContentMap((prev) => ({
-      ...prev,
-      [uri]: content,
-    }));
+    try {
+      const response = await sendMCPRequest(
+        {
+          method: "resources/read" as const,
+          params: { uri },
+        },
+        ReadResourceResultSchema,
+        "resources",
+      );
+      console.log("[App] Resource read response:", {
+        uri,
+        responseLength: JSON.stringify(response).length,
+        hasContents: !!(response as { contents?: unknown[] }).contents,
+      });
+      const content = JSON.stringify(response, null, 2);
+      setResourceContent(content);
+      setResourceContentMap((prev) => ({
+        ...prev,
+        [uri]: content,
+      }));
+    } catch (error) {
+      console.error(`[App] Failed to read resource ${uri}:`, error);
+      const errorString = (error as Error).message ?? String(error);
+      setResourceContentMap((prev) => ({
+        ...prev,
+        [uri]: JSON.stringify({ error: errorString }),
+      }));
+    } finally {
+      setFetchingResources((prev) => {
+        const next = new Set(prev);
+        next.delete(uri);
+        return next;
+      });
+    }
   };
 
   const subscribeToResource = async (uri: string) => {
@@ -1315,6 +1359,10 @@ const App = () => {
                   <ListTodo className="w-4 h-4 mr-2" />
                   Tasks
                 </TabsTrigger>
+                <TabsTrigger value="apps">
+                  <AppWindow className="w-4 h-4 mr-2" />
+                  Apps
+                </TabsTrigger>
                 <TabsTrigger value="ping">
                   <Bell className="w-4 h-4 mr-2" />
                   Ping
@@ -1503,6 +1551,19 @@ const App = () => {
                       }}
                       error={errors.tasks}
                       nextCursor={nextTaskCursor}
+                    />
+                    <AppsTab
+                      sandboxPath={`${getMCPProxyAddress(config)}/sandbox`}
+                      tools={tools}
+                      listTools={() => {
+                        clearError("tools");
+                        listTools();
+                      }}
+                      error={errors.tools}
+                      mcpClient={mcpClient}
+                      onNotification={(notification) => {
+                        setNotifications((prev) => [...prev, notification]);
+                      }}
                     />
                     <ConsoleTab />
                     <PingTab

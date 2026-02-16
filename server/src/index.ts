@@ -25,11 +25,20 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+import { readFileSync } from "fs";
 
 const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
+
+const sandboxRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 /sandbox requests per windowMs
+});
 
 const defaultEnvironment = {
   ...getDefaultEnvironment(),
@@ -786,6 +795,26 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
     res.status(500).json(error);
   }
 });
+
+app.get(
+  "/sandbox",
+  sandboxRateLimiter as express.RequestHandler,
+  (req, res) => {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const filePath = join(__dirname, "..", "static", "sandbox_proxy.html");
+    let sandboxHtml;
+
+    try {
+      sandboxHtml = readFileSync(filePath, "utf-8");
+    } catch (e) {
+      sandboxHtml = "MCP Apps sandbox not loaded: " + e;
+    }
+
+    res.set("Cache-Control", "no-cache, no-store, max-age=0");
+    res.send(sandboxHtml);
+  },
+);
 
 const PORT = parseInt(
   process.env.SERVER_PORT || DEFAULT_MCP_PROXY_LISTEN_PORT,

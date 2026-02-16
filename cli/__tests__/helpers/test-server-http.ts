@@ -6,6 +6,7 @@ import type { Request, Response } from "express";
 import express from "express";
 import { createServer as createHttpServer, Server as HttpServer } from "http";
 import { createServer as createNetServer } from "net";
+import { randomUUID } from "crypto";
 import * as z from "zod/v4";
 import type { ServerConfig } from "./test-fixtures.js";
 
@@ -187,22 +188,24 @@ export class TestServerHttp {
   }
 
   /**
-   * Start the server with the specified transport
+   * Start the server with the specified transport.
+   * When requestedPort is omitted, uses port 0 so the OS assigns a unique port (avoids EADDRINUSE when tests run in parallel).
    */
   async start(
     transport: "http" | "sse",
     requestedPort?: number,
   ): Promise<number> {
-    const port = requestedPort
-      ? await findAvailablePort(requestedPort)
-      : await findAvailablePort(transport === "http" ? 3001 : 3000);
-
-    this.url = `http://localhost:${port}`;
+    const port =
+      requestedPort !== undefined ? await findAvailablePort(requestedPort) : 0;
 
     if (transport === "http") {
-      return this.startHttp(port);
+      const actualPort = await this.startHttp(port);
+      this.url = `http://localhost:${actualPort}`;
+      return actualPort;
     } else {
-      return this.startSse(port);
+      const actualPort = await this.startSse(port);
+      this.url = `http://localhost:${actualPort}`;
+      return actualPort;
     }
   }
 
@@ -213,8 +216,10 @@ export class TestServerHttp {
     // Create HTTP server
     this.httpServer = createHttpServer(app);
 
-    // Create StreamableHTTP transport
-    this.transport = new StreamableHTTPServerTransport({});
+    // Create StreamableHTTP transport (stateful so it can handle multiple requests per session)
+    this.transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+    });
 
     // Set up Express route to handle MCP requests
     app.post("/mcp", async (req: Request, res: Response) => {
@@ -292,10 +297,12 @@ export class TestServerHttp {
     // Connect transport to server
     await this.mcpServer.connect(this.transport);
 
-    // Start listening
+    // Start listening (port 0 = OS assigns a unique port)
     return new Promise((resolve, reject) => {
       this.httpServer!.listen(port, () => {
-        resolve(port);
+        const assignedPort = (this.httpServer!.address() as { port: number })
+          ?.port;
+        resolve(assignedPort ?? port);
       });
       this.httpServer!.on("error", reject);
     });
@@ -371,10 +378,12 @@ export class TestServerHttp {
     // Note: SSE transport is created per request, so we don't store a single instance
     this.transport = undefined;
 
-    // Start listening
+    // Start listening (port 0 = OS assigns a unique port)
     return new Promise((resolve, reject) => {
       this.httpServer!.listen(port, () => {
-        resolve(port);
+        const assignedPort = (this.httpServer!.address() as { port: number })
+          ?.port;
+        resolve(assignedPort ?? port);
       });
       this.httpServer!.on("error", reject);
     });

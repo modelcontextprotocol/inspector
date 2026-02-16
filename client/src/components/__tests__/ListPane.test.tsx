@@ -13,7 +13,6 @@ describe("ListPane", () => {
   const defaultProps = {
     items: mockItems,
     listItems: jest.fn(),
-    clearItems: jest.fn(),
     setSelectedItem: jest.fn(),
     renderItem: (item: (typeof mockItems)[0]) => <div>{item.name}</div>,
     title: "List tools",
@@ -36,6 +35,13 @@ describe("ListPane", () => {
       expect(
         screen.getByRole("button", { name: "Load Tools" }),
       ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Clear" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should render Clear button when clearItems prop is provided", () => {
+      renderListPane({ clearItems: jest.fn() });
       expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
     });
 
