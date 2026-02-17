@@ -32,7 +32,7 @@ import {
   createElicitationTaskTool,
   createSamplingTaskTool,
   createProgressTaskTool,
-  createFlexibleTaskTool,
+  createTaskTool,
 } from "../test/test-server-fixtures.js";
 import type { MessageEntry, ConnectionStatus } from "../mcp/types.js";
 import type { TypedEvent } from "../mcp/inspectorClientEventTarget.js";
@@ -5396,9 +5396,8 @@ describe("InspectorClient", () => {
       await server?.stop();
 
       // Create a task tool that will fail after a short delay
-      const failingTask = createFlexibleTaskTool({
+      const failingTask = createTaskTool({
         name: "failingTask",
-        taskSupport: "required",
         delayMs: 100,
         failAfterDelay: 50, // Fail after 50ms
       });
@@ -5442,9 +5441,8 @@ describe("InspectorClient", () => {
       await server?.stop();
 
       // Create a longer-running task tool
-      const longRunningTask = createFlexibleTaskTool({
+      const longRunningTask = createTaskTool({
         name: "longRunningTask",
-        taskSupport: "required",
         delayMs: 2000, // 2 seconds
       });
 
@@ -5778,7 +5776,7 @@ describe("InspectorClient", () => {
         ...getTaskServerConfig(),
         serverType: "sse" as const,
         tools: [
-          createFlexibleTaskTool({
+          createTaskTool({
             name: "receiverE2ESampling",
             samplingText: "Reply for e2e",
             receiverTaskTtl: 5000,
@@ -5852,7 +5850,7 @@ describe("InspectorClient", () => {
         ...getTaskServerConfig(),
         serverType: "sse" as const,
         tools: [
-          createFlexibleTaskTool({
+          createTaskTool({
             name: "receiverE2EElicit",
             elicitationSchema: z.object({
               input: z.string().describe("User input"),

@@ -1,257 +1,162 @@
-# Receiver-side flow implementation plan (InspectorClient)
+# Receiver-side task support (InspectorClient)
 
-**Status:** Implemented. Completed items are marked below. See "Implementation notes" at the end for any changes from the plan.
-
-This document is a ready-to-implement plan for adding receiver-side task support to InspectorClient: when the server sends `sampling/createMessage` or `elicit` with `params.task`, the client creates a receiver task, returns a task reference immediately, and the server polls `tasks/get` and `tasks/result`; the existing Sampling/Elicitations UX resolves the task when the user responds. It is based on a review of InspectorClient and the old `client` app’s useConnection.
+This document describes how receiver-side task support was implemented and tested in InspectorClient: when the server sends `sampling/createMessage` or `elicit` with `params.task`, the client creates a receiver task, returns a task reference immediately, and the server polls `tasks/get` and `tasks/result`; the existing Sampling/Elicitations UX resolves the task when the user responds.
 
 ---
 
-## Overview: requestor tasks vs receiver tasks
+## 1. Overview: requestor tasks vs receiver tasks
 
-InspectorClient deals with two kinds of tasks; the naming in this plan keeps them distinct.
+InspectorClient supports two kinds of tasks.
 
-**Requestor tasks (existing)**
+**Requestor tasks**
 
 - **Direction:** Client → server. We send a request that creates a task on the **server** (e.g. `tools/call` with `task: { ttl }`). The server returns a task reference.
-- **Storage:** `trackedRequestorTasks: Map<string, Task>` holds those references.
-- **Flow:** We poll the server with `tasks/get` and `tasks/result` until the task completes. The work runs on the server.
-- **Naming:** Requestor-task APIs: `getRequestorTask`, `getRequestorTaskResult`, `listRequestorTasks`, `cancelRequestorTask`; state accessors `getTrackedRequestorTasks`, `upsertTrackedRequestorTask` (private).
+- **Storage:** `trackedRequestorTasks: Map<string, Task>`.
+- **Flow:** We poll the server with `tasks/get` and `tasks/result` until the task completes.
+- **APIs:** `getRequestorTask`, `getRequestorTaskResult`, `listRequestorTasks`, `cancelRequestorTask`; internal `getTrackedRequestorTasks`, `upsertTrackedRequestorTask`.
 
-**Receiver tasks (new)**
+**Receiver tasks**
 
 - **Direction:** Server → client. The **server** sends us a request with `params.task` (e.g. `sampling/createMessage` or `elicit`). We create the task **locally**, return a task reference immediately, and the server polls **us**.
-- **Storage:** `receiverTaskRecords: Map<string, ReceiverTaskRecord>` (new).
-- **Flow:** We create the task, push the request into the same Sampling/Elicitations UI; when the user responds we resolve the task's payload and send `notifications/tasks/status`. The server calls `tasks/get` and `tasks/result` **on us**; we implement handlers that delegate to receiver-task methods.
-- **Naming:** All new methods and helpers are explicitly for receiver tasks: `getReceiverTask`, `listReceiverTasks`, `getReceiverTaskPayload`, `cancelReceiverTask`, `createReceiverTask`, `emitReceiverTaskStatus`, `upsertReceiverTask`.
+- **Storage:** `receiverTaskRecords: Map<string, ReceiverTaskRecord>`.
+- **Flow:** We create the task, push the request into the same Sampling/Elicitations UI; when the user responds we resolve the task’s payload and send `notifications/tasks/status`. The server calls `tasks/get` and `tasks/result` on us; we implement handlers that delegate to receiver-task methods.
+- **APIs:** `getReceiverTask`, `listReceiverTasks`, `getReceiverTaskPayload`, `cancelReceiverTask`, `createReceiverTask`, `emitReceiverTaskStatus`, `upsertReceiverTask`.
 
 Same MCP task protocol; opposite roles. Requestor tasks = we poll the server. Receiver tasks = the server polls us.
 
 ---
 
-## 1. Current state in InspectorClient
-
-**Client creation and capabilities (constructor, ~440–474):**
-
-- InspectorClient builds `ClientCapabilities` with `sampling: {}` when `options.sample` is true (default true), `elicitation: { form: {}, url?: {} }` when `options.elicit` is set (default true), and `roots: { listChanged: true }` when `options.roots !== undefined`. There is **no** `tasks` capability. The SDK `Client` is created with these capabilities only.
-
-**Request handlers (registered in `connect()` after `client.connect(this.transport)`):**
-
-- **CreateMessageRequestSchema** (lines 670–684): Only registered when `this.sample && this.client`. Handler always returns a `Promise<CreateMessageResult>`: it builds a `SamplingCreateMessage(request, resolve, reject, removeCallback)`, calls `addPendingSample(samplingRequest)`, and returns the promise that resolves when the UI later calls `samplingRequest.respond(result)` or `samplingRequest.reject(error)`. There is **no** check for `request.params.task` and **no** immediate return of a task or use of receiver tasks.
-- **ElicitRequestSchema** (lines 689–701): Only when `this.elicit && this.client`. Same pattern: `ElicitationCreateMessage(request, resolve, removeCallback)`, `addPendingElicitation(elicitationRequest)`, return promise that resolves when UI calls `elicitationRequest.respond(result)`. **No** `params.task` handling.
-- **ListRootsRequestSchema** (706–708): Returns `{ roots: this.roots ?? [] }`.
-
-**Task-related handlers:** None. InspectorClient does **not** register handlers for `ListTasksRequestSchema`, `GetTaskRequestSchema`, `GetTaskPayloadRequestSchema`, or `CancelTaskRequestSchema`.
-
-**State:**
-
-- `pendingSamples: SamplingCreateMessage[]`, `pendingElicitations: ElicitationCreateMessage[]` (lines 344–346); `trackedRequestorTasks: Map<string, Task>` for **requestor** tasks (tool-call task references from the server). **No** map or ref for receiver-side task records.
-- `disconnect()` (819–865) clears `pendingSamples`, `pendingElicitations`, `trackedRequestorTasks`; it does **not** clear any receiver-task store (none exists).
-
-**Notifications:**
-
-- InspectorClient sends one notification today: `notifications/roots/list_changed` in `setRoots()` (2586). It does **not** send `notifications/tasks/status`.
-
-**SamplingCreateMessage / ElicitationCreateMessage:**
-
-- Both hold `request`, `resolve`/`reject` (or just `resolve` for elicitation), and `onRemove`. They expose `respond(result)` and `reject(error)` (sampling only) which resolve the promise and call `onRemove`. They already read `request.params?._meta?.[RELATED_TASK_META_KEY]?.taskId` for display; they do **not** handle `params.task` (task-augmented request) or participate in receiver-task creation.
-
-**Web App integration:**
-
-- App creates InspectorClient with `InspectorClientOptions` (no `sample`/`elicit` override, so both default true; no roots in options; no task TTL). App listens for `newPendingSample` and `newPendingElicitation`; on event it pushes an item with `resolve`/`reject` that call `sample.respond(result)` / `sample.reject(error)` or `elicitation.respond(result)`. So the UI already drives resolution via the existing `SamplingCreateMessage` / `ElicitationCreateMessage` API. For task-augmented requests we will still add the same object to pending lists and use the same resolve/reject; the only difference is the **initial** response to the server (return `{ task }` immediately) and we must resolve the **receiver task’s** payload when the user responds.
-
----
-
-## 2. Use case and UX to support
+## 2. Use case and behavior
 
 - **Server** sends `sampling/createMessage` or `elicit` with optional `params.task` (e.g. `{ ttl?: number }`).
-- **Without** `params.task`: current behavior—handler returns a promise that resolves when the user responds in the Sampling or Elicitations tab; no change.
-- **With** `params.task`: client must (1) create a receiver task (taskId, status, ttl, etc.), (2) **return immediately** with `{ task }` (CreateTaskResult), (3) still push the request into the same pending list and fire `newPendingSample` / `newPendingElicitation` so the existing UI shows it, (4) when the user calls `respond(result)` or `reject(error)`, resolve or reject the **receiver task’s payload promise** and set task status to completed or failed, (5) send `notifications/tasks/status` with the updated task, (6) run TTL cleanup (remove task record after ttl ms). The server will poll `tasks/get` and `tasks/result`; `tasks/result` must block until the payload promise is resolved or rejected.
-- **UX:** Identical to today: user sees the same Sampling or Elicitations tab, same resolve/reject actions. No new UI; only the protocol response shape and server-visible task lifecycle change when `params.task` is present.
+- **Without** `params.task`: existing behavior—handler returns a promise that resolves when the user responds in the Sampling or Elicitations tab.
+- **With** `params.task`: the client (1) creates a receiver task (taskId, status, ttl, etc.), (2) **returns immediately** with `{ task: record.task }` (CreateTaskResult), (3) still pushes the request into the same pending list and fires `newPendingSample` / `newPendingElicitation` so the existing UI shows it, (4) when the user calls `respond(result)` or `reject(error)`, resolves or rejects the **receiver task’s payload promise** and sets task status to completed or failed, (5) sends `notifications/tasks/status` with the updated task (fire-and-forget; see below), (6) runs TTL cleanup (removes the task record after ttl ms). The server polls `tasks/get` and `tasks/result`; `tasks/result` blocks until the payload promise is resolved or rejected.
+- **UX:** Unchanged: user sees the same Sampling or Elicitations tab and the same resolve/reject actions. Only the protocol response shape and server-visible task lifecycle change when `params.task` is present.
 
 ---
 
-## 3. What to add and change
+## 3. Implementation
 
-### 3.1 InspectorClientOptions (new options) — **Done**
+### 3.1 Options and capabilities
+
+**InspectorClientOptions**
 
 - **`receiverTasks?: boolean`** (default false)  
-  When true, InspectorClient advertises client capabilities for receiver tasks (`tasks.list`, `tasks.cancel`, `tasks.requests.sampling.createMessage`, `tasks.requests.elicitation.create`) and implements the full receiver-task flow (task-augmented CreateMessage/Elicit, plus handlers for `tasks/list`, `tasks/get`, `tasks/result`, `tasks/cancel`). When false, we do not add tasks capability and do not register any receiver-task handlers. Like `sample`, `elicit`, and `roots`, support is driven by what the creator passes in; we only advertise and implement what was requested.
+  When true, InspectorClient advertises client capabilities for receiver tasks (`tasks.list`, `tasks.cancel`, `tasks.requests.sampling.createMessage`, `tasks.requests.elicitation.create`) and implements the full receiver-task flow. When false, we do not add the tasks capability or any receiver-task handlers.
 
 - **`receiverTaskTtlMs?: number | (() => number)`**  
-  Only used when `receiverTasks` is true. TTL for receiver tasks when the server sends `params.task` without a `ttl`. If a function, called at task creation time. If omitted, use a default (e.g. 60_000).
+  Used only when `receiverTasks` is true. TTL for receiver tasks when the server does not send a `ttl` in `params.task`. If a function, it is called at task creation time. Default is 60_000.
 
-### 3.2 New private state — **Done**
+**Capabilities (constructor)**  
+When `receiverTasks` is true, we add to `ClientCapabilities`:  
+`tasks: { list: {}, cancel: {}, requests: { sampling: { createMessage: {} }, elicitation: { create: {} } } }`.  
+We do not derive this from `sample`/`elicit`; the creator opts in with `receiverTasks: true`.
+
+### 3.2 State and types
 
 - **`receiverTaskRecords: Map<string, ReceiverTaskRecord>`**  
-  Key = taskId. Cleared in `disconnect()` and when TTL timer fires.
+  Key = taskId. Cleared in `disconnect()` and when the TTL timer fires.
 
-- **Type `ReceiverTaskRecord`** (internal or in a small types file). Same shape as the client app in the sibling project **inspector-main** (`client/src/lib/hooks/useConnection.ts`):
+- **`ReceiverTaskRecord`** (internal):
   - `task: Task`
   - `payloadPromise: Promise<ClientResult>` (resolved with CreateMessageResult or ElicitResult, or rejected with error)
   - `resolvePayload: (payload: ClientResult) => void`
   - `rejectPayload: (reason?: unknown) => void`
   - `cleanupTimeoutId?: ReturnType<typeof setTimeout>` (for TTL cleanup)
 
-### 3.3 New private helpers — **Done**
+### 3.3 Helpers
 
-- **`createReceiverTask(opts: { ttl?: number; initialStatus: Task["status"]; statusMessage?: string; pollInterval?: number }): ReceiverTaskRecord`**  
-  Generate taskId (e.g. `crypto.randomUUID()` or fallback), compute `ttl = opts.ttl ?? receiverTaskTtlMs (number or call result)`, create Task object (taskId, status, ttl, createdAt, lastUpdatedAt, optional pollInterval, statusMessage). Create a promise with resolve/reject stored. Build `ReceiverTaskRecord`, store it in `receiverTaskRecords`, schedule `setTimeout` to delete the record after `ttl` ms (and clear the timeout on the record). Return the record. Do **not** send notification here (initial status is sent by the handler when returning the task, or we send one immediately; inspector-main sends status after creation).
+- **`createReceiverTask(opts: { ttl?: number; initialStatus; statusMessage?; pollInterval? }): ReceiverTaskRecord`**  
+  Generates taskId (e.g. `crypto.randomUUID()` or fallback), computes `ttl = opts.ttl ?? receiverTaskTtlMs`, creates the Task object, creates a promise with resolve/reject, builds the record, stores it in `receiverTaskRecords`, and schedules TTL cleanup. Returns the record.
 
-- **`emitReceiverTaskStatus(task: Task): Promise<void>`**  
-  Send `this.client.notification({ method: "notifications/tasks/status", params: task })`. Catch and log (or ignore) errors so a failed notification doesn’t break the flow.
+- **`emitReceiverTaskStatus(task: Task): void`**  
+  Sends `this.client.notification({ method: "notifications/tasks/status", params: task })`. Implemented as synchronous void: `client.notification()` is invoked and errors are handled with `.catch()` and logging so a failed notification does not break the flow.
 
-- **`upsertReceiverTask(task: Task): Promise<void>`** _(Implemented as `void`; notification is fire-and-forget with .catch.)_  
-  Update the record in `receiverTaskRecords` for `task.taskId` (set `record.task = task`), then call `emitReceiverTaskStatus(task)`.
+- **`upsertReceiverTask(task: Task): void`**  
+  Updates the record in `receiverTaskRecords` for `task.taskId` (sets `record.task = task`), then calls `emitReceiverTaskStatus(task)`. Also synchronous void; notification is fire-and-forget.
 
-**Receiver-task accessors (used by protocol handlers and internally):**  
-Name all receiver-task methods explicitly so they are not confused with requestor-task APIs (`getRequestorTask`, `getRequestorTaskResult`, `listRequestorTasks`).
+- **Terminal status**  
+  A private static `isTerminalTaskStatus(status)` returns true for `completed` / `failed` / `cancelled`. We use this instead of the SDK’s experimental `isTerminal` to avoid depending on experimental API and to get a type predicate for narrowing.
 
-- **`getReceiverTask(taskId: string): ReceiverTaskRecord | undefined`**  
-  Return `receiverTaskRecords.get(taskId)`. Used by the `tasks/get` handler and by cancel logic.
+**Receiver-task accessors (used by protocol handlers and internally)**
 
-- **`listReceiverTasks(): Task[]`**  
-  Return `Array.from(receiverTaskRecords.values()).map(r => r.task)`.
+- **`getReceiverTask(taskId): ReceiverTaskRecord | undefined`** — `receiverTaskRecords.get(taskId)`.
+- **`listReceiverTasks(): Task[]`** — `Array.from(receiverTaskRecords.values()).map(r => r.task)`.
+- **`getReceiverTaskPayload(taskId): Promise<ClientResult>`** — Looks up the record; if missing, throws `McpError(InvalidParams, "Unknown taskId: ...")`. Returns `record.payloadPromise` (the server’s `tasks/result` awaits this).
+- **`cancelReceiverTask(taskId): Task`** — Looks up record; if missing, throws. If status is already terminal, returns `record.task`. Otherwise sets status to cancelled, calls `record.rejectPayload(...)`, clears cleanup timeout, calls `emitReceiverTaskStatus(updatedTask)`, returns updated task.
 
-- **`getReceiverTaskPayload(taskId: string): Promise<ClientResult>`**  
-  Look up record; if missing, throw `McpError(ErrorCode.InvalidParams, "Unknown taskId: ...")`. Return `record.payloadPromise` (server's `tasks/result` awaits this).
+### 3.4 CreateMessage handler (connect)
 
-- **`cancelReceiverTask(taskId: string): Task`**  
-  Look up record; if missing, throw same McpError. If status already terminal (completed/failed/cancelled), return `record.task`. Otherwise set task status to cancelled, call `record.rejectPayload(...)`, clear cleanup timeout if set, call `emitReceiverTaskStatus(updatedTask)`, return updated task.
+When `receiverTasks` is true, the CreateMessage handler:
 
-### 3.4 Capabilities (constructor) — **Done**
+- **If no `params.task`:** Current behavior: create `SamplingCreateMessage(...)`, `addPendingSample(...)`, return the promise.
+- **If `params.task` is present:**
+  - Call `createReceiverTask({ ttl: params.task.ttl, initialStatus: "input_required", statusMessage: "Awaiting user input" })`.
+  - Return **immediately** with `{ task: record.task }`.
+  - In the background: create the same `SamplingCreateMessage(request, resolve, reject, removeCallback)` and call `addPendingSample(samplingRequest)`. On `resolve`: call `record.resolvePayload(payload)`, set `record.task` status to `"completed"`, call `upsertReceiverTask(updatedTask)`. On `reject`: call `record.rejectPayload(error)`, set status `"failed"`, set statusMessage from error, call `upsertReceiverTask(updatedTask)`.
 
-- **Only when `receiverTasks` is true**, add to `ClientCapabilities`:  
-  **`tasks: { list: {}, cancel: {}, requests: { sampling: { createMessage: {} }, elicitation: { create: {} } } }`**  
-  so the server knows it can send task-augmented createMessage/elicit and use tasks/list, tasks/get, tasks/result, tasks/cancel. We do not derive this from sample/elicit; the creator opts in by setting receiverTasks: true. When receiverTasks is false, we do not advertise any tasks capability.
+### 3.5 Elicit handler (connect)
 
-### 3.5 CreateMessage handler (connect) — **Done**
+Same pattern as CreateMessage when `receiverTasks` is true: no `params.task` → current behavior; with `params.task` → createReceiverTask, return `{ task: record.task }`, in background add to pending elicitations; when the user calls `respond(result)`, call `record.resolvePayload(result)`, set task completed, upsertReceiverTask; on reject/decline, call `record.rejectPayload`, set failed, upsertReceiverTask.
 
-- **Replace** the current CreateMessage handler with one that:
-  - **If `receiverTasks` is false:** Keep current behavior only; do not check or handle `params.task`.
-  - **If `receiverTasks` is true:** Check for `request.params.task` (e.g. `(request.params as { task?: { ttl?: number } }).task`).
-    - **If no `params.task`:** Keep current behavior: `new SamplingCreateMessage(...)`, `addPendingSample(...)`, return the promise (no change).
-    - **If `params.task` is present:**
-    - Call `createReceiverTask({ ttl: params.task.ttl, initialStatus: "input_required", statusMessage: "Awaiting user input" })`.
-    - Return **immediately** with `{ task: record.task }` (CreateTaskResult).
-    - In the background (e.g. `void (async () => { ... })()`): create the same `SamplingCreateMessage(request, resolve, reject, removeCallback)` and call `addPendingSample(samplingRequest)` so the UI appears. In the `resolve` path: call `record.resolvePayload(payload)`, set `record.task` to status `"completed"`, call `upsertReceiverTask(updatedTask)`. In the `reject` path: call `record.rejectPayload(error)`, set status `"failed"`, set statusMessage from error, call `upsertReceiverTask(updatedTask)`.
+**ElicitationCreateMessage and decline**  
+For task-augmented elicit, when the user declines we must reject the receiver task’s payload so the server’s `tasks/result` receives an error. `ElicitationCreateMessage` exposes a public method `reject(error: Error)`; the optional constructor callback is stored internally and invoked by `reject()`. The App’s decline handler calls `elicitation.reject(error)` when present, then `elicitation.remove()` as usual.
 
-### 3.6 Elicit handler (connect) — **Done**
+### 3.6 Task request handlers (connect, only when receiverTasks is true)
 
-- Same pattern as CreateMessage. Only when `receiverTasks` is true do we check for `params.task` and handle it.
-  - **If no `params.task`:** current behavior (ElicitationCreateMessage, addPendingElicitation, return promise).
-  - **If `params.task` is present:** createReceiverTask, return `{ task: record.task }`, in background add to pending elicitations; when user calls `respond(result)`, call `record.resolvePayload(result)`, set task completed, upsertReceiverTask; on failure/reject, record.rejectPayload, set failed, upsertReceiverTask.
+Handlers are registered for ListTasks, GetTask, GetTaskPayload, CancelTask. Each delegates to the corresponding receiver-task method.
 
-### 3.7 New request handlers (connect, only when receiverTasks is true) — **Done**
+- **ListTasks:** Returns `{ tasks: this.listReceiverTasks() }`.
+- **GetTask:** Calls `this.getReceiverTask(request.params.taskId)`; if undefined, throws McpError(InvalidParams); returns `record.task`.
+- **GetTaskPayload:** Returns `await this.getReceiverTaskPayload(request.params.taskId)` (throws if unknown; server request blocks until payload resolved or rejected).
+- **CancelTask:** Returns `this.cancelReceiverTask(request.params.taskId)`.
 
-Register handlers for ListTasksRequestSchema, GetTaskRequestSchema, GetTaskPayloadRequestSchema, CancelTaskRequestSchema only when receiverTasks is true. Each handler delegates to the receiver-task method so protocol and internal API stay aligned.
+Notification payload is built with `TaskStatusNotificationSchema` (from SDK). Response type for `{ task: record.task }` is inferred; `CreateTaskResultSchema` is not imported.
 
-- **ListTasksRequestSchema:** Handler returns `{ tasks: this.listReceiverTasks() }`. No pagination/cursor for now unless the SDK requires it.
+### 3.7 disconnect()
 
-- **GetTaskRequestSchema:** Handler calls `this.getReceiverTask(request.params.taskId)`. If undefined, throw McpError(InvalidParams). Return `record.task`.
+Before clearing `trackedRequestorTasks`, iterate `receiverTaskRecords`, clear any `cleanupTimeoutId` (clearTimeout), then `receiverTaskRecords.clear()`.
 
-- **GetTaskPayloadRequestSchema:** Handler returns `await this.getReceiverTaskPayload(request.params.taskId)` (throws if unknown; server request blocks until payload resolved or rejected).
+### 3.8 Web app integration
 
-- **CancelTaskRequestSchema:** Handler returns `this.cancelReceiverTask(request.params.taskId)` (throws if unknown).
-
-### 3.8 disconnect() — **Done**
-
-- Before clearing `trackedRequestorTasks`, iterate `receiverTaskRecords` and clear any `cleanupTimeoutId` (clearTimeout), then `receiverTaskRecords.clear()`.
-
-### 3.9 SDK imports — **Done**
-
-- Add imports for: `ListTasksRequestSchema`, `GetTaskRequestSchema`, `GetTaskPayloadRequestSchema`, `CancelTaskRequestSchema`, `CreateTaskResultSchema` (if needed for typing), `McpError`, `ErrorCode` (if not already), and `Task` (already used). From spec/types: `ClientResult` or the concrete result types for CreateMessageResult and ElicitResult so `payloadPromise` is typed correctly. Use the same schema names as in inspector-main so handlers match the SDK’s expectation.
-
-### 3.10 ElicitationCreateMessage and decline (reject) — **Done**
-
-**Problem:** `ElicitationCreateMessage` currently has only `respond(result)`; it has no `reject`. For non–task-augmented elicit, App’s “decline” just calls `elicitation.remove()`. For **task-augmented** elicit, when the user declines we must call `record.rejectPayload(error)` so the server’s `tasks/result` receives an error and the task is marked failed; otherwise the server would hang waiting for a result that never comes.
-
-**Decision:** Add an optional `reject?(error: Error) => void` to `ElicitationCreateMessage`. Set it only when the request is task-augmented (the background runner passes the record’s `rejectPayload`). App’s decline handler calls `reject(error)` when present, then continues with `elicitation.remove()` as today.
-
-**Implementation:** In `core/mcp/elicitationCreateMessage.ts`, add optional `reject?: (error: Error) => void`. When creating the elicitation in the task-augmented Elicit handler, set `reject` so it calls `record.rejectPayload(error)`. App (see §4) calls it on decline when present.
-
-## 4. App (web) changes — **Done**
-
-- **InspectorClientOptions:** When creating InspectorClient, set **`receiverTaskTtlMs: getMCPTaskTtl(config)`** (or a function that returns it) so receiver tasks use the same TTL as the rest of the app. Config is already available where the client is created.
-
-- **Elicitation decline:** In the handler that processes “decline” for an elicitation request, if the elicitation has a `reject` (i.e. task-augmented), call it with the error so the server’s `tasks/result` receives an error and the task is marked failed; then call `elicitation.remove()` as usual.
-
-- No other App change required: existing listeners for `newPendingSample` and `newPendingElicitation` continue to work; the only difference is that for task-augmented requests the first response to the server is already sent (task ref), and when the user resolves we complete the task via the same `respond`/`reject` calls.
+- **InspectorClientOptions:** The app creates InspectorClient with `receiverTasks: true` and `receiverTaskTtlMs: getMCPTaskTtl(currentConfig)` where `currentConfig` is `configRef.current` in `ensureInspectorClient`.
+- **Elicitation decline:** In the handler for “decline,” if the elicitation has a `reject` (task-augmented), call it with the error so the server’s `tasks/result` receives an error and the task is marked failed; then call `elicitation.remove()` as usual.
+- No other app change: existing listeners for `newPendingSample` and `newPendingElicitation` continue to work; for task-augmented requests the first response to the server is already sent (task ref), and when the user resolves we complete the task via the same `respond`/`reject` calls.
 
 ---
 
-## 5. Files to touch (summary)
+## 4. Testing
 
-| Area            | File                                            | Changes                                                                                                                                                                                                                                                                                    |
-| --------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Options / types | `core/mcp/inspectorClient.ts` (or shared types) | Add `receiverTasks?: boolean` (default false) and `receiverTaskTtlMs?: number \| (() => number)` to InspectorClientOptions. Define `ReceiverTaskRecord` (or inline).                                                                                                                       |
-| State / members | `core/mcp/inspectorClient.ts`                   | Add `receiverTaskRecords: Map<string, ReceiverTaskRecord>`. Read `receiverTasks` in constructor.                                                                                                                                                                                           |
-| Constructor     | `core/mcp/inspectorClient.ts`                   | When `receiverTasks` is true, add `tasks` to ClientCapabilities; do not derive from sample/elicit.                                                                                                                                                                                         |
-| Helpers         | `core/mcp/inspectorClient.ts`                   | Add `createReceiverTask`, `emitReceiverTaskStatus`, `upsertReceiverTask`, `getReceiverTask`, `listReceiverTasks`, `getReceiverTaskPayload`, `cancelReceiverTask`.                                                                                                                          |
-| connect()       | `core/mcp/inspectorClient.ts`                   | When `receiverTasks` is true: replace CreateMessage/Elicit handlers with task-aware versions; register ListTasks, GetTask, GetTaskPayload, CancelTask handlers (each delegating to the matching getReceiverTask / listReceiverTasks / getReceiverTaskPayload / cancelReceiverTask method). |
-| disconnect()    | `core/mcp/inspectorClient.ts`                   | Clear receiver task timeouts and `receiverTaskRecords`.                                                                                                                                                                                                                                    |
-| Elicitation     | `core/mcp/elicitationCreateMessage.ts`          | Add optional `reject?(error: Error)` (set when task-augmented so App can reject the task payload on decline).                                                                                                                                                                              |
-| App             | `web/src/App.tsx`                               | Pass `receiverTasks: true` and `receiverTaskTtlMs: getMCPTaskTtl(config)` in client options; on elicitation decline, call `reject` when present.                                                                                                                                           |
+Receiver-task behavior is covered by **e2e tests** only: a full protocol driver where the test server sends `createMessage` or `elicit` with `params.task`, receives `{ task }`, then sends `tasks/list`, `tasks/get`, `tasks/result`, and optionally `tasks/cancel`, and asserts on responses. There are no unit tests that call receiver-task private methods.
 
----
+**Test fixture**  
+The fixture `createTaskTool` (in `core/test/test-server-fixtures.ts`) supports `receiverTaskTtl?: number`. When set, the tool’s createTask handler sends `sampling/createMessage` or `elicitation/create` with `params.task: { ttl }` to the client, receives `{ task }`, then polls the client with `tasks/get` until the task is terminal and fetches the payload via `tasks/result`. The tool’s result is that payload, so the test can assert end-to-end behavior.
 
-## 6. Testing
-
-### 6.1 Unit tests (core) — **Not implemented** (removed)
-
-Receiver-task behavior is not covered by unit tests that call private methods. Coverage is intended from **e2e tests** (§6.2): a full protocol driver where the test server sends `createMessage`/`elicit` with `params.task`, receives `{ task }`, then sends `tasks/list`, `tasks/get`, `tasks/result`, `tasks/cancel` and asserts on responses. The fixture `createFlexibleTaskTool` supports `receiverTaskTtl?: number` for that e2e flow.
-
-- **createReceiverTask:** Task record is stored in `receiverTaskRecords`; task has expected taskId, status, ttl, timestamps; TTL cleanup runs (record removed after ttl ms); cleanup timeout is cleared on disconnect.
-- **Receiver-task accessors:** `getReceiverTask`, `listReceiverTasks`, `getReceiverTaskPayload`, `cancelReceiverTask` return or throw as specified; `getReceiverTaskPayload` blocks until payload is resolved/rejected; cancel updates status and rejects payload.
-- **CreateMessage/Elicit with params.task (mocked or in-process):** Handler returns `{ task }` immediately; pending sample/elicitation is still added; when `record.resolvePayload(payload)` or `record.rejectPayload(error)` is called, task status and `tasks/result` outcome match; `notifications/tasks/status` is sent (can assert on dispatched notification or spy).
-
-### 6.2 E2E test (receiver flow with real test server) — **Done**
-
-**Goal:** Same style as the existing “run tool as task” e2e test: a **real test server** that advertises and uses the receiver-task feature, with assertions on client and optionally server state.
-
-**Setup:**
-
-- **Test server:** Extend the composable test server (or equivalent) so that it:
-  - Advertises client capabilities that allow it to send task-augmented requests (e.g. server indicates it will send `sampling/createMessage` and `elicit` with `params.task`).
-  - Can send `sampling/createMessage` (and optionally `elicit`) with `params.task: { ttl?: number }` to the client.
-  - After receiving `{ task }` from the client, can call the client’s `tasks/get` and `tasks/result` (i.e. the server sends these requests to the client over the same connection; the client’s registered handlers respond). The test server may expose a tool or internal path that: sends createMessage with params.task → captures taskId from response → later calls tasks/get and tasks/result against the client.
-- **Client:** InspectorClient with `receiverTasks: true` and a suitable `receiverTaskTtlMs`, connected to this server.
-
-**Flow (example for sampling):**
+**E2E flow (e.g. sampling)**
 
 1. Server sends `sampling/createMessage` with `params.task` (e.g. `{ ttl: 5000 }`).
-2. Client returns `{ task }` immediately; test asserts response shape and presence of `task.taskId`.
-3. Test drives resolution: obtain the pending sample (e.g. via `newPendingSample` event or any test hook that exposes the pending request) and call `respond(result)` with a known payload.
-4. Server (or test using the server’s view) calls `tasks/get` for that taskId; assert status becomes `completed` (and optionally `tasks/result` returns the same payload). Alternatively, the test can call the client’s listReceiverTasks / getReceiverTaskPayload if the API is exposed for testing, or introspect the test server’s view of what it received from `tasks/result`.
-5. Assert final state: task status completed, payload matches what was passed to `respond(...)`; optionally assert notifications/tasks/status was sent (e.g. via server-side or transport spy).
+2. Client returns `{ task }` immediately; test asserts response shape and `task.taskId`.
+3. Test obtains the pending sample (e.g. via `newPendingSample` event) and calls `respond(result)` with a known payload.
+4. Server (fixture) calls `tasks/get` for that taskId until status is `completed`, then `tasks/result`; fixture uses that payload as the tool result.
+5. Test asserts the tool result (from `callToolStream`) matches the payload passed to `respond(...)`.
 
-**Elicit variant:** Same idea with `elicit` and `params.task`; test drives `respond(result)` or decline (call `reject(error)` when implemented); assert server’s `tasks/result` sees success or error.
+**Elicit variant**  
+Same idea with `elicit` and `params.task`; test drives `respond(result)` or decline (`reject(error)`); server’s `tasks/result` sees success or error.
 
-**Introspection:** Where needed, validate behavior by introspecting the test server (e.g. a tool or internal state that records what the server sent and received for createMessage and tasks/get, tasks/result) and/or the client (events, receiver-task list if exposed for tests, or a test-only hook). The test server should be the single source of “real” MCP behavior; the client is validated by its responses and by what the server observes.
-
-### 6.3 Summary
-
-| Scope | What to test                                                                                                                                                                                                                                   |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit  | None (receiver tasks covered via e2e only; no tests that call private methods).                                                                                                                                                                |
-| E2E   | Real server sends createMessage/elicit with params.task; client returns { task }; test resolves (or rejects) pending request; server calls tasks/list, tasks/get, tasks/result, tasks/cancel and asserts on responses; optional introspection. |
+**Location**  
+`core/__tests__/inspectorClient.test.ts`, describe block “Receiver tasks (e2e)” — two tests: one for sampling, one for elicitation.
 
 ---
 
-## 7. Order of implementation
+## 5. Files changed (summary)
 
-1. Add `receiverTasks` and `receiverTaskTtlMs` options, `ReceiverTaskRecord` type, `receiverTaskRecords` map; when `receiverTasks` is true add `tasks` capability in constructor; add `createReceiverTask`, `emitReceiverTaskStatus`, `upsertReceiverTask`, `getReceiverTask`, `listReceiverTasks`, `getReceiverTaskPayload`, `cancelReceiverTask`; clear receiver tasks in `disconnect()`.
-2. When `receiverTasks` is true, register ListTasks, GetTask, GetTaskPayload, CancelTask handlers in `connect()` (each delegating to the corresponding receiver-task method).
-3. When `receiverTasks` is true, replace CreateMessage handler with task-aware version (check params.task, immediate return { task }, background add to pending and wire resolve/reject to record).
-4. When `receiverTasks` is true, replace Elicit handler with task-aware version; add optional `reject` to ElicitationCreateMessage and set it for task-augmented case; in decline path call it.
-5. App: pass `receiverTasks: true` and `receiverTaskTtlMs`, and in elicitation decline call `reject` when present.
-6. **Tests:** Unit tests per §6.1 — **Not implemented** (removed; no private-method tests). E2E per §6.2 — **Done** (full protocol driver in `core/__tests__/inspectorClient.test.ts` describe "Receiver tasks (e2e)").
-
----
-
-## Implementation notes (changes from plan)
-
-- **emitReceiverTaskStatus / upsertReceiverTask:** Implemented as synchronous `void`; `client.notification()` is invoked and errors are handled with `.catch()` and logging, so the flow does not return a Promise.
-- **ElicitationCreateMessage reject:** Exposed as a public method `reject(error: Error)` so the App calls `elicitation.reject(error)` before `elicitation.remove()`; the optional constructor callback is stored internally and invoked by `reject()`.
-- **SDK imports:** `CreateTaskResultSchema` was not imported; response type is inferred from `{ task: record.task }`. `TaskStatusNotificationSchema` was added for building the notification payload.
-- **Terminal status check:** Implemented as a private static `isTerminalTaskStatus(status)` (completed/failed/cancelled) instead of using the SDK’s experimental `isTerminal`.
-- **App config:** Web app uses `getMCPTaskTtl(currentConfig)` where `currentConfig` is `configRef.current` in `ensureInspectorClient`.
+| Area            | File                                   | Changes                                                                                                                                                                               |
+| --------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Options / types | `core/mcp/inspectorClient.ts`          | `receiverTasks`, `receiverTaskTtlMs` on InspectorClientOptions; `ReceiverTaskRecord`; `receiverTaskRecords`.                                                                          |
+| Constructor     | `core/mcp/inspectorClient.ts`          | When `receiverTasks` is true, add `tasks` to ClientCapabilities.                                                                                                                      |
+| Helpers         | `core/mcp/inspectorClient.ts`          | `createReceiverTask`, `emitReceiverTaskStatus`, `upsertReceiverTask`, `getReceiverTask`, `listReceiverTasks`, `getReceiverTaskPayload`, `cancelReceiverTask`; `isTerminalTaskStatus`. |
+| connect()       | `core/mcp/inspectorClient.ts`          | When `receiverTasks` is true: task-aware CreateMessage and Elicit handlers; ListTasks, GetTask, GetTaskPayload, CancelTask handlers.                                                  |
+| disconnect()    | `core/mcp/inspectorClient.ts`          | Clear receiver task timeouts and `receiverTaskRecords`.                                                                                                                               |
+| Elicitation     | `core/mcp/elicitationCreateMessage.ts` | Optional `reject(error: Error)` (public method; set when task-augmented so App can reject the task payload on decline).                                                               |
+| App             | `web/src/App.tsx`                      | Pass `receiverTasks: true` and `receiverTaskTtlMs: getMCPTaskTtl(config)`; on elicitation decline, call `reject` when present.                                                        |
+| Test fixtures   | `core/test/test-server-fixtures.ts`    | `createTaskTool` with `receiverTaskTtl` for e2e receiver flow.                                                                                                                        |

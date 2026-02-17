@@ -102,7 +102,6 @@ Testing
 
 Goal: Parity with v1 client
 
-- Receiver task support
 - MCP apps work (remaining)
   - Fix handler multiplexing in AppRendererClient
   - Sandbox
