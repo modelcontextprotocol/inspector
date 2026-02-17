@@ -15,9 +15,11 @@ vi.mock("@/lib/hooks/useToast", () => ({
 vi.mock("@mcp-ui/client", () => ({
   AppRenderer: ({
     toolName,
+    toolResult,
     onMessage,
   }: {
     toolName: string;
+    toolResult?: unknown;
     onMessage?: (
       params: { role: "user"; content: { type: "text"; text: string }[] },
       extra: RequestHandlerExtra,
@@ -25,6 +27,7 @@ vi.mock("@mcp-ui/client", () => ({
   }) => (
     <div data-testid="mcp-ui-app-renderer">
       <div data-testid="tool-name">{toolName}</div>
+      {toolResult !== undefined && <div data-testid="tool-result-received" />}
       <button
         data-testid="trigger-message"
         onClick={() =>
@@ -82,6 +85,8 @@ describe("AppRenderer", () => {
   it("should render McpUiAppRenderer when client is ready", async () => {
     render(<AppRenderer {...defaultProps} />);
 
+    await screen.findByTestId("tool-result-received");
+
     expect(screen.getByTestId("mcp-ui-app-renderer")).toBeInTheDocument();
     expect(screen.getByTestId("tool-name")).toHaveTextContent("testApp");
   });
@@ -89,12 +94,16 @@ describe("AppRenderer", () => {
   it("should set minimum height on container", async () => {
     render(<AppRenderer {...defaultProps} />);
 
+    await screen.findByTestId("tool-result-received");
+
     const container = screen.getByTestId("mcp-ui-app-renderer").parentElement;
     expect(container).toHaveStyle({ minHeight: "400px" });
   });
 
   it("should show toast when onMessage is triggered", async () => {
     render(<AppRenderer {...defaultProps} />);
+
+    await screen.findByTestId("tool-result-received");
 
     fireEvent.click(screen.getByTestId("trigger-message"));
 
@@ -106,11 +115,11 @@ describe("AppRenderer", () => {
   it("should call tools/call when mounted with tool and toolInput", async () => {
     render(<AppRenderer {...defaultProps} toolInput={{ key: "value" }} />);
 
-    await vi.waitFor(() => {
-      expect(mockCallTool).toHaveBeenCalledWith({
-        name: "testApp",
-        arguments: { key: "value" },
-      });
+    await screen.findByTestId("tool-result-received");
+
+    expect(mockCallTool).toHaveBeenCalledWith({
+      name: "testApp",
+      arguments: { key: "value" },
     });
   });
 });
