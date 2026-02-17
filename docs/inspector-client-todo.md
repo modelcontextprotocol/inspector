@@ -115,6 +115,7 @@ Goal: Bring Inspector Web support to current spec
 
 - Add OAuth CIMD support (easy)
   - clientMetadataUrl config item
+- URL elicitation (already in InspectorClient, just need UX)
 - Add "sampling with tools" support
   - https://github.com/modelcontextprotocol/inspector/issues/932
 - Review v1 project boards for any feature deficiencies

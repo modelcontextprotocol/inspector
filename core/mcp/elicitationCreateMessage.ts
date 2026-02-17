@@ -13,11 +13,14 @@ export class ElicitationCreateMessage {
   public readonly request: ElicitRequest;
   public readonly taskId?: string;
   private resolvePromise?: (result: ElicitResult) => void;
+  /** Set only for task-augmented elicit; used when user declines so server's tasks/result receives an error */
+  private rejectCallback?: (error: Error) => void;
 
   constructor(
     request: ElicitRequest,
     resolve: (result: ElicitResult) => void,
     private onRemove: (id: string) => void,
+    reject?: (error: Error) => void,
   ) {
     this.id = `elicitation-${Date.now()}-${Math.random()}`;
     this.timestamp = new Date();
@@ -26,6 +29,18 @@ export class ElicitationCreateMessage {
     const relatedTask = request.params?._meta?.[RELATED_TASK_META_KEY];
     this.taskId = relatedTask?.taskId;
     this.resolvePromise = resolve;
+    this.rejectCallback = reject;
+  }
+
+  /**
+   * Reject the elicitation (e.g. when user declines). Only has effect when this
+   * request was task-augmented; then the server's tasks/result will receive the error.
+   */
+  reject(error: Error): void {
+    if (this.rejectCallback) {
+      this.rejectCallback(error);
+      this.rejectCallback = undefined;
+    }
   }
 
   /**

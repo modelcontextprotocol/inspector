@@ -67,7 +67,13 @@ import {
   CallToolResultSchema,
   McpError,
   ErrorCode,
+  ListTasksRequestSchema,
+  GetTaskRequestSchema,
+  GetTaskPayloadRequestSchema,
+  CancelTaskRequestSchema,
+  TaskStatusNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { ClientResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   type JsonValue,
   convertToolParameters,
@@ -300,6 +306,29 @@ export interface InspectorClientOptions {
    * when OAuth flow starts. Used as key for sessionStorage.
    */
   sessionId?: string;
+
+  /**
+   * When true, advertise receiver-task capability and handle task-augmented
+   * sampling/createMessage and elicit; register tasks/list, tasks/get,
+   * tasks/result, tasks/cancel handlers. Default false.
+   */
+  receiverTasks?: boolean;
+
+  /**
+   * TTL in ms for receiver tasks when server sends params.task without ttl.
+   * Only used when receiverTasks is true. If a function, called at task creation.
+   * Default 60_000 when omitted.
+   */
+  receiverTaskTtlMs?: number | (() => number);
+}
+
+/** Internal record for a receiver task (server polls us for status/result). */
+interface ReceiverTaskRecord {
+  task: Task;
+  payloadPromise: Promise<ClientResult>;
+  resolvePayload: (payload: ClientResult) => void;
+  rejectPayload: (reason?: unknown) => void;
+  cleanupTimeoutId?: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -359,6 +388,10 @@ export class InspectorClient extends InspectorClientEventTarget {
   private subscribedResources: Set<string> = new Set();
   // Requestor tasks (client-initiated: we send request that creates task on server, we poll server)
   private trackedRequestorTasks: Map<string, Task> = new Map();
+  // Receiver tasks (server-initiated: server sends createMessage/elicit with params.task, server polls us)
+  private receiverTasks: boolean;
+  private receiverTaskTtlMs: number | (() => number);
+  private receiverTaskRecords: Map<string, ReceiverTaskRecord> = new Map();
   // OAuth support
   private oauthConfig?: InspectorClientOptions["oauth"] &
     NonNullable<InspectorClientEnvironment["oauth"]>;
@@ -393,6 +426,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.initialLoggingLevel = options.initialLoggingLevel;
     this.sample = options.sample ?? true;
     this.elicit = options.elicit ?? true;
+    this.receiverTasks = options.receiverTasks ?? false;
+    this.receiverTaskTtlMs = options.receiverTaskTtlMs ?? 60_000;
     this.progress = options.progress ?? true;
     this.resetTimeoutOnProgress = options.resetTimeoutOnProgress ?? true;
     this.requestTimeout = options.timeout;
@@ -468,6 +503,17 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Advertise roots capability if roots option was provided (even if empty array)
     if (this.roots !== undefined) {
       capabilities.roots = { listChanged: true };
+    }
+    // Receiver tasks: advertise so server can send task-augmented createMessage/elicit and poll us
+    if (this.receiverTasks) {
+      capabilities.tasks = {
+        list: {},
+        cancel: {},
+        requests: {
+          sampling: { createMessage: {} },
+          elicitation: { create: {} },
+        },
+      };
     }
     if (Object.keys(capabilities).length > 0) {
       clientOptions.capabilities = capabilities;
@@ -593,6 +639,134 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * True when task status is completed, failed, or cancelled.
+   * We use this private helper instead of the SDK's experimental isTerminal()
+   * to avoid depending on experimental API and to get a type predicate so
+   * TypeScript narrows status to "completed" | "failed" | "cancelled" after the check.
+   */
+  private static isTerminalTaskStatus(
+    status: Task["status"],
+  ): status is "completed" | "failed" | "cancelled" {
+    return (
+      status === "completed" || status === "failed" || status === "cancelled"
+    );
+  }
+
+  private createReceiverTask(opts: {
+    ttl?: number;
+    initialStatus: Task["status"];
+    statusMessage?: string;
+    pollInterval?: number;
+  }): ReceiverTaskRecord {
+    const taskId =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `task-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    const ttlMs =
+      opts.ttl ??
+      (typeof this.receiverTaskTtlMs === "function"
+        ? this.receiverTaskTtlMs()
+        : this.receiverTaskTtlMs);
+    const now = new Date().toISOString();
+    const task: Task = {
+      taskId,
+      status: opts.initialStatus,
+      ttl: ttlMs,
+      createdAt: now,
+      lastUpdatedAt: now,
+      ...(opts.pollInterval != null && { pollInterval: opts.pollInterval }),
+      ...(opts.statusMessage != null && { statusMessage: opts.statusMessage }),
+    };
+    let resolvePayload!: (payload: ClientResult) => void;
+    let rejectPayload!: (reason?: unknown) => void;
+    const payloadPromise = new Promise<ClientResult>((resolve, reject) => {
+      resolvePayload = resolve;
+      rejectPayload = reject;
+    });
+    const record: ReceiverTaskRecord = {
+      task,
+      payloadPromise,
+      resolvePayload,
+      rejectPayload,
+    };
+    record.cleanupTimeoutId = setTimeout(() => {
+      record.cleanupTimeoutId = undefined;
+      this.receiverTaskRecords.delete(taskId);
+    }, ttlMs);
+    this.receiverTaskRecords.set(taskId, record);
+    return record;
+  }
+
+  private emitReceiverTaskStatus(task: Task): void {
+    if (!this.client) return;
+    try {
+      const notification = TaskStatusNotificationSchema.parse({
+        method: "notifications/tasks/status" as const,
+        params: task,
+      });
+      this.client.notification(notification).catch((err) => {
+        this.logger.warn(
+          { err, taskId: task.taskId },
+          "receiver task status notification failed",
+        );
+      });
+    } catch (err) {
+      this.logger.warn(
+        { err, taskId: task.taskId },
+        "receiver task status notification failed",
+      );
+    }
+  }
+
+  private upsertReceiverTask(updatedTask: Task): void {
+    const record = this.receiverTaskRecords.get(updatedTask.taskId);
+    if (record) {
+      record.task = updatedTask;
+      this.emitReceiverTaskStatus(updatedTask);
+    }
+  }
+
+  private getReceiverTask(taskId: string): ReceiverTaskRecord | undefined {
+    return this.receiverTaskRecords.get(taskId);
+  }
+
+  private listReceiverTasks(): Task[] {
+    return Array.from(this.receiverTaskRecords.values()).map((r) => r.task);
+  }
+
+  private async getReceiverTaskPayload(taskId: string): Promise<ClientResult> {
+    const record = this.receiverTaskRecords.get(taskId);
+    if (!record) {
+      throw new McpError(ErrorCode.InvalidParams, `Unknown taskId: ${taskId}`);
+    }
+    return record.payloadPromise;
+  }
+
+  private cancelReceiverTask(taskId: string): Task {
+    const record = this.receiverTaskRecords.get(taskId);
+    if (!record) {
+      throw new McpError(ErrorCode.InvalidParams, `Unknown taskId: ${taskId}`);
+    }
+    if (InspectorClient.isTerminalTaskStatus(record.task.status)) {
+      return record.task;
+    }
+    const now = new Date().toISOString();
+    const updatedTask: Task = {
+      ...record.task,
+      status: "cancelled",
+      lastUpdatedAt: now,
+    };
+    record.task = updatedTask;
+    record.rejectPayload(new Error("Task cancelled"));
+    if (record.cleanupTimeoutId != null) {
+      clearTimeout(record.cleanupTimeoutId);
+      record.cleanupTimeoutId = undefined;
+    }
+    this.emitReceiverTaskStatus(updatedTask);
+    return updatedTask;
+  }
+
+  /**
    * Connect to the MCP server
    */
   async connect(): Promise<void> {
@@ -669,6 +843,47 @@ export class InspectorClient extends InspectorClientEventTarget {
       // Set up sampling request handler if sampling capability is enabled
       if (this.sample && this.client) {
         this.client.setRequestHandler(CreateMessageRequestSchema, (request) => {
+          const paramsTask = (request.params as { task?: { ttl?: number } })
+            ?.task;
+          if (this.receiverTasks && paramsTask != null) {
+            const record = this.createReceiverTask({
+              ttl: paramsTask.ttl,
+              initialStatus: "input_required",
+              statusMessage: "Awaiting user input",
+            });
+            void (async () => {
+              const samplingRequest = new SamplingCreateMessage(
+                request,
+                (result) => {
+                  record.resolvePayload(result);
+                  const now = new Date().toISOString();
+                  const updated: Task = {
+                    ...record.task,
+                    status: "completed",
+                    lastUpdatedAt: now,
+                  };
+                  record.task = updated;
+                  this.upsertReceiverTask(updated);
+                },
+                (error) => {
+                  record.rejectPayload(error);
+                  const now = new Date().toISOString();
+                  const updated: Task = {
+                    ...record.task,
+                    status: "failed",
+                    lastUpdatedAt: now,
+                    statusMessage:
+                      error instanceof Error ? error.message : String(error),
+                  };
+                  record.task = updated;
+                  this.upsertReceiverTask(updated);
+                },
+                (id) => this.removePendingSample(id),
+              );
+              this.addPendingSample(samplingRequest);
+            })();
+            return Promise.resolve({ task: record.task });
+          }
           return new Promise<CreateMessageResult>((resolve, reject) => {
             const samplingRequest = new SamplingCreateMessage(
               request,
@@ -688,6 +903,46 @@ export class InspectorClient extends InspectorClientEventTarget {
       // Set up elicitation request handler if elicitation capability is enabled
       if (this.elicit && this.client) {
         this.client.setRequestHandler(ElicitRequestSchema, (request) => {
+          const paramsTask = (request.params as { task?: { ttl?: number } })
+            ?.task;
+          if (this.receiverTasks && paramsTask != null) {
+            const record = this.createReceiverTask({
+              ttl: paramsTask.ttl,
+              initialStatus: "input_required",
+              statusMessage: "Awaiting user input",
+            });
+            void (async () => {
+              const elicitationRequest = new ElicitationCreateMessage(
+                request,
+                (result) => {
+                  record.resolvePayload(result);
+                  const now = new Date().toISOString();
+                  const updated: Task = {
+                    ...record.task,
+                    status: "completed",
+                    lastUpdatedAt: now,
+                  };
+                  record.task = updated;
+                  this.upsertReceiverTask(updated);
+                },
+                (id) => this.removePendingElicitation(id),
+                (error) => {
+                  record.rejectPayload(error);
+                  const now = new Date().toISOString();
+                  const updated: Task = {
+                    ...record.task,
+                    status: "failed",
+                    lastUpdatedAt: now,
+                    statusMessage: error.message,
+                  };
+                  record.task = updated;
+                  this.upsertReceiverTask(updated);
+                },
+              );
+              this.addPendingElicitation(elicitationRequest);
+            })();
+            return Promise.resolve({ task: record.task });
+          }
           return new Promise<ElicitResult>((resolve) => {
             const elicitationRequest = new ElicitationCreateMessage(
               request,
@@ -706,6 +961,30 @@ export class InspectorClient extends InspectorClientEventTarget {
         this.client.setRequestHandler(ListRootsRequestSchema, async () => {
           return { roots: this.roots ?? [] };
         });
+      }
+
+      // Set up receiver-task request handlers (server polls us for tasks/list, tasks/get, tasks/result, tasks/cancel)
+      if (this.receiverTasks && this.client) {
+        this.client.setRequestHandler(ListTasksRequestSchema, async () => ({
+          tasks: this.listReceiverTasks(),
+        }));
+        this.client.setRequestHandler(GetTaskRequestSchema, async (req) => {
+          const record = this.getReceiverTask(req.params.taskId);
+          if (!record) {
+            throw new McpError(
+              ErrorCode.InvalidParams,
+              `Unknown taskId: ${req.params.taskId}`,
+            );
+          }
+          return record.task;
+        });
+        this.client.setRequestHandler(
+          GetTaskPayloadRequestSchema,
+          async (req) => this.getReceiverTaskPayload(req.params.taskId),
+        );
+        this.client.setRequestHandler(CancelTaskRequestSchema, async (req) =>
+          this.cancelReceiverTask(req.params.taskId),
+        );
       }
 
       // Set up notification handler for roots/list_changed from server
@@ -849,7 +1128,14 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.cacheInternal.clearAll();
     // Clear resource subscriptions on disconnect
     this.subscribedResources.clear();
-    // Clear active tasks on disconnect
+    // Clear receiver tasks: stop TTL timers and drop records
+    for (const record of this.receiverTaskRecords.values()) {
+      if (record.cleanupTimeoutId != null) {
+        clearTimeout(record.cleanupTimeoutId);
+      }
+    }
+    this.receiverTaskRecords.clear();
+    // Clear active requestor tasks on disconnect
     this.trackedRequestorTasks.clear();
     this.appRendererClientProxy = null;
     this.capabilities = undefined;
@@ -1021,9 +1307,9 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Update requestor task cache (internal helper)
+   * Upsert requestor task in cache (internal helper); aligns with upsertReceiverTask naming.
    */
-  private updateTrackedRequestorTask(task: Task): void {
+  private upsertTrackedRequestorTask(task: Task): void {
     this.trackedRequestorTasks.set(task.taskId, task);
   }
 
@@ -1042,7 +1328,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
     // GetTaskResult is the task itself (taskId, status, ttl, etc.)
     // Update task cache with result
-    this.updateTrackedRequestorTask(result);
+    this.upsertTrackedRequestorTask(result);
     // Dispatch event
     this.dispatchTypedEvent("taskStatusChange", {
       taskId: result.taskId,
@@ -1089,7 +1375,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         status: "cancelled",
         lastUpdatedAt: new Date().toISOString(),
       };
-      this.updateTrackedRequestorTask(cancelledTask);
+      this.upsertTrackedRequestorTask(cancelledTask);
     }
     // Dispatch event
     this.dispatchTypedEvent("taskCancelled", { taskId });
@@ -1112,7 +1398,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
     // Update task cache with all returned tasks
     for (const task of result.tasks) {
-      this.updateTrackedRequestorTask(task);
+      this.upsertTrackedRequestorTask(task);
     }
     // Dispatch event with all tasks
     this.dispatchTypedEvent("tasksChange", result.tasks);
@@ -1605,7 +1891,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         switch (message.type) {
           case "taskCreated":
             // Task was created - update cache and dispatch event
-            this.updateTrackedRequestorTask(message.task);
+            this.upsertTrackedRequestorTask(message.task);
             taskId = message.task.taskId;
             this.dispatchTypedEvent("taskCreated", {
               taskId: message.task.taskId,
@@ -1615,7 +1901,7 @@ export class InspectorClient extends InspectorClientEventTarget {
 
           case "taskStatus":
             // Task status updated - update cache and dispatch event
-            this.updateTrackedRequestorTask(message.task);
+            this.upsertTrackedRequestorTask(message.task);
             if (!taskId) {
               taskId = message.task.taskId;
             }
@@ -1638,7 +1924,7 @@ export class InspectorClient extends InspectorClientEventTarget {
                   status: "completed",
                   lastUpdatedAt: new Date().toISOString(),
                 };
-                this.updateTrackedRequestorTask(completedTask);
+                this.upsertTrackedRequestorTask(completedTask);
                 this.dispatchTypedEvent("taskCompleted", {
                   taskId,
                   result: finalResult,
@@ -1660,7 +1946,7 @@ export class InspectorClient extends InspectorClientEventTarget {
                   lastUpdatedAt: new Date().toISOString(),
                   statusMessage: message.error.message,
                 };
-                this.updateTrackedRequestorTask(failedTask);
+                this.upsertTrackedRequestorTask(failedTask);
                 this.dispatchTypedEvent("taskFailed", {
                   taskId,
                   error: message.error,

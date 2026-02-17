@@ -410,6 +410,8 @@ const App = () => {
         maxFetchRequests: 1000,
         sessionStorage,
         sessionId,
+        receiverTasks: true,
+        receiverTaskTtlMs: getMCPTaskTtl(currentConfig),
       };
 
       if (hasOAuthConfig) {
@@ -551,6 +553,7 @@ const App = () => {
             await elicitation.respond(result);
           },
           decline: async (error: Error) => {
+            elicitation.reject(error);
             elicitation.remove();
             console.error("Elicitation request rejected:", error);
           },

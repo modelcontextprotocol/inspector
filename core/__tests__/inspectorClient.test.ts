@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import * as z from "zod/v4";
 import { InspectorClient } from "../mcp/inspectorClient.js";
 import { createTransportNode } from "../mcp/node/transport.js";
 import { SamplingCreateMessage } from "../mcp/samplingCreateMessage.js";
@@ -5764,6 +5765,153 @@ describe("InspectorClient", () => {
         expect(nextPage.tasks).toBeDefined();
         expect(Array.isArray(nextPage.tasks)).toBe(true);
       }
+    });
+  });
+
+  describe("Receiver tasks (e2e)", () => {
+    it("server sends createMessage with params.task, client returns task, test responds, server gets payload via tasks/get and tasks/result", async () => {
+      if (client) await client.disconnect();
+      client = null as any;
+      await server?.stop();
+
+      const config = {
+        ...getTaskServerConfig(),
+        serverType: "sse" as const,
+        tools: [
+          createFlexibleTaskTool({
+            name: "receiverE2ESampling",
+            samplingText: "Reply for e2e",
+            receiverTaskTtl: 5000,
+          }),
+          ...(getTaskServerConfig().tools || []),
+        ],
+      };
+      server = createTestServerHttp(config);
+      await server.start();
+      client = new InspectorClient(
+        {
+          type: "sse",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          autoSyncLists: false,
+          sample: true,
+          receiverTasks: true,
+          receiverTaskTtlMs: 10_000,
+        },
+      );
+      await client.connect();
+
+      const samplingPromise = waitForEvent<SamplingCreateMessage>(
+        client,
+        "newPendingSample",
+        { timeout: 5000 },
+      );
+      const taskPromise = client.callToolStream("receiverE2ESampling", {
+        message: "e2e",
+      });
+
+      const sample = await samplingPromise;
+      expect(sample).toBeDefined();
+
+      await sample.respond({
+        model: "e2e-model",
+        role: "assistant",
+        stopReason: "endTurn",
+        content: { type: "text", text: "E2E receiver response" },
+      });
+
+      const result = await taskPromise;
+      expect(result.success).toBe(true);
+      expect(result.result).toBeDefined();
+      expect(result.result).not.toBeNull();
+      expect(result.result!.content).toBeDefined();
+      const content = result.result!.content!;
+      const textBlock = Array.isArray(content) ? content[0] : content;
+      expect(textBlock).toBeDefined();
+      expect(
+        textBlock &&
+          typeof textBlock === "object" &&
+          "type" in textBlock &&
+          textBlock.type === "text",
+      ).toBe(true);
+      if (textBlock && typeof textBlock === "object" && "text" in textBlock) {
+        expect((textBlock as { text: string }).text).toBe(
+          "E2E receiver response",
+        );
+      }
+    });
+
+    it("server sends elicit with params.task, client returns task, test responds, server gets payload via tasks/get and tasks/result", async () => {
+      if (client) await client.disconnect();
+      client = null as any;
+      await server?.stop();
+
+      const config = {
+        ...getTaskServerConfig(),
+        serverType: "sse" as const,
+        tools: [
+          createFlexibleTaskTool({
+            name: "receiverE2EElicit",
+            elicitationSchema: z.object({
+              input: z.string().describe("User input"),
+            }),
+            receiverTaskTtl: 5000,
+          }),
+          ...(getTaskServerConfig().tools || []),
+        ],
+      };
+      server = createTestServerHttp(config);
+      await server.start();
+      client = new InspectorClient(
+        {
+          type: "sse",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          autoSyncLists: false,
+          elicit: true,
+          receiverTasks: true,
+          receiverTaskTtlMs: 10_000,
+        },
+      );
+      await client.connect();
+
+      const elicitationPromise = waitForEvent<ElicitationCreateMessage>(
+        client,
+        "newPendingElicitation",
+        { timeout: 5000 },
+      );
+      const taskPromise = client.callToolStream("receiverE2EElicit", {
+        message: "e2e",
+      });
+
+      const elicitation = await elicitationPromise;
+      expect(elicitation).toBeDefined();
+
+      await elicitation.respond({
+        action: "accept",
+        content: { input: "E2E elicitation input" },
+      });
+
+      const result = await taskPromise;
+      expect(result.success).toBe(true);
+      expect(result.result).toBeDefined();
+      expect(result.result).not.toBeNull();
+      expect(result.result!.content).toBeDefined();
+      // Elicit payload from tasks/result is JSON in a text block
+      const content = result.result!.content!;
+      const textBlock = Array.isArray(content) ? content[0] : content;
+      expect(
+        textBlock && typeof textBlock === "object" && "text" in textBlock,
+      ).toBe(true);
+      const parsed = JSON.parse((textBlock as { text: string }).text) as Record<
+        string,
+        unknown
+      >;
+      expect(parsed.input).toBe("E2E elicitation input");
     });
   });
 });

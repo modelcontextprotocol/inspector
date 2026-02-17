@@ -9,7 +9,9 @@ import * as z from "zod/v4";
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import {
   CreateMessageResultSchema,
+  CreateTaskResultSchema,
   ElicitResultSchema,
+  GetTaskResultSchema,
   ListRootsResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
@@ -1217,6 +1219,8 @@ export interface FlexibleTaskToolOptions {
   samplingText?: string; // If provided, require sampling with this text
   failAfterDelay?: number; // If set, task fails after this delay (ms)
   cancelAfterDelay?: number; // If set, task cancels itself after this delay (ms)
+  /** If set, send params.task: { ttl } so the client creates a receiver task and returns { task } immediately */
+  receiverTaskTtl?: number;
 }
 
 /**
@@ -1237,6 +1241,7 @@ export function createFlexibleTaskTool(
     samplingText,
     failAfterDelay,
     cancelAfterDelay,
+    receiverTaskTtl,
   } = options;
 
   // If taskSupport is "forbidden" or immediateReturn is true, return a regular tool
@@ -1281,6 +1286,12 @@ export function createFlexibleTaskTool(
         // Create the task
         const task = await extra.taskStore.createTask({});
 
+        // When receiverTaskTtl is set, client returns { task } and we get payload via tasks/get + tasks/result
+        let receiverTaskPayload: {
+          content: unknown;
+          isElicit?: boolean;
+        } | null = null;
+
         // Start async task execution
         (async () => {
           try {
@@ -1309,14 +1320,61 @@ export function createFlexibleTaskTool(
                       taskId: task.taskId,
                     },
                   },
+                  ...(receiverTaskTtl != null && {
+                    task: { ttl: receiverTaskTtl },
+                  }),
                 };
-                await extra.sendRequest(
+                const elicitResponse = await extra.sendRequest(
                   {
                     method: "elicitation/create",
                     params: elicitationParams,
                   },
-                  ElicitResultSchema,
+                  (receiverTaskTtl != null
+                    ? z.union([ElicitResultSchema, CreateTaskResultSchema])
+                    : ElicitResultSchema) as typeof ElicitResultSchema,
                 );
+                const elicitWithTask = elicitResponse as unknown as {
+                  task?: { taskId: string };
+                };
+                if (receiverTaskTtl != null && elicitWithTask?.task) {
+                  const clientTaskId = elicitWithTask.task.taskId;
+                  for (let i = 0; i < 50; i++) {
+                    if (getTestServerControl()?.isClosing()) break;
+                    const getRes = await extra.sendRequest(
+                      {
+                        method: "tasks/get",
+                        params: { taskId: clientTaskId },
+                      },
+                      GetTaskResultSchema,
+                    );
+                    const status = (getRes as { status: string }).status;
+                    if (
+                      status === "completed" ||
+                      status === "failed" ||
+                      status === "cancelled"
+                    ) {
+                      if (status === "completed") {
+                        try {
+                          const payload = await extra.sendRequest(
+                            {
+                              method: "tasks/result",
+                              params: { taskId: clientTaskId },
+                            },
+                            ElicitResultSchema,
+                          );
+                          receiverTaskPayload = {
+                            content: (payload as { content?: unknown }).content,
+                            isElicit: true,
+                          };
+                        } catch {
+                          // tasks/result may fail if task failed
+                        }
+                      }
+                      break;
+                    }
+                    await new Promise((r) => setTimeout(r, 100));
+                  }
+                }
                 // Once response received, continue task
                 await extra.taskStore.updateTaskStatus(task.taskId, "working");
               } catch (error) {
@@ -1340,7 +1398,7 @@ export function createFlexibleTaskTool(
 
               // Send sampling request with related-task metadata
               try {
-                await extra.sendRequest(
+                const samplingResponse = await extra.sendRequest(
                   {
                     method: "sampling/createMessage",
                     params: {
@@ -1359,10 +1417,59 @@ export function createFlexibleTaskTool(
                           taskId: task.taskId,
                         },
                       },
+                      ...(receiverTaskTtl != null && {
+                        task: { ttl: receiverTaskTtl },
+                      }),
                     },
                   },
-                  CreateMessageResultSchema,
+                  (receiverTaskTtl != null
+                    ? z.union([
+                        CreateMessageResultSchema,
+                        CreateTaskResultSchema,
+                      ])
+                    : CreateMessageResultSchema) as typeof CreateMessageResultSchema,
                 );
+                const samplingWithTask = samplingResponse as unknown as {
+                  task?: { taskId: string };
+                };
+                if (receiverTaskTtl != null && samplingWithTask?.task) {
+                  const clientTaskId = samplingWithTask.task.taskId;
+                  for (let i = 0; i < 50; i++) {
+                    if (getTestServerControl()?.isClosing()) break;
+                    const getRes = await extra.sendRequest(
+                      {
+                        method: "tasks/get",
+                        params: { taskId: clientTaskId },
+                      },
+                      GetTaskResultSchema,
+                    );
+                    const status = (getRes as { status: string }).status;
+                    if (
+                      status === "completed" ||
+                      status === "failed" ||
+                      status === "cancelled"
+                    ) {
+                      if (status === "completed") {
+                        try {
+                          const payload = await extra.sendRequest(
+                            {
+                              method: "tasks/result",
+                              params: { taskId: clientTaskId },
+                            },
+                            CreateMessageResultSchema,
+                          );
+                          receiverTaskPayload = {
+                            content: (payload as { content?: unknown }).content,
+                          };
+                        } catch {
+                          // tasks/result may fail if task failed
+                        }
+                      }
+                      break;
+                    }
+                    await new Promise((r) => setTimeout(r, 100));
+                  }
+                }
                 // Once response received, continue task
                 await extra.taskStore.updateTaskStatus(task.taskId, "working");
               } catch (error) {
@@ -1443,17 +1550,33 @@ export function createFlexibleTaskTool(
 
             // Complete the task
             // Store result BEFORE updating status to ensure it's available when SDK fetches it
-            const result = {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    message: `Task completed: ${message || "no message"}`,
-                    taskId: task.taskId,
-                  }),
-                },
-              ],
-            };
+            const result =
+              receiverTaskPayload?.content != null
+                ? receiverTaskPayload.isElicit
+                  ? {
+                      content: [
+                        {
+                          type: "text" as const,
+                          text: JSON.stringify(receiverTaskPayload.content),
+                        },
+                      ],
+                    }
+                  : {
+                      content: Array.isArray(receiverTaskPayload.content)
+                        ? receiverTaskPayload.content
+                        : [receiverTaskPayload.content],
+                    }
+                : {
+                    content: [
+                      {
+                        type: "text",
+                        text: JSON.stringify({
+                          message: `Task completed: ${message || "no message"}`,
+                          taskId: task.taskId,
+                        }),
+                      },
+                    ],
+                  };
             await extra.taskStore.storeTaskResult(
               task.taskId,
               "completed",
