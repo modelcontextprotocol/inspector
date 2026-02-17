@@ -1244,7 +1244,7 @@ const App = () => {
         while (!taskCompleted) {
           try {
             await new Promise((resolve) => setTimeout(resolve, pollInterval));
-            const taskStatus = await inspectorClient.getClientTask(taskId);
+            const taskStatus = await inspectorClient.getRequestorTask(taskId);
 
             if (
               taskStatus.status === "completed" ||
@@ -1254,7 +1254,7 @@ const App = () => {
               taskCompleted = true;
               if (taskStatus.status === "completed") {
                 const result =
-                  await inspectorClient.getClientTaskResult(taskId);
+                  await inspectorClient.getRequestorTaskResult(taskId);
                 setToolResult(result as CompatibilityCallToolResult);
               } else {
                 setToolResult({
@@ -1267,7 +1267,7 @@ const App = () => {
                   isError: true,
                 });
               }
-              void inspectorClient.listClientTasks();
+              void inspectorClient.listRequestorTasks();
             } else {
               const pollingResponseMeta =
                 rawResult &&
@@ -1288,7 +1288,7 @@ const App = () => {
                   "io.modelcontextprotocol/related-task": { taskId },
                 },
               } as CompatibilityCallToolResult);
-              void inspectorClient.listClientTasks();
+              void inspectorClient.listRequestorTasks();
             }
           } catch (pollingError) {
             setToolResult({

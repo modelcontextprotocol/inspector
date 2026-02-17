@@ -4,16 +4,16 @@ This document is a ready-to-implement plan for adding receiver-side task support
 
 ---
 
-## Overview: client tasks vs receiver tasks
+## Overview: requestor tasks vs receiver tasks
 
 InspectorClient deals with two kinds of tasks; the naming in this plan keeps them distinct.
 
-**Client tasks (existing)**
+**Requestor tasks (existing)**
 
 - **Direction:** Client → server. We send a request that creates a task on the **server** (e.g. `tools/call` with `task: { ttl }`). The server returns a task reference.
-- **Storage:** `trackedClientTasks: Map<string, Task>` holds those references.
+- **Storage:** `trackedRequestorTasks: Map<string, Task>` holds those references.
 - **Flow:** We poll the server with `tasks/get` and `tasks/result` until the task completes. The work runs on the server.
-- **Naming:** Client-task APIs: `getClientTask`, `getClientTaskResult`, `listClientTasks`, `cancelClientTask`; state accessors `getTrackedClientTasks`, `updateTrackedClientTask`.
+- **Naming:** Requestor-task APIs: `getRequestorTask`, `getRequestorTaskResult`, `listRequestorTasks`, `cancelRequestorTask`; state accessors `getTrackedRequestorTasks`, `updateTrackedRequestorTask`.
 
 **Receiver tasks (new)**
 
@@ -22,7 +22,7 @@ InspectorClient deals with two kinds of tasks; the naming in this plan keeps the
 - **Flow:** We create the task, push the request into the same Sampling/Elicitations UI; when the user responds we resolve the task's payload and send `notifications/tasks/status`. The server calls `tasks/get` and `tasks/result` **on us**; we implement handlers that delegate to receiver-task methods.
 - **Naming:** All new methods and helpers are explicitly for receiver tasks: `getReceiverTask`, `listReceiverTasks`, `getReceiverTaskPayload`, `cancelReceiverTask`, `createReceiverTask`, `emitReceiverTaskStatus`, `upsertReceiverTask`.
 
-Same MCP task protocol; opposite roles. Client tasks = we poll the server. Receiver tasks = the server polls us.
+Same MCP task protocol; opposite roles. Requestor tasks = we poll the server. Receiver tasks = the server polls us.
 
 ---
 
@@ -42,8 +42,8 @@ Same MCP task protocol; opposite roles. Client tasks = we poll the server. Recei
 
 **State:**
 
-- `pendingSamples: SamplingCreateMessage[]`, `pendingElicitations: ElicitationCreateMessage[]` (lines 344–346); `trackedClientTasks: Map<string, Task>` for **caller-side** tasks (tool-call task references from the server). **No** map or ref for receiver-side task records.
-- `disconnect()` (819–865) clears `pendingSamples`, `pendingElicitations`, `trackedClientTasks`; it does **not** clear any receiver-task store (none exists).
+- `pendingSamples: SamplingCreateMessage[]`, `pendingElicitations: ElicitationCreateMessage[]` (lines 344–346); `trackedRequestorTasks: Map<string, Task>` for **requestor** tasks (tool-call task references from the server). **No** map or ref for receiver-side task records.
+- `disconnect()` (819–865) clears `pendingSamples`, `pendingElicitations`, `trackedRequestorTasks`; it does **not** clear any receiver-task store (none exists).
 
 **Notifications:**
 
@@ -102,7 +102,7 @@ Same MCP task protocol; opposite roles. Client tasks = we poll the server. Recei
   Update the record in `receiverTaskRecords` for `task.taskId` (set `record.task = task`), then call `emitReceiverTaskStatus(task)`.
 
 **Receiver-task accessors (used by protocol handlers and internally):**  
-Name all receiver-task methods explicitly so they are not confused with client-task APIs (`getClientTask`, `getClientTaskResult`, `listClientTasks`).
+Name all receiver-task methods explicitly so they are not confused with requestor-task APIs (`getRequestorTask`, `getRequestorTaskResult`, `listRequestorTasks`).
 
 - **`getReceiverTask(taskId: string): ReceiverTaskRecord | undefined`**  
   Return `receiverTaskRecords.get(taskId)`. Used by the `tasks/get` handler and by cancel logic.
@@ -153,7 +153,7 @@ Register handlers for ListTasksRequestSchema, GetTaskRequestSchema, GetTaskPaylo
 
 ### 3.8 disconnect()
 
-- Before clearing `trackedClientTasks`, iterate `receiverTaskRecords` and clear any `cleanupTimeoutId` (clearTimeout), then `receiverTaskRecords.clear()`.
+- Before clearing `trackedRequestorTasks`, iterate `receiverTaskRecords` and clear any `cleanupTimeoutId` (clearTimeout), then `receiverTaskRecords.clear()`.
 
 ### 3.9 SDK imports
 

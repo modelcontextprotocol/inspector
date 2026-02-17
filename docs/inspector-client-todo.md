@@ -100,32 +100,40 @@ Testing
 
 ## v1.5 branch
 
-MCP apps work (remaining)
-
-- Fix handler multiplexing in AppRendererClient
-- Configurable sandbox port, create sandbox server on demand if dynamic port
-
-Goal: Parity with v1 client (plus CIMD)
+Goal: Parity with v1 client
 
 - Receiver task support
+- MCP apps work (remaining)
+  - Fix handler multiplexing in AppRendererClient
+  - Sandbox
+    - Configurable port (env var)
+      - If port specified, start on app start (as now)
+      - Else start on demand with dynamic port
+- Review changes to Client from time of fork to present to make sure we didn't miss anything else
+
+Goal: Bring Inspector Web support to current spec
+
 - Add OAuth CIMD support (easy)
-- Generally review/test all features of web app
+  - clientMetadataUrl config item
 - Add "sampling with tools" support
   - https://github.com/modelcontextprotocol/inspector/issues/932
+- Review v1 project boards for any feature deficiencies
 
-Run playwright tests on web app
+Goal: Inspector Web quality
 
-Review open v1 bugs (esp auth bugs) to see which ones still apply
+- Run playwright tests on web app
+- Review open v1 bugs (esp auth bugs) to see which ones still apply
 
-Review v1 project boards for any other low-hanging fruit
+Misc
 
-Research oauth device flow (esp for CLI/TUI)
+- Research oauth device flow (esp for CLI/TUI)
+- Extract form generator into core, extend as needed (I think there are some open issues)
 
 ### TUI
 
 Close feature gap
 Implement test strategy (vitest + Playwright?)
-Better test tool forms
+Better forms (test tool, etc)
 
 - UX (cleaner, maybe ditch ink-forms, see if it can be styled better?)
 - Functionality (data types, arrays, arrays of objects, etc)

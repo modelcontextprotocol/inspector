@@ -5034,12 +5034,12 @@ describe("InspectorClient", () => {
     });
 
     it("should list tasks (empty initially)", async () => {
-      const result = await client.listClientTasks();
+      const result = await client.listRequestorTasks();
       expect(result).toHaveProperty("tasks");
       expect(Array.isArray(result.tasks)).toBe(true);
     });
 
-    it("should run tool as task (callTool with taskOptions returns task reference, poll getTask/getTaskResult yields result)", async () => {
+    it("should run tool as task (callTool with taskOptions returns task reference, poll getRequestorTask/getRequestorTaskResult yields result)", async () => {
       // Same path as web App "Run as task": callTool with taskOptions -> task reference -> poll until completed
       const invocation = await client.callTool(
         "optionalTask",
@@ -5069,7 +5069,7 @@ describe("InspectorClient", () => {
       const pollIntervalMs = taskRef.pollInterval ?? 1000;
       const timeoutMs = 12000;
       const start = Date.now();
-      let task = await client.getClientTask(taskId);
+      let task = await client.getRequestorTask(taskId);
       while (
         task.status !== "completed" &&
         task.status !== "failed" &&
@@ -5077,12 +5077,12 @@ describe("InspectorClient", () => {
       ) {
         expect(Date.now() - start).toBeLessThan(timeoutMs);
         await new Promise((r) => setTimeout(r, pollIntervalMs));
-        task = await client.getClientTask(taskId);
+        task = await client.getRequestorTask(taskId);
       }
 
       expect(task.status).toBe("completed");
 
-      const result = await client.getClientTaskResult(taskId);
+      const result = await client.getRequestorTaskResult(taskId);
       expect(result).toBeDefined();
       expect(result).toHaveProperty("content");
       expect(Array.isArray(result.content)).toBe(true);
@@ -5095,7 +5095,7 @@ describe("InspectorClient", () => {
       expect(resultText.message).toBe("Task completed: e2e-run-as-task");
       expect(resultText.taskId).toBe(taskId);
 
-      const listResult = await client.listClientTasks();
+      const listResult = await client.listRequestorTasks();
       const found = listResult.tasks.some((t) => t.taskId === taskId);
       expect(found).toBe(true);
     });
@@ -5248,9 +5248,9 @@ describe("InspectorClient", () => {
       expect(toolCallEvent.result).toEqual(toolResult);
       expect(toolCallEvent.timestamp).toBeInstanceOf(Date);
 
-      // Validate task in clientTasks
-      const clientTasks = client.getTrackedClientTasks();
-      const cachedTask = clientTasks.find((t) => t.taskId === taskId);
+      // Validate task in requestor tasks
+      const requestorTasks = client.getTrackedRequestorTasks();
+      const cachedTask = requestorTasks.find((t) => t.taskId === taskId);
       expect(cachedTask).toBeDefined();
       expect(cachedTask!.taskId).toBe(taskId);
       expect(cachedTask!.status).toBe("completed");
@@ -5277,7 +5277,7 @@ describe("InspectorClient", () => {
       );
       expect(result.success).toBe(true);
       expect(result.result).toBeDefined();
-      const tasks = client.getTrackedClientTasks();
+      const tasks = client.getTrackedRequestorTasks();
       const task = tasks.find((t) => t.taskId && t.status === "completed");
       expect(task).toBeDefined();
       expect(task).toHaveProperty("ttl");
@@ -5291,14 +5291,14 @@ describe("InspectorClient", () => {
       expect(result.success).toBe(true);
 
       // Get the taskId from active tasks
-      const activeTasks = client.getTrackedClientTasks();
+      const activeTasks = client.getTrackedRequestorTasks();
       expect(activeTasks.length).toBeGreaterThan(0);
       const activeTask = activeTasks[0];
       expect(activeTask).toBeDefined();
       const taskId = activeTask!.taskId;
 
       // Get the task
-      const task = await client.getClientTask(taskId);
+      const task = await client.getRequestorTask(taskId);
       expect(task).toBeDefined();
       expect(task.taskId).toBe(taskId);
       expect(task.status).toBe("completed");
@@ -5314,14 +5314,14 @@ describe("InspectorClient", () => {
       expect(result.result).not.toBeNull();
 
       // Get the taskId from client tasks
-      const clientTasks = client.getTrackedClientTasks();
-      expect(clientTasks.length).toBeGreaterThan(0);
-      const task = clientTasks.find((t) => t.status === "completed");
+      const requestorTasks = client.getTrackedRequestorTasks();
+      expect(requestorTasks.length).toBeGreaterThan(0);
+      const task = requestorTasks.find((t) => t.status === "completed");
       expect(task).toBeDefined();
       const taskId = task!.taskId;
 
       // Get the task result
-      const taskResult = await client.getClientTaskResult(taskId);
+      const taskResult = await client.getRequestorTaskResult(taskId);
 
       // Validate result structure
       expect(taskResult).toBeDefined();
@@ -5358,13 +5358,13 @@ describe("InspectorClient", () => {
     it("should clear tasks on disconnect", async () => {
       // Create a task
       await client.callToolStream("simpleTask", { message: "test" });
-      expect(client.getTrackedClientTasks().length).toBeGreaterThan(0);
+      expect(client.getTrackedRequestorTasks().length).toBeGreaterThan(0);
 
       // Disconnect
       await client.disconnect();
 
       // Tasks should be cleared
-      expect(client.getTrackedClientTasks().length).toBe(0);
+      expect(client.getTrackedRequestorTasks().length).toBe(0);
     });
 
     it("should call tool with taskSupport: forbidden (immediate result, no task)", async () => {
@@ -5376,7 +5376,7 @@ describe("InspectorClient", () => {
       expect(result.success).toBe(true);
       expect(result.result).toHaveProperty("content");
       // No task should be created
-      expect(client.getTrackedClientTasks().length).toBe(0);
+      expect(client.getTrackedRequestorTasks().length).toBe(0);
     });
 
     it("should call tool with taskSupport: optional (may or may not create task)", async () => {
@@ -5484,7 +5484,7 @@ describe("InspectorClient", () => {
         "taskCancelled",
         { timeout: 3000 },
       );
-      await client.cancelClientTask(taskId);
+      await client.cancelRequestorTask(taskId);
 
       const [cancelledResult, taskResult] = await Promise.allSettled([
         cancelledPromise,
@@ -5497,7 +5497,7 @@ describe("InspectorClient", () => {
       expect(cancelledDetail.taskId).toBe(taskId);
       expect(taskResult.status).toBe("rejected");
 
-      const task = await client.getClientTask(taskId);
+      const task = await client.getRequestorTask(taskId);
       expect(task.status).toBe("cancelled");
     });
 
@@ -5544,7 +5544,7 @@ describe("InspectorClient", () => {
 
       // Verify task status is input_required (if taskId was extracted)
       if (elicitation.taskId) {
-        const activeTasks = client.getTrackedClientTasks();
+        const activeTasks = client.getTrackedRequestorTasks();
         const task = activeTasks.find((t) => t.taskId === elicitation.taskId);
         if (task) {
           expect(task.status).toBe("input_required");
@@ -5609,7 +5609,7 @@ describe("InspectorClient", () => {
       expect(sample).toBeDefined();
 
       const taskCreatedDetail = await taskCreatedPromise;
-      const task = await client.getClientTask(taskCreatedDetail.taskId);
+      const task = await client.getRequestorTask(taskCreatedDetail.taskId);
       expect(task).toBeDefined();
       expect(task!.status).toBe("input_required");
 
@@ -5745,7 +5745,7 @@ describe("InspectorClient", () => {
       });
 
       // Verify task is in completed state
-      const activeTasks = client.getTrackedClientTasks();
+      const activeTasks = client.getTrackedRequestorTasks();
       const completedTask = activeTasks.find((t) => t.taskId === taskId);
       expect(completedTask).toBeDefined();
       expect(completedTask!.status).toBe("completed");
@@ -5755,12 +5755,12 @@ describe("InspectorClient", () => {
       await client.callToolStream("simpleTask", { message: "task1" });
       await client.callToolStream("simpleTask", { message: "task2" });
       await client.callToolStream("simpleTask", { message: "task3" });
-      const result = await client.listClientTasks();
+      const result = await client.listRequestorTasks();
       expect(result.tasks.length).toBeGreaterThan(0);
 
       // If there's a nextCursor, test pagination
       if (result.nextCursor) {
-        const nextPage = await client.listClientTasks(result.nextCursor);
+        const nextPage = await client.listRequestorTasks(result.nextCursor);
         expect(nextPage.tasks).toBeDefined();
         expect(Array.isArray(nextPage.tasks)).toBe(true);
       }

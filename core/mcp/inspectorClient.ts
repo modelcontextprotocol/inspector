@@ -357,8 +357,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   };
   // Resource subscriptions
   private subscribedResources: Set<string> = new Set();
-  // Task tracking
-  private trackedClientTasks: Map<string, Task> = new Map();
+  // Requestor tasks (client-initiated: we send request that creates task on server, we poll server)
+  private trackedRequestorTasks: Map<string, Task> = new Map();
   // OAuth support
   private oauthConfig?: InspectorClientOptions["oauth"] &
     NonNullable<InspectorClientEnvironment["oauth"]>;
@@ -850,7 +850,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Clear resource subscriptions on disconnect
     this.subscribedResources.clear();
     // Clear active tasks on disconnect
-    this.trackedClientTasks.clear();
+    this.trackedRequestorTasks.clear();
     this.appRendererClientProxy = null;
     this.capabilities = undefined;
     this.serverInfo = undefined;
@@ -1014,25 +1014,25 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Get all active tracked client tasks
+   * Get all active tracked requestor tasks (tasks we created on the server, e.g. via tools/call with task)
    */
-  getTrackedClientTasks(): Task[] {
-    return Array.from(this.trackedClientTasks.values());
+  getTrackedRequestorTasks(): Task[] {
+    return Array.from(this.trackedRequestorTasks.values());
   }
 
   /**
-   * Update task cache (internal helper)
+   * Update requestor task cache (internal helper)
    */
-  private updateTrackedClientTask(task: Task): void {
-    this.trackedClientTasks.set(task.taskId, task);
+  private updateTrackedRequestorTask(task: Task): void {
+    this.trackedRequestorTasks.set(task.taskId, task);
   }
 
   /**
-   * Get task status by taskId
+   * Get requestor task status by taskId (tasks we created on the server)
    * @param taskId Task identifier
    * @returns Task status (GetTaskResult is the task itself)
    */
-  async getClientTask(taskId: string): Promise<Task> {
+  async getRequestorTask(taskId: string): Promise<Task> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -1042,7 +1042,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
     // GetTaskResult is the task itself (taskId, status, ttl, etc.)
     // Update task cache with result
-    this.updateTrackedClientTask(result);
+    this.updateTrackedRequestorTask(result);
     // Dispatch event
     this.dispatchTypedEvent("taskStatusChange", {
       taskId: result.taskId,
@@ -1052,11 +1052,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Get task result by taskId
+   * Get requestor task result by taskId (tasks we created on the server)
    * @param taskId Task identifier
    * @returns Task result
    */
-  async getClientTaskResult(taskId: string): Promise<CallToolResult> {
+  async getRequestorTaskResult(taskId: string): Promise<CallToolResult> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -1069,11 +1069,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Cancel a running task
+   * Cancel a running requestor task (task we created on the server)
    * @param taskId Task identifier
    * @returns Cancel result
    */
-  async cancelClientTask(taskId: string): Promise<void> {
+  async cancelRequestorTask(taskId: string): Promise<void> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -1082,25 +1082,25 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.getRequestOptions(),
     );
     // Update task cache if we have it
-    const task = this.trackedClientTasks.get(taskId);
+    const task = this.trackedRequestorTasks.get(taskId);
     if (task) {
       const cancelledTask: Task = {
         ...task,
         status: "cancelled",
         lastUpdatedAt: new Date().toISOString(),
       };
-      this.updateTrackedClientTask(cancelledTask);
+      this.updateTrackedRequestorTask(cancelledTask);
     }
     // Dispatch event
     this.dispatchTypedEvent("taskCancelled", { taskId });
   }
 
   /**
-   * List all tasks with optional pagination
+   * List all requestor tasks with optional pagination (tasks we created on the server)
    * @param cursor Optional pagination cursor
    * @returns List of tasks with optional next cursor
    */
-  async listClientTasks(
+  async listRequestorTasks(
     cursor?: string,
   ): Promise<{ tasks: Task[]; nextCursor?: string }> {
     if (!this.client) {
@@ -1112,7 +1112,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
     // Update task cache with all returned tasks
     for (const task of result.tasks) {
-      this.updateTrackedClientTask(task);
+      this.updateTrackedRequestorTask(task);
     }
     // Dispatch event with all tasks
     this.dispatchTypedEvent("tasksChange", result.tasks);
@@ -1605,7 +1605,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         switch (message.type) {
           case "taskCreated":
             // Task was created - update cache and dispatch event
-            this.updateTrackedClientTask(message.task);
+            this.updateTrackedRequestorTask(message.task);
             taskId = message.task.taskId;
             this.dispatchTypedEvent("taskCreated", {
               taskId: message.task.taskId,
@@ -1615,7 +1615,7 @@ export class InspectorClient extends InspectorClientEventTarget {
 
           case "taskStatus":
             // Task status updated - update cache and dispatch event
-            this.updateTrackedClientTask(message.task);
+            this.updateTrackedRequestorTask(message.task);
             if (!taskId) {
               taskId = message.task.taskId;
             }
@@ -1631,14 +1631,14 @@ export class InspectorClient extends InspectorClientEventTarget {
             finalResult = message.result as CallToolResult;
             if (taskId) {
               // Update task status to completed if we have the task
-              const task = this.trackedClientTasks.get(taskId);
+              const task = this.trackedRequestorTasks.get(taskId);
               if (task) {
                 const completedTask: Task = {
                   ...task,
                   status: "completed",
                   lastUpdatedAt: new Date().toISOString(),
                 };
-                this.updateTrackedClientTask(completedTask);
+                this.updateTrackedRequestorTask(completedTask);
                 this.dispatchTypedEvent("taskCompleted", {
                   taskId,
                   result: finalResult,
@@ -1652,7 +1652,7 @@ export class InspectorClient extends InspectorClientEventTarget {
             error = new Error(message.error.message || "Task execution failed");
             if (taskId) {
               // Update task status to failed if we have the task
-              const task = this.trackedClientTasks.get(taskId);
+              const task = this.trackedRequestorTasks.get(taskId);
               if (task) {
                 const failedTask: Task = {
                   ...task,
@@ -1660,7 +1660,7 @@ export class InspectorClient extends InspectorClientEventTarget {
                   lastUpdatedAt: new Date().toISOString(),
                   statusMessage: message.error.message,
                 };
-                this.updateTrackedClientTask(failedTask);
+                this.updateTrackedRequestorTask(failedTask);
                 this.dispatchTypedEvent("taskFailed", {
                   taskId,
                   error: message.error,

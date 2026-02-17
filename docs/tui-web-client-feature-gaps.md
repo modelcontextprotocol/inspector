@@ -273,7 +273,7 @@ Tasks (SEP-1686) were introduced in MCP version 2025-11-25 to support long-runni
 - ✅ `getTaskResult(taskId)` method - Retrieves task result once completed
 - ✅ `cancelTask(taskId)` method - Cancels a running task
 - ✅ `listTasks(cursor?)` method - Lists all active tasks with pagination support
-- ✅ `getClientTasks()` method - Returns array of currently tracked tasks
+- ✅ `getTrackedRequestorTasks()` method - Returns array of currently tracked requestor tasks
 - ✅ Task state tracking - Maintains cache of active tasks with automatic updates
 - ✅ Task lifecycle events - Dispatches `taskCreated`, `taskStatusChange`, `taskCompleted`, `taskFailed`, `taskCancelled`, `tasksChange` events
 - ✅ Elicitation integration - Links elicitation requests to tasks via `related-task` metadata
