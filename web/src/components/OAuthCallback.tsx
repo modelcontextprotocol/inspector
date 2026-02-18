@@ -288,7 +288,7 @@ const OAuthCallback = ({
     };
 
     handleCallback();
-  }, [inspectorClient, ensureInspectorClient, toast, onConnect]);
+  }, [inspectorClient, ensureInspectorClient, log, toast, onConnect]);
 
   // Extract state and code for display (for rendering before useEffect runs)
   const urlParams = new URLSearchParams(window.location.search);

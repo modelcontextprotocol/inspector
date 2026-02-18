@@ -97,7 +97,6 @@ async function shutdown(): Promise<void> {
 }
 
 let shuttingDown = false;
-let httpServer: ReturnType<typeof serve>;
 process.on("SIGINT", () => {
   void shutdown();
 });
@@ -133,7 +132,7 @@ app.use(
   }),
 );
 
-httpServer = serve(
+const httpServer = serve(
   {
     fetch: app.fetch,
     port,
