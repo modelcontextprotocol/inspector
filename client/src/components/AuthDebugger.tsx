@@ -1,15 +1,15 @@
 import { useCallback, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { DebugInspectorOAuthClientProvider } from "../lib/auth";
-import { ProxyOAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/providers/proxyProvider.js";
-import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
-import { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { AlertCircle } from "lucide-react";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
 import { OAuthStateMachine } from "../lib/oauth-state-machine";
 import { SESSION_KEYS } from "../lib/constants";
 import { validateRedirectUrl } from "@/utils/urlValidation";
+import { refreshAuthorization, discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
+import { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
+
 
 export interface AuthDebuggerProps {
   serverUrl: string;
@@ -230,6 +230,7 @@ const AuthDebugger = ({
       });
       return;
     }
+
     if (!authState.oauthTokens || !authState.oauthTokens.refresh_token) {
       updateAuthState({
         statusMessage: {
@@ -242,58 +243,31 @@ const AuthDebugger = ({
 
     updateAuthState({ isInitiatingAuth: true, statusMessage: null });
 
-    try {
-      const debugProvider = new DebugInspectorOAuthClientProvider(serverUrl);
-      const clientInfo = await debugProvider.clientInformation();
-      const validClient: OAuthClientInformationFull = {
+    const authServerMeta =
+        await discoverAuthorizationServerMetadata(serverUrl);
+    const debugProvider = new DebugInspectorOAuthClientProvider(serverUrl);
+    const clientInfo = await debugProvider.clientInformation();
+    const validClient: OAuthClientInformationFull = {
         client_id: clientInfo!.client_id,
         redirect_uris: debugProvider.redirect_uris,
       };
 
-      const authServerMeta =
-        await discoverAuthorizationServerMetadata(serverUrl);
-      if (!authServerMeta) {
-        updateAuthState({
-          statusMessage: {
-            type: "error",
-            message: "Could not reach the OAuth server",
-          },
-        });
-        return;
-      }
-
-      const tokenUrl = authServerMeta.token_endpoint;
-      const authorizationUrl = authServerMeta.authorization_endpoint;
-      const scopes = authState.oauthTokens.scope?.split(" ") || [];
-      const expiresAt = authState.oauthTokens.expires_in || 0;
-
-      const provider = new ProxyOAuthServerProvider({
-        endpoints: { authorizationUrl, tokenUrl },
-        verifyAccessToken: async (token) => {
-          return {
-            token,
-            clientId: validClient.client_id,
-            scopes,
-            expiresAt: Date.now() / 1000 + expiresAt,
-          };
-        },
-        getClient: async () => validClient,
+    try {
+      const newTokens = await refreshAuthorization(serverUrl, {
+        metadata: authServerMeta,
+        clientInformation: validClient,
+        refreshToken: authState.oauthTokens.refresh_token,
       });
-      const newOauthTokens = await provider.exchangeRefreshToken(
-        validClient,
-        authState.oauthTokens.refresh_token,
-        scopes,
-      );
-
+  
       updateAuthState({
         ...authState,
-        oauthTokens: newOauthTokens,
+        oauthTokens: newTokens,
         statusMessage: {
           type: "info",
           message: "Authentication completed successfully",
         },
       });
-      debugProvider.saveTokens(newOauthTokens);
+      debugProvider.saveTokens(newTokens);
     } catch (error) {
       console.error("OAuth refresh error:", error);
       updateAuthState({
