@@ -18,9 +18,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwoff1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         id: setup_node
         with:
           node-version-file: package.json
@@ -29,7 +29,7 @@ jobs:
       # Cache Playwright browsers
       - name: Cache Playwright browsers
         id: cache-playwright
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright # The default Playwright cache path
           key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }} # Cache key based on OS and package-lock.json
@@ -51,7 +51,7 @@ jobs:
         run: npm run test:e2e
 
       - name: Upload Playwright Report and Screenshots
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: steps.playwright-tests.conclusion != 'skipped'
         with:
           name: playwright-report

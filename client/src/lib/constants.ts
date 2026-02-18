@@ -76,4 +76,11 @@ export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
     value: "",
     is_session_item: true,
   },
+  MCP_TASK_TTL: {
+    label: "Task TTL",
+    description:
+      "Default Time-to-Live (TTL) in milliseconds for newly created tasks",
+    value: 60000,
+    is_session_item: false,
+  },
 } as const;

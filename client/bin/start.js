@@ -56,9 +56,11 @@ async function startDevServer(serverOptions) {
     echoOutput: true,
   };
 
-  // For Windows, we need to use stdin: 'ignore' to simulate < NUL
+  // For Windows, we need to ignore stdin to simulate < NUL
+  // spawn-rx's 'stdin' option expects an Observable, not 'ignore'
+  // Use Node's stdio option instead
   if (isWindows) {
-    spawnOptions.stdin = "ignore";
+    spawnOptions.stdio = ["ignore", "pipe", "pipe"];
   }
 
   const server = spawn(serverCommand, serverArgs, spawnOptions);
@@ -140,13 +142,21 @@ async function startDevClient(clientOptions) {
   const clientCommand = "npx";
   const host = process.env.HOST || "localhost";
   const clientArgs = ["vite", "--port", CLIENT_PORT, "--host", host];
+  const isWindows = process.platform === "win32";
 
-  const client = spawn(clientCommand, clientArgs, {
+  const spawnOptions = {
     cwd: resolve(__dirname, ".."),
     env: { ...process.env, CLIENT_PORT },
     signal: abort.signal,
     echoOutput: true,
-  });
+  };
+
+  // For Windows, we need to ignore stdin to prevent hanging
+  if (isWindows) {
+    spawnOptions.stdio = ["ignore", "pipe", "pipe"];
+  }
+
+  const client = spawn(clientCommand, clientArgs, spawnOptions);
 
   const url = getClientUrl(
     CLIENT_PORT,

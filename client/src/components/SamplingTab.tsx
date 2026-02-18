@@ -9,6 +9,7 @@ import SamplingRequest from "./SamplingRequest";
 export type PendingRequest = {
   id: number;
   request: CreateMessageRequest;
+  originatingTab?: string;
 };
 
 export type Props = {
