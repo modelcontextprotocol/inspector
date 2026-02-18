@@ -172,7 +172,19 @@ vi.mock("../lib/hooks/useDraggablePane", () => ({
   }),
 }));
 
-global.fetch = vi.fn().mockResolvedValue({ json: () => Promise.resolve({}) });
+// /api/config must return 200 + ok so app passes config gate and shows main UI
+global.fetch = vi.fn().mockResolvedValue({
+  ok: true,
+  status: 200,
+  json: () =>
+    Promise.resolve({
+      defaultCommand: "mcp-server-everything",
+      defaultArgs: [],
+      defaultTransport: "stdio",
+      defaultServerUrl: "",
+      defaultEnvironment: {},
+    }),
+});
 
 // jsdom does not provide window.matchMedia; useTheme (via TokenLoginScreen/main UI) calls it.
 const mockMatchMedia = (matches = false) => ({

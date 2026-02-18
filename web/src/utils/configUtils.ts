@@ -1,6 +1,9 @@
 import { InspectorConfig } from "@/lib/configurationTypes";
 import { DEFAULT_INSPECTOR_CONFIG } from "@/lib/constants";
-import { API_SERVER_ENV_VARS } from "@modelcontextprotocol/inspector-core/mcp/remote";
+import {
+  API_SERVER_ENV_VARS,
+  LEGACY_AUTH_TOKEN_ENV,
+} from "@modelcontextprotocol/inspector-core/mcp/remote";
 
 const getSearchParam = (key: string): string | null => {
   try {
@@ -96,6 +99,30 @@ export const getConfigOverridesFromQueryParams = (
     }
   }
   return overrides;
+};
+
+/**
+ * Removes the Inspector API token query params from the current URL and
+ * replaces the history entry so the token is not visible in the address bar.
+ * Token is already in app state (config) by the time this is called.
+ */
+export const removeAuthTokenFromUrl = (): void => {
+  try {
+    const url = new URL(window.location.href);
+    const hasToken =
+      url.searchParams.has(API_SERVER_ENV_VARS.AUTH_TOKEN) ||
+      url.searchParams.has(LEGACY_AUTH_TOKEN_ENV);
+    if (!hasToken) return;
+
+    url.searchParams.delete(API_SERVER_ENV_VARS.AUTH_TOKEN);
+    url.searchParams.delete(LEGACY_AUTH_TOKEN_ENV);
+    const cleanSearch = url.searchParams.toString();
+    const cleanUrl =
+      url.pathname + (cleanSearch ? `?${cleanSearch}` : "") + url.hash;
+    window.history.replaceState(undefined, "", cleanUrl);
+  } catch {
+    // Ignore URL/history errors (e.g. in tests or unsupported env)
+  }
 };
 
 export const initializeInspectorConfig = (

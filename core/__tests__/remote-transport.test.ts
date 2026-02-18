@@ -26,6 +26,8 @@ interface StartRemoteServerOptions {
   logger?: pino.Logger;
   storageDir?: string;
   allowedOrigins?: string[];
+  /** When true, API routes do not require x-mcp-remote-auth (token is still returned as empty string) */
+  dangerouslyOmitAuth?: boolean;
 }
 
 async function startRemoteServer(
@@ -40,6 +42,7 @@ async function startRemoteServer(
     logger: options.logger,
     storageDir: options.storageDir,
     allowedOrigins: options.allowedOrigins,
+    dangerouslyOmitAuth: options.dangerouslyOmitAuth,
   });
   return new Promise((resolve, reject) => {
     const server = serve(
@@ -493,6 +496,59 @@ describe("Remote transport e2e", () => {
       expect(res.status).toBe(401);
       const json = (await res.json()) as { error?: string; message?: string };
       expect(json.error).toBe("Unauthorized");
+    });
+  });
+
+  describe("when dangerouslyOmitAuth is true", () => {
+    it("accepts /api/mcp/connect without auth token", async () => {
+      const { baseUrl, server } = await startRemoteServer(0, {
+        dangerouslyOmitAuth: true,
+      });
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "sse" as const, url: "http://localhost:3000" },
+        }),
+      });
+
+      expect(res.status).not.toBe(401);
+      const json = (await res.json()) as { error?: string };
+      expect(json.error).not.toBe("Unauthorized");
+    });
+
+    it("accepts /api/log without auth token", async () => {
+      const { baseUrl, server } = await startRemoteServer(0, {
+        dangerouslyOmitAuth: true,
+      });
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level: { label: "info" }, messages: ["test"] }),
+      });
+
+      expect(res.status).not.toBe(401);
+      const json = (await res.json()) as { error?: string };
+      expect(json.error).not.toBe("Unauthorized");
+    });
+
+    it("accepts /api/storage GET without auth token", async () => {
+      const { baseUrl, server } = await startRemoteServer(0, {
+        dangerouslyOmitAuth: true,
+      });
+      remoteServer = server;
+
+      const res = await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "GET",
+      });
+
+      expect(res.status).not.toBe(401);
+      const json = (await res.json()) as { error?: string };
+      expect(json.error).not.toBe("Unauthorized");
     });
   });
 

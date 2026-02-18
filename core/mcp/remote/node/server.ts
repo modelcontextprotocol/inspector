@@ -20,8 +20,15 @@ import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { API_SERVER_ENV_VARS } from "../constants.js";
 
 export interface RemoteServerOptions {
-  /** Optional auth token. If not provided, uses API_SERVER_ENV_VARS.AUTH_TOKEN env var or generates one. */
+  /** Optional auth token. If not provided, uses API_SERVER_ENV_VARS.AUTH_TOKEN env var or generates one. Ignored when dangerouslyOmitAuth is true. */
   authToken?: string;
+
+  /**
+   * When true, do not require x-mcp-remote-auth on API routes.
+   * Origin validation (allowedOrigins) still applies.
+   * Set via DANGEROUSLY_OMIT_AUTH env var; not recommended for any exposed deployment.
+   */
+  dangerouslyOmitAuth?: boolean;
 
   /** Optional: validate Origin header against allowed origins (for CORS) */
   allowedOrigins?: string[];
@@ -31,6 +38,9 @@ export interface RemoteServerOptions {
 
   /** Optional storage directory for /api/storage/:storeId. Default: ~/.mcp-inspector/storage */
   storageDir?: string;
+
+  /** Optional sandbox URL for MCP Apps tab. When set, GET /api/config includes sandboxUrl. */
+  sandboxUrl?: string;
 }
 
 export interface CreateRemoteAppResult {
@@ -329,11 +339,14 @@ function forwardLogEvent(
 export function createRemoteApp(
   options: RemoteServerOptions = {},
 ): CreateRemoteAppResult {
-  // Determine auth token: options > env var > generate
-  const authToken =
-    options.authToken ||
-    process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ||
-    randomBytes(32).toString("hex");
+  const dangerouslyOmitAuth = !!options.dangerouslyOmitAuth;
+
+  // Determine auth token when auth is enabled: options > env var > generate
+  const authToken = dangerouslyOmitAuth
+    ? ""
+    : options.authToken ||
+      process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ||
+      randomBytes(32).toString("hex");
 
   const app = new Hono();
   const sessions = new Map<string, RemoteSession>();
@@ -344,13 +357,17 @@ export function createRemoteApp(
   // This prevents DNS rebinding attacks by validating Origin header
   app.use("*", createOriginMiddleware(allowedOrigins));
 
-  // Apply auth middleware to all routes
-  // Auth is always enabled (token from options, env var, or generated)
-  app.use("*", createAuthMiddleware(authToken));
+  // Apply auth middleware unless dangerously omitted
+  if (!dangerouslyOmitAuth) {
+    app.use("*", createAuthMiddleware(authToken));
+  }
 
   app.get("/api/config", (c) => {
     const initialConfig = buildInitialConfigFromEnv();
-    return c.json(initialConfig);
+    const payload = options.sandboxUrl
+      ? { ...initialConfig, sandboxUrl: options.sandboxUrl }
+      : initialConfig;
+    return c.json(payload);
   });
 
   app.post("/api/mcp/connect", async (c) => {
@@ -614,8 +631,6 @@ export function createRemoteApp(
     const body = (await c.req.json().catch(() => ({}))) as Partial<LogEvent>;
     if (fileLogger) {
       forwardLogEvent(fileLogger, body);
-    } else {
-      console.log("[remote-log]", body);
     }
     return c.json({ ok: true });
   });

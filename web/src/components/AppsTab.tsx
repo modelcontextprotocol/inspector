@@ -37,7 +37,8 @@ import {
 } from "@/utils/schemaUtils";
 
 interface AppsTabProps {
-  sandboxPath: string;
+  /** Sandbox URL from server (GET /api/config). When absent, sandbox is not available. */
+  sandboxPath: string | undefined;
   tools: Tool[];
   listTools: () => void;
   error: string | null;
@@ -228,7 +229,7 @@ const AppsTab = ({
               </Alert>
             )}
 
-            {selectedTool ? (
+            {selectedTool && sandboxPath ? (
               (() => {
                 const hasFields =
                   selectedTool.inputSchema?.properties &&
@@ -499,6 +500,17 @@ const AppsTab = ({
                   </div>
                 );
               })()
+            ) : !sandboxPath ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground space-y-4">
+                <AlertCircle className="w-12 h-12 opacity-20" />
+                <p>Sandbox not configured</p>
+                <p className="text-xs text-center max-w-[280px]">
+                  The server did not provide a sandbox URL. MCP Apps require the
+                  server to include{" "}
+                  <code className="bg-muted px-1 rounded">sandboxUrl</code> in{" "}
+                  <code className="bg-muted px-1 rounded">/api/config</code>.
+                </p>
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground space-y-4">
                 <AlertCircle className="w-12 h-12 opacity-20" />

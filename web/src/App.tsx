@@ -35,6 +35,10 @@ import {
   createWebEnvironment,
   type WebEnvironmentResult,
 } from "./lib/adapters/environmentFactory";
+import {
+  API_SERVER_ENV_VARS,
+  LEGACY_AUTH_TOKEN_ENV,
+} from "@modelcontextprotocol/inspector-core/mcp/remote/index.js";
 import { RemoteInspectorClientStorage } from "@modelcontextprotocol/inspector-core/mcp/remote/index.js";
 import { parseOAuthState } from "@modelcontextprotocol/inspector-core/auth/index.js";
 import { webConfigToMcpServerConfig } from "./lib/adapters/configAdapter";
@@ -82,6 +86,7 @@ import {
   getInspectorApiToken,
   getMCPTaskTtl,
   initializeInspectorConfig,
+  removeAuthTokenFromUrl,
   saveInspectorConfig,
 } from "./utils/configUtils";
 import ElicitationTab, {
@@ -132,6 +137,7 @@ const App = () => {
   const [args, setArgs] = useState<string>(getInitialArgs);
 
   const [sseUrl, setSseUrl] = useState<string>(getInitialSseUrl);
+  const [sandboxUrl, setSandboxUrl] = useState<string | undefined>(undefined);
   const [transportType, setTransportType] = useState<
     "stdio" | "sse" | "streamable-http"
   >(getInitialTransportType);
@@ -144,6 +150,14 @@ const App = () => {
   const [config, setConfig] = useState<InspectorConfig>(() =>
     initializeInspectorConfig(CONFIG_LOCAL_STORAGE_KEY),
   );
+  // Config fetch: always fetch on load; 200 → main app, 401 → token screen; retry on token submit
+  const [configFetchStatus, setConfigFetchStatus] = useState<
+    "loading" | "ok" | "need_token"
+  >("loading");
+  const [configFetchError, setConfigFetchError] = useState<string | null>(null);
+  const [configFetchTrigger, setConfigFetchTrigger] = useState(0);
+  const [authAcceptedWithoutToken, setAuthAcceptedWithoutToken] =
+    useState(false);
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
   });
@@ -297,6 +311,33 @@ const App = () => {
   // Update ref synchronously whenever config changes (before useEffect runs)
   configRef.current = config;
 
+  // True only when the last config fetch was triggered by the user submitting the token form (so we only show "Token incorrect." for 401 after submit, not on initial load)
+  const tokenSubmitCausedLastFetchRef = useRef(false);
+
+  // Ref so the config-fetch callback can apply state to the current mount (avoids Strict Mode unmount dropping updates)
+  const applyConfigRef = useRef({
+    setConfigFetchStatus,
+    setConfigFetchError,
+    setAuthAcceptedWithoutToken,
+    setEnv,
+    setCommand,
+    setArgs,
+    setTransportType,
+    setSseUrl,
+    setSandboxUrl,
+  });
+  applyConfigRef.current = {
+    setConfigFetchStatus,
+    setConfigFetchError,
+    setAuthAcceptedWithoutToken,
+    setEnv,
+    setCommand,
+    setArgs,
+    setTransportType,
+    setSseUrl,
+    setSandboxUrl,
+  };
+
   // Helper to check if we can create InspectorClient (without actually creating it)
   const canCreateInspectorClient = useCallback((): boolean => {
     const currentConfig = configRef.current;
@@ -319,8 +360,8 @@ const App = () => {
       typeof tokenValue === "string" ? tokenValue : String(tokenValue || "");
     const currentToken = tokenString.trim() || undefined;
 
-    // Check if API token is set
-    if (!currentToken) {
+    // Allow no token only when server already accepted us without one (e.g. DANGEROUSLY_OMIT_AUTH)
+    if (!currentToken && !authAcceptedWithoutToken) {
       toast({
         title: "API Token Required",
         description: "Please set the API Token in Configuration to connect.",
@@ -446,6 +487,7 @@ const App = () => {
     oauthScope,
     inspectorClient,
     toast,
+    authAcceptedWithoutToken,
   ]);
 
   // Use InspectorClient hook
@@ -756,6 +798,8 @@ const App = () => {
 
   const handleTokenSubmit = useCallback(
     (token: string) => {
+      setConfigFetchError(null);
+      tokenSubmitCausedLastFetchRef.current = true;
       setConfig((prev) => ({
         ...prev,
         MCP_INSPECTOR_API_TOKEN: {
@@ -771,37 +815,60 @@ const App = () => {
           value: token,
         },
       });
+      setConfigFetchStatus("loading");
+      setConfigFetchTrigger((k) => k + 1);
     },
     [config],
   );
 
-  // Fetch initial server config from /api/config (same in dev and prod; requires API token in URL)
-  const fetchedInitialConfigRef = useRef(false);
-  useEffect(() => {
-    if (fetchedInitialConfigRef.current) return;
-    const token = getInspectorApiToken(config);
-    if (!token) return;
-    fetchedInitialConfigRef.current = true;
+  // Fetch /api/config once on load and when user submits token (retry). Token from config or URL.
+  const doFetchConfig = useCallback(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tokenFromUrl =
+      params.get(API_SERVER_ENV_VARS.AUTH_TOKEN) ??
+      params.get(LEGACY_AUTH_TOKEN_ENV) ??
+      undefined;
+    const token = getInspectorApiToken(config) ?? tokenFromUrl;
 
     const url = new URL("/api/config", window.location.origin);
-    fetch(url.toString(), {
-      headers: { "x-mcp-remote-auth": `Bearer ${token}` },
-    })
+    const headers: Record<string, string> = {};
+    if (token) headers["x-mcp-remote-auth"] = `Bearer ${token}`;
+
+    fetch(url.toString(), { headers })
       .then((res) => {
-        if (!res.ok) return null;
+        const apply = applyConfigRef.current;
+        if (res.status === 401) {
+          const showIncorrect =
+            !!token && tokenSubmitCausedLastFetchRef.current;
+          tokenSubmitCausedLastFetchRef.current = false;
+          apply.setConfigFetchError(showIncorrect ? "Token incorrect." : null);
+          apply.setConfigFetchStatus("need_token");
+          return null;
+        }
+        if (!res.ok) {
+          tokenSubmitCausedLastFetchRef.current = false;
+          apply.setConfigFetchError(null);
+          apply.setConfigFetchStatus("need_token");
+          return null;
+        }
         return res.json();
       })
       .then((data: Record<string, unknown> | null) => {
         if (!data) return;
+        const apply = applyConfigRef.current;
+        tokenSubmitCausedLastFetchRef.current = false;
+        apply.setConfigFetchError(null);
+        apply.setConfigFetchStatus("ok");
+        if (!token) apply.setAuthAcceptedWithoutToken(true);
         if (
           data.defaultEnvironment &&
           typeof data.defaultEnvironment === "object"
         ) {
-          setEnv(data.defaultEnvironment as Record<string, string>);
+          apply.setEnv(data.defaultEnvironment as Record<string, string>);
         }
-        setCommand((data.defaultCommand as string) ?? "");
+        apply.setCommand((data.defaultCommand as string) ?? "");
         const argsVal = data.defaultArgs;
-        setArgs(
+        apply.setArgs(
           Array.isArray(argsVal)
             ? argsVal.join(" ")
             : typeof argsVal === "string"
@@ -813,13 +880,27 @@ const App = () => {
           | "sse"
           | "streamable-http"
           | undefined;
-        setTransportType(transport || "stdio");
-        setSseUrl((data.defaultServerUrl as string) ?? "");
+        apply.setTransportType(transport || "stdio");
+        apply.setSseUrl((data.defaultServerUrl as string) ?? "");
+        apply.setSandboxUrl(
+          typeof data.sandboxUrl === "string" ? data.sandboxUrl : undefined,
+        );
       })
       .catch(() => {
-        fetchedInitialConfigRef.current = false;
+        tokenSubmitCausedLastFetchRef.current = false;
+        applyConfigRef.current.setConfigFetchError(null);
+        applyConfigRef.current.setConfigFetchStatus("need_token");
       });
   }, [config]);
+
+  useEffect(() => {
+    doFetchConfig();
+  }, [configFetchTrigger, doFetchConfig]);
+
+  // Remove API token from URL after it has been read into config (keeps address bar clean)
+  useEffect(() => {
+    removeAuthTokenFromUrl();
+  }, []);
 
   // Sync roots with InspectorClient
   // Only run when inspectorClient changes, not when roots changes (to avoid infinite loop)
@@ -1419,10 +1500,21 @@ const App = () => {
     );
   }
 
-  // No API token: show login screen so user can enter token (e.g. opened app without CLI)
-  // Once token is set we persist it; OAuth return flow relies on token in localStorage.
-  if (!getInspectorApiToken(config)) {
-    return <TokenLoginScreen onTokenSubmit={handleTokenSubmit} />;
+  // Config fetch returned 401: show token screen; user submits token then we retry /api/config
+  if (configFetchStatus === "loading") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground">
+        Loading...
+      </div>
+    );
+  }
+  if (configFetchStatus === "need_token") {
+    return (
+      <TokenLoginScreen
+        onTokenSubmit={handleTokenSubmit}
+        serverError={configFetchError}
+      />
+    );
   }
 
   // Handle OAuth callback - check pathname OR presence of callback params
@@ -1489,6 +1581,7 @@ const App = () => {
           setEnv={setEnv}
           config={config}
           setConfig={setConfigAndPersist}
+          authAcceptedWithoutToken={authAcceptedWithoutToken}
           customHeaders={customHeaders}
           setCustomHeaders={setCustomHeaders}
           oauthClientId={oauthClientId}
@@ -1715,7 +1808,7 @@ const App = () => {
                       error={errors.prompts}
                     />
                     <AppsTab
-                      sandboxPath={`http://${window.location.hostname}:6277/sandbox`}
+                      sandboxPath={sandboxUrl}
                       tools={inspectorTools}
                       listTools={() => {
                         clearError("tools");

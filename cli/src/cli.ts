@@ -329,9 +329,14 @@ function parseArgs(): Args {
   // Add back any arguments that came after --
   const finalArgs = [...remainingArgs, ...postArgs];
 
-  // Validate config and server options
+  // If server specified but no config, default to mcp.json in cwd if it exists
   if (!options.config && options.server) {
-    throw new Error("--server requires --config to be specified");
+    const defaultConfigPath = path.join(process.cwd(), "mcp.json");
+    if (fs.existsSync(defaultConfigPath)) {
+      options.config = "mcp.json";
+    } else {
+      throw new Error("--server requires --config to be specified");
+    }
   }
 
   // If config is provided without server, try to auto-select

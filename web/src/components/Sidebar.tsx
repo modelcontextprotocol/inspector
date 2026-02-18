@@ -71,6 +71,8 @@ interface SidebarProps {
   loggingSupported: boolean;
   config: InspectorConfig;
   setConfig: (config: InspectorConfig) => void;
+  /** When true, server accepted us without a token (e.g. DANGEROUSLY_OMIT_AUTH); Connect is allowed without token */
+  authAcceptedWithoutToken?: boolean;
   serverImplementation?:
     | (WithIcons & { name?: string; version?: string; websiteUrl?: string })
     | null;
@@ -103,6 +105,7 @@ const Sidebar = ({
   loggingSupported,
   config,
   setConfig,
+  authAcceptedWithoutToken = false,
   serverImplementation,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
@@ -605,82 +608,103 @@ const Sidebar = ({
             </Button>
             {showConfig && (
               <div className="space-y-2">
-                {Object.entries(config).map(([key, configItem]) => {
-                  const configKey = key as keyof InspectorConfig;
-                  return (
-                    <div key={key} className="space-y-2">
-                      <div className="flex items-center gap-1">
-                        <label
-                          className="text-sm font-medium text-green-600 break-all"
-                          htmlFor={`${configKey}-input`}
+                {Object.entries(config)
+                  .sort(([keyA], [keyB]) => {
+                    if (keyA === "MCP_INSPECTOR_API_TOKEN") return -1;
+                    if (keyB === "MCP_INSPECTOR_API_TOKEN") return 1;
+                    return 0;
+                  })
+                  .map(([key, configItem]) => {
+                    const configKey = key as keyof InspectorConfig;
+                    if (
+                      configKey === "MCP_INSPECTOR_API_TOKEN" &&
+                      authAcceptedWithoutToken
+                    ) {
+                      return (
+                        <div
+                          key={key}
+                          className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200"
                         >
-                          {configItem.label}
-                        </label>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {configItem.description}
-                          </TooltipContent>
-                        </Tooltip>
+                          <strong>DANGEROUSLY_OMIT_AUTH</strong> is enabled. API
+                          token is not required; do not use this mode on exposed
+                          deployments.
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={key} className="space-y-2">
+                        <div className="flex items-center gap-1">
+                          <label
+                            className="text-sm font-medium text-green-600 break-all"
+                            htmlFor={`${configKey}-input`}
+                          >
+                            {configItem.label}
+                          </label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {configItem.description}
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        {typeof configItem.value === "number" ? (
+                          <Input
+                            id={`${configKey}-input`}
+                            type="number"
+                            data-testid={`${configKey}-input`}
+                            value={configItem.value}
+                            onChange={(e) => {
+                              const newConfig = { ...config };
+                              newConfig[configKey] = {
+                                ...configItem,
+                                value: Number(e.target.value),
+                              };
+                              setConfig(newConfig);
+                            }}
+                            className="font-mono"
+                          />
+                        ) : typeof configItem.value === "boolean" ? (
+                          <Select
+                            data-testid={`${configKey}-select`}
+                            value={configItem.value.toString()}
+                            onValueChange={(val) => {
+                              const newConfig = { ...config };
+                              newConfig[configKey] = {
+                                ...configItem,
+                                value: val === "true",
+                              };
+                              setConfig(newConfig);
+                            }}
+                          >
+                            <SelectTrigger id={`${configKey}-input`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="true">True</SelectItem>
+                              <SelectItem value="false">False</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            id={`${configKey}-input`}
+                            data-testid={`${configKey}-input`}
+                            value={configItem.value}
+                            onChange={(e) => {
+                              const newConfig = { ...config };
+                              newConfig[configKey] = {
+                                ...configItem,
+                                value: e.target.value,
+                              };
+                              setConfig(newConfig);
+                            }}
+                            className="font-mono"
+                          />
+                        )}
                       </div>
-                      {typeof configItem.value === "number" ? (
-                        <Input
-                          id={`${configKey}-input`}
-                          type="number"
-                          data-testid={`${configKey}-input`}
-                          value={configItem.value}
-                          onChange={(e) => {
-                            const newConfig = { ...config };
-                            newConfig[configKey] = {
-                              ...configItem,
-                              value: Number(e.target.value),
-                            };
-                            setConfig(newConfig);
-                          }}
-                          className="font-mono"
-                        />
-                      ) : typeof configItem.value === "boolean" ? (
-                        <Select
-                          data-testid={`${configKey}-select`}
-                          value={configItem.value.toString()}
-                          onValueChange={(val) => {
-                            const newConfig = { ...config };
-                            newConfig[configKey] = {
-                              ...configItem,
-                              value: val === "true",
-                            };
-                            setConfig(newConfig);
-                          }}
-                        >
-                          <SelectTrigger id={`${configKey}-input`}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="true">True</SelectItem>
-                            <SelectItem value="false">False</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Input
-                          id={`${configKey}-input`}
-                          data-testid={`${configKey}-input`}
-                          value={configItem.value}
-                          onChange={(e) => {
-                            const newConfig = { ...config };
-                            newConfig[configKey] = {
-                              ...configItem,
-                              value: e.target.value,
-                            };
-                            setConfig(newConfig);
-                          }}
-                          className="font-mono"
-                        />
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
             )}
           </div>
@@ -692,7 +716,7 @@ const Sidebar = ({
                   data-testid="connect-button"
                   onClick={() => {
                     const hasApiToken = config.MCP_INSPECTOR_API_TOKEN?.value;
-                    if (!hasApiToken) {
+                    if (!hasApiToken && !authAcceptedWithoutToken) {
                       console.error(
                         "[Sidebar] API Token is required to connect. Please set it in Configuration.",
                       );
@@ -722,7 +746,7 @@ const Sidebar = ({
                 className="w-full"
                 onClick={() => {
                   const hasApiToken = config.MCP_INSPECTOR_API_TOKEN?.value;
-                  if (!hasApiToken) {
+                  if (!hasApiToken && !authAcceptedWithoutToken) {
                     console.error(
                       "[Sidebar] API Token is required to connect. Please set it in Configuration.",
                     );
@@ -762,7 +786,7 @@ const Sidebar = ({
                       return "Connected";
                     case "error": {
                       const hasApiToken = config.MCP_INSPECTOR_API_TOKEN?.value;
-                      if (!hasApiToken) {
+                      if (!hasApiToken && !authAcceptedWithoutToken) {
                         return "Connection Error - Did you add the API token in Configuration?";
                       }
                       return "Connection Error - Check if your MCP server is running and API token is correct";

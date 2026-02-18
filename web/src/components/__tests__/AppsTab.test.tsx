@@ -64,7 +64,7 @@ describe("AppsTab", () => {
   } as unknown as Client;
 
   const defaultProps = {
-    sandboxPath: "http://localhost:6277/sandbox",
+    sandboxPath: "http://localhost:9999/sandbox",
     tools: [] as Tool[],
     listTools,
     error: null as string | null,

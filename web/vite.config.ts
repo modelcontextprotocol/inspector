@@ -1,7 +1,6 @@
 import react from "@vitejs/plugin-react";
 import path from "path";
 import { readFileSync } from "node:fs";
-import { createServer } from "node:http";
 import { defineConfig, type Plugin } from "vite";
 import { createRemoteApp } from "@modelcontextprotocol/inspector-core/mcp/remote/node";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -10,18 +9,22 @@ import {
   API_SERVER_ENV_VARS,
   LEGACY_AUTH_TOKEN_ENV,
 } from "@modelcontextprotocol/inspector-core/mcp/remote";
-
-const SANDBOX_PORT = 6277;
+import {
+  createSandboxController,
+  resolveSandboxPort,
+} from "./src/sandbox-controller.js";
 
 /**
  * Vite plugin that adds Hono middleware to handle /api/* routes
- * and starts the MCP Apps sandbox server on 6277 (same process).
+ * and starts the MCP Apps sandbox server (same process; port from MCP_SANDBOX_PORT / SERVER_PORT / dynamic).
  */
-function honoMiddlewarePlugin(authToken: string): Plugin {
+function honoMiddlewarePlugin(options: {
+  authToken?: string;
+  dangerouslyOmitAuth?: boolean;
+}): Plugin {
   return {
     name: "hono-api-middleware",
-    configureServer(server) {
-      // Sandbox for MCP Apps (different origin; same process as Vite dev server)
+    async configureServer(server) {
       const sandboxHtmlPath = path.join(
         __dirname,
         "static",
@@ -34,44 +37,36 @@ function honoMiddlewarePlugin(authToken: string): Plugin {
         sandboxHtml =
           "<!DOCTYPE html><html><body>Sandbox not loaded</body></html>";
       }
-      const sandboxServer = createServer((req, res) => {
-        if (
-          req.method !== "GET" ||
-          (req.url !== "/sandbox" && req.url !== "/sandbox/")
-        ) {
-          res.writeHead(404, { "Content-Type": "text/plain" });
-          res.end("Not Found");
-          return;
-        }
-        res.writeHead(200, {
-          "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "no-store, no-cache, must-revalidate",
-          Pragma: "no-cache",
+
+      const sandboxController = createSandboxController({
+        port: resolveSandboxPort(),
+        sandboxHtml,
+        host: "localhost",
+      });
+      await sandboxController.start();
+
+      server.httpServer?.on("close", () => {
+        sandboxController.close().catch((err) => {
+          console.error("Sandbox close error:", err);
         });
-        res.end(sandboxHtml);
-      });
-      sandboxServer.listen(SANDBOX_PORT, "localhost", () => {
-        console.log(
-          `   Sandbox (MCP Apps): http://localhost:${SANDBOX_PORT}/sandbox`,
-        );
-      });
-      sandboxServer.on("error", (err: NodeJS.ErrnoException) => {
-        if (err.code === "EADDRINUSE") {
-          console.error(
-            `Sandbox: port ${SANDBOX_PORT} in use. MCP Apps tab may not work.`,
-          );
-        }
       });
 
-      // createRemoteApp returns { app, authToken } - we pass authToken explicitly
-      // If not provided, it will read from env or generate one
-      const { app: honoApp } = createRemoteApp({
-        authToken, // Pass Inspector API token explicitly (from start script)
+      // When Vitest (or anything) calls server.close(), close the sandbox first so the process can exit
+      const originalClose = server.close.bind(server);
+      server.close = async () => {
+        await sandboxController.close();
+        return originalClose();
+      };
+
+      const { app: honoApp, authToken: resolvedToken } = createRemoteApp({
+        authToken: options.dangerouslyOmitAuth ? undefined : options.authToken,
+        dangerouslyOmitAuth: options.dangerouslyOmitAuth,
         storageDir: process.env.MCP_STORAGE_DIR,
         allowedOrigins: [
           `http://localhost:${process.env.CLIENT_PORT || "6274"}`,
           `http://127.0.0.1:${process.env.CLIENT_PORT || "6274"}`,
         ],
+        sandboxUrl: sandboxController.getUrl() ?? undefined,
         logger: process.env.MCP_LOG_FILE
           ? pino(
               { level: "info" },
@@ -83,6 +78,15 @@ function honoMiddlewarePlugin(authToken: string): Plugin {
             )
           : undefined,
       });
+
+      // When no token was provided via env (e.g. `npm run dev` from web), log the generated token so the user can add it to the URL or paste in the token modal
+      if (!options.dangerouslyOmitAuth && !options.authToken && resolvedToken) {
+        const port = process.env.CLIENT_PORT || "6274";
+        const host = process.env.HOST || "localhost";
+        console.log(
+          `\n🔑 Inspector API token (add to URL or paste in token modal):\n   ${resolvedToken}\n   Or open: http://${host}:${port}/?${API_SERVER_ENV_VARS.AUTH_TOKEN}=${resolvedToken}\n`,
+        );
+      }
 
       // Convert Connect middleware to handle Hono app
       const honoMiddleware = async (
@@ -197,13 +201,15 @@ function honoMiddlewarePlugin(authToken: string): Plugin {
 export default defineConfig({
   plugins: [
     react(),
-    // Inspector API auth token is passed via env var (read-only, set by start script)
-    // Vite plugin reads it and passes explicitly to createRemoteApp
-    honoMiddlewarePlugin(
-      process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ||
+    // Inspector API auth token and DANGEROUSLY_OMIT_AUTH are passed via env (set by start script or user).
+    // When unset (e.g. running `npm run dev` from web), createRemoteApp generates one; plugin logs it below.
+    honoMiddlewarePlugin({
+      authToken:
+        process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ||
         process.env[LEGACY_AUTH_TOKEN_ENV] ||
-        "",
-    ),
+        undefined,
+      dangerouslyOmitAuth: !!process.env.DANGEROUSLY_OMIT_AUTH,
+    }),
   ],
   server: {
     host: true,

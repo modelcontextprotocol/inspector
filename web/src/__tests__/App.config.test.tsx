@@ -1,5 +1,5 @@
 import type { Mock } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import App from "../App";
 import { DEFAULT_INSPECTOR_CONFIG } from "../lib/constants";
 import { InspectorConfig } from "../lib/configurationTypes";
@@ -87,6 +87,7 @@ describe("App - Config Endpoint", () => {
           defaultArgs: ["test-arg1", "test-arg2"],
           defaultTransport: "stdio",
           defaultServerUrl: "",
+          sandboxUrl: "http://localhost:12345/sandbox",
         }),
     });
   });
@@ -117,6 +118,24 @@ describe("App - Config Endpoint", () => {
           },
         }),
       );
+    });
+  });
+
+  test("when /api/config includes sandboxUrl, app completes config gate and shows main UI", async () => {
+    mockInitializeInspectorConfig.mockReturnValue({
+      ...DEFAULT_INSPECTOR_CONFIG,
+      MCP_INSPECTOR_API_TOKEN: {
+        ...DEFAULT_INSPECTOR_CONFIG.MCP_INSPECTOR_API_TOKEN,
+        value: "token",
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Connect to an MCP server to start inspecting/i),
+      ).toBeInTheDocument();
     });
   });
 });

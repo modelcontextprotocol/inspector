@@ -72,6 +72,8 @@ The inspector runs both an MCP Inspector (MCPI) client UI (default port 6274) an
 CLIENT_PORT=8080 SERVER_PORT=9000 npx @modelcontextprotocol/inspector node build/index.js
 ```
 
+**Environment variables:** The client UI port is set with `CLIENT_PORT`. The sandbox (MCP apps) port prefers `MCP_SANDBOX_PORT`; `SERVER_PORT` is accepted for backward compatibility. If neither is set, a dynamic port is used.
+
 For more details on ways to use the inspector, see the [Inspector section of the MCP docs site](https://modelcontextprotocol.io/docs/tools/inspector). For help with debugging, see the [Debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
 
 ### Servers File Export
@@ -182,7 +184,7 @@ The MCP Inspector proxy server requires authentication by default. When starting
 🔑 Session token: 3a1c267fad21f7150b7d624c160b7f09b0b8c4f623c7107bbf13378f051538d4
 
 🔗 Open inspector with token pre-filled:
-   http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=3a1c267fad21f7150b7d624c160b7f09b0b8c4f623c7107bbf13378f051538d4
+   http://localhost:6274/?MCP_INSPECTOR_API_TOKEN=3a1c267fad21f7150b7d624c160b7f09b0b8c4f623c7107bbf13378f051538d4
 ```
 
 This token must be included as a Bearer token in the Authorization header for all requests to the server. The inspector will automatically open your browser with the token pre-filled in the URL.
@@ -213,10 +215,10 @@ Read more about the risks of this vulnerability on Oligo's blog: [Critical RCE V
 
 ---
 
-You can also set the token via the `MCP_PROXY_AUTH_TOKEN` environment variable when starting the server:
+You can also set the token via the `MCP_INSPECTOR_API_TOKEN` environment variable when starting the server (`MCP_PROXY_AUTH_TOKEN` is accepted for backward compatibility):
 
 ```bash
-MCP_PROXY_AUTH_TOKEN=$(openssl rand -hex 32) npm start
+MCP_INSPECTOR_API_TOKEN=$(openssl rand -hex 32) npm start
 ```
 
 #### Local-only Binding

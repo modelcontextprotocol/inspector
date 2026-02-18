@@ -16,24 +16,26 @@ async function startDevClient(clientOptions) {
   const {
     CLIENT_PORT,
     inspectorApiToken,
+    dangerouslyOmitAuth,
     command,
     mcpServerArgs,
     transport,
     serverUrl,
     envVars,
     abort,
-    cancelled,
+    cancelledRef,
   } = clientOptions;
   const clientCommand = "npx";
   const host = process.env.HOST || "localhost";
   const clientArgs = ["vite", "--port", CLIENT_PORT, "--host", host];
 
-  // Prepare config values for injection into HTML
+  // Env for the child process (Vite): API token, initial MCP config, and client config vars
   const configEnv = {
     ...process.env,
     CLIENT_PORT,
-    [API_SERVER_ENV_VARS.AUTH_TOKEN]: inspectorApiToken, // Pass Inspector API token to Vite (read-only)
-    // Pass config values for HTML injection
+    ...(dangerouslyOmitAuth
+      ? {}
+      : { [API_SERVER_ENV_VARS.AUTH_TOKEN]: inspectorApiToken }),
     ...(command ? { MCP_INITIAL_COMMAND: command } : {}),
     ...(mcpServerArgs && mcpServerArgs.length > 0
       ? { MCP_INITIAL_ARGS: mcpServerArgs.join(" ") }
@@ -52,9 +54,11 @@ async function startDevClient(clientOptions) {
     echoOutput: true,
   });
 
-  // Include Inspector API auth token in URL for client
+  // Include Inspector API auth token in URL for client (omit when auth disabled)
   const params = new URLSearchParams();
-  params.set(API_SERVER_ENV_VARS.AUTH_TOKEN, inspectorApiToken);
+  if (!dangerouslyOmitAuth && inspectorApiToken) {
+    params.set(API_SERVER_ENV_VARS.AUTH_TOKEN, inspectorApiToken);
+  }
   const url =
     params.size > 0
       ? `http://${host}:${CLIENT_PORT}/?${params.toString()}`
@@ -76,7 +80,7 @@ async function startDevClient(clientOptions) {
     client.subscribe({
       complete: resolve,
       error: (err) => {
-        if (!cancelled || process.env.DEBUG) {
+        if (!cancelledRef.current || process.env.DEBUG) {
           console.error("Client error:", err);
         }
         resolve(null);
@@ -90,6 +94,7 @@ async function startProdClient(clientOptions) {
   const {
     CLIENT_PORT,
     inspectorApiToken,
+    dangerouslyOmitAuth,
     abort,
     command,
     mcpServerArgs,
@@ -105,7 +110,9 @@ async function startProdClient(clientOptions) {
     env: {
       ...process.env,
       CLIENT_PORT,
-      [API_SERVER_ENV_VARS.AUTH_TOKEN]: inspectorApiToken, // Pass Inspector API token explicitly
+      ...(dangerouslyOmitAuth
+        ? {}
+        : { [API_SERVER_ENV_VARS.AUTH_TOKEN]: inspectorApiToken }),
       // Pass config values for HTML injection
       ...(command ? { MCP_INITIAL_COMMAND: command } : {}),
       ...(mcpServerArgs && mcpServerArgs.length > 0
@@ -141,22 +148,28 @@ async function main() {
       continue;
     }
 
-    if (parsingFlags && arg === "--dev") {
+    if (!parsingFlags) {
+      if (command === null) command = arg;
+      else mcpServerArgs.push(arg);
+      continue;
+    }
+
+    if (arg === "--dev") {
       isDev = true;
       continue;
     }
 
-    if (parsingFlags && arg === "--transport" && i + 1 < args.length) {
+    if (arg === "--transport" && i + 1 < args.length) {
       transport = args[++i];
       continue;
     }
 
-    if (parsingFlags && arg === "--server-url" && i + 1 < args.length) {
+    if (arg === "--server-url" && i + 1 < args.length) {
       serverUrl = args[++i];
       continue;
     }
 
-    if (parsingFlags && arg === "-e" && i + 1 < args.length) {
+    if (arg === "-e" && i + 1 < args.length) {
       const envVar = args[++i];
       const equalsIndex = envVar.indexOf("=");
 
@@ -167,14 +180,25 @@ async function main() {
       } else {
         envVars[envVar] = "";
       }
-    } else if (!parsingFlags) {
-      // After "--", first arg is command, rest are server args (same in dev and prod)
-      if (command === null) {
-        command = arg;
-      } else {
-        mcpServerArgs.push(arg);
-      }
+    } else if (!command) {
+      command = arg;
+    } else {
+      mcpServerArgs.push(arg);
     }
+  }
+
+  // Env fallback when no command/args were passed on the command line (explicit args take precedence)
+  if (!command && process.env.MCP_INITIAL_COMMAND) {
+    command = process.env.MCP_INITIAL_COMMAND;
+    const initialArgs = process.env.MCP_INITIAL_ARGS;
+    if (initialArgs)
+      mcpServerArgs.push(...initialArgs.split(" ").filter(Boolean));
+  }
+  if (!serverUrl && process.env.MCP_INITIAL_SERVER_URL) {
+    serverUrl = process.env.MCP_INITIAL_SERVER_URL;
+  }
+  if (!transport && process.env.MCP_INITIAL_TRANSPORT) {
+    transport = process.env.MCP_INITIAL_TRANSPORT;
   }
 
   const CLIENT_PORT = process.env.CLIENT_PORT ?? "6274";
@@ -185,17 +209,20 @@ async function main() {
       : "Starting MCP inspector...",
   );
 
-  // Generate Inspector API auth token (honor legacy MCP_PROXY_AUTH_TOKEN if present)
-  const inspectorApiToken =
-    process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ||
-    process.env[LEGACY_AUTH_TOKEN_ENV] ||
-    randomBytes(32).toString("hex");
+  const dangerouslyOmitAuth = !!process.env.DANGEROUSLY_OMIT_AUTH;
+
+  // Generate Inspector API auth token when auth is enabled (honor legacy MCP_PROXY_AUTH_TOKEN if present)
+  const inspectorApiToken = dangerouslyOmitAuth
+    ? ""
+    : process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ||
+      process.env[LEGACY_AUTH_TOKEN_ENV] ||
+      randomBytes(32).toString("hex");
 
   const abort = new AbortController();
 
-  let cancelled = false;
+  const cancelledRef = { current: false };
   process.on("SIGINT", () => {
-    cancelled = true;
+    cancelledRef.current = true;
     abort.abort();
   });
 
@@ -204,36 +231,38 @@ async function main() {
     try {
       const clientOptions = {
         CLIENT_PORT,
-        inspectorApiToken, // Pass Inspector API token explicitly
+        inspectorApiToken,
+        dangerouslyOmitAuth,
         command,
         mcpServerArgs,
         transport,
         serverUrl,
         envVars,
         abort,
-        cancelled,
+        cancelledRef,
       };
       await startDevClient(clientOptions);
     } catch (e) {
-      if (!cancelled || process.env.DEBUG) throw e;
+      if (!cancelledRef.current || process.env.DEBUG) throw e;
     }
   } else {
     // In prod mode: start Inspector API server (serves static files + /api/* endpoints)
     try {
       const clientOptions = {
         CLIENT_PORT,
-        inspectorApiToken, // Pass token explicitly
+        inspectorApiToken,
+        dangerouslyOmitAuth,
         command,
         mcpServerArgs,
         transport,
         serverUrl,
         envVars,
         abort,
-        cancelled,
+        cancelledRef,
       };
       await startProdClient(clientOptions);
     } catch (e) {
-      if (!cancelled || process.env.DEBUG) throw e;
+      if (!cancelledRef.current || process.env.DEBUG) throw e;
     }
   }
 

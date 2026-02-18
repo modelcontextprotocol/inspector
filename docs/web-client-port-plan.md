@@ -165,9 +165,11 @@ export default defineConfig({
 
 **Auth Token Handling:**
 
+The canonical environment variable for the API/auth token is `MCP_INSPECTOR_API_TOKEN`. `MCP_PROXY_AUTH_TOKEN` is accepted for backward compatibility. If neither is set, a random token is generated.
+
 The auth token flow:
 
-1. **Start script (`bin/start.js`)**: Reads `process.env.MCP_INSPECTOR_API_TOKEN` or generates one
+1. **Start script (`bin/start.js`)**: Reads `process.env.MCP_INSPECTOR_API_TOKEN` (or `MCP_PROXY_AUTH_TOKEN`) or generates one
 2. **Vite plugin**: Receives token via env var (read-only, passed to spawned process). Plugin reads it and passes explicitly to `createRemoteApp()`
 3. **Client browser**: Receives token via URL params (`?MCP_INSPECTOR_API_TOKEN=...`)
 

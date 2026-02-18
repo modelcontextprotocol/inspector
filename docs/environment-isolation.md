@@ -123,11 +123,11 @@ Hono is lightweight, framework-agnostic, and supports Node. Using Hono keeps the
 - **Dev Mode:** Hono middleware plugin (`honoMiddlewarePlugin`) in `web/vite.config.ts` mounts the Hono app at the root and handles `/api/*` routes
 - **Prod Mode:** Standalone Hono server (`web/bin/server.js`) serves both static files and API endpoints
 - **Same Origin:** Both dev and prod modes serve from the same origin, eliminating CORS issues
-- **Auth Token:** Passed via `MCP_INSPECTOR_API_TOKEN` environment variable (read-only, set by start script)
+- **Auth Token:** Passed via `MCP_INSPECTOR_API_TOKEN` environment variable (read-only, set by start script). `MCP_PROXY_AUTH_TOKEN` is accepted for backward compatibility.
 
 **Security**
 
-All endpoints require authentication via `x-mcp-remote-auth` header (Bearer token format), origin validation, and timing-safe token comparison. The auth token is generated from options, environment variable (`MCP_INSPECTOR_API_TOKEN`), or randomly generated.
+All endpoints require authentication via `x-mcp-remote-auth` header (Bearer token format), origin validation, and timing-safe token comparison. The auth token is generated from options, environment variable (`MCP_INSPECTOR_API_TOKEN`, or `MCP_PROXY_AUTH_TOKEN` for backward compatibility), or randomly generated.
 
 **Endpoints**
 

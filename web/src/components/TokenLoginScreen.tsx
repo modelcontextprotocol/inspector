@@ -7,6 +7,8 @@ import { KeyRound } from "lucide-react";
 
 export interface TokenLoginScreenProps {
   onTokenSubmit: (token: string) => void;
+  /** Error from server (e.g. 401 after submitting token) */
+  serverError?: string | null;
 }
 
 /**
@@ -14,10 +16,15 @@ export interface TokenLoginScreenProps {
  * User enters the token (provided when running the inspector from the CLI);
  * on submit we persist it and load the main app.
  */
-const TokenLoginScreen = ({ onTokenSubmit }: TokenLoginScreenProps) => {
+const TokenLoginScreen = ({
+  onTokenSubmit,
+  serverError = null,
+}: TokenLoginScreenProps) => {
   useTheme(); // Apply saved theme so new-tab / direct load obeys theme
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const displayError = serverError ?? error;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,9 +72,9 @@ const TokenLoginScreen = ({ onTokenSubmit }: TokenLoginScreenProps) => {
                 autoComplete="off"
               />
             </div>
-            {error && (
+            {displayError && (
               <p className="text-sm text-destructive" role="alert">
-                {error}
+                {displayError}
               </p>
             )}
             <Button type="submit" className="w-full">
