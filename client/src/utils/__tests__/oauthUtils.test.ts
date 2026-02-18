@@ -2,6 +2,7 @@ import {
   generateOAuthErrorDescription,
   parseOAuthCallbackParams,
   generateOAuthState,
+  getAuthorizationServerMetadataDiscoveryUrl,
 } from "@/utils/oauthUtils.ts";
 
 describe("parseOAuthCallbackParams", () => {
@@ -82,5 +83,31 @@ describe("generateOAuthErrorDescription", () => {
       expect(generateOAuthState()).toBeDefined();
       expect(generateOAuthState()).toHaveLength(64);
     });
+  });
+});
+
+describe("getAuthorizationServerMetadataDiscoveryUrl", () => {
+  it("uses root discovery URL for root authorization server URL", () => {
+    expect(
+      getAuthorizationServerMetadataDiscoveryUrl("https://example.com"),
+    ).toBe("https://example.com/.well-known/oauth-authorization-server");
+  });
+
+  it("inserts tenant path for non-root authorization server URL", () => {
+    expect(
+      getAuthorizationServerMetadataDiscoveryUrl("https://example.com/tenant1"),
+    ).toBe(
+      "https://example.com/.well-known/oauth-authorization-server/tenant1",
+    );
+  });
+
+  it("strips trailing slash before appending tenant path", () => {
+    expect(
+      getAuthorizationServerMetadataDiscoveryUrl(
+        "https://example.com/tenant1/",
+      ),
+    ).toBe(
+      "https://example.com/.well-known/oauth-authorization-server/tenant1",
+    );
   });
 });
