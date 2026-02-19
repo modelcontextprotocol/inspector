@@ -10,6 +10,8 @@ export default defineConfig({
     command: "npm run dev",
     url: "http://localhost:6274",
     reuseExistingServer: !process.env.CI,
+    // So /api/config returns 200 and the main UI (Sidebar with Transport Type) is shown instead of the token screen
+    env: { ...process.env, DANGEROUSLY_OMIT_AUTH: "1" },
   },
 
   testDir: "./e2e",

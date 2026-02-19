@@ -43,6 +43,7 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 | Custom headers                             | ✅ (config)     | ✅ (UI)       | ❌  | Medium       |
 | **Advanced Features**                      |
 | Sampling requests                          | ✅              | ✅            | ❌  | High         |
+| Sampling with tools                        | ❌              | ❌            | ❌  | High         |
 | Elicitation requests (form)                | ✅              | ✅            | ❌  | High         |
 | Elicitation requests (url)                 | ✅              | ❌            | ❌  | High         |
 | Tasks (long-running operations)            | ✅              | ✅            | ❌  | Medium       |

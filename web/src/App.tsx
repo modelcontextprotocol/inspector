@@ -866,22 +866,32 @@ const App = () => {
         ) {
           apply.setEnv(data.defaultEnvironment as Record<string, string>);
         }
-        apply.setCommand((data.defaultCommand as string) ?? "");
-        const argsVal = data.defaultArgs;
-        apply.setArgs(
-          Array.isArray(argsVal)
-            ? argsVal.join(" ")
-            : typeof argsVal === "string"
-              ? argsVal
-              : "",
-        );
-        const transport = data.defaultTransport as
-          | "stdio"
-          | "sse"
-          | "streamable-http"
-          | undefined;
-        apply.setTransportType(transport || "stdio");
-        apply.setSseUrl((data.defaultServerUrl as string) ?? "");
+        // Transport config: either all from URL params or all from config, never mixed
+        const urlParams = new URLSearchParams(window.location.search);
+        const hasTransportUrlParams = [
+          "transport",
+          "serverUrl",
+          "serverCommand",
+          "serverArgs",
+        ].some((p) => urlParams.has(p));
+        if (!hasTransportUrlParams) {
+          apply.setCommand((data.defaultCommand as string) ?? "");
+          const argsVal = data.defaultArgs;
+          apply.setArgs(
+            Array.isArray(argsVal)
+              ? argsVal.join(" ")
+              : typeof argsVal === "string"
+                ? argsVal
+                : "",
+          );
+          const transport = data.defaultTransport as
+            | "stdio"
+            | "sse"
+            | "streamable-http"
+            | undefined;
+          apply.setTransportType(transport || "stdio");
+          apply.setSseUrl((data.defaultServerUrl as string) ?? "");
+        }
         apply.setSandboxUrl(
           typeof data.sandboxUrl === "string" ? data.sandboxUrl : undefined,
         );

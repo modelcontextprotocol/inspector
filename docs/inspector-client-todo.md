@@ -93,7 +93,6 @@ Goal: Bring Inspector Web support to current spec
 
 Goal: Inspector Web quality
 
-- Run playwright tests on web app
 - Review open v1 bugs (esp auth bugs) to see which ones still apply
 
 Misc
@@ -104,6 +103,7 @@ Misc
 ### TUI
 
 Close feature gap
+Follow v2 UX design
 Implement test strategy (vitest + Playwright?)
 Better forms (test tool, etc)
 
