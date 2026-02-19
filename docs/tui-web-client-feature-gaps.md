@@ -6,52 +6,9 @@ This document details the feature gaps between the TUI (Terminal User Interface)
 
 ## Feature Comparison
 
-**InspectorClient** is the shared client library that provides the core MCP functionality. Both the TUI and web client use `InspectorClient` under the hood. The gaps documented here are primarily **UI-level gaps** - features that `InspectorClient` supports but are not yet exposed in the TUI interface.
+**InspectorClient** is the shared client library that provides the core MCP functionality. Both the TUI and web client use `InspectorClient` under the hood. The gaps documented here are primarily **UI-level gaps** — features that `InspectorClient` supports but are not yet exposed in the TUI interface.
 
-| Feature                                    | InspectorClient | Web Client v1 | TUI | Gap Priority |
-| ------------------------------------------ | --------------- | ------------- | --- | ------------ |
-| **Resources**                              |
-| List resources                             | ✅              | ✅            | ✅  | -            |
-| Read resource content                      | ✅              | ✅            | ✅  | -            |
-| List resource templates                    | ✅              | ✅            | ✅  | -            |
-| Read templated resources                   | ✅              | ✅            | ✅  | -            |
-| Resource subscriptions                     | ✅              | ✅            | ❌  | Medium       |
-| Resources listChanged notifications        | ✅              | ✅            | ❌  | Medium       |
-| Pagination (resources)                     | ✅              | ✅            | ✅  | -            |
-| Pagination (resource templates)            | ✅              | ✅            | ✅  | -            |
-| **Prompts**                                |
-| List prompts                               | ✅              | ✅            | ✅  | -            |
-| Get prompt (no params)                     | ✅              | ✅            | ✅  | -            |
-| Get prompt (with params)                   | ✅              | ✅            | ✅  | -            |
-| Prompts listChanged notifications          | ✅              | ✅            | ❌  | Medium       |
-| Pagination (prompts)                       | ✅              | ✅            | ✅  | -            |
-| **Tools**                                  |
-| List tools                                 | ✅              | ✅            | ✅  | -            |
-| Call tool                                  | ✅              | ✅            | ✅  | -            |
-| Tools listChanged notifications            | ✅              | ✅            | ❌  | Medium       |
-| Pagination (tools)                         | ✅              | ✅            | ✅  | -            |
-| **Roots**                                  |
-| List roots                                 | ✅              | ✅            | ❌  | Medium       |
-| Set roots                                  | ✅              | ✅            | ❌  | Medium       |
-| Roots listChanged notifications            | ✅              | ✅            | ❌  | Medium       |
-| **Authentication**                         |
-| OAuth 2.1 flow                             | ✅              | ✅            | ✅  | -            |
-| OAuth: Static/Preregistered clients        | ✅              | ✅            | ✅  | -            |
-| OAuth: DCR (Dynamic Client Registration)   | ✅              | ✅            | ✅  | -            |
-| OAuth: CIMD (Client ID Metadata Documents) | ✅              | ❌            | ✅  | -            |
-| OAuth: Guided Auth (step-by-step)          | ✅              | ✅            | ✅  | -            |
-| Custom headers                             | ✅ (config)     | ✅ (UI)       | ❌  | Medium       |
-| **Advanced Features**                      |
-| Sampling requests                          | ✅              | ✅            | ❌  | High         |
-| Sampling with tools                        | ❌              | ❌            | ❌  | High         |
-| Elicitation requests (form)                | ✅              | ✅            | ❌  | High         |
-| Elicitation requests (url)                 | ✅              | ❌            | ❌  | High         |
-| Tasks (long-running operations)            | ✅              | ✅            | ❌  | Medium       |
-| Completions (resource templates)           | ✅              | ✅            | ❌  | Medium       |
-| Completions (prompts with params)          | ✅              | ✅            | ❌  | Medium       |
-| Progress tracking                          | ✅              | ✅            | ❌  | Medium       |
-| **Other**                                  |
-| HTTP request tracking                      | ✅              | ❌            | ✅  |              |
+For the current feature matrix (InspectorClient, Web v1, Web v1.5, TUI), see [MCP Feature Implementation Across Projects](mcp-feature-tracker.md).
 
 ## Detailed Feature Gaps
 

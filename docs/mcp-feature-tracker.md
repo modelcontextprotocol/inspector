@@ -32,7 +32,7 @@ Track MCP feature support across InspectorClient, Web v1, Web v1.5, and TUI.
 | OAuth 2.1 flow                             | ✅              | ✅      | ✅       | ✅  |
 | OAuth: Static/Preregistered clients        | ✅              | ✅      | ✅       | ✅  |
 | OAuth: DCR (Dynamic Client Registration)   | ✅              | ✅      | ✅       | ✅  |
-| OAuth: CIMD (Client ID Metadata Documents) | ✅              | ❌      | ❌       | ✅  |
+| OAuth: CIMD (Client ID Metadata Documents) | ✅              | ❌      | ✅       | ✅  |
 | OAuth: Guided Auth (step-by-step)          | ✅              | ✅      | ✅       | ✅  |
 | Custom headers                             | ✅ (config)     | ✅ (UI) | ✅ (UI)  | ❌  |
 | **Advanced Features**                      |                 |         |          |     |

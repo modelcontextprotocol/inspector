@@ -62,6 +62,8 @@ interface SidebarProps {
   setOauthClientId: (id: string) => void;
   oauthClientSecret: string;
   setOauthClientSecret: (secret: string) => void;
+  oauthClientMetadataUrl: string;
+  setOauthClientMetadataUrl: (url: string) => void;
   oauthScope: string;
   setOauthScope: (scope: string) => void;
   onConnect: () => void;
@@ -96,6 +98,8 @@ const Sidebar = ({
   setOauthClientId,
   oauthClientSecret,
   setOauthClientSecret,
+  oauthClientMetadataUrl,
+  setOauthClientMetadataUrl,
   oauthScope,
   setOauthScope,
   onConnect,
@@ -566,6 +570,18 @@ const Sidebar = ({
                           )}
                         </Button>
                       </div>
+                      <label className="text-sm font-medium">
+                        Client Metadata URL
+                      </label>
+                      <Input
+                        placeholder="https://example.com/.well-known/oauth/client-metadata.json"
+                        onChange={(e) =>
+                          setOauthClientMetadataUrl(e.target.value)
+                        }
+                        value={oauthClientMetadataUrl}
+                        data-testid="oauth-client-metadata-url-input"
+                        className="font-mono"
+                      />
                       <label className="text-sm font-medium">
                         Redirect URL
                       </label>

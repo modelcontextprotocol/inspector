@@ -178,6 +178,12 @@ const App = () => {
     return localStorage.getItem("lastOauthClientSecret") || "";
   });
 
+  const [oauthClientMetadataUrl, setOauthClientMetadataUrl] = useState<string>(
+    () => {
+      return localStorage.getItem("lastOauthClientMetadataUrl") || "";
+    },
+  );
+
   // Custom headers state with migration from legacy auth
   const [customHeaders, setCustomHeaders] = useState<CustomHeaders>(() => {
     const savedHeaders = localStorage.getItem("lastCustomHeaders");
@@ -441,7 +447,11 @@ const App = () => {
 
       // Only include oauth config if at least one OAuth field is provided
       // This prevents InspectorClient from initializing OAuth when not needed
-      const hasOAuthConfig = oauthClientId || oauthClientSecret || oauthScope;
+      const hasOAuthConfig =
+        oauthClientId ||
+        oauthClientSecret ||
+        oauthScope ||
+        oauthClientMetadataUrl;
 
       const clientOptions: InspectorClientOptions = {
         environment,
@@ -459,6 +469,7 @@ const App = () => {
         clientOptions.oauth = {
           clientId: oauthClientId || undefined,
           clientSecret: oauthClientSecret || undefined,
+          clientMetadataUrl: oauthClientMetadataUrl || undefined,
           scope: oauthScope || undefined,
         };
       }
@@ -484,6 +495,7 @@ const App = () => {
     customHeaders,
     oauthClientId,
     oauthClientSecret,
+    oauthClientMetadataUrl,
     oauthScope,
     inspectorClient,
     toast,
@@ -780,6 +792,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastOauthClientSecret", oauthClientSecret);
   }, [oauthClientSecret]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthClientMetadataUrl", oauthClientMetadataUrl);
+  }, [oauthClientMetadataUrl]);
 
   useEffect(() => {
     saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
@@ -1598,6 +1614,8 @@ const App = () => {
           setOauthClientId={setOauthClientId}
           oauthClientSecret={oauthClientSecret}
           setOauthClientSecret={setOauthClientSecret}
+          oauthClientMetadataUrl={oauthClientMetadataUrl}
+          setOauthClientMetadataUrl={setOauthClientMetadataUrl}
           oauthScope={oauthScope}
           setOauthScope={setOauthScope}
           onConnect={connectMcpServer}

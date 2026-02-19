@@ -45,6 +45,8 @@ describe("Sidebar", () => {
     setOauthClientId: vi.fn(),
     oauthClientSecret: "",
     setOauthClientSecret: vi.fn(),
+    oauthClientMetadataUrl: "",
+    setOauthClientMetadataUrl: vi.fn(),
     oauthScope: "",
     setOauthScope: vi.fn(),
     env: {},
@@ -886,6 +888,69 @@ describe("Sidebar", () => {
           enabled: true,
         },
       ]);
+    });
+  });
+
+  describe("OAuth configuration", () => {
+    const openAuthSection = () => {
+      const button = screen.getByTestId("auth-button");
+      fireEvent.click(button);
+    };
+
+    it("should call setOauthClientId when Client ID input changes", () => {
+      const setOauthClientId = vi.fn();
+      renderSidebar({
+        transportType: "sse",
+        oauthClientId: "",
+        setOauthClientId,
+      });
+
+      openAuthSection();
+
+      const clientIdInput = screen.getByTestId("oauth-client-id-input");
+      fireEvent.change(clientIdInput, { target: { value: "my-client-id" } });
+
+      expect(setOauthClientId).toHaveBeenCalledWith("my-client-id");
+    });
+
+    it("should call setOauthClientSecret when Client Secret input changes", () => {
+      const setOauthClientSecret = vi.fn();
+      renderSidebar({
+        transportType: "sse",
+        oauthClientSecret: "",
+        setOauthClientSecret,
+      });
+
+      openAuthSection();
+
+      const secretInput = screen.getByTestId("oauth-client-secret-input");
+      fireEvent.change(secretInput, { target: { value: "my-secret" } });
+
+      expect(setOauthClientSecret).toHaveBeenCalledWith("my-secret");
+    });
+
+    it("should call setOauthClientMetadataUrl when Client Metadata URL input changes", () => {
+      const setOauthClientMetadataUrl = vi.fn();
+      renderSidebar({
+        transportType: "sse",
+        oauthClientMetadataUrl: "",
+        setOauthClientMetadataUrl,
+      });
+
+      openAuthSection();
+
+      const metadataUrlInput = screen.getByTestId(
+        "oauth-client-metadata-url-input",
+      );
+      fireEvent.change(metadataUrlInput, {
+        target: {
+          value: "https://example.com/.well-known/oauth/client-metadata.json",
+        },
+      });
+
+      expect(setOauthClientMetadataUrl).toHaveBeenCalledWith(
+        "https://example.com/.well-known/oauth/client-metadata.json",
+      );
     });
   });
 

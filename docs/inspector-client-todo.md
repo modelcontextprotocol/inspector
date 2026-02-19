@@ -84,8 +84,6 @@ Goal: Parity with v1 client
 
 Goal: Bring Inspector Web support to current spec
 
-- Add OAuth CIMD support (easy)
-  - clientMetadataUrl config item
 - URL elicitation (already in InspectorClient, just need UX)
 - Add "sampling with tools" support
   - https://github.com/modelcontextprotocol/inspector/issues/932
