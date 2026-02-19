@@ -100,6 +100,13 @@ Misc
 - Research oauth device flow (esp for CLI/TUI)
 - Extract form generator into core, extend as needed (I think there are some open issues)
 
+Future
+
+- Look at the launcher flow (can we just have one executable with centralized config)?
+- The CLI parsing the config/server and passing components to the other apps is kind of ugly
+- Idea: Single launcher just routes to app, app launchers use shared config parsing code in core
+- Idea: Get rid of separare process spawning, just call the main/run of the desired app
+
 ### TUI
 
 Close feature gap
