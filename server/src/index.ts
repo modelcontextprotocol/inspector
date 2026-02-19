@@ -29,6 +29,7 @@ import rateLimit from "express-rate-limit";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
+import net from "net";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readFileSync } from "fs";
@@ -822,6 +823,30 @@ const PORT = parseInt(
 );
 const HOST = process.env.HOST || "localhost";
 
+// Check port availability before attempting to bind.
+// Prevents confusing EADDRINUSE errors from stale processes.
+function checkPort(targetHost: string, targetPort: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once("error", () => {
+      resolve(false);
+    });
+    tester.once("listening", () => {
+      tester.close(() => resolve(true));
+    });
+    tester.listen(targetPort, targetHost);
+  });
+}
+
+const portFree = await checkPort(HOST, PORT);
+if (!portFree) {
+  console.error(`❌  Proxy Server PORT IS IN USE at port ${PORT} ❌ `);
+  console.error(
+    `💡 To fix: run "lsof -ti:${PORT} | xargs kill -9" to free the port, or set SERVER_PORT to use a different port.`,
+  );
+  process.exit(1);
+}
+
 const server = app.listen(PORT, HOST);
 server.on("listening", () => {
   console.log(`⚙️ Proxy server listening on ${HOST}:${PORT}`);
@@ -844,3 +869,15 @@ server.on("error", (err) => {
   }
   process.exit(1);
 });
+
+// Graceful shutdown: properly close the HTTP server so the port is
+// released immediately instead of lingering in CLOSE_WAIT state.
+function shutdown() {
+  server.close(() => {
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(0), 3000);
+}
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
