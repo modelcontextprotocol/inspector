@@ -1280,142 +1280,123 @@ const App = () => {
       throw new Error("InspectorClient is not connected");
     }
 
+    const tool = inspectorTools.find((t) => t.name === name);
+    const taskSupport = tool?.execution?.taskSupport ?? "forbidden";
+    const effectiveRunAsTask =
+      taskSupport === "required" ||
+      (taskSupport === "optional" && runAsTask === true);
+
+    const cleanedParams = tool?.inputSchema
+      ? cleanParams(params, tool.inputSchema as JsonSchemaType)
+      : params;
+    const generalMetadata = {
+      ...metadata,
+      progressToken: String(progressTokenRef.current++),
+    };
+    const toolSpecificMetadata = toolMetadata
+      ? Object.fromEntries(
+          Object.entries(toolMetadata).map(([k, v]) => [k, String(v)]),
+        )
+      : undefined;
+    const taskOptions = effectiveRunAsTask
+      ? { ttl: getMCPTaskTtl(config) }
+      : undefined;
+
     try {
-      // Find the tool schema to clean parameters properly
-      const tool = inspectorTools.find((t) => t.name === name);
-      const cleanedParams = tool?.inputSchema
-        ? cleanParams(params, tool.inputSchema as JsonSchemaType)
-        : params;
+      if (effectiveRunAsTask) {
+        // Use callToolStream for task-augmented execution (required or optional+checked)
+        let currentTaskId: string | undefined;
 
-      // Merge general metadata with tool-specific metadata
-      // Tool-specific metadata takes precedence over general metadata
-      const generalMetadata = {
-        ...metadata, // General metadata
-        progressToken: String(progressTokenRef.current++),
-      };
-      const toolSpecificMetadata = toolMetadata
-        ? Object.fromEntries(
-            Object.entries(toolMetadata).map(([k, v]) => [k, String(v)]),
-          )
-        : undefined;
-
-      const taskOptions =
-        runAsTask === true ? { ttl: getMCPTaskTtl(config) } : undefined;
-
-      const invocation = await inspectorClient.callTool(
-        name,
-        cleanedParams as Record<string, JsonValue>,
-        generalMetadata,
-        toolSpecificMetadata,
-        taskOptions,
-      );
-
-      // Check if server returned a task reference (task-augmented execution)
-      const rawResult = invocation.result as
-        | (Record<string, unknown> & {
-            task?: { taskId: string; status: string; pollInterval?: number };
-          })
-        | null
-        | undefined;
-      const isTaskResult = (
-        res: unknown,
-      ): res is {
-        task: { taskId: string; status: string; pollInterval?: number };
-      } =>
-        !!res &&
-        typeof res === "object" &&
-        "task" in res &&
-        !!(res as Record<string, unknown>).task &&
-        typeof (res as Record<string, unknown>).task === "object" &&
-        "taskId" in (res as { task: Record<string, unknown> }).task;
-
-      if (runAsTask && rawResult && isTaskResult(rawResult)) {
-        const taskId = rawResult.task.taskId;
-        const pollInterval = rawResult.task.pollInterval ?? 1000;
-        setIsPollingTask(true);
-        const initialResponseMeta =
-          rawResult && typeof rawResult === "object" && "_meta" in rawResult
-            ? ((rawResult as { _meta?: Record<string, unknown> })._meta ?? {})
-            : undefined;
-        setToolResult({
-          content: [
-            {
-              type: "text",
-              text: `Task created: ${taskId}. Polling for status...`,
+        const onTaskCreated = (
+          e: CustomEvent<{ taskId: string; task: { taskId: string } }>,
+        ) => {
+          const { taskId } = e.detail;
+          currentTaskId = taskId;
+          setToolResult({
+            content: [
+              {
+                type: "text",
+                text: `Task created: ${taskId}. Polling for status...`,
+              },
+            ],
+            _meta: {
+              "io.modelcontextprotocol/related-task": { taskId },
             },
-          ],
-          _meta: {
-            ...(initialResponseMeta || {}),
-            "io.modelcontextprotocol/related-task": { taskId },
-          },
-        } as CompatibilityCallToolResult);
+          } as CompatibilityCallToolResult);
+        };
 
-        let taskCompleted = false;
-        while (!taskCompleted) {
-          try {
-            await new Promise((resolve) => setTimeout(resolve, pollInterval));
-            const taskStatus = await inspectorClient.getRequestorTask(taskId);
+        const onTaskStatusChange = (
+          e: CustomEvent<{
+            taskId: string;
+            task: { status: string; statusMessage?: string };
+          }>,
+        ) => {
+          const { taskId, task } = e.detail;
+          if (currentTaskId !== taskId) return;
+          setToolResult({
+            content: [
+              {
+                type: "text",
+                text: `Task status: ${task.status}${task.statusMessage ? ` - ${task.statusMessage}` : ""}. Polling...`,
+              },
+            ],
+            _meta: {
+              "io.modelcontextprotocol/related-task": { taskId },
+            },
+          } as CompatibilityCallToolResult);
+          void inspectorClient.listRequestorTasks();
+        };
 
-            if (
-              taskStatus.status === "completed" ||
-              taskStatus.status === "failed" ||
-              taskStatus.status === "cancelled"
-            ) {
-              taskCompleted = true;
-              if (taskStatus.status === "completed") {
-                const result =
-                  await inspectorClient.getRequestorTaskResult(taskId);
-                setToolResult(result as CompatibilityCallToolResult);
-              } else {
-                setToolResult({
+        inspectorClient.addEventListener("taskCreated", onTaskCreated);
+        inspectorClient.addEventListener(
+          "taskStatusChange",
+          onTaskStatusChange,
+        );
+        setIsPollingTask(true);
+
+        try {
+          const invocation = await inspectorClient.callToolStream(
+            name,
+            cleanedParams as Record<string, JsonValue>,
+            generalMetadata,
+            toolSpecificMetadata,
+            taskOptions,
+          );
+
+          const compatibilityResult: CompatibilityCallToolResult =
+            invocation.result
+              ? {
+                  content: invocation.result.content || [],
+                  isError: false,
+                }
+              : {
                   content: [
                     {
                       type: "text",
-                      text: `Task ${taskStatus.status}: ${taskStatus.statusMessage ?? "No additional information"}`,
+                      text: invocation.error || "Tool call failed",
                     },
                   ],
                   isError: true,
-                });
-              }
-              void inspectorClient.listRequestorTasks();
-            } else {
-              const pollingResponseMeta =
-                rawResult &&
-                typeof rawResult === "object" &&
-                "_meta" in rawResult
-                  ? ((rawResult as { _meta?: Record<string, unknown> })._meta ??
-                    {})
-                  : undefined;
-              setToolResult({
-                content: [
-                  {
-                    type: "text",
-                    text: `Task status: ${taskStatus.status}${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Polling...`,
-                  },
-                ],
-                _meta: {
-                  ...(pollingResponseMeta || {}),
-                  "io.modelcontextprotocol/related-task": { taskId },
-                },
-              } as CompatibilityCallToolResult);
-              void inspectorClient.listRequestorTasks();
-            }
-          } catch (pollingError) {
-            setToolResult({
-              content: [
-                {
-                  type: "text",
-                  text: `Error polling task status: ${pollingError instanceof Error ? pollingError.message : String(pollingError)}`,
-                },
-              ],
-              isError: true,
-            });
-            taskCompleted = true;
-          }
+                };
+          setToolResult(compatibilityResult);
+        } finally {
+          inspectorClient.removeEventListener("taskCreated", onTaskCreated);
+          inspectorClient.removeEventListener(
+            "taskStatusChange",
+            onTaskStatusChange,
+          );
+          setIsPollingTask(false);
         }
-        setIsPollingTask(false);
       } else {
-        // Convert ToolCallInvocation to CompatibilityCallToolResult
+        // Use callTool for non-task execution
+        const invocation = await inspectorClient.callTool(
+          name,
+          cleanedParams as Record<string, JsonValue>,
+          generalMetadata,
+          toolSpecificMetadata,
+          undefined, // no task options
+        );
+
         const compatibilityResult: CompatibilityCallToolResult =
           invocation.result
             ? {
@@ -1433,11 +1414,10 @@ const App = () => {
               };
         setToolResult(compatibilityResult);
       }
-      // Clear any validation errors since tool execution completed
       setErrors((prev) => ({ ...prev, tools: null }));
     } catch (e) {
       setIsPollingTask(false);
-      const toolResult: CompatibilityCallToolResult = {
+      setToolResult({
         content: [
           {
             type: "text",
@@ -1445,9 +1425,7 @@ const App = () => {
           },
         ],
         isError: true,
-      };
-      setToolResult(toolResult);
-      // Clear validation errors - tool execution errors are shown in ToolResults
+      });
       setErrors((prev) => ({ ...prev, tools: null }));
     }
   };

@@ -85,12 +85,20 @@ Goal: Parity with v1 client
 Goal: Bring Inspector Web support to current spec
 
 - URL elicitation (already in InspectorClient, just need UX)
+  - https://github.com/modelcontextprotocol/inspector/issues/929
+  - https://github.com/modelcontextprotocol/inspector/pull/994
 - Add "sampling with tools" support
   - https://github.com/modelcontextprotocol/inspector/issues/932
 - Review v1 project boards for any feature deficiencies
 
 Goal: Inspector Web quality
 
+- Flaky test (fails maybe 1 time out of 20):
+  - **tests**/inspectorClient-oauth-e2e.test.ts > InspectorClient OAuth E2E > Storage path (custom) ('SSE') > should persist OAuth state to custom storagePath
+    ```
+    Error: waitForStateFile failed: JSON parse error (file may be mid-write or corrupt). File: /var/folders/c8/jr_qy1fs1cj3hfhr5m_2f4c40000gn/T/mcp-inspector-e2e-1771550464080-66tdoqzpfxo.json. Attempts: 40. Raw snippet: {"state":{"servers":{"http://localhost:51796/sse":{"preregisteredClientInformation":{"client_id":"test-storage-path","client_secret":"test-secret-sp"},"codeVerifier":"U8mEkBln9JtFLMzC3b50kj0QtubtwpDPU... (405 chars total). Run with DEBUG_WAIT_FOR_STATE_FILE=1 for per-attempt logs.
+    ❯ vi.waitFor.timeout.timeout test/test-helpers.ts:138:15
+    ```
 - Review open v1 bugs (esp auth bugs) to see which ones still apply
 
 Misc

@@ -165,11 +165,12 @@ const ToolsTab = ({
   });
 
   return (
-    <TabsContent value="tools">
-      <div className="grid grid-cols-2 gap-4">
+    <TabsContent value="tools" className="flex-1 flex flex-col min-h-0 mt-0">
+      <div className="grid flex-1 min-h-0 grid-cols-2 grid-rows-[1fr] gap-4">
         <ListPane
           items={tools}
           listItems={listTools}
+          fillHeight
           clearItems={() => {
             clearTools();
             setSelectedTool(null);
@@ -194,8 +195,8 @@ const ToolsTab = ({
           isButtonDisabled={!nextCursor && tools.length > 0}
         />
 
-        <div className="bg-card border border-border rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200 dark:border-border">
+        <div className="flex flex-col h-full min-h-0 overflow-hidden bg-card border border-border rounded-lg shadow">
+          <div className="p-4 flex-shrink-0 border-b border-gray-200 dark:border-border">
             <div className="flex items-center gap-2">
               {selectedTool && (
                 <IconDisplay
@@ -208,7 +209,7 @@ const ToolsTab = ({
               </h3>
             </div>
           </div>
-          <div className="p-4">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4">
             {selectedTool ? (
               <div className="space-y-4">
                 {error && (
@@ -674,24 +675,31 @@ const ToolsTab = ({
                 <div className="flex items-center space-x-2">
                   {selectedTool && serverSupportsTaskToolCalls && (
                     <>
-                      <Checkbox
-                        id="run-as-task"
-                        checked={taskSupport === "required" || runAsTask}
-                        disabled={
-                          taskSupport === "forbidden" ||
-                          taskSupport === "required"
-                        }
-                        onCheckedChange={(checked) => {
-                          if (taskSupport === "optional")
-                            setRunAsTask(checked === true);
-                        }}
-                      />
-                      <Label
-                        htmlFor="run-as-task"
-                        className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
-                      >
-                        Run as task
-                      </Label>
+                      {taskSupport === "forbidden" ? (
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          Run as Task: Forbidden
+                        </span>
+                      ) : taskSupport === "required" ? (
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          Run as Task: Required
+                        </span>
+                      ) : (
+                        <>
+                          <Checkbox
+                            id="run-as-task"
+                            checked={runAsTask}
+                            onCheckedChange={(checked) =>
+                              setRunAsTask(checked === true)
+                            }
+                          />
+                          <Label
+                            htmlFor="run-as-task"
+                            className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
+                          >
+                            Run as task
+                          </Label>
+                        </>
+                      )}
                     </>
                   )}
                   <Button
@@ -778,6 +786,7 @@ const ToolsTab = ({
                   selectedTool={selectedTool}
                   resourceContent={resourceContent}
                   onReadResource={onReadResource}
+                  isPollingTask={isPollingTask}
                 />
               </div>
             ) : (

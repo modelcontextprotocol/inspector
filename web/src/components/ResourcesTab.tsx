@@ -111,11 +111,15 @@ const ResourcesTab = ({
   };
 
   return (
-    <TabsContent value="resources">
-      <div className="grid grid-cols-3 gap-4">
+    <TabsContent
+      value="resources"
+      className="flex-1 flex flex-col min-h-0 mt-0"
+    >
+      <div className="grid flex-1 min-h-0 grid-cols-3 grid-rows-[1fr] gap-4">
         <ListPane
           items={resources}
           listItems={listResources}
+          fillHeight
           clearItems={() => {
             clearResources();
             // Condition to check if selected resource is not resource template's resource
@@ -148,6 +152,7 @@ const ResourcesTab = ({
         <ListPane
           items={resourceTemplates}
           listItems={listResourceTemplates}
+          fillHeight
           clearItems={() => {
             clearResourceTemplates();
             // Condition to check if selected resource is resource template's resource
@@ -180,8 +185,8 @@ const ResourcesTab = ({
           isButtonDisabled={!nextTemplateCursor && resourceTemplates.length > 0}
         />
 
-        <div className="bg-card border border-border rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200 dark:border-border flex justify-between items-center">
+        <div className="flex flex-col h-full min-h-0 overflow-hidden bg-card border border-border rounded-lg shadow">
+          <div className="p-4 flex-shrink-0 border-b border-gray-200 dark:border-border flex justify-between items-center">
             <div className="flex items-center gap-2 truncate">
               {(selectedResource || selectedTemplate) && (
                 <IconDisplay
@@ -237,7 +242,7 @@ const ResourcesTab = ({
               </div>
             )}
           </div>
-          <div className="p-4">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4">
             {error ? (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />

@@ -187,9 +187,9 @@ describe("ToolsTab", () => {
       ).toBeNull();
     });
 
-    it("should show Run as task checkbox when server supports task tool calls and a tool is selected", () => {
+    it("should show Run as task control when server supports task tool calls and a tool is selected", () => {
       renderToolsTab({
-        selectedTool: mockTools[0],
+        selectedTool: toolWithOptionalTask,
         serverSupportsTaskToolCalls: true,
       });
       expect(
@@ -207,24 +207,26 @@ describe("ToolsTab", () => {
       expect(checkbox).not.toBeDisabled();
     });
 
-    it("should show checkbox unchecked and disabled when tool taskSupport is forbidden", () => {
+    it("should show Run as Task: Forbidden when tool taskSupport is forbidden", () => {
       renderToolsTab({
         selectedTool: toolWithForbiddenTask,
         serverSupportsTaskToolCalls: true,
       });
-      const checkbox = screen.getByRole("checkbox", { name: /run as task/i });
-      expect(checkbox).not.toBeChecked();
-      expect(checkbox).toBeDisabled();
+      expect(screen.getByText(/run as task: forbidden/i)).toBeInTheDocument();
+      expect(
+        screen.queryByRole("checkbox", { name: /run as task/i }),
+      ).toBeNull();
     });
 
-    it("should show checkbox checked and disabled when tool taskSupport is required", () => {
+    it("should show Run as Task: Required when tool taskSupport is required", () => {
       renderToolsTab({
         selectedTool: toolWithRequiredTask,
         serverSupportsTaskToolCalls: true,
       });
-      const checkbox = screen.getByRole("checkbox", { name: /run as task/i });
-      expect(checkbox).toBeChecked();
-      expect(checkbox).toBeDisabled();
+      expect(screen.getByText(/run as task: required/i)).toBeInTheDocument();
+      expect(
+        screen.queryByRole("checkbox", { name: /run as task/i }),
+      ).toBeNull();
     });
 
     it("should call callTool with runAsTask true when optional and checkbox is checked and Run Tool clicked", async () => {

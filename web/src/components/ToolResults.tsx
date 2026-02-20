@@ -12,6 +12,7 @@ interface ToolResultsProps {
   selectedTool: Tool | null;
   resourceContent: Record<string, string>;
   onReadResource?: (uri: string) => void;
+  isPollingTask?: boolean;
 }
 
 const checkContentCompatibility = (
@@ -69,6 +70,7 @@ const ToolResults = ({
   selectedTool,
   resourceContent,
   onReadResource,
+  isPollingTask = false,
 }: ToolResultsProps) => {
   if (!toolResult) return null;
 
@@ -88,6 +90,20 @@ const ToolResults = ({
     }
     const structuredResult = parsedResult.data;
     const isError = structuredResult.isError ?? false;
+
+    // Task running detection (inspector-main parity)
+    const relatedTask = structuredResult._meta?.[
+      "io.modelcontextprotocol/related-task"
+    ] as { taskId: string } | undefined;
+    const contentText = structuredResult.content
+      .filter((c) => c.type === "text")
+      .map((c) => ("text" in c && typeof c.text === "string" ? c.text : ""))
+      .join(" ");
+    const isTaskRunning =
+      isPollingTask ||
+      (!!relatedTask &&
+        (contentText.includes("Polling") ||
+          contentText.includes("Task status")));
 
     let validationResult = null;
     const toolHasOutputSchema =
@@ -127,6 +143,8 @@ const ToolResults = ({
           Tool Result:{" "}
           {isError ? (
             <span className="text-red-600 font-semibold">Error</span>
+          ) : isTaskRunning ? (
+            <span className="text-yellow-600 font-semibold">Task Running</span>
           ) : (
             <span className="text-green-600 font-semibold">Success</span>
           )}

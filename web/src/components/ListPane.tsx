@@ -12,6 +12,8 @@ type ListPaneProps<T> = {
   title: string;
   buttonText: string;
   isButtonDisabled?: boolean;
+  /** When true, the list scroll area fills available vertical space instead of max-h-96 */
+  fillHeight?: boolean;
 };
 
 const ListPane = <T extends object>({
@@ -23,6 +25,7 @@ const ListPane = <T extends object>({
   title,
   buttonText,
   isButtonDisabled,
+  fillHeight = false,
 }: ListPaneProps<T>) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
@@ -56,8 +59,10 @@ const ListPane = <T extends object>({
   };
 
   return (
-    <div className="bg-card border border-border rounded-lg shadow">
-      <div className="p-4 border-b border-gray-200 dark:border-border">
+    <div
+      className={`bg-card border border-border rounded-lg shadow ${fillHeight ? "flex flex-col h-full min-h-0 overflow-hidden" : ""}`}
+    >
+      <div className="p-4 flex-shrink-0 border-b border-gray-200 dark:border-border">
         <div className="flex items-center justify-between gap-4">
           <h3 className="font-semibold dark:text-white flex-shrink-0">
             {title}
@@ -92,7 +97,9 @@ const ListPane = <T extends object>({
           </div>
         </div>
       </div>
-      <div className="p-4">
+      <div
+        className={`p-4 ${fillHeight ? "flex flex-col flex-1 min-h-0 overflow-hidden" : ""}`}
+      >
         <Button
           variant="outline"
           className="w-full mb-4"
@@ -111,7 +118,9 @@ const ListPane = <T extends object>({
             Clear
           </Button>
         )}
-        <div className="space-y-2 overflow-y-auto max-h-96">
+        <div
+          className={`space-y-2 overflow-y-auto ${fillHeight ? "flex-1 min-h-0" : "max-h-96"}`}
+        >
           {filteredItems.map((item, index) => (
             <div
               key={index}
