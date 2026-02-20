@@ -1283,6 +1283,34 @@ describe("useConnection", () => {
       );
     });
 
+    test("omits x-custom-auth-headers in direct connections to avoid CORS issues", async () => {
+      const customHeaders: CustomHeaders = [
+        { name: "X-Tenant-ID", value: "acme-inc", enabled: true },
+        { name: "X-Environment", value: "staging", enabled: true },
+      ];
+
+      const propsWithDirectConnection = {
+        ...defaultProps,
+        customHeaders,
+        connectionType: "direct" as const,
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithDirectConnection),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      // In direct connection mode, x-custom-auth-headers should NOT be sent
+      // because it is a proxy implementation detail that breaks CORS (#1100)
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      expect(headers).toHaveProperty("X-Tenant-ID", "acme-inc");
+      expect(headers).toHaveProperty("X-Environment", "staging");
+      expect(headers).not.toHaveProperty("x-custom-auth-headers");
+    });
+
     test("uses OAuth token when no custom headers or legacy auth provided", async () => {
       const propsWithoutAuth = {
         ...defaultProps,
