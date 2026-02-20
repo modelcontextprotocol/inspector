@@ -559,7 +559,9 @@ export function useConnection({
       });
 
       // Add custom header names as a special request header for server processing
-      if (customHeaderNames.length > 0) {
+      // Only add when using proxy connection — this is a proxy implementation detail
+      // that would break CORS on direct connections (see #1100)
+      if (customHeaderNames.length > 0 && connectionType !== "direct") {
         headers["x-custom-auth-headers"] = JSON.stringify(customHeaderNames);
       }
 
