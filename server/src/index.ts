@@ -198,10 +198,12 @@ const originValidationMiddleware = (
 
   // Default origins based on CLIENT_PORT or use environment variable
   const clientPort = process.env.CLIENT_PORT || "6274";
-  const defaultOrigin = `http://localhost:${clientPort}`;
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
-    defaultOrigin,
-  ];
+  const defaultOrigins = [`http://localhost:${clientPort}`];
+  if (clientPort === "80") {
+    defaultOrigins.push("http://localhost");
+  }
+  const allowedOrigins =
+    process.env.ALLOWED_ORIGINS?.split(",") || defaultOrigins;
 
   if (origin && !allowedOrigins.includes(origin)) {
     console.error(`Invalid origin: ${origin}`);
