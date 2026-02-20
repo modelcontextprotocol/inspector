@@ -558,8 +558,11 @@ export function useConnection({
         }
       });
 
-      // Add custom header names as a special request header for server processing
-      if (customHeaderNames.length > 0) {
+      // Add custom header names as a special request header for proxy server processing.
+      // Only include this meta-header for proxied connections — direct connections send
+      // headers straight to the MCP server, which won't include x-custom-auth-headers
+      // in its Access-Control-Allow-Headers, breaking CORS preflight checks.
+      if (customHeaderNames.length > 0 && connectionType !== "direct") {
         headers["x-custom-auth-headers"] = JSON.stringify(customHeaderNames);
       }
 

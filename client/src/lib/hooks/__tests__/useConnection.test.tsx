@@ -1384,6 +1384,35 @@ describe("useConnection", () => {
       expect(mockSSETransport.url?.toString()).toBe("http://localhost:8080/");
     });
 
+    test("does not send x-custom-auth-headers for direct connections", async () => {
+      const customHeaders: CustomHeaders = [
+        { name: "Authorization", value: "Bearer token123", enabled: true },
+        { name: "X-Tenant-ID", value: "acme-inc", enabled: true },
+      ];
+
+      const directPropsWithHeaders = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+        customHeaders,
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(directPropsWithHeaders),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      // Custom headers should still be sent
+      expect(headers).toHaveProperty("Authorization", "Bearer token123");
+      expect(headers).toHaveProperty("X-Tenant-ID", "acme-inc");
+      // But the x-custom-auth-headers meta-header should NOT be sent for direct connections
+      // because MCP servers don't expect it and it breaks CORS preflight
+      expect(headers).not.toHaveProperty("x-custom-auth-headers");
+    });
+
     test("uses proxy server URL when connectionType is 'proxy'", async () => {
       const proxyProps = {
         ...defaultProps,
