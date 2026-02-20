@@ -241,9 +241,6 @@ const AuthDebugger = ({
     <div className="w-full p-4">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Authentication Settings</h2>
-        <Button variant="outline" onClick={onBack}>
-          Back to Connect
-        </Button>
       </div>
 
       <div className="w-full space-y-6">
