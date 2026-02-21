@@ -62,7 +62,7 @@ export function createNumberedTools(count: number): ToolDefinition[] {
   const tools: ToolDefinition[] = [];
   for (let i = 1; i <= count; i++) {
     tools.push({
-      name: `tool-${i}`,
+      name: `tool_${i}`,
       description: `Test tool number ${i}`,
       inputSchema: {
         message: z.string().describe(`Message for tool ${i}`),
@@ -84,8 +84,8 @@ export function createNumberedResources(count: number): ResourceDefinition[] {
   const resources: ResourceDefinition[] = [];
   for (let i = 1; i <= count; i++) {
     resources.push({
-      name: `resource-${i}`,
-      uri: `test://resource-${i}`,
+      name: `resource_${i}`,
+      uri: `test://resource_${i}`,
       description: `Test resource number ${i}`,
       mimeType: "text/plain",
       text: `Content for resource ${i}`,
@@ -105,8 +105,8 @@ export function createNumberedResourceTemplates(
   const templates: ResourceTemplateDefinition[] = [];
   for (let i = 1; i <= count; i++) {
     templates.push({
-      name: `template-${i}`,
-      uriTemplate: `test://template-${i}/{param}`,
+      name: `template_${i}`,
+      uriTemplate: `test://template_${i}/{param}`,
       description: `Test resource template number ${i}`,
       handler: async (uri: URL, variables: Record<string, any>) => {
         return {
@@ -133,7 +133,7 @@ export function createNumberedPrompts(count: number): PromptDefinition[] {
   const prompts: PromptDefinition[] = [];
   for (let i = 1; i <= count; i++) {
     prompts.push({
-      name: `prompt-${i}`,
+      name: `prompt_${i}`,
       description: `Test prompt number ${i}`,
       promptString: `This is prompt ${i}`,
     });
@@ -162,7 +162,7 @@ export function createEchoTool(): ToolDefinition {
  */
 export function createWriteToStderrTool(): ToolDefinition {
   return {
-    name: "writeToStderr",
+    name: "write_to_stderr",
     description: "Write a message to stderr (for testing stderr capture)",
     inputSchema: {
       message: z.string().describe("Message to write to stderr"),
@@ -195,11 +195,11 @@ export function createAddTool(): ToolDefinition {
 }
 
 /**
- * Create a "get-sum" tool that returns the sum of two numbers (alias for add)
+ * Create a "get_sum" tool that returns the sum of two numbers (alias for add)
  */
 export function createGetSumTool(): ToolDefinition {
   return {
-    name: "get-sum",
+    name: "get_sum",
     description: "Get the sum of two numbers",
     inputSchema: {
       a: z.number().describe("First number"),
@@ -214,11 +214,11 @@ export function createGetSumTool(): ToolDefinition {
 }
 
 /**
- * Create a "collectSample" tool that sends a sampling request and returns the response
+ * Create a "collect_sample" tool that sends a sampling request and returns the response
  */
 export function createCollectSampleTool(): ToolDefinition {
   return {
-    name: "collectSample",
+    name: "collect_sample",
     description:
       "Send a sampling request with the given text and return the response",
     inputSchema: {
@@ -255,7 +255,7 @@ export function createCollectSampleTool(): ToolDefinition {
         };
       } catch (error) {
         console.error(
-          "[collectSample] Error sending/receiving sampling request:",
+          "[collect_sample] Error sending/receiving sampling request:",
           error,
         );
         throw error;
@@ -265,11 +265,11 @@ export function createCollectSampleTool(): ToolDefinition {
 }
 
 /**
- * Create a "listRoots" tool that calls roots/list and returns the roots
+ * Create a "list_roots" tool that calls roots/list and returns the roots
  */
 export function createListRootsTool(): ToolDefinition {
   return {
-    name: "listRoots",
+    name: "list_roots",
     description: "List the current roots configured on the client",
     inputSchema: {},
     handler: async (
@@ -304,7 +304,7 @@ export function createListRootsTool(): ToolDefinition {
  */
 export function createCollectFormElicitationTool(): ToolDefinition {
   return {
-    name: "collectElicitation",
+    name: "collect_elicitation",
     description:
       "Send an elicitation request with the given message and schema and return the response",
     inputSchema: {
@@ -350,12 +350,12 @@ export function createCollectFormElicitationTool(): ToolDefinition {
 }
 
 /**
- * Create a "collectUrlElicitation" tool that sends a URL-based elicitation request
+ * Create a "collect_url_elicitation" tool that sends a URL-based elicitation request
  * to the client and returns the response
  */
 export function createCollectUrlElicitationTool(): ToolDefinition {
   return {
-    name: "collectUrlElicitation",
+    name: "collect_url_elicitation",
     description:
       "Send a URL-based elicitation request with the given message and URL and return the response",
     inputSchema: {
@@ -399,7 +399,7 @@ export function createCollectUrlElicitationTool(): ToolDefinition {
         };
       } catch (error) {
         console.error(
-          "[collectUrlElicitation] Error sending/receiving URL elicitation request:",
+          "[collect_url_elicitation] Error sending/receiving URL elicitation request:",
           error,
         );
         throw error;
@@ -409,11 +409,11 @@ export function createCollectUrlElicitationTool(): ToolDefinition {
 }
 
 /**
- * Create a "sendNotification" tool that sends a notification message from the server
+ * Create a "send_notification" tool that sends a notification message from the server
  */
 export function createSendNotificationTool(): ToolDefinition {
   return {
-    name: "sendNotification",
+    name: "send_notification",
     description: "Send a notification message from the server",
     inputSchema: {
       message: z.string().describe("Notification message to send"),
@@ -461,7 +461,7 @@ export function createSendNotificationTool(): ToolDefinition {
           message: `Notification sent: ${message}`,
         };
       } catch (error) {
-        console.error("[sendNotification] Error sending notification:", error);
+        console.error("[send_notification] Error sending notification:", error);
         throw error;
       }
     },
@@ -473,7 +473,7 @@ export function createSendNotificationTool(): ToolDefinition {
  */
 export function createGetAnnotatedMessageTool(): ToolDefinition {
   return {
-    name: "get-annotated-message",
+    name: "get_annotated_message",
     description: "Get an annotated message",
     inputSchema: {
       messageType: z
@@ -512,18 +512,18 @@ export function createGetAnnotatedMessageTool(): ToolDefinition {
 }
 
 /**
- * Create a "simple-prompt" prompt definition
+ * Create a "simple_prompt" prompt definition
  */
 export function createSimplePrompt(): PromptDefinition {
   return {
-    name: "simple-prompt",
+    name: "simple_prompt",
     description: "A simple prompt for testing",
     promptString: "This is a simple prompt for testing purposes.",
   };
 }
 
 /**
- * Create an "args-prompt" prompt that accepts arguments
+ * Create an "args_prompt" prompt that accepts arguments
  */
 export function createArgsPrompt(
   completions?: Record<
@@ -535,7 +535,7 @@ export function createArgsPrompt(
   >,
 ): PromptDefinition {
   return {
-    name: "args-prompt",
+    name: "args_prompt",
     description: "A prompt that accepts arguments for testing",
     promptString: "This is a prompt with arguments: city={city}, state={state}",
     argsSchema: {
@@ -578,11 +578,11 @@ This is a static resource provided by the test MCP server.
 }
 
 /**
- * Create a "test-cwd" resource that exposes the current working directory (generally useful when testing with the stdio test server)
+ * Create a "test_cwd" resource that exposes the current working directory (generally useful when testing with the stdio test server)
  */
 export function createTestCwdResource(): ResourceDefinition {
   return {
-    name: "test-cwd",
+    name: "test_cwd",
     uri: "test://cwd",
     description: "Current working directory of the test server",
     mimeType: "text/plain",
@@ -591,11 +591,11 @@ export function createTestCwdResource(): ResourceDefinition {
 }
 
 /**
- * Create a "test-env" resource that exposes environment variables (generally useful when testing with the stdio test server)
+ * Create a "test_env" resource that exposes environment variables (generally useful when testing with the stdio test server)
  */
 export function createTestEnvResource(): ResourceDefinition {
   return {
-    name: "test-env",
+    name: "test_env",
     uri: "test://env",
     description: "Environment variables available to the test server",
     mimeType: "application/json",
@@ -604,11 +604,11 @@ export function createTestEnvResource(): ResourceDefinition {
 }
 
 /**
- * Create a "test-argv" resource that exposes command-line arguments (generally useful when testing with the stdio test server)
+ * Create a "test_argv" resource that exposes command-line arguments (generally useful when testing with the stdio test server)
  */
 export function createTestArgvResource(): ResourceDefinition {
   return {
-    name: "test-argv",
+    name: "test_argv",
     uri: "test://argv",
     description: "Command-line arguments the test server was started with",
     mimeType: "application/json",
@@ -714,7 +714,7 @@ export function createUserResourceTemplate(
  */
 export function createAddResourceTool(): ToolDefinition {
   return {
-    name: "addResource",
+    name: "add_resource",
     description:
       "Add a resource to the server and send list_changed notification",
     inputSchema: {
@@ -778,7 +778,7 @@ export function createAddResourceTool(): ToolDefinition {
  */
 export function createRemoveResourceTool(): ToolDefinition {
   return {
-    name: "removeResource",
+    name: "remove_resource",
     description:
       "Remove a resource from the server by URI and send list_changed notification",
     inputSchema: {
@@ -824,7 +824,7 @@ export function createRemoveResourceTool(): ToolDefinition {
  */
 export function createAddToolTool(): ToolDefinition {
   return {
-    name: "addTool",
+    name: "add_tool",
     description: "Add a tool to the server and send list_changed notification",
     inputSchema: {
       name: z.string().describe("Tool name"),
@@ -885,7 +885,7 @@ export function createAddToolTool(): ToolDefinition {
  */
 export function createRemoveToolTool(): ToolDefinition {
   return {
-    name: "removeTool",
+    name: "remove_tool",
     description:
       "Remove a tool from the server by name and send list_changed notification",
     inputSchema: {
@@ -931,7 +931,7 @@ export function createRemoveToolTool(): ToolDefinition {
  */
 export function createAddPromptTool(): ToolDefinition {
   return {
-    name: "addPrompt",
+    name: "add_prompt",
     description:
       "Add a prompt to the server and send list_changed notification",
     inputSchema: {
@@ -993,7 +993,7 @@ export function createAddPromptTool(): ToolDefinition {
  */
 export function createUpdateResourceTool(): ToolDefinition {
   return {
-    name: "updateResource",
+    name: "update_resource",
     description:
       "Update an existing resource's content and send resource updated notification",
     inputSchema: {
@@ -1055,11 +1055,11 @@ export function createUpdateResourceTool(): ToolDefinition {
 
 /**
  * Create a tool that sends progress notifications during execution
- * @param name Tool name (default: "sendProgress")
+ * @param name Tool name (default: "send_progress")
  * @returns Tool definition
  */
 export function createSendProgressTool(
-  name: string = "sendProgress",
+  name: string = "send_progress",
 ): ToolDefinition {
   return {
     name,
@@ -1146,7 +1146,7 @@ export function createSendProgressTool(
             sent = i;
           } catch (error) {
             console.error(
-              "[sendProgress] Error sending progress notification:",
+              "[send_progress] Error sending progress notification:",
               error,
             );
             break;
@@ -1165,7 +1165,7 @@ export function createSendProgressTool(
 
 export function createRemovePromptTool(): ToolDefinition {
   return {
-    name: "removePrompt",
+    name: "remove_prompt",
     description:
       "Remove a prompt from the server by name and send list_changed notification",
     inputSchema: {
@@ -1583,7 +1583,7 @@ export function createTaskTool(
  * Create a simple task tool that completes after a delay
  */
 export function createSimpleTaskTool(
-  name: string = "simpleTask",
+  name: string = "simple_task",
   delayMs: number = 1000,
 ): TaskToolDefinition {
   return createTaskTool({ name, delayMs });
@@ -1593,7 +1593,7 @@ export function createSimpleTaskTool(
  * Create a task tool that sends progress notifications
  */
 export function createProgressTaskTool(
-  name: string = "progressTask",
+  name: string = "progress_task",
   delayMs: number = 2000,
   progressUnits: number = 5,
 ): TaskToolDefinition {
@@ -1604,7 +1604,7 @@ export function createProgressTaskTool(
  * Create a task tool that requires elicitation input
  */
 export function createElicitationTaskTool(
-  name: string = "elicitationTask",
+  name: string = "elicitation_task",
   elicitationSchema?: z.ZodTypeAny,
 ): TaskToolDefinition {
   return createTaskTool({
@@ -1621,7 +1621,7 @@ export function createElicitationTaskTool(
  * Create a task tool that requires sampling input
  */
 export function createSamplingTaskTool(
-  name: string = "samplingTask",
+  name: string = "sampling_task",
   samplingText?: string,
 ): TaskToolDefinition {
   return createTaskTool({
@@ -1634,7 +1634,7 @@ export function createSamplingTaskTool(
  * Create a task tool with optional task support
  */
 export function createOptionalTaskTool(
-  name: string = "optionalTask",
+  name: string = "optional_task",
   delayMs: number = 500,
 ): TaskToolDefinition {
   return createTaskTool({ name, taskSupport: "optional", delayMs });
@@ -1644,7 +1644,7 @@ export function createOptionalTaskTool(
  * Create a tool that does not support tasks (completes immediately without creating a task)
  */
 export function createForbiddenTaskTool(
-  name: string = "forbiddenTask",
+  name: string = "forbidden_task",
   delayMs: number = 100,
 ): ToolDefinition {
   return createImmediateTool({ name, delayMs });
@@ -1655,7 +1655,7 @@ export function createForbiddenTaskTool(
  * (for testing callTool() with task-supporting server config where the tool itself is immediate)
  */
 export function createImmediateReturnTaskTool(
-  name: string = "immediateReturnTask",
+  name: string = "immediate_return_task",
   delayMs: number = 100,
 ): ToolDefinition {
   return createImmediateTool({ name, delayMs });

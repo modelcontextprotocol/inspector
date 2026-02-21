@@ -39,8 +39,8 @@ describe("CLI Tests", () => {
       // Validate expected tools from test-mcp-server
       const toolNames = json.tools.map((tool: any) => tool.name);
       expect(toolNames).toContain("echo");
-      expect(toolNames).toContain("get-sum");
-      expect(toolNames).toContain("get-annotated-message");
+      expect(toolNames).toContain("get_sum");
+      expect(toolNames).toContain("get_annotated_message");
     });
 
     it("should fail with nonexistent method", async () => {
@@ -315,7 +315,7 @@ describe("CLI Tests", () => {
         "--method",
         "prompts/get",
         "--prompt-name",
-        "simple-prompt",
+        "simple_prompt",
       ]);
 
       expectCliSuccess(result);
@@ -340,7 +340,7 @@ describe("CLI Tests", () => {
         "--method",
         "prompts/get",
         "--prompt-name",
-        "args-prompt",
+        "args_prompt",
         "--prompt-args",
         "city=New York",
         "state=NY",

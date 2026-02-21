@@ -142,6 +142,10 @@ const httpServer = serve(
     console.log(
       `\n🚀 MCP Inspector Web is up and running at:\n   http://${host}:${info.port}\n`,
     );
+    const sandboxUrl = sandboxController.getUrl();
+    if (sandboxUrl) {
+      console.log(`   Sandbox (MCP Apps): ${sandboxUrl}\n`);
+    }
     if (dangerouslyOmitAuth) {
       console.log("   Auth: disabled (DANGEROUSLY_OMIT_AUTH)\n");
     } else {

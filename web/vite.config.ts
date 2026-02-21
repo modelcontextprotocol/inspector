@@ -87,6 +87,18 @@ function honoMiddlewarePlugin(options: {
           `\n🔑 Inspector API token (add to URL or paste in token modal):\n   ${resolvedToken}\n   Or open: http://${host}:${port}/?${API_SERVER_ENV_VARS.AUTH_TOKEN}=${resolvedToken}\n`,
         );
       }
+      const sandboxUrl = sandboxController.getUrl();
+      if (sandboxUrl) {
+        if (server.httpServer) {
+          server.httpServer.once("listening", () => {
+            setImmediate(() => {
+              console.log(`  ➜  Sandbox (MCP Apps):   ${sandboxUrl}`);
+            });
+          });
+        } else {
+          console.log(`  ➜  Sandbox (MCP Apps):   ${sandboxUrl}`);
+        }
+      }
 
       // Convert Connect middleware to handle Hono app
       const honoMiddleware = async (

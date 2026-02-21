@@ -609,7 +609,7 @@ describe("InspectorClient", () => {
     });
 
     it("should call tool with number arguments", async () => {
-      const result = await client.callTool("get-sum", {
+      const result = await client.callTool("get_sum", {
         a: 42,
         b: 58,
       });
@@ -622,7 +622,7 @@ describe("InspectorClient", () => {
     });
 
     it("should call tool with boolean arguments", async () => {
-      const result = await client.callTool("get-annotated-message", {
+      const result = await client.callTool("get_annotated_message", {
         messageType: "success",
         includeImage: true,
       });
@@ -683,31 +683,31 @@ describe("InspectorClient", () => {
       const page1 = await client.listTools();
       expect(page1.tools.length).toBe(3);
       expect(page1.nextCursor).toBeDefined();
-      expect(page1.tools[0]?.name).toBe("tool-1");
-      expect(page1.tools[1]?.name).toBe("tool-2");
-      expect(page1.tools[2]?.name).toBe("tool-3");
+      expect(page1.tools[0]?.name).toBe("tool_1");
+      expect(page1.tools[1]?.name).toBe("tool_2");
+      expect(page1.tools[2]?.name).toBe("tool_3");
 
       // Second page should have 3 more tools
       const page2 = await client.listTools(page1.nextCursor);
       expect(page2.tools.length).toBe(3);
       expect(page2.nextCursor).toBeDefined();
-      expect(page2.tools[0]?.name).toBe("tool-4");
-      expect(page2.tools[1]?.name).toBe("tool-5");
-      expect(page2.tools[2]?.name).toBe("tool-6");
+      expect(page2.tools[0]?.name).toBe("tool_4");
+      expect(page2.tools[1]?.name).toBe("tool_5");
+      expect(page2.tools[2]?.name).toBe("tool_6");
 
       // Third page should have 3 more tools
       const page3 = await client.listTools(page2.nextCursor);
       expect(page3.tools.length).toBe(3);
       expect(page3.nextCursor).toBeDefined();
-      expect(page3.tools[0]?.name).toBe("tool-7");
-      expect(page3.tools[1]?.name).toBe("tool-8");
-      expect(page3.tools[2]?.name).toBe("tool-9");
+      expect(page3.tools[0]?.name).toBe("tool_7");
+      expect(page3.tools[1]?.name).toBe("tool_8");
+      expect(page3.tools[2]?.name).toBe("tool_9");
 
       // Fourth page should have 1 tool and no next cursor
       const page4 = await client.listTools(page3.nextCursor);
       expect(page4.tools.length).toBe(1);
       expect(page4.nextCursor).toBeUndefined();
-      expect(page4.tools[0]?.name).toBe("tool-10");
+      expect(page4.tools[0]?.name).toBe("tool_10");
 
       // listAllTools should get all 10 tools
       const allTools = await client.listAllTools();
@@ -794,28 +794,28 @@ describe("InspectorClient", () => {
       const page1 = await client.listTools();
       expect(page1.tools.length).toBe(2);
       expect(client.getTools().length).toBe(2);
-      expect(client.getTools()[0]?.name).toBe("tool-1");
-      expect(client.getTools()[1]?.name).toBe("tool-2");
+      expect(client.getTools()[0]?.name).toBe("tool_1");
+      expect(client.getTools()[1]?.name).toBe("tool_2");
 
       // Second page (with cursor) - should append 2 more tools
       const page2 = await client.listTools(page1.nextCursor);
       expect(page2.tools.length).toBe(2);
       expect(client.getTools().length).toBe(4);
-      expect(client.getTools()[2]?.name).toBe("tool-3");
-      expect(client.getTools()[3]?.name).toBe("tool-4");
+      expect(client.getTools()[2]?.name).toBe("tool_3");
+      expect(client.getTools()[3]?.name).toBe("tool_4");
 
       // Third page (with cursor) - should append 2 more tools
       const page3 = await client.listTools(page2.nextCursor);
       expect(page3.tools.length).toBe(2);
       expect(client.getTools().length).toBe(6);
-      expect(client.getTools()[4]?.name).toBe("tool-5");
-      expect(client.getTools()[5]?.name).toBe("tool-6");
+      expect(client.getTools()[4]?.name).toBe("tool_5");
+      expect(client.getTools()[5]?.name).toBe("tool_6");
 
       // Calling without cursor again should reset
       const page1Again = await client.listTools();
       expect(page1Again.tools.length).toBe(2);
       expect(client.getTools().length).toBe(2);
-      expect(client.getTools()[0]?.name).toBe("tool-1");
+      expect(client.getTools()[0]?.name).toBe("tool_1");
     });
 
     it("should emit toolsChange events when paginating", async () => {
@@ -973,31 +973,31 @@ describe("InspectorClient", () => {
       const page1 = await client.listResources();
       expect(page1.resources.length).toBe(3);
       expect(page1.nextCursor).toBeDefined();
-      expect(page1.resources[0]?.uri).toBe("test://resource-1");
-      expect(page1.resources[1]?.uri).toBe("test://resource-2");
-      expect(page1.resources[2]?.uri).toBe("test://resource-3");
+      expect(page1.resources[0]?.uri).toBe("test://resource_1");
+      expect(page1.resources[1]?.uri).toBe("test://resource_2");
+      expect(page1.resources[2]?.uri).toBe("test://resource_3");
 
       // Second page should have 3 more resources
       const page2 = await client.listResources(page1.nextCursor);
       expect(page2.resources.length).toBe(3);
       expect(page2.nextCursor).toBeDefined();
-      expect(page2.resources[0]?.uri).toBe("test://resource-4");
-      expect(page2.resources[1]?.uri).toBe("test://resource-5");
-      expect(page2.resources[2]?.uri).toBe("test://resource-6");
+      expect(page2.resources[0]?.uri).toBe("test://resource_4");
+      expect(page2.resources[1]?.uri).toBe("test://resource_5");
+      expect(page2.resources[2]?.uri).toBe("test://resource_6");
 
       // Third page should have 3 more resources
       const page3 = await client.listResources(page2.nextCursor);
       expect(page3.resources.length).toBe(3);
       expect(page3.nextCursor).toBeDefined();
-      expect(page3.resources[0]?.uri).toBe("test://resource-7");
-      expect(page3.resources[1]?.uri).toBe("test://resource-8");
-      expect(page3.resources[2]?.uri).toBe("test://resource-9");
+      expect(page3.resources[0]?.uri).toBe("test://resource_7");
+      expect(page3.resources[1]?.uri).toBe("test://resource_8");
+      expect(page3.resources[2]?.uri).toBe("test://resource_9");
 
       // Fourth page should have 1 resource and no next cursor
       const page4 = await client.listResources(page3.nextCursor);
       expect(page4.resources.length).toBe(1);
       expect(page4.nextCursor).toBeUndefined();
-      expect(page4.resources[0]?.uri).toBe("test://resource-10");
+      expect(page4.resources[0]?.uri).toBe("test://resource_10");
 
       // listAllResources should get all 10 resources
       const allResources = await client.listAllResources();
@@ -1084,28 +1084,28 @@ describe("InspectorClient", () => {
       const page1 = await client.listResources();
       expect(page1.resources.length).toBe(2);
       expect(client.getResources().length).toBe(2);
-      expect(client.getResources()[0]?.uri).toBe("test://resource-1");
-      expect(client.getResources()[1]?.uri).toBe("test://resource-2");
+      expect(client.getResources()[0]?.uri).toBe("test://resource_1");
+      expect(client.getResources()[1]?.uri).toBe("test://resource_2");
 
       // Second page (with cursor) - should append 2 more resources
       const page2 = await client.listResources(page1.nextCursor);
       expect(page2.resources.length).toBe(2);
       expect(client.getResources().length).toBe(4);
-      expect(client.getResources()[2]?.uri).toBe("test://resource-3");
-      expect(client.getResources()[3]?.uri).toBe("test://resource-4");
+      expect(client.getResources()[2]?.uri).toBe("test://resource_3");
+      expect(client.getResources()[3]?.uri).toBe("test://resource_4");
 
       // Third page (with cursor) - should append 2 more resources
       const page3 = await client.listResources(page2.nextCursor);
       expect(page3.resources.length).toBe(2);
       expect(client.getResources().length).toBe(6);
-      expect(client.getResources()[4]?.uri).toBe("test://resource-5");
-      expect(client.getResources()[5]?.uri).toBe("test://resource-6");
+      expect(client.getResources()[4]?.uri).toBe("test://resource_5");
+      expect(client.getResources()[5]?.uri).toBe("test://resource_6");
 
       // Calling without cursor again should reset
       const page1Again = await client.listResources();
       expect(page1Again.resources.length).toBe(2);
       expect(client.getResources().length).toBe(2);
-      expect(client.getResources()[0]?.uri).toBe("test://resource-1");
+      expect(client.getResources()[0]?.uri).toBe("test://resource_1");
     });
 
     it("should emit resourcesChange events when paginating", async () => {
@@ -1379,13 +1379,13 @@ describe("InspectorClient", () => {
       expect(page1.resourceTemplates.length).toBe(3);
       expect(page1.nextCursor).toBeDefined();
       expect(page1.resourceTemplates[0]?.uriTemplate).toBe(
-        "test://template-1/{param}",
+        "test://template_1/{param}",
       );
       expect(page1.resourceTemplates[1]?.uriTemplate).toBe(
-        "test://template-2/{param}",
+        "test://template_2/{param}",
       );
       expect(page1.resourceTemplates[2]?.uriTemplate).toBe(
-        "test://template-3/{param}",
+        "test://template_3/{param}",
       );
 
       // Second page should have 3 more templates
@@ -1393,13 +1393,13 @@ describe("InspectorClient", () => {
       expect(page2.resourceTemplates.length).toBe(3);
       expect(page2.nextCursor).toBeDefined();
       expect(page2.resourceTemplates[0]?.uriTemplate).toBe(
-        "test://template-4/{param}",
+        "test://template_4/{param}",
       );
       expect(page2.resourceTemplates[1]?.uriTemplate).toBe(
-        "test://template-5/{param}",
+        "test://template_5/{param}",
       );
       expect(page2.resourceTemplates[2]?.uriTemplate).toBe(
-        "test://template-6/{param}",
+        "test://template_6/{param}",
       );
 
       // Third page should have 3 more templates
@@ -1407,13 +1407,13 @@ describe("InspectorClient", () => {
       expect(page3.resourceTemplates.length).toBe(3);
       expect(page3.nextCursor).toBeDefined();
       expect(page3.resourceTemplates[0]?.uriTemplate).toBe(
-        "test://template-7/{param}",
+        "test://template_7/{param}",
       );
       expect(page3.resourceTemplates[1]?.uriTemplate).toBe(
-        "test://template-8/{param}",
+        "test://template_8/{param}",
       );
       expect(page3.resourceTemplates[2]?.uriTemplate).toBe(
-        "test://template-9/{param}",
+        "test://template_9/{param}",
       );
 
       // Fourth page should have 1 template and no next cursor
@@ -1421,7 +1421,7 @@ describe("InspectorClient", () => {
       expect(page4.resourceTemplates.length).toBe(1);
       expect(page4.nextCursor).toBeUndefined();
       expect(page4.resourceTemplates[0]?.uriTemplate).toBe(
-        "test://template-10/{param}",
+        "test://template_10/{param}",
       );
 
       // listAllResourceTemplates should get all 10 templates
@@ -1468,10 +1468,10 @@ describe("InspectorClient", () => {
       expect(page1.resourceTemplates.length).toBe(2);
       expect(client.getResourceTemplates().length).toBe(2);
       expect(client.getResourceTemplates()[0]?.uriTemplate).toBe(
-        "test://template-1/{param}",
+        "test://template_1/{param}",
       );
       expect(client.getResourceTemplates()[1]?.uriTemplate).toBe(
-        "test://template-2/{param}",
+        "test://template_2/{param}",
       );
 
       // Second page (with cursor) - should append 2 more templates
@@ -1479,10 +1479,10 @@ describe("InspectorClient", () => {
       expect(page2.resourceTemplates.length).toBe(2);
       expect(client.getResourceTemplates().length).toBe(4);
       expect(client.getResourceTemplates()[2]?.uriTemplate).toBe(
-        "test://template-3/{param}",
+        "test://template_3/{param}",
       );
       expect(client.getResourceTemplates()[3]?.uriTemplate).toBe(
-        "test://template-4/{param}",
+        "test://template_4/{param}",
       );
 
       // Third page (with cursor) - should append 2 more templates
@@ -1490,10 +1490,10 @@ describe("InspectorClient", () => {
       expect(page3.resourceTemplates.length).toBe(2);
       expect(client.getResourceTemplates().length).toBe(6);
       expect(client.getResourceTemplates()[4]?.uriTemplate).toBe(
-        "test://template-5/{param}",
+        "test://template_5/{param}",
       );
       expect(client.getResourceTemplates()[5]?.uriTemplate).toBe(
-        "test://template-6/{param}",
+        "test://template_6/{param}",
       );
 
       // Calling without cursor again should reset
@@ -1501,7 +1501,7 @@ describe("InspectorClient", () => {
       expect(page1Again.resourceTemplates.length).toBe(2);
       expect(client.getResourceTemplates().length).toBe(2);
       expect(client.getResourceTemplates()[0]?.uriTemplate).toBe(
-        "test://template-1/{param}",
+        "test://template_1/{param}",
       );
     });
 
@@ -1604,31 +1604,31 @@ describe("InspectorClient", () => {
       const page1 = await client.listPrompts();
       expect(page1.prompts.length).toBe(3);
       expect(page1.nextCursor).toBeDefined();
-      expect(page1.prompts[0]?.name).toBe("prompt-1");
-      expect(page1.prompts[1]?.name).toBe("prompt-2");
-      expect(page1.prompts[2]?.name).toBe("prompt-3");
+      expect(page1.prompts[0]?.name).toBe("prompt_1");
+      expect(page1.prompts[1]?.name).toBe("prompt_2");
+      expect(page1.prompts[2]?.name).toBe("prompt_3");
 
       // Second page should have 3 more prompts
       const page2 = await client.listPrompts(page1.nextCursor);
       expect(page2.prompts.length).toBe(3);
       expect(page2.nextCursor).toBeDefined();
-      expect(page2.prompts[0]?.name).toBe("prompt-4");
-      expect(page2.prompts[1]?.name).toBe("prompt-5");
-      expect(page2.prompts[2]?.name).toBe("prompt-6");
+      expect(page2.prompts[0]?.name).toBe("prompt_4");
+      expect(page2.prompts[1]?.name).toBe("prompt_5");
+      expect(page2.prompts[2]?.name).toBe("prompt_6");
 
       // Third page should have 3 more prompts
       const page3 = await client.listPrompts(page2.nextCursor);
       expect(page3.prompts.length).toBe(3);
       expect(page3.nextCursor).toBeDefined();
-      expect(page3.prompts[0]?.name).toBe("prompt-7");
-      expect(page3.prompts[1]?.name).toBe("prompt-8");
-      expect(page3.prompts[2]?.name).toBe("prompt-9");
+      expect(page3.prompts[0]?.name).toBe("prompt_7");
+      expect(page3.prompts[1]?.name).toBe("prompt_8");
+      expect(page3.prompts[2]?.name).toBe("prompt_9");
 
       // Fourth page should have 1 prompt and no next cursor
       const page4 = await client.listPrompts(page3.nextCursor);
       expect(page4.prompts.length).toBe(1);
       expect(page4.nextCursor).toBeUndefined();
-      expect(page4.prompts[0]?.name).toBe("prompt-10");
+      expect(page4.prompts[0]?.name).toBe("prompt_10");
 
       // listAllPrompts should get all 10 prompts
       const allPrompts = await client.listAllPrompts();
@@ -1715,28 +1715,28 @@ describe("InspectorClient", () => {
       const page1 = await client.listPrompts();
       expect(page1.prompts.length).toBe(2);
       expect(client.getPrompts().length).toBe(2);
-      expect(client.getPrompts()[0]?.name).toBe("prompt-1");
-      expect(client.getPrompts()[1]?.name).toBe("prompt-2");
+      expect(client.getPrompts()[0]?.name).toBe("prompt_1");
+      expect(client.getPrompts()[1]?.name).toBe("prompt_2");
 
       // Second page (with cursor) - should append 2 more prompts
       const page2 = await client.listPrompts(page1.nextCursor);
       expect(page2.prompts.length).toBe(2);
       expect(client.getPrompts().length).toBe(4);
-      expect(client.getPrompts()[2]?.name).toBe("prompt-3");
-      expect(client.getPrompts()[3]?.name).toBe("prompt-4");
+      expect(client.getPrompts()[2]?.name).toBe("prompt_3");
+      expect(client.getPrompts()[3]?.name).toBe("prompt_4");
 
       // Third page (with cursor) - should append 2 more prompts
       const page3 = await client.listPrompts(page2.nextCursor);
       expect(page3.prompts.length).toBe(2);
       expect(client.getPrompts().length).toBe(6);
-      expect(client.getPrompts()[4]?.name).toBe("prompt-5");
-      expect(client.getPrompts()[5]?.name).toBe("prompt-6");
+      expect(client.getPrompts()[4]?.name).toBe("prompt_5");
+      expect(client.getPrompts()[5]?.name).toBe("prompt_6");
 
       // Calling without cursor again should reset
       const page1Again = await client.listPrompts();
       expect(page1Again.prompts.length).toBe(2);
       expect(client.getPrompts().length).toBe(2);
-      expect(client.getPrompts()[0]?.name).toBe("prompt-1");
+      expect(client.getPrompts()[0]?.name).toBe("prompt_1");
     });
 
     it("should emit promptsChange events when paginating", async () => {
@@ -1856,7 +1856,7 @@ describe("InspectorClient", () => {
       const progressToken = 12345;
 
       client.callTool(
-        "sendProgress",
+        "send_progress",
         {
           units: 3,
           delayMs: 50,
@@ -1934,7 +1934,7 @@ describe("InspectorClient", () => {
 
       // Call the tool with progressToken in metadata
       await client.callTool(
-        "sendProgress",
+        "send_progress",
         {
           units: 2,
           delayMs: 50,
@@ -1984,7 +1984,7 @@ describe("InspectorClient", () => {
       const progressToken = 67890;
 
       client.callTool(
-        "sendProgress",
+        "send_progress",
         {
           units: 2,
           delayMs: 50,
@@ -2046,7 +2046,7 @@ describe("InspectorClient", () => {
 
       const progressToken = 999;
       const result = await client.callTool(
-        "sendProgress",
+        "send_progress",
         { units: 3, delayMs: 100, total: 3, message: "Timeout test" },
         undefined,
         { progressToken: progressToken.toString() },
@@ -2091,7 +2091,7 @@ describe("InspectorClient", () => {
       await client.connect();
 
       const result = await client.callTool(
-        "sendProgress",
+        "send_progress",
         { units: 4, delayMs: 200, total: 4, message: "Reset test" },
         undefined,
         { progressToken: "reset-test" },
@@ -2139,7 +2139,7 @@ describe("InspectorClient", () => {
       let err: unknown;
       try {
         await client.callTool(
-          "sendProgress",
+          "send_progress",
           { units: 4, delayMs: 200, total: 4, message: "Timeout test" },
           undefined,
           { progressToken: progressToken.toString() },
@@ -2197,7 +2197,7 @@ describe("InspectorClient", () => {
       await client.connect();
 
       const testMessage = `stderr-direct-${Date.now()}`;
-      await client.callTool("writeToStderr", { message: testMessage });
+      await client.callTool("write_to_stderr", { message: testMessage });
 
       const logs = client.getStderrLogs();
       expect(Array.isArray(logs)).toBe(true);
@@ -2282,7 +2282,7 @@ describe("InspectorClient", () => {
 
   describe("Sampling Requests", () => {
     it("should handle sampling requests from server and respond", async () => {
-      // Create a test server with the collectSample tool
+      // Create a test server with the collect_sample tool
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         tools: [createCollectSampleTool()],
@@ -2320,7 +2320,7 @@ describe("InspectorClient", () => {
       );
 
       // Start the tool call (don't await yet - it will block until sampling is responded to)
-      const toolResultPromise = client.callTool("collectSample", {
+      const toolResultPromise = client.callTool("collect_sample", {
         text: "Hello, world!",
       });
 
@@ -2385,7 +2385,7 @@ describe("InspectorClient", () => {
 
   describe("Server-Initiated Notifications", () => {
     it("should receive server-initiated notifications via stdio transport", async () => {
-      // Note: stdio test server uses getDefaultServerConfig which now includes sendNotification tool
+      // Note: stdio test server uses getDefaultServerConfig which now includes send_notification tool
       // Create client with stdio transport
       client = new InspectorClient(
         {
@@ -2411,8 +2411,8 @@ describe("InspectorClient", () => {
         });
       });
 
-      // Call the sendNotification tool
-      await client.callTool("sendNotification", {
+      // Call the send_notification tool
+      await client.callTool("send_notification", {
         message: "Test notification from stdio",
         level: "info",
       });
@@ -2435,7 +2435,7 @@ describe("InspectorClient", () => {
     });
 
     it("should receive server-initiated notifications via SSE transport", async () => {
-      // Create a test server with the sendNotification tool and logging enabled
+      // Create a test server with the send_notification tool and logging enabled
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         tools: [createSendNotificationTool()],
@@ -2469,8 +2469,8 @@ describe("InspectorClient", () => {
         });
       });
 
-      // Call the sendNotification tool
-      await client.callTool("sendNotification", {
+      // Call the send_notification tool
+      await client.callTool("send_notification", {
         message: "Test notification from SSE",
         level: "warning",
       });
@@ -2493,7 +2493,7 @@ describe("InspectorClient", () => {
     });
 
     it("should receive server-initiated notifications via streamable-http transport", async () => {
-      // Create a test server with the sendNotification tool and logging enabled
+      // Create a test server with the send_notification tool and logging enabled
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         tools: [createSendNotificationTool()],
@@ -2527,8 +2527,8 @@ describe("InspectorClient", () => {
         });
       });
 
-      // Call the sendNotification tool
-      await client.callTool("sendNotification", {
+      // Call the send_notification tool
+      await client.callTool("send_notification", {
         message: "Test notification from streamable-http",
         level: "error",
       });
@@ -2593,7 +2593,7 @@ describe("InspectorClient", () => {
       );
 
       // Start the tool call (don't await yet - it will block until elicitation is responded to)
-      const toolResultPromise = client.callTool("collectElicitation", {
+      const toolResultPromise = client.callTool("collect_elicitation", {
         message: "Please provide your name",
         schema: {
           type: "object",
@@ -2658,7 +2658,7 @@ describe("InspectorClient", () => {
     });
 
     it("should handle URL-based elicitation requests from server and respond", async () => {
-      // Create a test server with the collectUrlElicitation tool
+      // Create a test server with the collect_url_elicitation tool
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         tools: [createCollectUrlElicitationTool()],
@@ -2696,7 +2696,7 @@ describe("InspectorClient", () => {
       );
 
       // Start the tool call (don't await yet - it will block until elicitation is responded to)
-      const toolResultPromise = client.callTool("collectUrlElicitation", {
+      const toolResultPromise = client.callTool("collect_url_elicitation", {
         message: "Please visit the URL to complete authentication",
         url: "https://example.com/auth",
         elicitationId: "test-url-elicitation-123",
@@ -2758,7 +2758,7 @@ describe("InspectorClient", () => {
 
   describe("Roots Support", () => {
     it("should handle roots/list request from server and return roots", async () => {
-      // Create a test server with the listRoots tool
+      // Create a test server with the list_roots tool
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         tools: [createListRootsTool()],
@@ -2787,8 +2787,8 @@ describe("InspectorClient", () => {
 
       await client.connect();
 
-      // Call the listRoots tool - it will call roots/list on the client
-      const toolResult = await client.callTool("listRoots", {});
+      // Call the list_roots tool - it will call roots/list on the client
+      const toolResult = await client.callTool("list_roots", {});
 
       // Verify the tool result contains the roots
       expect(toolResult).toBeDefined();
@@ -2975,7 +2975,7 @@ describe("InspectorClient", () => {
 
       // Request completions for "city" argument with partial value "New"
       const result = await client.getCompletions(
-        { type: "ref/prompt", name: "args-prompt" },
+        { type: "ref/prompt", name: "args_prompt" },
         "city",
         "New",
       );
@@ -3070,7 +3070,7 @@ describe("InspectorClient", () => {
 
       // Request completions for "state" with context (city="New York")
       const result = await client.getCompletions(
-        { type: "ref/prompt", name: "args-prompt" },
+        { type: "ref/prompt", name: "args_prompt" },
         "state",
         "N",
         { city: "New York" },
@@ -3962,7 +3962,7 @@ describe("InspectorClient", () => {
       await client.listAllPrompts();
 
       // Load a prompt to populate cache
-      const promptName = "simple-prompt";
+      const promptName = "simple_prompt";
       await client.getPrompt(promptName);
       expect(client.cache.getPrompt(promptName)).not.toBeNull();
 
@@ -4029,7 +4029,7 @@ describe("InspectorClient", () => {
       });
 
       // Add a new tool (this will send list_changed notification)
-      await client.callTool("addTool", {
+      await client.callTool("add_tool", {
         name: "newTool",
         description: "A new test tool",
       });
@@ -4085,7 +4085,7 @@ describe("InspectorClient", () => {
       });
 
       // Add a new tool (this will send list_changed notification)
-      await client.callTool("addTool", {
+      await client.callTool("add_tool", {
         name: "newTool",
         description: "A new test tool",
       });
@@ -4133,7 +4133,7 @@ describe("InspectorClient", () => {
       });
 
       // Add a new tool (this will send list_changed notification)
-      await client.callTool("addTool", {
+      await client.callTool("add_tool", {
         name: "newTool",
         description: "A new test tool",
       });
@@ -4209,7 +4209,7 @@ describe("InspectorClient", () => {
       );
 
       // Add a new resource (this will send list_changed notification)
-      await client.callTool("addResource", {
+      await client.callTool("add_resource", {
         uri: "test://new-resource",
         name: "newResource",
         text: "New resource content",
@@ -4269,7 +4269,7 @@ describe("InspectorClient", () => {
       });
 
       // Add a new prompt (this will send list_changed notification)
-      await client.callTool("addPrompt", {
+      await client.callTool("add_prompt", {
         name: "newPrompt",
         promptString: "This is a new prompt",
       });
@@ -4331,7 +4331,7 @@ describe("InspectorClient", () => {
       // callTool() uses listToolsInternal() which doesn't dispatch events
       // If handler is enabled, it will call listTools() which dispatches toolsChange
       // Since handler is disabled, no event should be received
-      await client.callTool("addTool", {
+      await client.callTool("add_tool", {
         name: "testTool",
         description: "Test tool",
       });
@@ -4352,7 +4352,7 @@ describe("InspectorClient", () => {
       expect(finalTools).toEqual(initialTools);
 
       // Verify the tool was actually added to the server by manually calling listAllTools()
-      // This proves the server received the addTool call and the notification was sent
+      // This proves the server received the add_tool call and the notification was sent
       const serverTools = await client.listAllTools();
       expect(serverTools.length).toBeGreaterThan(initialToolCount);
       expect(serverTools.find((t) => t.name === "testTool")).toBeDefined();
@@ -4433,7 +4433,7 @@ describe("InspectorClient", () => {
       });
 
       // Remove the tool (this will send list_changed notification)
-      await client.callTool("removeTool", { name: toolName });
+      await client.callTool("remove_tool", { name: toolName });
       const event = await toolsChangePromise;
 
       // Tools should be reloaded
@@ -4490,7 +4490,7 @@ describe("InspectorClient", () => {
       });
 
       // Remove the resource (this will send list_changed notification)
-      await client.callTool("removeResource", { uri });
+      await client.callTool("remove_resource", { uri });
       const event = await resourcesChangePromise;
 
       // Resources should be reloaded
@@ -4531,7 +4531,7 @@ describe("InspectorClient", () => {
       await client.connect();
 
       // Load prompt to populate cache
-      const promptName = "simple-prompt";
+      const promptName = "simple_prompt";
       await client.getPrompt(promptName);
       expect(client.cache.getPrompt(promptName)).not.toBeNull();
 
@@ -4547,7 +4547,7 @@ describe("InspectorClient", () => {
       });
 
       // Remove the prompt (this will send list_changed notification)
-      await client.callTool("removePrompt", { name: promptName });
+      await client.callTool("remove_prompt", { name: promptName });
       const event = await promptsChangePromise;
 
       // Prompts should be reloaded
@@ -4659,8 +4659,8 @@ describe("InspectorClient", () => {
       await client.listAllPrompts();
 
       // Load both prompts to populate cache
-      const promptName1 = "simple-prompt";
-      const promptName2 = "args-prompt";
+      const promptName1 = "simple_prompt";
+      const promptName2 = "args_prompt";
       await client.getPrompt(promptName1);
       await client.getPrompt(promptName2, { city: "New York", state: "NY" });
       expect(client.cache.getPrompt(promptName1)).not.toBeNull();
@@ -4924,7 +4924,7 @@ describe("InspectorClient", () => {
       });
 
       // Update the resource (this will send resource updated notification)
-      await client.callTool("updateResource", {
+      await client.callTool("update_resource", {
         uri,
         text: "Updated content",
       });
@@ -4983,7 +4983,7 @@ describe("InspectorClient", () => {
       });
 
       // Update the resource (this will send resource updated notification)
-      await client.callTool("updateResource", {
+      await client.callTool("update_resource", {
         uri,
         text: "Updated content",
       });
@@ -5043,7 +5043,7 @@ describe("InspectorClient", () => {
     it("should run tool as task (callTool with taskOptions returns task reference, poll getRequestorTask/getRequestorTaskResult yields result)", async () => {
       // Same path as web App "Run as task": callTool with taskOptions -> task reference -> poll until completed
       const invocation = await client.callTool(
-        "optionalTask",
+        "optional_task",
         { message: "e2e-run-as-task" },
         undefined,
         undefined,
@@ -5143,7 +5143,7 @@ describe("InspectorClient", () => {
         },
       );
 
-      const result = await client.callToolStream("simpleTask", {
+      const result = await client.callToolStream("simple_task", {
         message: "test task",
       });
 
@@ -5188,8 +5188,8 @@ describe("InspectorClient", () => {
 
       const taskId = createdEvent.taskId;
 
-      // Validate taskStatusChange events - simpleTask flow:
-      // The SDK may send multiple status updates. For simpleTask, we expect:
+      // Validate taskStatusChange events - simple_task flow:
+      // The SDK may send multiple status updates. For simple_task, we expect:
       // 1. taskCreated (status: "working") - from SDK when task is created
       // 2. taskStatusChange events - SDK may send status updates during execution
       //    - At minimum: one with status "completed" when task finishes
@@ -5243,7 +5243,7 @@ describe("InspectorClient", () => {
       // Validate toolCallResultChange event
       expect(toolCallResultEvents.length).toBe(1);
       const toolCallEvent = toolCallResultEvents[0]!;
-      expect(toolCallEvent.toolName).toBe("simpleTask");
+      expect(toolCallEvent.toolName).toBe("simple_task");
       expect(toolCallEvent.params).toEqual({ message: "test task" });
       expect(toolCallEvent.success).toBe(true);
       expect(toolCallEvent.result).toEqual(toolResult);
@@ -5270,7 +5270,7 @@ describe("InspectorClient", () => {
 
     it("should accept taskOptions (ttl) in callToolStream", async () => {
       const result = await client.callToolStream(
-        "simpleTask",
+        "simple_task",
         { message: "ttl-test" },
         undefined,
         undefined,
@@ -5286,7 +5286,7 @@ describe("InspectorClient", () => {
 
     it("should get task by taskId", async () => {
       // First create a task
-      const result = await client.callToolStream("simpleTask", {
+      const result = await client.callToolStream("simple_task", {
         message: "test",
       });
       expect(result.success).toBe(true);
@@ -5307,7 +5307,7 @@ describe("InspectorClient", () => {
 
     it("should get task result", async () => {
       // First create a task
-      const result = await client.callToolStream("simpleTask", {
+      const result = await client.callToolStream("simple_task", {
         message: "test result",
       });
       expect(result.success).toBe(true);
@@ -5352,13 +5352,13 @@ describe("InspectorClient", () => {
 
     it("should throw error when calling callTool on task-required tool", async () => {
       await expect(
-        client.callTool("simpleTask", { message: "test" }),
+        client.callTool("simple_task", { message: "test" }),
       ).rejects.toThrow("requires task support");
     });
 
     it("should clear tasks on disconnect", async () => {
       // Create a task
-      await client.callToolStream("simpleTask", { message: "test" });
+      await client.callToolStream("simple_task", { message: "test" });
       expect(client.getTrackedRequestorTasks().length).toBeGreaterThan(0);
 
       // Disconnect
@@ -5370,7 +5370,7 @@ describe("InspectorClient", () => {
 
     it("should call tool with taskSupport: forbidden (immediate result, no task)", async () => {
       // forbiddenTask should return immediately without creating a task
-      const result = await client.callToolStream("forbiddenTask", {
+      const result = await client.callToolStream("forbidden_task", {
         message: "test",
       });
 
@@ -5382,7 +5382,7 @@ describe("InspectorClient", () => {
 
     it("should call tool with taskSupport: optional (may or may not create task)", async () => {
       // optionalTask may create a task or return immediately
-      const result = await client.callToolStream("optionalTask", {
+      const result = await client.callToolStream("optional_task", {
         message: "test",
       });
 
@@ -5751,9 +5751,9 @@ describe("InspectorClient", () => {
     });
 
     it("should handle listTasks pagination", async () => {
-      await client.callToolStream("simpleTask", { message: "task1" });
-      await client.callToolStream("simpleTask", { message: "task2" });
-      await client.callToolStream("simpleTask", { message: "task3" });
+      await client.callToolStream("simple_task", { message: "task1" });
+      await client.callToolStream("simple_task", { message: "task2" });
+      await client.callToolStream("simple_task", { message: "task3" });
       const result = await client.listRequestorTasks();
       expect(result.tasks.length).toBeGreaterThan(0);
 

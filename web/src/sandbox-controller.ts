@@ -83,7 +83,6 @@ export function createSandboxController(
               ? addr.port
               : (addr as unknown as number);
           sandboxUrl = `http://${host}:${actualPort}/sandbox`;
-          console.log(`   Sandbox (MCP Apps): ${sandboxUrl}`);
           resolve({ port: actualPort, url: sandboxUrl });
         });
       });

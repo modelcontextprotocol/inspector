@@ -183,7 +183,7 @@ describe("Remote transport e2e", () => {
 
       try {
         const testMessage = `stderr-remote-${Date.now()}`;
-        await client.callTool("writeToStderr", { message: testMessage });
+        await client.callTool("write_to_stderr", { message: testMessage });
 
         const stderrLogs = client.getStderrLogs();
         expect(Array.isArray(stderrLogs)).toBe(true);

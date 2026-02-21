@@ -34,17 +34,17 @@ export class TestServerStdio {
       onRegisterResource: (resource: ResourceDefinition) => {
         // Only provide custom handler for dynamic resources
         if (
-          resource.name === "test-cwd" ||
-          resource.name === "test-env" ||
-          resource.name === "test-argv"
+          resource.name === "test_cwd" ||
+          resource.name === "test_env" ||
+          resource.name === "test_argv"
         ) {
           return async () => {
             let text: string;
-            if (resource.name === "test-cwd") {
+            if (resource.name === "test_cwd") {
               text = process.cwd();
-            } else if (resource.name === "test-env") {
+            } else if (resource.name === "test_env") {
               text = JSON.stringify(process.env, null, 2);
-            } else if (resource.name === "test-argv") {
+            } else if (resource.name === "test_argv") {
               text = JSON.stringify(process.argv, null, 2);
             } else {
               text = resource.text ?? "";
