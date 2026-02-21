@@ -87,6 +87,7 @@ Goal: Bring Inspector Web support to current spec
 - URL elicitation (already in InspectorClient, just need UX)
   - https://github.com/modelcontextprotocol/inspector/issues/929
   - https://github.com/modelcontextprotocol/inspector/pull/994
+  - May be tricky to test because everything doesn't support it yet
 - Add "sampling with tools" support
   - https://github.com/modelcontextprotocol/inspector/issues/932
 - Review v1 project boards for any feature deficiencies
