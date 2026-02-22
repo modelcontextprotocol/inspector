@@ -14,7 +14,7 @@ import { InspectorClient } from "../mcp/inspectorClient.js";
 import { createTransportNode } from "../mcp/node/transport.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 import { NodeOAuthStorage } from "../auth/node/storage-node.js";
-import { createOAuthClientConfig } from "../test/test-server-fixtures.js";
+import { createOAuthClientConfig } from "./helpers/oauth-client-fixtures.js";
 import type {
   InspectorClientOptions,
   InspectorClientEnvironment,

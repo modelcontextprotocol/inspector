@@ -18,21 +18,21 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { InspectorClient } from "../mcp/inspectorClient.js";
 import { createTransportNode } from "../mcp/node/transport.js";
-import { TestServerHttp } from "../test/test-server-http.js";
-import { waitForStateFile } from "../test/test-helpers.js";
-import { getDefaultServerConfig } from "../test/test-server-fixtures.js";
 import {
+  TestServerHttp,
+  waitForStateFile,
+  getDefaultServerConfig,
   createOAuthTestServerConfig,
+  clearOAuthTestData,
+  getDCRRequests,
+  invalidateAccessToken,
+} from "@modelcontextprotocol/inspector-test-server";
+import {
   createOAuthClientConfig,
   completeOAuthAuthorization,
   createClientMetadataServer,
   type ClientMetadataDocument,
-} from "../test/test-server-fixtures.js";
-import {
-  clearOAuthTestData,
-  getDCRRequests,
-  invalidateAccessToken,
-} from "../test/test-server-oauth.js";
+} from "./helpers/oauth-client-fixtures.js";
 import {
   clearAllOAuthClientState,
   NodeOAuthStorage,

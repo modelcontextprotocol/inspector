@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
-import { getTestMcpServerCommand } from "../../../core/test/test-server-stdio.js";
+import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
 
 /**
  * Sentinel value for tests that don't need a real server

@@ -22,6 +22,7 @@ const packagePaths = [
   "core/package.json",
   "cli/package.json",
   "tui/package.json",
+  "test/package.json",
 ];
 
 const versions = new Map();
@@ -137,6 +138,7 @@ if (!fs.existsSync(lockPath)) {
         { path: "core", name: "@modelcontextprotocol/inspector-core" },
         { path: "cli", name: "@modelcontextprotocol/inspector-cli" },
         { path: "tui", name: "@modelcontextprotocol/inspector-tui" },
+        { path: "test", name: "@modelcontextprotocol/inspector-test-server" },
       ];
 
       workspacePackages.forEach(({ path, name }) => {

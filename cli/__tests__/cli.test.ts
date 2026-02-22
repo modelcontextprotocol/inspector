@@ -12,12 +12,12 @@ import {
   createInvalidConfig,
   deleteConfigFile,
 } from "./helpers/fixtures.js";
-import { getTestMcpServerCommand } from "../../core/test/test-server-stdio.js";
-import { createTestServerHttp } from "../../core/test/test-server-http.js";
 import {
+  getTestMcpServerCommand,
+  createTestServerHttp,
   createEchoTool,
   createTestServerInfo,
-} from "../../core/test/test-server-fixtures.js";
+} from "@modelcontextprotocol/inspector-test-server";
 
 describe("CLI Tests", () => {
   describe("Basic CLI Mode", () => {

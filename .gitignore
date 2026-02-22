@@ -9,6 +9,7 @@ web/tsconfig.jest.tsbuildinfo
 core/build
 cli/build
 tui/build
+test/build
 test-output
 tool-test-output
 metadata-test-output
@@ -18,7 +19,7 @@ web/playwright-report/
 web/results.json
 web/test-results/
 web/e2e/test-results/
-# Only ignore mcp.json at repo root (test configs in test/ are committed)
+# Only ignore mcp.json at repo root (configs in configs/ are committed)
 /mcp.json
 .claude/settings.local.json
 

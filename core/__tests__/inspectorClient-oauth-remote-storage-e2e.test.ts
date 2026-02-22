@@ -16,21 +16,21 @@ import { createRemoteFetch } from "../mcp/remote/createRemoteFetch.js";
 import { RemoteOAuthStorage } from "../auth/remote/storage-remote.js";
 import { NodeOAuthStorage } from "../auth/node/storage-node.js";
 import { createRemoteApp } from "../mcp/remote/node/server.js";
-import { TestServerHttp } from "../test/test-server-http.js";
-import { getDefaultServerConfig } from "../test/test-server-fixtures.js";
 import {
+  TestServerHttp,
+  getDefaultServerConfig,
   createOAuthTestServerConfig,
+  clearOAuthTestData,
+  getDCRRequests,
+  invalidateAccessToken,
+} from "@modelcontextprotocol/inspector-test-server";
+import {
   createOAuthClientConfig,
   completeOAuthAuthorization,
   createClientMetadataServer,
   type ClientMetadataDocument,
-} from "../test/test-server-fixtures.js";
+} from "./helpers/oauth-client-fixtures.js";
 import { ConsoleNavigation } from "../auth/providers.js";
-import {
-  clearOAuthTestData,
-  getDCRRequests,
-  invalidateAccessToken,
-} from "../test/test-server-oauth.js";
 import type { InspectorClientOptions } from "../mcp/inspectorClient.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 

@@ -27,7 +27,8 @@
   "devDependencies": {
     "@types/express": "^5.0.0",
     "tsx": "^4.7.0",
-    "vitest": "^4.0.17"
+    "vitest": "^4.0.17",
+    "@modelcontextprotocol/inspector-test-server": "*"
   },
   "dependencies": {
     "@modelcontextprotocol/inspector-core": "*",

@@ -106,10 +106,11 @@ export function getTestMcpServerPath(): string {
 
 /**
  * Get the command and args to run the test MCP server
+ * Uses node to run the built output (test package must be built first)
  */
 export function getTestMcpServerCommand(): { command: string; args: string[] } {
   return {
-    command: "tsx",
+    command: "node",
     args: [getTestMcpServerPath()],
   };
 }

@@ -12,7 +12,7 @@ import type {
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { waitForStateFile } from "../../test/test-helpers.js";
+import { waitForStateFile } from "@modelcontextprotocol/inspector-test-server";
 
 // Unique path per process so parallel test files don't share the same state file
 const testStatePath = path.join(

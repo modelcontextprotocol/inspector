@@ -2,7 +2,7 @@
 
 This document outlines a detailed plan to add MCP Apps support to the web app. The plan is informed by **reading PR 1044** (main implementation), PR 1043 (tests), and PR 1075 (tool-result fix), and by the current client and web codebases.
 
-**As-built (Phase 1 completed):** Phase 1 is implemented. Differences from the original plan are noted in **Section 9 (As-built notes)**. Manual verification: all **19 MCP app servers** in `test/mcpapps.json` have been verified to work in the web app.
+**As-built (Phase 1 completed):** Phase 1 is implemented. Differences from the original plan are noted in **Section 9 (As-built notes)**. Manual verification: all **19 MCP app servers** in `configs/mcpapps.json` have been verified to work in the web app.
 
 ## Phases
 
@@ -241,7 +241,7 @@ For each: `"type": "stdio", "command": "npx", "args": ["-y", "--silent", "--regi
 
 **How to run:** Add one or more entries to your MCP server config (Inspector config file or UI), then connect and open the Apps tab. To run from a local ext-apps clone, see the "Local Development" section in the [ext-apps README](https://github.com/modelcontextprotocol/ext-apps) (build and run from `examples/budget-allocator-server`, etc.).
 
-**As-built:** Test config files for manual testing live in the top-level **`test/`** directory. **`test/mcpapps.json`** contains 19 MCP app server entries. **Manual verification:** All 19 servers in `test/mcpapps.json` have been verified to work in the web app (Apps tab, open app, load and interact).
+**As-built:** Inspector config files for manual testing live in **`configs/`**. **`configs/mcpapps.json`** contains 19 MCP app server entries. **Manual verification:** All 19 servers in `configs/mcpapps.json` have been verified to work in the web app (Apps tab, open app, load and interact).
 
 ---
 
@@ -286,7 +286,7 @@ For each: `"type": "stdio", "command": "npx", "args": ["-y", "--silent", "--regi
 - [x] Add "Apps" tab and validTabs entries in web App; pass appRendererClient (from getAppRendererClient() via hook) and fixed sandbox URL (4.5 Phase 1).
 - [x] Effect: listTools when activeTab === "apps" and server has tools (4.5).
 - [x] Add Vitest tests for AppsTab and AppRenderer (5.1); parity with client test count (AppsTab 20 tests, AppRenderer 5 tests).
-- [x] Manual test with app-capable servers (5.2): all 19 servers in `test/mcpapps.json` verified in web app.
+- [x] Manual test with app-capable servers (5.2): all 19 servers in `configs/mcpapps.json` verified in web app.
 
 **Phase 2**
 
@@ -306,5 +306,5 @@ Summary of how Phase 1 was actually implemented where it differed from the plan.
 - **ListPane:** `clearItems` is optional; the Clear button is only rendered when `clearItems` is provided. AppsTab does not pass `clearItems`.
 - **AppRenderer tool-result (PR 1075):** On mount/update, when `appRendererClient`, `tool`, and `toolInput` are set, we call `appRendererClient.callTool({ name, arguments })` and pass the result to `McpUiAppRenderer` as `toolResult`. A run-id ref is used to ignore stale results; on failure we pass an error-shaped result so the app UI does not hang.
 - **AppRendererClient and handler interception:** InspectorClient no longer exposes the raw MCP client. It exposes **`getAppRendererClient(): AppRendererClient | null`**. The hook returns **`appRendererClient`** (so naming is consistent in web). The AppRendererClient is a **cached** JavaScript Proxy around the internal client: same instance for the lifetime of the connection (cleared on disconnect and when creating a new client), so React dependency arrays stay stable and the Apps tab does not loop. The proxy forwards all methods; **only `setNotificationHandler` is intercepted**. The interceptor currently passes through to the internal client. Phase 2 will change it to call **`addAppNotificationHandler`** so both InspectorClient and the app receive notifications and list updates continue while an app is open.
-- **Test configs:** Top-level `test/` holds config files for manual testing. `test/mcpapps.json` has 19 MCP app server entries. Root `mcp.json` is gitignored via `/mcp.json` (root only) so `test/mcp.json` and `test/mcpapps.json` are committed.
-- **Manual verification:** All 19 MCP app servers in `test/mcpapps.json` have been manually verified to work in the web app (connect, open Apps tab, select app, open and interact).
+- **Configs:** `configs/` holds Inspector config files for manual testing. `configs/mcpapps.json` has 19 MCP app server entries, `configs/mcp.json` has other sample servers. Root `mcp.json` is gitignored via `/mcp.json` (root only); configs in `configs/` are committed.
+- **Manual verification:** All 19 MCP app servers in `configs/mcpapps.json` have been manually verified to work in the web app (connect, open Apps tab, select app, open and interact).

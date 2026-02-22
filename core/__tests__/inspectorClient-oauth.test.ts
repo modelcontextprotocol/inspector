@@ -14,15 +14,17 @@ import { InspectorClient } from "../mcp/inspectorClient.js";
 import { createTransportNode } from "../mcp/node/transport.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 import { NodeOAuthStorage } from "../auth/node/storage-node.js";
-import { TestServerHttp } from "../test/test-server-http.js";
-import { waitForEvent } from "../test/test-helpers.js";
-import { getDefaultServerConfig } from "../test/test-server-fixtures.js";
 import {
+  TestServerHttp,
+  waitForEvent,
+  getDefaultServerConfig,
   createOAuthTestServerConfig,
+  clearOAuthTestData,
+} from "@modelcontextprotocol/inspector-test-server";
+import {
   createOAuthClientConfig,
   completeOAuthAuthorization,
-} from "../test/test-server-fixtures.js";
-import { clearOAuthTestData } from "../test/test-server-oauth.js";
+} from "./helpers/oauth-client-fixtures.js";
 import type { InspectorClientOptions } from "../mcp/inspectorClient.js";
 
 const oauthTestStatePath = path.join(

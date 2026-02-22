@@ -14,12 +14,12 @@ import { InspectorClient } from "../mcp/inspectorClient.js";
 import { createRemoteTransport } from "../mcp/remote/createRemoteTransport.js";
 import { createRemoteLogger } from "../mcp/remote/createRemoteLogger.js";
 import { createRemoteApp } from "../mcp/remote/node/server.js";
-import { createTestServerHttp } from "../test/test-server-http.js";
-import { getTestMcpServerCommand } from "../test/test-server-stdio.js";
 import {
+  createTestServerHttp,
+  getTestMcpServerCommand,
   createEchoTool,
   createTestServerInfo,
-} from "../test/test-server-fixtures.js";
+} from "@modelcontextprotocol/inspector-test-server";
 import type { MCPServerConfig } from "../mcp/types.js";
 
 interface StartRemoteServerOptions {

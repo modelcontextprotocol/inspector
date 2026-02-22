@@ -2,11 +2,11 @@ import { describe, it, expect } from "vitest";
 import { getServerType } from "../mcp/config.js";
 import { createTransportNode } from "../mcp/node/transport.js";
 import type { MCPServerConfig } from "../mcp/types.js";
-import { createTestServerHttp } from "../test/test-server-http.js";
 import {
+  createTestServerHttp,
   createEchoTool,
   createTestServerInfo,
-} from "../test/test-server-fixtures.js";
+} from "@modelcontextprotocol/inspector-test-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 describe("Transport", () => {

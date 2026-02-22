@@ -4,8 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "outDir": "./build",
-    "rootDir": ".",
-    "composite": true,
+    "rootDir": "./src",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -16,14 +15,6 @@
     "resolveJsonModule": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": [
-    "mcp/**/*.ts",
-    "react/**/*.ts",
-    "react/**/*.tsx",
-    "json/**/*.ts",
-    "auth/**/*.ts",
-    "storage/**/*.ts",
-    "logging/**/*.ts"
-  ],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "build"]
 }

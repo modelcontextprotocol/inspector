@@ -4,13 +4,12 @@ import { InspectorClient } from "../mcp/inspectorClient.js";
 import { createTransportNode } from "../mcp/node/transport.js";
 import { SamplingCreateMessage } from "../mcp/samplingCreateMessage.js";
 import { ElicitationCreateMessage } from "../mcp/elicitationCreateMessage.js";
-import { getTestMcpServerCommand } from "../test/test-server-stdio.js";
 import {
+  getTestMcpServerCommand,
   createTestServerHttp,
   type TestServerHttp,
-} from "../test/test-server-http.js";
-import { waitForEvent, waitForProgressCount } from "../test/test-helpers.js";
-import {
+  waitForEvent,
+  waitForProgressCount,
   createEchoTool,
   createTestServerInfo,
   createFileResourceTemplate,
@@ -33,7 +32,7 @@ import {
   createSamplingTaskTool,
   createProgressTaskTool,
   createTaskTool,
-} from "../test/test-server-fixtures.js";
+} from "@modelcontextprotocol/inspector-test-server";
 import type { MessageEntry, ConnectionStatus } from "../mcp/types.js";
 import type { TypedEvent } from "../mcp/inspectorClientEventTarget.js";
 import type {
@@ -1830,7 +1829,7 @@ describe("InspectorClient", () => {
   describe("Progress Tracking", () => {
     it("should dispatch progressNotification events when progress notifications are received", async () => {
       const { createSendProgressTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -1901,7 +1900,7 @@ describe("InspectorClient", () => {
 
     it("should not dispatch progressNotification events when progress is disabled", async () => {
       const { createSendProgressTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -1958,7 +1957,7 @@ describe("InspectorClient", () => {
 
     it("should handle progress notifications without total", async () => {
       const { createSendProgressTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -2019,7 +2018,7 @@ describe("InspectorClient", () => {
 
     it("should complete when timeout and resetTimeoutOnProgress are set (options passed through)", async () => {
       const { createSendProgressTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -2065,7 +2064,7 @@ describe("InspectorClient", () => {
 
     it("should not timeout when resetTimeoutOnProgress is true and progress is sent (reset extends timeout)", async () => {
       const { createSendProgressTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -2110,7 +2109,7 @@ describe("InspectorClient", () => {
 
     it("should timeout with RequestTimeout when resetTimeoutOnProgress is false and gap exceeds timeout", async () => {
       const { createSendProgressTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -3992,7 +3991,7 @@ describe("InspectorClient", () => {
 
     it("should handle tools/list_changed notification and reload tools", async () => {
       const { createAddToolTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -4051,7 +4050,7 @@ describe("InspectorClient", () => {
 
     it("should fire toolsListChanged event when server sends tools/list_changed notification", async () => {
       const { createAddToolTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -4102,7 +4101,7 @@ describe("InspectorClient", () => {
 
     it("should reload tools when autoSyncLists is true and toolsListChanged fires", async () => {
       const { createAddToolTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -4156,7 +4155,7 @@ describe("InspectorClient", () => {
 
     it("should handle resources/list_changed notification and reload resources and templates", async () => {
       const { createAddResourceTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -4231,7 +4230,7 @@ describe("InspectorClient", () => {
 
     it("should handle prompts/list_changed notification and reload prompts", async () => {
       const { createAddPromptTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -4288,7 +4287,7 @@ describe("InspectorClient", () => {
 
     it("should respect listChangedNotifications config (disabled handlers)", async () => {
       const { createAddToolTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -4394,7 +4393,7 @@ describe("InspectorClient", () => {
 
     it("should handle tools/list_changed notification on removal and clear tool call cache", async () => {
       const { createRemoveToolTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -4450,7 +4449,7 @@ describe("InspectorClient", () => {
 
     it("should handle resources/list_changed notification on removal and clear resource cache", async () => {
       const { createRemoveResourceTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -4507,7 +4506,7 @@ describe("InspectorClient", () => {
 
     it("should handle prompts/list_changed notification on removal and clear prompt cache", async () => {
       const { createRemovePromptTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -4744,7 +4743,7 @@ describe("InspectorClient", () => {
 
     it("should subscribe to a resource when server supports subscriptions", async () => {
       const { createUpdateResourceTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -4879,7 +4878,7 @@ describe("InspectorClient", () => {
 
     it("should handle resource updated notification and clear cache for subscribed resource", async () => {
       const { createUpdateResourceTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -4941,7 +4940,7 @@ describe("InspectorClient", () => {
 
     it("should ignore resource updated notification for unsubscribed resources", async () => {
       const { createUpdateResourceTool } =
-        await import("../test/test-server-fixtures.js");
+        await import("@modelcontextprotocol/inspector-test-server");
 
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
