@@ -8,8 +8,8 @@ This document proposes a **runtime MCP server** that reads a configuration file 
 
 ```bash
 server-composable --config ./my-server-config.json
-# or
-server-composable --config ./my-server-config.yaml
+server-composable --config ./my-server-config.yaml   # format inferred from extension
+server-composable --config ./my-server-config --yaml # explicit format when extension is absent
 ```
 
 Use cases:
@@ -111,7 +111,9 @@ The config file mirrors `ServerConfig` but uses **preset references** instead of
     {
       "preset": "simple_task",
       "params": { "name": "slow_task", "delayMs": 3000 }
-    }
+    },
+    { "preset": "elicitation_task" },
+    { "preset": "collect_url_elicitation" }
   ],
   "resources": [
     { "preset": "architecture" },
@@ -153,50 +155,52 @@ For HTTP transport:
 
 A **preset registry** maps preset names to factory functions that return definitions. The registry is populated with all fixtures from `test/src/test-server-fixtures.ts`.
 
-| Preset Name                 | Type               | Params                          | Notes                                         |
-| --------------------------- | ------------------ | ------------------------------- | --------------------------------------------- |
-| echo                        | tool               | none                            | Echo tool                                     |
-| add                         | tool               | none                            | Add two numbers                               |
-| get_sum                     | tool               | none                            | Alias for add                                 |
-| write_to_stderr             | tool               | none                            | Writes message to stderr                      |
-| collect_sample              | tool               | none                            | Sends sampling request to client              |
-| list_roots                  | tool               | none                            | Calls roots/list on client                    |
-| collect_elicitation         | tool               | none                            | Sends form elicitation request                |
-| collect_url_elicitation     | tool               | none                            | Sends URL elicitation request                 |
-| send_notification           | tool               | none                            | Sends notification to client                  |
-| get_annotated_message       | tool               | none                            | Returns annotated message with optional image |
-| add_resource                | tool               | none                            | Adds resource, sends list_changed             |
-| remove_resource             | tool               | none                            | Removes resource                              |
-| add_tool                    | tool               | none                            | Adds tool dynamically                         |
-| remove_tool                 | tool               | none                            | Removes tool                                  |
-| add_prompt                  | tool               | none                            | Adds prompt dynamically                       |
-| remove_prompt               | tool               | none                            | Removes prompt                                |
-| update_resource             | tool               | none                            | Updates resource content                      |
-| send_progress               | tool               | params: name?                   | Sends progress notifications                  |
-| numbered_tools              | tool[]             | count                           | Creates N echo-like tools                     |
-| simple_task                 | taskTool           | name?, delayMs?                 | Task that completes after delay               |
-| progress_task               | taskTool           | name?, delayMs?, progressUnits? | Task with progress                            |
-| elicitation_task            | taskTool           | name?, elicitationSchema?       | Task requiring elicitation                    |
-| sampling_task               | taskTool           | name?, samplingText?            | Task requiring sampling                       |
-| optional_task               | taskTool           | name?, delayMs?                 | Task with optional task support               |
-| forbidden_task              | tool               | name?, delayMs?                 | Non-task tool (completes immediately)         |
-| immediate_return_task       | tool               | name?, delayMs?                 | Immediate return (no task)                    |
-| architecture                | resource           | none                            | Static architecture doc                       |
-| test_cwd                    | resource           | none                            | Exposes process.cwd()                         |
-| test_env                    | resource           | none                            | Exposes process.env                           |
-| test_argv                   | resource           | none                            | Exposes process.argv                          |
-| numbered_resources          | resource[]         | count                           | N static resources                            |
-| file                        | resourceTemplate   | none                            | file:///{path} template                       |
-| user                        | resourceTemplate   | none                            | user://{userId} template                      |
-| numbered_resource_templates | resourceTemplate[] | count                           | N templates                                   |
-| simple_prompt               | prompt             | none                            | Simple static prompt                          |
-| args_prompt                 | prompt             | none                            | Prompt with city, state args                  |
-| numbered_prompts            | prompt[]           | count                           | N static prompts                              |
+| Preset Name                 | Type               | Params                          | Notes                                            |
+| --------------------------- | ------------------ | ------------------------------- | ------------------------------------------------ |
+| echo                        | tool               | none                            | Echo tool                                        |
+| add                         | tool               | none                            | Add two numbers                                  |
+| get_sum                     | tool               | none                            | Alias for add                                    |
+| write_to_stderr             | tool               | none                            | Writes message to stderr                         |
+| collect_sample              | tool               | none                            | Sends sampling request to client                 |
+| list_roots                  | tool               | none                            | Calls roots/list on client                       |
+| collect_elicitation         | tool               | none                            | Sends form elicitation request                   |
+| collect_url_elicitation     | tool               | none                            | Sends URL elicitation request                    |
+| send_notification           | tool               | none                            | Sends notification to client                     |
+| get_annotated_message       | tool               | none                            | Returns annotated message with optional image    |
+| add_resource                | tool               | none                            | Adds resource, sends list_changed                |
+| remove_resource             | tool               | none                            | Removes resource                                 |
+| add_tool                    | tool               | none                            | Adds tool dynamically                            |
+| remove_tool                 | tool               | none                            | Removes tool                                     |
+| add_prompt                  | tool               | none                            | Adds prompt dynamically                          |
+| remove_prompt               | tool               | none                            | Removes prompt                                   |
+| update_resource             | tool               | none                            | Updates resource content                         |
+| send_progress               | tool               | params: name?                   | Sends progress notifications                     |
+| numbered_tools              | tool[]             | count                           | Creates N echo-like tools                        |
+| simple_task                 | taskTool           | name?, delayMs?                 | Task that completes after delay                  |
+| progress_task               | taskTool           | name?, delayMs?, progressUnits? | Task with progress                               |
+| elicitation_task            | taskTool           | name?                           | Task requiring form elicitation (default schema) |
+| sampling_task               | taskTool           | name?, samplingText?            | Task requiring sampling                          |
+| optional_task               | taskTool           | name?, delayMs?                 | Task with optional task support                  |
+| forbidden_task              | tool               | name?, delayMs?                 | Non-task tool (completes immediately)            |
+| immediate_return_task       | tool               | name?, delayMs?                 | Immediate return (no task)                       |
+| architecture                | resource           | none                            | Static architecture doc                          |
+| test_cwd                    | resource           | none                            | Exposes process.cwd()                            |
+| test_env                    | resource           | none                            | Exposes process.env                              |
+| test_argv                   | resource           | none                            | Exposes process.argv                             |
+| numbered_resources          | resource[]         | count                           | N static resources                               |
+| file                        | resourceTemplate   | none                            | file:///{path} template                          |
+| user                        | resourceTemplate   | none                            | user://{userId} template                         |
+| numbered_resource_templates | resourceTemplate[] | count                           | N templates                                      |
+| simple_prompt               | prompt             | none                            | Simple static prompt                             |
+| args_prompt                 | prompt             | none                            | Prompt with city, state args                     |
+| numbered_prompts            | prompt[]           | count                           | N static prompts                                 |
 
 **Preset params** (where applicable):
 
 - `numbered_tools`, `numbered_resources`, `numbered_resource_templates`, `numbered_prompts`: `{ count: number }`
 - `simple_task`, `progress_task`, etc.: `{ name?: string, delayMs?: number, progressUnits?: number, ... }` (see `TaskToolOptions`, `ImmediateToolOptions` in fixtures)
+- `elicitation_task`, `sampling_task`: simple params only (`name`, `samplingText`). Use fixture default schemas—no custom elicitation schema in config.
+- `collect_elicitation`, `collect_url_elicitation`: no params or simple params only (e.g. `url` if fixture supports it).
 - `send_progress`: `{ name?: string }`
 
 ---
@@ -265,40 +269,61 @@ Arrays like `tools` can also accept arrays of preset refs (e.g. `numberedTools` 
 
 ### 5. Implementation Plan
 
-**Placement:** Add `server-composable` bin and supporting modules in the **test package** (`test/`). The test package already contains `createMcpServer` and fixtures; no dependency on core.
+**Current state (post-refactor):**
+
+- Test package (`test/`, `@modelcontextprotocol/inspector-test-server`) exists with `createMcpServer`, fixtures, stdio/HTTP transports. No dependency on core.
+- `test/configs/` exists for composable server sample configs (see `test/configs/README.md`).
+- Inspector MCP client configs live in `configs/` (e.g. `configs/mcpapps.json`), not in `test/`.
+- Root build includes `build-test`; version scripts include the test package.
+
+**Placement:** Add `server-composable` bin and supporting modules in the test package. Sample configs go in `test/configs/`.
 
 **Phases:**
 
 1. **Preset registry** (`test/src/preset-registry.ts`)
-   - Define a registry: `Map<string, (params?: Record<string, unknown>) => ToolDefinition | ToolDefinition[] | ResourceDefinition | ...>` (or overloaded by preset type).
-   - For each fixture in `test-server-fixtures.ts`, add an entry: preset name (snake_case) → factory. Factories call the existing `createEchoTool()`, `createNumberedTools(count)`, etc., passing `params` where applicable.
-   - Export `resolveToolPreset(name, params)`, `resolveResourcePreset`, `resolveResourceTemplatePreset`, `resolvePromptPreset` (or one generic `resolvePreset(type, name, params)` that returns the right definition or array).
+   - Map preset names (snake_case) to factory functions. Factories call existing fixtures (`createEchoTool()`, `createNumberedTools(count)`, etc.).
+   - Export a generic resolver, e.g. `resolvePreset(type, name, params)`.
 
 2. **Config loader** (`test/src/load-config.ts` or `test/src/config/load-config.ts`)
-   - Read file from path; infer format from extension (`.json` vs `.yaml`/`.yml`) or accept `--format`.
-   - Parse JSON (`JSON.parse`) or YAML (add optional dep `yaml` and parse). Export a typed config object (or plain object and validate in resolver).
-   - Optional: validate top-level shape (e.g. `serverInfo`, `transport` required) and fail fast with a clear message.
+   - Read file from path. Format detection: use `--json` or `--yaml` if specified; otherwise infer from file extension (`.json` → JSON, `.yaml` / `.yml` → YAML). Fail if extension is missing or not `.json`/`.yaml`/`.yml` and no flag is given.
+   - Parse JSON or YAML (add `yaml` as a dependency). Export typed config object.
+   - Paths in config (if any) are resolved relative to **cwd**.
+   - Basic validation: fail-fast on required fields (`serverInfo`, `transport`). No elaborate schema validation for v1.
 
-3. **Resolver** (`test/src/resolve-config.ts` or same module as loader)
-   - Input: parsed config file (config file shape).
-   - For each of `tools`, `resources`, `resourceTemplates`, `prompts`: for each preset ref, call preset registry, collect definitions. Handle presets that expand to arrays (e.g. `numbered_tools` with `count: 5`).
-   - Build a single `ServerConfig` object: serverInfo from config, arrays from resolved definitions, top-level flags (`logging`, `listChanged`, `subscriptions`, `tasks`, `maxPageSize`, `transport`). Map config `transport.type` and `transport.port` to `ServerConfig.serverType` and `ServerConfig.port`.
-   - Output: `ServerConfig` suitable for `createMcpServer`.
+3. **Resolver** (`test/src/resolve-config.ts`)
+   - Input: parsed config. For each preset ref, call registry, collect definitions. Handle array-expanding presets.
+   - Output: `ServerConfig` for `createMcpServer`.
 
-4. **CLI entry point** (`test/src/server-composable.ts` built to `test/build/server-composable.js`)
-   - Parse argv: `--config <path>` required; optional `--transport`, `--port` to override config.
-   - Load config (step 2), resolve to `ServerConfig` (step 3).
-   - Call `createMcpServer(config)`.
-   - If transport is stdio: create `StdioServerTransport`, connect server, keep process alive (no explicit listen).
-   - If transport is streamable-http or sse: create HTTP server (reuse logic from `test-server-http.ts` or extract a minimal `createHttpServerFromMcpServer(mcpServer, port)`), listen on `port` (or 0), log URL and keep process alive.
-   - On SIGINT/SIGTERM, close server and transport, then exit.
+4. **CLI entry point** (`test/src/server-composable.ts` → `test/build/server-composable.js`)
+   - Parse argv; load config; resolve; create server; start transport (stdio or HTTP).
+   - For HTTP: extract shared server creation into a reusable function from `test-server-http.ts` so the runnable server and API-based tests share the same code.
+   - Graceful shutdown on SIGINT/SIGTERM.
 
-5. **Package and bin**
-   - In `test/package.json`: add `"server-composable": "node build/server-composable.js"` to `bin`.
-   - Add root npm script `"server-composable": "node test/build/server-composable.js"` for source users to run `npm run server-composable -- --config ./demo.json` without specifying a path.
-   - If the test package is later published: `npx @modelcontextprotocol/inspector-test-server server-composable --config ./demo.json`.
+5. **Package, bin, and scripts**
+   - Add `server-composable` bin in `test/package.json`.
+   - Add root script `"server-composable": "node test/build/server-composable.js"`.
+   - Add initial sample config(s) in `test/configs/` (e.g. `demo.json`).
 
-**Order of work:** Implement preset registry first (and unit test it with a few presets). Then config loader (JSON only is fine for v1). Then resolver (unit test: example config → ServerConfig). Then CLI + transport (stdio first, then HTTP). Finally wire up the bin and root script, test end-to-end with Inspector.
+**Order of work:** Preset registry → config loader (JSON) → resolver → CLI (stdio first, then HTTP) → bin + root script + sample configs → end-to-end test with Inspector.
+
+---
+
+#### JSON / YAML format (decided)
+
+Config files may be JSON or YAML. Format is determined by:
+
+- **`--json`** or **`--yaml`** flag: use the specified format (overrides file extension).
+- **Otherwise**: infer from file extension (`.json` → JSON, `.yaml` / `.yml` → YAML).
+- **Fail** if extension is missing or not `.json` / `.yaml` / `.yml` and no flag is given.
+
+#### Decided
+
+- **Preset registry**: Use generic `resolvePreset(type, name, params)`.
+- **Config validation**: Basic fail-fast on `serverInfo`, `transport`. Can add more later.
+- **OAuth**: Defer to a future release. (See [Future Work](#7-limitations-and-future-work).)
+- **HTTP server**: Extract shared logic from `test-server-http.ts` so the runnable composable server and API-based test servers share the same code.
+- **Path resolution**: All paths in config are resolved relative to the process **cwd**.
+- **Elicitation and sampling**: Use fixture default schemas. No custom elicitation schema in config. Support both form-based elicitation (`elicitation_task`, `collect_elicitation`) and URL elicitation (`collect_url_elicitation`). Simple params only (e.g. `name`, `samplingText`, `url` if the fixture accepts them).
 
 ---
 
@@ -317,21 +342,21 @@ The test package is currently private. If published later, users could run `npx 
 ### 7. Limitations and Future Work
 
 1. **No custom handlers in config** — Only presets. Custom tools/resources require code or new presets.
-2. **OAuth** — OAuth config is complex (issuer URL, static clients, DCR, CIMD). Initial version can omit or support a minimal subset; expand later.
-3. **Elicitation/sampling schemas** — Task presets like `elicitation_task` accept `elicitationSchema`. In config, we could support a JSON Schema object; the resolver would convert to Zod or the SDK's schema format.
+2. **OAuth** — Deferred for v1. OAuth config is complex (issuer URL, static clients, DCR, CIMD). Add as a future enhancement.
+3. **Elicitation/sampling** — Config uses fixture defaults (standard forms). No custom schema in config. Both form-based and URL elicitation presets are supported.
 4. **Completion callbacks** — Resource templates and prompts can have completion callbacks. Presets like `file` and `args_prompt` support them; config-driven mode would use defaults (e.g. no completion) unless we add preset params for static completion data.
-5. **YAML support** — Requires a YAML parser (e.g. `yaml`). Add as optional dependency.
+5. **YAML** — Format inferred from `.json` / `.yaml` / `.yml` extension; `--json` / `--yaml` overrides. Requires `yaml` dependency.
 
 ---
 
 ### 8. Example Usage
 
-**Source users** (from repo after `npm run build`):
+**Source users** (from repo after `npm run build`), once sample configs exist in `test/configs/`:
 
 ```bash
-npm run server-composable -- --config ./demo.json
+npm run server-composable -- --config test/configs/demo.json
 # or
-node test/build/server-composable.js --config ./demo.json
+node test/build/server-composable.js --config test/configs/demo.json
 ```
 
 **If the test package is published**:
@@ -348,13 +373,17 @@ npx @modelcontextprotocol/inspector-test-server server-composable --config ./dem
   "mcpServers": {
     "demo": {
       "command": "node",
-      "args": ["test/build/server-composable.js", "--config", "./demo.json"]
+      "args": [
+        "test/build/server-composable.js",
+        "--config",
+        "test/configs/demo.json"
+      ]
     }
   }
 }
 ```
 
-Ensure the working directory is the Inspector repo root (or use an absolute path to the script). For HTTP transport, use a server URL instead of command/args.
+Ensure the working directory is the Inspector repo root (or use absolute paths). For HTTP transport, use a server URL instead of command/args.
 
 ---
 

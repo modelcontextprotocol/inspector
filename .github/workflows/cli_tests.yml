@@ -32,6 +32,10 @@ jobs:
         working-directory: .
         run: npm run build-core
 
+      - name: Build test package
+        working-directory: .
+        run: npm run build-test
+
       - name: Build CLI
         working-directory: .
         run: npm run build-cli
