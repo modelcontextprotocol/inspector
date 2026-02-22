@@ -38,6 +38,7 @@ type Args = {
   transport?: "sse" | "stdio" | "http";
   headers?: Record<string, string>;
   metadata?: Record<string, string>;
+  cwd?: string;
 };
 
 /**
@@ -151,6 +152,10 @@ function argsToMcpServerConfig(args: Args): MCPServerConfig {
   };
 
   config.env = env;
+
+  if (args.cwd?.trim()) {
+    config.cwd = args.cwd.trim();
+  }
 
   return config;
 }
@@ -405,6 +410,7 @@ function parseArgs(): Args {
     //
     // Transport options
     //
+    .option("--cwd <path>", "Working directory for stdio server process")
     .option(
       "--transport <type>",
       "Transport type (sse, http, or stdio). Auto-detected from URL: /mcp → http, /sse → sse, commands → stdio",
@@ -466,6 +472,7 @@ function parseArgs(): Args {
   return {
     target: finalArgs,
     ...options,
+    cwd: options.cwd,
     headers: options.header, // commander.js uses 'header' field, map to 'headers'
     metadata: options.metadata
       ? Object.fromEntries(

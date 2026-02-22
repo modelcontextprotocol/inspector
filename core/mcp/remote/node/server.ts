@@ -186,6 +186,7 @@ function buildInitialConfigFromEnv(): {
   defaultArgs?: string[];
   defaultTransport?: string;
   defaultServerUrl?: string;
+  defaultCwd?: string;
   defaultEnvironment: Record<string, string>;
 } {
   const defaultEnvKeys =
@@ -236,6 +237,9 @@ function buildInitialConfigFromEnv(): {
       : {}),
     ...(process.env.MCP_INITIAL_SERVER_URL
       ? { defaultServerUrl: process.env.MCP_INITIAL_SERVER_URL }
+      : {}),
+    ...(process.env.MCP_INITIAL_CWD
+      ? { defaultCwd: process.env.MCP_INITIAL_CWD }
       : {}),
     defaultEnvironment,
   };

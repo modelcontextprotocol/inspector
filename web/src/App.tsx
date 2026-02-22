@@ -145,6 +145,7 @@ const App = () => {
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
+  const [cwd, setCwd] = useState<string>("");
 
   const [isPollingTask, setIsPollingTask] = useState(false);
   const [config, setConfig] = useState<InspectorConfig>(() =>
@@ -331,6 +332,7 @@ const App = () => {
     setTransportType,
     setSseUrl,
     setSandboxUrl,
+    setCwd,
   });
   applyConfigRef.current = {
     setConfigFetchStatus,
@@ -342,6 +344,7 @@ const App = () => {
     setTransportType,
     setSseUrl,
     setSandboxUrl,
+    setCwd,
   };
 
   // Helper to check if we can create InspectorClient (without actually creating it)
@@ -424,6 +427,7 @@ const App = () => {
         sseUrl,
         env,
         customHeaders,
+        cwd,
       );
 
       const redirectUrlProvider = {
@@ -493,6 +497,7 @@ const App = () => {
     args,
     env,
     customHeaders,
+    cwd,
     oauthClientId,
     oauthClientSecret,
     oauthClientMetadataUrl,
@@ -907,6 +912,7 @@ const App = () => {
             | undefined;
           apply.setTransportType(transport || "stdio");
           apply.setSseUrl((data.defaultServerUrl as string) ?? "");
+          apply.setCwd((data.defaultCwd as string) ?? "");
         }
         apply.setSandboxUrl(
           typeof data.sandboxUrl === "string" ? data.sandboxUrl : undefined,
@@ -1579,6 +1585,8 @@ const App = () => {
           setCommand={setCommand}
           args={args}
           setArgs={setArgs}
+          cwd={cwd}
+          setCwd={setCwd}
           sseUrl={sseUrl}
           setSseUrl={setSseUrl}
           env={env}

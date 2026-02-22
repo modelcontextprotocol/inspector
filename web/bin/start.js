@@ -22,6 +22,7 @@ async function startDevClient(clientOptions) {
     transport,
     serverUrl,
     envVars,
+    cwd,
     abort,
     cancelledRef,
   } = clientOptions;
@@ -45,6 +46,7 @@ async function startDevClient(clientOptions) {
     ...(envVars && Object.keys(envVars).length > 0
       ? { MCP_ENV_VARS: JSON.stringify(envVars) }
       : {}),
+    ...(cwd ? { MCP_INITIAL_CWD: cwd } : {}),
   };
 
   const client = spawn(clientCommand, clientArgs, {
@@ -101,6 +103,7 @@ async function startProdClient(clientOptions) {
     transport,
     serverUrl,
     envVars,
+    cwd,
   } = clientOptions;
   const honoServerPath = resolve(__dirname, "../dist/server.js");
 
@@ -123,6 +126,7 @@ async function startProdClient(clientOptions) {
       ...(envVars && Object.keys(envVars).length > 0
         ? { MCP_ENV_VARS: JSON.stringify(envVars) }
         : {}),
+      ...(cwd ? { MCP_INITIAL_CWD: cwd } : {}),
     },
     signal: abort.signal,
     echoOutput: true,
@@ -139,6 +143,7 @@ async function main() {
   let isDev = false;
   let transport = null;
   let serverUrl = null;
+  let cwd = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -166,6 +171,11 @@ async function main() {
 
     if (arg === "--server-url" && i + 1 < args.length) {
       serverUrl = args[++i];
+      continue;
+    }
+
+    if (arg === "--cwd" && i + 1 < args.length) {
+      cwd = args[++i];
       continue;
     }
 
@@ -199,6 +209,13 @@ async function main() {
   }
   if (!transport && process.env.MCP_INITIAL_TRANSPORT) {
     transport = process.env.MCP_INITIAL_TRANSPORT;
+  }
+  if (!cwd && process.env.MCP_INITIAL_CWD) {
+    cwd = process.env.MCP_INITIAL_CWD;
+  }
+  // For stdio (when command is set), default cwd to process.cwd() if not provided
+  if (!cwd && command) {
+    cwd = process.cwd();
   }
 
   const CLIENT_PORT = process.env.CLIENT_PORT ?? "6274";
@@ -238,6 +255,7 @@ async function main() {
         transport,
         serverUrl,
         envVars,
+        cwd,
         abort,
         cancelledRef,
       };
@@ -257,6 +275,7 @@ async function main() {
         transport,
         serverUrl,
         envVars,
+        cwd,
         abort,
         cancelledRef,
       };

@@ -39,6 +39,8 @@ describe("Sidebar", () => {
     setCommand: vi.fn(),
     args: "",
     setArgs: vi.fn(),
+    cwd: "",
+    setCwd: vi.fn(),
     sseUrl: "",
     setSseUrl: vi.fn(),
     oauthClientId: "",

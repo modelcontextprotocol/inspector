@@ -13,6 +13,7 @@ import { headersToRecord } from "../types/customHeaders";
  * @param sseUrl - Server URL (required for sse/streamable-http transports)
  * @param env - Environment variables (optional, for stdio)
  * @param customHeaders - Custom headers array (optional, for sse/streamable-http)
+ * @param cwd - Working directory for stdio server process (optional, for stdio)
  * @returns MCPServerConfig suitable for creating an InspectorClient
  * @throws Error if required parameters are missing for the transport type
  */
@@ -23,6 +24,7 @@ export function webConfigToMcpServerConfig(
   sseUrl?: string,
   env?: Record<string, string>,
   customHeaders?: CustomHeaders,
+  cwd?: string,
 ): MCPServerConfig {
   switch (transportType) {
     case "stdio": {
@@ -38,6 +40,9 @@ export function webConfigToMcpServerConfig(
       }
       if (env && Object.keys(env).length > 0) {
         config.env = env;
+      }
+      if (cwd?.trim()) {
+        config.cwd = cwd.trim();
       }
       return config;
     }

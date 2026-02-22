@@ -51,6 +51,8 @@ interface SidebarProps {
   setCommand: (command: string) => void;
   args: string;
   setArgs: (args: string) => void;
+  cwd: string;
+  setCwd: (cwd: string) => void;
   sseUrl: string;
   setSseUrl: (url: string) => void;
   env: Record<string, string>;
@@ -88,6 +90,8 @@ const Sidebar = ({
   setCommand,
   args,
   setArgs,
+  cwd,
+  setCwd,
   sseUrl,
   setSseUrl,
   env,
@@ -137,11 +141,15 @@ const Sidebar = ({
   // Shared utility function to generate server config
   const generateServerConfig = useCallback(() => {
     if (transportType === "stdio") {
-      return {
+      const config: Record<string, unknown> = {
         command,
         args: args.trim() ? args.split(/\s+/) : [],
         env: { ...env },
       };
+      if (cwd?.trim()) {
+        config.cwd = cwd.trim();
+      }
+      return config;
     }
     if (transportType === "sse") {
       return {
@@ -158,7 +166,7 @@ const Sidebar = ({
       };
     }
     return {};
-  }, [transportType, command, args, env, sseUrl]);
+  }, [transportType, command, args, env, cwd, sseUrl]);
 
   // Memoized config entry generator
   const generateMCPServerEntry = useCallback(() => {
@@ -298,6 +306,18 @@ const Sidebar = ({
                   placeholder="Arguments (space-separated)"
                   value={args}
                   onChange={(e) => setArgs(e.target.value)}
+                  className="font-mono"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="cwd-input">
+                  Working Directory (cwd)
+                </label>
+                <Input
+                  id="cwd-input"
+                  placeholder="Working directory (optional)"
+                  value={cwd}
+                  onChange={(e) => setCwd(e.target.value)}
                   className="font-mono"
                 />
               </div>

@@ -20,6 +20,7 @@ type Args = {
   transport?: "stdio" | "sse" | "streamable-http";
   serverUrl?: string;
   headers?: Record<string, string>;
+  cwd?: string;
 };
 
 // This is only to provide typed access to the parsed program options
@@ -34,6 +35,7 @@ type CliOptions = {
   transport?: string;
   serverUrl?: string;
   header?: Record<string, string>;
+  cwd?: string;
 };
 
 type ServerConfig =
@@ -42,6 +44,7 @@ type ServerConfig =
       command: string;
       args?: string[];
       env?: Record<string, string>;
+      cwd?: string;
     }
   | {
       type: "sse" | "streamable-http";
@@ -108,6 +111,11 @@ async function runWeb(args: Args): Promise<void> {
     startArgs.push("--server-url", args.serverUrl);
   }
 
+  // Pass cwd if specified (for stdio transport)
+  if (args.cwd) {
+    startArgs.push("--cwd", path.resolve(args.cwd));
+  }
+
   // Pass command and args (using -- to separate them)
   if (args.command) {
     startArgs.push("--", args.command, ...args.args);
@@ -160,6 +168,11 @@ async function runCli(args: Args): Promise<void> {
       for (const [key, value] of Object.entries(args.headers)) {
         cliArgs.push("--header", `${key}: ${value}`);
       }
+    }
+
+    // Add cwd if specified (for stdio transport)
+    if (args.cwd) {
+      cliArgs.push("--cwd", path.resolve(args.cwd));
     }
 
     await spawnPromise("node", cliArgs, {
@@ -313,6 +326,7 @@ function parseArgs(): Args {
     .option("--tui", "enable TUI mode")
     .option("--transport <type>", "transport type (stdio, sse, http)")
     .option("--server-url <url>", "server URL for SSE/HTTP transport")
+    .option("--cwd <path>", "working directory for stdio server process")
     .option(
       "--header <headers...>",
       'HTTP headers as "HeaderName: Value" pairs (for HTTP/SSE transports)',
@@ -370,6 +384,7 @@ function parseArgs(): Args {
     const config = loadConfigFile(options.config, options.server);
 
     if (config.type === "stdio") {
+      const cwd = options.cwd ?? config.cwd ?? path.resolve(process.cwd());
       return {
         command: config.command,
         args: [...(config.args || []), ...finalArgs],
@@ -378,6 +393,7 @@ function parseArgs(): Args {
         dev: options.dev || false,
         transport: "stdio",
         headers: options.header,
+        cwd: path.resolve(cwd),
       };
     } else if (config.type === "sse" || config.type === "streamable-http") {
       return {
@@ -392,14 +408,26 @@ function parseArgs(): Args {
       };
     } else {
       // Backwards compatibility: if no type field, assume stdio
+      const cwd =
+        options.cwd ??
+        (config as { cwd?: string }).cwd ??
+        path.resolve(process.cwd());
       return {
-        command: (config as any).command || "",
-        args: [...((config as any).args || []), ...finalArgs],
-        envArgs: { ...((config as any).env || {}), ...(options.e || {}) },
+        command: (config as { command?: string }).command || "",
+        args: [
+          ...(((config as { args?: string[] }).args || []) as string[]),
+          ...finalArgs,
+        ],
+        envArgs: {
+          ...(((config as { env?: Record<string, string> }).env ||
+            {}) as Record<string, string>),
+          ...(options.e || {}),
+        },
         cli: options.cli || false,
         dev: options.dev || false,
         transport: "stdio",
         headers: options.header,
+        cwd: path.resolve(cwd),
       };
     }
   }
@@ -414,6 +442,10 @@ function parseArgs(): Args {
     transport = "streamable-http";
   }
 
+  const cwd = options.cwd
+    ? path.resolve(options.cwd)
+    : path.resolve(process.cwd());
+
   return {
     command,
     args,
@@ -423,6 +455,7 @@ function parseArgs(): Args {
     transport: transport as "stdio" | "sse" | "streamable-http" | undefined,
     serverUrl: options.serverUrl,
     headers: options.header,
+    cwd,
   };
 }
 
