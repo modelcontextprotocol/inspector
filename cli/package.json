@@ -25,10 +25,10 @@
     "test:cli-metadata": "vitest run metadata.test.ts"
   },
   "devDependencies": {
+    "@modelcontextprotocol/inspector-test-server": "*",
     "@types/express": "^5.0.0",
     "tsx": "^4.7.0",
-    "vitest": "^4.0.17",
-    "@modelcontextprotocol/inspector-test-server": "*"
+    "vitest": "^4.0.17"
   },
   "dependencies": {
     "@modelcontextprotocol/inspector-core": "*",
