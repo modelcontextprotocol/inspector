@@ -1,0 +1,213 @@
+{
+  "mcpServers": {
+    "budget-allocator": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-budget-allocator",
+        "--stdio"
+      ]
+    },
+    "pdf": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-pdf",
+        "--stdio"
+      ]
+    },
+    "transcript": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-transcript",
+        "--stdio"
+      ]
+    },
+    "video-resource": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-video-resource",
+        "--stdio"
+      ]
+    },
+    "map": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-map",
+        "--stdio"
+      ]
+    },
+    "threejs": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-threejs",
+        "--stdio"
+      ]
+    },
+    "shadertoy": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-shadertoy",
+        "--stdio"
+      ]
+    },
+    "sheet-music": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-sheet-music",
+        "--stdio"
+      ]
+    },
+    "wiki-explorer": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-wiki-explorer",
+        "--stdio"
+      ]
+    },
+    "cohort-heatmap": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-cohort-heatmap",
+        "--stdio"
+      ]
+    },
+    "customer-segmentation": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-customer-segmentation",
+        "--stdio"
+      ]
+    },
+    "scenario-modeler": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-scenario-modeler",
+        "--stdio"
+      ]
+    },
+    "system-monitor": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-system-monitor",
+        "--stdio"
+      ]
+    },
+    "basic-react": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-basic-react",
+        "--stdio"
+      ]
+    },
+    "basic-vanillajs": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-basic-vanillajs",
+        "--stdio"
+      ]
+    },
+    "basic-vue": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-basic-vue",
+        "--stdio"
+      ]
+    },
+    "basic-svelte": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-basic-svelte",
+        "--stdio"
+      ]
+    },
+    "basic-preact": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-basic-preact",
+        "--stdio"
+      ]
+    },
+    "basic-solid": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--silent",
+        "--registry=https://registry.npmjs.org/",
+        "@modelcontextprotocol/server-basic-solid",
+        "--stdio"
+      ]
+    }
+  }
+}

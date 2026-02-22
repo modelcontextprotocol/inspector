@@ -18,7 +18,7 @@ npm run update-version 0.14.3
 
 This script will:
 
-1. Update the version in all package.json files (root, client, server, cli)
+1. Update the version in all package.json files (root, web, core, cli, tui, test)
 2. Update workspace dependencies in the root package.json
 3. Run `npm install` to update package-lock.json
 4. Provide next steps for committing and tagging

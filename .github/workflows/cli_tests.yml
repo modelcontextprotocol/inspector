@@ -28,8 +28,17 @@ jobs:
           cd ..
           npm ci --ignore-scripts
 
+      - name: Build core package
+        working-directory: .
+        run: npm run build-core
+
+      - name: Build test package
+        working-directory: .
+        run: npm run build-test
+
       - name: Build CLI
-        run: npm run build
+        working-directory: .
+        run: npm run build-cli
 
       - name: Run tests
         run: npm test

@@ -12,12 +12,12 @@ import {
   createInvalidConfig,
   deleteConfigFile,
 } from "./helpers/fixtures.js";
-import { getTestMcpServerCommand } from "./helpers/test-server-stdio.js";
-import { createTestServerHttp } from "./helpers/test-server-http.js";
 import {
+  getTestMcpServerCommand,
+  createTestServerHttp,
   createEchoTool,
   createTestServerInfo,
-} from "./helpers/test-fixtures.js";
+} from "@modelcontextprotocol/inspector-test-server";
 
 describe("CLI Tests", () => {
   describe("Basic CLI Mode", () => {
@@ -39,8 +39,8 @@ describe("CLI Tests", () => {
       // Validate expected tools from test-mcp-server
       const toolNames = json.tools.map((tool: any) => tool.name);
       expect(toolNames).toContain("echo");
-      expect(toolNames).toContain("get-sum");
-      expect(toolNames).toContain("get-annotated-message");
+      expect(toolNames).toContain("get_sum");
+      expect(toolNames).toContain("get_annotated_message");
     });
 
     it("should fail with nonexistent method", async () => {
@@ -58,6 +58,17 @@ describe("CLI Tests", () => {
       const result = await runCli([NO_SERVER_SENTINEL, "--cli"]);
 
       expectCliFailure(result);
+    });
+
+    // Temporary: remove .skip to verify that expectCliSuccess shows CLI stdout/stderr when the CLI fails
+    it.skip("TEMP: expect success when CLI fails (validates error output in assertion)", async () => {
+      const result = await runCli([
+        NO_SERVER_SENTINEL,
+        "--cli",
+        "--method",
+        "tools/list",
+      ]);
+      expectCliSuccess(result); // will fail; failure message should include result.stdout and result.stderr
     });
   });
 
@@ -304,7 +315,7 @@ describe("CLI Tests", () => {
         "--method",
         "prompts/get",
         "--prompt-name",
-        "simple-prompt",
+        "simple_prompt",
       ]);
 
       expectCliSuccess(result);
@@ -329,7 +340,7 @@ describe("CLI Tests", () => {
         "--method",
         "prompts/get",
         "--prompt-name",
-        "args-prompt",
+        "args_prompt",
         "--prompt-args",
         "city=New York",
         "state=NY",
@@ -370,11 +381,9 @@ describe("CLI Tests", () => {
       });
 
       try {
-        const port = await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        const port = await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "logging/setLevel",
@@ -741,11 +750,9 @@ describe("CLI Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
@@ -768,11 +775,9 @@ describe("CLI Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--transport",
           "http",
           "--cli",
@@ -797,11 +802,9 @@ describe("CLI Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--transport",
           "http",
           "--cli",
@@ -826,11 +829,9 @@ describe("CLI Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--transport",
           "sse",
           "--cli",

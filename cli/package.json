@@ -2,8 +2,8 @@
   "name": "@modelcontextprotocol/inspector-cli",
   "version": "0.20.0",
   "description": "CLI for the Model Context Protocol inspector",
-  "license": "SEE LICENSE IN LICENSE",
-  "author": "Model Context Protocol a Series of LF Projects, LLC.",
+  "license": "MIT",
+  "author": "Anthropic, PBC (https://anthropic.com)",
   "homepage": "https://modelcontextprotocol.io",
   "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "main": "build/cli.js",
@@ -25,14 +25,16 @@
     "test:cli-metadata": "vitest run metadata.test.ts"
   },
   "devDependencies": {
+    "@modelcontextprotocol/inspector-test-server": "*",
     "@types/express": "^5.0.0",
     "tsx": "^4.7.0",
     "vitest": "^4.0.17"
   },
   "dependencies": {
+    "@modelcontextprotocol/inspector-core": "*",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "commander": "^13.1.0",
-    "express": "^5.2.1",
+    "express": "^5.1.0",
     "spawn-rx": "^5.1.2"
   }
 }

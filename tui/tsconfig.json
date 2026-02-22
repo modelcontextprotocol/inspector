@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "outDir": "./build",
+    "rootDir": "."
+  },
+  "include": ["src/**/*", "tui.tsx"],
+  "exclude": ["node_modules", "build"],
+  "references": [{ "path": "../core" }]
+}

@@ -5,11 +5,11 @@ import {
   expectOutputContains,
   expectCliSuccess,
 } from "./helpers/assertions.js";
-import { createTestServerHttp } from "./helpers/test-server-http.js";
 import {
+  createTestServerHttp,
   createEchoTool,
   createTestServerInfo,
-} from "./helpers/test-fixtures.js";
+} from "@modelcontextprotocol/inspector-test-server";
 
 describe("Header Parsing and Validation", () => {
   describe("Valid Headers", () => {
@@ -20,11 +20,9 @@ describe("Header Parsing and Validation", () => {
       });
 
       try {
-        const port = await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        const port = await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
@@ -60,11 +58,9 @@ describe("Header Parsing and Validation", () => {
       });
 
       try {
-        const port = await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        const port = await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
@@ -95,11 +91,9 @@ describe("Header Parsing and Validation", () => {
       });
 
       try {
-        const port = await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        const port = await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
@@ -129,11 +123,9 @@ describe("Header Parsing and Validation", () => {
       });
 
       try {
-        const port = await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        const port = await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
