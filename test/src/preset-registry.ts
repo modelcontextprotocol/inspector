@@ -19,6 +19,7 @@ import {
   createListRootsTool,
   createCollectFormElicitationTool,
   createCollectUrlElicitationTool,
+  createUrlElicitationFormTool,
   createSendNotificationTool,
   createGetAnnotatedMessageTool,
   createAddResourceTool,
@@ -89,6 +90,8 @@ function resolveToolPreset(
       return createCollectFormElicitationTool();
     case "collect_url_elicitation":
       return createCollectUrlElicitationTool();
+    case "url_elicitation_form":
+      return createUrlElicitationFormTool();
     case "send_notification":
       return createSendNotificationTool();
     case "get_annotated_message":

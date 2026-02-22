@@ -59,6 +59,7 @@ import {
   ElicitRequestSchema,
   EmptyResultSchema,
   ListRootsRequestSchema,
+  ElicitationCompleteNotificationSchema,
   RootsListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
   ResourceListChangedNotificationSchema,
@@ -1074,6 +1075,29 @@ export class InspectorClient extends InspectorClientEventTarget {
                 this.cacheInternal.clearResourceAndResourceTemplate(uri);
                 // Dispatch event to notify UI
                 this.dispatchTypedEvent("resourceUpdated", { uri });
+              }
+            },
+          );
+        }
+
+        // Elicitation complete notification (URL mode only): server notifies when out-of-band
+        // elicitation completes; we resolve the corresponding pending elicitation
+        const urlElicitEnabled =
+          this.elicit &&
+          typeof this.elicit === "object" &&
+          this.elicit.url === true;
+        if (urlElicitEnabled) {
+          this.client.setNotificationHandler(
+            ElicitationCompleteNotificationSchema,
+            async (notification) => {
+              const { elicitationId } = notification.params;
+              const pending = this.pendingElicitations.find(
+                (e) =>
+                  e.request.params?.mode === "url" &&
+                  e.request.params?.elicitationId === elicitationId,
+              );
+              if (pending) {
+                pending.remove();
               }
             },
           );

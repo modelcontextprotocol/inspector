@@ -16,6 +16,7 @@ import {
   createCollectSampleTool,
   createCollectFormElicitationTool,
   createCollectUrlElicitationTool,
+  createUrlElicitationFormTool,
   createSendNotificationTool,
   createListRootsTool,
   createArgsPrompt,
@@ -2752,6 +2753,107 @@ describe("InspectorClient", () => {
       // Verify the pending elicitation was removed
       const pendingElicitations = client.getPendingElicitations();
       expect(pendingElicitations.length).toBe(0);
+    });
+
+    it("should handle url_elicitation_form: accept elicitation, receive completion notification, update pending state, and return tool result", async () => {
+      const submittedValue = "inspector-client-test-value-99";
+
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createUrlElicitationFormTool()],
+        serverType: "streamable-http",
+      });
+
+      await server.start();
+
+      client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: server.url,
+        },
+        {
+          environment: { transport: createTransportNode },
+          autoSyncLists: false,
+          elicit: { url: true },
+        },
+      );
+
+      await client.connect();
+
+      // Track pendingElicitationsChange events: expect [1] when elicitation arrives, [0] when complete notification received
+      const pendingElicitationsChangeEvents: ElicitationCreateMessage[][] = [];
+      client.addEventListener(
+        "pendingElicitationsChange",
+        (event: TypedEvent<"pendingElicitationsChange">) => {
+          pendingElicitationsChangeEvents.push([...event.detail]);
+        },
+      );
+
+      const elicitationRequestPromise = new Promise<ElicitationCreateMessage>(
+        (resolve) => {
+          client.addEventListener(
+            "newPendingElicitation",
+            (event) => resolve(event.detail),
+            { once: true },
+          );
+        },
+      );
+
+      const toolResultPromise = client.callTool("url_elicitation_form", {});
+
+      const pendingElicitation = await elicitationRequestPromise;
+
+      expect(pendingElicitation.request.method).toBe("elicitation/create");
+      expect(pendingElicitation.request.params?.mode).toBe("url");
+      const url =
+        pendingElicitation.request.params?.mode === "url"
+          ? pendingElicitation.request.params.url
+          : null;
+      const elicitationId =
+        pendingElicitation.request.params?.mode === "url"
+          ? pendingElicitation.request.params.elicitationId
+          : null;
+      expect(url).toBeTruthy();
+      expect(elicitationId).toBeTruthy();
+
+      expect(client.getPendingElicitations()).toHaveLength(1);
+
+      // Respond with accept (unblocks server); then submit form to trigger completion notification
+      await pendingElicitation.respond({ action: "accept" });
+
+      const formData = new URLSearchParams({
+        value: submittedValue,
+        elicitation: elicitationId!,
+      });
+      await fetch(url!, {
+        method: "POST",
+        body: formData,
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+
+      const toolResult = await toolResultPromise;
+
+      expect(toolResult).toBeDefined();
+      expect(toolResult.success).toBe(true);
+      expect(toolResult.result?.content).toBeDefined();
+      const content = toolResult.result!.content as Array<{
+        type: string;
+        text?: string;
+      }>;
+      const textBlock = content.find((c) => c.type === "text");
+      expect(textBlock?.text).toContain("Collected value:");
+      expect(textBlock?.text).toContain(submittedValue);
+
+      expect(client.getPendingElicitations()).toHaveLength(0);
+
+      // Verify event sequence: addPendingElicitation -> [1], then complete notification -> [0]
+      expect(pendingElicitationsChangeEvents.length).toBeGreaterThanOrEqual(2);
+      expect(pendingElicitationsChangeEvents[0]).toHaveLength(1);
+      const lastEvent =
+        pendingElicitationsChangeEvents[
+          pendingElicitationsChangeEvents.length - 1
+        ];
+      expect(lastEvent).toHaveLength(0);
     });
   });
 

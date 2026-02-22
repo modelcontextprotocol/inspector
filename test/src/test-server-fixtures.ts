@@ -350,6 +350,135 @@ export function createCollectFormElicitationTool(): ToolDefinition {
 }
 
 /**
+ * Create a "url_elicitation_form" tool that spins up a simple HTTP server on a dynamic
+ * port with a form page, sends that URL via URL elicitation, and on form submit collects
+ * the text input, includes it in the tool response, and closes the server.
+ */
+export function createUrlElicitationFormTool(): ToolDefinition {
+  return {
+    name: "url_elicitation_form",
+    description:
+      "Present a form via URL elicitation; collects submitted text and returns it in the tool response",
+    inputSchema: {
+      message: z
+        .string()
+        .optional()
+        .describe(
+          "Message to show in the elicitation (default: prompt for input)",
+        ),
+    },
+    handler: async (
+      params: Record<string, any>,
+      context?: TestServerContext,
+    ): Promise<any> => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+      const server = context.server;
+      const message =
+        (params.message as string) || "Please submit a value in the form";
+
+      const elicitationId = `url-form-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+
+      let resolveFormData!: (value: string) => void;
+      const formDataPromise = new Promise<string>((resolve) => {
+        resolveFormData = resolve;
+      });
+
+      const completionNotifier =
+        server.server.createElicitationCompletionNotifier(elicitationId);
+
+      const { createServer } = await import("node:http");
+      const { createServer: createNetServer } = await import("node:net");
+
+      const formHtml = (elicitationId: string) => `
+<!DOCTYPE html>
+<html>
+<head><title>Submit Value</title></head>
+<body>
+  <form method="POST" action="/">
+    <input type="hidden" name="elicitation" value="${elicitationId}" />
+    <label>Value: <input type="text" name="value" required /></label>
+    <button type="submit">Submit</button>
+  </form>
+</body>
+</html>`;
+
+      const successHtml = `
+<!DOCTYPE html>
+<html>
+<head><title>Submitted</title></head>
+<body><p>Submitted. You can close this window.</p></body>
+</html>`;
+
+      const httpServer = createServer((req, res) => {
+        if (req.method === "GET" && req.url === "/") {
+          res.writeHead(200, { "Content-Type": "text/html" });
+          res.end(formHtml(elicitationId));
+          return;
+        }
+        if (req.method === "POST" && req.url === "/") {
+          let body = "";
+          req.on("data", (chunk) => {
+            body += chunk.toString();
+          });
+          req.on("end", () => {
+            const params = new URLSearchParams(body);
+            const value = params.get("value") ?? "";
+            completionNotifier().catch(() => {});
+            resolveFormData(value);
+            httpServer.close();
+            res.writeHead(200, { "Content-Type": "text/html" });
+            res.end(successHtml);
+          });
+          return;
+        }
+        res.writeHead(404);
+        res.end();
+      });
+
+      const port = await new Promise<number>((resolve, reject) => {
+        const s = createNetServer();
+        s.listen(0, "127.0.0.1", () => {
+          const addr = s.address() as { port: number };
+          s.close(() => resolve(addr.port));
+        });
+        s.on("error", reject);
+      });
+
+      httpServer.listen(port, "127.0.0.1");
+      const url = `http://127.0.0.1:${port}/`;
+
+      try {
+        const result = await server.server.elicitInput({
+          mode: "url",
+          message,
+          elicitationId,
+          url,
+        });
+
+        if (result.action !== "accept") {
+          httpServer.close();
+          return {
+            message: `Elicitation ${result.action}: user did not accept`,
+            action: result.action,
+          };
+        }
+
+        const collectedValue = await formDataPromise;
+        return {
+          message: `Collected value: ${collectedValue}`,
+          value: collectedValue,
+        };
+      } catch (error) {
+        httpServer.close();
+        throw error;
+      }
+    },
+  };
+}
+
+/**
  * Create a "collect_url_elicitation" tool that sends a URL-based elicitation request
  * to the client and returns the response
  */

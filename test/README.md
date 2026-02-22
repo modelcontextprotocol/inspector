@@ -163,37 +163,38 @@ Format: JSON or YAML. Infer from extension (`.json`, `.yaml`, `.yml`), or use `-
 
 ### Preset Registry
 
-| Preset Name                                                                                      | Type               | Params                          | Notes                                      |
-| ------------------------------------------------------------------------------------------------ | ------------------ | ------------------------------- | ------------------------------------------ |
-| echo                                                                                             | tool               | none                            | Echo tool                                  |
-| add                                                                                              | tool               | none                            | Add two numbers                            |
-| get_sum                                                                                          | tool               | none                            | Alias for add                              |
-| write_to_stderr                                                                                  | tool               | none                            | Writes message to stderr                   |
-| collect_sample                                                                                   | tool               | none                            | Sends sampling request to client           |
-| list_roots                                                                                       | tool               | none                            | Calls roots/list on client                 |
-| collect_elicitation                                                                              | tool               | none                            | Sends form elicitation request             |
-| collect_url_elicitation                                                                          | tool               | none                            | Sends URL elicitation request              |
-| send_notification                                                                                | tool               | none                            | Sends notification to client               |
-| get_annotated_message                                                                            | tool               | none                            | Returns annotated message + optional image |
-| add_resource, remove_resource, add_tool, remove_tool, add_prompt, remove_prompt, update_resource | tool               | none                            | Dynamic list changes                       |
-| send_progress                                                                                    | tool               | name?                           | Sends progress notifications               |
-| numbered_tools                                                                                   | tool[]             | count                           | Creates N echo-like tools                  |
-| simple_task                                                                                      | taskTool           | name?, delayMs?                 | Task that completes after delay            |
-| progress_task                                                                                    | taskTool           | name?, delayMs?, progressUnits? | Task with progress                         |
-| elicitation_task                                                                                 | taskTool           | name?                           | Task requiring form elicitation            |
-| sampling_task                                                                                    | taskTool           | name?, samplingText?            | Task requiring sampling                    |
-| optional_task                                                                                    | taskTool           | name?, delayMs?                 | Task with optional task support            |
-| forbidden_task                                                                                   | tool               | name?, delayMs?                 | Non-task tool (completes immediately)      |
-| immediate_return_task                                                                            | tool               | name?, delayMs?                 | Immediate return (no task)                 |
-| architecture                                                                                     | resource           | none                            | Static architecture doc                    |
-| test_cwd, test_env, test_argv                                                                    | resource           | none                            | Expose process.cwd(), env, argv            |
-| numbered_resources                                                                               | resource[]         | count                           | N static resources                         |
-| file                                                                                             | resourceTemplate   | none                            | file:///{path} template                    |
-| user                                                                                             | resourceTemplate   | none                            | user://{userId} template                   |
-| numbered_resource_templates                                                                      | resourceTemplate[] | count                           | N templates                                |
-| simple_prompt                                                                                    | prompt             | none                            | Simple static prompt                       |
-| args_prompt                                                                                      | prompt             | none                            | Prompt with city, state args               |
-| numbered_prompts                                                                                 | prompt[]           | count                           | N static prompts                           |
+| Preset Name                                                                                      | Type               | Params                          | Notes                                                       |
+| ------------------------------------------------------------------------------------------------ | ------------------ | ------------------------------- | ----------------------------------------------------------- |
+| echo                                                                                             | tool               | none                            | Echo tool                                                   |
+| add                                                                                              | tool               | none                            | Add two numbers                                             |
+| get_sum                                                                                          | tool               | none                            | Alias for add                                               |
+| write_to_stderr                                                                                  | tool               | none                            | Writes message to stderr                                    |
+| collect_sample                                                                                   | tool               | none                            | Sends sampling request to client                            |
+| list_roots                                                                                       | tool               | none                            | Calls roots/list on client                                  |
+| collect_elicitation                                                                              | tool               | none                            | Sends form elicitation request                              |
+| collect_url_elicitation                                                                          | tool               | none                            | Sends URL elicitation request                               |
+| url_elicitation_form                                                                             | tool               | message?                        | Hosts form server, URL elicitation, returns submitted value |
+| send_notification                                                                                | tool               | none                            | Sends notification to client                                |
+| get_annotated_message                                                                            | tool               | none                            | Returns annotated message + optional image                  |
+| add_resource, remove_resource, add_tool, remove_tool, add_prompt, remove_prompt, update_resource | tool               | none                            | Dynamic list changes                                        |
+| send_progress                                                                                    | tool               | name?                           | Sends progress notifications                                |
+| numbered_tools                                                                                   | tool[]             | count                           | Creates N echo-like tools                                   |
+| simple_task                                                                                      | taskTool           | name?, delayMs?                 | Task that completes after delay                             |
+| progress_task                                                                                    | taskTool           | name?, delayMs?, progressUnits? | Task with progress                                          |
+| elicitation_task                                                                                 | taskTool           | name?                           | Task requiring form elicitation                             |
+| sampling_task                                                                                    | taskTool           | name?, samplingText?            | Task requiring sampling                                     |
+| optional_task                                                                                    | taskTool           | name?, delayMs?                 | Task with optional task support                             |
+| forbidden_task                                                                                   | tool               | name?, delayMs?                 | Non-task tool (completes immediately)                       |
+| immediate_return_task                                                                            | tool               | name?, delayMs?                 | Immediate return (no task)                                  |
+| architecture                                                                                     | resource           | none                            | Static architecture doc                                     |
+| test_cwd, test_env, test_argv                                                                    | resource           | none                            | Expose process.cwd(), env, argv                             |
+| numbered_resources                                                                               | resource[]         | count                           | N static resources                                          |
+| file                                                                                             | resourceTemplate   | none                            | file:///{path} template                                     |
+| user                                                                                             | resourceTemplate   | none                            | user://{userId} template                                    |
+| numbered_resource_templates                                                                      | resourceTemplate[] | count                           | N templates                                                 |
+| simple_prompt                                                                                    | prompt             | none                            | Simple static prompt                                        |
+| args_prompt                                                                                      | prompt             | none                            | Prompt with city, state args                                |
+| numbered_prompts                                                                                 | prompt[]           | count                           | N static prompts                                            |
 
 ### Transport and Client Config
 
