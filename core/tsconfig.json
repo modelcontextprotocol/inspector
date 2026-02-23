@@ -23,7 +23,8 @@
     "json/**/*.ts",
     "auth/**/*.ts",
     "storage/**/*.ts",
-    "logging/**/*.ts"
+    "logging/**/*.ts",
+    "package.json"
   ],
   "exclude": ["node_modules", "build"]
 }

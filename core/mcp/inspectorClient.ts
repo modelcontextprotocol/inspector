@@ -19,6 +19,7 @@ import type {
   ToolCallInvocation,
 } from "./types.js";
 import { getServerType as getServerTypeFromConfig } from "./config.js";
+import corePackageJson from "../package.json" with { type: "json" };
 import type {
   CreateTransport,
   CreateTransportOptions,
@@ -523,8 +524,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.appRendererClientProxy = null;
     this.client = new Client(
       options.clientIdentity ?? {
-        name: "@modelcontextprotocol/inspector",
-        version: "0.18.0",
+        name: corePackageJson.name.split("/")[1] ?? corePackageJson.name,
+        version: corePackageJson.version,
       },
       Object.keys(clientOptions).length > 0 ? clientOptions : undefined,
     );
