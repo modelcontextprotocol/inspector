@@ -50,7 +50,15 @@ import type {
   Task,
   Progress,
   ProgressToken,
+  ListToolsRequest,
+  ListResourcesRequest,
+  ListResourceTemplatesRequest,
+  ListPromptsRequest,
+  ReadResourceRequest,
+  GetPromptRequest,
+  CompleteRequest,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type {
   RequestOptions,
   ProgressCallback,
@@ -346,8 +354,8 @@ const MAX_PAGES = 100;
 export class InspectorClient extends InspectorClientEventTarget {
   private client: Client | null = null;
   private appRendererClientProxy: AppRendererClient | null = null;
-  private transport: any = null;
-  private baseTransport: any = null;
+  private transport: Transport | MessageTrackingTransport | null = null;
+  private baseTransport: Transport | null = null;
   private messages: MessageEntry[] = [];
   private stderrLogs: StderrLogEntry[] = [];
   private fetchRequests: FetchRequestEntry[] = [];
@@ -584,7 +592,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     };
   }
 
-  private attachTransportListeners(baseTransport: any): void {
+  private attachTransportListeners(baseTransport: Transport): void {
     baseTransport.onclose = () => {
       if (this.status !== "disconnected") {
         this.status = "disconnected";
@@ -1555,13 +1563,12 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     try {
       do {
-        const params: any =
-          metadata && Object.keys(metadata).length > 0
+        const params: ListToolsRequest["params"] = {
+          ...(metadata && Object.keys(metadata).length > 0
             ? { _meta: metadata }
-            : {};
-        if (cursor) {
-          params.cursor = cursor;
-        }
+            : {}),
+          ...(cursor ? { cursor } : {}),
+        };
         const response = await this.client.listTools(
           params,
           this.getRequestOptions(metadata?.progressToken),
@@ -1607,11 +1614,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    const params: any =
-      metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
-    if (cursor) {
-      params.cursor = cursor;
-    }
+    const params: ListToolsRequest["params"] = {
+      ...(metadata && Object.keys(metadata).length > 0
+        ? { _meta: metadata }
+        : {}),
+      ...(cursor ? { cursor } : {}),
+    };
     const response = await this.client.listTools(
       params,
       this.getRequestOptions(metadata?.progressToken),
@@ -2088,11 +2096,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    const params: any =
-      metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
-    if (cursor) {
-      params.cursor = cursor;
-    }
+    const params: ListResourcesRequest["params"] = {
+      ...(metadata && Object.keys(metadata).length > 0
+        ? { _meta: metadata }
+        : {}),
+      ...(cursor ? { cursor } : {}),
+    };
     const response = await this.client.listResources(
       params,
       this.getRequestOptions(metadata?.progressToken),
@@ -2185,10 +2194,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    const params: any = { uri };
-    if (metadata && Object.keys(metadata).length > 0) {
-      params._meta = metadata;
-    }
+    const params: ReadResourceRequest["params"] = {
+      uri,
+      ...(metadata && Object.keys(metadata).length > 0
+        ? { _meta: metadata }
+        : {}),
+    };
     const result = await this.client.readResource(
       params,
       this.getRequestOptions(metadata?.progressToken),
@@ -2300,11 +2311,12 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     try {
-      const params: any =
-        metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
-      if (cursor) {
-        params.cursor = cursor;
-      }
+      const params: ListResourceTemplatesRequest["params"] = {
+        ...(metadata && Object.keys(metadata).length > 0
+          ? { _meta: metadata }
+          : {}),
+        ...(cursor ? { cursor } : {}),
+      };
       const response = await this.client.listResourceTemplates(
         params,
         this.getRequestOptions(metadata?.progressToken),
@@ -2411,11 +2423,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    const params: any =
-      metadata && Object.keys(metadata).length > 0 ? { _meta: metadata } : {};
-    if (cursor) {
-      params.cursor = cursor;
-    }
+    const params: ListPromptsRequest["params"] = {
+      ...(metadata && Object.keys(metadata).length > 0
+        ? { _meta: metadata }
+        : {}),
+      ...(cursor ? { cursor } : {}),
+    };
     const response = await this.client.listPrompts(
       params,
       this.getRequestOptions(metadata?.progressToken),
@@ -2508,14 +2521,13 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Convert all arguments to strings for prompt arguments
     const stringArgs = args ? convertPromptArguments(args) : {};
 
-    const params: any = {
+    const params: GetPromptRequest["params"] = {
       name,
       arguments: stringArgs,
+      ...(metadata && Object.keys(metadata).length > 0
+        ? { _meta: metadata }
+        : {}),
     };
-
-    if (metadata && Object.keys(metadata).length > 0) {
-      params._meta = metadata;
-    }
 
     const result = await this.client.getPrompt(
       params,
@@ -2566,23 +2578,17 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
 
     try {
-      const params: any = {
+      const params: CompleteRequest["params"] = {
         ref,
         argument: {
           name: argumentName,
           value: argumentValue,
         },
+        ...(context ? { context: { arguments: context } } : {}),
+        ...(metadata && Object.keys(metadata).length > 0
+          ? { _meta: metadata }
+          : {}),
       };
-
-      if (context) {
-        params.context = {
-          arguments: context,
-        };
-      }
-
-      if (metadata && Object.keys(metadata).length > 0) {
-        params._meta = metadata;
-      }
 
       const response = await this.client.complete(
         params,
