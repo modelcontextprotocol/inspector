@@ -199,4 +199,88 @@ describe("ElicitationRequest", () => {
       );
     });
   });
+
+  describe("URL Mode", () => {
+    const createUrlRequest = (): PendingElicitationRequest => ({
+      id: 2,
+      request: {
+        id: 2,
+        mode: "url",
+        message: "Please complete authentication",
+        url: "https://example.com/auth",
+        elicitationId: "elicit-123",
+      },
+    });
+
+    it("should render URL mode request with link and message", () => {
+      renderElicitationRequest(createUrlRequest());
+      expect(screen.getByTestId("elicitation-request")).toBeInTheDocument();
+      expect(
+        screen.getByText("Please complete authentication"),
+      ).toBeInTheDocument();
+      const link = screen.getByRole("link", {
+        name: "https://example.com/auth",
+      });
+      expect(link).toHaveAttribute("href", "https://example.com/auth");
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    });
+
+    it("should render Open URL, Decline, and Cancel buttons", () => {
+      renderElicitationRequest(createUrlRequest());
+      expect(
+        screen.getByRole("button", { name: /open url/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /decline/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /cancel/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("should not render DynamicJsonForm", () => {
+      renderElicitationRequest(createUrlRequest());
+      expect(screen.queryByTestId("dynamic-json-form")).not.toBeInTheDocument();
+    });
+
+    it("should call window.open and resolve with accept when Open URL is clicked", async () => {
+      const windowOpenSpy = jest
+        .spyOn(window, "open")
+        .mockImplementation(() => null);
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /open url/i }));
+      });
+
+      expect(windowOpenSpy).toHaveBeenCalledWith(
+        "https://example.com/auth",
+        "_blank",
+        "noopener,noreferrer",
+      );
+      expect(mockOnResolve).toHaveBeenCalledWith(2, { action: "accept" });
+      windowOpenSpy.mockRestore();
+    });
+
+    it("should resolve with decline when Decline is clicked", async () => {
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /decline/i }));
+      });
+
+      expect(mockOnResolve).toHaveBeenCalledWith(2, { action: "decline" });
+    });
+
+    it("should resolve with cancel when Cancel is clicked", async () => {
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+      });
+
+      expect(mockOnResolve).toHaveBeenCalledWith(2, { action: "cancel" });
+    });
+  });
 });
