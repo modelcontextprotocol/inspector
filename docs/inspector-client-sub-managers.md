@@ -176,6 +176,16 @@ In other words: **InspectorClient remains the single public facade**. It owns th
 
 ---
 
+## Testing Strategy
+
+**Dedicated test module per sub-manager.** Add a test file (or suite) for each manager (e.g. `receiverTaskManager.test.ts`, `oauthManager.test.ts`, …). Each suite tests that manager in isolation with **mocked** dependencies (adapters, dispatch, getRequestOptions, etc.). No real transport or full InspectorClient. This gives fast, focused unit tests for each manager’s logic and edge cases.
+
+**Move tests from InspectorClient into manager tests when they only validate manager behavior.** Any test that is purely about a manager’s state, rules, or edge cases belongs in that manager’s test module. Examples: receiver task TTL expiry and cleanup, cancel semantics, OAuth state transitions, tracking trim-at-max behavior, list cursor/append logic, session save/load round-trip. After extraction, those scenarios live in the manager tests; equivalent coverage can be removed or reduced in the main InspectorClient test file so we don’t duplicate the same scenario in both places.
+
+**InspectorClient tests focus on wiring and integration.** Keep (or add) tests that (1) verify the client correctly delegates to each manager (e.g. the right manager method is called for a given protocol event or public call), and (2) cover a small set of end-to-end flows per domain (e.g. connect, server sends createMessage with params.task, client creates a receiver task and later responds to tasks/get). We still test usage of each sub-manager through the client, but we do **not** re-cover every manager edge case there—manager tests own the detailed scenarios; client tests own lifecycle, wiring, and a few integration scenarios per area.
+
+---
+
 ## Rough Code Impact
 
 - **Current:** ~3,400 lines in a single class (constructor, ~80+ methods, ~50+ instance fields).
