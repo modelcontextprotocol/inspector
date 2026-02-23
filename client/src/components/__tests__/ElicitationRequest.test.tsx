@@ -212,24 +212,22 @@ describe("ElicitationRequest", () => {
       },
     });
 
-    it("should render URL mode request with link and message", () => {
+    it("should render URL mode request with message but no clickable link", () => {
       renderElicitationRequest(createUrlRequest());
       expect(screen.getByTestId("elicitation-request")).toBeInTheDocument();
       expect(
         screen.getByText("Please complete authentication"),
       ).toBeInTheDocument();
-      const link = screen.getByRole("link", {
-        name: "https://example.com/auth",
-      });
-      expect(link).toHaveAttribute("href", "https://example.com/auth");
-      expect(link).toHaveAttribute("target", "_blank");
-      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+      expect(screen.queryByRole("link")).not.toBeInTheDocument();
     });
 
-    it("should render Open URL, Decline, and Cancel buttons", () => {
+    it("should render Open URL, Accept, Decline, and Cancel buttons", () => {
       renderElicitationRequest(createUrlRequest());
       expect(
         screen.getByRole("button", { name: /open url/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /accept/i }),
       ).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: /decline/i }),
@@ -244,7 +242,20 @@ describe("ElicitationRequest", () => {
       expect(screen.queryByTestId("dynamic-json-form")).not.toBeInTheDocument();
     });
 
-    it("should call window.open and resolve with accept when Open URL is clicked", async () => {
+    it("should show consent dialog with URL as text when Open URL is clicked", async () => {
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /open url/i }));
+      });
+
+      expect(screen.getByTestId("url-confirm-text")).toHaveTextContent(
+        "https://example.com/auth",
+      );
+      expect(screen.getByText("Open External URL")).toBeInTheDocument();
+    });
+
+    it("should open URL when confirmed in consent dialog", async () => {
       const windowOpenSpy = jest
         .spyOn(window, "open")
         .mockImplementation(() => null);
@@ -254,13 +265,53 @@ describe("ElicitationRequest", () => {
         fireEvent.click(screen.getByRole("button", { name: /open url/i }));
       });
 
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^open$/i }));
+      });
+
       expect(windowOpenSpy).toHaveBeenCalledWith(
         "https://example.com/auth",
         "_blank",
         "noopener,noreferrer",
       );
-      expect(mockOnResolve).toHaveBeenCalledWith(2, { action: "accept" });
+      expect(mockOnResolve).not.toHaveBeenCalled();
       windowOpenSpy.mockRestore();
+    });
+
+    it("should close consent dialog without opening URL when cancelled", async () => {
+      const windowOpenSpy = jest
+        .spyOn(window, "open")
+        .mockImplementation(() => null);
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /open url/i }));
+      });
+
+      expect(screen.getByTestId("url-confirm-text")).toBeInTheDocument();
+
+      await act(async () => {
+        // The Cancel button inside the dialog
+        const dialogButtons = screen.getAllByRole("button", {
+          name: /cancel/i,
+        });
+        fireEvent.click(dialogButtons[dialogButtons.length - 1]);
+      });
+
+      expect(windowOpenSpy).not.toHaveBeenCalled();
+      expect(mockOnResolve).not.toHaveBeenCalled();
+      windowOpenSpy.mockRestore();
+    });
+
+    it("should resolve with accept and no content when Accept is clicked", async () => {
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /accept/i }));
+      });
+
+      expect(mockOnResolve).toHaveBeenCalledWith(2, { action: "accept" });
+      expect(mockOnResolve.mock.calls[0][1]).not.toHaveProperty("content");
     });
 
     it("should resolve with decline when Decline is clicked", async () => {

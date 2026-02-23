@@ -63,8 +63,6 @@ describe("Elicitation tab", () => {
     ]);
     expect(screen.getAllByTestId("elicitation-request").length).toBe(1);
     expect(screen.getByText("Please authenticate")).toBeTruthy();
-    expect(
-      screen.getByRole("link", { name: "https://example.com/auth" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: /open url/i })).toBeTruthy();
   });
 });

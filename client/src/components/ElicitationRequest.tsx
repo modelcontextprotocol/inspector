@@ -1,5 +1,13 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import DynamicJsonForm from "./DynamicJsonForm";
 import JsonView from "./JsonView";
 import { JsonSchemaType, JsonValue } from "@/utils/jsonUtils";
@@ -22,6 +30,7 @@ const ElicitationRequest = ({
 }: ElicitationRequestProps) => {
   const [formData, setFormData] = useState<JsonValue>({});
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [showUrlConfirm, setShowUrlConfirm] = useState(false);
 
   const requestData = request.request;
   const isUrlMode = requestData.mode === "url";
@@ -36,9 +45,9 @@ const ElicitationRequest = ({
   }, [isUrlMode, requestData]);
 
   if (isUrlMode) {
-    const handleOpenUrl = () => {
+    const handleConfirmOpen = () => {
       window.open(requestData.url, "_blank", "noopener,noreferrer");
-      onResolve(request.id, { action: "accept" });
+      setShowUrlConfirm(false);
     };
 
     return (
@@ -50,19 +59,17 @@ const ElicitationRequest = ({
           <div className="space-y-2">
             <h4 className="font-semibold">URL Request</h4>
             <p className="text-sm">{requestData.message}</p>
-            <a
-              href={requestData.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-blue-600 dark:text-blue-400 underline break-all"
-            >
-              {requestData.url}
-            </a>
           </div>
         </div>
         <div className="flex space-x-2">
-          <Button type="button" onClick={handleOpenUrl}>
+          <Button type="button" onClick={() => setShowUrlConfirm(true)}>
             Open URL
+          </Button>
+          <Button
+            type="button"
+            onClick={() => onResolve(request.id, { action: "accept" })}
+          >
+            Accept
           </Button>
           <Button
             type="button"
@@ -79,6 +86,32 @@ const ElicitationRequest = ({
             Cancel
           </Button>
         </div>
+
+        <Dialog open={showUrlConfirm} onOpenChange={setShowUrlConfirm}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Open External URL</DialogTitle>
+              <DialogDescription>
+                The server is requesting you visit the following URL:
+              </DialogDescription>
+            </DialogHeader>
+            <p
+              data-testid="url-confirm-text"
+              className="text-sm font-mono bg-gray-100 dark:bg-gray-800 p-3 rounded break-all select-all"
+            >
+              {requestData.url}
+            </p>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowUrlConfirm(false)}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleConfirmOpen}>Open</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
