@@ -12,6 +12,9 @@ import type {
   ServerCapabilities,
   Implementation,
   Tool,
+  Resource,
+  ResourceTemplate,
+  Prompt,
   ResourceReference,
   PromptReference,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -21,10 +24,10 @@ export interface UseInspectorClientResult {
   messages: MessageEntry[];
   stderrLogs: StderrLogEntry[];
   fetchRequests: FetchRequestEntry[];
-  tools: any[];
-  resources: any[];
-  resourceTemplates: any[];
-  prompts: any[];
+  tools: Tool[];
+  resources: Resource[];
+  resourceTemplates: ResourceTemplate[];
+  prompts: Prompt[];
   capabilities?: ServerCapabilities;
   serverInfo?: Implementation;
   instructions?: string;
@@ -51,14 +54,14 @@ export function useInspectorClient(
   const [fetchRequests, setFetchRequests] = useState<FetchRequestEntry[]>(
     inspectorClient?.getFetchRequests() ?? [],
   );
-  const [tools, setTools] = useState<any[]>(inspectorClient?.getTools() ?? []);
-  const [resources, setResources] = useState<any[]>(
+  const [tools, setTools] = useState<Tool[]>(inspectorClient?.getTools() ?? []);
+  const [resources, setResources] = useState<Resource[]>(
     inspectorClient?.getResources() ?? [],
   );
-  const [resourceTemplates, setResourceTemplates] = useState<any[]>(
-    inspectorClient?.getResourceTemplates() ?? [],
-  );
-  const [prompts, setPrompts] = useState<any[]>(
+  const [resourceTemplates, setResourceTemplates] = useState<
+    ResourceTemplate[]
+  >(inspectorClient?.getResourceTemplates() ?? []);
+  const [prompts, setPrompts] = useState<Prompt[]>(
     inspectorClient?.getPrompts() ?? [],
   );
   const [capabilities, setCapabilities] = useState<
