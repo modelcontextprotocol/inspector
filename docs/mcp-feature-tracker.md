@@ -39,7 +39,7 @@ Track MCP feature support across InspectorClient, Web v1, Web v1.5, and TUI.
 | Sampling requests                          | ✅              | ✅      | ✅       | ❌  |
 | Sampling with tools                        | ❌              | ❌      | ❌       | ❌  |
 | Elicitation requests (form)                | ✅              | ✅      | ✅       | ❌  |
-| Elicitation requests (url)                 | ✅              | ❌      | ❌       | ❌  |
+| Elicitation requests (url)                 | ✅              | ❌      | ✅       | ❌  |
 | Tasks (long-running operations)            | ✅              | ✅      | ✅       | ❌  |
 | Requestor task support                     | ✅              | ✅      | ✅       | ❌  |
 | Completions (resource templates)           | ✅              | ✅      | ✅       | ❌  |

@@ -8,6 +8,14 @@
         "test/configs/demo.json"
       ]
     },
+    "url-elicitation-form": {
+      "command": "node",
+      "args": [
+        "test/build/server-composable.js",
+        "--config",
+        "test/configs/url-elicitation-form.json"
+      ]
+    },
     "everything": {
       "command": "npx",
       "args": [

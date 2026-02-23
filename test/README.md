@@ -13,14 +13,14 @@ The **@modelcontextprotocol/server-everything** package is the standard test-ben
 
 The composable test server is **complementary**, not a replacement:
 
-| Situation                                    | Composable server advantage                                                                         | Everything server                                                           |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| **Testing specific capability combinations** | Compose exactly the subset you need (e.g. tools only, resources only, tasks + resources).           | Fixed "kitchen sink" shape.                                                 |
-| **Pagination testing**                       | `maxPageSize` configurable per list type. Test cursor behavior with small page sizes (e.g. 2 or 3). | Fixed resource/prompt counts. No configurable pagination.                   |
-| **Controlled, predictable behavior**         | No random log messages or timers. Responses are deterministic.                                      | Random log messages every 15 seconds, subscription updates every 5 seconds. |
-| **listChanged / subscriptions**              | Enable or disable `listChanged` per list type. `subscriptions` toggle for resource updates.         | Fixed behavior.                                                             |
-| **Task variants**                            | Test task tools in isolation: immediate, progress, elicitation, sampling, optional vs required.     | Has task-like behavior in a fixed form.                                     |
-| **Rapid iteration**                          | Swap config files to test different server shapes without code changes.                             | Single fixed shape.                                                         |
+| Situation                                    | Composable server advantage                                                                         | Everything server                                               |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **Testing specific capability combinations** | Compose exactly the subset you need (e.g. tools only, resources only, tasks + resources).           | Fixed "kitchen sink" shape.                                     |
+| **Pagination testing**                       | `maxPageSize` configurable per list type. Test cursor behavior with small page sizes (e.g. 2 or 3). | Fixed resource/prompt counts. No configurable pagination.       |
+| **Controlled, predictable behavior**         | No unexpected notifications, log evenets, etc. Behavior is focussed and deterministic.              | Various log messages, notifications, subscription updates, etc. |
+| **listChanged / subscriptions**              | Enable or disable `listChanged` per list type. `subscriptions` toggle for resource updates.         | Fixed behavior.                                                 |
+| **Task variants**                            | Test task tools in isolation: immediate, progress, elicitation, sampling, optional vs required.     | Has task-like behavior in a fixed form.                         |
+| **Rapid iteration**                          | Swap config files to test different server shapes without code changes.                             | Single fixed shape.                                             |
 
 **Use Everything when:** You want broad coverage, community standard, quick `npx` start, or hosted DCR-only OAuth for testing against a real auth server.
 

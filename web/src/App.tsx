@@ -467,6 +467,7 @@ const App = () => {
         sessionId,
         receiverTasks: true,
         receiverTaskTtlMs: getMCPTaskTtl(currentConfig),
+        elicit: { form: true, url: true },
       };
 
       if (hasOAuthConfig) {
@@ -597,30 +598,62 @@ const App = () => {
       const elicitation = event.detail;
       const currentTab = lastToolCallOriginTabRef.current;
       const numericId = getNumericId(elicitation.id);
+      const params = elicitation.request.params ?? {};
+      const isUrl = params.mode === "url";
 
-      setPendingElicitationRequests((prev) => [
-        ...prev,
-        {
-          id: numericId,
-          request: {
-            id: numericId,
-            message: elicitation.request.params.message,
-            requestedSchema: elicitation.request.params.requestedSchema,
-          },
-          originatingTab: currentTab,
-          resolve: async (result: ElicitationResponse) => {
-            await elicitation.respond(result);
-          },
-          decline: async (error: Error) => {
-            elicitation.reject(error);
-            elicitation.remove();
-            console.error("Elicitation request rejected:", error);
-          },
+      const baseItem = {
+        id: numericId,
+        elicitationId: elicitation.id as string,
+        originatingTab: currentTab,
+        resolve: async (result: ElicitationResponse) => {
+          await elicitation.respond(result);
         },
-      ]);
+        decline: async (error: Error) => {
+          elicitation.reject(error);
+          elicitation.remove();
+          console.error("Elicitation request rejected:", error);
+        },
+      };
+
+      if (isUrl) {
+        setPendingElicitationRequests((prev) => [
+          ...prev,
+          {
+            ...baseItem,
+            request: {
+              mode: "url",
+              id: numericId,
+              message: params.message as string,
+              url: params.url as string,
+              elicitationId: params.elicitationId as string,
+            },
+          },
+        ]);
+      } else {
+        setPendingElicitationRequests((prev) => [
+          ...prev,
+          {
+            ...baseItem,
+            request: {
+              mode: "form",
+              id: numericId,
+              message: params.message as string,
+              requestedSchema: params.requestedSchema,
+            },
+          },
+        ]);
+      }
 
       setActiveTab("elicitations");
       window.location.hash = "elicitations";
+    };
+
+    const handlePendingElicitationsChange = () => {
+      const stillPending = inspectorClient.getPendingElicitations();
+      const pendingIds = new Set(stillPending.map((e) => e.id));
+      setPendingElicitationRequests((prev) =>
+        prev.filter((r) => pendingIds.has(r.elicitationId)),
+      );
     };
 
     inspectorClient.addEventListener(
@@ -631,6 +664,10 @@ const App = () => {
       "newPendingElicitation",
       handleNewPendingElicitation,
     );
+    inspectorClient.addEventListener(
+      "pendingElicitationsChange",
+      handlePendingElicitationsChange,
+    );
 
     return () => {
       inspectorClient.removeEventListener(
@@ -640,6 +677,10 @@ const App = () => {
       inspectorClient.removeEventListener(
         "newPendingElicitation",
         handleNewPendingElicitation,
+      );
+      inspectorClient.removeEventListener(
+        "pendingElicitationsChange",
+        handlePendingElicitationsChange,
       );
     };
   }, [inspectorClient]);

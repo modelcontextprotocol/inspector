@@ -5,13 +5,13 @@ import JsonView from "./JsonView";
 import { JsonSchemaType, JsonValue } from "@/utils/jsonUtils";
 import { generateDefaultValue } from "@/utils/schemaUtils";
 import {
-  PendingElicitationRequest,
+  PendingFormElicitationRequest,
   ElicitationResponse,
 } from "./ElicitationTab";
 import Ajv from "ajv";
 
 export type ElicitationRequestProps = {
-  request: PendingElicitationRequest;
+  request: PendingFormElicitationRequest;
   onResolve: (id: number, response: ElicitationResponse) => void;
 };
 

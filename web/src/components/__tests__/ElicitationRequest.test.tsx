@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import ElicitationRequest from "../ElicitationRequest";
-import { PendingElicitationRequest } from "../ElicitationTab";
+import { PendingFormElicitationRequest } from "../ElicitationTab";
 
 vi.mock("../DynamicJsonForm", () => ({
   default: function MockDynamicJsonForm({
@@ -46,10 +46,12 @@ describe("ElicitationRequest", () => {
   });
 
   const createMockRequest = (
-    overrides: Partial<PendingElicitationRequest> = {},
-  ): PendingElicitationRequest => ({
+    overrides: Partial<PendingFormElicitationRequest> = {},
+  ): PendingFormElicitationRequest => ({
     id: 1,
+    elicitationId: "elicitation-1",
     request: {
+      mode: "form",
       id: 1,
       message: "Please provide your information",
       requestedSchema: {
@@ -65,7 +67,7 @@ describe("ElicitationRequest", () => {
   });
 
   const renderElicitationRequest = (
-    request: PendingElicitationRequest = createMockRequest(),
+    request: PendingFormElicitationRequest = createMockRequest(),
   ) => {
     return render(
       <ElicitationRequest request={request} onResolve={mockOnResolve} />,
@@ -83,6 +85,7 @@ describe("ElicitationRequest", () => {
       renderElicitationRequest(
         createMockRequest({
           request: {
+            mode: "form",
             id: 1,
             message,
             requestedSchema: {
