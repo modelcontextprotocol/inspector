@@ -53,6 +53,7 @@ describe("ElicitationRequest", () => {
     request: {
       id: 1,
       message: "Please provide your information",
+      mode: "form",
       requestedSchema: {
         type: "object",
         properties: {
@@ -61,6 +62,20 @@ describe("ElicitationRequest", () => {
         },
         required: ["name"],
       },
+    },
+    ...overrides,
+  });
+
+  const createMockUrlRequest = (
+    overrides: Partial<PendingElicitationRequest> = {},
+  ): PendingElicitationRequest => ({
+    id: 1,
+    request: {
+      id: 1,
+      message: "Please authorize access to your GitHub account",
+      mode: "url",
+      url: "https://github.com/login/oauth/authorize?client_id=test",
+      elicitationId: "test-elicitation-id",
     },
     ...overrides,
   });
@@ -86,6 +101,7 @@ describe("ElicitationRequest", () => {
           request: {
             id: 1,
             message,
+            mode: "form",
             requestedSchema: {
               type: "object",
               properties: { name: { type: "string" } },
@@ -197,6 +213,114 @@ describe("ElicitationRequest", () => {
         1,
         expect.objectContaining({ action: "accept" }),
       );
+    });
+  });
+
+  describe("URL Mode Elicitation", () => {
+    it("should render URL mode elicitation request", () => {
+      renderElicitationRequest(createMockUrlRequest());
+      expect(screen.getByText(/URL Elicitation Request/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Please authorize access to your GitHub account/i),
+      ).toBeInTheDocument();
+    });
+
+    it("should display the target URL", () => {
+      const url = "https://github.com/login/oauth/authorize?client_id=test";
+      renderElicitationRequest(createMockUrlRequest());
+      expect(screen.getByText(url)).toBeInTheDocument();
+    });
+
+    it("should display the elicitation ID", () => {
+      renderElicitationRequest(createMockUrlRequest());
+      expect(screen.getByText(/Elicitation ID:/i)).toBeInTheDocument();
+      expect(screen.getByText("test-elicitation-id")).toBeInTheDocument();
+    });
+
+    it("should render Open URL button", () => {
+      renderElicitationRequest(createMockUrlRequest());
+      expect(
+        screen.getByRole("button", { name: /open url/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("should call window.open when Open URL button is clicked", async () => {
+      const mockOpen = jest.fn();
+      const originalOpen = window.open;
+      window.open = mockOpen as unknown as typeof window.open;
+
+      renderElicitationRequest(createMockUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /open url/i }));
+      });
+
+      expect(mockOpen).toHaveBeenCalledWith(
+        "https://github.com/login/oauth/authorize?client_id=test",
+        "_blank",
+        "noopener,noreferrer",
+      );
+
+      window.open = originalOpen;
+    });
+
+    it("should call onResolve with accept action when Accept button is clicked", async () => {
+      renderElicitationRequest(createMockUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^accept$/i }));
+      });
+
+      expect(mockOnResolve).toHaveBeenCalledWith(1, { action: "accept" });
+    });
+
+    it("should call onResolve with decline action when Decline button is clicked", async () => {
+      renderElicitationRequest(createMockUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /decline/i }));
+      });
+
+      expect(mockOnResolve).toHaveBeenCalledWith(1, { action: "decline" });
+    });
+
+    it("should call onResolve with cancel action when Cancel button is clicked", async () => {
+      renderElicitationRequest(createMockUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+      });
+
+      expect(mockOnResolve).toHaveBeenCalledWith(1, { action: "cancel" });
+    });
+
+    it("should reject non-HTTPS URLs", async () => {
+      const mockOpen = jest.fn();
+      const originalOpen = window.open;
+      window.open = mockOpen as unknown as typeof window.open;
+
+      renderElicitationRequest(
+        createMockUrlRequest({
+          request: {
+            id: 1,
+            message: "Test",
+            mode: "url",
+            url: "http://insecure.com/oauth",
+            elicitationId: "test-id",
+          },
+        }),
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /open url/i }));
+      });
+
+      expect(mockOpen).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(/Only HTTPS URLs are allowed for security reasons/i),
+      ).toBeInTheDocument();
+
+      window.open = originalOpen;
     });
   });
 });
