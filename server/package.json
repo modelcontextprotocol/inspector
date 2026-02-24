@@ -12,6 +12,7 @@
   },
   "files": [
     "build",
+    "static",
     "LICENSE"
   ],
   "scripts": {
