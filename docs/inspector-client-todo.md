@@ -75,20 +75,20 @@ If we are in a container:
 
 ## v1.5 branch
 
-Goal: Parity with v1 client
+### Goal: Parity with v1 client
 
 - MCP apps work (remaining)
   - Fix handler multiplexing in AppRendererClient (AppNotificationHandler multiplexing)
 - Update README (client->web, proxy->sandbox)
 - Review changes to Client from time of fork to present to make sure we didn't miss anything else
 
-Goal: Bring Inspector Web support to current spec
+### Goal: Bring Inspector Web support to current spec
 
 - Add "sampling with tools" support
   - https://github.com/modelcontextprotocol/inspector/issues/932
 - Review v1 project boards for any feature deficiencies to spec
 
-Goal: Inspector Web quality
+### Goal: Inspector Web quality
 
 - Flaky test (fails maybe 1 time out of 20):
   - **tests**/inspectorClient-oauth-e2e.test.ts > InspectorClient OAuth E2E > Storage path (custom) ('SSE') > should persist OAuth state to custom storagePath
@@ -114,17 +114,15 @@ Goal: Inspector Web quality
   ```
 - Review open v1 bugs (esp auth bugs) to see which ones still apply
 
-Misc
+### Next Steps
 
+- Extract form generator into core, extend as needed
+  - See: (form-generation-extraction-plan.md)
+- Redesign launcher
+  - Shared config parsing, param parsing is same with any launch method
+  - No more process spawning (just call the main/run of the desired app)
+  - See: (launcher-config-consolidation-plan.md)
 - Research oauth device flow (esp for CLI/TUI)
-- Extract form generator into core, extend as needed (I think there are some open issues). See [form-generation-extraction-plan.md](form-generation-extraction-plan.md).
-
-Future
-
-- Look at the launcher flow (can we just have one executable with centralized config)?
-- The CLI parsing the config/server and passing components to the other apps is kind of ugly
-- Idea: Single launcher just routes to app, app launchers use shared config parsing code in core
-- Idea: Get rid of separare process spawning, just call the main/run of the desired app
 
 ### TUI
 
@@ -133,14 +131,6 @@ Follow v2 UX design
 Implement test strategy (vitest + Playwright?)
 Better forms (test tool, etc)
 
-- UX (cleaner, maybe ditch ink-forms, see if it can be styled better?)
+- Use shared functionality from core forms support
 - Functionality (data types, arrays, arrays of objects, etc)
-
-## URL Elicitation
-
-- https://github.com/modelcontextprotocol/inspector/issues/929
-- https://github.com/modelcontextprotocol/inspector/pull/994
-
-Not supported in everything server yet, so we tested via composable server:
-
-`npm run web:dev -- --config configs/mcp.json --server url-elicitation-form`
+- UX (cleaner, maybe ditch ink-forms, see if it can be styled better?)
