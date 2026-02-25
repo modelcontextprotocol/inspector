@@ -22,6 +22,7 @@ import {
   createUrlElicitationFormTool,
   createSendNotificationTool,
   createGetAnnotatedMessageTool,
+  createGetTempTool,
   createAddResourceTool,
   createRemoveResourceTool,
   createAddToolTool,
@@ -96,6 +97,8 @@ function resolveToolPreset(
       return createSendNotificationTool();
     case "get_annotated_message":
       return createGetAnnotatedMessageTool();
+    case "get_temp":
+      return createGetTempTool();
     case "add_resource":
       return createAddResourceTool();
     case "remove_resource":

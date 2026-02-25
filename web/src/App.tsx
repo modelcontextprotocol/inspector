@@ -1413,8 +1413,8 @@ const App = () => {
           const compatibilityResult: CompatibilityCallToolResult =
             invocation.result
               ? {
-                  content: invocation.result.content || [],
-                  isError: false,
+                  ...invocation.result,
+                  content: invocation.result.content ?? [],
                 }
               : {
                   content: [
@@ -1447,8 +1447,8 @@ const App = () => {
         const compatibilityResult: CompatibilityCallToolResult =
           invocation.result
             ? {
-                content: invocation.result.content || [],
-                isError: false,
+                ...invocation.result,
+                content: invocation.result.content ?? [],
               }
             : {
                 content: [

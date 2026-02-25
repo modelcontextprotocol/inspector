@@ -78,9 +78,11 @@ If we are in a container:
 Goal: Parity with v1 client
 
 - MCP apps work (remaining)
-  - Fix handler multiplexing in AppRendererClient
+  - Fix handler multiplexing in AppRendererClient (AppNotificationHandler multiplexing)
 - Update README (client->web, proxy->sandbox)
 - Review changes to Client from time of fork to present to make sure we didn't miss anything else
+  - Structured Content Compatability warning
+    - https://github.com/modelcontextprotocol/inspector/pull/1098
 
 Goal: Bring Inspector Web support to current spec
 

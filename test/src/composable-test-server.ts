@@ -49,6 +49,7 @@ import {
   type ListResourceTemplatesResult,
   type ListPromptsResult,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { AnySchema } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import {
   ZodRawShapeCompat,
   getObjectShape,
@@ -98,6 +99,8 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema?: ToolInputSchema;
+  /** Optional Zod object schema for tool output; when set, handler must return structuredContent. */
+  outputSchema?: unknown;
   handler: (
     params: Record<string, any>,
     context?: TestServerContext,
@@ -470,6 +473,9 @@ export function createMcpServer(config: ServerConfig): McpServer {
           {
             description: tool.description,
             inputSchema: tool.inputSchema,
+            ...(tool.outputSchema != null && {
+              outputSchema: tool.outputSchema as AnySchema,
+            }),
           },
           async (args, extra) => {
             const result = await tool.handler(
@@ -477,30 +483,33 @@ export function createMcpServer(config: ServerConfig): McpServer {
               context,
               extra,
             );
-            // Handle different return types from tool handlers
-            // If handler returns content array directly (like get-annotated-message), use it
+            const rawStructured =
+              result &&
+              typeof result === "object" &&
+              "structuredContent" in result
+                ? (result as { structuredContent?: unknown }).structuredContent
+                : undefined;
+            const structuredContent =
+              rawStructured !== undefined && rawStructured !== null
+                ? (rawStructured as Record<string, unknown>)
+                : undefined;
+            // If handler returns content array, use it; otherwise build content from message or stringify
+            let content: Array<{ type: "text"; text: string }>;
             if (result && Array.isArray(result.content)) {
-              return { content: result.content };
-            }
-            // If handler returns message (like echo), format it
-            if (result && typeof result.message === "string") {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: result.message,
-                  },
-                ],
-              };
-            }
-            // Otherwise, stringify the result
-            return {
-              content: [
+              content = result.content as Array<{ type: "text"; text: string }>;
+            } else if (result && typeof result.message === "string") {
+              content = [{ type: "text" as const, text: result.message }];
+            } else {
+              content = [
                 {
-                  type: "text",
-                  text: JSON.stringify(result),
+                  type: "text" as const,
+                  text: JSON.stringify(result ?? {}),
                 },
-              ],
+              ];
+            }
+            return {
+              content,
+              ...(structuredContent !== undefined && { structuredContent }),
             };
           },
         );

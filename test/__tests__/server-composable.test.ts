@@ -29,8 +29,8 @@ describe("server-composable", () => {
 
     try {
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(1);
-      expect(tools[0].name).toBe("echo");
+      const echoTool = tools.find((t) => t.name === "echo");
+      expect(echoTool).toBeDefined();
 
       const result = await client.callTool({
         name: "echo",

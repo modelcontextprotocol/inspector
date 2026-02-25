@@ -736,8 +736,13 @@ describe("ToolsTab", () => {
         toolResult: noMatchResult,
       });
 
-      // Should render without crashing - the validation logic has been updated
       expect(screen.getAllByText("weatherTool")).toHaveLength(2);
+      // No compatibility warning when content is not a JSON copy of structuredContent (PR #1098)
+      expect(
+        screen.queryByText(
+          /structured content matches|no text blocks|no.*matches/i,
+        ),
+      ).not.toBeInTheDocument();
     });
 
     it("should reject when no text blocks are present", () => {
@@ -752,8 +757,13 @@ describe("ToolsTab", () => {
         toolResult: noTextBlocksResult,
       });
 
-      // Should render without crashing - the validation logic has been updated
       expect(screen.getAllByText("weatherTool")).toHaveLength(2);
+      // No compatibility message when no text blocks (PR #1098)
+      expect(
+        screen.queryByText(
+          /structured content matches|no text blocks|no.*matches/i,
+        ),
+      ).not.toBeInTheDocument();
     });
 
     it("should not show compatibility check when tool has no output schema", () => {
@@ -771,6 +781,32 @@ describe("ToolsTab", () => {
       expect(
         screen.queryByText(
           /structured content matches|no text blocks|no.*matches/i,
+        ),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should not show compatibility warning when content is human-readable (not JSON copy of structuredContent)", () => {
+      const humanReadableResult = {
+        content: [
+          {
+            type: "text",
+            text: "The temperature in Seattle is 25 degrees C",
+          },
+        ],
+        structuredContent: { temperature: 25, unit: "C", city: "Seattle" },
+      };
+
+      renderToolsTab({
+        tools: [toolWithOutputSchema],
+        selectedTool: toolWithOutputSchema,
+        toolResult: humanReadableResult,
+      });
+
+      expect(screen.getByText("Structured Content:")).toBeInTheDocument();
+      // No yellow warning; MCP spec allows content to be human-readable (PR #1098)
+      expect(
+        screen.queryByText(
+          /no text blocks? to match|no text block matches structured/i,
         ),
       ).not.toBeInTheDocument();
     });

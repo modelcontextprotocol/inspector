@@ -640,6 +640,40 @@ export function createGetAnnotatedMessageTool(): ToolDefinition {
   };
 }
 
+/** Output schema for get_temp: temperature, unit, city */
+const GetTempOutputSchema = z.object({
+  temperature: z.number().describe("Temperature value"),
+  unit: z.string().describe("C or F"),
+  city: z.string().describe("City name"),
+});
+
+/**
+ * Create a "get_temp" tool that returns both content (human-readable) and structuredContent (schema-validated).
+ * Takes city and units (C/F), returns mock temperature 25 and matching text + structured output.
+ */
+export function createGetTempTool(): ToolDefinition {
+  return {
+    name: "get_temp",
+    description:
+      "Get the current temperature for a city (mock; returns 25 in requested units)",
+    inputSchema: {
+      city: z.string().describe("City name"),
+      units: z.enum(["C", "F"]).describe("Temperature units"),
+    },
+    outputSchema: GetTempOutputSchema,
+    handler: async (params: Record<string, any>) => {
+      const city = (params.city as string) || "Unknown";
+      const unit = (params.units as "C" | "F") || "C";
+      const temperature = 25;
+      const text = `The temperature in ${city} is ${temperature} degrees ${unit}`;
+      return {
+        content: [{ type: "text" as const, text }],
+        structuredContent: { temperature, unit, city },
+      };
+    },
+  };
+}
+
 /**
  * Create a "simple_prompt" prompt definition
  */
@@ -1823,6 +1857,7 @@ export function getDefaultServerConfig(): ServerConfig {
       createEchoTool(),
       createGetSumTool(),
       createGetAnnotatedMessageTool(),
+      createGetTempTool(),
       createSendNotificationTool(),
       createWriteToStderrTool(),
     ],

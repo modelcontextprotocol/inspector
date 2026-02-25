@@ -634,6 +634,38 @@ describe("InspectorClient", () => {
       expect(hasImage).toBe(true);
     });
 
+    it("should return both content and structuredContent for tool with outputSchema (get_temp)", async () => {
+      const result = await client.callTool("get_temp", {
+        city: "Seattle",
+        units: "C",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.result).toBeDefined();
+      expect(result.result).toHaveProperty("content");
+      expect(result.result).toHaveProperty("structuredContent");
+
+      const content = result.result!.content as Array<{
+        type: string;
+        text?: string;
+      }>;
+      expect(Array.isArray(content)).toBe(true);
+      expect(content[0].type).toBe("text");
+      expect(content[0].text).toContain("Seattle");
+      expect(content[0].text).toContain("25");
+      expect(content[0].text).toContain("degrees C");
+
+      const structured = result.result!.structuredContent as Record<
+        string,
+        unknown
+      >;
+      expect(structured).toEqual({
+        temperature: 25,
+        unit: "C",
+        city: "Seattle",
+      });
+    });
+
     it("should handle tool not found", async () => {
       const result = await client.callTool("nonexistent-tool", {});
       // When tool is not found, the SDK returns an error response, not an exception

@@ -3,7 +3,7 @@
     "name": "composable-demo",
     "version": "1.0.0"
   },
-  "tools": [{ "preset": "echo" }],
+  "tools": [{ "preset": "echo" }, { "preset": "get_temp" }],
   "transport": {
     "type": "stdio"
   }
