@@ -81,8 +81,6 @@ Goal: Parity with v1 client
   - Fix handler multiplexing in AppRendererClient (AppNotificationHandler multiplexing)
 - Update README (client->web, proxy->sandbox)
 - Review changes to Client from time of fork to present to make sure we didn't miss anything else
-  - Structured Content Compatability warning
-    - https://github.com/modelcontextprotocol/inspector/pull/1098
 
 Goal: Bring Inspector Web support to current spec
 
@@ -119,7 +117,7 @@ Goal: Inspector Web quality
 Misc
 
 - Research oauth device flow (esp for CLI/TUI)
-- Extract form generator into core, extend as needed (I think there are some open issues)
+- Extract form generator into core, extend as needed (I think there are some open issues). See [form-generation-extraction-plan.md](form-generation-extraction-plan.md).
 
 Future
 
