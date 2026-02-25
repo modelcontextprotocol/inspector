@@ -117,11 +117,13 @@ If we are in a container:
 ### Next Steps
 
 - Extract form generator into core, extend as needed
-  - See: (form-generation-extraction-plan.md)
+  - See: [form-generation-extraction-plan.md](form-generation-extraction-plan.md)
 - Redesign launcher
   - Shared config parsing, param parsing is same with any launch method
   - No more process spawning (just call the main/run of the desired app)
-  - See: (launcher-config-consolidation-plan.md)
+  - See: [launcher-config-consolidation-plan.md](launcher-config-consolidation-plan.md)
+- InspectorClient sub-managers (architecture and responsibilities)
+  - See: [inspector-client-sub-managers.md](inspector-client-sub-managers.md)
 - Research oauth device flow (esp for CLI/TUI)
 
 ### TUI
