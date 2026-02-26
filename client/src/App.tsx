@@ -1266,7 +1266,7 @@ const App = () => {
                 {mcpClient ? (
                   <Tabs
                     value={activeTab}
-                    className="w-full h-full p-4 flex flex-col overflow-hidden"
+                    className="w-full h-full p-4 flex flex-col"
                     onValueChange={(value) => {
                       setActiveTab(value);
                       window.location.hash = value;
@@ -1337,7 +1337,7 @@ const App = () => {
                       </TabsTrigger>
                     </TabsList>
 
-                    <div className="w-full flex-1 min-h-0">
+                    <div className="w-full flex-1 min-h-0 overflow-y-auto">
                       {!serverCapabilities?.resources &&
                       !serverCapabilities?.prompts &&
                       !serverCapabilities?.tools ? (
@@ -1560,9 +1560,9 @@ const App = () => {
               defaultSize={30}
               minSize={0}
               collapsible
-              className="flex flex-col min-h-0 overflow-hidden"
+              className="flex flex-col min-h-0"
             >
-              <div className="flex-1 overflow-hidden h-full">
+              <div className="flex-1 h-full">
                 <HistoryAndNotifications
                   requestHistory={requestHistory}
                   serverNotifications={notifications}

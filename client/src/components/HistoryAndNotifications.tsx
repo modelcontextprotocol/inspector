@@ -44,7 +44,7 @@ const HistoryAndNotifications = ({
         defaultSize={50}
         minSize={0}
         collapsible
-        className="overflow-y-auto p-4 border-r border-border"
+        className="overflow-y-auto p-4 border-r border-border scrollable-resizable-panel"
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">History</h2>
@@ -127,7 +127,7 @@ const HistoryAndNotifications = ({
       <ResizablePanel
         defaultSize={50}
         minSize={20}
-        className="overflow-y-auto p-4 h-full"
+        className="overflow-y-auto p-4 h-full scrollable-resizable-panel"
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Server Notifications</h2>
