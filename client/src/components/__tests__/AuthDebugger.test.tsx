@@ -64,7 +64,6 @@ jest.mock("@/lib/auth", () => ({
     clear: jest.fn().mockImplementation(() => {
       // Mock the real clear() behavior which removes items from sessionStorage
       sessionStorage.removeItem("[https://example.com/mcp] mcp_tokens");
-      sessionStorage.removeItem("[https://example.com/mcp] mcp_client_info");
       sessionStorage.removeItem(
         "[https://example.com/mcp] mcp_server_metadata",
       );
