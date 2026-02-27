@@ -49,6 +49,7 @@ type ServerConfig =
   | {
       type: "sse" | "streamable-http";
       url: string;
+      headers?: Record<string, string>;
       note?: string;
     };
 
@@ -109,6 +110,11 @@ async function runWeb(args: Args): Promise<void> {
   // Pass server URL if specified
   if (args.serverUrl) {
     startArgs.push("--server-url", args.serverUrl);
+  }
+
+  // Pass headers if specified (for SSE/streamable-http)
+  if (args.headers && Object.keys(args.headers).length > 0) {
+    startArgs.push("--headers", JSON.stringify(args.headers));
   }
 
   // Pass cwd if specified (for stdio transport)
@@ -244,7 +250,13 @@ function loadConfigFile(configPath: string, serverName: string): ServerConfig {
     }
 
     const serverConfig = parsedConfig.mcpServers[serverName];
-
+    if (serverConfig?.type === undefined) {
+      // Normalize missing type to "stdio" (backwards compatibility)
+      return { ...serverConfig, type: "stdio" };
+    } else if (serverConfig.type === "http") {
+      // Normalize "http" to "streamable-http" (some clients, like Claude Code, use http instead of streamable-http)
+      return { ...serverConfig, type: "streamable-http" };
+    }
     return serverConfig;
   } catch (err: unknown) {
     if (err instanceof SyntaxError) {
@@ -382,7 +394,6 @@ function parseArgs(): Args {
   // etc.)
   if (options.config && options.server) {
     const config = loadConfigFile(options.config, options.server);
-
     if (config.type === "stdio") {
       const cwd = options.cwd ?? config.cwd ?? path.resolve(process.cwd());
       return {
@@ -396,6 +407,10 @@ function parseArgs(): Args {
         cwd: path.resolve(cwd),
       };
     } else if (config.type === "sse" || config.type === "streamable-http") {
+      const headers = {
+        ...(config.headers || {}),
+        ...(options.header || {}),
+      };
       return {
         command: config.url,
         args: finalArgs,
@@ -404,32 +419,10 @@ function parseArgs(): Args {
         dev: options.dev || false,
         transport: config.type,
         serverUrl: config.url,
-        headers: options.header,
-      };
-    } else {
-      // Backwards compatibility: if no type field, assume stdio
-      const cwd =
-        options.cwd ??
-        (config as { cwd?: string }).cwd ??
-        path.resolve(process.cwd());
-      return {
-        command: (config as { command?: string }).command || "",
-        args: [
-          ...(((config as { args?: string[] }).args || []) as string[]),
-          ...finalArgs,
-        ],
-        envArgs: {
-          ...(((config as { env?: Record<string, string> }).env ||
-            {}) as Record<string, string>),
-          ...(options.e || {}),
-        },
-        cli: options.cli || false,
-        dev: options.dev || false,
-        transport: "stdio",
-        headers: options.header,
-        cwd: path.resolve(cwd),
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
       };
     }
+    throw new Error(`Invalid server config: ${JSON.stringify(config)}`);
   }
 
   // Otherwise use command line arguments

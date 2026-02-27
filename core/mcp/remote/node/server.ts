@@ -186,6 +186,7 @@ function buildInitialConfigFromEnv(): {
   defaultArgs?: string[];
   defaultTransport?: string;
   defaultServerUrl?: string;
+  defaultHeaders?: Record<string, string>;
   defaultCwd?: string;
   defaultEnvironment: Record<string, string>;
 } {
@@ -237,6 +238,20 @@ function buildInitialConfigFromEnv(): {
       : {}),
     ...(process.env.MCP_INITIAL_SERVER_URL
       ? { defaultServerUrl: process.env.MCP_INITIAL_SERVER_URL }
+      : {}),
+    ...(process.env.MCP_INITIAL_HEADERS
+      ? (() => {
+          try {
+            const parsed = JSON.parse(
+              process.env.MCP_INITIAL_HEADERS,
+            ) as Record<string, string>;
+            return Object.keys(parsed).length > 0
+              ? { defaultHeaders: parsed }
+              : {};
+          } catch {
+            return {};
+          }
+        })()
       : {}),
     ...(process.env.MCP_INITIAL_CWD
       ? { defaultCwd: process.env.MCP_INITIAL_CWD }

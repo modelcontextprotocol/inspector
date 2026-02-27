@@ -21,6 +21,7 @@ async function startDevClient(clientOptions) {
     mcpServerArgs,
     transport,
     serverUrl,
+    headers,
     envVars,
     cwd,
     abort,
@@ -43,6 +44,9 @@ async function startDevClient(clientOptions) {
       : {}),
     ...(transport ? { MCP_INITIAL_TRANSPORT: transport } : {}),
     ...(serverUrl ? { MCP_INITIAL_SERVER_URL: serverUrl } : {}),
+    ...(headers && Object.keys(headers).length > 0
+      ? { MCP_INITIAL_HEADERS: JSON.stringify(headers) }
+      : {}),
     ...(envVars && Object.keys(envVars).length > 0
       ? { MCP_ENV_VARS: JSON.stringify(envVars) }
       : {}),
@@ -102,6 +106,7 @@ async function startProdClient(clientOptions) {
     mcpServerArgs,
     transport,
     serverUrl,
+    headers,
     envVars,
     cwd,
   } = clientOptions;
@@ -123,6 +128,9 @@ async function startProdClient(clientOptions) {
         : {}),
       ...(transport ? { MCP_INITIAL_TRANSPORT: transport } : {}),
       ...(serverUrl ? { MCP_INITIAL_SERVER_URL: serverUrl } : {}),
+      ...(headers && Object.keys(headers).length > 0
+        ? { MCP_INITIAL_HEADERS: JSON.stringify(headers) }
+        : {}),
       ...(envVars && Object.keys(envVars).length > 0
         ? { MCP_ENV_VARS: JSON.stringify(envVars) }
         : {}),
@@ -143,6 +151,7 @@ async function main() {
   let isDev = false;
   let transport = null;
   let serverUrl = null;
+  let headers = null;
   let cwd = null;
 
   for (let i = 0; i < args.length; i++) {
@@ -171,6 +180,15 @@ async function main() {
 
     if (arg === "--server-url" && i + 1 < args.length) {
       serverUrl = args[++i];
+      continue;
+    }
+
+    if (arg === "--headers" && i + 1 < args.length) {
+      try {
+        headers = JSON.parse(args[++i]);
+      } catch {
+        // Ignore invalid JSON
+      }
       continue;
     }
 
@@ -209,6 +227,13 @@ async function main() {
   }
   if (!transport && process.env.MCP_INITIAL_TRANSPORT) {
     transport = process.env.MCP_INITIAL_TRANSPORT;
+  }
+  if (!headers && process.env.MCP_INITIAL_HEADERS) {
+    try {
+      headers = JSON.parse(process.env.MCP_INITIAL_HEADERS);
+    } catch {
+      // Ignore invalid JSON
+    }
   }
   if (!cwd && process.env.MCP_INITIAL_CWD) {
     cwd = process.env.MCP_INITIAL_CWD;
@@ -254,6 +279,7 @@ async function main() {
         mcpServerArgs,
         transport,
         serverUrl,
+        headers,
         envVars,
         cwd,
         abort,
@@ -274,6 +300,7 @@ async function main() {
         mcpServerArgs,
         transport,
         serverUrl,
+        headers,
         envVars,
         cwd,
         abort,

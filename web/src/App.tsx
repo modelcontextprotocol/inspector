@@ -96,6 +96,7 @@ import ElicitationTab, {
 import {
   CustomHeaders,
   migrateFromLegacyAuth,
+  recordToHeaders,
 } from "./lib/types/customHeaders";
 import MetadataTab from "./components/MetadataTab";
 import TokenLoginScreen from "./components/TokenLoginScreen";
@@ -333,6 +334,7 @@ const App = () => {
     setSseUrl,
     setSandboxUrl,
     setCwd,
+    setCustomHeaders,
   });
   applyConfigRef.current = {
     setConfigFetchStatus,
@@ -345,6 +347,7 @@ const App = () => {
     setSseUrl,
     setSandboxUrl,
     setCwd,
+    setCustomHeaders,
   };
 
   // Helper to check if we can create InspectorClient (without actually creating it)
@@ -954,6 +957,15 @@ const App = () => {
           apply.setTransportType(transport || "stdio");
           apply.setSseUrl((data.defaultServerUrl as string) ?? "");
           apply.setCwd((data.defaultCwd as string) ?? "");
+          if (
+            data.defaultHeaders &&
+            typeof data.defaultHeaders === "object" &&
+            !Array.isArray(data.defaultHeaders)
+          ) {
+            apply.setCustomHeaders(
+              recordToHeaders(data.defaultHeaders as Record<string, string>),
+            );
+          }
         }
         apply.setSandboxUrl(
           typeof data.sandboxUrl === "string" ? data.sandboxUrl : undefined,
