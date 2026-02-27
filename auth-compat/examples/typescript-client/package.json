@@ -1,0 +1,17 @@
+{
+  "name": "mcp-test-client-example",
+  "version": "1.0.0",
+  "description": "Example TypeScript client for MCP authorization compliance testing",
+  "type": "module",
+  "scripts": {
+    "test-client": "tsx test-client.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
