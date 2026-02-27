@@ -7,6 +7,9 @@ import { OAuthFlowProgress } from "./OAuthFlowProgress";
 import { OAuthStateMachine } from "../lib/oauth-state-machine";
 import { SESSION_KEYS } from "../lib/constants";
 import { validateRedirectUrl } from "@/utils/urlValidation";
+import { refreshAuthorization, discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
+import { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
+
 
 export interface AuthDebuggerProps {
   serverUrl: string;
@@ -216,6 +219,68 @@ const AuthDebugger = ({
     }
   }, [serverUrl, updateAuthState, authState]);
 
+  const handleQuickRefreshToken = useCallback(async () => {
+    if (!serverUrl) {
+      updateAuthState({
+        statusMessage: {
+          type: "error",
+          message:
+            "Please enter a server URL in the sidebar before authenticating",
+        },
+      });
+      return;
+    }
+
+    if (!authState.oauthTokens || !authState.oauthTokens.refresh_token) {
+      updateAuthState({
+        statusMessage: {
+          type: "error",
+          message: "Refresh Token is not available",
+        },
+      });
+      return;
+    }
+
+    updateAuthState({ isInitiatingAuth: true, statusMessage: null });
+
+    const authServerMeta =
+        await discoverAuthorizationServerMetadata(serverUrl);
+    const debugProvider = new DebugInspectorOAuthClientProvider(serverUrl);
+    const clientInfo = await debugProvider.clientInformation();
+    const validClient: OAuthClientInformationFull = {
+        client_id: clientInfo!.client_id,
+        redirect_uris: debugProvider.redirect_uris,
+      };
+
+    try {
+      const newTokens = await refreshAuthorization(serverUrl, {
+        metadata: authServerMeta,
+        clientInformation: validClient,
+        refreshToken: authState.oauthTokens.refresh_token,
+      });
+  
+      updateAuthState({
+        ...authState,
+        oauthTokens: newTokens,
+        statusMessage: {
+          type: "info",
+          message: "Authentication completed successfully",
+        },
+      });
+      debugProvider.saveTokens(newTokens);
+    } catch (error) {
+      console.error("OAuth refresh error:", error);
+      updateAuthState({
+        statusMessage: {
+          type: "error",
+          message: `Failed to refresh OAuth tokens: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      });
+    } finally {
+      updateAuthState({ isInitiatingAuth: false });
+    }
+  }, [serverUrl, updateAuthState, authState]);
+
   const handleClearOAuth = useCallback(() => {
     if (serverUrl) {
       const serverAuthProvider = new DebugInspectorOAuthClientProvider(
@@ -283,6 +348,16 @@ const AuthDebugger = ({
                       ? "Guided Token Refresh"
                       : "Guided OAuth Flow"}
                   </Button>
+
+                  {authState.oauthTokens &&
+                    authState.oauthTokens.refresh_token && (
+                      <Button
+                        onClick={handleQuickRefreshToken}
+                        disabled={authState.isInitiatingAuth}
+                      >
+                        Quick Refresh without ReAuth
+                      </Button>
+                    )}
 
                   <Button
                     onClick={handleQuickOAuth}
