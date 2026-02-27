@@ -47,7 +47,8 @@ import { usePanelToggle } from "./hooks/use-panel-toggle";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  ResizableHandle,
+  HorizontalHandle,
+  VerticalHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
@@ -1211,14 +1212,14 @@ const App = () => {
   return (
     <SidebarProvider>
       <ResizablePanelGroup
-        direction="horizontal"
+        orientation="horizontal"
         className="h-full w-screen bg-background overflow-hidden"
       >
         <ResizablePanel
-          ref={sidebarRef}
-          defaultSize={20}
-          minSize={0}
-          maxSize={40}
+          panelRef={sidebarRef}
+          defaultSize="20%"
+          minSize="0%"
+          maxSize="40%"
           collapsible
           className="bg-card"
         >
@@ -1254,12 +1255,12 @@ const App = () => {
             serverImplementation={serverImplementation}
           />
         </ResizablePanel>
-        <ResizableHandle withHandle onDoubleClick={toggleSidebar} />
-        <ResizablePanel defaultSize={80} className="flex flex-col min-h-0">
-          <ResizablePanelGroup direction="vertical">
+        <HorizontalHandle withHandle onDoubleClick={toggleSidebar} />
+        <ResizablePanel defaultSize="80%" className="flex flex-col min-h-0">
+          <ResizablePanelGroup orientation="vertical">
             <ResizablePanel
-              defaultSize={70}
-              minSize={20}
+              defaultSize="70%"
+              minSize="20%"
               className="flex flex-col min-h-0"
             >
               <div className="flex-1 min-h-0 overflow-hidden">
@@ -1554,11 +1555,11 @@ const App = () => {
                 )}
               </div>
             </ResizablePanel>
-            <ResizableHandle withHandle onDoubleClick={toggleHistory} />
+            <VerticalHandle withHandle onDoubleClick={toggleHistory} />
             <ResizablePanel
-              ref={historyRef}
-              defaultSize={30}
-              minSize={0}
+              panelRef={historyRef}
+              defaultSize="30%"
+              minSize="0%"
               collapsible
               className="flex flex-col min-h-0"
             >

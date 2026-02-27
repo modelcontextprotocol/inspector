@@ -15,7 +15,7 @@ import ListPane from "./ListPane";
 import { useState } from "react";
 import JsonView from "./JsonView";
 import {
-  ResizableHandle,
+  HorizontalHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
@@ -74,8 +74,11 @@ const TasksTab = ({
 
   return (
     <TabsContent value="tasks" className="h-full mt-0 focus-visible:ring-0">
-      <ResizablePanelGroup direction="horizontal" className="h-full gap-2 p-4">
-        <ResizablePanel defaultSize={33} minSize={10}>
+      <ResizablePanelGroup
+        orientation="horizontal"
+        className="h-full gap-2 p-4"
+      >
+        <ResizablePanel defaultSize="33%" minSize="10%">
           <div className="h-full pr-1">
             <ListPane
               title="Tasks"
@@ -101,9 +104,9 @@ const TasksTab = ({
           </div>
         </ResizablePanel>
 
-        <ResizableHandle withHandle />
+        <HorizontalHandle withHandle />
 
-        <ResizablePanel defaultSize={67} minSize={20}>
+        <ResizablePanel defaultSize="67%" minSize="20%">
           <div className="flex-1 overflow-y-auto p-4 bg-background border border-border rounded-lg h-full ml-1">
             {error && (
               <Alert variant="destructive" className="mb-4">

@@ -42,7 +42,7 @@ import ListPane from "./ListPane";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
 import {
-  ResizableHandle,
+  HorizontalHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
@@ -235,12 +235,12 @@ const ToolsTab = ({
 
   return (
     <TabsContent value="tools" className="h-full mt-0 focus-visible:ring-0">
-      <ResizablePanelGroup direction="horizontal" className="h-full">
+      <ResizablePanelGroup orientation="horizontal" className="h-full">
         <ResizablePanel
-          ref={toolsRef}
-          defaultSize={25}
-          minSize={0}
-          maxSize={50}
+          panelRef={toolsRef}
+          defaultSize="25%"
+          minSize="0%"
+          maxSize="50%"
           collapsible
         >
           <div className="h-full pr-2">
@@ -275,8 +275,8 @@ const ToolsTab = ({
             />
           </div>
         </ResizablePanel>
-        <ResizableHandle withHandle onDoubleClick={toggleTools} />
-        <ResizablePanel defaultSize={75}>
+        <HorizontalHandle withHandle onDoubleClick={toggleTools} />
+        <ResizablePanel defaultSize="75%">
           <div className="h-full ml-2 bg-card border border-border rounded-lg shadow overflow-y-auto min-w-0">
             <div className="p-4 border-b border-gray-200 dark:border-border h-16 flex items-center">
               <div className="flex items-center gap-2">

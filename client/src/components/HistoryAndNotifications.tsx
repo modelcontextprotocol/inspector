@@ -3,7 +3,7 @@ import { useState } from "react";
 import JsonView from "./JsonView";
 import { Button } from "@/components/ui/button";
 import {
-  ResizableHandle,
+  HorizontalHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
@@ -38,11 +38,11 @@ const HistoryAndNotifications = ({
   };
 
   return (
-    <ResizablePanelGroup direction="horizontal" className="h-full">
+    <ResizablePanelGroup orientation="horizontal" className="h-full">
       <ResizablePanel
-        ref={historySubRef}
-        defaultSize={50}
-        minSize={0}
+        panelRef={historySubRef}
+        defaultSize="50%"
+        minSize="0%"
         collapsible
         className="overflow-y-auto p-4 border-r border-border scrollable-resizable-panel"
       >
@@ -122,11 +122,11 @@ const HistoryAndNotifications = ({
         )}
       </ResizablePanel>
 
-      <ResizableHandle withHandle onDoubleClick={toggleHistorySub} />
+      <HorizontalHandle withHandle onDoubleClick={toggleHistorySub} />
 
       <ResizablePanel
-        defaultSize={50}
-        minSize={20}
+        defaultSize="50%"
+        minSize="20%"
         className="overflow-y-auto p-4 h-full scrollable-resizable-panel"
       >
         <div className="flex items-center justify-between mb-4">

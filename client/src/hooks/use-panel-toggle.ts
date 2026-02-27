@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import type { ImperativePanelHandle } from "react-resizable-panels";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 
 /**
  * Custom hook to handle imperative panel toggling (collapse/expand).
@@ -7,7 +7,7 @@ import type { ImperativePanelHandle } from "react-resizable-panels";
  * to be passed to the ResizableHandle's onDoubleClick.
  */
 export function usePanelToggle() {
-  const panelRef = useRef<ImperativePanelHandle>(null);
+  const panelRef = useRef<PanelImperativeHandle>(null);
 
   const toggle = useCallback(() => {
     const panel = panelRef.current;

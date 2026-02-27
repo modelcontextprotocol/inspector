@@ -15,6 +15,7 @@ import { AlertCircle, ChevronRight, FileText, RefreshCw } from "lucide-react";
 import ListPane from "./ListPane";
 import {
   ResizableHandle,
+  HorizontalHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
@@ -117,8 +118,8 @@ const ResourcesTab = ({
 
   return (
     <TabsContent value="resources" className="h-full mt-0 focus-visible:ring-0">
-      <ResizablePanelGroup direction="horizontal" className="h-full gap-2">
-        <ResizablePanel defaultSize={30} minSize={10}>
+      <ResizablePanelGroup orientation="horizontal" className="h-full gap-2">
+        <ResizablePanel defaultSize="30%" minSize="10%">
           <div className="h-full pr-1">
             <ListPane
               items={resources}
@@ -162,7 +163,7 @@ const ResourcesTab = ({
 
         <ResizableHandle withHandle />
 
-        <ResizablePanel defaultSize={30} minSize={10}>
+        <ResizablePanel defaultSize="30%" minSize="10%">
           <div className="h-full px-1">
             <ListPane
               items={resourceTemplates}
@@ -209,9 +210,9 @@ const ResourcesTab = ({
           </div>
         </ResizablePanel>
 
-        <ResizableHandle withHandle />
+        <HorizontalHandle withHandle />
 
-        <ResizablePanel defaultSize={40} minSize={20}>
+        <ResizablePanel defaultSize="40%" minSize="20%">
           <div className="bg-card border border-border rounded-lg shadow h-full flex flex-col ml-1">
             <div className="p-4 border-b border-gray-200 dark:border-border flex justify-between items-center flex-shrink-0">
               <div className="flex items-center gap-2 truncate">

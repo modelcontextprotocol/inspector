@@ -13,7 +13,7 @@ import { AlertCircle, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import ListPane from "./ListPane";
 import {
-  ResizableHandle,
+  HorizontalHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
@@ -107,8 +107,8 @@ const PromptsTab = ({
 
   return (
     <TabsContent value="prompts" className="h-full mt-0 focus-visible:ring-0">
-      <ResizablePanelGroup direction="horizontal" className="h-full gap-2">
-        <ResizablePanel defaultSize={40} minSize={10}>
+      <ResizablePanelGroup orientation="horizontal" className="h-full gap-2">
+        <ResizablePanel defaultSize="40%" minSize="10%">
           <div className="h-full pr-1">
             <ListPane
               items={prompts}
@@ -142,9 +142,9 @@ const PromptsTab = ({
           </div>
         </ResizablePanel>
 
-        <ResizableHandle withHandle />
+        <HorizontalHandle withHandle />
 
-        <ResizablePanel defaultSize={60} minSize={20}>
+        <ResizablePanel defaultSize="60%" minSize="20%">
           <div className="bg-card border border-border rounded-lg shadow h-full flex flex-col ml-1">
             <div className="p-4 border-b border-gray-200 dark:border-border flex-shrink-0">
               <div className="flex items-center gap-2">

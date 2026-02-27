@@ -47,7 +47,7 @@
     "prismjs": "^1.30.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-resizable-panels": "^2.1.0",
+    "react-resizable-panels": "^4.6.5",
     "react-simple-code-editor": "^0.14.1",
     "serve-handler": "^6.1.6",
     "tailwind-merge": "^2.5.3",
