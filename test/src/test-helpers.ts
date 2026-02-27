@@ -157,3 +157,109 @@ export async function waitForStateFile<T = unknown>(
   );
   return result!;
 }
+
+export interface WaitForOAuthWellKnownOptions {
+  timeout?: number;
+  interval?: number;
+  /** Max time per fetch attempt (so one hung request doesn't burn the whole timeout). Default 1000. */
+  requestTimeout?: number;
+}
+
+/**
+ * Poll the OAuth authorization server well-known URL until it returns 200.
+ * Use after server.start() and before client.authenticate() in E2E tests so
+ * the SDK's discovery never races with server readiness (which would cause
+ * it to fall back to /authorize instead of /oauth/authorize).
+ *
+ * @param serverBaseUrl - Base URL of the server (e.g. http://localhost:PORT)
+ */
+export async function waitForOAuthWellKnown(
+  serverBaseUrl: string,
+  options?: WaitForOAuthWellKnownOptions,
+): Promise<void> {
+  const {
+    timeout = 5000,
+    interval = 50,
+    requestTimeout = 1000,
+  } = options ?? {};
+  const wellKnownUrl = `${serverBaseUrl.replace(/\/$/, "")}/.well-known/oauth-authorization-server`;
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    try {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), requestTimeout);
+      try {
+        const res = await fetch(wellKnownUrl, { signal: controller.signal });
+        if (res.ok) return;
+      } finally {
+        clearTimeout(t);
+      }
+    } catch {
+      // connection error or request timeout, retry
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  throw new Error(
+    `waitForOAuthWellKnown timed out after ${timeout}ms: ${wellKnownUrl}`,
+  );
+}
+
+export interface WaitForRemoteStoreOptions {
+  timeout?: number;
+  interval?: number;
+  /** Max time per fetch attempt. Default 1000. */
+  requestTimeout?: number;
+}
+
+/**
+ * Poll GET /api/storage/:storeId until the response body satisfies `predicate`.
+ * Use after persisting state (e.g. setServerState or client disconnect) and before
+ * creating a second client/store or asserting on the API, so the test doesn't race
+ * with async persist (Zustand setItem).
+ *
+ * Uses x-mcp-remote-auth: Bearer <authToken> for the request.
+ *
+ * @param baseUrl - Remote server base URL (e.g. http://127.0.0.1:PORT)
+ * @param storeId - Store ID (e.g. "oauth", "test-store")
+ * @param authToken - Auth token for x-mcp-remote-auth header
+ * @param predicate - Called with parsed JSON body; return true when ready
+ */
+export async function waitForRemoteStore(
+  baseUrl: string,
+  storeId: string,
+  authToken: string,
+  predicate: (body: unknown) => boolean,
+  options?: WaitForRemoteStoreOptions,
+): Promise<void> {
+  const {
+    timeout = 3000,
+    interval = 50,
+    requestTimeout = 1000,
+  } = options ?? {};
+  const url = `${baseUrl.replace(/\/$/, "")}/api/storage/${encodeURIComponent(storeId)}`;
+  const headers: Record<string, string> = {
+    "x-mcp-remote-auth": `Bearer ${authToken}`,
+  };
+
+  await vi.waitFor(
+    async () => {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), requestTimeout);
+      try {
+        const res = await fetch(url, { headers, signal: controller.signal });
+        if (!res.ok) {
+          throw new Error(
+            `waitForRemoteStore: GET ${url} returned ${res.status}`,
+          );
+        }
+        const body: unknown = await res.json();
+        if (!predicate(body)) {
+          throw new Error("waitForRemoteStore: predicate not yet satisfied");
+        }
+      } finally {
+        clearTimeout(t);
+      }
+    },
+    { timeout, interval },
+  );
+}

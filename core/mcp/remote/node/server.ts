@@ -4,9 +4,17 @@
  */
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
 import type pino from "pino";
+import {
+  getDefaultStorageDir,
+  getStoreFilePath,
+  validateStoreId,
+  readStoreFile,
+  writeStoreFile,
+  deleteStoreFile,
+  parseStore,
+  serializeStore,
+} from "../../../storage/store-io.js";
 import type { LogEvent } from "pino";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
@@ -170,14 +178,6 @@ function createAuthMiddleware(authToken: string) {
 }
 
 /**
- * Get default storage directory path.
- */
-function getDefaultStorageDir(): string {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
-  return path.join(homeDir, ".mcp-inspector", "storage");
-}
-
-/**
  * Build initial config object from process.env for GET /api/config.
  * Same shape as previously injected via __INITIAL_CONFIG__.
  */
@@ -258,21 +258,6 @@ function buildInitialConfigFromEnv(): {
       : {}),
     defaultEnvironment,
   };
-}
-
-/**
- * Validate storeId to prevent path traversal attacks.
- * Store IDs must be alphanumeric, hyphens, underscores only, and not empty.
- */
-function validateStoreId(storeId: string): boolean {
-  return /^[a-zA-Z0-9_-]+$/.test(storeId) && storeId.length > 0;
-}
-
-/**
- * Get file path for a store ID.
- */
-function getStoreFilePath(storageDir: string, storeId: string): string {
-  return path.join(storageDir, `${storeId}.json`);
 }
 
 /**
@@ -663,15 +648,14 @@ export function createRemoteApp(
     const filePath = getStoreFilePath(storageDir, storeId);
 
     try {
-      const data = await fs.readFile(filePath, "utf-8");
-      const store = JSON.parse(data);
+      const raw = await readStoreFile(filePath);
+      if (raw === null) {
+        return c.json({}, 200);
+      }
+      const store = parseStore(raw);
       return c.json(store);
     } catch (error) {
-      const err = error as NodeJS.ErrnoException;
-      if (err.code === "ENOENT") {
-        return c.json({}, 200); // Return empty object if file doesn't exist
-      }
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to read store: ${msg}` }, 500);
     }
   });
@@ -692,20 +676,8 @@ export function createRemoteApp(
     const filePath = getStoreFilePath(storageDir, storeId);
 
     try {
-      // Ensure storage directory exists
-      await fs.mkdir(storageDir, { recursive: true });
-
-      // Write store as JSON
-      const jsonData = JSON.stringify(body, null, 2);
-      await fs.writeFile(filePath, jsonData, "utf-8");
-
-      // Set restrictive permissions (600) for security
-      try {
-        await fs.chmod(filePath, 0o600);
-      } catch {
-        // Ignore chmod errors (may fail on some systems)
-      }
-
+      const jsonData = serializeStore(body);
+      await writeStoreFile(filePath, jsonData);
       return c.json({ ok: true });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -722,15 +694,10 @@ export function createRemoteApp(
     const filePath = getStoreFilePath(storageDir, storeId);
 
     try {
-      await fs.unlink(filePath);
+      await deleteStoreFile(filePath);
       return c.json({ ok: true });
     } catch (error) {
-      const err = error as NodeJS.ErrnoException;
-      if (err.code === "ENOENT") {
-        // Already deleted, return success
-        return c.json({ ok: true });
-      }
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to delete store: ${msg}` }, 500);
     }
   });

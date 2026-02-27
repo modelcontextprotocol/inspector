@@ -8,18 +8,19 @@ import {
   OAuthClientInformationSchema,
   OAuthTokensSchema,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import * as path from "node:path";
 import { createOAuthStore, type ServerOAuthState } from "../store.js";
 import { createFileStorageAdapter } from "../../storage/adapters/file-storage.js";
+import {
+  getDefaultStorageDir,
+  getStoreFilePath,
+} from "../../storage/store-io.js";
 
-const DEFAULT_STATE_PATH = (() => {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
-  return path.join(homeDir, ".mcp-inspector", "oauth", "state.json");
-})();
+/** Default path: ~/.mcp-inspector/storage/oauth.json */
+const DEFAULT_STATE_PATH = getStoreFilePath(getDefaultStorageDir(), "oauth");
 
 /**
- * Get path to state.json file.
- * @param customPath - Optional custom path (full path to state file). Default: ~/.mcp-inspector/oauth/state.json
+ * Get path to OAuth state file.
+ * @param customPath - Optional custom path (full path to state file). Default: ~/.mcp-inspector/storage/oauth.json
  */
 export function getStateFilePath(customPath?: string): string {
   return customPath ?? DEFAULT_STATE_PATH;
@@ -29,7 +30,7 @@ const storeCache = new Map<string, ReturnType<typeof createOAuthStore>>();
 
 /**
  * Get or create the OAuth store instance for the given path.
- * @param stateFilePath - Optional custom path to state file. Default: ~/.mcp-inspector/oauth/state.json
+ * @param stateFilePath - Optional custom path to state file. Default: ~/.mcp-inspector/storage/oauth.json
  */
 export function getOAuthStore(stateFilePath?: string) {
   const key = getStateFilePath(stateFilePath);

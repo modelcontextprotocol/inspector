@@ -385,35 +385,52 @@ describe("OAuth Store (Zustand)", () => {
   });
 
   it("should persist state to file", async () => {
-    if (process.env.DEBUG_WAIT_FOR_STATE_FILE === "1") {
-      console.error("[storage-node.test] state file path:", stateFilePath);
-    }
-    const store = getOAuthStore(testStatePath);
-    const serverUrl = "http://localhost:3000";
-    const clientInfo: OAuthClientInformation = {
-      client_id: "test-client-id",
-    };
-
-    store.getState().setServerState(serverUrl, {
-      clientInformation: clientInfo,
-    });
-
-    type StateShape = {
-      state: {
-        servers: Record<string, { clientInformation?: OAuthClientInformation }>;
+    // Use a unique path so no other test (e.g. "should overwrite..." with second-id) can
+    // write to the same file; Zustand persist is async and can race with shared paths.
+    const persistTestPath = path.join(
+      os.tmpdir(),
+      `mcp-inspector-oauth-persist-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
+    );
+    try {
+      if (process.env.DEBUG_WAIT_FOR_STATE_FILE === "1") {
+        console.error("[storage-node.test] state file path:", persistTestPath);
+      }
+      const store = getOAuthStore(persistTestPath);
+      const serverUrl = "http://localhost:3000";
+      const clientInfo: OAuthClientInformation = {
+        client_id: "test-client-id",
       };
-    };
-    const parsed = await waitForStateFile<StateShape>(
-      stateFilePath,
-      (p) => {
-        const s = (p as StateShape)?.state?.servers?.[serverUrl];
-        return !!s?.clientInformation;
-      },
-      { timeout: 2000, interval: 50 },
-    );
-    expect(parsed.state.servers[serverUrl]?.clientInformation).toEqual(
-      clientInfo,
-    );
+
+      store.getState().setServerState(serverUrl, {
+        clientInformation: clientInfo,
+      });
+
+      type StateShape = {
+        state: {
+          servers: Record<
+            string,
+            { clientInformation?: OAuthClientInformation }
+          >;
+        };
+      };
+      const parsed = await waitForStateFile<StateShape>(
+        persistTestPath,
+        (p) => {
+          const s = (p as StateShape)?.state?.servers?.[serverUrl];
+          return !!s?.clientInformation;
+        },
+        { timeout: 2000, interval: 50 },
+      );
+      expect(parsed.state.servers[serverUrl]?.clientInformation).toEqual(
+        clientInfo,
+      );
+    } finally {
+      try {
+        await fs.unlink(persistTestPath);
+      } catch {
+        /* ignore */
+      }
+    }
   });
 });
 

@@ -18,6 +18,8 @@ import { NodeOAuthStorage } from "../auth/node/storage-node.js";
 import { createRemoteApp } from "../mcp/remote/node/server.js";
 import {
   TestServerHttp,
+  waitForOAuthWellKnown,
+  waitForRemoteStore,
   getDefaultServerConfig,
   createOAuthTestServerConfig,
   clearOAuthTestData,
@@ -190,6 +192,7 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
         mcpServer = new TestServerHttp(serverConfig);
         const port = await mcpServer.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
 
         // Create client with remote transport and remote OAuth storage
         const createTransport = createRemoteTransport({
@@ -280,6 +283,7 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
         mcpServer = new TestServerHttp(serverConfig);
         const port = await mcpServer.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
 
         const createTransport = createRemoteTransport({
           baseUrl: remoteBaseUrl!,
@@ -338,8 +342,28 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
         expect(tokens1).toBeDefined();
         await client1.disconnect();
 
-        // Wait for persistence
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        // Wait until remote server has persisted state before creating second client
+        await waitForRemoteStore(
+          remoteBaseUrl!,
+          "oauth",
+          remoteAuthToken!,
+          (body) => {
+            const b = body as {
+              state?: {
+                servers?: Record<
+                  string,
+                  { tokens?: { access_token?: string } }
+                >;
+              };
+            };
+            return !!(
+              b?.state?.servers &&
+              Object.values(b.state.servers).some(
+                (s) => s?.tokens?.access_token,
+              )
+            );
+          },
+        );
 
         // Second client: should load persisted state
         const remoteStorage2 = new RemoteOAuthStorage({
@@ -422,6 +446,7 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
         mcpServer = new TestServerHttp(serverConfig);
         const port = await mcpServer.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
 
         const createTransport = createRemoteTransport({
           baseUrl: remoteBaseUrl!,

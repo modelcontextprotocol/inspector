@@ -21,6 +21,7 @@ import { createTransportNode } from "../mcp/node/transport.js";
 import {
   TestServerHttp,
   waitForStateFile,
+  waitForOAuthWellKnown,
   getDefaultServerConfig,
   createOAuthTestServerConfig,
   clearOAuthTestData,
@@ -135,6 +136,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         // Create client with static OAuth config
         const oauthConfig = createTestOAuthConfig({
@@ -209,6 +212,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "static",
@@ -293,6 +298,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "static",
@@ -383,6 +390,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         // Create client with CIMD config
         const oauthConfig = createTestOAuthConfig({
@@ -461,6 +470,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "cimd",
@@ -521,6 +532,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "dcr",
@@ -576,6 +589,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "dcr",
@@ -645,6 +660,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "dcr",
@@ -716,6 +733,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "static",
@@ -802,6 +821,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "static",
@@ -905,6 +926,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "static",
@@ -1001,6 +1024,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "static",
@@ -1076,6 +1101,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "static",
@@ -1140,6 +1167,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "dcr",
@@ -1194,6 +1223,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "dcr",
@@ -1266,6 +1297,7 @@ describe("InspectorClient OAuth E2E", () => {
       server = new TestServerHttp(serverConfig);
       const port = await server.start();
       const serverUrl = `http://localhost:${port}`;
+      await waitForOAuthWellKnown(serverUrl);
 
       const oauthConfig = createTestOAuthConfig({
         mode: "static",
@@ -1334,6 +1366,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "static",
@@ -1404,6 +1438,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "static",
@@ -1514,6 +1550,8 @@ describe("InspectorClient OAuth E2E", () => {
         server = new TestServerHttp(serverConfig);
         const port = await server.start();
         const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+        await waitForOAuthWellKnown(serverUrl);
 
         const oauthConfig = createTestOAuthConfig({
           mode: "static",
@@ -1592,6 +1630,7 @@ describe("InspectorClient OAuth E2E", () => {
       server = new TestServerHttp(serverConfig);
       const port = await server.start();
       const serverUrl = `http://localhost:${port}`;
+      await waitForOAuthWellKnown(serverUrl);
 
       const oauthConfig = createTestOAuthConfig({
         mode: "static",
@@ -1668,6 +1707,7 @@ describe("InspectorClient OAuth E2E", () => {
       server = new TestServerHttp(serverConfig);
       const port = await server.start();
       const serverUrl = `http://localhost:${port}`;
+      await waitForOAuthWellKnown(serverUrl);
 
       const oauthConfig = createTestOAuthConfig({
         mode: "static",
@@ -1774,6 +1814,7 @@ describe("InspectorClient OAuth E2E", () => {
       server = new TestServerHttp(serverConfig);
       const port = await server.start();
       const serverUrl = `http://localhost:${port}`;
+      await waitForOAuthWellKnown(serverUrl);
 
       const oauthConfig = createTestOAuthConfig({
         mode: "static",

@@ -90,39 +90,19 @@ If we are in a container:
 
 ### Goal: Inspector Web quality
 
-- Flaky test (fails maybe 1 time out of 20):
-  - **tests**/inspectorClient-oauth-e2e.test.ts > InspectorClient OAuth E2E > Storage path (custom) ('SSE') > should persist OAuth state to custom storagePath
-    ```
-    Error: waitForStateFile failed: JSON parse error (file may be mid-write or corrupt). File: /var/folders/c8/jr_qy1fs1cj3hfhr5m_2f4c40000gn/T/mcp-inspector-e2e-1771550464080-66tdoqzpfxo.json. Attempts: 40. Raw snippet: {"state":{"servers":{"http://localhost:51796/sse":{"preregisteredClientInformation":{"client_id":"test-storage-path","client_secret":"test-secret-sp"},"codeVerifier":"U8mEkBln9JtFLMzC3b50kj0QtubtwpDPU... (405 chars total). Run with DEBUG_WAIT_FOR_STATE_FILE=1 for per-attempt logs.
-    ❯ vi.waitFor.timeout.timeout test/test-helpers.ts:138:15
-    ```
-- Another test failure (only seen once):
-  - **tests**/inspectorClient-oauth-e2e.test.ts > InspectorClient OAuth E2E > Resource metadata discovery and oauthStepChange ('SSE') > should discover resource metadata and set resource in guided flow
-  ```
-  Error: Failed to discover OAuth metadata
-  ❯ Object.execute auth/state-machine.ts:72:15
-     70|       );
-     71|       if (!metadata) {
-     72|         throw new Error("Failed to discover OAuth metadata");
-       |               ^
-     73|       }
-     74|       const parsedMetadata = await OAuthMetadataSchema.parseAsync(metadata);
-  ❯ OAuthStateMachine.executeStep auth/state-machine.ts:283:5
-  ❯ InspectorClient.beginGuidedAuth mcp/inspectorClient.ts:3170:5
-  ❯ InspectorClient.runGuidedAuth mcp/inspectorClient.ts:3184:7
-  ❯ __tests__/inspectorClient-oauth-e2e.test.ts:1369:9
-  ```
 - Review open v1 bugs (esp auth bugs) to see which ones still apply
 
 ### Next Steps
 
-- Extract form generator into core, extend as needed
+- **Unify OAuth storage path and serialization (local vs remote)**
+  - Migrate the web app to use RemoteOAuthStorage (backed by the Inspector API server’s `/api/storage/:storeId`) instead of BrowserOAuthStorage, so web shares OAuth state with CLI/TUI when using the same server.
+- **Extract form generator into core, extend as needed**
   - See: [form-generation-extraction-plan.md](form-generation-extraction-plan.md)
-- Redesign launcher
+- **Redesign launcher**
   - Shared config parsing, param parsing is same with any launch method
   - No more process spawning (just call the main/run of the desired app)
   - See: [launcher-config-consolidation-plan.md](launcher-config-consolidation-plan.md)
-- InspectorClient sub-managers (architecture and responsibilities)
+- **InspectorClient sub-managers** (architecture and responsibilities)
   - See: [inspector-client-sub-managers.md](inspector-client-sub-managers.md)
 - Research oauth device flow (esp for CLI/TUI)
 

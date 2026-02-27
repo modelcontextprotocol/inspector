@@ -2,7 +2,8 @@
  * Tests for storage adapters (file, remote).
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { waitForRemoteStore } from "@modelcontextprotocol/inspector-test-server";
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -183,8 +184,17 @@ describe("Storage adapters", () => {
         tokens: { access_token: "test-token", token_type: "Bearer" },
       });
 
-      // Wait for persistence
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
+        const d = body as {
+          state?: {
+            servers?: Record<string, { tokens?: { access_token?: string } }>;
+          };
+        };
+        return (
+          d?.state?.servers?.["https://example.com"]?.tokens?.access_token ===
+          "test-token"
+        );
+      });
 
       // Verify via API
       const res = await fetch(`${baseUrl}/api/storage/test-store`, {
@@ -218,7 +228,17 @@ describe("Storage adapters", () => {
       store1.getState().setServerState("https://example.com", {
         tokens: { access_token: "initial-token", token_type: "Bearer" },
       });
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
+        const d = body as {
+          state?: {
+            servers?: Record<string, { tokens?: { access_token?: string } }>;
+          };
+        };
+        return (
+          d?.state?.servers?.["https://example.com"]?.tokens?.access_token ===
+          "initial-token"
+        );
+      });
 
       // Create new store instance (should load persisted state)
       const storage2 = createRemoteStorageAdapter({
@@ -227,7 +247,14 @@ describe("Storage adapters", () => {
         authToken,
       });
       const store2 = createOAuthStore(storage2);
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await vi.waitFor(
+        () => {
+          const state = store2.getState().getServerState("https://example.com");
+          if (!state.tokens) throw new Error("Store not yet hydrated");
+          return state;
+        },
+        { timeout: 2000, interval: 50 },
+      );
 
       const state = store2.getState().getServerState("https://example.com");
       expect(state.tokens).toEqual({
@@ -254,7 +281,10 @@ describe("Storage adapters", () => {
       store.getState().setServerState("https://example.com", {
         tokens: { access_token: "test-token", token_type: "Bearer" },
       });
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
+        const d = body as { state?: { servers?: Record<string, unknown> } };
+        return !!d?.state?.servers && Object.keys(d.state.servers).length > 0;
+      });
 
       // Verify it exists
       let res = await fetch(`${baseUrl}/api/storage/test-store`, {
@@ -273,7 +303,10 @@ describe("Storage adapters", () => {
       for (const url of urls) {
         state.clearServerState(url);
       }
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
+        const d = body as { state?: { servers?: Record<string, unknown> } };
+        return !d?.state?.servers || Object.keys(d.state.servers).length === 0;
+      });
 
       // Verify it's empty
       res = await fetch(`${baseUrl}/api/storage/test-store`, {

@@ -41,6 +41,7 @@
     "web": "node cli/build/cli.js --web",
     "web:dev": "node cli/build/cli.js --web --dev",
     "test": "npm run prettier-check && vitest run",
+    "test:repeat": "node scripts/test-repeat.js",
     "test-cli": "cd cli && npm run test",
     "test-core": "cd core && npm run test",
     "test-web": "cd web && npm run test",
