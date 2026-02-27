@@ -102,10 +102,14 @@ jest.mock("@/lib/auth", () => ({
     saveServerMetadata: jest.fn(),
     getServerMetadata: jest.fn(),
   })),
-  discoverScopes: jest.fn().mockResolvedValue("read write" as never),
+  clearClientInformationFromSessionStorage: jest.fn(),
+  discoverScopes: jest.fn().mockResolvedValue("read write"),
 }));
 
-import { discoverScopes } from "../../lib/auth";
+import {
+  discoverScopes,
+  clearClientInformationFromSessionStorage,
+} from "../../lib/auth";
 
 // Type the mocked functions properly
 const mockDiscoverAuthorizationServerMetadata =
@@ -129,6 +133,10 @@ const mockDiscoverOAuthProtectedResourceMetadata =
 const mockDiscoverScopes = discoverScopes as jest.MockedFunction<
   typeof discoverScopes
 >;
+const mockClearClientInformation =
+  clearClientInformationFromSessionStorage as jest.MockedFunction<
+    typeof clearClientInformationFromSessionStorage
+  >;
 
 const sessionStorageMock = {
   getItem: jest.fn(),
@@ -231,6 +239,31 @@ describe("AuthDebugger", () => {
       });
 
       expect(screen.getByText("OAuth Flow Progress")).toBeInTheDocument();
+    });
+
+    it("should clear cached DCR client info when starting Guided OAuth Flow", async () => {
+      const updateAuthState = jest.fn();
+      await act(async () => {
+        renderAuthDebugger({ updateAuthState });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Guided OAuth Flow"));
+      });
+
+      // Should clear DCR client info from sessionStorage
+      expect(mockClearClientInformation).toHaveBeenCalledWith({
+        serverUrl: "https://example.com/mcp",
+        isPreregistered: false,
+      });
+
+      // Should also clear oauthClientInfo in React state
+      expect(updateAuthState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          oauthClientInfo: null,
+          oauthStep: "metadata_discovery",
+        }),
+      );
     });
 
     it("should show error when OAuth flow is started without sseUrl", async () => {
@@ -354,9 +387,65 @@ describe("AuthDebugger", () => {
   });
 
   describe("OAuth State Management", () => {
-    it("should clear OAuth state when Clear button is clicked", async () => {
+    it("should open confirmation dialog when Clear OAuth State is clicked", async () => {
+      await act(async () => {
+        renderAuthDebugger({
+          authState: {
+            ...defaultAuthState,
+            oauthTokens: mockOAuthTokens,
+          },
+        });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Clear OAuth State"));
+      });
+
+      // Dialog should be visible
+      expect(
+        screen.getByText(
+          "This will clear OAuth tokens, code verifier, and server metadata for this session.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("Also clear registered client information"),
+      ).toBeInTheDocument();
+    });
+
+    it("should close dialog without clearing when Cancel is clicked", async () => {
       const updateAuthState = jest.fn();
-      // Mock the session storage to return tokens for the specific key
+      await act(async () => {
+        renderAuthDebugger({
+          authState: {
+            ...defaultAuthState,
+            oauthTokens: mockOAuthTokens,
+          },
+          updateAuthState,
+        });
+      });
+
+      // Open dialog
+      await act(async () => {
+        fireEvent.click(screen.getByText("Clear OAuth State"));
+      });
+
+      // Click Cancel
+      await act(async () => {
+        fireEvent.click(screen.getByText("Cancel"));
+      });
+
+      // updateAuthState should not have been called with a clear action
+      expect(updateAuthState).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusMessage: expect.objectContaining({
+            message: expect.stringContaining("cleared"),
+          }),
+        }),
+      );
+    });
+
+    it("should clear OAuth state without DCR client when Clear is clicked without checkbox", async () => {
+      const updateAuthState = jest.fn();
       sessionStorageMock.getItem.mockImplementation((key) => {
         if (key === "[https://example.com] mcp_tokens") {
           return JSON.stringify(mockOAuthTokens);
@@ -374,8 +463,14 @@ describe("AuthDebugger", () => {
         });
       });
 
+      // Open dialog
       await act(async () => {
         fireEvent.click(screen.getByText("Clear OAuth State"));
+      });
+
+      // Click Clear without checking the checkbox
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Clear" }));
       });
 
       expect(updateAuthState).toHaveBeenCalledWith({
@@ -400,6 +495,60 @@ describe("AuthDebugger", () => {
 
       // Verify session storage was cleared
       expect(sessionStorageMock.removeItem).toHaveBeenCalled();
+
+      // Should NOT clear DCR client info
+      expect(mockClearClientInformation).not.toHaveBeenCalled();
+    });
+
+    it("should clear OAuth state and DCR client when Clear is clicked with checkbox checked", async () => {
+      const updateAuthState = jest.fn();
+      sessionStorageMock.getItem.mockImplementation((key) => {
+        if (key === "[https://example.com] mcp_tokens") {
+          return JSON.stringify(mockOAuthTokens);
+        }
+        return null;
+      });
+
+      await act(async () => {
+        renderAuthDebugger({
+          authState: {
+            ...defaultAuthState,
+            oauthTokens: mockOAuthTokens,
+          },
+          updateAuthState,
+        });
+      });
+
+      // Open dialog
+      await act(async () => {
+        fireEvent.click(screen.getByText("Clear OAuth State"));
+      });
+
+      // Check the checkbox
+      await act(async () => {
+        fireEvent.click(screen.getByRole("checkbox"));
+      });
+
+      // Click Clear
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+      });
+
+      expect(updateAuthState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusMessage: {
+            type: "success",
+            message:
+              "OAuth tokens and client registration cleared successfully",
+          },
+        }),
+      );
+
+      // Should also clear DCR client info
+      expect(mockClearClientInformation).toHaveBeenCalledWith({
+        serverUrl: "https://example.com/mcp",
+        isPreregistered: false,
+      });
     });
   });
 
@@ -709,6 +858,7 @@ describe("AuthDebugger", () => {
       // Verify that the flow started with metadata discovery
       expect(updateAuthState).toHaveBeenCalledWith({
         oauthStep: "metadata_discovery",
+        oauthClientInfo: null,
         authorizationUrl: null,
         statusMessage: null,
         latestError: null,
