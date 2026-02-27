@@ -438,15 +438,27 @@ const App = () => {
     onElicitationRequest: (request, resolve) => {
       const currentTab = lastToolCallOriginTabRef.current;
 
+      const requestId = nextRequestId.current++;
+      const requestData =
+        request.params.mode === "url"
+          ? {
+              id: requestId,
+              mode: "url" as const,
+              message: request.params.message,
+              url: request.params.url,
+              elicitationId: request.params.elicitationId,
+            }
+          : {
+              id: requestId,
+              message: request.params.message,
+              requestedSchema: request.params.requestedSchema,
+            };
+
       setPendingElicitationRequests((prev) => [
         ...prev,
         {
-          id: nextRequestId.current++,
-          request: {
-            id: nextRequestId.current,
-            message: request.params.message,
-            requestedSchema: request.params.requestedSchema,
-          },
+          id: requestId,
+          request: requestData,
           originatingTab: currentTab,
           resolve,
           decline: (error: Error) => {

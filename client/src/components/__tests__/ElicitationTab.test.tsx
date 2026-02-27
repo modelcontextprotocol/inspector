@@ -47,4 +47,22 @@ describe("Elicitation tab", () => {
     );
     expect(screen.getAllByTestId("elicitation-request").length).toBe(3);
   });
+
+  it("should render a URL-mode elicitation request", () => {
+    renderElicitationTab([
+      {
+        id: 1,
+        request: {
+          id: 1,
+          mode: "url",
+          message: "Please authenticate",
+          url: "https://example.com/auth",
+          elicitationId: "elicit-456",
+        },
+      },
+    ]);
+    expect(screen.getAllByTestId("elicitation-request").length).toBe(1);
+    expect(screen.getByText("Please authenticate")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /open url/i })).toBeTruthy();
+  });
 });
