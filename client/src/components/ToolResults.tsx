@@ -22,17 +22,14 @@ const checkContentCompatibility = (
     text?: string;
     [key: string]: unknown;
   }>,
-): { isCompatible: boolean; message: string } => {
+): { hasMatch: boolean; message: string } | null => {
   // Look for at least one text content block that matches the structured content
   const textBlocks = unstructuredContent.filter(
     (block) => block.type === "text",
   );
 
   if (textBlocks.length === 0) {
-    return {
-      isCompatible: false,
-      message: "No text blocks to match structured content",
-    };
+    return null;
   }
 
   // Check if any text block contains JSON that matches the structured content
@@ -49,7 +46,7 @@ const checkContentCompatibility = (
 
       if (isEqual) {
         return {
-          isCompatible: true,
+          hasMatch: true,
           message: `Structured content matches text block${textBlocks.length > 1 ? " (multiple blocks)" : ""}${unstructuredContent.length > textBlocks.length ? " + other content" : ""}`,
         };
       }
@@ -59,10 +56,7 @@ const checkContentCompatibility = (
     }
   }
 
-  return {
-    isCompatible: false,
-    message: "No text block matches structured content",
-  };
+  return null;
 };
 
 const ToolResults = ({
@@ -195,16 +189,9 @@ const ToolResults = ({
                 <h5 className="font-semibold mb-2 text-sm">
                   Unstructured Content:
                 </h5>
-                {compatibilityResult && (
-                  <div
-                    className={`mb-2 p-2 rounded text-sm ${
-                      compatibilityResult.isCompatible
-                        ? "bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200"
-                        : "bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200"
-                    }`}
-                  >
-                    {compatibilityResult.isCompatible ? "✓" : "⚠"}{" "}
-                    {compatibilityResult.message}
+                {compatibilityResult?.hasMatch && (
+                  <div className="mb-2 p-2 rounded text-sm bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200">
+                    ✓ {compatibilityResult.message}
                   </div>
                 )}
               </>
