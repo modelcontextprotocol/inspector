@@ -27,7 +27,11 @@ interface DynamicJsonFormProps {
 }
 
 export interface DynamicJsonFormRef {
-  validateJson: () => { isValid: boolean; error: string | null };
+  validateJson: () => {
+    isValid: boolean;
+    error: string | null;
+    value?: JsonValue;
+  };
   hasJsonError: () => boolean;
 }
 
@@ -222,7 +226,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
         }
         onChange(parsed);
         setJsonError(undefined);
-        return { isValid: true, error: null };
+        return { isValid: true, error: null, value: parsed };
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : "Invalid JSON";
