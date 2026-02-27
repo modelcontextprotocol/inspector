@@ -13,12 +13,21 @@ import {
   OAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { generateOAuthState } from "@/utils/oauthUtils";
+import { InspectorConfig } from "./configurationTypes";
+import {
+  discoverAuthorizationServerMetadataViaProxy,
+  discoverOAuthProtectedResourceMetadataViaProxy,
+  registerClientViaProxy,
+  exchangeAuthorizationViaProxy,
+} from "./oauth-proxy";
 
 export interface StateMachineContext {
   state: AuthDebuggerState;
   serverUrl: string;
   provider: DebugInspectorOAuthClientProvider;
   updateState: (updates: Partial<AuthDebuggerState>) => void;
+  connectionType: "direct" | "proxy";
+  config: InspectorConfig;
 }
 
 export interface StateTransition {
@@ -36,9 +45,18 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       let resourceMetadata: OAuthProtectedResourceMetadata | null = null;
       let resourceMetadataError: Error | null = null;
       try {
-        resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-          context.serverUrl,
-        );
+        // Use proxy if connectionType is "proxy"
+        if (context.connectionType === "proxy") {
+          resourceMetadata =
+            await discoverOAuthProtectedResourceMetadataViaProxy(
+              context.serverUrl,
+              context.config,
+            );
+        } else {
+          resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+            context.serverUrl,
+          );
+        }
         if (resourceMetadata?.authorization_servers?.length) {
           authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
         }
@@ -57,7 +75,15 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         resourceMetadata ?? undefined,
       );
 
-      const metadata = await discoverAuthorizationServerMetadata(authServerUrl);
+      // Use proxy if connectionType is "proxy"
+      const metadata =
+        context.connectionType === "proxy"
+          ? await discoverAuthorizationServerMetadataViaProxy(
+              authServerUrl,
+              context.config,
+            )
+          : await discoverAuthorizationServerMetadata(authServerUrl);
+
       if (!metadata) {
         throw new Error("Failed to discover OAuth metadata");
       }
@@ -86,8 +112,8 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         const scopesSupported =
           context.state.resourceMetadata?.scopes_supported ||
           metadata.scopes_supported;
-        // Add all supported scopes to client registration
-        if (scopesSupported) {
+        // Add all supported scopes to client registration (only if non-empty)
+        if (scopesSupported && scopesSupported.length > 0) {
           clientMetadata.scope = scopesSupported.join(" ");
         }
       }
@@ -95,10 +121,24 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       // Try Static client first, with DCR as fallback
       let fullInformation = await context.provider.clientInformation();
       if (!fullInformation) {
-        fullInformation = await registerClient(context.serverUrl, {
-          metadata,
-          clientMetadata,
-        });
+        // Use proxy if connectionType is "proxy"
+        if (context.connectionType === "proxy") {
+          if (!metadata.registration_endpoint) {
+            throw new Error(
+              "No registration endpoint available for dynamic client registration",
+            );
+          }
+          fullInformation = await registerClientViaProxy(
+            metadata.registration_endpoint,
+            clientMetadata,
+            context.config,
+          );
+        } else {
+          fullInformation = await registerClient(context.serverUrl, {
+            metadata,
+            clientMetadata,
+          });
+        }
         context.provider.saveClientInformation(fullInformation);
       }
 
@@ -121,6 +161,8 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       if (!scope || scope.trim() === "") {
         scope = await discoverScopes(
           context.serverUrl,
+          context.connectionType,
+          context.config,
           context.state.resourceMetadata ?? undefined,
         );
       }
@@ -178,18 +220,50 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       const metadata = context.provider.getServerMetadata()!;
       const clientInformation = (await context.provider.clientInformation())!;
 
-      const tokens = await exchangeAuthorization(context.serverUrl, {
-        metadata,
-        clientInformation,
-        authorizationCode: context.state.authorizationCode,
-        codeVerifier,
-        redirectUri: context.provider.redirectUrl,
-        resource: context.state.resource
-          ? context.state.resource instanceof URL
-            ? context.state.resource
-            : new URL(context.state.resource)
-          : undefined,
-      });
+      let tokens;
+
+      // Use proxy if connectionType is "proxy"
+      if (context.connectionType === "proxy") {
+        // Build the token request parameters
+        const params: Record<string, string> = {
+          grant_type: "authorization_code",
+          code: context.state.authorizationCode,
+          redirect_uri: context.provider.redirectUrl,
+          code_verifier: codeVerifier,
+          client_id: clientInformation.client_id,
+        };
+
+        if (clientInformation.client_secret) {
+          params.client_secret = clientInformation.client_secret;
+        }
+
+        if (context.state.resource) {
+          const resourceUrl =
+            context.state.resource instanceof URL
+              ? context.state.resource.toString()
+              : context.state.resource;
+          params.resource = resourceUrl;
+        }
+
+        tokens = await exchangeAuthorizationViaProxy(
+          metadata.token_endpoint,
+          params,
+          context.config,
+        );
+      } else {
+        tokens = await exchangeAuthorization(context.serverUrl, {
+          metadata,
+          clientInformation,
+          authorizationCode: context.state.authorizationCode,
+          codeVerifier,
+          redirectUri: context.provider.redirectUrl,
+          resource: context.state.resource
+            ? context.state.resource instanceof URL
+              ? context.state.resource
+              : new URL(context.state.resource)
+            : undefined,
+        });
+      }
 
       context.provider.saveTokens(tokens);
       context.updateState({
@@ -211,6 +285,8 @@ export class OAuthStateMachine {
   constructor(
     private serverUrl: string,
     private updateState: (updates: Partial<AuthDebuggerState>) => void,
+    private connectionType: "direct" | "proxy",
+    private config: InspectorConfig,
   ) {}
 
   async executeStep(state: AuthDebuggerState): Promise<void> {
@@ -220,6 +296,8 @@ export class OAuthStateMachine {
       serverUrl: this.serverUrl,
       provider,
       updateState: this.updateState,
+      connectionType: this.connectionType,
+      config: this.config,
     };
 
     const transition = oauthTransitions[state.oauthStep];

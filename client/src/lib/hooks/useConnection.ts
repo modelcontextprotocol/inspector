@@ -64,6 +64,7 @@ import {
   clearScopeFromSessionStorage,
   discoverScopes,
 } from "../auth";
+import { discoverOAuthProtectedResourceMetadataViaProxy } from "../oauth-proxy";
 import {
   getMCPProxyAddress,
   getMCPTaskTtl,
@@ -404,13 +405,26 @@ export function useConnection({
         // Only discover resource metadata when we need to discover scopes
         let resourceMetadata;
         try {
-          resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-            new URL("/", sseUrl),
-          );
+          if (connectionType === "proxy") {
+            resourceMetadata =
+              await discoverOAuthProtectedResourceMetadataViaProxy(
+                sseUrl,
+                config,
+              );
+          } else {
+            resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+              new URL("/", sseUrl),
+            );
+          }
         } catch {
           // Resource metadata is optional, continue without it
         }
-        scope = await discoverScopes(sseUrl, resourceMetadata);
+        scope = await discoverScopes(
+          sseUrl,
+          connectionType,
+          config,
+          resourceMetadata,
+        );
       }
 
       saveScopeToSessionStorage(sseUrl, scope);
