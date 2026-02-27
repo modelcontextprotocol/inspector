@@ -372,6 +372,7 @@ const App = () => {
 
   const {
     connectionStatus,
+    connectionError,
     serverCapabilities,
     serverImplementation,
     mcpClient,
@@ -1303,6 +1304,7 @@ const App = () => {
       >
         <Sidebar
           connectionStatus={connectionStatus}
+          connectionError={connectionError}
           transportType={transportType}
           setTransportType={setTransportType}
           command={command}

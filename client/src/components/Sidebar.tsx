@@ -34,6 +34,10 @@ import { ConnectionStatus } from "@/lib/constants";
 import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
 import {
+  getMcpErrorInfo,
+  parseUnsupportedProtocolVersionError,
+} from "@/utils/mcpErrorUtils";
+import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
@@ -45,6 +49,7 @@ import IconDisplay, { WithIcons } from "./IconDisplay";
 
 interface SidebarProps {
   connectionStatus: ConnectionStatus;
+  connectionError?: unknown | null;
   transportType: "stdio" | "sse" | "streamable-http";
   setTransportType: (type: "stdio" | "sse" | "streamable-http") => void;
   command: string;
@@ -80,6 +85,7 @@ interface SidebarProps {
 
 const Sidebar = ({
   connectionStatus,
+  connectionError,
   transportType,
   setTransportType,
   command,
@@ -118,6 +124,22 @@ const Sidebar = ({
   const [copiedServerEntry, setCopiedServerEntry] = useState(false);
   const [copiedServerFile, setCopiedServerFile] = useState(false);
   const { toast } = useToast();
+
+  const mcpError = connectionError ? getMcpErrorInfo(connectionError) : null;
+  const mcpErrorDisplayMessage = mcpError
+    ? mcpError.message
+        .replace(/^McpError:\s*/i, "")
+        .replace(/^MCP error\s+-?\d+:\s*/i, "")
+    : "";
+  const protocolVersionDetails = mcpError
+    ? parseUnsupportedProtocolVersionError(mcpError.message)
+    : null;
+
+  const shouldShowProxyTokenHint =
+    connectionStatus === "error" &&
+    connectionType === "proxy" &&
+    !mcpError &&
+    !config.MCP_PROXY_AUTH_TOKEN?.value;
 
   const connectionTypeTip =
     "Connect to server directly (requires CORS config on server) or via MCP Inspector Proxy";
@@ -753,7 +775,6 @@ const Sidebar = ({
                     case "connected":
                       return "bg-green-500";
                     case "error":
-                      return "bg-red-500";
                     case "error-connecting-to-proxy":
                       return "bg-red-500";
                     default:
@@ -767,10 +788,18 @@ const Sidebar = ({
                     case "connected":
                       return "Connected";
                     case "error": {
-                      const hasProxyToken = config.MCP_PROXY_AUTH_TOKEN?.value;
-                      if (!hasProxyToken) {
+                      if (mcpError && typeof mcpError.code === "number") {
+                        return `MCP error ${mcpError.code}: ${mcpErrorDisplayMessage}`;
+                      }
+
+                      if (mcpError) {
+                        return `MCP error: ${mcpErrorDisplayMessage}`;
+                      }
+
+                      if (shouldShowProxyTokenHint) {
                         return "Connection Error - Did you add the proxy session token in Configuration?";
                       }
+
                       return "Connection Error - Check if your MCP server is running and proxy token is correct";
                     }
                     case "error-connecting-to-proxy":
@@ -781,6 +810,53 @@ const Sidebar = ({
                 })()}
               </span>
             </div>
+
+            {connectionStatus === "error" && mcpError && (
+              <details
+                className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg mb-4 text-sm"
+                data-testid="connection-error-details"
+              >
+                <summary className="cursor-pointer font-medium text-gray-800 dark:text-gray-200">
+                  Error details
+                </summary>
+                <div className="mt-2 space-y-2 text-xs text-gray-700 dark:text-gray-300">
+                  <div className="font-mono break-words">
+                    MCP error
+                    {typeof mcpError.code === "number"
+                      ? ` ${mcpError.code}`
+                      : ""}
+                    : {mcpErrorDisplayMessage}
+                  </div>
+
+                  {protocolVersionDetails?.supportedProtocolVersions?.length ? (
+                    <div>
+                      Supported versions:{" "}
+                      <span className="font-mono">
+                        {protocolVersionDetails.supportedProtocolVersions.join(
+                          ", ",
+                        )}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  {mcpError.code === -32602 ? (
+                    <div className="text-gray-600 dark:text-gray-400">
+                      The server returned an error for{" "}
+                      <span className="font-mono">initialize</span> instead of
+                      negotiating a compatible protocol version.{" "}
+                      <a
+                        className="text-blue-600 dark:text-blue-400 hover:underline"
+                        href="https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Spec: version negotiation
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+            )}
 
             {connectionStatus === "connected" && serverImplementation && (
               <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg mb-4">
