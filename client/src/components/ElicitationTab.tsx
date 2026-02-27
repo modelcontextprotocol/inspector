@@ -3,11 +3,25 @@ import { TabsContent } from "@/components/ui/tabs";
 import { JsonSchemaType } from "@/utils/jsonUtils";
 import ElicitationRequest from "./ElicitationRequest";
 
-export interface ElicitationRequestData {
+interface ElicitationRequestDataBase {
   id: number;
   message: string;
-  requestedSchema: JsonSchemaType;
 }
+
+interface FormElicitationRequestData extends ElicitationRequestDataBase {
+  mode: "form";
+  requestedSchema?: JsonSchemaType;
+}
+
+interface UrlElicitationRequestData extends ElicitationRequestDataBase {
+  mode: "url";
+  url: string;
+  elicitationId: string;
+}
+
+export type ElicitationRequestData =
+  | FormElicitationRequestData
+  | UrlElicitationRequestData;
 
 export interface ElicitationResponse {
   action: "accept" | "decline" | "cancel";
@@ -18,6 +32,8 @@ export type PendingElicitationRequest = {
   id: number;
   request: ElicitationRequestData;
   originatingTab?: string;
+  resolve: (response: ElicitationResponse) => void;
+  decline: (error: Error) => void;
 };
 
 export type Props = {

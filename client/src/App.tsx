@@ -18,6 +18,8 @@ import {
   LoggingLevel,
   Task,
   GetTaskResultSchema,
+  McpError,
+  ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type {
@@ -252,12 +254,7 @@ const App = () => {
     >
   >([]);
   const [pendingElicitationRequests, setPendingElicitationRequests] = useState<
-    Array<
-      PendingElicitationRequest & {
-        resolve: (response: ElicitationResponse) => void;
-        decline: (error: Error) => void;
-      }
-    >
+    Array<PendingElicitationRequest>
   >([]);
   const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
 
@@ -445,7 +442,10 @@ const App = () => {
           request: {
             id: nextRequestId.current,
             message: request.params.message,
+            mode: request.params.mode || "form", // Default to form for backwards compatibility
             requestedSchema: request.params.requestedSchema,
+            url: request.params.url,
+            elicitationId: request.params.elicitationId,
           },
           originatingTab: currentTab,
           resolve,
@@ -1191,16 +1191,89 @@ const App = () => {
         return directResult;
       }
     } catch (e) {
-      const toolResult: CompatibilityCallToolResult = {
-        content: [
-          {
-            type: "text",
-            text: (e as Error).message ?? String(e),
-          },
-        ],
-        isError: true,
-      };
-      setToolResult(toolResult);
+      let toolResult: CompatibilityCallToolResult;
+      // Check if this is a URLElicitationRequiredError (error code -32042)
+      if (
+        e instanceof McpError &&
+        e.code === ErrorCode.UrlElicitationRequired
+      ) {
+        // Extract elicitation info from error data
+        const errorData = e.data as {
+          elicitations?: Array<{
+            mode: "url";
+            elicitationId: string;
+            url: string;
+            message: string;
+          }>;
+        };
+
+        if (errorData?.elicitations && errorData.elicitations.length > 0) {
+          // Process each elicitation request
+          errorData.elicitations.forEach((elicitation) => {
+            setPendingElicitationRequests((prev) => [
+              ...prev,
+              {
+                id: nextRequestId.current++,
+                request: {
+                  id: nextRequestId.current,
+                  mode: elicitation.mode,
+                  message: elicitation.message,
+                  url: elicitation.url,
+                  elicitationId: elicitation.elicitationId,
+                },
+                originatingTab: "tools",
+                resolve: (result) => {
+                  // After elicitation is resolved, user can retry the tool call
+                  console.log("URL elicitation resolved:", result);
+                },
+                decline: (error: Error) => {
+                  console.error("URL elicitation declined:", error);
+                },
+              },
+            ]);
+          });
+
+          // Switch to elicitations tab
+          setActiveTab("elicitations");
+          window.location.hash = "elicitations";
+
+          // Show a message in the tool result that elicitation is required
+          toolResult = {
+            content: [
+              {
+                type: "text",
+                text: `This operation requires additional authorization. Please complete the elicitation request in the Elicitations tab.`,
+              },
+            ],
+            isError: false,
+          };
+          setToolResult(toolResult);
+        } else {
+          // No elicitation data provided, show the error
+          toolResult = {
+            content: [
+              {
+                type: "text",
+                text: (e as Error).message ?? String(e),
+              },
+            ],
+            isError: true,
+          };
+          setToolResult(toolResult);
+        }
+      } else {
+        // Regular error handling
+        toolResult = {
+          content: [
+            {
+              type: "text",
+              text: (e as Error).message ?? String(e),
+            },
+          ],
+          isError: true,
+        };
+        setToolResult(toolResult);
+      }
       // Clear validation errors - tool execution errors are shown in ToolResults
       setErrors((prev) => ({ ...prev, tools: null }));
       return toolResult;

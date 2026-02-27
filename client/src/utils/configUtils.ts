@@ -143,17 +143,19 @@ export const initializeInspectorConfig = (
     baseConfig = { ...baseConfig, ...parsedEphemeralConfig };
   }
 
-  // Ensure all config items have the latest labels/descriptions from defaults
-  for (const [key, value] of Object.entries(baseConfig)) {
-    baseConfig[key as keyof InspectorConfig] = {
-      ...value,
-      label: DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].label,
-      description:
-        DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].description,
-      is_session_item:
-        DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].is_session_item,
+  // Ensure all config items have the latest labels/descriptions from defaults,
+  // and remove any stale keys that no longer exist in defaults
+  const validConfig = {} as InspectorConfig;
+  for (const key of Object.keys(DEFAULT_INSPECTOR_CONFIG)) {
+    const typedKey = key as keyof InspectorConfig;
+    validConfig[typedKey] = {
+      ...(baseConfig[typedKey] ?? DEFAULT_INSPECTOR_CONFIG[typedKey]),
+      label: DEFAULT_INSPECTOR_CONFIG[typedKey].label,
+      description: DEFAULT_INSPECTOR_CONFIG[typedKey].description,
+      is_session_item: DEFAULT_INSPECTOR_CONFIG[typedKey].is_session_item,
     };
   }
+  baseConfig = validConfig;
 
   // Apply query param overrides
   const overrides = getConfigOverridesFromQueryParams(DEFAULT_INSPECTOR_CONFIG);
