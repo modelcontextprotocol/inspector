@@ -2,7 +2,8 @@ import { render, screen, fireEvent, within } from "@testing-library/react";
 import { useState } from "react";
 import { describe, it, expect, jest } from "@jest/globals";
 import HistoryAndNotifications from "../HistoryAndNotifications";
-import { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
+import { RequestHistoryEntry } from "@/lib/types/requestHistory";
+import { TimestampedNotification } from "@/lib/notificationTypes";
 
 // Mock JsonView component
 jest.mock("../JsonView", () => {
@@ -12,32 +13,44 @@ jest.mock("../JsonView", () => {
 });
 
 describe("HistoryAndNotifications", () => {
-  const mockRequestHistory = [
+  const mockRequestHistory: RequestHistoryEntry[] = [
     {
       request: JSON.stringify({ method: "test/method1", params: {} }),
       response: JSON.stringify({ result: "success" }),
+      requestedAt: "2026-01-15T14:34:56.000Z",
+      respondedAt: "2026-01-15T14:34:56.245Z",
+      durationMs: 245,
     },
     {
       request: JSON.stringify({ method: "test/method2", params: {} }),
       response: JSON.stringify({ result: "success" }),
+      requestedAt: "2026-01-15T14:35:00.000Z",
+      respondedAt: "2026-01-15T14:35:02.400Z",
+      durationMs: 2400,
     },
   ];
 
-  const mockNotifications: ServerNotification[] = [
+  const mockNotifications: TimestampedNotification[] = [
     {
-      method: "notifications/message",
-      params: {
-        level: "info" as const,
-        data: "First notification",
+      notification: {
+        method: "notifications/message",
+        params: {
+          level: "info" as const,
+          data: "First notification",
+        },
       },
+      receivedAt: "2026-01-15T14:34:56.000Z",
     },
     {
-      method: "notifications/progress",
-      params: {
-        progressToken: "test-token",
-        progress: 50,
-        total: 100,
+      notification: {
+        method: "notifications/progress",
+        params: {
+          progressToken: "test-token",
+          progress: 50,
+          total: 100,
+        },
       },
+      receivedAt: "2026-01-15T14:35:00.000Z",
     },
   ];
 
@@ -62,8 +75,21 @@ describe("HistoryAndNotifications", () => {
     );
 
     // Items should be numbered in reverse order (newest first)
-    expect(screen.getByText("2. test/method2")).toBeTruthy();
-    expect(screen.getByText("1. test/method1")).toBeTruthy();
+    expect(screen.getByText(/2\.\s+test\/method2/)).toBeTruthy();
+    expect(screen.getByText(/1\.\s+test\/method1/)).toBeTruthy();
+  });
+
+  it("displays duration badges on request history items", () => {
+    render(
+      <HistoryAndNotifications
+        requestHistory={mockRequestHistory}
+        serverNotifications={[]}
+      />,
+    );
+
+    // Check for duration badges
+    expect(screen.getByText("245ms")).toBeTruthy();
+    expect(screen.getByText("2.4s")).toBeTruthy();
   });
 
   it("displays server notifications with correct numbering", () => {
@@ -75,8 +101,8 @@ describe("HistoryAndNotifications", () => {
     );
 
     // Items should be numbered in reverse order (newest first)
-    expect(screen.getByText("2. notifications/progress")).toBeTruthy();
-    expect(screen.getByText("1. notifications/message")).toBeTruthy();
+    expect(screen.getByText(/2\.\s+notifications\/progress/)).toBeTruthy();
+    expect(screen.getByText(/1\.\s+notifications\/message/)).toBeTruthy();
   });
 
   it("expands and collapses request items when clicked", () => {
@@ -87,7 +113,7 @@ describe("HistoryAndNotifications", () => {
       />,
     );
 
-    const firstRequestHeader = screen.getByText("2. test/method2");
+    const firstRequestHeader = screen.getByText(/2\.\s+test\/method2/);
 
     // Initially collapsed - should show ▶ arrows (there are multiple)
     expect(screen.getAllByText("▶")).toHaveLength(2);
@@ -103,6 +129,24 @@ describe("HistoryAndNotifications", () => {
     expect(screen.getByText("Response:")).toBeTruthy();
   });
 
+  it("shows timing details when expanded", () => {
+    render(
+      <HistoryAndNotifications
+        requestHistory={mockRequestHistory}
+        serverNotifications={[]}
+      />,
+    );
+
+    const firstRequestHeader = screen.getByText(/2\.\s+test\/method2/);
+
+    // Click to expand
+    fireEvent.click(firstRequestHeader);
+
+    // Should show timing details
+    expect(screen.getByText(/Requested:/)).toBeTruthy();
+    expect(screen.getByText(/Responded:/)).toBeTruthy();
+  });
+
   it("expands and collapses notification items when clicked", () => {
     render(
       <HistoryAndNotifications
@@ -112,7 +156,7 @@ describe("HistoryAndNotifications", () => {
     );
 
     const firstNotificationHeader = screen.getByText(
-      "2. notifications/progress",
+      /2\.\s+notifications\/progress/,
     );
 
     // Initially collapsed
@@ -128,6 +172,25 @@ describe("HistoryAndNotifications", () => {
     expect(screen.getByText("Details:")).toBeTruthy();
   });
 
+  it("shows received timestamp when notification is expanded", () => {
+    render(
+      <HistoryAndNotifications
+        requestHistory={[]}
+        serverNotifications={mockNotifications}
+      />,
+    );
+
+    const firstNotificationHeader = screen.getByText(
+      /2\.\s+notifications\/progress/,
+    );
+
+    // Click to expand
+    fireEvent.click(firstNotificationHeader);
+
+    // Should show received timestamp
+    expect(screen.getByText(/Received:/)).toBeTruthy();
+  });
+
   it("maintains expanded state when new notifications are added", () => {
     const { rerender } = render(
       <HistoryAndNotifications
@@ -138,7 +201,7 @@ describe("HistoryAndNotifications", () => {
 
     // Find and expand the older notification (should be "1. notifications/message")
     const olderNotificationHeader = screen.getByText(
-      "1. notifications/message",
+      /1\.\s+notifications\/message/,
     );
     fireEvent.click(olderNotificationHeader);
 
@@ -146,10 +209,13 @@ describe("HistoryAndNotifications", () => {
     expect(screen.getByText("Details:")).toBeTruthy();
 
     // Add a new notification at the beginning (simulating real behavior)
-    const newNotifications: ServerNotification[] = [
+    const newNotifications: TimestampedNotification[] = [
       {
-        method: "notifications/resources/updated",
-        params: { uri: "file://test.txt" },
+        notification: {
+          method: "notifications/resources/updated",
+          params: { uri: "file://test.txt" },
+        },
+        receivedAt: "2026-01-15T14:36:00.000Z",
       },
       ...mockNotifications,
     ];
@@ -164,9 +230,11 @@ describe("HistoryAndNotifications", () => {
 
     // The original notification should still be expanded
     // It's now numbered as "2. notifications/message" due to the new item
-    expect(screen.getByText("3. notifications/progress")).toBeTruthy();
-    expect(screen.getByText("2. notifications/message")).toBeTruthy();
-    expect(screen.getByText("1. notifications/resources/updated")).toBeTruthy();
+    expect(screen.getByText(/3\.\s+notifications\/progress/)).toBeTruthy();
+    expect(screen.getByText(/2\.\s+notifications\/message/)).toBeTruthy();
+    expect(
+      screen.getByText(/1\.\s+notifications\/resources\/updated/),
+    ).toBeTruthy();
 
     // The originally expanded notification should still show its details
     expect(screen.getByText("Details:")).toBeTruthy();
@@ -181,7 +249,7 @@ describe("HistoryAndNotifications", () => {
     );
 
     // Find and expand the older request (should be "1. test/method1")
-    const olderRequestHeader = screen.getByText("1. test/method1");
+    const olderRequestHeader = screen.getByText(/1\.\s+test\/method1/);
     fireEvent.click(olderRequestHeader);
 
     // Verify it's expanded
@@ -189,10 +257,13 @@ describe("HistoryAndNotifications", () => {
     expect(screen.getByText("Response:")).toBeTruthy();
 
     // Add a new request at the beginning
-    const newRequestHistory = [
+    const newRequestHistory: RequestHistoryEntry[] = [
       {
         request: JSON.stringify({ method: "test/new_method", params: {} }),
         response: JSON.stringify({ result: "new success" }),
+        requestedAt: "2026-01-15T14:36:00.000Z",
+        respondedAt: "2026-01-15T14:36:00.100Z",
+        durationMs: 100,
       },
       ...mockRequestHistory,
     ];
@@ -207,9 +278,9 @@ describe("HistoryAndNotifications", () => {
 
     // The original request should still be expanded
     // It's now numbered as "2. test/method1" due to the new item
-    expect(screen.getByText("3. test/method2")).toBeTruthy();
-    expect(screen.getByText("2. test/method1")).toBeTruthy();
-    expect(screen.getByText("1. test/new_method")).toBeTruthy();
+    expect(screen.getByText(/3\.\s+test\/method2/)).toBeTruthy();
+    expect(screen.getByText(/2\.\s+test\/method1/)).toBeTruthy();
+    expect(screen.getByText(/1\.\s+test\/new_method/)).toBeTruthy();
 
     // The originally expanded request should still show its details
     expect(screen.getByText("Request:")).toBeTruthy();
@@ -227,7 +298,8 @@ describe("HistoryAndNotifications", () => {
 
   it("clears request history when Clear is clicked", () => {
     const Wrapper = () => {
-      const [history, setHistory] = useState(mockRequestHistory);
+      const [history, setHistory] =
+        useState<RequestHistoryEntry[]>(mockRequestHistory);
       return (
         <HistoryAndNotifications
           requestHistory={history}
@@ -240,8 +312,8 @@ describe("HistoryAndNotifications", () => {
     render(<Wrapper />);
 
     // Verify items are present initially
-    expect(screen.getByText("2. test/method2")).toBeTruthy();
-    expect(screen.getByText("1. test/method1")).toBeTruthy();
+    expect(screen.getByText(/2\.\s+test\/method2/)).toBeTruthy();
+    expect(screen.getByText(/1\.\s+test\/method1/)).toBeTruthy();
 
     // Click Clear in History header (scoped by the History heading's container)
     const historyHeader = screen.getByText("History");
@@ -259,7 +331,7 @@ describe("HistoryAndNotifications", () => {
   it("clears server notifications when Clear is clicked", () => {
     const Wrapper = () => {
       const [notifications, setNotifications] =
-        useState<ServerNotification[]>(mockNotifications);
+        useState<TimestampedNotification[]>(mockNotifications);
       return (
         <HistoryAndNotifications
           requestHistory={[]}
@@ -272,8 +344,8 @@ describe("HistoryAndNotifications", () => {
     render(<Wrapper />);
 
     // Verify items are present initially
-    expect(screen.getByText("2. notifications/progress")).toBeTruthy();
-    expect(screen.getByText("1. notifications/message")).toBeTruthy();
+    expect(screen.getByText(/2\.\s+notifications\/progress/)).toBeTruthy();
+    expect(screen.getByText(/1\.\s+notifications\/message/)).toBeTruthy();
 
     // Click Clear in Server Notifications header (scoped by its heading's container)
     const notifHeader = screen.getByText("Server Notifications");
@@ -285,5 +357,29 @@ describe("HistoryAndNotifications", () => {
 
     // Notifications should now be empty
     expect(screen.getByText("No notifications yet")).toBeTruthy();
+  });
+
+  it("handles requests without response timing", () => {
+    const pendingRequest: RequestHistoryEntry[] = [
+      {
+        request: JSON.stringify({ method: "test/pending", params: {} }),
+        requestedAt: "2026-01-15T14:34:56.000Z",
+        // No response, respondedAt, or durationMs
+      },
+    ];
+
+    render(
+      <HistoryAndNotifications
+        requestHistory={pendingRequest}
+        serverNotifications={[]}
+      />,
+    );
+
+    // Should render without duration badge (look for the badge element by class)
+    expect(screen.getByText(/1\.\s+test\/pending/)).toBeTruthy();
+    // The duration badge has specific styling - check it's not present
+    expect(
+      screen.queryByText(/^\d+ms$|^\d+\.\d+s$|^\d+s$|^\d+m\s*\d*s?$/),
+    ).toBeNull();
   });
 });
