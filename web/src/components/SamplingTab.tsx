@@ -9,6 +9,8 @@ import SamplingRequest from "./SamplingRequest";
 export type PendingRequest = {
   id: number;
   request: CreateMessageRequest;
+  /** Tab to return to after approve/reject (e.g. "tools" or "apps") */
+  originatingTab?: string;
 };
 
 export type Props = {

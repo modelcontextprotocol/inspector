@@ -587,11 +587,13 @@ const App = () => {
     const handleNewPendingSample = (event: CustomEvent) => {
       const sample = event.detail;
       const numericId = getNumericId(sample.id);
+      const originatingTab = lastToolCallOriginTabRef.current;
       setPendingSampleRequests((prev) => [
         ...prev,
         {
           id: numericId,
           request: sample.request,
+          originatingTab,
           resolve: async (result: CreateMessageResult) => {
             await sample.respond(result);
           },
@@ -600,6 +602,8 @@ const App = () => {
           },
         },
       ]);
+      setActiveTab("sampling");
+      window.location.hash = "sampling";
     };
 
     // Handle elicitation requests
@@ -1074,11 +1078,42 @@ const App = () => {
     return stringIdToNumber.current.get(stringId)!;
   };
 
+  const validTabsForNavigation = useMemo(
+    () => [
+      ...(serverCapabilities?.resources ? ["resources"] : []),
+      ...(serverCapabilities?.prompts ? ["prompts"] : []),
+      ...(serverCapabilities?.tools ? ["tools"] : []),
+      ...(serverCapabilities?.tools ? ["apps"] : []),
+      "ping",
+      "sampling",
+      "elicitations",
+      "roots",
+      "auth",
+    ],
+    [serverCapabilities],
+  );
+
+  const navigateToTab = useCallback(
+    (tab: string) => {
+      if (validTabsForNavigation.includes(tab)) {
+        setActiveTab(tab);
+        window.location.hash = tab;
+        setTimeout(() => {
+          setActiveTab(tab);
+          window.location.hash = tab;
+        }, 100);
+      }
+    },
+    [validTabsForNavigation],
+  );
+
   const handleApproveSampling = (id: number, result: CreateMessageResult) => {
     setPendingSampleRequests((prev) => {
-      // Find by numeric ID (stored in state)
       const request = prev.find((r) => r.id === id);
       request?.resolve(result);
+      if (request?.originatingTab) {
+        navigateToTab(request.originatingTab);
+      }
       return prev.filter((r) => r.id !== id);
     });
   };
@@ -1087,6 +1122,9 @@ const App = () => {
     setPendingSampleRequests((prev) => {
       const request = prev.find((r) => r.id === id);
       request?.reject(new Error("Sampling request rejected"));
+      if (request?.originatingTab) {
+        navigateToTab(request.originatingTab);
+      }
       return prev.filter((r) => r.id !== id);
     });
   };
@@ -1099,31 +1137,8 @@ const App = () => {
       const request = prev.find((r) => r.id === id);
       if (request) {
         request.resolve(response);
-
         if (request.originatingTab) {
-          const originatingTab = request.originatingTab;
-
-          const validTabs = [
-            ...(serverCapabilities?.resources ? ["resources"] : []),
-            ...(serverCapabilities?.prompts ? ["prompts"] : []),
-            ...(serverCapabilities?.tools ? ["tools"] : []),
-            ...(serverCapabilities?.tools ? ["apps"] : []),
-            "ping",
-            "sampling",
-            "elicitations",
-            "roots",
-            "auth",
-          ];
-
-          if (validTabs.includes(originatingTab)) {
-            setActiveTab(originatingTab);
-            window.location.hash = originatingTab;
-
-            setTimeout(() => {
-              setActiveTab(originatingTab);
-              window.location.hash = originatingTab;
-            }, 100);
-          }
+          navigateToTab(request.originatingTab);
         }
       }
       return prev.filter((r) => r.id !== id);
