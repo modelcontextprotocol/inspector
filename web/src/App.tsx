@@ -30,6 +30,7 @@ import { useInspectorClient } from "@modelcontextprotocol/inspector-core/react/u
 import {
   InspectorClient,
   type InspectorClientOptions,
+  type MessageEntry,
 } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import {
   createWebEnvironment,
@@ -120,6 +121,11 @@ const filterReservedMetadata = (
     {},
   );
 };
+
+// Shared predicates for history/notifications views; used for both getMessages (display) and clearMessages (clear)
+const notificationsMessagePredicate = (m: MessageEntry) =>
+  m.direction === "notification";
+const historyMessagePredicate = (m: MessageEntry) => m.direction === "request";
 
 const App = () => {
   const [resourceContent, setResourceContent] = useState<string>("");
@@ -553,13 +559,13 @@ const App = () => {
     }
   }, [ensureInspectorClient, toast]);
 
-  // Extract server notifications from messages
-  // Use useMemo to stabilize the array reference and prevent infinite loops
+  // Extract server notifications from messages (same predicate as clearMessages for this view)
   const extractedNotifications = useMemo(() => {
-    return inspectorMessages
-      .filter((msg) => msg.direction === "notification" && msg.message)
+    if (!inspectorClient) return [];
+    return inspectorClient
+      .getMessages(notificationsMessagePredicate)
       .map((msg) => msg.message as ServerNotification);
-  }, [inspectorMessages]);
+  }, [inspectorClient, inspectorMessages]);
 
   // Use ref to track previous serialized value to prevent infinite loops
   const previousNotificationsRef = useRef<string>("[]");
@@ -731,21 +737,20 @@ const App = () => {
     serverCapabilities?.completions !== undefined &&
     serverCapabilities.completions !== null;
 
-  // Map MCP protocol messages (requests/responses) to requestHistory format
-  // Filter out notifications - those go in the Notifications tab
+  // Request history (same predicate as clearMessages for this view)
   const requestHistory = useMemo(() => {
-    return inspectorMessages
-      .filter((msg) => msg.direction === "request")
-      .map((msg) => ({
-        request: JSON.stringify(msg.message),
-        response: msg.response ? JSON.stringify(msg.response) : undefined,
-      }));
-  }, [inspectorMessages]);
+    if (!inspectorClient) return [];
+    return inspectorClient.getMessages(historyMessagePredicate).map((msg) => ({
+      request: JSON.stringify(msg.message),
+      response: msg.response ? JSON.stringify(msg.response) : undefined,
+    }));
+  }, [inspectorClient, inspectorMessages]);
 
   const clearRequestHistory = useCallback(() => {
-    // InspectorClient doesn't have a clear method, so this is a no-op
-    // The history is managed internally by InspectorClient
-  }, []);
+    if (inspectorClient) {
+      inspectorClient.clearMessages(historyMessagePredicate);
+    }
+  }, [inspectorClient]);
 
   useEffect(() => {
     if (serverCapabilities) {
@@ -1498,7 +1503,11 @@ const App = () => {
   };
 
   const handleClearNotifications = () => {
-    setNotifications([]);
+    if (inspectorClient) {
+      inspectorClient.clearMessages(notificationsMessagePredicate);
+    } else {
+      setNotifications([]);
+    }
   };
 
   const sendLogLevelRequest = async (level: LoggingLevel) => {

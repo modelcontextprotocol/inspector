@@ -1223,9 +1223,13 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Get all messages
+   * Get messages. When `predicate` is provided, returns only entries for which
+   * predicate returns true. When omitted, returns all messages.
    */
-  getMessages(): MessageEntry[] {
+  getMessages(predicate?: (entry: MessageEntry) => boolean): MessageEntry[] {
+    if (predicate) {
+      return this.messages.filter(predicate);
+    }
     return [...this.messages];
   }
 
@@ -1316,6 +1320,18 @@ export class InspectorClient extends InspectorClientEventTarget {
   clearPrompts(): void {
     this.prompts = [];
     this.dispatchTypedEvent("promptsChange", this.prompts);
+  }
+
+  /**
+   * Remove messages from history. When `predicate` is provided, removes only entries
+   * for which predicate returns true. When omitted, clears all messages.
+   */
+  clearMessages(predicate?: (entry: MessageEntry) => boolean): void {
+    const before = this.messages.length;
+    this.messages = predicate ? this.messages.filter((m) => !predicate(m)) : [];
+    if (this.messages.length !== before) {
+      this.dispatchTypedEvent("messagesChange");
+    }
   }
 
   /**

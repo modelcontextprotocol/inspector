@@ -317,6 +317,73 @@ describe("InspectorClient", () => {
 
       expect(changeCount).toBeGreaterThan(0);
     });
+
+    it("getMessages(predicate) returns only matching entries", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          autoSyncLists: false,
+        },
+      );
+
+      await client.connect();
+      await client.listAllTools();
+
+      const all = client.getMessages();
+      expect(all.length).toBeGreaterThan(0);
+
+      const requests = client.getMessages((m) => m.direction === "request");
+      expect(requests.length).toBeLessThanOrEqual(all.length);
+      expect(requests.every((m) => m.direction === "request")).toBe(true);
+
+      const notifications = client.getMessages(
+        (m) => m.direction === "notification",
+      );
+      expect(notifications.every((m) => m.direction === "notification")).toBe(
+        true,
+      );
+    });
+
+    it("clearMessages(predicate) removes only matching entries and dispatches messagesChange", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          autoSyncLists: false,
+        },
+      );
+
+      await client.connect();
+      await client.listAllTools();
+
+      const before = client.getMessages().length;
+      expect(before).toBeGreaterThan(0);
+
+      let changeCount = 0;
+      client.addEventListener("messagesChange", () => {
+        changeCount++;
+      });
+
+      client.clearMessages((m) => m.direction === "request");
+      const after = client.getMessages();
+      expect(after.length).toBeLessThan(before);
+      expect(after.every((m) => m.direction !== "request")).toBe(true);
+      expect(changeCount).toBe(1);
+
+      client.clearMessages();
+      expect(client.getMessages().length).toBe(0);
+      // messagesChange fires again only if the list actually changed (e.g. if any non-request entries remained)
+      expect(changeCount).toBeGreaterThanOrEqual(1);
+    });
   });
 
   describe("Fetch Request Tracking", () => {
