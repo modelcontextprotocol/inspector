@@ -112,33 +112,40 @@ async function startProdClient(clientOptions) {
   } = clientOptions;
   const honoServerPath = resolve(__dirname, "../dist/server.js");
 
-  // Inspector API server (Hono) serves static files + /api/* endpoints
-  // Pass Inspector API auth token and config values explicitly via env vars (read-only, server reads them)
-  await spawnPromise("node", [honoServerPath], {
-    env: {
-      ...process.env,
-      CLIENT_PORT,
-      ...(dangerouslyOmitAuth
-        ? {}
-        : { [API_SERVER_ENV_VARS.AUTH_TOKEN]: inspectorApiToken }),
-      // Pass config values for HTML injection
-      ...(command ? { MCP_INITIAL_COMMAND: command } : {}),
-      ...(mcpServerArgs && mcpServerArgs.length > 0
-        ? { MCP_INITIAL_ARGS: mcpServerArgs.join(" ") }
-        : {}),
-      ...(transport ? { MCP_INITIAL_TRANSPORT: transport } : {}),
-      ...(serverUrl ? { MCP_INITIAL_SERVER_URL: serverUrl } : {}),
-      ...(headers && Object.keys(headers).length > 0
-        ? { MCP_INITIAL_HEADERS: JSON.stringify(headers) }
-        : {}),
-      ...(envVars && Object.keys(envVars).length > 0
-        ? { MCP_ENV_VARS: JSON.stringify(envVars) }
-        : {}),
-      ...(cwd ? { MCP_INITIAL_CWD: cwd } : {}),
-    },
-    signal: abort.signal,
-    echoOutput: true,
-  });
+  // Inspector API server (Hono) serves static files + /api/*; it logs and opens browser when listening
+  try {
+    await spawnPromise("node", [honoServerPath], {
+      env: {
+        ...process.env,
+        CLIENT_PORT,
+        ...(dangerouslyOmitAuth
+          ? {}
+          : { [API_SERVER_ENV_VARS.AUTH_TOKEN]: inspectorApiToken }),
+        ...(command ? { MCP_INITIAL_COMMAND: command } : {}),
+        ...(mcpServerArgs && mcpServerArgs.length > 0
+          ? { MCP_INITIAL_ARGS: mcpServerArgs.join(" ") }
+          : {}),
+        ...(transport ? { MCP_INITIAL_TRANSPORT: transport } : {}),
+        ...(serverUrl ? { MCP_INITIAL_SERVER_URL: serverUrl } : {}),
+        ...(headers && Object.keys(headers).length > 0
+          ? { MCP_INITIAL_HEADERS: JSON.stringify(headers) }
+          : {}),
+        ...(envVars && Object.keys(envVars).length > 0
+          ? { MCP_ENV_VARS: JSON.stringify(envVars) }
+          : {}),
+        ...(cwd ? { MCP_INITIAL_CWD: cwd } : {}),
+      },
+      signal: abort.signal,
+      echoOutput: true,
+    });
+  } catch (err) {
+    // Child already printed the message (e.g. PORT IS IN USE); exit cleanly without stack
+    const code = err?.code ?? err?.exitCode;
+    if (typeof code === "number" && code !== 0) {
+      process.exit(code);
+    }
+    throw err;
+  }
 }
 
 async function main() {

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import open from "open";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -139,9 +140,12 @@ const httpServer = serve(
     hostname: host,
   },
   (info) => {
-    console.log(
-      `\n🚀 MCP Inspector Web is up and running at:\n   http://${host}:${info.port}\n`,
-    );
+    const baseUrl = `http://${host}:${info.port}`;
+    const url =
+      dangerouslyOmitAuth || !authToken
+        ? baseUrl
+        : `${baseUrl}?${API_SERVER_ENV_VARS.AUTH_TOKEN}=${authToken}`;
+    console.log(`\n🚀 MCP Inspector Web is up and running at:\n   ${url}\n`);
     const sandboxUrl = sandboxController.getUrl();
     if (sandboxUrl) {
       console.log(`   Sandbox (MCP Apps): ${sandboxUrl}\n`);
@@ -151,5 +155,20 @@ const httpServer = serve(
     } else {
       console.log(`   Auth token: ${authToken}\n`);
     }
+    if (process.env.MCP_AUTO_OPEN_ENABLED !== "false") {
+      console.log("🌐 Opening browser...");
+      open(url);
+    }
   },
 );
+
+httpServer.on("error", (err: Error) => {
+  if (err.message.includes("EADDRINUSE")) {
+    console.error(
+      `❌  MCP Inspector PORT IS IN USE at http://${host}:${port} ❌ `,
+    );
+    process.exit(1);
+  } else {
+    throw err;
+  }
+});
