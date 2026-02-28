@@ -547,12 +547,29 @@ const App = () => {
     try {
       await client.connect();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({
-        title: "Connection failed",
-        description: message,
-        variant: "destructive",
-      });
+      const status = (error as { status?: number }).status;
+      if (status === 401) {
+        try {
+          await client.authenticate();
+        } catch (authError) {
+          setIsAuthDebuggerVisible(true);
+          toast({
+            title: "Authentication required",
+            description:
+              authError instanceof Error
+                ? authError.message
+                : String(authError),
+            variant: "destructive",
+          });
+        }
+      } else {
+        const message = error instanceof Error ? error.message : String(error);
+        toast({
+          title: "Connection failed",
+          description: message,
+          variant: "destructive",
+        });
+      }
       if (client.getStatus() === "connecting") {
         await client.disconnect();
       }

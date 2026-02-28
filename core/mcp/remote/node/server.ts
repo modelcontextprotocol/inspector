@@ -461,11 +461,11 @@ export function createRemoteApp(
     } catch (err) {
       // transport.start() threw - this is the expected failure path
       const msg = err instanceof Error ? err.message : String(err);
-      // Preserve 401 status if the underlying error is a 401
-      const is401 =
-        (err as { code?: number }).code === 401 ||
-        msg.includes("401") ||
-        msg.includes("Unauthorized");
+      // Preserve 401 only when the transport/SDK reports it (no message guessing)
+      const status =
+        (err as { code?: number; status?: number }).code ??
+        (err as { code?: number; status?: number }).status;
+      const is401 = status === 401;
       return c.json(
         { error: `Failed to start transport: ${msg}` },
         is401 ? 401 : 500,
@@ -509,7 +509,12 @@ export function createRemoteApp(
       return c.json({ ok: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return c.json({ error: msg }, 500);
+      // Preserve 401 only when the transport/SDK reports it (no message guessing)
+      const status =
+        (err as { code?: number; status?: number }).code ??
+        (err as { code?: number; status?: number }).status;
+      const is401 = status === 401;
+      return c.json({ error: msg }, is401 ? 401 : 500);
     }
   });
 

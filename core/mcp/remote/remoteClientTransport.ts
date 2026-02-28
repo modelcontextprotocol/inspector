@@ -294,7 +294,9 @@ export class RemoteClientTransport implements Transport {
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Remote send failed (${res.status}): ${text}`);
+      const error = new Error(`Remote send failed (${res.status}): ${text}`);
+      (error as { status?: number }).status = res.status;
+      throw error;
     }
   }
 
