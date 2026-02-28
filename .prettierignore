@@ -3,7 +3,7 @@ core/build
 web/dist
 cli/build
 tui/build
-test/build
+test-servers/build
 CODE_OF_CONDUCT.md
 SECURITY.md
 mcp.json

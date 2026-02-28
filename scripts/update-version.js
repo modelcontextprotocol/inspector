@@ -41,7 +41,7 @@ const packagePaths = [
   "core/package.json",
   "cli/package.json",
   "tui/package.json",
-  "test/package.json",
+  "test-servers/package.json",
 ];
 
 const updatedFiles = [];

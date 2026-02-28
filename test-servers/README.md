@@ -1,6 +1,6 @@
 # Inspector Test Server
 
-This package (`@modelcontextprotocol/inspector-test-server`, `test/`) provides **server infrastructure** for MCP testing: a composable MCP server implementation plus reusable fixtures. You can use it in two ways:
+This package (`@modelcontextprotocol/inspector-test-server`, `test-servers/`) provides **server infrastructure** for MCP testing: a composable MCP server implementation plus reusable fixtures. You can use it in two ways:
 
 1. **API** — Create servers programmatically via `createMcpServer(config)` and fixture factories (`createEchoTool()`, `createNumberedResources()`, etc.). Inspector's core, CLI, and other packages use this for tests.
 2. **Composable CLI** — Run a config-driven MCP server without writing code. The `server-composable` binary reads a JSON or YAML config, resolves preset references to fixtures, and starts stdio or HTTP transport.
@@ -67,9 +67,9 @@ server-composable --config ./my-server-config --yaml # explicit format when exte
 From the Inspector repo after `npm run build`:
 
 ```bash
-npm run server-composable -- --config test/configs/demo.json
+npm run server-composable -- --config test-servers/configs/demo.json
 # or
-node test/build/server-composable.js --config test/configs/demo.json
+node test-servers/build/server-composable.js --config test-servers/configs/demo.json
 ```
 
 ### Config File Format
@@ -206,9 +206,9 @@ Format: JSON or YAML. Infer from extension (`.json`, `.yaml`, `.yml`), or use `-
     "demo": {
       "command": "node",
       "args": [
-        "test/build/server-composable.js",
+        "test-servers/build/server-composable.js",
         "--config",
-        "test/configs/demo.json"
+        "test-servers/configs/demo.json"
       ]
     }
   }

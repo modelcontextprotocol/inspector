@@ -33,4 +33,4 @@ The project is organized as a monorepo with workspaces:
 - `core/`: Core shared code used by web, CLI, and TUI
 - `cli/`: Command-line interface for testing and invoking MCP server methods directly
 - `tui/`: Terminal user interface
-- `test/`: Composable MCP test servers, fixtures, and harness
+- `test-servers/`: Composable MCP test servers, fixtures, and harness

@@ -3,17 +3,17 @@
     "composable-demo": {
       "command": "node",
       "args": [
-        "test/build/server-composable.js",
+        "test-servers/build/server-composable.js",
         "--config",
-        "test/configs/demo.json"
+        "test-servers/configs/demo.json"
       ]
     },
     "url-elicitation-form": {
       "command": "node",
       "args": [
-        "test/build/server-composable.js",
+        "test-servers/build/server-composable.js",
         "--config",
-        "test/configs/url-elicitation-form.json"
+        "test-servers/configs/url-elicitation-form.json"
       ]
     },
     "everything": {

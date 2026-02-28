@@ -21,7 +21,7 @@
     "cli",
     "tui",
     "core",
-    "test"
+    "test-servers"
   ],
   "scripts": {
     "build": "npm run build-core && npm run build-test && npm run build-web && npm run build-cli && npm run build-tui",
@@ -29,9 +29,9 @@
     "build-web": "cd web && npm run build",
     "build-cli": "cd cli && npm run build",
     "build-tui": "cd tui && npm run build",
-    "build-test": "cd test && npm run build",
-    "server-composable": "node test/build/server-composable.js",
-    "clean": "rimraf ./node_modules ./web/node_modules ./core/node_modules ./cli/node_modules ./tui/node_modules ./test/node_modules ./build ./web/dist ./cli/build ./tui/build ./test/build ./package-lock.json && npm install",
+    "build-test": "cd test-servers && npm run build",
+    "server-composable": "node test-servers/build/server-composable.js",
+    "clean": "rimraf ./node_modules ./web/node_modules ./core/node_modules ./cli/node_modules ./tui/node_modules ./test-servers/node_modules ./build ./web/dist ./cli/build ./tui/build ./test-servers/build ./package-lock.json && npm install",
     "dev": "node web/bin/start.js --dev",
     "dev:windows": "node web/bin/start.js --dev",
     "dev:sdk": "npm run link:sdk && concurrently \"npm run dev\" \"cd sdk && npm run build:esm:w\"",

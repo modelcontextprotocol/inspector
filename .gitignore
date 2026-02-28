@@ -9,7 +9,7 @@ web/tsconfig.jest.tsbuildinfo
 core/build
 cli/build
 tui/build
-test/build
+test-servers/build
 test-output
 tool-test-output
 metadata-test-output

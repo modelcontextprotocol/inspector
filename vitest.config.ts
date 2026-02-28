@@ -9,7 +9,7 @@ export default defineConfig({
     projects: [
       "cli/vitest.config.ts",
       "core/vitest.config.ts",
-      "test/vitest.config.ts",
+      "test-servers/vitest.config.ts",
       "tui/vitest.config.ts",
       "web/vitest.config.ts",
     ],
