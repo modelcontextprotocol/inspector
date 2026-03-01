@@ -7,10 +7,9 @@ node_modules
 npm-debug.log
 
 # Build artifacts
-client/dist
-client/build
-server/dist
-server/build
+web/dist
+cli/build
+tui/build
 
 # Environment variables
 .env

@@ -5,12 +5,12 @@ import {
   expectCliFailure,
   expectValidJson,
 } from "./helpers/assertions.js";
-import { createTestServerHttp } from "./helpers/test-server-http.js";
 import {
+  createTestServerHttp,
   createEchoTool,
   createAddTool,
   createTestServerInfo,
-} from "./helpers/test-fixtures.js";
+} from "@modelcontextprotocol/inspector-test-server";
 import { NO_SERVER_SENTINEL } from "./helpers/fixtures.js";
 
 describe("Metadata Tests", () => {
@@ -22,11 +22,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
@@ -65,11 +63,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "resources/list",
@@ -104,16 +100,15 @@ describe("Metadata Tests", () => {
           {
             name: "test-prompt",
             description: "A test prompt",
+            promptString: "test prompt",
           },
         ],
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "prompts/list",
@@ -154,11 +149,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "resources/read",
@@ -193,16 +186,15 @@ describe("Metadata Tests", () => {
           {
             name: "test-prompt",
             description: "A test prompt",
+            promptString: "test prompt",
           },
         ],
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "prompts/get",
@@ -239,11 +231,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/call",
@@ -280,11 +270,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/call",
@@ -324,11 +312,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/call",
@@ -371,11 +357,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
@@ -412,11 +396,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
@@ -453,11 +435,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
@@ -496,11 +476,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
@@ -533,11 +511,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
@@ -612,11 +588,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/call",
@@ -661,11 +635,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "resources/list",
@@ -698,16 +670,15 @@ describe("Metadata Tests", () => {
           {
             name: "test-prompt",
             description: "A test prompt",
+            promptString: "test prompt",
           },
         ],
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "prompts/get",
@@ -744,11 +715,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/call",
@@ -791,11 +760,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/list",
@@ -830,11 +797,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/call",
@@ -884,11 +849,9 @@ describe("Metadata Tests", () => {
       });
 
       try {
-        await server.start("http");
-        const serverUrl = `${server.getUrl()}/mcp`;
-
+        await server.start();
         const result = await runCli([
-          serverUrl,
+          server.url,
           "--cli",
           "--method",
           "tools/call",
@@ -925,6 +888,44 @@ describe("Metadata Tests", () => {
           special_key: "!@#$%^&*()",
           unicode_key: "🚀🎉✨",
         });
+      } finally {
+        await server.stop();
+      }
+    });
+  });
+
+  describe("SSE Transport Tests", () => {
+    it("should work with tools/list using SSE transport", async () => {
+      const server = createTestServerHttp({
+        serverType: "sse",
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+
+      try {
+        await server.start();
+        const result = await runCli([
+          server.url,
+          "--cli",
+          "--method",
+          "tools/list",
+          "--metadata",
+          "client=test-client",
+          "--transport",
+          "sse",
+        ]);
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json).toHaveProperty("tools");
+
+        // Validate metadata was sent
+        const recordedRequests = server.getRecordedRequests();
+        const toolsListRequest = recordedRequests.find(
+          (r) => r.method === "tools/list",
+        );
+        expect(toolsListRequest).toBeDefined();
+        expect(toolsListRequest?.metadata).toEqual({ client: "test-client" });
       } finally {
         await server.stop();
       }

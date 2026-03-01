@@ -18,9 +18,11 @@ console.log("🔍 Checking version consistency across packages...\n");
 // List of package.json files to check
 const packagePaths = [
   "package.json",
-  "client/package.json",
-  "server/package.json",
+  "web/package.json",
+  "core/package.json",
   "cli/package.json",
+  "tui/package.json",
+  "test-servers/package.json",
 ];
 
 const versions = new Map();
@@ -132,9 +134,14 @@ if (!fs.existsSync(lockPath)) {
     // Check workspace package versions in lock file
     if (lockFile.packages) {
       const workspacePackages = [
-        { path: "client", name: "@modelcontextprotocol/inspector-client" },
-        { path: "server", name: "@modelcontextprotocol/inspector-server" },
+        { path: "web", name: "@modelcontextprotocol/inspector-web" },
+        { path: "core", name: "@modelcontextprotocol/inspector-core" },
         { path: "cli", name: "@modelcontextprotocol/inspector-cli" },
+        { path: "tui", name: "@modelcontextprotocol/inspector-tui" },
+        {
+          path: "test-servers",
+          name: "@modelcontextprotocol/inspector-test-server",
+        },
       ];
 
       workspacePackages.forEach(({ path, name }) => {

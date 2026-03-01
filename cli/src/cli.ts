@@ -9,24 +9,33 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// This represents the parsed arguments produced by parseArgs()
+//
 type Args = {
   command: string;
   args: string[];
   envArgs: Record<string, string>;
   cli: boolean;
+  dev?: boolean;
   transport?: "stdio" | "sse" | "streamable-http";
   serverUrl?: string;
   headers?: Record<string, string>;
+  cwd?: string;
 };
 
+// This is only to provide typed access to the parsed program options
+// This could just be defined locally in parseArgs() since that's the only place it is used
+//
 type CliOptions = {
   e?: Record<string, string>;
   config?: string;
   server?: string;
   cli?: boolean;
+  dev?: boolean;
   transport?: string;
   serverUrl?: string;
   header?: Record<string, string>;
+  cwd?: string;
 };
 
 type ServerConfig =
@@ -35,10 +44,12 @@ type ServerConfig =
       command: string;
       args?: string[];
       env?: Record<string, string>;
+      cwd?: string;
     }
   | {
       type: "sse" | "streamable-http";
       url: string;
+      headers?: Record<string, string>;
       note?: string;
     };
 
@@ -62,12 +73,12 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms, true));
 }
 
-async function runWebClient(args: Args): Promise<void> {
-  // Path to the client entry point
-  const inspectorClientPath = resolve(
+async function runWeb(args: Args): Promise<void> {
+  // Path to the web entry point
+  const inspectorWebPath = resolve(
     __dirname,
     "../../",
-    "client",
+    "web",
     "bin",
     "start.js",
   );
@@ -81,6 +92,10 @@ async function runWebClient(args: Args): Promise<void> {
 
   // Build arguments to pass to start.js
   const startArgs: string[] = [];
+
+  if (args.dev) {
+    startArgs.push("--dev");
+  }
 
   // Pass environment variables
   for (const [key, value] of Object.entries(args.envArgs)) {
@@ -97,13 +112,23 @@ async function runWebClient(args: Args): Promise<void> {
     startArgs.push("--server-url", args.serverUrl);
   }
 
+  // Pass headers if specified (for SSE/streamable-http)
+  if (args.headers && Object.keys(args.headers).length > 0) {
+    startArgs.push("--headers", JSON.stringify(args.headers));
+  }
+
+  // Pass cwd if specified (for stdio transport)
+  if (args.cwd) {
+    startArgs.push("--cwd", path.resolve(args.cwd));
+  }
+
   // Pass command and args (using -- to separate them)
   if (args.command) {
     startArgs.push("--", args.command, ...args.args);
   }
 
   try {
-    await spawnPromise("node", [inspectorClientPath, ...startArgs], {
+    await spawnPromise("node", [inspectorWebPath, ...startArgs], {
       signal: abort.signal,
       echoOutput: true,
       // pipe the stdout through here, prevents issues with buffering and
@@ -151,6 +176,11 @@ async function runCli(args: Args): Promise<void> {
       }
     }
 
+    // Add cwd if specified (for stdio transport)
+    if (args.cwd) {
+      cliArgs.push("--cwd", path.resolve(args.cwd));
+    }
+
     await spawnPromise("node", cliArgs, {
       env: { ...process.env, ...args.envArgs },
       signal: abort.signal,
@@ -158,6 +188,36 @@ async function runCli(args: Args): Promise<void> {
       // pipe the stdout through here, prevents issues with buffering and
       // dropping the end of console.out after 8192 chars due to node
       // closing the stdout pipe before the output has finished flushing
+      stdio: "inherit",
+    });
+  } catch (e) {
+    if (!cancelled || process.env.DEBUG) {
+      throw e;
+    }
+  }
+}
+
+async function runTui(tuiArgs: string[]): Promise<void> {
+  const projectRoot = resolve(__dirname, "../..");
+  const tuiPath = resolve(projectRoot, "tui", "build", "tui.js");
+
+  const abort = new AbortController();
+
+  let cancelled = false;
+
+  process.on("SIGINT", () => {
+    cancelled = true;
+    abort.abort();
+  });
+
+  try {
+    // Remove --tui flag and pass everything else directly to TUI
+    const filteredArgs = tuiArgs.filter((arg) => arg !== "--tui");
+
+    await spawnPromise("node", [tuiPath, ...filteredArgs], {
+      env: process.env,
+      signal: abort.signal,
+      echoOutput: true,
       stdio: "inherit",
     });
   } catch (e) {
@@ -190,7 +250,13 @@ function loadConfigFile(configPath: string, serverName: string): ServerConfig {
     }
 
     const serverConfig = parsedConfig.mcpServers[serverName];
-
+    if (serverConfig?.type === undefined) {
+      // Normalize missing type to "stdio" (backwards compatibility)
+      return { ...serverConfig, type: "stdio" };
+    } else if (serverConfig.type === "http") {
+      // Normalize "http" to "streamable-http" (some clients, like Claude Code, use http instead of streamable-http)
+      return { ...serverConfig, type: "streamable-http" };
+    }
     return serverConfig;
   } catch (err: unknown) {
     if (err instanceof SyntaxError) {
@@ -267,8 +333,12 @@ function parseArgs(): Args {
     .option("--config <path>", "config file path")
     .option("--server <n>", "server name from config file")
     .option("--cli", "enable CLI mode")
+    .option("--web", "launch web app (default)")
+    .option("--dev", "run web in dev mode (Vite)")
+    .option("--tui", "enable TUI mode")
     .option("--transport <type>", "transport type (stdio, sse, http)")
     .option("--server-url <url>", "server URL for SSE/HTTP transport")
+    .option("--cwd <path>", "working directory for stdio server process")
     .option(
       "--header <headers...>",
       'HTTP headers as "HeaderName: Value" pairs (for HTTP/SSE transports)',
@@ -285,9 +355,14 @@ function parseArgs(): Args {
   // Add back any arguments that came after --
   const finalArgs = [...remainingArgs, ...postArgs];
 
-  // Validate config and server options
+  // If server specified but no config, default to mcp.json in cwd if it exists
   if (!options.config && options.server) {
-    throw new Error("--server requires --config to be specified");
+    const defaultConfigPath = path.join(process.cwd(), "mcp.json");
+    if (fs.existsSync(defaultConfigPath)) {
+      options.config = "mcp.json";
+    } else {
+      throw new Error("--server requires --config to be specified");
+    }
   }
 
   // If config is provided without server, try to auto-select
@@ -319,37 +394,35 @@ function parseArgs(): Args {
   // etc.)
   if (options.config && options.server) {
     const config = loadConfigFile(options.config, options.server);
-
     if (config.type === "stdio") {
+      const cwd = options.cwd ?? config.cwd ?? path.resolve(process.cwd());
       return {
         command: config.command,
         args: [...(config.args || []), ...finalArgs],
         envArgs: { ...(config.env || {}), ...(options.e || {}) },
         cli: options.cli || false,
+        dev: options.dev || false,
         transport: "stdio",
         headers: options.header,
+        cwd: path.resolve(cwd),
       };
     } else if (config.type === "sse" || config.type === "streamable-http") {
+      const headers = {
+        ...(config.headers || {}),
+        ...(options.header || {}),
+      };
       return {
         command: config.url,
         args: finalArgs,
         envArgs: options.e || {},
         cli: options.cli || false,
+        dev: options.dev || false,
         transport: config.type,
         serverUrl: config.url,
-        headers: options.header,
-      };
-    } else {
-      // Backwards compatibility: if no type field, assume stdio
-      return {
-        command: (config as any).command || "",
-        args: [...((config as any).args || []), ...finalArgs],
-        envArgs: { ...((config as any).env || {}), ...(options.e || {}) },
-        cli: options.cli || false,
-        transport: "stdio",
-        headers: options.header,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
       };
     }
+    throw new Error(`Invalid server config: ${JSON.stringify(config)}`);
   }
 
   // Otherwise use command line arguments
@@ -362,14 +435,20 @@ function parseArgs(): Args {
     transport = "streamable-http";
   }
 
+  const cwd = options.cwd
+    ? path.resolve(options.cwd)
+    : path.resolve(process.cwd());
+
   return {
     command,
     args,
     envArgs: options.e || {},
     cli: options.cli || false,
+    dev: options.dev || false,
     transport: transport as "stdio" | "sse" | "streamable-http" | undefined,
     serverUrl: options.serverUrl,
     headers: options.header,
+    cwd,
   };
 }
 
@@ -379,12 +458,21 @@ async function main(): Promise<void> {
   });
 
   try {
+    // For now we just pass the raw args to TUI (we'll integrate config later)
+    // The main issue is that Inspector only supports a single server and the TUI supports a set
+    //
+    // Check for --tui in raw argv - if present, bypass all parsing
+    if (process.argv.includes("--tui")) {
+      await runTui(process.argv.slice(2));
+      return;
+    }
+
     const args = parseArgs();
 
     if (args.cli) {
       await runCli(args);
     } else {
-      await runWebClient(args);
+      await runWeb(args);
     }
   } catch (error) {
     handleError(error);

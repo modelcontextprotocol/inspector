@@ -11,36 +11,44 @@
     "mcp-inspector": "cli/build/cli.js"
   },
   "files": [
-    "client/bin",
-    "client/dist",
-    "server/build",
-    "cli/build"
+    "web/bin",
+    "web/dist",
+    "cli/build",
+    "tui/build"
   ],
   "workspaces": [
-    "client",
-    "server",
-    "cli"
+    "web",
+    "cli",
+    "tui",
+    "core",
+    "test-servers"
   ],
   "scripts": {
-    "build": "npm run build-server && npm run build-client && npm run build-cli",
-    "build-server": "cd server && npm run build",
-    "build-client": "cd client && npm run build",
+    "build": "npm run build-core && npm run build-test && npm run build-web && npm run build-cli && npm run build-tui",
+    "build-core": "cd core && npm run build",
+    "build-web": "cd web && npm run build",
     "build-cli": "cd cli && npm run build",
-    "clean": "rimraf ./node_modules ./client/node_modules ./cli/node_modules ./build ./client/dist ./server/build ./cli/build ./package-lock.json && npm install",
-    "dev": "node client/bin/start.js --dev",
-    "dev:windows": "node client/bin/start.js --dev",
+    "build-tui": "cd tui && npm run build",
+    "build-test": "cd test-servers && npm run build",
+    "server-composable": "node test-servers/build/server-composable.js",
+    "clean": "rimraf ./node_modules ./web/node_modules ./core/node_modules ./cli/node_modules ./tui/node_modules ./test-servers/node_modules ./build ./web/dist ./cli/build ./tui/build ./test-servers/build ./package-lock.json && npm install",
+    "dev": "node web/bin/start.js --dev",
+    "dev:windows": "node web/bin/start.js --dev",
     "dev:sdk": "npm run link:sdk && concurrently \"npm run dev\" \"cd sdk && npm run build:esm:w\"",
     "link:sdk": "(test -d sdk || ln -sf ${MCP_SDK:-$PWD/../typescript-sdk} sdk) && (cd sdk && npm link && (test -d node_modules || npm i)) && npm link @modelcontextprotocol/sdk",
     "unlink:sdk": "(cd sdk && npm unlink -g) && rm sdk && npm unlink @modelcontextprotocol/sdk",
-    "start": "node client/bin/start.js",
-    "start-server": "cd server && npm run start",
-    "start-client": "cd client && npm run preview",
-    "test": "npm run prettier-check && cd client && npm test",
+    "start": "node web/bin/start.js",
+    "web": "node cli/build/cli.js --web",
+    "web:dev": "node cli/build/cli.js --web --dev",
+    "test": "npm run prettier-check && vitest run",
+    "test:repeat": "node scripts/test-repeat.js",
     "test-cli": "cd cli && npm run test",
-    "test:e2e": "MCP_AUTO_OPEN_ENABLED=false npm run test:e2e --workspace=client",
+    "test-core": "cd core && npm run test",
+    "test-web": "cd web && npm run test",
+    "test:e2e": "MCP_AUTO_OPEN_ENABLED=false npm run test:e2e --workspace=web",
     "prettier-fix": "prettier --write .",
     "prettier-check": "prettier --check .",
-    "lint": "prettier --check . && cd client && npm run lint",
+    "lint": "prettier --check . && cd web && npm run lint",
     "prepare": "husky && npm run build",
     "publish-all": "npm publish --workspaces --access public && npm publish --access public",
     "update-version": "node scripts/update-version.js",
@@ -48,10 +56,10 @@
   },
   "dependencies": {
     "@modelcontextprotocol/inspector-cli": "^0.20.0",
-    "@modelcontextprotocol/inspector-client": "^0.20.0",
-    "@modelcontextprotocol/inspector-server": "^0.20.0",
+    "@modelcontextprotocol/inspector-web": "^0.20.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "concurrently": "^9.2.0",
+    "hono": "^4.11.7",
     "node-fetch": "^3.3.2",
     "open": "^10.2.0",
     "shell-quote": "^1.8.3",
@@ -70,10 +78,12 @@
     "playwright": "^1.56.1",
     "prettier": "^3.7.1",
     "rimraf": "^6.0.1",
-    "typescript": "^5.4.2"
+    "typescript": "^5.4.2",
+    "vitest": "^4.0.17"
   },
   "overrides": {
-    "get-intrinsic": "1.3.0"
+    "get-intrinsic": "1.3.0",
+    "ink": "^5.2.1"
   },
   "engines": {
     "node": ">=22.7.5"
