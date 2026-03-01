@@ -116,3 +116,16 @@ Better forms (test tool, etc)
 - Use shared functionality from core forms support
 - Functionality (data types, arrays, arrays of objects, etc)
 - UX (cleaner, maybe ditch ink-forms, see if it can be styled better?)
+
+### Server port in-use behavior / bug
+
+- In dev mode (in v1 and v1.5) if the attempted (specified or default) port is in use, Vite will find the next available port and use that
+  - But we will still report that it is listening on the attempted port and will open a browser window at that URL (bug)
+- In prod mode, if the attempted (specified or default) port is in use, the server fails to run
+
+- We should decided what the port-in-use behavior should be and make it consistent between dev and prod - proposed:
+  - If port is specified via param or env var, only use that port (if in use, fail to start)
+  - If default port (6274), use first available starting at that value
+
+- This will require that we run Vite via API instead of spawning it (so we can get the resulting port)
+- It will also require progressive port listening logic for prod to mimic that behavior

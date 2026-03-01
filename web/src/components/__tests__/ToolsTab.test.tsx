@@ -177,14 +177,12 @@ describe("ToolsTab", () => {
       execution: { taskSupport: "required" },
     };
 
-    it("should not show Run as task checkbox when server does not support task tool calls", () => {
+    it("should not show Run as task switch when server does not support task tool calls", () => {
       renderToolsTab({
         selectedTool: mockTools[0],
         serverSupportsTaskToolCalls: false,
       });
-      expect(
-        screen.queryByRole("checkbox", { name: /run as task/i }),
-      ).toBeNull();
+      expect(screen.queryByRole("switch", { name: /run as task/i })).toBeNull();
     });
 
     it("should show Run as task control when server supports task tool calls and a tool is selected", () => {
@@ -193,56 +191,60 @@ describe("ToolsTab", () => {
         serverSupportsTaskToolCalls: true,
       });
       expect(
-        screen.getByRole("checkbox", { name: /run as task/i }),
+        screen.getByRole("switch", { name: /run as task/i }),
       ).toBeInTheDocument();
     });
 
-    it("should show checkbox unchecked and enabled when tool taskSupport is optional", async () => {
+    it("should show switch unchecked and enabled when tool taskSupport is optional", async () => {
       renderToolsTab({
         selectedTool: toolWithOptionalTask,
         serverSupportsTaskToolCalls: true,
       });
-      const checkbox = screen.getByRole("checkbox", { name: /run as task/i });
-      expect(checkbox).not.toBeChecked();
-      expect(checkbox).not.toBeDisabled();
+      const runAsTaskSwitch = screen.getByRole("switch", {
+        name: /run as task/i,
+      });
+      expect(runAsTaskSwitch).not.toBeChecked();
+      expect(runAsTaskSwitch).not.toBeDisabled();
     });
 
-    it("should show Run as Task: Forbidden when tool taskSupport is forbidden", () => {
+    it("should show switch off and disabled when tool taskSupport is forbidden", () => {
       renderToolsTab({
         selectedTool: toolWithForbiddenTask,
         serverSupportsTaskToolCalls: true,
       });
-      expect(screen.getByText(/run as task: forbidden/i)).toBeInTheDocument();
-      expect(
-        screen.queryByRole("checkbox", { name: /run as task/i }),
-      ).toBeNull();
+      const runAsTaskSwitch = screen.getByRole("switch", {
+        name: /run as task/i,
+      });
+      expect(runAsTaskSwitch).not.toBeChecked();
+      expect(runAsTaskSwitch).toBeDisabled();
     });
 
-    it("should show Run as Task: Required when tool taskSupport is required", () => {
+    it("should show switch on and disabled when tool taskSupport is required", () => {
       renderToolsTab({
         selectedTool: toolWithRequiredTask,
         serverSupportsTaskToolCalls: true,
       });
-      expect(screen.getByText(/run as task: required/i)).toBeInTheDocument();
-      expect(
-        screen.queryByRole("checkbox", { name: /run as task/i }),
-      ).toBeNull();
+      const runAsTaskSwitch = screen.getByRole("switch", {
+        name: /run as task/i,
+      });
+      expect(runAsTaskSwitch).toBeChecked();
+      expect(runAsTaskSwitch).toBeDisabled();
     });
 
-    it("should call callTool with runAsTask true when optional and checkbox is checked and Run Tool clicked", async () => {
+    it("should call callTool with runAsTask true when optional and switch is on and Run Tool clicked", async () => {
       const mockCallTool = vi.fn(async () => {});
       renderToolsTab({
         selectedTool: toolWithOptionalTask,
         serverSupportsTaskToolCalls: true,
         callTool: mockCallTool,
       });
-      const runAsTaskCheckbox = screen.getByRole("checkbox", {
+      const runAsTaskSwitch = screen.getByRole("switch", {
         name: /run as task/i,
       });
       await act(async () => {
-        fireEvent.click(runAsTaskCheckbox);
+        fireEvent.click(runAsTaskSwitch);
       });
-      expect(runAsTaskCheckbox).toBeChecked();
+      expect(runAsTaskSwitch).toBeChecked();
       const runButton = screen.getByRole("button", { name: /run tool/i });
       await act(async () => {
         fireEvent.click(runButton);

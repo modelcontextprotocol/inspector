@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -675,31 +676,26 @@ const ToolsTab = ({
                 <div className="flex items-center space-x-2">
                   {selectedTool && serverSupportsTaskToolCalls && (
                     <>
-                      {taskSupport === "forbidden" ? (
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                          Run as Task: Forbidden
-                        </span>
-                      ) : taskSupport === "required" ? (
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                          Run as Task: Required
-                        </span>
-                      ) : (
-                        <>
-                          <Checkbox
-                            id="run-as-task"
-                            checked={runAsTask}
-                            onCheckedChange={(checked) =>
-                              setRunAsTask(checked === true)
-                            }
-                          />
-                          <Label
-                            htmlFor="run-as-task"
-                            className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
-                          >
-                            Run as task
-                          </Label>
-                        </>
-                      )}
+                      <Switch
+                        id="run-as-task"
+                        checked={effectiveRunAsTask}
+                        disabled={
+                          taskSupport === "forbidden" ||
+                          taskSupport === "required"
+                        }
+                        onCheckedChange={(checked) =>
+                          setRunAsTask(checked === true)
+                        }
+                      />
+                      <Label
+                        htmlFor="run-as-task"
+                        className={cn(
+                          "text-sm font-medium text-gray-700 dark:text-gray-300",
+                          taskSupport === "optional" && "cursor-pointer",
+                        )}
+                      >
+                        Run as task
+                      </Label>
                     </>
                   )}
                   <Button
