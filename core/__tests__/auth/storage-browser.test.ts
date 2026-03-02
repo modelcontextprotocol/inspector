@@ -7,8 +7,17 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 // Mock sessionStorage for Node.js environment
-class MockSessionStorage {
+class MockSessionStorage implements Storage {
   private storage: Map<string, string> = new Map();
+
+  get length(): number {
+    return this.storage.size;
+  }
+
+  key(index: number): string | null {
+    const keys = [...this.storage.keys()];
+    return keys[index] ?? null;
+  }
 
   getItem(key: string): string | null {
     return this.storage.get(key) || null;
@@ -29,7 +38,8 @@ class MockSessionStorage {
 
 // Set up global sessionStorage mock
 const mockSessionStorage = new MockSessionStorage();
-(global as any).sessionStorage = mockSessionStorage;
+(global as typeof globalThis & { sessionStorage?: Storage }).sessionStorage =
+  mockSessionStorage;
 
 describe("BrowserOAuthStorage", () => {
   let storage: BrowserOAuthStorage;

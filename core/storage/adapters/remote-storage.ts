@@ -27,7 +27,7 @@ export function createRemoteStorageAdapter(
   const fetchFn = options.fetchFn ?? globalThis.fetch;
 
   return createJSONStorage(() => ({
-    getItem: async (name: string) => {
+    getItem: async (_name: string) => {
       const headers: Record<string, string> = {};
       if (options.authToken) {
         headers["x-mcp-remote-auth"] = `Bearer ${options.authToken}`;
@@ -54,7 +54,7 @@ export function createRemoteStorageAdapter(
       // Return the stored Zustand format as string
       return JSON.stringify(store);
     },
-    setItem: async (name: string, value: string) => {
+    setItem: async (_name: string, value: string) => {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
@@ -74,7 +74,7 @@ export function createRemoteStorageAdapter(
         throw new Error(`Failed to write store: ${res.status}`);
       }
     },
-    removeItem: async (name: string) => {
+    removeItem: async (_name: string) => {
       const headers: Record<string, string> = {};
       if (options.authToken) {
         headers["x-mcp-remote-auth"] = `Bearer ${options.authToken}`;

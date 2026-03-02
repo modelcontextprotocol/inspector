@@ -49,6 +49,9 @@ export interface StderrLogEntry {
 import type {
   ServerCapabilities,
   Implementation,
+  Resource,
+  Prompt,
+  Tool,
   JSONRPCRequest,
   JSONRPCNotification,
   JSONRPCResultResponse,
@@ -143,9 +146,9 @@ export interface ServerState {
   capabilities?: ServerCapabilities;
   serverInfo?: Implementation;
   instructions?: string;
-  resources: any[];
-  prompts: any[];
-  tools: any[];
+  resources: Resource[];
+  prompts: Prompt[];
+  tools: Tool[];
   stderrLogs: StderrLogEntry[];
 }
 

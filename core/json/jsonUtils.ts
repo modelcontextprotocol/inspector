@@ -44,7 +44,7 @@ export function convertParameterValue(
   if (schema.type === "object" || schema.type === "array") {
     try {
       return JSON.parse(value) as JsonValue;
-    } catch (error) {
+    } catch {
       return value;
     }
   }

@@ -55,7 +55,6 @@ interface AuthTabProps {
 
 export function AuthTab({
   serverName,
-  serverConfig,
   inspectorClient,
   oauthStatus,
   oauthMessage,

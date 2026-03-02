@@ -4,7 +4,6 @@ function clampFirstVisible(
   first: number,
   selected: number,
   visibleCount: number,
-  total: number,
 ): number {
   if (selected < first) return selected;
   if (selected >= first + visibleCount) return selected - visibleCount + 1;
@@ -33,10 +32,10 @@ export function useSelectableList(
     (newIndex: number) => {
       setSelectedIndex(newIndex);
       setFirstVisible((prev) =>
-        clampFirstVisible(prev, newIndex, visibleCount, itemCount),
+        clampFirstVisible(prev, newIndex, visibleCount),
       );
     },
-    [visibleCount, itemCount],
+    [visibleCount],
   );
 
   // Reset when deps change (e.g. different server)
@@ -45,7 +44,7 @@ export function useSelectableList(
       setSelectedIndex(0);
       setFirstVisible(0);
     }
-  }, options?.resetWhen ?? []);
+  }, [options?.resetWhen]);
 
   // Clamp when list shrinks
   useEffect(() => {
@@ -53,7 +52,7 @@ export function useSelectableList(
       const newIndex = itemCount - 1;
       setSelectedIndex(newIndex);
       setFirstVisible((prev) =>
-        clampFirstVisible(prev, newIndex, visibleCount, itemCount),
+        clampFirstVisible(prev, newIndex, visibleCount),
       );
     }
   }, [itemCount, selectedIndex, visibleCount]);

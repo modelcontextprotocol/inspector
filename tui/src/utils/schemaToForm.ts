@@ -4,10 +4,30 @@
 
 import type { FormStructure, FormSection, FormField } from "ink-form";
 
+/** Minimal JSON Schema property shape used when building tool parameter forms */
+interface JsonSchemaProperty {
+  type?: string;
+  title?: string;
+  enum?: unknown[];
+  items?: { enum?: unknown[] };
+  minimum?: number;
+  maximum?: number;
+  default?: unknown;
+}
+
+/** Minimal JSON Schema object shape (properties + required) */
+interface JsonSchemaObject {
+  properties?: Record<string, JsonSchemaProperty>;
+  required?: string[];
+}
+
 /**
  * Converts a JSON Schema to ink-form structure
  */
-export function schemaToForm(schema: any, toolName: string): FormStructure {
+export function schemaToForm(
+  schema: JsonSchemaObject | null | undefined,
+  toolName: string,
+): FormStructure {
   const fields: FormField[] = [];
 
   if (!schema || !schema.properties) {
@@ -21,7 +41,7 @@ export function schemaToForm(schema: any, toolName: string): FormStructure {
   const required = schema.required || [];
 
   for (const [key, prop] of Object.entries(properties)) {
-    const property = prop as any;
+    const property = prop as JsonSchemaProperty;
     const baseField = {
       name: key,
       label: property.title || key,
@@ -38,7 +58,7 @@ export function schemaToForm(schema: any, toolName: string): FormStructure {
         field = {
           type: "select",
           ...baseField,
-          options: property.items.enum.map((val: any) => ({
+          options: property.items.enum.map((val: unknown) => ({
             label: String(val),
             value: String(val),
           })),
@@ -48,7 +68,7 @@ export function schemaToForm(schema: any, toolName: string): FormStructure {
         field = {
           type: "select",
           ...baseField,
-          options: property.enum.map((val: any) => ({
+          options: property.enum.map((val: unknown) => ({
             label: String(val),
             value: String(val),
           })),
@@ -94,9 +114,10 @@ export function schemaToForm(schema: any, toolName: string): FormStructure {
       }
     }
 
-    // Set initial value from default
+    // Set initial value from default (ink-form FormField allows initialValue for some types)
     if (property.default !== undefined) {
-      (field as any).initialValue = property.default;
+      (field as FormField & { initialValue?: unknown }).initialValue =
+        property.default;
     }
 
     fields.push(field);

@@ -1134,7 +1134,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (this.client) {
       try {
         await this.client.close();
-      } catch (error) {
+      } catch {
         // Ignore errors on close
       }
     }
@@ -2657,7 +2657,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       if (this.instructions !== undefined) {
         this.dispatchTypedEvent("instructionsChange", this.instructions);
       }
-    } catch (error) {
+    } catch {
       // Ignore errors in fetching server info
     }
   }
@@ -2678,7 +2678,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       if (this.capabilities?.resources) {
         try {
           await this.listAllResources();
-        } catch (err) {
+        } catch {
           // Ignore errors, just leave empty
           this.resources = [];
           this.dispatchTypedEvent("resourcesChange", this.resources);
@@ -2687,7 +2687,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         // Also fetch resource templates
         try {
           await this.listAllResourceTemplates();
-        } catch (err) {
+        } catch {
           // Ignore errors, just leave empty
           this.resourceTemplates = [];
           this.dispatchTypedEvent(
@@ -2700,7 +2700,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       if (this.capabilities?.prompts) {
         try {
           await this.listAllPrompts();
-        } catch (err) {
+        } catch {
           // Ignore errors, just leave empty
           this.prompts = [];
           this.dispatchTypedEvent("promptsChange", this.prompts);
@@ -2710,13 +2710,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       if (this.capabilities?.tools) {
         try {
           await this.listAllTools();
-        } catch (err) {
+        } catch {
           // Ignore errors, just leave empty
           this.tools = [];
           this.dispatchTypedEvent("toolsChange", this.tools);
         }
       }
-    } catch (error) {
+    } catch {
       // Ignore errors in fetching server contents
     }
   }
@@ -2868,7 +2868,7 @@ export class InspectorClient extends InspectorClientEventTarget {
               ? req.timestamp
               : typeof req.timestamp === "string"
                 ? new Date(req.timestamp)
-                : new Date(req.timestamp as any),
+                : new Date(req.timestamp as string | number),
         }));
         this.dispatchTypedEvent("fetchRequestsChange");
         this.logger.debug(

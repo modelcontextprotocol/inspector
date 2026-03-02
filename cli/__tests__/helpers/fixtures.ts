@@ -3,6 +3,7 @@ import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
+import type { MCPServerConfig } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 
 /**
  * Sentinel value for tests that don't need a real server
@@ -54,7 +55,7 @@ function createTempDir(prefix: string = "mcp-inspector-test-"): string {
 function cleanupTempDir(dir: string) {
   try {
     fs.rmSync(dir, { recursive: true, force: true });
-  } catch (err) {
+  } catch {
     // Ignore cleanup errors
   }
 }
@@ -63,7 +64,7 @@ function cleanupTempDir(dir: string) {
  * Create a test config file
  */
 export function createTestConfig(config: {
-  mcpServers: Record<string, any>;
+  mcpServers: Record<string, MCPServerConfig>;
 }): string {
   const tempDir = createTempDir("mcp-inspector-config-");
   const configPath = path.join(tempDir, "config.json");

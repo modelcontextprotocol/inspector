@@ -17,6 +17,7 @@
   "scripts": {
     "build": "tsc",
     "postbuild": "node scripts/make-executable.js",
+    "lint": "prettier --check . && eslint . --max-warnings 0 && echo 'Lint passed.'",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cli": "vitest run cli.test.ts",

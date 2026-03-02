@@ -2,6 +2,10 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import type {
+  Resource,
+  ReadResourceResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface ResourceTemplate {
@@ -11,15 +15,17 @@ interface ResourceTemplate {
 }
 
 interface ResourcesTabProps {
-  resources: any[];
+  resources: Resource[];
   resourceTemplates?: ResourceTemplate[];
   inspectorClient: InspectorClient | null;
   width: number;
   height: number;
   onCountChange?: (count: number) => void;
   focusedPane?: "list" | "details" | null;
-  onViewDetails?: (resource: any) => void;
-  onFetchResource?: (resource: any) => void;
+  onViewDetails?: (
+    resource: Resource | { content: ReadResourceResult },
+  ) => void;
+  onFetchResource?: (resource: Resource) => void;
   onFetchTemplate?: (template: ResourceTemplate) => void;
   modalOpen?: boolean;
 }
@@ -38,7 +44,8 @@ export function ResourcesTab({
   modalOpen = false,
 }: ResourcesTabProps) {
   const [error, setError] = useState<string | null>(null);
-  const [resourceContent, setResourceContent] = useState<any>(null);
+  const [resourceContent, setResourceContent] =
+    useState<ReadResourceResult | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [shouldFetchResource, setShouldFetchResource] = useState<string | null>(
     null,
@@ -136,7 +143,7 @@ export function ResourcesTab({
   }, [selectedIndex]);
 
   // Clear fetched content when resources change
-  const prevResourcesRef = useRef<any[]>(resources);
+  const prevResourcesRef = useRef<Resource[]>(resources);
   useEffect(() => {
     if (prevResourcesRef.current !== resources) {
       setResourceContent(null);

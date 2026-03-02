@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { Form } from "ink-form";
 import { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { JsonValue } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import { schemaToForm } from "../utils/schemaToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { ModalBackdrop } from "./ModalBackdrop.js";
 
 interface ToolTestModalProps {
-  tool: any;
+  tool: Tool;
   inspectorClient: InspectorClient | null;
   width: number;
   height: number;
@@ -17,10 +19,10 @@ interface ToolTestModalProps {
 type ModalState = "form" | "loading" | "results";
 
 interface ToolResult {
-  input: any;
-  output: any;
+  input: Record<string, JsonValue>;
+  output: CallToolResult | null;
   error?: string;
-  errorDetails?: any;
+  errorDetails?: unknown;
   duration: number;
 }
 
@@ -110,7 +112,7 @@ export function ToolTestModal({
     { isActive: true },
   );
 
-  const handleFormSubmit = async (values: Record<string, any>) => {
+  const handleFormSubmit = async (values: Record<string, JsonValue>) => {
     if (!inspectorClient || !tool) return;
 
     setState("loading");
@@ -138,15 +140,12 @@ export function ToolTestModal({
         const result = invocation.result;
         // Check for error indicators in the result (SDK may return error in result)
         const isError = "isError" in result && result.isError === true;
-        const output = isError
-          ? { error: true, content: result.content }
-          : result.structuredContent || result.content || result;
 
         setResult({
           input: values,
-          output: isError ? null : output,
+          output: isError ? null : result,
           error: isError ? "Tool returned an error" : undefined,
-          errorDetails: isError ? output : undefined,
+          errorDetails: isError ? result : undefined,
           duration,
         });
       }
@@ -209,7 +208,12 @@ export function ToolTestModal({
         <Box flexGrow={1} flexDirection="column" overflow="hidden">
           {state === "form" && (
             <Box flexGrow={1} width="100%">
-              <Form form={formStructure} onSubmit={handleFormSubmit} />
+              <Form
+                form={formStructure}
+                onSubmit={(value: object) =>
+                  void handleFormSubmit(value as Record<string, JsonValue>)
+                }
+              />
             </Box>
           )}
 
@@ -248,9 +252,9 @@ export function ToolTestModal({
                       Error:
                     </Text>
                     <Box paddingLeft={2}>
-                      <Text color="red">{result.error}</Text>
+                      <Text color="red">{String(result.error)}</Text>
                     </Box>
-                    {result.errorDetails && (
+                    {result.errorDetails != null ? (
                       <>
                         <Box marginTop={1}>
                           <Text bold color="red" dimColor>
@@ -263,7 +267,7 @@ export function ToolTestModal({
                           </Text>
                         </Box>
                       </>
-                    )}
+                    ) : null}
                   </Box>
                 ) : (
                   <Box flexShrink={0} flexDirection="column">

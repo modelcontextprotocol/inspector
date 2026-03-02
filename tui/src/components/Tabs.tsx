@@ -1,15 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
-
-export type TabType =
-  | "info"
-  | "auth"
-  | "resources"
-  | "prompts"
-  | "tools"
-  | "messages"
-  | "requests"
-  | "logging";
+import { type TabType, tabs } from "./tabsConfig.js";
 
 interface TabsProps {
   activeTab: TabType;
@@ -31,20 +22,8 @@ interface TabsProps {
   showRequests?: boolean;
 }
 
-export const tabs: { id: TabType; label: string; accelerator: string }[] = [
-  { id: "info", label: "Info", accelerator: "i" },
-  { id: "auth", label: "Auth", accelerator: "a" },
-  { id: "resources", label: "Resources", accelerator: "r" },
-  { id: "prompts", label: "Prompts", accelerator: "p" },
-  { id: "tools", label: "Tools", accelerator: "t" },
-  { id: "messages", label: "Messages", accelerator: "m" },
-  { id: "requests", label: "HTTP Requests", accelerator: "h" },
-  { id: "logging", label: "Logging", accelerator: "l" },
-];
-
 export function Tabs({
   activeTab,
-  onTabChange,
   width,
   counts = {},
   focused = false,

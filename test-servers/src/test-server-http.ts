@@ -6,7 +6,6 @@ import type { Request, Response } from "express";
 import express from "express";
 import { createServer as createHttpServer, Server as HttpServer } from "http";
 import { createServer as createNetServer } from "net";
-import * as z from "zod/v4";
 import * as crypto from "node:crypto";
 import type { ServerConfig } from "./test-server-fixtures.js";
 import {
@@ -20,10 +19,10 @@ import {
 
 export interface RecordedRequest {
   method: string;
-  params?: any;
+  params?: Record<string, unknown>;
   headers?: Record<string, string>;
   metadata?: Record<string, string>;
-  response: any;
+  response: unknown;
   timestamp: number;
 }
 
@@ -118,7 +117,10 @@ export class TestServerHttp {
       // to type it properly here - so we'll just pry the metadata out if exists.
       const metadata =
         params && typeof params === "object" && "_meta" in params
-          ? ((params as any)._meta as Record<string, string>)
+          ? ((params as Record<string, unknown>)._meta as Record<
+              string,
+              string
+            >)
           : undefined;
 
       try {
@@ -182,9 +184,7 @@ export class TestServerHttp {
     // Set up OAuth if enabled (BEFORE MCP routes)
     if (this.config.oauth?.enabled) {
       // We need baseUrl, but it's not set yet - we'll set it after server starts
-      // For now, use a placeholder that will be updated
-      const placeholderUrl = `http://localhost:${port}`;
-      setupOAuthRoutes(app, this.config.oauth, placeholderUrl);
+      setupOAuthRoutes(app, this.config.oauth);
     }
 
     // Store transports and one McpServer per session (SDK allows only one transport per server)
@@ -321,9 +321,7 @@ export class TestServerHttp {
     // But the routes use relative paths, so they should work regardless
     if (this.config.oauth?.enabled) {
       // Use placeholder URL - actual baseUrl will be set after server starts
-      // The OAuth routes use relative paths, so they'll work with any base URL
-      const placeholderUrl = `http://localhost:${port}`;
-      setupOAuthRoutes(app, this.config.oauth, placeholderUrl);
+      setupOAuthRoutes(app, this.config.oauth);
     }
 
     // Bearer token middleware for SSE routes if requireAuth

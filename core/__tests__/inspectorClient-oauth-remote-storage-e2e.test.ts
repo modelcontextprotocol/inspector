@@ -23,14 +23,10 @@ import {
   getDefaultServerConfig,
   createOAuthTestServerConfig,
   clearOAuthTestData,
-  getDCRRequests,
-  invalidateAccessToken,
 } from "@modelcontextprotocol/inspector-test-server";
 import {
   createOAuthClientConfig,
   completeOAuthAuthorization,
-  createClientMetadataServer,
-  type ClientMetadataDocument,
 } from "./helpers/oauth-client-fixtures.js";
 import { ConsoleNavigation } from "../auth/providers.js";
 import type { InspectorClientOptions } from "../mcp/inspectorClient.js";
@@ -49,8 +45,6 @@ function createTestOAuthConfig(
     storage: new NodeOAuthStorage(oauthTestStatePath),
   };
 }
-
-type TransportType = "sse" | "streamable-http";
 
 interface TransportConfig {
   name: string;

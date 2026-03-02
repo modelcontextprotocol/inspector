@@ -46,8 +46,6 @@ export interface ConfigFile {
 
 export type ConfigFormat = "json" | "yaml";
 
-const VALID_EXTENSIONS = [".json", ".yaml", ".yml"];
-
 function inferFormatFromPath(filePath: string): ConfigFormat | null {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".json") return "json";

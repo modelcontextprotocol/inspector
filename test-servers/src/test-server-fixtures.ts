@@ -12,7 +12,6 @@ import {
   CreateTaskResultSchema,
   ElicitResultSchema,
   GetTaskResultSchema,
-  ListRootsResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
   ToolDefinition,
@@ -28,9 +27,7 @@ import type {
   ElicitRequestFormParams,
   ElicitRequestURLParams,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type {
-  ToolTaskHandler,
   TaskRequestHandlerExtra,
   CreateTaskRequestHandlerExtra,
 } from "@modelcontextprotocol/sdk/experimental/tasks/interfaces.js";
@@ -40,7 +37,19 @@ import type { ShapeOutput } from "@modelcontextprotocol/sdk/server/zod-compat.js
 import type {
   GetTaskResult,
   CallToolResult,
+  ServerRequest,
+  ServerNotification,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+
+/** Build a CallToolResult from a text message (and optional isError). */
+function toToolResult(text: string, isError?: boolean): CallToolResult {
+  return {
+    content: [{ type: "text", text }],
+    ...(isError && { isError: true }),
+  };
+}
 
 // Re-export types and functions from composable-test-server for backward compatibility
 export type {
@@ -67,8 +76,8 @@ export function createNumberedTools(count: number): ToolDefinition[] {
       inputSchema: {
         message: z.string().describe(`Message for tool ${i}`),
       },
-      handler: async (params: Record<string, any>) => {
-        return { message: `Tool ${i}: ${params.message as string}` };
+      handler: async (params: Record<string, unknown>) => {
+        return toToolResult(`Tool ${i}: ${params.message as string}`);
       },
     });
   }
@@ -108,7 +117,7 @@ export function createNumberedResourceTemplates(
       name: `template_${i}`,
       uriTemplate: `test://template_${i}/{param}`,
       description: `Test resource template number ${i}`,
-      handler: async (uri: URL, variables: Record<string, any>) => {
+      handler: async (uri: URL, variables: Record<string, unknown>) => {
         return {
           contents: [
             {
@@ -151,8 +160,11 @@ export function createEchoTool(): ToolDefinition {
     inputSchema: {
       message: z.string().describe("Message to echo back"),
     },
-    handler: async (params: Record<string, any>, _server?: any) => {
-      return { message: `Echo: ${params.message as string}` };
+    handler: async (
+      params: Record<string, unknown>,
+      _context?: TestServerContext,
+    ) => {
+      return toToolResult(`Echo: ${params.message as string}`);
     },
   };
 }
@@ -170,7 +182,7 @@ export function createWriteToStderrTool(): ToolDefinition {
     handler: async (params: Record<string, unknown>) => {
       const msg = params.message as string;
       process.stderr.write(`${msg}\n`);
-      return { message: `Wrote to stderr: ${msg}` };
+      return toToolResult(`Wrote to stderr: ${msg}`);
     },
   };
 }
@@ -186,10 +198,13 @@ export function createAddTool(): ToolDefinition {
       a: z.number().describe("First number"),
       b: z.number().describe("Second number"),
     },
-    handler: async (params: Record<string, any>, _server?: any) => {
+    handler: async (
+      params: Record<string, unknown>,
+      _context?: TestServerContext,
+    ) => {
       const a = params.a as number;
       const b = params.b as number;
-      return { result: a + b };
+      return toToolResult(JSON.stringify({ result: a + b }));
     },
   };
 }
@@ -205,10 +220,13 @@ export function createGetSumTool(): ToolDefinition {
       a: z.number().describe("First number"),
       b: z.number().describe("Second number"),
     },
-    handler: async (params: Record<string, any>, _server?: any) => {
+    handler: async (
+      params: Record<string, unknown>,
+      _context?: TestServerContext,
+    ) => {
       const a = params.a as number;
       const b = params.b as number;
-      return { result: a + b };
+      return toToolResult(JSON.stringify({ result: a + b }));
     },
   };
 }
@@ -225,9 +243,9 @@ export function createCollectSampleTool(): ToolDefinition {
       text: z.string().describe("Text to send in the sampling request"),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
-    ): Promise<any> => {
+    ): Promise<CallToolResult> => {
       if (!context) {
         throw new Error("Server context not available");
       }
@@ -250,9 +268,7 @@ export function createCollectSampleTool(): ToolDefinition {
           maxTokens: 100, // Required parameter
         });
 
-        return {
-          message: `Sampling response: ${JSON.stringify(result)}`,
-        };
+        return toToolResult(`Sampling response: ${JSON.stringify(result)}`);
       } catch (error) {
         console.error(
           "[collect_sample] Error sending/receiving sampling request:",
@@ -273,9 +289,9 @@ export function createListRootsTool(): ToolDefinition {
     description: "List the current roots configured on the client",
     inputSchema: {},
     handler: async (
-      _params: Record<string, any>,
+      _params: Record<string, unknown>,
       context?: TestServerContext,
-    ): Promise<any> => {
+    ): Promise<CallToolResult> => {
       if (!context) {
         throw new Error("Server context not available");
       }
@@ -285,15 +301,12 @@ export function createListRootsTool(): ToolDefinition {
         // Call roots/list on the client using the SDK's listRoots method
         const result = await server.server.listRoots();
 
-        return {
-          message: `Roots: ${JSON.stringify(result.roots, null, 2)}`,
-          roots: result.roots,
-        };
+        return toToolResult(`Roots: ${JSON.stringify(result.roots, null, 2)}`);
       } catch (error) {
-        return {
-          message: `Error listing roots: ${error instanceof Error ? error.message : String(error)}`,
-          error: true,
-        };
+        return toToolResult(
+          `Error listing roots: ${error instanceof Error ? error.message : String(error)}`,
+          true,
+        );
       }
     },
   };
@@ -311,20 +324,20 @@ export function createCollectFormElicitationTool(): ToolDefinition {
       message: z
         .string()
         .describe("Message to send in the elicitation request"),
-      schema: z.any().describe("JSON schema for the elicitation request"),
+      schema: z.unknown().describe("JSON schema for the elicitation request"),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
-    ): Promise<any> => {
+    ): Promise<CallToolResult> => {
       if (!context) {
         throw new Error("Server context not available");
       }
       const server = context.server;
 
-      // TODO: The fact that param attributes are "any" is not ideal
       const message = params.message as string;
-      const schema = params.schema as any; // TODO: This is also not ideal
+      const schema =
+        params.schema as ElicitRequestFormParams["requestedSchema"];
 
       // Send a form-based elicitation request using the SDK's elicitInput method
       try {
@@ -335,9 +348,7 @@ export function createCollectFormElicitationTool(): ToolDefinition {
 
         const result = await server.server.elicitInput(elicitationParams);
 
-        return {
-          message: `Elicitation response: ${JSON.stringify(result)}`,
-        };
+        return toToolResult(`Elicitation response: ${JSON.stringify(result)}`);
       } catch (error) {
         console.error(
           "[collectElicitation] Error sending/receiving elicitation request:",
@@ -368,9 +379,9 @@ export function createUrlElicitationFormTool(): ToolDefinition {
         ),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
-    ): Promise<any> => {
+    ): Promise<CallToolResult> => {
       if (!context) {
         throw new Error("Server context not available");
       }
@@ -459,17 +470,13 @@ export function createUrlElicitationFormTool(): ToolDefinition {
 
         if (result.action !== "accept") {
           httpServer.close();
-          return {
-            message: `Elicitation ${result.action}: user did not accept`,
-            action: result.action,
-          };
+          return toToolResult(
+            `Elicitation ${result.action}: user did not accept`,
+          );
         }
 
         const collectedValue = await formDataPromise;
-        return {
-          message: `Collected value: ${collectedValue}`,
-          value: collectedValue,
-        };
+        return toToolResult(`Collected value: ${collectedValue}`);
       } catch (error) {
         httpServer.close();
         throw error;
@@ -498,9 +505,9 @@ export function createCollectUrlElicitationTool(): ToolDefinition {
         .describe("Optional elicitation ID (generated if not provided)"),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
-    ): Promise<any> => {
+    ): Promise<CallToolResult> => {
       if (!context) {
         throw new Error("Server context not available");
       }
@@ -523,9 +530,9 @@ export function createCollectUrlElicitationTool(): ToolDefinition {
 
         const result = await server.server.elicitInput(elicitationParams);
 
-        return {
-          message: `URL elicitation response: ${JSON.stringify(result)}`,
-        };
+        return toToolResult(
+          `URL elicitation response: ${JSON.stringify(result)}`,
+        );
       } catch (error) {
         console.error(
           "[collect_url_elicitation] Error sending/receiving URL elicitation request:",
@@ -561,9 +568,9 @@ export function createSendNotificationTool(): ToolDefinition {
         .describe("Log level for the notification"),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
-    ): Promise<any> => {
+    ): Promise<CallToolResult> => {
       if (!context) {
         throw new Error("Server context not available");
       }
@@ -586,9 +593,7 @@ export function createSendNotificationTool(): ToolDefinition {
           },
         });
 
-        return {
-          message: `Notification sent: ${message}`,
-        };
+        return toToolResult(`Notification sent: ${message}`);
       } catch (error) {
         console.error("[send_notification] Error sending notification:", error);
         throw error;
@@ -613,7 +618,10 @@ export function createGetAnnotatedMessageTool(): ToolDefinition {
         .optional()
         .describe("Whether to include an image"),
     },
-    handler: async (params: Record<string, any>, _server?: any) => {
+    handler: async (
+      params: Record<string, unknown>,
+      _context?: TestServerContext,
+    ): Promise<CallToolResult> => {
       const messageType = params.messageType as string;
       const includeImage = params.includeImage as boolean | undefined;
       const message = `This is a ${messageType} message`;
@@ -661,7 +669,7 @@ export function createGetTempTool(): ToolDefinition {
       units: z.enum(["C", "F"]).describe("Temperature units"),
     },
     outputSchema: GetTempOutputSchema,
-    handler: async (params: Record<string, any>) => {
+    handler: async (params: Record<string, unknown>) => {
       const city = (params.city as string) || "Unknown";
       const unit = (params.units as "C" | "F") || "C";
       const temperature = 25;
@@ -810,7 +818,7 @@ export function createFileResourceTemplate(
     inputSchema: {
       path: z.string().describe("File path to read"),
     },
-    handler: async (uri: URL, params: Record<string, any>) => {
+    handler: async (uri: URL, params: Record<string, unknown>) => {
       const path = params.path as string;
       // For testing, return a mock file content
       return {
@@ -846,7 +854,7 @@ export function createUserResourceTemplate(
     inputSchema: {
       userId: z.string().describe("User ID"),
     },
-    handler: async (uri: URL, params: Record<string, any>) => {
+    handler: async (uri: URL, params: Record<string, unknown>) => {
       const userId = params.userId as string;
       return {
         contents: [
@@ -888,7 +896,7 @@ export function createAddResourceTool(): ToolDefinition {
       text: z.string().optional().describe("Resource text content"),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
     ) => {
       if (!context) {
@@ -928,10 +936,7 @@ export function createAddResourceTool(): ToolDefinition {
         server.sendResourceListChanged();
       }
 
-      return {
-        message: `Resource ${params.uri} added`,
-        uri: params.uri,
-      };
+      return toToolResult(`Resource ${params.uri} added`);
     },
   };
 }
@@ -948,7 +953,7 @@ export function createRemoveResourceTool(): ToolDefinition {
       uri: z.string().describe("Resource URI to remove"),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
     ) => {
       if (!context) {
@@ -974,10 +979,7 @@ export function createRemoveResourceTool(): ToolDefinition {
         server.sendResourceListChanged();
       }
 
-      return {
-        message: `Resource ${params.uri} removed`,
-        uri: params.uri,
-      };
+      return toToolResult(`Resource ${params.uri} removed`);
     },
   };
 }
@@ -992,10 +994,10 @@ export function createAddToolTool(): ToolDefinition {
     inputSchema: {
       name: z.string().describe("Tool name"),
       description: z.string().describe("Tool description"),
-      inputSchema: z.any().optional().describe("Tool input schema"),
+      inputSchema: z.unknown().optional().describe("Tool input schema"),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
     ) => {
       if (!context) {
@@ -1009,7 +1011,7 @@ export function createAddToolTool(): ToolDefinition {
         params.name as string,
         {
           description: params.description as string,
-          inputSchema: params.inputSchema,
+          inputSchema: params.inputSchema as ZodRawShapeCompat | undefined,
         },
         async () => {
           return {
@@ -1035,10 +1037,7 @@ export function createAddToolTool(): ToolDefinition {
         server.sendToolListChanged();
       }
 
-      return {
-        message: `Tool ${params.name} added`,
-        name: params.name,
-      };
+      return toToolResult(`Tool ${params.name} added`);
     },
   };
 }
@@ -1055,7 +1054,7 @@ export function createRemoveToolTool(): ToolDefinition {
       name: z.string().describe("Tool name to remove"),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
     ) => {
       if (!context) {
@@ -1081,10 +1080,7 @@ export function createRemoveToolTool(): ToolDefinition {
         server.sendToolListChanged();
       }
 
-      return {
-        message: `Tool ${params.name} removed`,
-        name: params.name,
-      };
+      return toToolResult(`Tool ${params.name} removed`);
     },
   };
 }
@@ -1101,10 +1097,10 @@ export function createAddPromptTool(): ToolDefinition {
       name: z.string().describe("Prompt name"),
       description: z.string().optional().describe("Prompt description"),
       promptString: z.string().describe("Prompt text"),
-      argsSchema: z.any().optional().describe("Prompt arguments schema"),
+      argsSchema: z.unknown().optional().describe("Prompt arguments schema"),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
     ) => {
       if (!context) {
@@ -1118,7 +1114,7 @@ export function createAddPromptTool(): ToolDefinition {
         params.name as string,
         {
           description: params.description as string | undefined,
-          argsSchema: params.argsSchema,
+          argsSchema: params.argsSchema as ZodRawShapeCompat | undefined,
         },
         async () => {
           return {
@@ -1143,10 +1139,7 @@ export function createAddPromptTool(): ToolDefinition {
         server.sendPromptListChanged();
       }
 
-      return {
-        message: `Prompt ${params.name} added`,
-        name: params.name,
-      };
+      return toToolResult(`Prompt ${params.name} added`);
     },
   };
 }
@@ -1164,7 +1157,7 @@ export function createUpdateResourceTool(): ToolDefinition {
       text: z.string().describe("New resource text content"),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
     ) => {
       if (!context) {
@@ -1208,10 +1201,7 @@ export function createUpdateResourceTool(): ToolDefinition {
         });
       }
 
-      return {
-        message: `Resource ${params.uri} updated`,
-        uri: params.uri,
-      };
+      return toToolResult(`Resource ${params.uri} updated`);
     },
   };
 }
@@ -1252,10 +1242,10 @@ export function createSendProgressTool(
         .describe("Progress message to include in notifications"),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
-      extra?: any,
-    ): Promise<any> => {
+      extra?: RequestHandlerExtra<ServerRequest, ServerNotification>,
+    ): Promise<CallToolResult> => {
       if (!context) {
         throw new Error("Server context not available");
       }
@@ -1317,11 +1307,9 @@ export function createSendProgressTool(
         }
       }
 
-      return {
-        message: `Completed ${sent} progress notifications`,
-        units: sent,
-        total: total || units,
-      };
+      return toToolResult(
+        `Completed ${sent} progress notifications (units: ${sent}, total: ${total ?? units})`,
+      );
     },
   };
 }
@@ -1335,7 +1323,7 @@ export function createRemovePromptTool(): ToolDefinition {
       name: z.string().describe("Prompt name to remove"),
     },
     handler: async (
-      params: Record<string, any>,
+      params: Record<string, unknown>,
       context?: TestServerContext,
     ) => {
       if (!context) {
@@ -1361,10 +1349,7 @@ export function createRemovePromptTool(): ToolDefinition {
         server.sendPromptListChanged();
       }
 
-      return {
-        message: `Prompt ${params.name} removed`,
-        name: params.name,
-      };
+      return toToolResult(`Prompt ${params.name} removed`);
     },
   };
 }
@@ -1680,13 +1665,13 @@ export function createImmediateTool(
       message: z.string().optional().describe("Optional message parameter"),
     },
     handler: async (
-      params: Record<string, any>,
-      context?: TestServerContext,
-    ): Promise<any> => {
+      params: Record<string, unknown>,
+      _context?: TestServerContext,
+    ): Promise<CallToolResult> => {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
-      return {
-        message: `Task completed immediately: ${params.message || "no message"}`,
-      };
+      return toToolResult(
+        `Task completed immediately: ${params.message ?? "no message"}`,
+      );
     },
   };
 }
@@ -1707,7 +1692,7 @@ export function createTaskTool(
     },
     handler: {
       createTask: async (args, extra) => {
-        const message = (args as Record<string, any>)?.message as
+        const message = (args as Record<string, unknown>)?.message as
           | string
           | undefined;
         const progressToken = extra._meta?.progressToken;

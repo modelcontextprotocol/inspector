@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tabs } from "../src/components/Tabs.js";
+import { tabs } from "../src/components/tabsConfig.js";
 
 describe("TUI", () => {
   it("exports tabs with expected shape", () => {

@@ -5,6 +5,7 @@
  * Integrates with Express apps to add OAuth endpoints and Bearer token verification.
  */
 
+import crypto from "node:crypto";
 import type { Request, Response } from "express";
 import express from "express";
 import type { ServerConfig } from "./composable-test-server.js";
@@ -20,27 +21,23 @@ export type OAuthConfig = NonNullable<ServerConfig["oauth"]>;
  *
  * @param app - Express application
  * @param config - OAuth configuration
- * @param baseUrl - Base URL of the test server (for constructing issuer URL)
  */
 export function setupOAuthRoutes(
   app: express.Application,
   config: OAuthConfig,
-  baseUrl: string,
 ): void {
-  const issuerUrl = config.issuerUrl || new URL(baseUrl);
-
   // OAuth metadata endpoints (RFC 8414)
-  setupMetadataEndpoints(app, config, issuerUrl);
+  setupMetadataEndpoints(app, config);
 
   // OAuth authorization endpoint
-  setupAuthorizationEndpoint(app, config, issuerUrl);
+  setupAuthorizationEndpoint(app, config);
 
   // OAuth token endpoint
-  setupTokenEndpoint(app, config, issuerUrl);
+  setupTokenEndpoint(app, config);
 
   // Dynamic Client Registration endpoint (if enabled)
   if (config.supportDCR) {
-    setupDCREndpoint(app, config, issuerUrl);
+    setupDCREndpoint(app);
   }
 }
 
@@ -81,7 +78,7 @@ export function createBearerTokenMiddleware(
     const token = authHeader.substring(7); // Remove "Bearer " prefix
 
     // Verify token (simplified for test server - in production, use proper JWT verification)
-    if (!isValidToken(token, config)) {
+    if (!isValidToken(token)) {
       // Return 401 - the SDK's transport should detect this and throw an error
       res.status(401);
       res.setHeader("Content-Type", "application/json");
@@ -99,7 +96,7 @@ export function createBearerTokenMiddleware(
     }
 
     // Attach token info to request for use in handlers
-    (req as any).oauthToken = token;
+    (req as Request & { oauthToken?: string }).oauthToken = token;
     next();
   };
 }
@@ -110,7 +107,6 @@ export function createBearerTokenMiddleware(
 function setupMetadataEndpoints(
   app: express.Application,
   config: OAuthConfig,
-  issuerUrl: URL,
 ): void {
   const scopes = config.scopesSupported || ["mcp"];
 
@@ -169,7 +165,6 @@ function setupMetadataEndpoints(
 function setupAuthorizationEndpoint(
   app: express.Application,
   config: OAuthConfig,
-  issuerUrl: URL,
 ): void {
   app.get("/oauth/authorize", async (req: Request, res: Response) => {
     const {
@@ -225,10 +220,7 @@ function setupAuthorizationEndpoint(
     }
 
     // For test servers, auto-approve and generate authorization code
-    const authCode = generateAuthorizationCode(
-      client_id as string,
-      code_challenge as string | undefined,
-    );
+    const authCode = generateAuthorizationCode();
 
     // Store authorization code temporarily (in production, use proper storage)
     storeAuthorizationCode(authCode, {
@@ -255,7 +247,6 @@ function setupAuthorizationEndpoint(
 function setupTokenEndpoint(
   app: express.Application,
   config: OAuthConfig,
-  issuerUrl: URL,
 ): void {
   app.post(
     "/oauth/token",
@@ -340,7 +331,6 @@ function setupTokenEndpoint(
             return;
           }
           // Proper PKCE verification: code_challenge should be base64url(SHA256(code_verifier))
-          const crypto = require("node:crypto");
           const hash = crypto
             .createHash("sha256")
             .update(code_verifier)
@@ -361,10 +351,16 @@ function setupTokenEndpoint(
         }
 
         // Generate access token
-        const accessToken = generateAccessToken(client_id, authCodeData.scope);
+        const accessToken = generateAccessToken();
         const tokenExpiration = config.tokenExpirationSeconds || 3600;
 
-        const response: any = {
+        const response: {
+          access_token: string;
+          token_type: string;
+          expires_in: number;
+          scope: string;
+          refresh_token?: string;
+        } = {
           access_token: accessToken,
           token_type: "Bearer",
           expires_in: tokenExpiration,
@@ -373,7 +369,7 @@ function setupTokenEndpoint(
 
         // Add refresh token if supported
         if (config.supportRefreshTokens !== false) {
-          const refreshToken = generateRefreshToken(client_id);
+          const refreshToken = generateRefreshToken();
           response.refresh_token = refreshToken;
           storeRefreshToken(refreshToken, {
             clientId: client_id,
@@ -395,10 +391,7 @@ function setupTokenEndpoint(
           return;
         }
 
-        const accessToken = generateAccessToken(
-          client_id,
-          refreshTokenData.scope,
-        );
+        const accessToken = generateAccessToken();
         const tokenExpiration = config.tokenExpirationSeconds || 3600;
 
         res.json({
@@ -417,11 +410,7 @@ function setupTokenEndpoint(
 /**
  * Set up Dynamic Client Registration endpoint
  */
-function setupDCREndpoint(
-  app: express.Application,
-  config: OAuthConfig,
-  issuerUrl: URL,
-): void {
+function setupDCREndpoint(app: express.Application): void {
   app.post("/oauth/register", express.json(), (req: Request, res: Response) => {
     const { redirect_uris, client_name, scope } = req.body;
 
@@ -576,10 +565,7 @@ async function findClient(
   return null;
 }
 
-function generateAuthorizationCode(
-  clientId: string,
-  codeChallenge?: string,
-): string {
+function generateAuthorizationCode(): string {
   return `test_auth_code_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 }
 
@@ -610,13 +596,13 @@ function getAuthorizationCode(code: string): AuthorizationCodeData | null {
   return data;
 }
 
-function generateAccessToken(clientId: string, scope?: string): string {
+function generateAccessToken(): string {
   const token = `test_access_token_${Date.now()}_${Math.random().toString(36).substring(7)}`;
   accessTokens.add(token);
   return token;
 }
 
-function generateRefreshToken(clientId: string): string {
+function generateRefreshToken(): string {
   return `test_refresh_token_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 }
 
@@ -640,7 +626,7 @@ function registerClient(clientId: string, client: RegisteredClient): void {
   registeredClients.set(clientId, client);
 }
 
-function isValidToken(token: string, config: OAuthConfig): boolean {
+function isValidToken(token: string): boolean {
   // Simplified token validation for test server
   // In production, verify JWT signature, expiration, etc.
   return accessTokens.has(token);

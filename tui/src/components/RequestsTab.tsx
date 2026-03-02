@@ -16,7 +16,6 @@ interface RequestsTabProps {
 }
 
 export function RequestsTab({
-  serverName,
   requests,
   width,
   height,

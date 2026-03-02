@@ -55,8 +55,6 @@ function createTestOAuthConfig(
   };
 }
 
-type TransportType = "sse" | "streamable-http";
-
 interface TransportConfig {
   name: string;
   serverType: "sse" | "streamable-http";

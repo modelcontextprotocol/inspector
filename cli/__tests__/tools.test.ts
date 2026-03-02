@@ -29,7 +29,7 @@ describe("Tool Tests", () => {
       expect(json.tools[0]).toHaveProperty("name");
       expect(json.tools[0]).toHaveProperty("description");
       // Validate expected tools from test-mcp-server
-      const toolNames = json.tools.map((tool: any) => tool.name);
+      const toolNames = json.tools.map((tool: { name: string }) => tool.name);
       expect(toolNames).toContain("echo");
       expect(toolNames).toContain("get_sum");
       expect(toolNames).toContain("get_annotated_message");
@@ -133,7 +133,9 @@ describe("Tool Tests", () => {
       expect(Array.isArray(json.content)).toBe(true);
       // Should have both text and image content
       expect(json.content.length).toBeGreaterThan(1);
-      const hasImage = json.content.some((item: any) => item.type === "image");
+      const hasImage = json.content.some(
+        (item: { type?: string }) => item.type === "image",
+      );
       expect(hasImage).toBe(true);
     });
 
@@ -157,7 +159,9 @@ describe("Tool Tests", () => {
       expect(json).toHaveProperty("content");
       expect(Array.isArray(json.content)).toBe(true);
       // Should only have text content, no image
-      const hasImage = json.content.some((item: any) => item.type === "image");
+      const hasImage = json.content.some(
+        (item: { type?: string }) => item.type === "image",
+      );
       expect(hasImage).toBe(false);
       // test-mcp-server returns "This is a {messageType} message"
       expect(json.content[0].text.toLowerCase()).toContain("error");

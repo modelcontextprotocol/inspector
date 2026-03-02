@@ -15,8 +15,6 @@ import type {
   Resource,
   ResourceTemplate,
   Prompt,
-  ResourceReference,
-  PromptReference,
 } from "@modelcontextprotocol/sdk/types.js";
 
 export interface UseInspectorClientResult {

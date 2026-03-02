@@ -16,6 +16,13 @@ import type {
   InspectorClientOptions,
   InspectorClientEnvironment,
 } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import type {
+  Tool,
+  Resource,
+  Prompt,
+  PromptArgument,
+  GetPromptResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import {
   loadMcpServersConfig,
@@ -33,7 +40,8 @@ import {
 } from "@modelcontextprotocol/inspector-core/auth/node/index.js";
 import { tuiLogger } from "./logger.js";
 import { openUrl } from "./utils/openUrl.js";
-import { Tabs, type TabType, tabs as tabList } from "./components/Tabs.js";
+import { Tabs } from "./components/Tabs.js";
+import { type TabType, tabs as tabList } from "./components/tabsConfig.js";
 import { InfoTab } from "./components/InfoTab.js";
 import { AuthTab } from "./components/AuthTab.js";
 import { ResourcesTab } from "./components/ResourcesTab.js";
@@ -153,7 +161,7 @@ function App({
 
   // Tool test modal state
   const [toolTestModal, setToolTestModal] = useState<{
-    tool: any;
+    tool: Tool;
     inspectorClient: InspectorClient | null;
   } | null>(null);
 
@@ -169,11 +177,7 @@ function App({
 
   // Prompt test modal state
   const [promptTestModal, setPromptTestModal] = useState<{
-    prompt: {
-      name: string;
-      description?: string;
-      arguments?: any[];
-    };
+    prompt: Prompt;
     inspectorClient: InspectorClient | null;
   } | null>(null);
 
@@ -349,7 +353,7 @@ function App({
       await connectInspector();
       // InspectorClient automatically fetches server data (capabilities, tools, resources, resource templates, prompts, etc.)
       // on connect, so we don't need to do anything here
-    } catch (error) {
+    } catch {
       // Error handling is done by InspectorClient and will be reflected in status
     }
   }, [selectedServer, selectedInspectorClient, connectInspector]);
@@ -434,7 +438,12 @@ function App({
     } finally {
       oauthInProgressRef.current = false;
     }
-  }, [selectedServer, selectedInspectorClient, selectedServerConfig]);
+  }, [
+    selectedServer,
+    selectedInspectorClient,
+    selectedServerConfig,
+    callbackServerBaseOptions,
+  ]);
 
   // OAuth Guided Auth - step-by-step
   const handleGuidedStart = useCallback(async () => {
@@ -499,7 +508,12 @@ function App({
     } finally {
       oauthInProgressRef.current = false;
     }
-  }, [selectedServer, selectedInspectorClient, selectedServerConfig]);
+  }, [
+    selectedServer,
+    selectedInspectorClient,
+    selectedServerConfig,
+    callbackServerBaseOptions,
+  ]);
 
   const handleGuidedAdvance = useCallback(async () => {
     if (!selectedInspectorClient) return;
@@ -588,7 +602,12 @@ function App({
     } finally {
       oauthInProgressRef.current = false;
     }
-  }, [selectedServer, selectedInspectorClient, selectedServerConfig]);
+  }, [
+    selectedServer,
+    selectedInspectorClient,
+    selectedServerConfig,
+    callbackServerBaseOptions,
+  ]);
 
   const handleClearOAuth = useCallback(() => {
     if (selectedInspectorClient) {
@@ -642,9 +661,15 @@ function App({
   ]);
 
   // Helper functions to render details modal content
-  const renderResourceDetails = (resource: any) => (
+  const renderResourceDetails = (
+    resource:
+      | Resource
+      | {
+          content: import("@modelcontextprotocol/sdk/types.js").ReadResourceResult;
+        },
+  ) => (
     <>
-      {resource.description && (
+      {"uri" in resource && resource.description && (
         <>
           {resource.description.split("\n").map((line: string, idx: number) => (
             <Box
@@ -657,7 +682,7 @@ function App({
           ))}
         </>
       )}
-      {resource.uri && (
+      {"uri" in resource && resource.uri && (
         <Box marginTop={1} flexShrink={0}>
           <Text bold>URI:</Text>
           <Box paddingLeft={2}>
@@ -665,7 +690,7 @@ function App({
           </Box>
         </Box>
       )}
-      {resource.mimeType && (
+      {"mimeType" in resource && resource.mimeType && (
         <Box marginTop={1} flexShrink={0}>
           <Text bold>MIME Type:</Text>
           <Box paddingLeft={2}>
@@ -682,7 +707,9 @@ function App({
     </>
   );
 
-  const renderPromptDetails = (prompt: any) => (
+  const renderPromptDetails = (
+    prompt: Prompt & { result?: GetPromptResult },
+  ) => (
     <>
       {prompt.description && (
         <>
@@ -702,7 +729,7 @@ function App({
           <Box marginTop={1} flexShrink={0}>
             <Text bold>Arguments:</Text>
           </Box>
-          {prompt.arguments.map((arg: any, idx: number) => (
+          {prompt.arguments.map((arg: PromptArgument, idx: number) => (
             <Box
               key={`arg-${idx}`}
               marginTop={1}
@@ -710,7 +737,8 @@ function App({
               flexShrink={0}
             >
               <Text dimColor>
-                - {arg.name}: {arg.description || arg.type || "string"}
+                - {arg.name}:{" "}
+                {arg.description ?? (arg as { type?: string }).type ?? "string"}
               </Text>
             </Box>
           ))}
@@ -725,7 +753,7 @@ function App({
     </>
   );
 
-  const renderToolDetails = (tool: any) => (
+  const renderToolDetails = (tool: Tool) => (
     <>
       {tool.description && (
         <>
@@ -946,27 +974,16 @@ function App({
     inspectorStderrLogs,
   ]);
 
-  // Keep focus state consistent when switching tabs
+  // Set focus to the default for the active tab whenever the tab changes
   useEffect(() => {
     if (activeTab === "messages") {
-      if (focus === "tabContentList" || focus === "tabContentDetails") {
-        setFocus("messagesList");
-      }
+      setFocus("messagesList");
     } else if (activeTab === "requests") {
-      if (focus === "tabContentList" || focus === "tabContentDetails") {
-        setFocus("requestsList");
-      }
+      setFocus("requestsList");
     } else {
-      if (
-        focus === "messagesList" ||
-        focus === "messagesDetail" ||
-        focus === "requestsList" ||
-        focus === "requestsDetail"
-      ) {
-        setFocus("tabContentList");
-      }
+      setFocus("tabContentList");
     }
-  }, [activeTab]); // intentionally not depending on focus to avoid loops
+  }, [activeTab]);
 
   // Switch away from logging tab if server is not stdio
   useEffect(() => {
@@ -1435,11 +1452,11 @@ function App({
                 }
                 onViewDetails={(resource) =>
                   setDetailsModal({
-                    title: `Resource: ${resource.name || resource.uri || "Unknown"}`,
+                    title: `Resource: ${"uri" in resource ? resource.name || resource.uri || "Unknown" : "Resource content"}`,
                     content: renderResourceDetails(resource),
                   })
                 }
-                onFetchResource={(resource) => {
+                onFetchResource={() => {
                   // Resource fetching is handled internally by ResourcesTab
                   // This callback is just for triggering the fetch
                 }}

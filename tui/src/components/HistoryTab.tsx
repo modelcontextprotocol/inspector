@@ -16,7 +16,6 @@ interface HistoryTabProps {
 }
 
 export function HistoryTab({
-  serverName,
   messages,
   width,
   height,

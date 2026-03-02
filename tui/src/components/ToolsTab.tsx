@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface ToolsTabProps {
-  tools: any[];
+  tools: Tool[];
   isConnected: boolean;
   width: number;
   height: number;
   onCountChange?: (count: number) => void;
   focusedPane?: "list" | "details" | null;
-  onTestTool?: (tool: any) => void;
-  onViewDetails?: (tool: any) => void;
+  onTestTool?: (tool: Tool) => void;
+  onViewDetails?: (tool: Tool) => void;
   modalOpen?: boolean;
 }
 
@@ -20,7 +21,6 @@ export function ToolsTab({
   isConnected,
   width,
   height,
-  onCountChange,
   focusedPane = null,
   onTestTool,
   onViewDetails,
@@ -32,7 +32,7 @@ export function ToolsTab({
     visibleCount,
     { resetWhen: [tools] },
   );
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollViewRef>(null);
   const listWidth = Math.floor(width * 0.4);
   const detailWidth = width - listWidth;
@@ -83,17 +83,6 @@ export function ToolsTab({
         !modalOpen && (focusedPane === "list" || focusedPane === "details"),
     },
   );
-
-  // Helper to calculate content lines for a tool
-  const calculateToolContentLines = (tool: any): number => {
-    let lines = 1; // Name
-    if (tool.description) lines += tool.description.split("\n").length + 1;
-    if (tool.inputSchema) {
-      const schemaStr = JSON.stringify(tool.inputSchema, null, 2);
-      lines += schemaStr.split("\n").length + 2; // +2 for "Input Schema:" label
-    }
-    return lines;
-  };
 
   // Reset scroll when selection changes
   useEffect(() => {

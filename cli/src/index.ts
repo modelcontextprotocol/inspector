@@ -164,11 +164,13 @@ async function callMethod(args: Args): Promise<void> {
   // Read package.json to get name and version for client identity
   const pathA = "../package.json"; // We're in package @modelcontextprotocol/inspector-cli
   const pathB = "../../package.json"; // We're in package @modelcontextprotocol/inspector
-  let packageJson: { name: string; version: string };
-  let packageJsonData = await import(fs.existsSync(pathA) ? pathA : pathB, {
+  const packageJsonData = await import(fs.existsSync(pathA) ? pathA : pathB, {
     with: { type: "json" },
   });
-  packageJson = packageJsonData.default;
+  const packageJson = packageJsonData.default as {
+    name: string;
+    version: string;
+  };
 
   const [, name = packageJson.name] = packageJson.name.split("/");
   const version = packageJson.version;
@@ -285,11 +287,7 @@ async function callMethod(args: Args): Promise<void> {
 
     await awaitableLog(JSON.stringify(result, null, 2));
   } finally {
-    try {
-      await inspectorClient.disconnect();
-    } catch (disconnectError) {
-      throw disconnectError;
-    }
+    await inspectorClient.disconnect();
   }
 }
 
@@ -458,7 +456,7 @@ function parseArgs(): Args {
     toolMetadata?: Record<string, JsonValue>;
   };
 
-  let remainingArgs = program.args;
+  const remainingArgs = program.args;
 
   // Add back any arguments that came after --
   const finalArgs = [...remainingArgs, ...postArgs];

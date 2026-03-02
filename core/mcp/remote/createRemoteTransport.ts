@@ -8,7 +8,6 @@ import type {
   CreateTransportOptions,
   CreateTransportResult,
 } from "../types.js";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { RemoteClientTransport } from "./remoteClientTransport.js";
 
 export interface RemoteTransportFactoryOptions {

@@ -75,78 +75,71 @@ export function InfoTab({
                   serverConfig.type === "stdio" ? (
                     <>
                       <Text dimColor>Type: stdio</Text>
-                      <Text dimColor>
-                        Command: {(serverConfig as any).command}
-                      </Text>
-                      {(serverConfig as any).args &&
-                        (serverConfig as any).args.length > 0 && (
-                          <Box marginTop={1} flexDirection="column">
-                            <Text dimColor>Args:</Text>
-                            {(serverConfig as any).args.map(
-                              (arg: string, idx: number) => (
-                                <Box
-                                  key={`arg-${idx}`}
-                                  paddingLeft={2}
-                                  marginTop={idx === 0 ? 0 : 0}
-                                >
-                                  <Text dimColor>{arg}</Text>
-                                </Box>
-                              ),
-                            )}
-                          </Box>
-                        )}
-                      {(serverConfig as any).env &&
-                        Object.keys((serverConfig as any).env).length > 0 && (
+                      <Text dimColor>Command: {serverConfig.command}</Text>
+                      {serverConfig.args && serverConfig.args.length > 0 && (
+                        <Box marginTop={1} flexDirection="column">
+                          <Text dimColor>Args:</Text>
+                          {serverConfig.args.map((arg: string, idx: number) => (
+                            <Box
+                              key={`arg-${idx}`}
+                              paddingLeft={2}
+                              marginTop={idx === 0 ? 0 : 0}
+                            >
+                              <Text dimColor>{arg}</Text>
+                            </Box>
+                          ))}
+                        </Box>
+                      )}
+                      {serverConfig.env &&
+                        Object.keys(serverConfig.env).length > 0 && (
                           <Box marginTop={1}>
                             <Text dimColor>
                               Env:{" "}
-                              {Object.entries((serverConfig as any).env)
+                              {Object.entries(serverConfig.env)
                                 .map(([k, v]) => `${k}=${v}`)
                                 .join(", ")}
                             </Text>
                           </Box>
                         )}
-                      {(serverConfig as any).cwd && (
+                      {serverConfig.cwd && (
                         <Box marginTop={1}>
-                          <Text dimColor>CWD: {(serverConfig as any).cwd}</Text>
+                          <Text dimColor>CWD: {serverConfig.cwd}</Text>
                         </Box>
                       )}
                     </>
                   ) : serverConfig.type === "sse" ? (
                     <>
                       <Text dimColor>Type: sse</Text>
-                      <Text dimColor>URL: {(serverConfig as any).url}</Text>
-                      {(serverConfig as any).headers &&
-                        Object.keys((serverConfig as any).headers).length >
-                          0 && (
+                      <Text dimColor>URL: {serverConfig.url}</Text>
+                      {serverConfig.headers &&
+                        Object.keys(serverConfig.headers).length > 0 && (
                           <Box marginTop={1}>
                             <Text dimColor>
                               Headers:{" "}
-                              {Object.entries((serverConfig as any).headers)
+                              {Object.entries(serverConfig.headers)
                                 .map(([k, v]) => `${k}=${v}`)
                                 .join(", ")}
                             </Text>
                           </Box>
                         )}
                     </>
-                  ) : (
+                  ) : serverConfig.type === "streamable-http" ? (
                     <>
                       <Text dimColor>Type: streamable-http</Text>
-                      <Text dimColor>URL: {(serverConfig as any).url}</Text>
-                      {(serverConfig as any).headers &&
-                        Object.keys((serverConfig as any).headers).length >
-                          0 && (
+                      <Text dimColor>URL: {serverConfig.url}</Text>
+                      {serverConfig.headers &&
+                        Object.keys(serverConfig.headers).length > 0 && (
                           <Box marginTop={1}>
                             <Text dimColor>
                               Headers:{" "}
-                              {Object.entries((serverConfig as any).headers)
+                              {Object.entries(serverConfig.headers)
                                 .map(([k, v]) => `${k}=${v}`)
                                 .join(", ")}
                             </Text>
                           </Box>
                         )}
                     </>
-                  )}
+                  ) : null}
                 </Box>
               ) : (
                 <Box marginTop={1} paddingLeft={2}>

@@ -3,12 +3,13 @@
  */
 
 import type { FormStructure, FormSection, FormField } from "ink-form";
+import type { PromptArgument } from "@modelcontextprotocol/sdk/types.js";
 
 /**
  * Converts prompt arguments array to ink-form structure
  */
 export function promptArgsToForm(
-  promptArguments: any[],
+  promptArguments: PromptArgument[],
   promptName: string,
 ): FormStructure {
   const fields: FormField[] = [];

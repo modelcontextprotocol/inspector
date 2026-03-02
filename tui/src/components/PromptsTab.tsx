@@ -2,17 +2,22 @@ import React, { useState, useEffect, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import type {
+  Prompt,
+  PromptArgument,
+  GetPromptResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface PromptsTabProps {
-  prompts: any[];
+  prompts: Prompt[];
   inspectorClient: InspectorClient | null;
   width: number;
   height: number;
   onCountChange?: (count: number) => void;
   focusedPane?: "list" | "details" | null;
-  onViewDetails?: (prompt: any) => void;
-  onFetchPrompt?: (prompt: any) => void;
+  onViewDetails?: (prompt: Prompt & { result?: GetPromptResult }) => void;
+  onFetchPrompt?: (prompt: Prompt) => void;
   modalOpen?: boolean;
 }
 
@@ -21,7 +26,6 @@ export function PromptsTab({
   inspectorClient,
   width,
   height,
-  onCountChange,
   focusedPane = null,
   onViewDetails,
   onFetchPrompt,
@@ -221,19 +225,23 @@ export function PromptsTab({
                     <Box marginTop={1} flexShrink={0}>
                       <Text bold>Arguments:</Text>
                     </Box>
-                    {selectedPrompt.arguments.map((arg: any, idx: number) => (
-                      <Box
-                        key={`arg-${idx}`}
-                        marginTop={1}
-                        paddingLeft={2}
-                        flexShrink={0}
-                      >
-                        <Text dimColor>
-                          - {arg.name}:{" "}
-                          {arg.description || arg.type || "string"}
-                        </Text>
-                      </Box>
-                    ))}
+                    {selectedPrompt.arguments.map(
+                      (arg: PromptArgument, idx: number) => (
+                        <Box
+                          key={`arg-${idx}`}
+                          marginTop={1}
+                          paddingLeft={2}
+                          flexShrink={0}
+                        >
+                          <Text dimColor>
+                            - {arg.name}:{" "}
+                            {arg.description ??
+                              (arg as { type?: string }).type ??
+                              "string"}
+                          </Text>
+                        </Box>
+                      ),
+                    )}
                   </>
                 )}
 

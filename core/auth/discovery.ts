@@ -31,7 +31,7 @@ export const discoverScopes = async (
     return scopesSupported && scopesSupported.length > 0
       ? scopesSupported.join(" ")
       : undefined;
-  } catch (error) {
+  } catch {
     return undefined;
   }
 };

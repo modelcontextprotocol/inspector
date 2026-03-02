@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   NodeOAuthStorage,
   getOAuthStore,
-  getStateFilePath,
 } from "../../auth/node/storage-node.js";
 import type {
   OAuthClientInformation,

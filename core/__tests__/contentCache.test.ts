@@ -15,6 +15,7 @@ import type {
   GetPromptResult,
   CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { JsonValue } from "../json/jsonUtils.js";
 
 // Helper functions to create test invocation objects
 function createResourceReadInvocation(
@@ -83,7 +84,7 @@ function createPromptGetInvocation(
 function createToolCallInvocation(
   toolName: string,
   success: boolean = true,
-  params: Record<string, any> = {},
+  params: Record<string, JsonValue> = {},
   timestamp: Date = new Date(),
 ): ToolCallInvocation {
   return {

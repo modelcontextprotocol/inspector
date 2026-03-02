@@ -13,7 +13,7 @@ import { generateOAuthStateWithMode } from "./utils.js";
  * Caller populates the URLs before authenticate() (e.g. from callback server).
  */
 export interface RedirectUrlProvider {
-  getRedirectUrl(mode: "normal" | "guided"): string;
+  getRedirectUrl(mode?: "normal" | "guided"): string;
 }
 
 /**
@@ -23,7 +23,7 @@ export interface RedirectUrlProvider {
 export class MutableRedirectUrlProvider implements RedirectUrlProvider {
   redirectUrl = "";
 
-  getRedirectUrl(_mode: "normal" | "guided"): string {
+  getRedirectUrl(): string {
     return this.redirectUrl;
   }
 }

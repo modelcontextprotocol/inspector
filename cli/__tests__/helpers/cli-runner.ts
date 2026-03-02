@@ -54,11 +54,11 @@ export async function runCli(
             // On Unix, kill the process group
             process.kill(-child.pid!, "SIGTERM");
           }
-        } catch (e) {
+        } catch {
           // Process might already be dead, try direct kill
           try {
             child.kill("SIGKILL");
-          } catch (e2) {
+          } catch {
             // Process is definitely dead
           }
         }

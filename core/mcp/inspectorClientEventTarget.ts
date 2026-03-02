@@ -33,6 +33,7 @@ import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { JsonValue } from "../json/jsonUtils.js";
 
 /**
  * Maps event names to their detail types for CustomEvents
@@ -54,8 +55,8 @@ export interface InspectorClientEventMap {
   progressNotification: Progress & { progressToken?: ProgressToken };
   toolCallResultChange: {
     toolName: string;
-    params: Record<string, any>;
-    result: any;
+    params: Record<string, JsonValue>;
+    result: CallToolResult | null;
     timestamp: Date;
     success: boolean;
     error?: string;
@@ -170,7 +171,7 @@ export class InspectorClientEventTarget extends EventTarget {
   addEventListener(
     type: string,
     listener:
-      | ((event: TypedEvent<any>) => void)
+      | ((event: TypedEvent<keyof InspectorClientEventMap>) => void)
       | EventListenerOrEventListenerObject
       | null,
     options?: boolean | AddEventListenerOptions,
@@ -200,7 +201,7 @@ export class InspectorClientEventTarget extends EventTarget {
   removeEventListener(
     type: string,
     listener:
-      | ((event: TypedEvent<any>) => void)
+      | ((event: TypedEvent<keyof InspectorClientEventMap>) => void)
       | EventListenerOrEventListenerObject
       | null,
     options?: boolean | EventListenerOptions,

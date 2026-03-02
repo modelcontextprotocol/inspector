@@ -1,4 +1,4 @@
-import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { describe, it, expect } from "vitest";
 import { runCli } from "./helpers/cli-runner.js";
 import {
   expectCliSuccess,
@@ -37,7 +37,7 @@ describe("CLI Tests", () => {
       expect(Array.isArray(json.tools)).toBe(true);
 
       // Validate expected tools from test-mcp-server
-      const toolNames = json.tools.map((tool: any) => tool.name);
+      const toolNames = json.tools.map((tool: { name: string }) => tool.name);
       expect(toolNames).toContain("echo");
       expect(toolNames).toContain("get_sum");
       expect(toolNames).toContain("get_annotated_message");
@@ -381,7 +381,7 @@ describe("CLI Tests", () => {
       });
 
       try {
-        const port = await server.start();
+        await server.start();
         const result = await runCli([
           server.url,
           "--cli",
@@ -550,7 +550,6 @@ describe("CLI Tests", () => {
           "test-sse": {
             type: "sse",
             url: "http://localhost:3000/sse",
-            note: "Test SSE server",
           },
         },
       });
@@ -577,7 +576,6 @@ describe("CLI Tests", () => {
           "test-http": {
             type: "streamable-http",
             url: "http://localhost:3001/mcp",
-            note: "Test HTTP server",
           },
         },
       });

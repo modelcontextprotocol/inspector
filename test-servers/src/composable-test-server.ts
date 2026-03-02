@@ -15,6 +15,7 @@ import type {
   Resource,
   ResourceTemplate,
   Prompt,
+  CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   InMemoryTaskStore,
@@ -102,10 +103,10 @@ export interface ToolDefinition {
   /** Optional Zod object schema for tool output; when set, handler must return structuredContent. */
   outputSchema?: unknown;
   handler: (
-    params: Record<string, any>,
+    params: Record<string, unknown>,
     context?: TestServerContext,
     extra?: RequestHandlerExtra<ServerRequest, ServerNotification>,
-  ) => Promise<any>;
+  ) => Promise<CallToolResult>;
 }
 
 export interface TaskToolDefinition {
@@ -147,7 +148,7 @@ export interface ResourceTemplateDefinition {
   inputSchema?: ZodRawShapeCompat; // Schema for template variables
   handler: (
     uri: URL,
-    params: Record<string, any>,
+    params: Record<string, unknown>,
     context?: TestServerContext,
     extra?: RequestHandlerExtra<ServerRequest, ServerNotification>,
   ) => Promise<{
@@ -312,14 +313,14 @@ export interface ServerConfig {
 export function createMcpServer(config: ServerConfig): McpServer {
   // Build capabilities based on config
   const capabilities: {
-    tools?: {};
+    tools?: object;
     resources?: { subscribe?: boolean };
-    prompts?: {};
-    logging?: {};
+    prompts?: object;
+    logging?: object;
     tasks?: {
-      list?: {};
-      cancel?: {};
-      requests?: { tools?: { call?: {} } };
+      list?: object;
+      cancel?: object;
+      requests?: { tools?: { call?: object } };
     };
   } = {};
 
@@ -479,7 +480,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
           },
           async (args, extra) => {
             const result = await tool.handler(
-              args as Record<string, any>,
+              args as Record<string, unknown>,
               context,
               extra,
             );
@@ -641,7 +642,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
         {
           description: template.description,
         },
-        async (uri: URL, variables: Record<string, any>, extra) => {
+        async (uri: URL, variables: Record<string, unknown>, extra) => {
           const result = await template.handler(uri, variables, context, extra);
           return result;
         },
@@ -658,7 +659,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
 
       // If completions callbacks are provided, wrap the corresponding schemas
       if (prompt.completions && argsSchema) {
-        const enhancedSchema: Record<string, any> = { ...argsSchema };
+        const enhancedSchema: ZodRawShapeCompat = { ...argsSchema };
         for (const [argName, completeCallback] of Object.entries(
           prompt.completions,
         )) {
@@ -668,7 +669,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
               enhancedSchema[argName] = completable(
                 enhancedSchema[argName],
                 async (
-                  value: any,
+                  value: unknown,
                   context?: { arguments?: Record<string, string> },
                 ) => {
                   const result = completeCallback(
@@ -738,7 +739,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
         for (const [name, registered] of state.registeredTools.entries()) {
           if (registered.enabled) {
             // Match SDK's approach exactly (mcp.js lines 71-95)
-            const toolDefinition: any = {
+            const toolDefinition: Record<string, unknown> = {
               name,
               title: registered.title,
               description: registered.description,
@@ -826,7 +827,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
                   icons: resource.icons || template.metadata?.icons,
                 } as Resource);
               }
-            } catch (error) {
+            } catch {
               // Ignore errors from list callbacks
             }
           }

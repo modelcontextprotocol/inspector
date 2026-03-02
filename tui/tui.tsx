@@ -92,27 +92,45 @@ export async function runTui(args?: string[]): Promise<void> {
   // Intercept stdout.write to filter out \x1b[3J (Erase Saved Lines)
   // This prevents Ink's clearTerminal from clearing scrollback on macOS Terminal
   // We can't access Ink's internal instance to prevent clearTerminal from being called,
-  // so we filter the escape code instead
+  // so we filter the escape code instead.
+  // Pattern is built with String.fromCharCode(0x1b) instead of a regex literal containing
+  // \x1b so that the source has no control character (satisfies no-control-regex).
+  const ansiEraseSavedLines = new RegExp(
+    String.fromCharCode(0x1b) + "\\[3J",
+    "g",
+  );
   const originalWrite = process.stdout.write.bind(process.stdout);
   process.stdout.write = function (
-    chunk: any,
-    encoding?: any,
-    cb?: any,
+    chunk: string | Buffer,
+    encoding?: BufferEncoding | ((err?: Error) => void),
+    cb?: (err?: Error) => void,
   ): boolean {
     if (typeof chunk === "string") {
-      // Only process if the escape code is present (minimize overhead)
       if (chunk.includes("\x1b[3J")) {
-        chunk = chunk.replace(/\x1b\[3J/g, "");
+        chunk = chunk.replace(ansiEraseSavedLines, "");
       }
     } else if (Buffer.isBuffer(chunk)) {
-      // Only process if the escape code is present (minimize overhead)
       if (chunk.includes("\x1b[3J")) {
         let str = chunk.toString("utf8");
-        str = str.replace(/\x1b\[3J/g, "");
+        str = str.replace(ansiEraseSavedLines, "");
         chunk = Buffer.from(str, "utf8");
       }
     }
-    return originalWrite(chunk, encoding, cb);
+    if (typeof encoding === "function") {
+      return (
+        originalWrite as (
+          chunk: string | Buffer,
+          cb?: (err?: Error) => void,
+        ) => boolean
+      )(chunk, encoding);
+    }
+    return (
+      originalWrite as (
+        chunk: string | Buffer,
+        encoding?: BufferEncoding,
+        cb?: (err?: Error) => void,
+      ) => boolean
+    )(chunk, encoding, cb);
   };
 
   // Enter alternate screen buffer before rendering

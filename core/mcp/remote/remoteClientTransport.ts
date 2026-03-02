@@ -210,7 +210,7 @@ export class RemoteClientTransport implements Transport {
     if (!this.eventStreamReader) return;
 
     try {
-      for await (const { event, data } of parseSSE(this.eventStreamReader)) {
+      for await (const { data } of parseSSE(this.eventStreamReader)) {
         if (this.closed) break;
 
         try {

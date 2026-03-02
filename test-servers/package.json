@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "lint": "prettier --check . && eslint . --max-warnings 0 && echo 'Lint passed.'",
     "test": "vitest run"
   },
   "dependencies": {

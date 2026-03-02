@@ -2,7 +2,7 @@
  * Tests for storage adapters (file, remote).
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { waitForRemoteStore } from "@modelcontextprotocol/inspector-test-server";
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -106,7 +106,6 @@ describe("App - URL Fragment Routing", () => {
 
     window.matchMedia = vi
       .fn()
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- matchMedia(query) signature; mock ignores query
       .mockImplementation((_query: string) =>
         mockMatchMedia(false),
       ) as unknown as typeof window.matchMedia;

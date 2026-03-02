@@ -37,18 +37,19 @@ describe("OAuthNavigation", () => {
 
   describe("BrowserNavigation", () => {
     // Mock window.location for Node.js environment
-    const originalWindow = global.window;
+    type GlobalWithWindow = typeof globalThis & {
+      window?: { location: { href: string } };
+    };
+    const originalWindow = (global as GlobalWithWindow).window;
 
     beforeEach(() => {
-      (global as any).window = {
-        location: {
-          href: "http://localhost:5173",
-        },
-      };
+      (global as GlobalWithWindow).window = {
+        location: { href: "http://localhost:5173" },
+      } as GlobalWithWindow["window"];
     });
 
     afterEach(() => {
-      global.window = originalWindow;
+      (global as GlobalWithWindow).window = originalWindow;
     });
 
     it("should set window.location.href to authorization URL", () => {
@@ -57,11 +58,14 @@ describe("OAuthNavigation", () => {
 
       navigation.navigateToAuthorization(authUrl);
 
-      expect((global as any).window.location.href).toBe(authUrl.toString());
+      expect((global as GlobalWithWindow).window!.location.href).toBe(
+        authUrl.toString(),
+      );
     });
 
     it("should throw error in non-browser environment", () => {
-      delete (global as any).window;
+      (global as GlobalWithWindow).window =
+        undefined as unknown as GlobalWithWindow["window"];
       const navigation = new BrowserNavigation();
       const authUrl = new URL("http://example.com/authorize");
 

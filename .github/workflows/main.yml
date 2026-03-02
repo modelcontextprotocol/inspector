@@ -14,9 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Check formatting
-        run: npx prettier --check .
-
       - uses: actions/setup-node@v6
         with:
           node-version-file: package.json
@@ -29,15 +26,14 @@ jobs:
       - name: Check version consistency
         run: npm run check-version
 
-      - name: Check linting
-        working-directory: ./web
+      - name: Lint
         run: npm run lint
 
-      - name: Run web tests
-        working-directory: ./web
-        run: npm test
+      - name: Build
+        run: npm run build
 
-      - run: npm run build
+      - name: Run tests
+        run: npm test
 
   publish:
     runs-on: ubuntu-latest

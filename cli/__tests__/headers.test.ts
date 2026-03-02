@@ -20,7 +20,7 @@ describe("Header Parsing and Validation", () => {
       });
 
       try {
-        const port = await server.start();
+        await server.start();
         const result = await runCli([
           server.url,
           "--cli",
@@ -58,7 +58,7 @@ describe("Header Parsing and Validation", () => {
       });
 
       try {
-        const port = await server.start();
+        await server.start();
         const result = await runCli([
           server.url,
           "--cli",
@@ -91,7 +91,7 @@ describe("Header Parsing and Validation", () => {
       });
 
       try {
-        const port = await server.start();
+        await server.start();
         const result = await runCli([
           server.url,
           "--cli",
@@ -123,7 +123,7 @@ describe("Header Parsing and Validation", () => {
       });
 
       try {
-        const port = await server.start();
+        await server.start();
         const result = await runCli([
           server.url,
           "--cli",

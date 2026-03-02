@@ -34,13 +34,22 @@ import {
   createProgressTaskTool,
   createTaskTool,
 } from "@modelcontextprotocol/inspector-test-server";
-import type { MessageEntry, ConnectionStatus } from "../mcp/types.js";
+import type {
+  MessageEntry,
+  ConnectionStatus,
+  FetchRequestEntryBase,
+} from "../mcp/types.js";
+import type { InspectorClientEventMap } from "../mcp/inspectorClientEventTarget.js";
+import type { JsonValue } from "../json/jsonUtils.js";
 import type { TypedEvent } from "../mcp/inspectorClientEventTarget.js";
 import type {
   CreateMessageResult,
   ElicitResult,
   CallToolResult,
   Task,
+  Tool,
+  Progress,
+  ContentBlock,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   RELATED_TASK_META_KEY,
@@ -49,7 +58,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 describe("InspectorClient", () => {
-  let client: InspectorClient;
+  let client: InspectorClient | null;
   let server: TestServerHttp | null;
   let serverCommand: { command: string; args: string[] };
 
@@ -67,7 +76,7 @@ describe("InspectorClient", () => {
       } catch {
         // Ignore disconnect errors
       }
-      client = null as any;
+      client = null;
     }
     if (server) {
       try {
@@ -534,7 +543,7 @@ describe("InspectorClient", () => {
         },
       );
 
-      const fetchRequestEvents: any[] = [];
+      const fetchRequestEvents: FetchRequestEntryBase[] = [];
       client.addEventListener("fetchRequest", (event) => {
         fetchRequestEvents.push(event.detail);
       });
@@ -627,7 +636,7 @@ describe("InspectorClient", () => {
         },
       );
 
-      const toolsEvents: any[][] = [];
+      const toolsEvents: Tool[][] = [];
       client.addEventListener("toolsChange", (event) => {
         toolsEvents.push(event.detail);
       });
@@ -656,53 +665,57 @@ describe("InspectorClient", () => {
     });
 
     it("should list tools", async () => {
-      const tools = await client.listAllTools();
+      const tools = await client!.listAllTools();
       expect(Array.isArray(tools)).toBe(true);
       expect(tools.length).toBeGreaterThan(0);
     });
 
     it("should call tool with string arguments", async () => {
-      const result = await client.callTool("echo", {
+      const result = await client!.callTool("echo", {
         message: "hello world",
       });
 
       expect(result).toHaveProperty("result");
       expect(result.success).toBe(true);
       expect(result.result).toHaveProperty("content");
-      const content = result.result!.content as any[];
+      const content = result.result!.content as ContentBlock[];
       expect(Array.isArray(content)).toBe(true);
       expect(content[0]).toHaveProperty("type", "text");
-      expect(content[0].text).toContain("hello world");
+      expect("text" in content[0] && content[0].text).toContain("hello world");
     });
 
     it("should call tool with number arguments", async () => {
-      const result = await client.callTool("get_sum", {
+      const result = await client!.callTool("get_sum", {
         a: 42,
         b: 58,
       });
       expect(result.success).toBe(true);
 
       expect(result.result).toHaveProperty("content");
-      const content = result.result!.content as any[];
-      const resultData = JSON.parse(content[0].text);
+      const content = result.result!.content as ContentBlock[];
+      const resultData = JSON.parse(
+        "text" in content[0] ? content[0].text : "",
+      );
       expect(resultData.result).toBe(100);
     });
 
     it("should call tool with boolean arguments", async () => {
-      const result = await client.callTool("get_annotated_message", {
+      const result = await client!.callTool("get_annotated_message", {
         messageType: "success",
         includeImage: true,
       });
 
       expect(result.result).toHaveProperty("content");
-      const content = result.result!.content as any[];
+      const content = result.result!.content as ContentBlock[];
       expect(content.length).toBeGreaterThan(1);
-      const hasImage = content.some((item: any) => item.type === "image");
+      const hasImage = content.some(
+        (item: ContentBlock) => "type" in item && item.type === "image",
+      );
       expect(hasImage).toBe(true);
     });
 
     it("should return both content and structuredContent for tool with outputSchema (get_temp)", async () => {
-      const result = await client.callTool("get_temp", {
+      const result = await client!.callTool("get_temp", {
         city: "Seattle",
         units: "C",
       });
@@ -734,22 +747,22 @@ describe("InspectorClient", () => {
     });
 
     it("should handle tool not found", async () => {
-      const result = await client.callTool("nonexistent-tool", {});
+      const result = await client!.callTool("nonexistent-tool", {});
       // When tool is not found, the SDK returns an error response, not an exception
       expect(result.success).toBe(true); // SDK returns error in result, not as exception
       expect(result.result).toHaveProperty("isError", true);
       expect(result.result).toBeDefined();
       if (result.result) {
         expect(result.result).toHaveProperty("content");
-        const content = result.result.content as any[];
+        const content = result.result.content as ContentBlock[];
         expect(content[0]).toHaveProperty("text");
-        expect(content[0].text).toContain("not found");
+        expect((content[0] as { text: string }).text).toContain("not found");
       }
     });
 
     it("should paginate tools when maxPageSize is set", async () => {
       // Disconnect and create a new server with pagination
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -814,7 +827,7 @@ describe("InspectorClient", () => {
     });
 
     it("should suppress events during listAllTools pagination and emit final event", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -857,7 +870,7 @@ describe("InspectorClient", () => {
 
     it("should accumulate tools when paginating with cursor", async () => {
       // Disconnect and create a new server with pagination
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -918,7 +931,7 @@ describe("InspectorClient", () => {
     });
 
     it("should emit toolsChange events when paginating", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -963,7 +976,7 @@ describe("InspectorClient", () => {
     });
 
     it("should clear tools and emit event", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1022,16 +1035,16 @@ describe("InspectorClient", () => {
     });
 
     it("should list resources", async () => {
-      const resources = await client.listAllResources();
+      const resources = await client!.listAllResources();
       expect(Array.isArray(resources)).toBe(true);
     });
 
     it("should read resource", async () => {
       // First get list of resources
-      const resources = await client.listAllResources();
+      const resources = await client!.listAllResources();
       if (resources.length > 0) {
         const uri = resources[0]!.uri;
-        const readResult = await client.readResource(uri);
+        const readResult = await client!.readResource(uri);
         expect(readResult).toHaveProperty("result");
         expect(readResult.result).toHaveProperty("contents");
       }
@@ -1039,7 +1052,7 @@ describe("InspectorClient", () => {
 
     it("should paginate resources when maxPageSize is set", async () => {
       // Disconnect and create a new server with pagination
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1104,7 +1117,7 @@ describe("InspectorClient", () => {
     });
 
     it("should suppress events during listAllResources pagination and emit final event", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1147,7 +1160,7 @@ describe("InspectorClient", () => {
 
     it("should accumulate resources when paginating with cursor", async () => {
       // Disconnect and create a new server with pagination
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1208,7 +1221,7 @@ describe("InspectorClient", () => {
     });
 
     it("should emit resourcesChange events when paginating", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1253,7 +1266,7 @@ describe("InspectorClient", () => {
     });
 
     it("should not emit events when suppressEvents is true", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1297,7 +1310,7 @@ describe("InspectorClient", () => {
     });
 
     it("should clear resources and emit event", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1363,7 +1376,7 @@ describe("InspectorClient", () => {
     });
 
     it("should list resource templates", async () => {
-      const resourceTemplates = await client.listAllResourceTemplates();
+      const resourceTemplates = await client!.listAllResourceTemplates();
       expect(Array.isArray(resourceTemplates)).toBe(true);
       expect(resourceTemplates.length).toBeGreaterThan(0);
 
@@ -1375,7 +1388,7 @@ describe("InspectorClient", () => {
 
     it("should read resource from template", async () => {
       // First get the template
-      const templates = await client.listAllResourceTemplates();
+      const templates = await client!.listAllResourceTemplates();
       const fileTemplate = templates.find((t) => t.name === "file");
       expect(fileTemplate).toBeDefined();
 
@@ -1384,7 +1397,7 @@ describe("InspectorClient", () => {
       const expandedUri = "file:///test.txt";
 
       // Read the resource using the expanded URI
-      const readResult = await client.readResource(expandedUri);
+      const readResult = await client!.readResource(expandedUri);
       expect(readResult).toHaveProperty("result");
       expect(readResult.result).toHaveProperty("contents");
       const contents = readResult.result.contents;
@@ -1404,7 +1417,7 @@ describe("InspectorClient", () => {
         return ["file:///file1.txt", "file:///file2.txt", "file:///file3.txt"];
       };
 
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1444,7 +1457,7 @@ describe("InspectorClient", () => {
 
     it("should paginate resource templates when maxPageSize is set", async () => {
       // Disconnect and create a new server with pagination
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1530,7 +1543,7 @@ describe("InspectorClient", () => {
 
     it("should accumulate resource templates when paginating with cursor", async () => {
       // Disconnect and create a new server with pagination
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1605,7 +1618,7 @@ describe("InspectorClient", () => {
     });
 
     it("should clear resource templates and emit event", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1664,13 +1677,13 @@ describe("InspectorClient", () => {
     });
 
     it("should list prompts", async () => {
-      const prompts = await client.listAllPrompts();
+      const prompts = await client!.listAllPrompts();
       expect(Array.isArray(prompts)).toBe(true);
     });
 
     it("should paginate prompts when maxPageSize is set", async () => {
       // Disconnect and create a new server with pagination
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1735,7 +1748,7 @@ describe("InspectorClient", () => {
     });
 
     it("should suppress events during listAllPrompts pagination and emit final event", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1778,7 +1791,7 @@ describe("InspectorClient", () => {
 
     it("should accumulate prompts when paginating with cursor", async () => {
       // Disconnect and create a new server with pagination
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1839,7 +1852,7 @@ describe("InspectorClient", () => {
     });
 
     it("should emit promptsChange events when paginating", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1884,7 +1897,7 @@ describe("InspectorClient", () => {
     });
 
     it("should clear prompts and emit event", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       if (server) {
         await server.stop();
       }
@@ -1994,7 +2007,7 @@ describe("InspectorClient", () => {
         progressToken: progressToken.toString(),
       });
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -2023,7 +2036,7 @@ describe("InspectorClient", () => {
 
       await client.connect();
 
-      const progressEvents: any[] = [];
+      const progressEvents: Progress[] = [];
       const progressListener = (event: TypedEvent<"progressNotification">) => {
         progressEvents.push(event.detail);
       };
@@ -2051,7 +2064,7 @@ describe("InspectorClient", () => {
       // Verify no progress events were received
       expect(progressEvents.length).toBe(0);
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -2112,7 +2125,7 @@ describe("InspectorClient", () => {
       });
       expect((progressEvents[1] as { total?: number }).total).toBeUndefined();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -2408,7 +2421,7 @@ describe("InspectorClient", () => {
       // Set up Promise to wait for sampling request event
       const samplingRequestPromise = new Promise<SamplingCreateMessage>(
         (resolve) => {
-          client.addEventListener(
+          client!.addEventListener(
             "newPendingSample",
             (event) => {
               resolve(event.detail);
@@ -2465,7 +2478,7 @@ describe("InspectorClient", () => {
       expect(toolResult.result).toBeDefined();
       expect(toolResult.result!.content).toBeDefined();
       expect(Array.isArray(toolResult.result!.content)).toBe(true);
-      const toolContent = toolResult.result!.content as any[];
+      const toolContent = toolResult.result!.content as ContentBlock[];
       expect(toolContent.length).toBeGreaterThan(0);
       const toolMessage = toolContent[0];
       expect(toolMessage).toBeDefined();
@@ -2502,7 +2515,7 @@ describe("InspectorClient", () => {
 
       // Set up Promise to wait for notification
       const notificationPromise = new Promise<MessageEntry>((resolve) => {
-        client.addEventListener("message", (event) => {
+        client!.addEventListener("message", (event) => {
           const entry = event.detail;
           if (entry.direction === "notification") {
             resolve(entry);
@@ -2525,8 +2538,13 @@ describe("InspectorClient", () => {
       if ("method" in notificationEntry.message) {
         expect(notificationEntry.message.method).toBe("notifications/message");
         if ("params" in notificationEntry.message) {
-          const params = notificationEntry.message.params as any;
-          expect(params.data.message).toBe("Test notification from stdio");
+          const params = notificationEntry.message.params as Record<
+            string,
+            unknown
+          >;
+          expect((params.data as { message: string }).message).toBe(
+            "Test notification from stdio",
+          );
           expect(params.level).toBe("info");
           expect(params.logger).toBe("test-server");
         }
@@ -2560,7 +2578,7 @@ describe("InspectorClient", () => {
 
       // Set up Promise to wait for notification
       const notificationPromise = new Promise<MessageEntry>((resolve) => {
-        client.addEventListener("message", (event) => {
+        client!.addEventListener("message", (event) => {
           const entry = event.detail;
           if (entry.direction === "notification") {
             resolve(entry);
@@ -2583,8 +2601,13 @@ describe("InspectorClient", () => {
       if ("method" in notificationEntry.message) {
         expect(notificationEntry.message.method).toBe("notifications/message");
         if ("params" in notificationEntry.message) {
-          const params = notificationEntry.message.params as any;
-          expect(params.data.message).toBe("Test notification from SSE");
+          const params = notificationEntry.message.params as Record<
+            string,
+            unknown
+          >;
+          expect((params.data as { message: string }).message).toBe(
+            "Test notification from SSE",
+          );
           expect(params.level).toBe("warning");
           expect(params.logger).toBe("test-server");
         }
@@ -2618,7 +2641,7 @@ describe("InspectorClient", () => {
 
       // Set up Promise to wait for notification
       const notificationPromise = new Promise<MessageEntry>((resolve) => {
-        client.addEventListener("message", (event) => {
+        client!.addEventListener("message", (event) => {
           const entry = event.detail;
           if (entry.direction === "notification") {
             resolve(entry);
@@ -2641,8 +2664,11 @@ describe("InspectorClient", () => {
       if ("method" in notificationEntry.message) {
         expect(notificationEntry.message.method).toBe("notifications/message");
         if ("params" in notificationEntry.message) {
-          const params = notificationEntry.message.params as any;
-          expect(params.data.message).toBe(
+          const params = notificationEntry.message.params as Record<
+            string,
+            unknown
+          >;
+          expect((params.data as { message: string }).message).toBe(
             "Test notification from streamable-http",
           );
           expect(params.level).toBe("error");
@@ -2681,7 +2707,7 @@ describe("InspectorClient", () => {
       // Set up Promise to wait for elicitation request event
       const elicitationRequestPromise = new Promise<ElicitationCreateMessage>(
         (resolve) => {
-          client.addEventListener(
+          client!.addEventListener(
             "newPendingElicitation",
             (event) => {
               resolve(event.detail);
@@ -2740,7 +2766,7 @@ describe("InspectorClient", () => {
       expect(toolResult.result).toBeDefined();
       expect(toolResult.result!.content).toBeDefined();
       expect(Array.isArray(toolResult.result!.content)).toBe(true);
-      const toolContent = toolResult.result!.content as any[];
+      const toolContent = toolResult.result!.content as ContentBlock[];
       expect(toolContent.length).toBeGreaterThan(0);
       const toolMessage = toolContent[0];
       expect(toolMessage).toBeDefined();
@@ -2784,7 +2810,7 @@ describe("InspectorClient", () => {
       // Set up Promise to wait for elicitation request event
       const elicitationRequestPromise = new Promise<ElicitationCreateMessage>(
         (resolve) => {
-          client.addEventListener(
+          client!.addEventListener(
             "newPendingElicitation",
             (event) => {
               resolve(event.detail);
@@ -2839,7 +2865,7 @@ describe("InspectorClient", () => {
       expect(toolResult.result).toBeDefined();
       expect(toolResult.result!.content).toBeDefined();
       expect(Array.isArray(toolResult.result!.content)).toBe(true);
-      const toolContent = toolResult.result!.content as any[];
+      const toolContent = toolResult.result!.content as ContentBlock[];
       expect(toolContent.length).toBeGreaterThan(0);
       const toolMessage = toolContent[0];
       expect(toolMessage).toBeDefined();
@@ -2881,7 +2907,7 @@ describe("InspectorClient", () => {
 
       // Track pendingElicitationsChange events: expect [1] when elicitation arrives, [0] when complete notification received
       const pendingElicitationsChangeEvents: ElicitationCreateMessage[][] = [];
-      client.addEventListener(
+      client!.addEventListener(
         "pendingElicitationsChange",
         (event: TypedEvent<"pendingElicitationsChange">) => {
           pendingElicitationsChangeEvents.push([...event.detail]);
@@ -2890,7 +2916,7 @@ describe("InspectorClient", () => {
 
       const elicitationRequestPromise = new Promise<ElicitationCreateMessage>(
         (resolve) => {
-          client.addEventListener(
+          client!.addEventListener(
             "newPendingElicitation",
             (event) => resolve(event.detail),
             { once: true },
@@ -2996,7 +3022,7 @@ describe("InspectorClient", () => {
       expect(toolResult.result).toBeDefined();
       expect(toolResult.result!.content).toBeDefined();
       expect(Array.isArray(toolResult.result!.content)).toBe(true);
-      const toolContent = toolResult.result!.content as any[];
+      const toolContent = toolResult.result!.content as ContentBlock[];
       expect(toolContent.length).toBeGreaterThan(0);
       const toolMessage = toolContent[0];
       expect(toolMessage).toBeDefined();
@@ -3064,7 +3090,7 @@ describe("InspectorClient", () => {
 
       // Verify rootsChange event was dispatched
       const rootsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "rootsChange",
           (event) => {
             resolve(event);
@@ -3087,7 +3113,7 @@ describe("InspectorClient", () => {
       );
       expect(secondNotification.length).toBeGreaterThanOrEqual(1);
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
   });
@@ -3139,10 +3165,7 @@ describe("InspectorClient", () => {
 
     it("should get completions for prompt argument", async () => {
       // Create a test server with a prompt that has completion support
-      const cityCompletions = (
-        value: string,
-        _context?: Record<string, string>,
-      ): string[] => {
+      const cityCompletions = (value: string): string[] => {
         const cities = ["New York", "Los Angeles", "Chicago", "Houston"];
         return cities.filter((c) =>
           c.toLowerCase().startsWith(value.toLowerCase()),
@@ -3456,7 +3479,9 @@ describe("InspectorClient", () => {
 
       const uri = "file:///test.txt";
       let eventReceived = false;
-      let eventDetail: any = null;
+      let eventDetail:
+        | InspectorClientEventMap[keyof InspectorClientEventMap]
+        | null = null;
 
       client.addEventListener(
         "resourceContentChange",
@@ -3476,9 +3501,12 @@ describe("InspectorClient", () => {
 
       // Verify event was dispatched
       expect(eventReceived).toBe(true);
-      expect(eventDetail.uri).toBe(uri);
-      expect(eventDetail.content).toBe(invocation);
-      expect(eventDetail.timestamp).toBeInstanceOf(Date);
+      expect(eventDetail).not.toBeNull();
+      const detail =
+        eventDetail! as InspectorClientEventMap["resourceContentChange"];
+      expect(detail.uri).toBe(uri);
+      expect(detail.content).toBe(invocation);
+      expect(detail.timestamp).toBeInstanceOf(Date);
 
       await client.disconnect();
     });
@@ -3504,7 +3532,9 @@ describe("InspectorClient", () => {
 
       const params = { path: "test.txt" };
       let eventReceived = false;
-      let eventDetail: any = null;
+      let eventDetail:
+        | InspectorClientEventMap[keyof InspectorClientEventMap]
+        | null = null;
 
       client.addEventListener(
         "resourceTemplateContentChange",
@@ -3527,10 +3557,13 @@ describe("InspectorClient", () => {
 
       // Verify event was dispatched
       expect(eventReceived).toBe(true);
-      expect(eventDetail.uriTemplate).toBe(template.uriTemplate);
-      expect(eventDetail.content).toBe(invocation);
-      expect(eventDetail.params).toEqual(params);
-      expect(eventDetail.timestamp).toBeInstanceOf(Date);
+      expect(eventDetail).not.toBeNull();
+      const detail =
+        eventDetail! as InspectorClientEventMap["resourceTemplateContentChange"];
+      expect(detail.uriTemplate).toBe(template.uriTemplate);
+      expect(detail.content).toBe(invocation);
+      expect(detail.params).toEqual(params);
+      expect(detail.timestamp).toBeInstanceOf(Date);
 
       await client.disconnect();
     });
@@ -3555,7 +3588,9 @@ describe("InspectorClient", () => {
       }
 
       let eventReceived = false;
-      let eventDetail: any = null;
+      let eventDetail:
+        | InspectorClientEventMap[keyof InspectorClientEventMap]
+        | null = null;
 
       client.addEventListener(
         "promptContentChange",
@@ -3575,9 +3610,12 @@ describe("InspectorClient", () => {
 
       // Verify event was dispatched
       expect(eventReceived).toBe(true);
-      expect(eventDetail.name).toBe(prompt.name);
-      expect(eventDetail.content).toBe(invocation);
-      expect(eventDetail.timestamp).toBeInstanceOf(Date);
+      expect(eventDetail).not.toBeNull();
+      const detail =
+        eventDetail! as InspectorClientEventMap["promptContentChange"];
+      expect(detail.name).toBe(prompt.name);
+      expect(detail.content).toBe(invocation);
+      expect(detail.timestamp).toBeInstanceOf(Date);
 
       await client.disconnect();
     });
@@ -3602,7 +3640,9 @@ describe("InspectorClient", () => {
       }
 
       let eventReceived = false;
-      let eventDetail: any = null;
+      let eventDetail:
+        | InspectorClientEventMap[keyof InspectorClientEventMap]
+        | null = null;
 
       client.addEventListener(
         "toolCallResultChange",
@@ -3623,10 +3663,13 @@ describe("InspectorClient", () => {
 
       // Verify event was dispatched
       expect(eventReceived).toBe(true);
-      expect(eventDetail.toolName).toBe("echo");
-      expect(eventDetail.success).toBe(true);
-      expect(eventDetail.result).not.toBeNull();
-      expect(eventDetail.timestamp).toBeInstanceOf(Date);
+      expect(eventDetail).not.toBeNull();
+      const detail =
+        eventDetail! as InspectorClientEventMap["toolCallResultChange"];
+      expect(detail.toolName).toBe("echo");
+      expect(detail.success).toBe(true);
+      expect(detail.result).not.toBeNull();
+      expect(detail.timestamp).toBeInstanceOf(Date);
 
       await client.disconnect();
     });
@@ -3646,7 +3689,9 @@ describe("InspectorClient", () => {
       await client.connect();
 
       let eventReceived = false;
-      let eventDetail: any = null;
+      let eventDetail:
+        | InspectorClientEventMap[keyof InspectorClientEventMap]
+        | null = null;
 
       client.addEventListener(
         "toolCallResultChange",
@@ -3670,9 +3715,12 @@ describe("InspectorClient", () => {
 
       // Verify event was dispatched
       expect(eventReceived).toBe(true);
-      expect(eventDetail.toolName).toBe("nonexistent-tool");
-      expect(eventDetail.params).toEqual({});
-      expect(eventDetail.timestamp).toBeInstanceOf(Date);
+      expect(eventDetail).not.toBeNull();
+      const detail =
+        eventDetail! as InspectorClientEventMap["toolCallResultChange"];
+      expect(detail.toolName).toBe("nonexistent-tool");
+      expect(detail.params).toEqual({});
+      expect(detail.timestamp).toBeInstanceOf(Date);
       // Note: success/error depends on server behavior
 
       await client.disconnect();
@@ -3793,8 +3841,12 @@ describe("InspectorClient", () => {
       await client.connect();
 
       // Manually add a subscription (Phase 3 will add proper methods)
-      (client as any).subscribedResources.add("test://uri1");
-      (client as any).subscribedResources.add("test://uri2");
+      (
+        client as unknown as { subscribedResources: Set<string> }
+      ).subscribedResources.add("test://uri1");
+      (
+        client as unknown as { subscribedResources: Set<string> }
+      ).subscribedResources.add("test://uri2");
 
       expect(client.getSubscribedResources()).toHaveLength(2);
 
@@ -3880,7 +3932,13 @@ describe("InspectorClient", () => {
       );
 
       // Defaults should be all enabled
-      expect((client as any).listChangedNotifications).toEqual({
+      expect(
+        (
+          client as unknown as {
+            listChangedNotifications: Record<string, unknown>;
+          }
+        ).listChangedNotifications,
+      ).toEqual({
         tools: true,
         resources: true,
         prompts: true,
@@ -3912,7 +3970,13 @@ describe("InspectorClient", () => {
         },
       );
 
-      expect((client as any).listChangedNotifications).toEqual({
+      expect(
+        (
+          client as unknown as {
+            listChangedNotifications: Record<string, unknown>;
+          }
+        ).listChangedNotifications,
+      ).toEqual({
         tools: false,
         resources: true,
         prompts: false,
@@ -3947,7 +4011,7 @@ describe("InspectorClient", () => {
 
       // Wait for toolsChange event
       const toolsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "toolsChange",
           (event) => {
             resolve(event);
@@ -3956,14 +4020,14 @@ describe("InspectorClient", () => {
         );
       });
 
-      const tools = await client.listAllTools();
+      const tools = await client!.listAllTools();
       const event = await toolsChangePromise;
 
       expect(tools.length).toBeGreaterThan(0);
       expect(client.getTools()).toEqual(tools);
       expect(event.detail).toEqual(tools);
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -3994,7 +4058,7 @@ describe("InspectorClient", () => {
 
       // Wait for resourcesChange event
       const resourcesChangePromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "resourcesChange",
           (event) => {
             resolve(event);
@@ -4004,7 +4068,7 @@ describe("InspectorClient", () => {
       });
 
       // listAllResources will reset and reload all resources
-      const resources = await client.listAllResources();
+      const resources = await client!.listAllResources();
       const event = await resourcesChangePromise;
 
       expect(resources.length).toBeGreaterThan(0);
@@ -4013,7 +4077,7 @@ describe("InspectorClient", () => {
       // Cache should be preserved for existing resource
       expect(client.cache.getResource(uri)).not.toBeNull();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4038,13 +4102,13 @@ describe("InspectorClient", () => {
       await client.connect();
 
       // First list resources to populate the list
-      await client.listResources();
+      await client!.listResources();
 
       // Load both resources to populate cache
       const uri1 = "demo://resource/static/document/architecture.md";
       const uri2 = "test://cwd";
-      await client.readResource(uri1);
-      await client.readResource(uri2);
+      await client!.readResource(uri1);
+      await client!.readResource(uri2);
       expect(client.cache.getResource(uri1)).not.toBeNull();
       expect(client.cache.getResource(uri2)).not.toBeNull();
 
@@ -4057,7 +4121,7 @@ describe("InspectorClient", () => {
       await server.start();
 
       // Reconnect and list resources
-      await client.disconnect();
+      await client!.disconnect();
       client = new InspectorClient(
         {
           type: "streamable-http",
@@ -4068,10 +4132,10 @@ describe("InspectorClient", () => {
           autoSyncLists: false,
         },
       );
-      await client.connect();
+      await client!.connect();
 
       // Load the remaining resource to populate cache
-      await client.readResource(uri1);
+      await client!.readResource(uri1);
 
       // listAllResources clears cache for removed resources
       await client.listAllResources();
@@ -4080,7 +4144,7 @@ describe("InspectorClient", () => {
       expect(client.cache.getResource(uri1)).not.toBeNull();
       expect(client.cache.getResource(uri2)).toBeNull();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4115,7 +4179,7 @@ describe("InspectorClient", () => {
       // Wait for resourceTemplatesChange event
       const resourceTemplatesChangePromise = new Promise<CustomEvent>(
         (resolve) => {
-          client.addEventListener(
+          client!.addEventListener(
             "resourceTemplatesChange",
             (event) => {
               resolve(event);
@@ -4125,7 +4189,7 @@ describe("InspectorClient", () => {
         },
       );
 
-      const templates = await client.listAllResourceTemplates();
+      const templates = await client!.listAllResourceTemplates();
       const event = await resourceTemplatesChangePromise;
 
       expect(templates.length).toBeGreaterThan(0);
@@ -4134,7 +4198,7 @@ describe("InspectorClient", () => {
       // Cache should be preserved for existing template
       expect(client.cache.getResourceTemplate(uriTemplate)).not.toBeNull();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4168,7 +4232,7 @@ describe("InspectorClient", () => {
 
       // Wait for promptsChange event
       const promptsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "promptsChange",
           (event) => {
             resolve(event);
@@ -4177,7 +4241,7 @@ describe("InspectorClient", () => {
         );
       });
 
-      const prompts = await client.listAllPrompts();
+      const prompts = await client!.listAllPrompts();
       const event = await promptsChangePromise;
 
       expect(prompts.length).toBeGreaterThan(0);
@@ -4186,7 +4250,7 @@ describe("InspectorClient", () => {
       // Cache should be preserved for existing prompt
       expect(client.cache.getPrompt(promptName)).not.toBeNull();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4219,7 +4283,7 @@ describe("InspectorClient", () => {
 
       // Wait for toolsChange event after notification
       const toolsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "toolsChange",
           (event) => {
             resolve(event);
@@ -4229,7 +4293,7 @@ describe("InspectorClient", () => {
       });
 
       // Add a new tool (this will send list_changed notification)
-      await client.callTool("add_tool", {
+      await client!.callTool("add_tool", {
         name: "newTool",
         description: "A new test tool",
       });
@@ -4245,7 +4309,7 @@ describe("InspectorClient", () => {
       //  so this event comes only from the notification handler)
       expect(event.detail).toEqual(updatedTools);
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4275,7 +4339,7 @@ describe("InspectorClient", () => {
 
       // Wait for toolsListChanged event
       const toolsListChangedPromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "toolsListChanged",
           (event) => {
             resolve(event);
@@ -4285,7 +4349,7 @@ describe("InspectorClient", () => {
       });
 
       // Add a new tool (this will send list_changed notification)
-      await client.callTool("add_tool", {
+      await client!.callTool("add_tool", {
         name: "newTool",
         description: "A new test tool",
       });
@@ -4296,7 +4360,7 @@ describe("InspectorClient", () => {
       const tools = client.getTools();
       expect(tools.find((t) => t.name === "newTool")).toBeUndefined();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4325,7 +4389,7 @@ describe("InspectorClient", () => {
       await client.connect();
 
       const events: CustomEvent[] = [];
-      client.addEventListener("toolsListChanged", (event) => {
+      client!.addEventListener("toolsListChanged", (event) => {
         events.push(event);
       });
       client.addEventListener("toolsChange", (event) => {
@@ -4387,7 +4451,7 @@ describe("InspectorClient", () => {
 
       // Wait for both change events
       const resourcesChangePromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "resourcesChange",
           (event) => {
             resolve(event);
@@ -4398,7 +4462,7 @@ describe("InspectorClient", () => {
 
       const resourceTemplatesChangePromise = new Promise<CustomEvent>(
         (resolve) => {
-          client.addEventListener(
+          client!.addEventListener(
             "resourceTemplatesChange",
             (event) => {
               resolve(event);
@@ -4409,7 +4473,7 @@ describe("InspectorClient", () => {
       );
 
       // Add a new resource (this will send list_changed notification)
-      await client.callTool("add_resource", {
+      await client!.callTool("add_resource", {
         uri: "test://new-resource",
         name: "newResource",
         text: "New resource content",
@@ -4425,7 +4489,7 @@ describe("InspectorClient", () => {
         client.getResources().find((r) => r.uri === "test://new-resource"),
       ).toBeDefined();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4459,7 +4523,7 @@ describe("InspectorClient", () => {
 
       // Wait for promptsChange event after notification
       const promptsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "promptsChange",
           (event) => {
             resolve(event);
@@ -4469,7 +4533,7 @@ describe("InspectorClient", () => {
       });
 
       // Add a new prompt (this will send list_changed notification)
-      await client.callTool("add_prompt", {
+      await client!.callTool("add_prompt", {
         name: "newPrompt",
         promptString: "This is a new prompt",
       });
@@ -4482,7 +4546,7 @@ describe("InspectorClient", () => {
         client.getPrompts().find((p) => p.name === "newPrompt"),
       ).toBeDefined();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4525,7 +4589,9 @@ describe("InspectorClient", () => {
       const testEventListener = () => {
         eventReceived = true;
       };
-      client.addEventListener("toolsChange", testEventListener, { once: true });
+      client!.addEventListener("toolsChange", testEventListener, {
+        once: true,
+      });
 
       // Add a new tool (this will send list_changed notification from server)
       // callTool() uses listToolsInternal() which doesn't dispatch events
@@ -4540,7 +4606,7 @@ describe("InspectorClient", () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       // Remove listener
-      client.removeEventListener("toolsChange", testEventListener);
+      client!.removeEventListener("toolsChange", testEventListener);
 
       // Event should NOT be received because handler is disabled
       expect(eventReceived).toBe(false);
@@ -4553,11 +4619,11 @@ describe("InspectorClient", () => {
 
       // Verify the tool was actually added to the server by manually calling listAllTools()
       // This proves the server received the add_tool call and the notification was sent
-      const serverTools = await client.listAllTools();
+      const serverTools = await client!.listAllTools();
       expect(serverTools.length).toBeGreaterThan(initialToolCount);
       expect(serverTools.find((t) => t.name === "testTool")).toBeDefined();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4583,12 +4649,10 @@ describe("InspectorClient", () => {
 
       await client.connect();
 
-      // Check that capabilities are set
-      const capabilities = (client as any).capabilities;
-      // If server doesn't advertise listChanged, handlers won't be registered
+      // Check that capabilities are set (handlers registered if server advertises listChanged)
       // This is tested implicitly - if handlers were registered incorrectly, tests would fail
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4614,7 +4678,7 @@ describe("InspectorClient", () => {
         },
       );
 
-      await client.connect();
+      await client!.connect();
 
       // Call echo tool to populate cache
       const toolName = "echo";
@@ -4623,7 +4687,7 @@ describe("InspectorClient", () => {
 
       // Wait for toolsChange event after notification
       const toolsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "toolsChange",
           (event) => {
             resolve(event);
@@ -4633,7 +4697,7 @@ describe("InspectorClient", () => {
       });
 
       // Remove the tool (this will send list_changed notification)
-      await client.callTool("remove_tool", { name: toolName });
+      await client!.callTool("remove_tool", { name: toolName });
       const event = await toolsChangePromise;
 
       // Tools should be reloaded
@@ -4644,7 +4708,7 @@ describe("InspectorClient", () => {
       // Cache should be cleared for removed tool
       expect(client.cache.getToolCallResult(toolName)).toBeNull();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4680,7 +4744,7 @@ describe("InspectorClient", () => {
 
       // Wait for resourcesChange event after notification
       const resourcesChangePromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "resourcesChange",
           (event) => {
             resolve(event);
@@ -4690,7 +4754,7 @@ describe("InspectorClient", () => {
       });
 
       // Remove the resource (this will send list_changed notification)
-      await client.callTool("remove_resource", { uri });
+      await client!.callTool("remove_resource", { uri });
       const event = await resourcesChangePromise;
 
       // Resources should be reloaded
@@ -4701,7 +4765,7 @@ describe("InspectorClient", () => {
       // Cache should be cleared for removed resource
       expect(client.cache.getResource(uri)).toBeNull();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4737,7 +4801,7 @@ describe("InspectorClient", () => {
 
       // Wait for promptsChange event after notification
       const promptsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "promptsChange",
           (event) => {
             resolve(event);
@@ -4747,7 +4811,7 @@ describe("InspectorClient", () => {
       });
 
       // Remove the prompt (this will send list_changed notification)
-      await client.callTool("remove_prompt", { name: promptName });
+      await client!.callTool("remove_prompt", { name: promptName });
       const event = await promptsChangePromise;
 
       // Prompts should be reloaded
@@ -4758,7 +4822,7 @@ describe("InspectorClient", () => {
       // Cache should be cleared for removed prompt
       expect(client.cache.getPrompt(promptName)).toBeNull();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -4783,16 +4847,18 @@ describe("InspectorClient", () => {
         },
       );
 
-      await client.connect();
+      await client!.connect();
 
       // First list resource templates to populate the list
-      await client.listAllResourceTemplates();
+      await client!.listAllResourceTemplates();
 
       // Load both templates to populate cache
       const uriTemplate1 = "file:///{path}";
       const uriTemplate2 = "user://{userId}";
-      await client.readResourceFromTemplate(uriTemplate1, { path: "test.txt" });
-      await client.readResourceFromTemplate(uriTemplate2, { userId: "123" });
+      await client!.readResourceFromTemplate(uriTemplate1, {
+        path: "test.txt",
+      });
+      await client!.readResourceFromTemplate(uriTemplate2, { userId: "123" });
       expect(client.cache.getResourceTemplate(uriTemplate1)).not.toBeNull();
       expect(client.cache.getResourceTemplate(uriTemplate2)).not.toBeNull();
 
@@ -4974,7 +5040,7 @@ describe("InspectorClient", () => {
 
       // Wait for resourceSubscriptionsChange event
       const eventPromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "resourceSubscriptionsChange",
           (event) => {
             resolve(event);
@@ -4984,7 +5050,7 @@ describe("InspectorClient", () => {
       });
 
       // Subscribe to resource
-      await client.subscribeToResource(uri);
+      await client!.subscribeToResource(uri);
       const event = await eventPromise;
 
       // Verify subscription state
@@ -4992,7 +5058,7 @@ describe("InspectorClient", () => {
       expect(client.getSubscribedResources()).toContain(uri);
       expect(event.detail).toContain(uri);
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -5025,7 +5091,7 @@ describe("InspectorClient", () => {
 
       // Wait for resourceSubscriptionsChange event
       const eventPromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "resourceSubscriptionsChange",
           (event) => {
             resolve(event);
@@ -5035,7 +5101,7 @@ describe("InspectorClient", () => {
       });
 
       // Unsubscribe
-      await client.unsubscribeFromResource(uri);
+      await client!.unsubscribeFromResource(uri);
       const event = await eventPromise;
 
       // Verify unsubscribed
@@ -5043,7 +5109,7 @@ describe("InspectorClient", () => {
       expect(client.getSubscribedResources()).not.toContain(uri);
       expect(event.detail).not.toContain(uri);
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -5065,11 +5131,11 @@ describe("InspectorClient", () => {
         },
       );
 
-      await client.connect();
+      await client!.connect();
       await client.disconnect();
 
       await expect(
-        client.unsubscribeFromResource(
+        client!.unsubscribeFromResource(
           "demo://resource/static/document/architecture.md",
         ),
       ).rejects.toThrow();
@@ -5100,21 +5166,21 @@ describe("InspectorClient", () => {
         },
       );
 
-      await client.connect();
+      await client!.connect();
 
       const uri = "demo://resource/static/document/architecture.md";
 
       // Load resource to populate cache
-      await client.readResource(uri);
+      await client!.readResource(uri);
       expect(client.cache.getResource(uri)).not.toBeNull();
 
       // Subscribe to resource
-      await client.subscribeToResource(uri);
+      await client!.subscribeToResource(uri);
       expect(client.isSubscribedToResource(uri)).toBe(true);
 
       // Wait for resourceUpdated event
       const eventPromise = new Promise<CustomEvent>((resolve) => {
-        client.addEventListener(
+        client!.addEventListener(
           "resourceUpdated",
           ((event: CustomEvent) => {
             resolve(event);
@@ -5124,7 +5190,7 @@ describe("InspectorClient", () => {
       });
 
       // Update the resource (this will send resource updated notification)
-      await client.callTool("update_resource", {
+      await client!.callTool("update_resource", {
         uri,
         text: "Updated content",
       });
@@ -5135,7 +5201,7 @@ describe("InspectorClient", () => {
       // Cache should be cleared
       expect(client.cache.getResource(uri)).toBeNull();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
 
@@ -5162,12 +5228,12 @@ describe("InspectorClient", () => {
         },
       );
 
-      await client.connect();
+      await client!.connect();
 
       const uri = "demo://resource/static/document/architecture.md";
 
       // Load resource to populate cache
-      await client.readResource(uri);
+      await client!.readResource(uri);
       expect(client.cache.getResource(uri)).not.toBeNull();
 
       // Don't subscribe - resource should NOT be in subscribedResources
@@ -5178,12 +5244,12 @@ describe("InspectorClient", () => {
       const testEventListener = () => {
         eventReceived = true;
       };
-      client.addEventListener("resourceUpdated", testEventListener, {
+      client!.addEventListener("resourceUpdated", testEventListener, {
         once: true,
       });
 
       // Update the resource (this will send resource updated notification)
-      await client.callTool("update_resource", {
+      await client!.callTool("update_resource", {
         uri,
         text: "Updated content",
       });
@@ -5192,7 +5258,7 @@ describe("InspectorClient", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Remove listener
-      client.removeEventListener("resourceUpdated", testEventListener);
+      client!.removeEventListener("resourceUpdated", testEventListener);
 
       // Event should NOT be received because resource is not subscribed
       expect(eventReceived).toBe(false);
@@ -5200,7 +5266,7 @@ describe("InspectorClient", () => {
       // Cache should still be present (not cleared)
       expect(client.cache.getResource(uri)).not.toBeNull();
 
-      await client.disconnect();
+      await client!.disconnect();
       await server.stop();
     });
   });
@@ -5228,21 +5294,21 @@ describe("InspectorClient", () => {
     });
 
     it("should detect task capabilities", () => {
-      const capabilities = client.getTaskCapabilities();
+      const capabilities = client!.getTaskCapabilities();
       expect(capabilities).toBeDefined();
       expect(capabilities?.list).toBe(true);
       expect(capabilities?.cancel).toBe(true);
     });
 
     it("should list tasks (empty initially)", async () => {
-      const result = await client.listRequestorTasks();
+      const result = await client!.listRequestorTasks();
       expect(result).toHaveProperty("tasks");
       expect(Array.isArray(result.tasks)).toBe(true);
     });
 
     it("should run tool as task (callTool with taskOptions returns task reference, poll getRequestorTask/getRequestorTaskResult yields result)", async () => {
       // Same path as web App "Run as task": callTool with taskOptions -> task reference -> poll until completed
-      const invocation = await client.callTool(
+      const invocation = await client!.callTool(
         "optional_task",
         { message: "e2e-run-as-task" },
         undefined,
@@ -5270,7 +5336,7 @@ describe("InspectorClient", () => {
       const pollIntervalMs = taskRef.pollInterval ?? 1000;
       const timeoutMs = 12000;
       const start = Date.now();
-      let task = await client.getRequestorTask(taskId);
+      let task = await client!.getRequestorTask(taskId);
       while (
         task.status !== "completed" &&
         task.status !== "failed" &&
@@ -5278,12 +5344,12 @@ describe("InspectorClient", () => {
       ) {
         expect(Date.now() - start).toBeLessThan(timeoutMs);
         await new Promise((r) => setTimeout(r, pollIntervalMs));
-        task = await client.getRequestorTask(taskId);
+        task = await client!.getRequestorTask(taskId);
       }
 
       expect(task.status).toBe("completed");
 
-      const result = await client.getRequestorTaskResult(taskId);
+      const result = await client!.getRequestorTaskResult(taskId);
       expect(result).toBeDefined();
       expect(result).toHaveProperty("content");
       expect(Array.isArray(result.content)).toBe(true);
@@ -5296,7 +5362,7 @@ describe("InspectorClient", () => {
       expect(resultText.message).toBe("Task completed: e2e-run-as-task");
       expect(resultText.taskId).toBe(taskId);
 
-      const listResult = await client.listRequestorTasks();
+      const listResult = await client!.listRequestorTasks();
       const found = listResult.tasks.some((t) => t.taskId === taskId);
       expect(found).toBe(true);
     });
@@ -5310,40 +5376,40 @@ describe("InspectorClient", () => {
       }> = [];
       const toolCallResultEvents: Array<{
         toolName: string;
-        params: Record<string, any>;
-        result: any;
+        params: Record<string, JsonValue>;
+        result: CallToolResult | null;
         timestamp: Date;
         success: boolean;
         error?: string;
         metadata?: Record<string, string>;
       }> = [];
 
-      client.addEventListener(
+      client!.addEventListener(
         "taskCreated",
         (event: TypedEvent<"taskCreated">) => {
           taskCreatedEvents.push(event.detail);
         },
       );
-      client.addEventListener(
+      client!.addEventListener(
         "taskStatusChange",
         (event: TypedEvent<"taskStatusChange">) => {
           taskStatusEvents.push(event.detail);
         },
       );
-      client.addEventListener(
+      client!.addEventListener(
         "taskCompleted",
         (event: TypedEvent<"taskCompleted">) => {
           taskCompletedEvents.push(event.detail);
         },
       );
-      client.addEventListener(
+      client!.addEventListener(
         "toolCallResultChange",
         (event: TypedEvent<"toolCallResultChange">) => {
           toolCallResultEvents.push(event.detail);
         },
       );
 
-      const result = await client.callToolStream("simple_task", {
+      const result = await client!.callToolStream("simple_task", {
         message: "test task",
       });
 
@@ -5450,7 +5516,7 @@ describe("InspectorClient", () => {
       expect(toolCallEvent.timestamp).toBeInstanceOf(Date);
 
       // Validate task in requestor tasks
-      const requestorTasks = client.getTrackedRequestorTasks();
+      const requestorTasks = client!.getTrackedRequestorTasks();
       const cachedTask = requestorTasks.find((t) => t.taskId === taskId);
       expect(cachedTask).toBeDefined();
       expect(cachedTask!.taskId).toBe(taskId);
@@ -5469,7 +5535,7 @@ describe("InspectorClient", () => {
     });
 
     it("should accept taskOptions (ttl) in callToolStream", async () => {
-      const result = await client.callToolStream(
+      const result = await client!.callToolStream(
         "simple_task",
         { message: "ttl-test" },
         undefined,
@@ -5478,7 +5544,7 @@ describe("InspectorClient", () => {
       );
       expect(result.success).toBe(true);
       expect(result.result).toBeDefined();
-      const tasks = client.getTrackedRequestorTasks();
+      const tasks = client!.getTrackedRequestorTasks();
       const task = tasks.find((t) => t.taskId && t.status === "completed");
       expect(task).toBeDefined();
       expect(task).toHaveProperty("ttl");
@@ -5486,20 +5552,20 @@ describe("InspectorClient", () => {
 
     it("should get task by taskId", async () => {
       // First create a task
-      const result = await client.callToolStream("simple_task", {
+      const result = await client!.callToolStream("simple_task", {
         message: "test",
       });
       expect(result.success).toBe(true);
 
       // Get the taskId from active tasks
-      const activeTasks = client.getTrackedRequestorTasks();
+      const activeTasks = client!.getTrackedRequestorTasks();
       expect(activeTasks.length).toBeGreaterThan(0);
       const activeTask = activeTasks[0];
       expect(activeTask).toBeDefined();
       const taskId = activeTask!.taskId;
 
       // Get the task
-      const task = await client.getRequestorTask(taskId);
+      const task = await client!.getRequestorTask(taskId);
       expect(task).toBeDefined();
       expect(task.taskId).toBe(taskId);
       expect(task.status).toBe("completed");
@@ -5507,7 +5573,7 @@ describe("InspectorClient", () => {
 
     it("should get task result", async () => {
       // First create a task
-      const result = await client.callToolStream("simple_task", {
+      const result = await client!.callToolStream("simple_task", {
         message: "test result",
       });
       expect(result.success).toBe(true);
@@ -5515,14 +5581,14 @@ describe("InspectorClient", () => {
       expect(result.result).not.toBeNull();
 
       // Get the taskId from client tasks
-      const requestorTasks = client.getTrackedRequestorTasks();
+      const requestorTasks = client!.getTrackedRequestorTasks();
       expect(requestorTasks.length).toBeGreaterThan(0);
       const task = requestorTasks.find((t) => t.status === "completed");
       expect(task).toBeDefined();
       const taskId = task!.taskId;
 
       // Get the task result
-      const taskResult = await client.getRequestorTaskResult(taskId);
+      const taskResult = await client!.getRequestorTaskResult(taskId);
 
       // Validate result structure
       expect(taskResult).toBeDefined();
@@ -5552,37 +5618,37 @@ describe("InspectorClient", () => {
 
     it("should throw error when calling callTool on task-required tool", async () => {
       await expect(
-        client.callTool("simple_task", { message: "test" }),
+        client!.callTool("simple_task", { message: "test" }),
       ).rejects.toThrow("requires task support");
     });
 
     it("should clear tasks on disconnect", async () => {
       // Create a task
-      await client.callToolStream("simple_task", { message: "test" });
-      expect(client.getTrackedRequestorTasks().length).toBeGreaterThan(0);
+      await client!.callToolStream("simple_task", { message: "test" });
+      expect(client!.getTrackedRequestorTasks().length).toBeGreaterThan(0);
 
       // Disconnect
-      await client.disconnect();
+      await client!.disconnect();
 
       // Tasks should be cleared
-      expect(client.getTrackedRequestorTasks().length).toBe(0);
+      expect(client!.getTrackedRequestorTasks().length).toBe(0);
     });
 
     it("should call tool with taskSupport: forbidden (immediate result, no task)", async () => {
       // forbiddenTask should return immediately without creating a task
-      const result = await client.callToolStream("forbidden_task", {
+      const result = await client!.callToolStream("forbidden_task", {
         message: "test",
       });
 
       expect(result.success).toBe(true);
       expect(result.result).toHaveProperty("content");
       // No task should be created
-      expect(client.getTrackedRequestorTasks().length).toBe(0);
+      expect(client!.getTrackedRequestorTasks().length).toBe(0);
     });
 
     it("should call tool with taskSupport: optional (may or may not create task)", async () => {
       // optionalTask may create a task or return immediately
-      const result = await client.callToolStream("optional_task", {
+      const result = await client!.callToolStream("optional_task", {
         message: "test",
       });
 
@@ -5592,7 +5658,7 @@ describe("InspectorClient", () => {
     });
 
     it("should handle task failure and dispatch taskFailed event", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       await server?.stop();
 
       // Create a task tool that will fail after a short delay
@@ -5620,10 +5686,10 @@ describe("InspectorClient", () => {
           autoSyncLists: false,
         },
       );
-      await client.connect();
+      await client!.connect();
 
       const failedPromise = expect(
-        client.callToolStream("failingTask", { message: "test" }),
+        client!.callToolStream("failingTask", { message: "test" }),
       ).rejects.toThrow();
 
       const taskFailedDetail = await waitForEvent<{
@@ -5637,7 +5703,7 @@ describe("InspectorClient", () => {
     });
 
     it("should cancel a running task", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       await server?.stop();
 
       // Create a longer-running task tool
@@ -5664,9 +5730,9 @@ describe("InspectorClient", () => {
           autoSyncLists: false,
         },
       );
-      await client.connect();
+      await client!.connect();
 
-      const taskPromise = client.callToolStream("longRunningTask", {
+      const taskPromise = client!.callToolStream("longRunningTask", {
         message: "test",
       });
 
@@ -5683,7 +5749,7 @@ describe("InspectorClient", () => {
         "taskCancelled",
         { timeout: 3000 },
       );
-      await client.cancelRequestorTask(taskId);
+      await client!.cancelRequestorTask(taskId);
 
       const [cancelledResult, taskResult] = await Promise.allSettled([
         cancelledPromise,
@@ -5696,12 +5762,12 @@ describe("InspectorClient", () => {
       expect(cancelledDetail.taskId).toBe(taskId);
       expect(taskResult.status).toBe("rejected");
 
-      const task = await client.getRequestorTask(taskId);
+      const task = await client!.getRequestorTask(taskId);
       expect(task.status).toBe("cancelled");
     });
 
     it("should handle elicitation with task (input_required flow)", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       await server?.stop();
 
       const elicitationConfig = {
@@ -5764,7 +5830,7 @@ describe("InspectorClient", () => {
     });
 
     it("should handle sampling with task (input_required flow)", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       await server?.stop();
 
       const samplingConfig = {
@@ -5788,7 +5854,7 @@ describe("InspectorClient", () => {
           sample: true,
         },
       );
-      await client.connect();
+      await client!.connect();
 
       const samplingPromise = waitForEvent<SamplingCreateMessage>(
         client,
@@ -5800,7 +5866,7 @@ describe("InspectorClient", () => {
         "taskCreated",
         { timeout: 3000 },
       );
-      const taskPromise = client.callToolStream("taskWithSampling", {
+      const taskPromise = client!.callToolStream("taskWithSampling", {
         message: "test",
       });
 
@@ -5808,7 +5874,7 @@ describe("InspectorClient", () => {
       expect(sample).toBeDefined();
 
       const taskCreatedDetail = await taskCreatedPromise;
-      const task = await client.getRequestorTask(taskCreatedDetail.taskId);
+      const task = await client!.getRequestorTask(taskCreatedDetail.taskId);
       expect(task).toBeDefined();
       expect(task!.status).toBe("input_required");
 
@@ -5829,7 +5895,7 @@ describe("InspectorClient", () => {
     });
 
     it("should handle progress notifications linked to tasks", async () => {
-      await client.disconnect();
+      await client!.disconnect();
       await server?.stop();
 
       // createProgressTaskTool defaults to 5 progress units with 2000ms delay
@@ -5855,7 +5921,7 @@ describe("InspectorClient", () => {
           progress: true,
         },
       );
-      await client.connect();
+      await client!.connect();
 
       const progressToken = Math.random().toString();
 
@@ -5864,14 +5930,14 @@ describe("InspectorClient", () => {
         "taskCreated",
         { timeout: 5000 },
       );
-      const progressPromise = waitForProgressCount(client, 5, {
+      const progressPromise = waitForProgressCount(client!, 5, {
         timeout: 5000,
       });
       const taskCompletedPromise = waitForEvent<{
         taskId: string;
         result: unknown;
       }>(client, "taskCompleted", { timeout: 5000 });
-      const resultPromise = client.callToolStream(
+      const resultPromise = client!.callToolStream(
         "taskWithProgress",
         { message: "test" },
         undefined,
@@ -5944,22 +6010,22 @@ describe("InspectorClient", () => {
       });
 
       // Verify task is in completed state
-      const activeTasks = client.getTrackedRequestorTasks();
+      const activeTasks = client!.getTrackedRequestorTasks();
       const completedTask = activeTasks.find((t) => t.taskId === taskId);
       expect(completedTask).toBeDefined();
       expect(completedTask!.status).toBe("completed");
     });
 
     it("should handle listTasks pagination", async () => {
-      await client.callToolStream("simple_task", { message: "task1" });
-      await client.callToolStream("simple_task", { message: "task2" });
-      await client.callToolStream("simple_task", { message: "task3" });
-      const result = await client.listRequestorTasks();
+      await client!.callToolStream("simple_task", { message: "task1" });
+      await client!.callToolStream("simple_task", { message: "task2" });
+      await client!.callToolStream("simple_task", { message: "task3" });
+      const result = await client!.listRequestorTasks();
       expect(result.tasks.length).toBeGreaterThan(0);
 
       // If there's a nextCursor, test pagination
       if (result.nextCursor) {
-        const nextPage = await client.listRequestorTasks(result.nextCursor);
+        const nextPage = await client!.listRequestorTasks(result.nextCursor);
         expect(nextPage.tasks).toBeDefined();
         expect(Array.isArray(nextPage.tasks)).toBe(true);
       }
@@ -5969,7 +6035,7 @@ describe("InspectorClient", () => {
   describe("Receiver tasks (e2e)", () => {
     it("server sends createMessage with params.task, client returns task, test responds, server gets payload via tasks/get and tasks/result", async () => {
       if (client) await client.disconnect();
-      client = null as any;
+      client = null;
       await server?.stop();
 
       const config = {
@@ -6043,7 +6109,7 @@ describe("InspectorClient", () => {
 
     it("server sends elicit with params.task, client returns task, test responds, server gets payload via tasks/get and tasks/result", async () => {
       if (client) await client.disconnect();
-      client = null as any;
+      client = null;
       await server?.stop();
 
       const config = {

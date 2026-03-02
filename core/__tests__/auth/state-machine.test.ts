@@ -6,7 +6,10 @@ import {
 import type { AuthGuidedState, OAuthStep } from "../../auth/types.js";
 import { EMPTY_GUIDED_STATE } from "../../auth/types.js";
 import type { BaseOAuthClientProvider } from "../../auth/providers.js";
-import type { OAuthMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type {
+  OAuthMetadata,
+  OAuthProtectedResourceMetadata,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 
 // Mock SDK functions
 vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
@@ -134,7 +137,7 @@ describe("OAuthStateMachine", () => {
       const { discoverOAuthProtectedResourceMetadata, selectResourceURL } =
         await import("@modelcontextprotocol/sdk/client/auth.js");
       vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue(
-        resourceMetadata as any,
+        resourceMetadata as OAuthProtectedResourceMetadata,
       );
       vi.mocked(selectResourceURL).mockResolvedValue(selectedResource);
 
@@ -231,7 +234,7 @@ describe("OAuthStateMachine", () => {
         authorization_servers: [] as string[],
       };
       vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue(
-        metaNoServers as any,
+        metaNoServers as OAuthProtectedResourceMetadata,
       );
       vi.mocked(selectResourceURL).mockResolvedValue(
         new URL("http://localhost:3000"),
@@ -263,8 +266,9 @@ describe("OAuthStateMachine", () => {
         await import("@modelcontextprotocol/sdk/client/auth.js");
       const mockFetchFn = vi.fn();
       vi.mocked(registerClient).mockResolvedValue({
+        redirect_uris: ["http://localhost/callback"],
         client_id: "registered-client-id",
-      } as any);
+      });
 
       const stateMachine = new OAuthStateMachine(
         serverUrl,
@@ -297,7 +301,8 @@ describe("OAuthStateMachine", () => {
       };
       vi.mocked(exchangeAuthorization).mockResolvedValue({
         access_token: "test-token",
-      } as any);
+        token_type: "Bearer",
+      });
 
       const providerWithMetadata = {
         ...mockProvider,
@@ -307,7 +312,7 @@ describe("OAuthStateMachine", () => {
       const tokenRequestState: AuthGuidedState = {
         ...EMPTY_GUIDED_STATE,
         oauthStep: "token_request",
-        oauthMetadata: metadata as any,
+        oauthMetadata: metadata as OAuthMetadata,
         oauthClientInfo: { client_id: "test-client" },
         authorizationCode: "test-code",
       };

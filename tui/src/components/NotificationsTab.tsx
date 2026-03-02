@@ -28,7 +28,6 @@ export function NotificationsTab({
 
   useEffect(() => {
     onCountChangeRef.current?.(stderrLogs.length);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stderrLogs.length]);
 
   // Handle keyboard input for scrolling

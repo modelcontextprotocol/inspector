@@ -59,7 +59,7 @@ export class BrowserOAuthStorage implements OAuthStorage {
   }
 
   clearClientInformation(serverUrl: string, isPreregistered?: boolean): void {
-    const state = this.store.getState().getServerState(serverUrl);
+    this.store.getState().getServerState(serverUrl);
     const updates: Partial<ServerOAuthState> = {};
 
     if (isPreregistered) {

@@ -9,13 +9,12 @@ interface CompletionState {
   loading: Record<string, boolean>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function debounce<T extends (...args: any[]) => PromiseLike<void>>(
-  func: T,
+function debounce<A extends unknown[]>(
+  func: (...args: A) => PromiseLike<void>,
   wait: number,
-): (...args: Parameters<T>) => void {
+): (...args: A) => void {
   let timeout: ReturnType<typeof setTimeout>;
-  return (...args: Parameters<T>) => {
+  return (...args: A) => {
     clearTimeout(timeout);
     timeout = setTimeout(() => {
       void func(...args);

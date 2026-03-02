@@ -37,8 +37,7 @@ export class BrowserOAuthClientProvider extends BaseOAuthClientProvider {
     }
     const storage = new BrowserOAuthStorage();
     const redirectUrlProvider: RedirectUrlProvider = {
-      getRedirectUrl: (_mode: "normal" | "guided") =>
-        `${window.location.origin}/oauth/callback`,
+      getRedirectUrl: () => `${window.location.origin}/oauth/callback`,
     };
     const navigation = new BrowserNavigation();
 

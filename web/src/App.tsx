@@ -576,25 +576,21 @@ const App = () => {
     }
   }, [ensureInspectorClient, toast]);
 
-  // Extract server notifications from messages (same predicate as clearMessages for this view)
-  const extractedNotifications = useMemo(() => {
-    if (!inspectorClient) return [];
-    return inspectorClient
-      .getMessages(notificationsMessagePredicate)
-      .map((msg) => msg.message as ServerNotification);
-  }, [inspectorClient, inspectorMessages]);
-
   // Use ref to track previous serialized value to prevent infinite loops
   const previousNotificationsRef = useRef<string>("[]");
 
+  // Sync notifications from client (same predicate as clearMessages for this view)
   useEffect(() => {
-    // Compare by serializing to avoid infinite loops from reference changes
-    const currentSerialized = JSON.stringify(extractedNotifications);
-    if (currentSerialized !== previousNotificationsRef.current) {
-      setNotifications(extractedNotifications);
-      previousNotificationsRef.current = currentSerialized;
+    if (!inspectorClient) return;
+    const extracted = inspectorClient
+      .getMessages(notificationsMessagePredicate)
+      .map((msg) => msg.message as ServerNotification);
+    const serialized = JSON.stringify(extracted);
+    if (serialized !== previousNotificationsRef.current) {
+      setNotifications(extracted);
+      previousNotificationsRef.current = serialized;
     }
-  }, [extractedNotifications]);
+  }, [inspectorClient, inspectorMessages]);
 
   // Set up event listeners for sampling and elicitation
   useEffect(() => {
@@ -736,7 +732,6 @@ const App = () => {
       argName: string,
       value: string,
       context?: Record<string, string>,
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- required by handleCompletion signature
       _signal?: AbortSignal,
     ): Promise<string[]> => {
       if (!inspectorClient) return [];
@@ -759,13 +754,11 @@ const App = () => {
     serverCapabilities.completions !== null;
 
   // Request history (same predicate as clearMessages for this view)
-  const requestHistory = useMemo(() => {
-    if (!inspectorClient) return [];
-    return inspectorClient.getMessages(historyMessagePredicate).map((msg) => ({
+  const requestHistory =
+    inspectorClient?.getMessages(historyMessagePredicate).map((msg) => ({
       request: JSON.stringify(msg.message),
       response: msg.response ? JSON.stringify(msg.response) : undefined,
-    }));
-  }, [inspectorClient, inspectorMessages]);
+    })) ?? [];
 
   const clearRequestHistory = useCallback(() => {
     if (inspectorClient) {

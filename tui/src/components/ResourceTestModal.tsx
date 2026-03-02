@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { Form } from "ink-form";
 import { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import { uriTemplateToForm } from "../utils/uriTemplateToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { ModalBackdrop } from "./ModalBackdrop.js";
@@ -36,9 +37,9 @@ type ModalState = "form" | "loading" | "results";
 
 interface ResourceResult {
   input: Record<string, string>;
-  output: any;
+  output: ReadResourceResult | null;
   error?: string;
-  errorDetails?: any;
+  errorDetails?: unknown;
   duration: number;
   uri: string;
 }
@@ -157,11 +158,11 @@ export function ResourceTestModal({
       let uri = template.uriTemplate;
       // If the error response contains uri, use it
       if (error && typeof error === "object" && "uri" in error) {
-        uri = (error as any).uri;
+        uri = (error as { uri: string }).uri;
       }
 
       // Extract detailed error information
-      const errorObj: any = {
+      const errorObj: Record<string, unknown> = {
         message: errorMessage,
       };
       if (error instanceof Error) {
@@ -285,9 +286,9 @@ export function ResourceTestModal({
                       </Text>
                     </Box>
                     <Box marginTop={1} paddingLeft={2} flexShrink={0}>
-                      <Text color="red">{result.error}</Text>
+                      <Text color="red">{String(result.error)}</Text>
                     </Box>
-                    {result.errorDetails && (
+                    {result.errorDetails != null ? (
                       <>
                         <Box marginTop={1} flexShrink={0}>
                           <Text bold color="red" dimColor>
@@ -300,7 +301,7 @@ export function ResourceTestModal({
                           </Text>
                         </Box>
                       </>
-                    )}
+                    ) : null}
                   </Box>
                 ) : (
                   <Box flexShrink={0} flexDirection="column">

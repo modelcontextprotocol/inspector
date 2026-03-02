@@ -7,10 +7,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import * as z from "zod/v4";
-import path from "path";
 import { fileURLToPath } from "url";
-import { dirname } from "path";
 import type {
   ServerConfig,
   ResourceDefinition,
@@ -19,8 +16,6 @@ import {
   getDefaultServerConfig,
   createMcpServer,
 } from "./test-server-fixtures.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export class TestServerStdio {
   private mcpServer: McpServer;

@@ -19,7 +19,7 @@
     "typecheck": "tsc -p tsconfig.app.json",
     "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
     "start": "node dist/server.js",
-    "lint": "eslint .",
+    "lint": "prettier --check . && eslint . --max-warnings 0 && echo 'Lint passed.'",
     "preview": "vite preview --port 6274",
     "test": "vitest run",
     "test:watch": "vitest",

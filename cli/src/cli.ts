@@ -69,10 +69,6 @@ function handleError(error: unknown): never {
   process.exit(1);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms, true));
-}
-
 async function runWeb(args: Args): Promise<void> {
   // Path to the web entry point
   const inspectorWebPath = resolve(

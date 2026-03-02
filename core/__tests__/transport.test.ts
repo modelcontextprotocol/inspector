@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { getServerType } from "../mcp/config.js";
 import { createTransportNode } from "../mcp/node/transport.js";
-import type { MCPServerConfig } from "../mcp/types.js";
+import type { MCPServerConfig, FetchRequestEntryBase } from "../mcp/types.js";
 import {
   createTestServerHttp,
   createEchoTool,
@@ -97,7 +97,7 @@ describe("Transport", () => {
           url: server.url,
         };
 
-        const fetchRequests: any[] = [];
+        const fetchRequests: FetchRequestEntryBase[] = [];
         const result = createTransportNode(config, {
           onFetchRequest: (entry) => {
             fetchRequests.push(entry);
@@ -150,7 +150,7 @@ describe("Transport", () => {
           url: server.url,
         };
 
-        const fetchRequests: any[] = [];
+        const fetchRequests: FetchRequestEntryBase[] = [];
         const result = createTransportNode(config, {
           onFetchRequest: (entry) => {
             fetchRequests.push(entry);

@@ -66,7 +66,8 @@ export function createOAuthStore(
         },
         clearServerState: (serverUrl: string) => {
           set((state) => {
-            const { [serverUrl]: _, ...rest } = state.servers;
+            const rest = { ...state.servers };
+            delete rest[serverUrl];
             return { servers: rest };
           });
         },

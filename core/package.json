@@ -30,6 +30,7 @@
   ],
   "scripts": {
     "build": "tsc && cp package.json build/package.json",
+    "lint": "prettier --check . && eslint . --max-warnings 0 && echo 'Lint passed.'",
     "test": "vitest run",
     "test:watch": "vitest"
   },
