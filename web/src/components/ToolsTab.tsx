@@ -673,9 +673,9 @@ const ToolsTab = ({
                       </div>
                     </div>
                   )}
-                <div className="flex items-center space-x-2">
+                <div className="flex flex-col items-start gap-2">
                   {selectedTool && serverSupportsTaskToolCalls && (
-                    <>
+                    <div className="flex items-center space-x-2 pb-2">
                       <Switch
                         id="run-as-task"
                         checked={effectiveRunAsTask}
@@ -696,7 +696,7 @@ const ToolsTab = ({
                       >
                         Run as task
                       </Label>
-                    </>
+                    </div>
                   )}
                   <Button
                     onClick={async () => {
