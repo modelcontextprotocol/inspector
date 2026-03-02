@@ -452,7 +452,9 @@ export function useConnection({
     const clientCapabilities = {
       capabilities: {
         sampling: {},
-        elicitation: {},
+        elicitation: {
+          form: {},
+        },
         roots: {
           listChanged: true,
         },
