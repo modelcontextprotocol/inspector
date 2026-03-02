@@ -7,6 +7,7 @@ import {
   Root,
   ServerNotification,
   Tool,
+  type Task,
   LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -59,6 +60,7 @@ import {
   Hammer,
   Hash,
   Key,
+  ListTodo,
   MessageSquare,
   Network,
   Settings,
@@ -77,6 +79,7 @@ import RootsTab from "./components/RootsTab";
 import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
+import TasksTab from "./components/TasksTab";
 import AppsTab from "./components/AppsTab";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
@@ -139,6 +142,7 @@ const App = () => {
     resources: null,
     prompts: null,
     tools: null,
+    tasks: null,
   });
   const [command, setCommand] = useState<string>(getInitialCommand);
   const [args, setArgs] = useState<string>(getInitialArgs);
@@ -285,6 +289,9 @@ const App = () => {
     string | undefined
   >();
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [nextTaskCursor, setNextTaskCursor] = useState<string | undefined>();
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const progressTokenRef = useRef(0);
 
   const [activeTab, setActiveTab] = useState<string>(() => {
@@ -1093,6 +1100,7 @@ const App = () => {
       ...(serverCapabilities?.resources ? ["resources"] : []),
       ...(serverCapabilities?.prompts ? ["prompts"] : []),
       ...(serverCapabilities?.tools ? ["tools"] : []),
+      ...(serverCapabilities?.tasks ? ["tasks"] : []),
       ...(serverCapabilities?.tools ? ["apps"] : []),
       "ping",
       "sampling",
@@ -1343,6 +1351,102 @@ const App = () => {
       throw e;
     }
   };
+
+  const listTasks = useCallback(async () => {
+    if (!inspectorClient) return;
+    try {
+      const response = await inspectorClient.listRequestorTasks(nextTaskCursor);
+      setTasks((prev) =>
+        nextTaskCursor ? [...prev, ...response.tasks] : response.tasks,
+      );
+      setNextTaskCursor(response.nextCursor);
+      setErrors((prev) => ({ ...prev, tasks: null }));
+    } catch (e) {
+      const errorString = (e as Error).message ?? String(e);
+      setErrors((prev) => ({ ...prev, tasks: errorString }));
+    }
+  }, [inspectorClient, nextTaskCursor]);
+
+  const clearTasks = useCallback(() => {
+    setTasks([]);
+    setNextTaskCursor(undefined);
+  }, []);
+
+  const cancelTask = useCallback(
+    async (taskId: string) => {
+      if (!inspectorClient) return;
+      await inspectorClient.cancelRequestorTask(taskId);
+      setErrors((prev) => ({ ...prev, tasks: null }));
+      await listTasks();
+    },
+    [inspectorClient, listTasks],
+  );
+
+  // When switching to Tasks tab, load first page of tasks
+  useEffect(() => {
+    if (
+      activeTab !== "tasks" ||
+      !inspectorClient ||
+      !serverCapabilities?.tasks
+    ) {
+      return;
+    }
+    inspectorClient
+      .listRequestorTasks(undefined)
+      .then((response) => {
+        setTasks(response.tasks);
+        setNextTaskCursor(response.nextCursor);
+        setErrors((prev) => ({ ...prev, tasks: null }));
+      })
+      .catch((e) => {
+        const errorString = (e as Error).message ?? String(e);
+        setErrors((prev) => ({ ...prev, tasks: errorString }));
+      });
+  }, [activeTab, inspectorClient, serverCapabilities?.tasks]);
+
+  // Subscribe to tasks list_changed and task status so list and selection stay in sync
+  useEffect(() => {
+    if (!inspectorClient || !serverCapabilities?.tasks) return;
+    const onTasksListChanged = () => {
+      inspectorClient
+        .listRequestorTasks(undefined)
+        .then((response) => {
+          setTasks(response.tasks);
+          setNextTaskCursor(response.nextCursor);
+        })
+        .catch((e) => {
+          const errorString = (e as Error).message ?? String(e);
+          setErrors((prev) => ({ ...prev, tasks: errorString }));
+        });
+    };
+    const onTaskStatusChange = (
+      e: CustomEvent<{ taskId: string; task: Task }>,
+    ) => {
+      const { taskId, task } = e.detail;
+      setTasks((prev) => {
+        const idx = prev.findIndex((t) => t.taskId === taskId);
+        if (idx < 0) return [task, ...prev];
+        const next = [...prev];
+        next[idx] = task;
+        return next;
+      });
+      setSelectedTask((current) =>
+        current?.taskId === taskId ? task : current,
+      );
+    };
+    inspectorClient.addEventListener("tasksListChanged", onTasksListChanged);
+    inspectorClient.addEventListener("taskStatusChange", onTaskStatusChange);
+    return () => {
+      inspectorClient.removeEventListener(
+        "tasksListChanged",
+        onTasksListChanged,
+      );
+      inspectorClient.removeEventListener(
+        "taskStatusChange",
+        onTaskStatusChange,
+      );
+    };
+  }, [inspectorClient, serverCapabilities?.tasks]);
 
   // When switching to Apps tab, ensure tools are listed so app tools are available
   useEffect(() => {
@@ -1747,6 +1851,13 @@ const App = () => {
                   <Hammer className="w-4 h-4 mr-2" />
                   Tools
                 </TabsTrigger>
+                <TabsTrigger
+                  value="tasks"
+                  disabled={!serverCapabilities?.tasks}
+                >
+                  <ListTodo className="w-4 h-4 mr-2" />
+                  Tasks
+                </TabsTrigger>
                 <TabsTrigger value="apps" disabled={!serverCapabilities?.tools}>
                   <AppWindow className="w-4 h-4 mr-2" />
                   Apps
@@ -1961,6 +2072,19 @@ const App = () => {
                         clearError("resources");
                         readResource(uri);
                       }}
+                    />
+                    <TasksTab
+                      tasks={tasks}
+                      listTasks={() => {
+                        clearError("tasks");
+                        listTasks();
+                      }}
+                      clearTasks={clearTasks}
+                      cancelTask={cancelTask}
+                      selectedTask={selectedTask}
+                      setSelectedTask={setSelectedTask}
+                      error={errors.tasks}
+                      nextCursor={nextTaskCursor}
                     />
                     <ConsoleTab stderrLogs={stderrLogs} />
                     <PingTab

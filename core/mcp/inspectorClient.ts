@@ -84,6 +84,7 @@ import {
   TaskStatusNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ClientResult } from "@modelcontextprotocol/sdk/types.js";
+import { TasksListChangedNotificationSchema } from "./taskNotificationSchemas.js";
 import {
   type JsonValue,
   convertToolParameters,
@@ -1068,6 +1069,26 @@ export class InspectorClient extends InspectorClientEventTarget {
               if (this.autoSyncLists) {
                 await this.listAllPrompts();
               }
+            },
+          );
+        }
+
+        // Tasks list_changed and status handlers (when server advertises tasks capability)
+        if (this.capabilities?.tasks) {
+          this.client.setNotificationHandler(
+            TasksListChangedNotificationSchema,
+            async () => {
+              this.dispatchTypedEvent("tasksListChanged");
+            },
+          );
+          this.client.setNotificationHandler(
+            TaskStatusNotificationSchema,
+            async (notification) => {
+              const task = notification.params as Task;
+              this.dispatchTypedEvent("taskStatusChange", {
+                taskId: task.taskId,
+                task,
+              });
             },
           );
         }

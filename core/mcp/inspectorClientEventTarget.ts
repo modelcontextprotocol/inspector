@@ -101,6 +101,7 @@ export interface InspectorClientEventMap {
   toolsListChanged: void;
   resourcesListChanged: void;
   promptsListChanged: void;
+  tasksListChanged: void;
   // OAuth events
   oauthAuthorizationRequired: {
     url: URL;
