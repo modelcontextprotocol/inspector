@@ -259,19 +259,9 @@ export function useConnection({
 
         pushHistory(requestWithMetadata, response);
       } catch (error) {
-        if (error instanceof McpError) {
-          pushHistory(requestWithMetadata, {
-            error: {
-              code: error.code,
-              message: error.rpcMessage ?? error.message,
-              ...(error.data !== undefined && { data: error.data }),
-            },
-          });
-        } else {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          pushHistory(requestWithMetadata, { error: errorMessage });
-        }
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        pushHistory(requestWithMetadata, { error: errorMessage });
         throw error;
       }
 
