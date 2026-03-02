@@ -17,6 +17,7 @@ const ResizablePanelGroup = ({
 );
 
 const ResizablePanel = ResizablePrimitive.Panel;
+const useDefaultLayout = ResizablePrimitive.useDefaultLayout;
 
 const ResizableHandle = ({
   className,
@@ -70,4 +71,5 @@ export {
   ResizableHandle,
   VerticalHandle,
   HorizontalHandle,
+  useDefaultLayout,
 };

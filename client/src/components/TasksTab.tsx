@@ -18,6 +18,7 @@ import {
   HorizontalHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  useDefaultLayout,
 } from "@/components/ui/resizable";
 import { cn } from "@/lib/utils";
 
@@ -72,9 +73,15 @@ const TasksTab = ({
     }
   };
 
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: "persistence-tasks-tab",
+  });
+
   return (
     <TabsContent value="tasks" className="h-full mt-0 focus-visible:ring-0">
       <ResizablePanelGroup
+        defaultLayout={defaultLayout}
+        onLayoutChanged={onLayoutChanged}
         orientation="horizontal"
         className="h-full gap-2 p-4"
       >

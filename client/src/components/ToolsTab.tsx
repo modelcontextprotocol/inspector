@@ -45,6 +45,7 @@ import {
   HorizontalHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  useDefaultLayout,
 } from "@/components/ui/resizable";
 import { usePanelToggle } from "@/hooks/use-panel-toggle";
 import { useToast } from "@/lib/hooks/useToast";
@@ -233,9 +234,18 @@ const ToolsTab = ({
     return trimmedKey !== "" && !hasValidMetaName(trimmedKey);
   });
 
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: "persistence-tools-tab",
+  });
+
   return (
     <TabsContent value="tools" className="h-full mt-0 focus-visible:ring-0">
-      <ResizablePanelGroup orientation="horizontal" className="h-full">
+      <ResizablePanelGroup
+        defaultLayout={defaultLayout}
+        onLayoutChanged={onLayoutChanged}
+        orientation="horizontal"
+        className="h-full"
+      >
         <ResizablePanel
           panelRef={toolsRef}
           defaultSize="25%"

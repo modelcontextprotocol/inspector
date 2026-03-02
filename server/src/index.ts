@@ -183,7 +183,12 @@ const sessionHeaderHolders: Map<string, { headers: HeadersInit }> = new Map(); /
 // Use provided token from environment or generate a new one
 const sessionToken =
   process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
-const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
+
+const HOST = process.env.HOST || "localhost";
+const isLocal = HOST === "localhost" || HOST === "127.0.0.1";
+const authDisabled =
+  process.env.DANGEROUSLY_OMIT_AUTH === "true" ||
+  (isLocal && process.env.REQUIRE_AUTH !== "true");
 
 // Origin validation middleware to prevent DNS rebinding attacks
 const originValidationMiddleware = (
@@ -829,7 +834,6 @@ const PORT = parseInt(
   process.env.SERVER_PORT || DEFAULT_MCP_PROXY_LISTEN_PORT,
   10,
 );
-const HOST = process.env.HOST || "localhost";
 
 const server = app.listen(PORT, HOST);
 server.on("listening", () => {
@@ -837,12 +841,15 @@ server.on("listening", () => {
   if (!authDisabled) {
     console.log(
       `🔑 Session token: ${sessionToken}\n   ` +
-        `Use this token to authenticate requests or set DANGEROUSLY_OMIT_AUTH=true to disable auth`,
+        `Use this token to authenticate requests`,
+    );
+  } else if (isLocal && process.env.REQUIRE_AUTH !== "true") {
+    console.log(
+      `🔓 Authentication disabled by default on localhost.\n   ` +
+        `To enable it, set REQUIRE_AUTH=true`,
     );
   } else {
-    console.log(
-      `⚠️  WARNING: Authentication is disabled. This is not recommended.`,
-    );
+    console.log(`⚠️  WARNING: Authentication is disabled.`);
   }
 });
 server.on("error", (err) => {

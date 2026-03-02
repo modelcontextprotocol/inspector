@@ -6,6 +6,7 @@ import {
   HorizontalHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  useDefaultLayout,
 } from "@/components/ui/resizable";
 import { usePanelToggle } from "@/hooks/use-panel-toggle";
 
@@ -37,8 +38,17 @@ const HistoryAndNotifications = ({
     setExpandedNotifications((prev) => ({ ...prev, [index]: !prev[index] }));
   };
 
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: "persistence-history-notifications",
+  });
+
   return (
-    <ResizablePanelGroup orientation="horizontal" className="h-full">
+    <ResizablePanelGroup
+      defaultLayout={defaultLayout}
+      onLayoutChanged={onLayoutChanged}
+      orientation="horizontal"
+      className="h-full"
+    >
       <ResizablePanel
         panelRef={historySubRef}
         defaultSize="50%"

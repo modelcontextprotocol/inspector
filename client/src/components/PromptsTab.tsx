@@ -16,6 +16,7 @@ import {
   HorizontalHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  useDefaultLayout,
 } from "@/components/ui/resizable";
 import { useCompletionState } from "@/lib/hooks/useCompletionState";
 import JsonView from "./JsonView";
@@ -105,9 +106,18 @@ const PromptsTab = ({
     }
   };
 
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: "persistence-prompts-tab",
+  });
+
   return (
     <TabsContent value="prompts" className="h-full mt-0 focus-visible:ring-0">
-      <ResizablePanelGroup orientation="horizontal" className="h-full gap-2">
+      <ResizablePanelGroup
+        defaultLayout={defaultLayout}
+        onLayoutChanged={onLayoutChanged}
+        orientation="horizontal"
+        className="h-full gap-2"
+      >
         <ResizablePanel defaultSize="40%" minSize="10%">
           <div className="h-full pr-1">
             <ListPane

@@ -293,7 +293,12 @@ async function main() {
   // Use provided token from environment or generate a new one
   const sessionToken =
     process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
-  const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
+
+  const host = process.env.HOST || "localhost";
+  const isLocal = host === "localhost" || host === "127.0.0.1";
+  const authDisabled =
+    process.env.DANGEROUSLY_OMIT_AUTH === "true" ||
+    (isLocal && process.env.REQUIRE_AUTH !== "true");
 
   const abort = new AbortController();
 

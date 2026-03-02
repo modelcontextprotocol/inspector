@@ -51,6 +51,7 @@ import {
   VerticalHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  useDefaultLayout,
 } from "@/components/ui/resizable";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
@@ -184,6 +185,16 @@ const App = () => {
   const [oauthClientSecret, setOauthClientSecret] = useState<string>(() => {
     return localStorage.getItem("lastOauthClientSecret") || "";
   });
+
+  const {
+    defaultLayout: mainHorizontalDefaultLayout,
+    onLayoutChanged: onMainHorizontalLayoutChanged,
+  } = useDefaultLayout({ id: "persistence-main-horizontal" });
+
+  const {
+    defaultLayout: mainVerticalDefaultLayout,
+    onLayoutChanged: onMainVerticalLayoutChanged,
+  } = useDefaultLayout({ id: "persistence-main-vertical" });
 
   // Custom headers state with migration from legacy auth
   const [customHeaders, setCustomHeaders] = useState<CustomHeaders>(() => {
@@ -875,7 +886,7 @@ const App = () => {
           method: "resources/subscribe" as const,
           params: { uri },
         },
-        z.object({}),
+        z.object({}) as unknown as AnySchema,
         "resources",
       );
       const clone = new Set(resourceSubscriptions);
@@ -891,7 +902,7 @@ const App = () => {
           method: "resources/unsubscribe" as const,
           params: { uri },
         },
-        z.object({}),
+        z.object({}) as unknown as AnySchema,
         "resources",
       );
       const clone = new Set(resourceSubscriptions);
@@ -1171,7 +1182,7 @@ const App = () => {
         method: "logging/setLevel" as const,
         params: { level },
       },
-      z.object({}),
+      z.object({}) as unknown as AnySchema,
     );
     setLogLevel(level);
   };
@@ -1212,6 +1223,8 @@ const App = () => {
   return (
     <SidebarProvider>
       <ResizablePanelGroup
+        defaultLayout={mainHorizontalDefaultLayout}
+        onLayoutChanged={onMainHorizontalLayoutChanged}
         orientation="horizontal"
         className="h-full w-screen bg-background overflow-hidden"
       >
@@ -1257,7 +1270,11 @@ const App = () => {
         </ResizablePanel>
         <HorizontalHandle withHandle onDoubleClick={toggleSidebar} />
         <ResizablePanel defaultSize="80%" className="flex flex-col min-h-0">
-          <ResizablePanelGroup orientation="vertical">
+          <ResizablePanelGroup
+            defaultLayout={mainVerticalDefaultLayout}
+            onLayoutChanged={onMainVerticalLayoutChanged}
+            orientation="vertical"
+          >
             <ResizablePanel
               defaultSize="70%"
               minSize="20%"

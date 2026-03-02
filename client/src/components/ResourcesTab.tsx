@@ -18,6 +18,7 @@ import {
   HorizontalHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  useDefaultLayout,
 } from "@/components/ui/resizable";
 import { useEffect, useState } from "react";
 import { useCompletionState } from "@/lib/hooks/useCompletionState";
@@ -116,9 +117,18 @@ const ResourcesTab = ({
     }
   };
 
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: "persistence-resources-tab",
+  });
+
   return (
     <TabsContent value="resources" className="h-full mt-0 focus-visible:ring-0">
-      <ResizablePanelGroup orientation="horizontal" className="h-full gap-2">
+      <ResizablePanelGroup
+        defaultLayout={defaultLayout}
+        onLayoutChanged={onLayoutChanged}
+        orientation="horizontal"
+        className="h-full gap-2"
+      >
         <ResizablePanel defaultSize="30%" minSize="10%">
           <div className="h-full pr-1">
             <ListPane
