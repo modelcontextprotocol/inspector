@@ -1,8 +1,17 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, it, jest, beforeEach } from "@jest/globals";
 import AppsTab from "../AppsTab";
-import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import {
+  Tool,
+  CompatibilityCallToolResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { Tabs } from "../ui/tabs";
 
 // Mock AppRenderer component
@@ -10,14 +19,19 @@ jest.mock("../AppRenderer", () => {
   return function MockAppRenderer({
     tool,
     toolInput,
+    toolResult,
   }: {
     tool: Tool;
     toolInput?: Record<string, unknown>;
+    toolResult?: unknown;
   }) {
     return (
       <div data-testid="app-renderer">
         <div>Tool: {tool.name}</div>
         <div data-testid="tool-input">{JSON.stringify(toolInput)}</div>
+        <div data-testid="tool-result">
+          {JSON.stringify(toolResult ?? null)}
+        </div>
       </div>
     );
   };
@@ -50,6 +64,12 @@ describe("AppsTab", () => {
   const defaultProps = {
     tools: [],
     listTools: jest.fn(),
+    callTool: jest.fn(
+      async () =>
+        ({
+          content: [],
+        }) as CompatibilityCallToolResult,
+    ),
     error: null,
     mcpClient: null,
   };
@@ -131,7 +151,7 @@ describe("AppsTab", () => {
     expect(screen.getByText(errorMessage)).toBeInTheDocument();
   });
 
-  it("should open app renderer when an app card is clicked and Open App button is clicked if fields exist", () => {
+  it("should open app renderer when an app card is clicked and Open App button is clicked if fields exist", async () => {
     const toolWithFields: Tool = {
       name: "fieldsApp",
       inputSchema: {
@@ -142,9 +162,16 @@ describe("AppsTab", () => {
       },
       _meta: { ui: { resourceUri: "ui://fields" } },
     } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+    const mockCallTool = jest.fn(
+      async () =>
+        ({
+          content: [],
+        }) as CompatibilityCallToolResult,
+    );
 
     renderAppsTab({
       tools: [toolWithFields],
+      callTool: mockCallTool,
     });
 
     const appCard = screen.getByText("fieldsApp").closest("div");
@@ -159,12 +186,19 @@ describe("AppsTab", () => {
     const openAppButton = screen.getByRole("button", { name: /open app/i });
     fireEvent.click(openAppButton);
 
-    // AppRenderer should be rendered
-    expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockCallTool).toHaveBeenCalledWith("fieldsApp", {
+        field1: undefined,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    });
     expect(screen.getByText("Tool: fieldsApp")).toBeInTheDocument();
   });
 
-  it("should close app renderer when close button is clicked", () => {
+  it("should close app renderer when close button is clicked", async () => {
     renderAppsTab({
       tools: [mockAppTool],
     });
@@ -172,8 +206,9 @@ describe("AppsTab", () => {
     // Open the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-    // weatherApp has no properties in mockAppTool, so it should be open immediately
-    expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    });
 
     // Close the app (Deselect tool)
     const closeButton = screen.getByRole("button", { name: /close app/i });
@@ -204,7 +239,7 @@ describe("AppsTab", () => {
     expect(screen.getByText("noDescriptionApp")).toBeInTheDocument();
   });
 
-  it("should reset selected tool when tools list changes and selected tool is removed", () => {
+  it("should reset selected tool when tools list changes and selected tool is removed", async () => {
     const { rerender } = renderAppsTab({
       tools: [mockAppTool],
     });
@@ -212,8 +247,9 @@ describe("AppsTab", () => {
     // Select the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-    // weatherApp has no properties in mockAppTool, so it should be open immediately
-    expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    });
 
     // Update tools list to remove the selected tool
     rerender(
@@ -226,7 +262,7 @@ describe("AppsTab", () => {
     expect(screen.queryByTestId("app-renderer")).not.toBeInTheDocument();
   });
 
-  it("should maintain selected tool when tools list updates but includes the same tool", () => {
+  it("should maintain selected tool when tools list updates but includes the same tool", async () => {
     const { rerender } = renderAppsTab({
       tools: [mockAppTool],
     });
@@ -234,8 +270,9 @@ describe("AppsTab", () => {
     // Select the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-    // weatherApp has no properties in mockAppTool, so it should be open immediately
-    expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    });
 
     // Update tools list with the same tool
     rerender(
@@ -248,7 +285,7 @@ describe("AppsTab", () => {
     expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
   });
 
-  it("should maximize and minimize the app window", () => {
+  it("should maximize and minimize the app window", async () => {
     renderAppsTab({
       tools: [mockAppTool],
     });
@@ -256,12 +293,12 @@ describe("AppsTab", () => {
     // Select the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-    // weatherApp has no properties in mockAppTool, so it should be open immediately
 
-    // Now Maximize button should be visible
-    expect(
-      screen.getByRole("button", { name: /maximize/i }),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /maximize/i }),
+      ).toBeInTheDocument();
+    });
 
     // Initially, ListPane should be visible
     expect(screen.getByText("MCP Apps")).toBeInTheDocument();
@@ -281,7 +318,7 @@ describe("AppsTab", () => {
     expect(screen.getByText("MCP Apps")).toBeInTheDocument();
   });
 
-  it("should reset maximized state when app is closed", () => {
+  it("should reset maximized state when app is closed", async () => {
     renderAppsTab({
       tools: [mockAppTool],
     });
@@ -289,7 +326,12 @@ describe("AppsTab", () => {
     // Select the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-    // weatherApp has no properties in mockAppTool, so it should be open immediately
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /maximize/i }),
+      ).toBeInTheDocument();
+    });
 
     // Maximize
     fireEvent.click(screen.getByRole("button", { name: /maximize/i }));
@@ -311,7 +353,7 @@ describe("AppsTab", () => {
     expect(appItem).toBeTruthy();
   });
 
-  it("should handle empty resourceContentMap", () => {
+  it("should handle empty resourceContentMap", async () => {
     renderAppsTab({
       tools: [mockAppTool],
     });
@@ -319,13 +361,13 @@ describe("AppsTab", () => {
     // Open the app
     const appCard = screen.getByText("weatherApp").closest("div");
     fireEvent.click(appCard!);
-    // weatherApp has no properties in mockAppTool, so it should be open immediately
 
-    // AppRenderer should still be rendered
-    expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    });
   });
 
-  it("should handle various input types and pass them to AppRenderer", () => {
+  it("should handle various input types and pass them to AppRenderer", async () => {
     const toolWithComplexSchema: Tool = {
       name: "complexApp",
       inputSchema: {
@@ -359,6 +401,10 @@ describe("AppsTab", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /open app/i }));
 
+    await waitFor(() => {
+      expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    });
+
     const toolInput = JSON.parse(
       screen.getByTestId("tool-input").textContent || "{}",
     );
@@ -367,7 +413,7 @@ describe("AppsTab", () => {
     expect(toolInput.number).toBe(42);
   });
 
-  it("should handle nullable fields", () => {
+  it("should handle nullable fields", async () => {
     const toolWithNullable: Tool = {
       name: "nullableApp",
       inputSchema: {
@@ -391,13 +437,17 @@ describe("AppsTab", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /open app/i }));
 
+    await waitFor(() => {
+      expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    });
+
     const toolInput = JSON.parse(
       screen.getByTestId("tool-input").textContent || "{}",
     );
     expect(toolInput.nullableField).toBe(null);
   });
 
-  it("should allow going back to input form from app renderer", () => {
+  it("should allow going back to input form from app renderer", async () => {
     const toolWithFields: Tool = {
       name: "fieldsApp",
       inputSchema: {
@@ -416,13 +466,15 @@ describe("AppsTab", () => {
     fireEvent.click(screen.getByText("fieldsApp"));
     fireEvent.click(screen.getByRole("button", { name: /open app/i }));
 
-    expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    });
 
     const backButton = screen.queryByRole("button", { name: /back to input/i });
     expect(backButton).toBeInTheDocument();
   });
 
-  it("should skip input form if tool has no input fields", () => {
+  it("should skip input form if tool has no input fields", async () => {
     const toolNoFields: Tool = {
       name: "noFieldsApp",
       inputSchema: {
@@ -431,15 +483,27 @@ describe("AppsTab", () => {
       },
       _meta: { ui: { resourceUri: "ui://no-fields" } },
     } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+    const mockCallTool = jest.fn(
+      async () =>
+        ({
+          content: [],
+        }) as CompatibilityCallToolResult,
+    );
 
     renderAppsTab({
       tools: [toolNoFields],
+      callTool: mockCallTool,
     });
 
     fireEvent.click(screen.getByText("noFieldsApp"));
 
-    // Should see the renderer immediately
-    expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockCallTool).toHaveBeenCalledWith("noFieldsApp", {});
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    });
     expect(screen.getByText("Tool: noFieldsApp")).toBeInTheDocument();
 
     // Should NOT see the back button
@@ -448,7 +512,7 @@ describe("AppsTab", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("should allow going back to input form from app renderer if fields exist", () => {
+  it("should allow going back to input form from app renderer if fields exist", async () => {
     const toolWithFields: Tool = {
       name: "fieldsApp",
       inputSchema: {
@@ -470,12 +534,239 @@ describe("AppsTab", () => {
     expect(screen.getByText("App Input")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /open app/i }));
 
-    expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    });
 
     const backButton = screen.getByRole("button", { name: /back to input/i });
     fireEvent.click(backButton);
 
     expect(screen.queryByTestId("app-renderer")).not.toBeInTheDocument();
     expect(screen.getByText("App Input")).toBeInTheDocument();
+  });
+
+  it("should auto-render app from prefilled tools tab call without manual click", async () => {
+    const toolWithFields: Tool = {
+      name: "prefilledApp",
+      inputSchema: {
+        type: "object",
+        properties: {
+          city: { type: "string" },
+        },
+      },
+      _meta: { ui: { resourceUri: "ui://prefilled" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+    const onPrefilledToolCallConsumed = jest.fn();
+    const prefilledResult: CompatibilityCallToolResult = {
+      content: [{ type: "text", text: "weather result" }],
+    };
+
+    renderAppsTab({
+      tools: [toolWithFields],
+      prefilledToolCall: {
+        id: 42,
+        toolName: "prefilledApp",
+        params: { city: "Lisbon" },
+        result: prefilledResult,
+      },
+      onPrefilledToolCallConsumed,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+      expect(screen.getByText("Tool: prefilledApp")).toBeInTheDocument();
+    });
+
+    const toolInput = JSON.parse(
+      screen.getByTestId("tool-input").textContent || "{}",
+    );
+    expect(toolInput).toEqual({ city: "Lisbon" });
+    expect(screen.getByTestId("tool-result")).toHaveTextContent(
+      "weather result",
+    );
+    expect(onPrefilledToolCallConsumed).toHaveBeenCalledWith(42);
+  });
+
+  it("should not auto-render app when no prefilled tool call is provided", () => {
+    const toolWithFields: Tool = {
+      name: "manualApp",
+      inputSchema: {
+        type: "object",
+        properties: {
+          city: { type: "string" },
+        },
+      },
+      _meta: { ui: { resourceUri: "ui://manual" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+
+    renderAppsTab({
+      tools: [toolWithFields],
+    });
+
+    expect(screen.queryByTestId("app-renderer")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Select an app from the list to get started"),
+    ).toBeInTheDocument();
+  });
+
+  it("should preserve submitted params while opening app", async () => {
+    const toolWithFields: Tool = {
+      name: "paramsApp",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+        },
+      },
+      _meta: { ui: { resourceUri: "ui://params" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+
+    let resolveCall: ((result: CompatibilityCallToolResult) => void) | null =
+      null;
+    const mockCallTool = jest.fn(
+      () =>
+        new Promise<CompatibilityCallToolResult>((resolve) => {
+          resolveCall = resolve;
+        }),
+    );
+
+    renderAppsTab({
+      tools: [toolWithFields],
+      callTool: mockCallTool,
+    });
+
+    fireEvent.click(screen.getByText("paramsApp"));
+    fireEvent.change(screen.getByLabelText("query"), {
+      target: { value: "first value" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+
+    fireEvent.change(screen.getByLabelText("query"), {
+      target: { value: "second value" },
+    });
+
+    expect(resolveCall).toBeTruthy();
+    await act(async () => {
+      resolveCall?.({
+        content: [{ type: "text", text: "done" }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("app-renderer")).toBeInTheDocument();
+    });
+
+    const toolInput = JSON.parse(
+      screen.getByTestId("tool-input").textContent || "{}",
+    );
+    expect(toolInput.query).toBe("first value");
+  });
+
+  it("should keep input view when opening fails and recover button state", async () => {
+    const toolWithFields: Tool = {
+      name: "failingApp",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+        },
+      },
+      _meta: { ui: { resourceUri: "ui://failing" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+
+    const mockCallTool = jest.fn(
+      async () =>
+        await Promise.reject<CompatibilityCallToolResult>(
+          new Error("tool failed"),
+        ),
+    );
+
+    renderAppsTab({
+      tools: [toolWithFields],
+      callTool: mockCallTool,
+    });
+
+    fireEvent.click(screen.getByText("failingApp"));
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+
+    await waitFor(() => {
+      expect(mockCallTool).toHaveBeenCalledWith("failingApp", {
+        query: undefined,
+      });
+    });
+
+    await waitFor(() => {
+      const openAppButton = screen.getByRole("button", { name: /open app/i });
+      expect(openAppButton).toBeEnabled();
+    });
+
+    expect(screen.getByText("App Input")).toBeInTheDocument();
+    expect(screen.queryByTestId("app-renderer")).not.toBeInTheDocument();
+  });
+
+  it("should ignore stale results from older app launches", async () => {
+    const appA: Tool = {
+      name: "appA",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+      _meta: { ui: { resourceUri: "ui://app-a" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+    const appB: Tool = {
+      name: "appB",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+      _meta: { ui: { resourceUri: "ui://app-b" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+
+    const pendingCalls: {
+      name: string;
+      resolve: (result: CompatibilityCallToolResult) => void;
+    }[] = [];
+    const mockCallTool = jest.fn(
+      (name: string) =>
+        new Promise<CompatibilityCallToolResult>((resolve) => {
+          pendingCalls.push({ name, resolve });
+        }),
+    );
+
+    renderAppsTab({
+      tools: [appA, appB],
+      callTool: mockCallTool,
+    });
+
+    fireEvent.click(screen.getByText("appA"));
+    fireEvent.click(screen.getByText("appB"));
+
+    const appBCall = pendingCalls.find((call) => call.name === "appB");
+    const appACall = pendingCalls.find((call) => call.name === "appA");
+    expect(appBCall).toBeTruthy();
+    expect(appACall).toBeTruthy();
+
+    await act(async () => {
+      appBCall?.resolve({
+        content: [{ type: "text", text: "result from appB" }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Tool: appB")).toBeInTheDocument();
+      expect(screen.getByTestId("tool-result")).toHaveTextContent("appB");
+    });
+
+    await act(async () => {
+      appACall?.resolve({
+        content: [{ type: "text", text: "result from appA" }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Tool: appB")).toBeInTheDocument();
+      expect(screen.getByTestId("tool-result")).toHaveTextContent("appB");
+      expect(screen.getByTestId("tool-result")).not.toHaveTextContent("appA");
+    });
   });
 });

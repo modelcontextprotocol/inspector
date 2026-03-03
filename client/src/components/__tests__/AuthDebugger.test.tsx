@@ -681,7 +681,7 @@ describe("AuthDebugger", () => {
       const updateAuthState = jest.fn();
       const mockResourceMetadata = {
         resource: "https://example.com/mcp",
-        authorization_servers: ["https://custom-auth.example.com"],
+        authorization_servers: ["https://custom-auth.example.com/mcp/tenant"],
         bearer_methods_supported: ["header", "body"],
         resource_documentation: "https://example.com/mcp/docs",
         resource_policy_uri: "https://example.com/mcp/policy",
@@ -733,11 +733,17 @@ describe("AuthDebugger", () => {
         expect(updateAuthState).toHaveBeenCalledWith(
           expect.objectContaining({
             resourceMetadata: mockResourceMetadata,
-            authServerUrl: new URL("https://custom-auth.example.com"),
+            authServerUrl: new URL(
+              "https://custom-auth.example.com/mcp/tenant",
+            ),
             oauthStep: "client_registration",
           }),
         );
       });
+
+      expect(mockDiscoverAuthorizationServerMetadata).toHaveBeenCalledWith(
+        new URL("https://custom-auth.example.com/mcp/tenant"),
+      );
     });
 
     it("should handle protected resource metadata fetch failure gracefully", async () => {

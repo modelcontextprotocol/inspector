@@ -31,6 +31,7 @@ import {
   hasValidMetaPrefix,
   isReservedMetaKey,
 } from "@/utils/metaUtils";
+import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
 import { OAuthStateMachine } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
@@ -102,6 +103,27 @@ import MetadataTab from "./components/MetadataTab";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
+type PrefilledAppsToolCall = {
+  id: number;
+  toolName: string;
+  params: Record<string, unknown>;
+  result: CompatibilityCallToolResult;
+};
+
+const hasAppResourceUri = (tool: Tool): boolean => {
+  return Boolean(getToolUiResourceUri(tool));
+};
+
+const cloneToolParams = (
+  source: Record<string, unknown>,
+): Record<string, unknown> => {
+  try {
+    return structuredClone(source);
+  } catch {
+    return { ...source };
+  }
+};
+
 const filterReservedMetadata = (
   metadata: Record<string, string>,
 ): Record<string, string> => {
@@ -138,6 +160,8 @@ const App = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [toolResult, setToolResult] =
     useState<CompatibilityCallToolResult | null>(null);
+  const [prefilledAppsToolCall, setPrefilledAppsToolCall] =
+    useState<PrefilledAppsToolCall | null>(null);
   const [errors, setErrors] = useState<Record<string, string | null>>({
     resources: null,
     prompts: null,
@@ -294,6 +318,7 @@ const App = () => {
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const [nextTaskCursor, setNextTaskCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
+  const prefilledAppsToolCallIdRef = useRef(0);
 
   const [activeTab, setActiveTab] = useState<string>(() => {
     const hash = window.location.hash.slice(1);
@@ -984,7 +1009,7 @@ const App = () => {
     params: Record<string, unknown>,
     toolMetadata?: Record<string, unknown>,
     runAsTask?: boolean,
-  ) => {
+  ): Promise<CompatibilityCallToolResult> => {
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
     try {
@@ -1052,7 +1077,7 @@ const App = () => {
           "_meta" in (response as Record<string, unknown>)
             ? ((response as { _meta?: Record<string, unknown> })._meta ?? {})
             : undefined;
-        setToolResult({
+        let latestToolResult: CompatibilityCallToolResult = {
           content: [
             {
               type: "text",
@@ -1063,7 +1088,8 @@ const App = () => {
             ...(initialResponseMeta || {}),
             "io.modelcontextprotocol/related-task": { taskId },
           },
-        } as CompatibilityCallToolResult);
+        };
+        setToolResult(latestToolResult);
 
         // Polling loop
         let taskCompleted = false;
@@ -1100,12 +1126,13 @@ const App = () => {
                   CompatibilityCallToolResultSchema,
                 );
                 console.log(`Result received for task ${taskId}:`, result);
-                setToolResult(result as CompatibilityCallToolResult);
+                latestToolResult = result as CompatibilityCallToolResult;
+                setToolResult(latestToolResult);
 
                 // Refresh tasks list to show completed state
                 void listTasks();
               } else {
-                setToolResult({
+                latestToolResult = {
                   content: [
                     {
                       type: "text",
@@ -1113,7 +1140,8 @@ const App = () => {
                     },
                   ],
                   isError: true,
-                });
+                };
+                setToolResult(latestToolResult);
                 // Refresh tasks list to show failed/cancelled state
                 void listTasks();
               }
@@ -1127,7 +1155,7 @@ const App = () => {
                   ? ((response as { _meta?: Record<string, unknown> })._meta ??
                     {})
                   : undefined;
-              setToolResult({
+              latestToolResult = {
                 content: [
                   {
                     type: "text",
@@ -1138,13 +1166,14 @@ const App = () => {
                   ...(pollingResponseMeta || {}),
                   "io.modelcontextprotocol/related-task": { taskId },
                 },
-              } as CompatibilityCallToolResult);
+              };
+              setToolResult(latestToolResult);
               // Refresh tasks list to show progress
               void listTasks();
             }
           } catch (pollingError) {
             console.error("Error polling task status:", pollingError);
-            setToolResult({
+            latestToolResult = {
               content: [
                 {
                   type: "text",
@@ -1152,16 +1181,22 @@ const App = () => {
                 },
               ],
               isError: true,
-            });
+            };
+            setToolResult(latestToolResult);
             taskCompleted = true;
           }
         }
         setIsPollingTask(false);
+        // Clear any validation errors since tool execution completed
+        setErrors((prev) => ({ ...prev, tools: null }));
+        return latestToolResult;
       } else {
-        setToolResult(response as CompatibilityCallToolResult);
+        const directResult = response as CompatibilityCallToolResult;
+        setToolResult(directResult);
+        // Clear any validation errors since tool execution completed
+        setErrors((prev) => ({ ...prev, tools: null }));
+        return directResult;
       }
-      // Clear any validation errors since tool execution completed
-      setErrors((prev) => ({ ...prev, tools: null }));
     } catch (e) {
       const toolResult: CompatibilityCallToolResult = {
         content: [
@@ -1175,6 +1210,7 @@ const App = () => {
       setToolResult(toolResult);
       // Clear validation errors - tool execution errors are shown in ToolResults
       setErrors((prev) => ({ ...prev, tools: null }));
+      return toolResult;
     }
   };
 
@@ -1497,6 +1533,9 @@ const App = () => {
                       error={errors.prompts}
                     />
                     <ToolsTab
+                      serverSupportsTaskRequests={
+                        !!serverCapabilities?.tasks?.requests?.tools?.call
+                      }
                       tools={tools}
                       listTools={() => {
                         clearError("tools");
@@ -1515,7 +1554,26 @@ const App = () => {
                       ) => {
                         clearError("tools");
                         setToolResult(null);
-                        await callTool(name, params, metadata, runAsTask);
+                        const result = await callTool(
+                          name,
+                          params,
+                          metadata,
+                          runAsTask,
+                        );
+                        const calledTool = tools.find(
+                          (tool) => tool.name === name,
+                        );
+                        if (calledTool && hasAppResourceUri(calledTool)) {
+                          setPrefilledAppsToolCall({
+                            id: ++prefilledAppsToolCallIdRef.current,
+                            toolName: name,
+                            params: cloneToolParams(params),
+                            result,
+                          });
+                        } else {
+                          setPrefilledAppsToolCall(null);
+                        }
+                        return result;
                       }}
                       selectedTool={selectedTool}
                       setSelectedTool={(tool) => {
@@ -1558,6 +1616,22 @@ const App = () => {
                       listTools={() => {
                         clearError("tools");
                         listTools();
+                      }}
+                      callTool={async (
+                        name: string,
+                        params: Record<string, unknown>,
+                        metadata?: Record<string, unknown>,
+                        runAsTask?: boolean,
+                      ) => {
+                        clearError("tools");
+                        setToolResult(null);
+                        return callTool(name, params, metadata, runAsTask);
+                      }}
+                      prefilledToolCall={prefilledAppsToolCall}
+                      onPrefilledToolCallConsumed={(callId) => {
+                        setPrefilledAppsToolCall((prev) =>
+                          prev?.id === callId ? null : prev,
+                        );
                       }}
                       error={errors.tools}
                       mcpClient={mcpClient}
