@@ -543,7 +543,9 @@ const ToolsTab = ({
                               prop.type === "array" ? (
                               <div className="mt-1">
                                 <DynamicJsonForm
-                                  ref={(ref) => (formRefs.current[key] = ref)}
+                                  ref={(ref) => {
+                                    formRefs.current[key] = ref;
+                                  }}
                                   schema={{
                                     type: prop.type,
                                     properties: prop.properties,
@@ -607,7 +609,9 @@ const ToolsTab = ({
                             ) : (
                               <div className="mt-1">
                                 <DynamicJsonForm
-                                  ref={(ref) => (formRefs.current[key] = ref)}
+                                  ref={(ref) => {
+                                    formRefs.current[key] = ref;
+                                  }}
                                   schema={{
                                     type: prop.type,
                                     properties: prop.properties,

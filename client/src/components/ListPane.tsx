@@ -13,7 +13,7 @@ type ListPaneProps<T> = {
   title: string;
   buttonText: string;
   isButtonDisabled?: boolean;
-  searchRef?: React.RefObject<HTMLInputElement>;
+  searchRef?: React.RefObject<HTMLInputElement | null>;
 };
 
 const ListPane = <T extends object>({
