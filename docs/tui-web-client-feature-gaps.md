@@ -4,6 +4,8 @@
 
 This document details the feature gaps between the TUI (Terminal User Interface) and the web client. The goal is to identify all missing features in the TUI and create a plan to close these gaps by extending `InspectorClient` and implementing the features in the TUI.
 
+**Code locations:** On the main/v1 tree the web app lives in `client/` (and sometimes `server/`). On this branch the web app lives in `web/`. Code references in this document use `web/` for the current app unless explicitly referring to the v1/main tree.
+
 ## Feature Comparison
 
 **InspectorClient** is the shared client library that provides the core MCP functionality. Both the TUI and web client use `InspectorClient` under the hood. The gaps documented here are primarily **UI-level gaps** — features that `InspectorClient` supports but are not yet exposed in the TUI interface.
@@ -54,8 +56,8 @@ For the current feature matrix (InspectorClient, Web v1, Web v1.5, TUI), see [MC
 
 **Code References:**
 
-- Web client: `client/src/App.tsx` (lines 781-809)
-- Web client: `client/src/components/ResourcesTab.tsx` (lines 207-221)
+- Web client: `web/src/App.tsx` (lines 781-809)
+- Web client: `web/src/components/ResourcesTab.tsx` (lines 207-221)
 
 ### 2. OAuth 2.1 Authentication
 
@@ -72,7 +74,7 @@ For the current feature matrix (InspectorClient, Web v1, Web v1.5, TUI), see [MC
 
 **Web Client Support:**
 
-- Full browser-based OAuth 2.1 flow (uses its own OAuth code in `client/src/lib/`, unchanged):
+- Full browser-based OAuth 2.1 flow (uses its own OAuth code in `web/src/lib/`, unchanged):
   - **Static/Preregistered Clients**: ✅ Supported - User provides client ID and secret via UI
   - **DCR (Dynamic Client Registration)**: ✅ Supported - Falls back to DCR if no static client available
   - **CIMD (Client ID Metadata Documents)**: ❌ Not supported - Web client does not set `clientMetadataUrl`
@@ -90,7 +92,7 @@ For the current feature matrix (InspectorClient, Web v1, Web v1.5, TUI), see [MC
 **Code References:**
 
 - InspectorClient OAuth: `core/mcp/inspectorClient.ts` (OAuth options, `authenticate`, `authenticateGuided`, `completeOAuthFlow`, events), `core/auth/`
-- Web client: `client/src/lib/hooks/useConnection.ts`, `client/src/lib/auth.ts`, `client/src/lib/oauth-state-machine.ts`
+- Web client: `web/src/lib/hooks/useConnection.ts`, `web/src/lib/auth.ts`, `web/src/lib/oauth-state-machine.ts`
 - Design: [OAuth Support in InspectorClient](./oauth-inspectorclient-design.md)
 
 **Note:** OAuth in TUI requires a browser-based flow with a localhost callback server, which is feasible but different from the web client's approach.
@@ -128,9 +130,9 @@ For the current feature matrix (InspectorClient, Web v1, Web v1.5, TUI), see [MC
 **Code References:**
 
 - `InspectorClient`: `core/mcp/inspectorClient.ts` (lines 85-87, 225-226, 401-417, 573-600)
-- Web client: `client/src/components/SamplingTab.tsx`
-- Web client: `client/src/components/SamplingRequest.tsx`
-- Web client: `client/src/App.tsx` (lines 328-333, 637-652)
+- Web client: `web/src/components/SamplingTab.tsx`
+- Web client: `web/src/components/SamplingRequest.tsx`
+- Web client: `web/src/App.tsx` (lines 328-333, 637-652)
 
 ### 4. Elicitation Requests
 
@@ -208,10 +210,10 @@ For the current feature matrix (InspectorClient, Web v1, Web v1.5, TUI), see [MC
 - `InspectorClient`: `core/mcp/inspectorClient.ts` (lines 90-92, 227-228, 420-433, 606-639)
 - `ElicitationCreateMessage`: `core/mcp/elicitationCreateMessage.ts`
 - Test fixtures: `core/test/test-server-fixtures.ts` (`createCollectElicitationTool`, `createCollectUrlElicitationTool`)
-- Web client: `client/src/components/ElicitationTab.tsx`
-- Web client: `client/src/components/ElicitationRequest.tsx` (form-based only)
-- Web client: `client/src/App.tsx` (lines 334-356, 653-669)
-- Web client: `client/src/utils/schemaUtils.ts` (schema resolution for form-based elicitation)
+- Web client: `web/src/components/ElicitationTab.tsx`
+- Web client: `web/src/components/ElicitationRequest.tsx` (form-based only)
+- Web client: `web/src/App.tsx` (lines 334-356, 653-669)
+- Web client: `web/src/utils/schemaUtils.ts` (schema resolution for form-based elicitation)
 
 ### 5. Tasks (Long-Running Operations)
 
@@ -328,9 +330,9 @@ Tasks (SEP-1686) were introduced in MCP version 2025-11-25 to support long-runni
 **Code References:**
 
 - `InspectorClient`: `core/mcp/inspectorClient.ts` (lines 902-966) - `getCompletions()` method
-- Web client: `client/src/lib/hooks/useConnection.ts` (lines 309, 384-386)
-- Web client: `client/src/lib/hooks/useCompletionState.ts`
-- Web client: `client/src/components/ResourcesTab.tsx` (lines 88-101)
+- Web client: `web/src/lib/hooks/useConnection.ts` (lines 309, 384-386)
+- Web client: `web/src/lib/hooks/useCompletionState.ts`
+- Web client: `web/src/components/ResourcesTab.tsx` (lines 88-101)
 - TUI: `tui/src/components/PromptTestModal.tsx` - Prompt form (needs completion integration)
 - TUI: `tui/src/components/ResourceTestModal.tsx` - Resource template form (needs completion integration)
 
@@ -407,8 +409,8 @@ The SDK runs timeout reset **only** when a per-request `onprogress` callback exi
 
 - InspectorClient: `core/mcp/inspectorClient.ts` - `getRequestOptions(progressToken?)` builds per-request `onprogress`, injects token into dispatched events
 - InspectorClient: `core/mcp/inspectorClient.ts` - `callTool`, `callToolStream`, `getPrompt`, `readResource`, list methods pass `metadata?.progressToken` into `getRequestOptions`
-- Web client: `client/src/App.tsx` (lines 840-892) - Progress token generation and tool call
-- Web client: `client/src/lib/hooks/useConnection.ts` (lines 214-226) - Progress callback setup
+- Web client: `web/src/App.tsx` (lines 840-892) - Progress token generation and tool call
+- Web client: `web/src/lib/hooks/useConnection.ts` (lines 214-226) - Progress callback setup
 - SDK: `@modelcontextprotocol/sdk` `shared/protocol` - `DEFAULT_REQUEST_TIMEOUT_MSEC` (60_000), `RequestOptions` (`timeout`, `resetTimeoutOnProgress`, `maxTotalTimeout`), `Progress` type
 
 ### 7. ListChanged Notifications
@@ -427,56 +429,43 @@ MCP servers can send `listChanged` notifications when the list of tools, resourc
 - **Auto-refresh**: When a `listChanged` notification is received, the web client automatically calls the corresponding `list*()` method to refresh the UI
 - **Notification Processing**: All notifications are passed to `onNotification` callback, which stores them in state for display
 
-**InspectorClient Status:**
+**InspectorClient and state managers:**
 
-- ✅ Notification handlers for `notifications/tools/list_changed` - **COMPLETED**
-- ✅ Notification handlers for `notifications/resources/list_changed` - **COMPLETED** (reloads both resources and resource templates)
-- ✅ Notification handlers for `notifications/prompts/list_changed` - **COMPLETED**
-- ✅ Automatic list refresh on `listChanged` notifications - **COMPLETED**
-- ✅ Configurable via `listChangedNotifications` option - **COMPLETED** (tools, resources, prompts)
-- ✅ Cache preservation for existing items - **COMPLETED**
-- ✅ Cache cleanup for removed items - **COMPLETED**
-- ✅ Event dispatching (`toolsChange`, `resourcesChange`, `resourceTemplatesChange`, `promptsChange`) - **COMPLETED**
+- ✅ InspectorClient registers notification handlers for `notifications/tools/list_changed`, `notifications/resources/list_changed`, `notifications/prompts/list_changed` and dispatches **signal** events (e.g. `toolsListChanged`, `resourcesListChanged`, `promptsListChanged`) - **COMPLETED**
+- ✅ **State managers** (in `core/mcp/state/`) subscribe to those signals, call list RPCs, hold lists/caches, and dispatch **state** events (`toolsChange`, `resourcesChange`, `resourceTemplatesChange`, `promptsChange`) - **COMPLETED**. See [protocol-and-state-managers-architecture.md](protocol-and-state-managers-architecture.md).
 
 **TUI Status:**
 
-- ✅ `listChanged` notifications automatically handled by `InspectorClient` - **COMPLETED**
-- ✅ Lists automatically reload when notifications are received - **COMPLETED**
-- ✅ Events dispatched (`toolsChange`, `resourcesChange`, `promptsChange`) - **COMPLETED**
-- ✅ TUI automatically reflects changes when events are received - **COMPLETED** (if TUI listens to these events)
+- ✅ `listChanged` notifications flow: InspectorClient dispatches signals; state managers (if used) reload lists and dispatch `toolsChange` etc. - **COMPLETED**
+- ✅ TUI automatically reflects changes when it subscribes to state manager events (or to InspectorClient signals and fetches list data) - **COMPLETED**
 - ❌ No UI indication when lists are auto-refreshed (optional, but useful for debugging)
 
 **Note on TUI Support:**
 
-The TUI automatically supports `listChanged` notifications through `InspectorClient`. The implementation works as follows:
+List and cache state live in **optional state managers**, not on InspectorClient. The flow:
 
-1. **Server Capability**: The MCP server must advertise `listChanged` capability in its server capabilities (e.g., `tools: { listChanged: true }`, `resources: { listChanged: true }`, `prompts: { listChanged: true }`)
+1. **Server Capability**: The MCP server must advertise `listChanged` capability (e.g., `tools: { listChanged: true }`, `resources: { listChanged: true }`, `prompts: { listChanged: true }`).
 
-2. **Automatic Handler Registration**: When `InspectorClient` connects, it checks if the server advertises `listChanged` capability. If it does, `InspectorClient` automatically registers notification handlers for:
-   - `notifications/tools/list_changed`
-   - `notifications/resources/list_changed`
-   - `notifications/prompts/list_changed`
+2. **InspectorClient**: When connected, it registers notification handlers and dispatches signal events (`toolsListChanged`, etc.). It does not store lists or dispatch `toolsChange`/`resourcesChange`/etc.
 
-3. **Automatic List Reload**: When a `listChanged` notification is received, `InspectorClient` automatically calls the corresponding `listAll*()` method to reload the list
+3. **State managers**: Optional managers (e.g. ManagedToolsState, PagedToolsState) subscribe to those signals, call `listTools()`/etc., hold the list, and dispatch `toolsChange` (and similar) with the current list. Apps and hooks subscribe to the managers.
 
-4. **Event Dispatching**: `InspectorClient` dispatches events (`toolsChange`, `resourcesChange`, `resourceTemplatesChange`, `promptsChange`) that the TUI can listen to
-
-5. **TUI Auto-Refresh**: The TUI will automatically reflect changes if it listens to these events (which it should, as it uses `InspectorClient`)
+4. **TUI**: If the TUI uses state managers (or equivalent), it listens to their events to refresh the UI.
 
 **Important**: The client does NOT need to advertise `listChanged` capability - it only needs to check if the server supports it. The handlers are registered automatically based on server capabilities.
 
 **Implementation Requirements:**
 
-- ✅ Add notification handlers in `InspectorClient.connect()` for `listChanged` notifications - **COMPLETED**
-- ✅ When a `listChanged` notification is received, automatically call the corresponding `list*()` method - **COMPLETED**
-- ✅ Dispatch events to notify UI of list changes - **COMPLETED**
-- ✅ TUI inherits support automatically through `InspectorClient` - **COMPLETED**
+- ✅ InspectorClient: notification handlers in `connect()` for `listChanged`, dispatch signal events - **COMPLETED**
+- ✅ State managers: subscribe to signals, call list RPCs, hold lists, dispatch `toolsChange`/etc. - **COMPLETED**
+- ✅ TUI can use state managers (or subscribe to signals and fetch) for list updates - **COMPLETED**
 - ❌ Add UI in TUI to handle and display these notifications (optional, but useful for debugging)
 
 **Code References:**
 
-- Web client: `client/src/lib/hooks/useConnection.ts` (lines 422-424, 699-704) - Capability declaration and notification handlers
-- InspectorClient: `core/mcp/inspectorClient.ts` (listChanged handlers in `connect()`, ~lines 537-573) - Auto-refresh on `list_changed`
+- Web client: `web/src/lib/hooks/useConnection.ts` (or equivalent) - capability declaration and notification handling
+- InspectorClient: `core/mcp/inspectorClient.ts` (listChanged handlers in `connect()`) - signal dispatch
+- State managers: `core/mcp/state/`, [protocol-and-state-managers-architecture.md](protocol-and-state-managers-architecture.md)
 
 ### 8. Roots Support
 
@@ -528,9 +517,9 @@ Roots are file system paths (as `file://` URIs) that define which directories an
 **Code References:**
 
 - `InspectorClient`: `core/mcp/inspectorClient.ts` - `getRoots()`, `setRoots()`, roots/list handler, and notification support
-- Web client: `client/src/components/RootsTab.tsx` - Roots management UI
-- Web client: `client/src/lib/hooks/useConnection.ts` (lines 422-424, 357) - Capability declaration and `getRoots` callback
-- Web client: `client/src/App.tsx` (lines 1225-1229) - RootsTab usage
+- Web client: `web/src/components/RootsTab.tsx` - Roots management UI
+- Web client: `web/src/lib/hooks/useConnection.ts` (lines 422-424, 357) - Capability declaration and `getRoots` callback
+- Web client: `web/src/App.tsx` (lines 1225-1229) - RootsTab usage
 
 ### 9. Custom Headers
 
@@ -588,8 +577,8 @@ Custom headers are used to send additional HTTP headers when connecting to MCP s
 
 **Code References:**
 
-- Web client: `client/src/components/CustomHeaders.tsx` - Header management UI component
-- Web client: `client/src/lib/hooks/useConnection.ts` (lines 453-514) - Header processing and transport creation
+- Web client: `web/src/components/CustomHeaders.tsx` - Header management UI component
+- Web client: `web/src/lib/hooks/useConnection.ts` (lines 453-514) - Header processing and transport creation
 - `InspectorClient`: `core/mcp/config.ts` (lines 118-129) - Headers in `MCPServerConfig`
 - `InspectorClient`: `core/mcp/transport.ts` (lines 100-134) - Headers passed to SDK transports
 
@@ -625,10 +614,7 @@ Based on this analysis, `InspectorClient` needs the following additions:
    - ✅ `getSubscribedResources()` - **COMPLETED**
    - ✅ `isSubscribedToResource(uri)` - **COMPLETED**
    - ✅ `supportsResourceSubscriptions()` - **COMPLETED**
-   - ✅ Resource content caching - **COMPLETED** (via `client.cache.getResource()`)
-   - ✅ Resource template content caching - **COMPLETED** (via `client.cache.getResourceTemplate()`)
-   - ✅ Prompt content caching - **COMPLETED** (via `client.cache.getPrompt()`)
-   - ✅ Tool call result caching - **COMPLETED** (via `client.cache.getToolCallResult()`)
+   - ✅ Resource / resource template / prompt / tool-call result access - **COMPLETED** (via InspectorClient RPCs; list and optional content caching are in state managers or app layer; see [protocol-and-state-managers-architecture.md](protocol-and-state-managers-architecture.md))
 
 2. **Sampling Support**:
    - ✅ `getPendingSamples()` - Already exists
@@ -690,17 +676,17 @@ Based on this analysis, `InspectorClient` needs the following additions:
 
 ## Notes
 
-- **HTTP Request Tracking**: `InspectorClient` tracks HTTP requests for SSE and streamable-http transports via `getFetchRequests()`. TUI displays these requests in a `RequestsTab`. Web client does not currently display HTTP request tracking, though the underlying `InspectorClient` supports it. This is a TUI advantage, not a gap.
-- **Resource Subscriptions**: Web client supports this, but TUI does not. `InspectorClient` now fully supports resource subscriptions with `subscribeToResource()`, `unsubscribeFromResource()`, and automatic handling of `notifications/resources/updated` notifications.
+- **HTTP Request Tracking**: InspectorClient dispatches `fetchRequest` events (per entry); **FetchRequestLogState** (in `core/mcp/state/`) holds the list and emits `fetchRequestsChange`. TUI displays these in a `RequestsTab`. Web client can use the same state manager. See [protocol-and-state-managers-architecture.md](protocol-and-state-managers-architecture.md).
+- **Resource Subscriptions**: Web client supports this, but TUI does not. InspectorClient supports resource subscriptions with `subscribeToResource()`, `unsubscribeFromResource()`, and handling of `notifications/resources/updated`.
 - **OAuth**: Web client has full OAuth support. TUI now supports OAuth 2.1 including static client, CIMD, DCR, and guided auth, with browser-based flow and localhost callback server.
-- **Completions**: `InspectorClient` has full completion support via `getCompletions()`. Web client uses this for resource template forms and prompt parameter forms. TUI has both resource template forms and prompt parameter forms, but completion support is still needed to provide autocomplete suggestions.
-- **Sampling**: `InspectorClient` has full sampling support. Web client UI displays and handles sampling requests. TUI needs UI to display and handle sampling requests.
-- **Elicitation**: `InspectorClient` has full elicitation support. Web client UI displays and handles elicitation requests. TUI needs UI to display and handle elicitation requests.
-- **ListChanged Notifications**: Web client handles `listChanged` notifications for tools, resources, and prompts, automatically refreshing lists when notifications are received. `InspectorClient` now fully supports these notifications with automatic list refresh, cache preservation/cleanup, and configurable handlers. TUI automatically benefits from this functionality but doesn't have UI to display notification events.
-- **Roots**: `InspectorClient` has full roots support with `getRoots()` and `setRoots()` methods, handler for `roots/list` requests, and notification support. Web client has a `RootsTab` UI for managing roots. TUI does not yet have UI for managing roots.
-- **Pagination**: Web client supports cursor-based pagination for all list methods (tools, resources, resource templates, prompts), tracking `nextCursor` state and making multiple requests to fetch all items. `InspectorClient` now fully supports pagination with cursor parameters in all list methods and `listAll*()` helper methods that automatically fetch all pages. TUI inherits this pagination support from `InspectorClient`.
-- **Progress Tracking**: Web client supports progress tracking by generating `progressToken`, using `onprogress` callbacks, and displaying progress notifications. `InspectorClient` passes per-request `onprogress` when progress is enabled (so timeout reset is honored), collects `progressToken` from metadata, injects it only into dispatched `progressNotification` events (not sent to server), and passes `resetTimeoutOnProgress`/`timeout` through. TUI does not yet have UI support for displaying progress notifications.
-- **Tasks**: Tasks (SEP-1686) were introduced in MCP version 2025-11-25 to support long-running operations through a standardized "call-now, fetch-later" pattern. Web client supports tasks (as of recent release). InspectorClient now fully supports tasks with `callToolStream()`, task management methods, event-driven API, and integration with elicitation/sampling/progress. TUI does not yet have UI for task management. See [Task Support Design](./task-support-design.md) for implementation details.
+- **Completions**: InspectorClient has full completion support via `getCompletions()`. Web client uses this for resource template forms and prompt parameter forms. TUI has both resource template forms and prompt parameter forms, but completion support is still needed to provide autocomplete suggestions.
+- **Sampling**: InspectorClient has full sampling support. Web client UI displays and handles sampling requests. TUI needs UI to display and handle sampling requests.
+- **Elicitation**: InspectorClient has full elicitation support. Web client UI displays and handles elicitation requests. TUI needs UI to display and handle elicitation requests.
+- **ListChanged Notifications**: List and cache state live in **state managers** (see [protocol-and-state-managers-architecture.md](protocol-and-state-managers-architecture.md)). InspectorClient dispatches signal events (`toolsListChanged`, etc.); state managers subscribe, call list RPCs, hold lists, and dispatch `toolsChange`/etc. Web client and TUI use state managers (or equivalent) to refresh lists when notifications are received.
+- **Roots**: InspectorClient has full roots support with `getRoots()` and `setRoots()` methods, handler for `roots/list` requests, and notification support. Web client has a `RootsTab` UI for managing roots. TUI does not yet have UI for managing roots.
+- **Pagination**: InspectorClient exposes list RPCs with cursor params and optional `nextCursor`. **State managers** (Paged* and Managed*) handle pagination and list state. Web client uses these; TUI can use the same managers.
+- **Progress Tracking**: Web client supports progress tracking by generating `progressToken`, using `onprogress` callbacks, and displaying progress notifications. InspectorClient passes per-request `onprogress` when progress is enabled (so timeout reset is honored), collects `progressToken` from metadata, injects it only into dispatched `progressNotification` events (not sent to server), and passes `resetTimeoutOnProgress`/`timeout` through. TUI does not yet have UI support for displaying progress notifications.
+- **Tasks**: Tasks (SEP-1686) were introduced in MCP version 2025-11-25 to support long-running operations. InspectorClient supports tasks (e.g. `callToolStream()`, task RPCs, signal events). **Requestor task list** state is in optional state managers (e.g. PagedRequestorTasksState). Web client supports tasks; TUI does not yet have UI for task management. See [Task Support Design](./task-support-design.md) for implementation details.
 
 ## Related Documentation
 

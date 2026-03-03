@@ -39,20 +39,24 @@ The shared code architecture addresses these issues by providing a single source
 
 `InspectorClient` uses these injected dependencies to create transports and manage OAuth, remaining portable across all environments.
 
+### Protocol and state managers
+
+`InspectorClient` is the **protocol layer**: it owns the connection, exposes list RPCs (stateless), and dispatches events. **List and log state** (tools, resources, prompts, requestor tasks, messages, fetch requests, stderr) live in **optional state managers** in `core/mcp/state/`. Apps create an `InspectorClient` and only the state managers they need (e.g. `PagedToolsState`, `MessageLogState`); React hooks in `core/react/` subscribe to those managers. See [protocol-and-state-managers-architecture.md](protocol-and-state-managers-architecture.md) for the full design.
+
 ### Project Structure
 
 ```
 inspector/
 ├── cli/              # CLI workspace (uses shared code)
 ├── tui/              # TUI workspace (uses shared code)
-├── client/           # Web client workspace (to be migrated)
-├── server/           # Proxy server workspace
-├── core/           # Shared code workspace package
-│   ├── mcp/          # MCP client/server interaction
-│   ├── react/        # Shared React code
-│   ├── json/         # JSON utilities
-│   └── test/         # Test fixtures and harness servers
-└── package.json      # Root workspace config
+├── web/              # Web client workspace (uses shared code)
+├── core/              # Shared code workspace package
+│   ├── mcp/           # InspectorClient (protocol) + state managers
+│   │   └── state/     # Optional state managers (tools, resources, logs, tasks)
+│   ├── react/         # useInspectorClient + hooks per state manager
+│   ├── json/          # JSON utilities
+│   └── auth/          # OAuth infrastructure
+└── package.json       # Root workspace config
 ```
 
 ### Shared Package (`@modelcontextprotocol/inspector-core`)
@@ -71,17 +75,15 @@ The `core/` directory is a **workspace package** that:
 
 ### Overview
 
-`InspectorClient` (`core/mcp/inspectorClient.ts`) is a comprehensive wrapper around the MCP SDK `Client` that manages the creation and lifecycle of the MCP client and transport. It provides:
+`InspectorClient` (`core/mcp/inspectorClient.ts`) is the **protocol layer** around the MCP SDK `Client`: it owns the connection and transport, exposes list RPCs (stateless), and dispatches events. **List and log state** (tools, resources, prompts, tasks, messages, fetch requests, stderr) are held by **optional state managers** (`core/mcp/state/`); see [protocol-and-state-managers-architecture.md](protocol-and-state-managers-architecture.md). InspectorClient provides:
 
-- **Unified Client Interface**: Single class handles all client operations
-- **Client and Transport Lifecycle**: Manages creation, connection, and cleanup of MCP SDK `Client` and `Transport` instances
-- **Message Tracking**: Automatically tracks all JSON-RPC messages (requests, responses, notifications)
-- **Stderr Logging**: Captures and stores stderr output from stdio transports
-- **Event-Driven Updates**: Uses `EventTarget` for reactive UI updates (cross-platform: works in browser and Node.js)
-- **Server Data Management**: Automatically fetches and caches tools, resources, prompts, capabilities, server info, and instructions
-- **State Management**: Manages connection status, message history, and server state
+- **Unified Client Interface**: Single class for connection and all MCP operations
+- **Client and Transport Lifecycle**: Creates and manages MCP SDK `Client` and `Transport`; `connect()` / `disconnect()`
+- **Event-Driven Protocol**: Uses `EventTarget`; dispatches signal events (`*ListChanged`, `taskStatusChange`, `message`, `fetchRequest`, `stderrLog`, etc.) so state managers can subscribe
+- **List RPCs (stateless)**: `listTools`, `listResources`, `listPrompts`, `listRequestorTasks`, etc.—return data only; no internal cache
+- **Server Metadata**: Holds capabilities, serverInfo, instructions; dispatches change events
 - **Transport Abstraction**: Works with all `Transport` types (stdio, SSE, streamable-http)
-- **High-Level Methods**: Provides convenient wrappers for tools, resources, prompts, and logging
+- **High-Level Methods**: Wrappers for tools/call, readResource, getPrompt, createMessage, elicit, and other MCP methods
 
 ![InspectorClient Details](inspector-client-details.svg)
 
@@ -89,36 +91,17 @@ The `core/` directory is a **workspace package** that:
 
 **Connection Management:**
 
-- `connect()` - Establishes connection and optionally fetches server data
-- `disconnect()` - Closes connection and clears server state
+- `connect()` - Establishes connection; registers notification handlers and fetches server metadata
+- `disconnect()` - Closes connection and clears references
 - Connection status tracking (`disconnected`, `connecting`, `connected`, `error`)
 
-**Message Tracking:**
+**Protocol events (list and log data):**
 
-- Tracks all JSON-RPC messages with timestamps, direction, and duration
-- `MessageEntry[]` format with full request/response/notification history
-- Event-driven updates (`message`, `messagesChange` events)
+- InspectorClient dispatches **per-entry** and **signal** events (e.g. `message`, `fetchRequest`, `stderrLog`, `toolsListChanged`, `taskStatusChange`). **State managers** subscribe to these, hold lists (messages, tools, resources, tasks, etc.), and dispatch their own change events; React hooks subscribe to the managers. List and log state are not stored on InspectorClient. See [protocol-and-state-managers-architecture.md](protocol-and-state-managers-architecture.md).
 
-**Server Data Management:**
+**Request and stderr events:**
 
-- Auto-fetches tools, resources, prompts (configurable via `autoFetchServerContents`)
-- Caches capabilities, serverInfo, instructions
-- Event-driven updates for all server data (`toolsChange`, `resourcesChange`, `promptsChange`, etc.)
-
-**Request History Tracking:**
-
-- Tracks HTTP requests for OAuth (discovery, registration, token exchange) and transport
-- Categorizes requests as `'auth'` or `'transport'`
-- `FetchRequestEntry[]` format with full request/response details
-- Event-driven updates (`fetchRequest` event)
-- Configurable via `maxFetchRequests` option
-
-**Stderr Log Tracking:**
-
-- Captures and stores stderr output from stdio transports (when `pipeStderr` is enabled)
-- `StderrLogEntry[]` format with timestamps
-- Event-driven updates (`stderrLog`, `stderrLogsChange` events)
-- Configurable via `maxStderrLogEvents` and `pipeStderr` options
+- Dispatches `fetchRequest` (per entry) and `stderrLog` (per entry) so log state managers (`FetchRequestLogState`, `StderrLogState`) can append and hold the lists. InspectorClient does not store message, fetch, or stderr lists.
 
 **MCP Method Wrappers:**
 
@@ -154,27 +137,15 @@ The `core/` directory is a **workspace package** that:
 
 ### Event System
 
-`InspectorClient` extends `EventTarget` for cross-platform compatibility:
+`InspectorClient` extends `EventTarget` for cross-platform compatibility. It dispatches **signal** and **per-entry** events; state managers subscribe and hold list state. Events include:
 
-**Events with payloads:**
+- **Connection:** `statusChange`, `connect`, `disconnect`
+- **Server metadata:** `capabilitiesChange`, `serverInfoChange`, `instructionsChange`
+- **List signals:** `toolsListChanged`, `resourcesListChanged`, `promptsListChanged`, `tasksListChanged`, `taskStatusChange`, `requestorTaskUpdated`, `taskCancelled`
+- **Log (per-entry):** `message`, `fetchRequest`, `stderrLog`
+- **Other:** `error`, OAuth events, etc.
 
-- `statusChange` → `ConnectionStatus`
-- `toolsChange` → `Tool[]`
-- `resourcesChange` → `ResourceReference[]`
-- `promptsChange` → `PromptReference[]`
-- `capabilitiesChange` → `ServerCapabilities | undefined`
-- `serverInfoChange` → `Implementation | undefined`
-- `instructionsChange` → `string | undefined`
-- `message` → `MessageEntry`
-- `stderrLog` → `StderrLogEntry`
-- `error` → `Error`
-
-**Events without payloads (signals):**
-
-- `connect` - Connection established
-- `disconnect` - Connection closed
-- `messagesChange` - Message list changed (fetch via `getMessages()`)
-- `stderrLogsChange` - Stderr logs changed (fetch via `getStderrLogs()`)
+State managers emit their own change events (e.g. `toolsChange`, `messagesChange`) with the current list. See [protocol-and-state-managers-architecture.md](protocol-and-state-managers-architecture.md).
 
 ### Shared Module Structure
 
@@ -182,13 +153,13 @@ The shared package is organized with environment-specific code separated into `n
 
 **Main modules:**
 
-- **`core/mcp/`** - `InspectorClient` and core MCP functionality
+- **`core/mcp/`** - `InspectorClient` (protocol) and MCP types, transport, config
+- **`core/mcp/state/`** - Optional state managers (Managed*/Paged* for tools, resources, prompts, tasks; MessageLogState, FetchRequestLogState, StderrLogState). See [protocol-and-state-managers-architecture.md](protocol-and-state-managers-architecture.md).
 - **`core/mcp/remote/`** - Remote transport infrastructure (portable client code)
 - **`core/auth/`** - OAuth infrastructure (portable base code)
-- **`core/storage/`** - Storage abstraction layer
-- **`core/react/`** - `useInspectorClient` React hook
+- **`core/react/`** - `useInspectorClient` and hooks per state manager (`usePagedTools`, `useMessageLog`, etc.)
 - **`core/json/`** - JSON utilities
-- **`core/test/`** - Test fixtures and harness servers
+- **`core/storage/`** - Storage abstraction layer
 
 For detailed module organization, environment-specific modules, and package exports, see [environment-isolation.md](environment-isolation.md).
 

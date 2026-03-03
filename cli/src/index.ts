@@ -13,6 +13,12 @@ import type {
   StreamableHttpServerConfig,
 } from "@modelcontextprotocol/inspector-core/mcp/types.js";
 import { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import {
+  ManagedToolsState,
+  ManagedResourcesState,
+  ManagedResourceTemplatesState,
+  ManagedPromptsState,
+} from "@modelcontextprotocol/inspector-core/mcp/state/index.js";
 import { createTransportNode } from "@modelcontextprotocol/inspector-core/mcp/node/index.js";
 import type { JsonValue } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import {
@@ -181,21 +187,49 @@ async function callMethod(args: Args): Promise<void> {
       transport: createTransportNode,
     },
     clientIdentity,
-    autoSyncLists: false, // CLI doesn't need auto-syncing, it calls methods directly
     initialLoggingLevel: "debug", // Set debug logging level for CLI
     progress: false, // CLI doesn't use progress; avoids SDK injecting progressToken into _meta
     sample: false, // CLI doesn't need sampling capability
     elicit: false, // CLI doesn't need elicitation capability
   });
 
+  let managedToolsState: ManagedToolsState | null = null;
+  let managedResourcesState: ManagedResourcesState | null = null;
+  let managedResourceTemplatesState: ManagedResourceTemplatesState | null =
+    null;
+  let managedPromptsState: ManagedPromptsState | null = null;
+
   try {
     await inspectorClient.connect();
 
     let result: McpResponse;
 
-    // Tools methods
+    // Tools methods: use ManagedToolsState for both tools/list and tools/call
+    if (args.method === "tools/list" || args.method === "tools/call") {
+      managedToolsState = new ManagedToolsState(inspectorClient);
+      managedToolsState.setMetadata(args.metadata);
+      await managedToolsState.refresh();
+    }
+
+    // Resources / resource templates / prompts: use managed state when listing
+    if (args.method === "resources/list") {
+      managedResourcesState = new ManagedResourcesState(inspectorClient);
+      managedResourcesState.setMetadata(args.metadata);
+      await managedResourcesState.refresh();
+    } else if (args.method === "resources/templates/list") {
+      managedResourceTemplatesState = new ManagedResourceTemplatesState(
+        inspectorClient,
+      );
+      managedResourceTemplatesState.setMetadata(args.metadata);
+      await managedResourceTemplatesState.refresh();
+    } else if (args.method === "prompts/list") {
+      managedPromptsState = new ManagedPromptsState(inspectorClient);
+      managedPromptsState.setMetadata(args.metadata);
+      await managedPromptsState.refresh();
+    }
+
     if (args.method === "tools/list") {
-      result = { tools: await inspectorClient.listAllTools(args.metadata) };
+      result = { tools: managedToolsState!.getTools() };
     } else if (args.method === "tools/call") {
       if (!args.toolName) {
         throw new Error(
@@ -203,33 +237,47 @@ async function callMethod(args: Args): Promise<void> {
         );
       }
 
-      const invocation = await inspectorClient.callTool(
-        args.toolName,
-        args.toolArg || {},
-        args.metadata,
-        args.toolMeta,
-      );
-      // Extract the result from the invocation object for CLI compatibility
-      if (invocation.result !== null) {
-        // Success case: result is a valid CallToolResult
-        result = invocation.result;
-      } else {
-        // Error case: construct an error response matching CallToolResult structure
+      const tool = managedToolsState!
+        .getTools()
+        .find((t) => t.name === args.toolName);
+      if (!tool) {
+        // Same result shape as server error (so CLI output and tests unchanged)
         result = {
           content: [
             {
               type: "text" as const,
-              text: invocation.error || "Tool call failed",
+              text: `Tool '${args.toolName}' not found.`,
             },
           ],
           isError: true,
         };
+      } else {
+        const invocation = await inspectorClient.callTool(
+          tool,
+          args.toolArg || {},
+          args.metadata,
+          args.toolMeta,
+        );
+        // Extract the result from the invocation object for CLI compatibility
+        if (invocation.result !== null) {
+          result = invocation.result;
+        } else {
+          result = {
+            content: [
+              {
+                type: "text" as const,
+                text: invocation.error || "Tool call failed",
+              },
+            ],
+            isError: true,
+          };
+        }
       }
     }
     // Resources methods
     else if (args.method === "resources/list") {
       result = {
-        resources: await inspectorClient.listAllResources(args.metadata),
+        resources: managedResourcesState!.getResources(),
       };
     } else if (args.method === "resources/read") {
       if (!args.uri) {
@@ -246,14 +294,13 @@ async function callMethod(args: Args): Promise<void> {
       result = invocation.result;
     } else if (args.method === "resources/templates/list") {
       result = {
-        resourceTemplates: await inspectorClient.listAllResourceTemplates(
-          args.metadata,
-        ),
+        resourceTemplates:
+          managedResourceTemplatesState!.getResourceTemplates(),
       };
     }
     // Prompts methods
     else if (args.method === "prompts/list") {
-      result = { prompts: await inspectorClient.listAllPrompts(args.metadata) };
+      result = { prompts: managedPromptsState!.getPrompts() };
     } else if (args.method === "prompts/get") {
       if (!args.promptName) {
         throw new Error(
@@ -287,6 +334,10 @@ async function callMethod(args: Args): Promise<void> {
 
     await awaitableLog(JSON.stringify(result, null, 2));
   } finally {
+    managedToolsState?.destroy();
+    managedResourcesState?.destroy();
+    managedResourceTemplatesState?.destroy();
+    managedPromptsState?.destroy();
     await inspectorClient.disconnect();
   }
 }

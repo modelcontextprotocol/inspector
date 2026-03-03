@@ -11,6 +11,7 @@ import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import pino from "pino";
 import { InspectorClient } from "../mcp/inspectorClient.js";
+import { FetchRequestLogState, StderrLogState } from "../mcp/state/index.js";
 import { createRemoteTransport } from "../mcp/remote/createRemoteTransport.js";
 import { createRemoteLogger } from "../mcp/remote/createRemoteLogger.js";
 import { createRemoteApp } from "../mcp/remote/node/server.js";
@@ -89,9 +90,11 @@ describe("Remote transport e2e", () => {
     }
   });
 
-  async function setupRemoteAndConnect(
-    config: MCPServerConfig,
-  ): Promise<InspectorClient> {
+  async function setupRemoteAndConnect(config: MCPServerConfig): Promise<{
+    client: InspectorClient;
+    fetchRequestLogState: FetchRequestLogState;
+    stderrLogState: StderrLogState;
+  }> {
     const { baseUrl, server, authToken } = await startRemoteServer(0);
     remoteServer = server;
 
@@ -100,16 +103,14 @@ describe("Remote transport e2e", () => {
       environment: {
         transport: createTransport,
       },
-      autoSyncLists: false,
-      maxMessages: 100,
-      maxFetchRequests: 100,
-      maxStderrLogEvents: 100,
       pipeStderr: true,
     });
+    const fetchRequestLogState = new FetchRequestLogState(client);
+    const stderrLogState = new StderrLogState(client);
 
     await client.connect();
 
-    return client;
+    return { client, fetchRequestLogState, stderrLogState };
   }
 
   it("smoke: remote server accepts connect and returns sessionId for SSE", async () => {
@@ -153,7 +154,7 @@ describe("Remote transport e2e", () => {
         args: serverCommand.args,
       };
 
-      const client = await setupRemoteAndConnect(config);
+      const { client, stderrLogState } = await setupRemoteAndConnect(config);
 
       try {
         expect(client.getStatus()).toBe("connected");
@@ -162,9 +163,7 @@ describe("Remote transport e2e", () => {
         expect(tools.tools.length).toBeGreaterThan(0);
         expect(tools.tools.some((t) => t.name === "echo")).toBe(true);
 
-        // Stdio server may emit stderr (e.g. from MCP logging). We verify the
-        // mechanism works; some servers may not produce stderr.
-        const stderrLogs = client.getStderrLogs();
+        const stderrLogs = stderrLogState.getStderrLogs();
         expect(Array.isArray(stderrLogs)).toBe(true);
       } finally {
         await client.disconnect();
@@ -179,13 +178,16 @@ describe("Remote transport e2e", () => {
         args: serverCommand.args,
       };
 
-      const client = await setupRemoteAndConnect(config);
+      const { client, stderrLogState } = await setupRemoteAndConnect(config);
 
       try {
+        const { tools } = await client.listTools();
+        const tool = tools.find((t) => t.name === "write_to_stderr");
+        expect(tool).toBeDefined();
         const testMessage = `stderr-remote-${Date.now()}`;
-        await client.callTool("write_to_stderr", { message: testMessage });
+        await client.callTool(tool!, { message: testMessage });
 
-        const stderrLogs = client.getStderrLogs();
+        const stderrLogs = stderrLogState.getStderrLogs();
         expect(Array.isArray(stderrLogs)).toBe(true);
         const matching = stderrLogs.filter((l) =>
           l.message.includes(testMessage),
@@ -205,10 +207,13 @@ describe("Remote transport e2e", () => {
         args: serverCommand.args,
       };
 
-      const client = await setupRemoteAndConnect(config);
+      const { client } = await setupRemoteAndConnect(config);
 
       try {
-        const invocation = await client.callTool("echo", {
+        const { tools } = await client.listTools();
+        const tool = tools.find((t) => t.name === "echo");
+        expect(tool).toBeDefined();
+        const invocation = await client.callTool(tool!, {
           message: "hello-remote",
         });
         expect(invocation.result?.content).toBeDefined();
@@ -239,7 +244,8 @@ describe("Remote transport e2e", () => {
         url: mcpHttpServer.url,
       };
 
-      const client = await setupRemoteAndConnect(config);
+      const { client, fetchRequestLogState } =
+        await setupRemoteAndConnect(config);
 
       try {
         expect(client.getStatus()).toBe("connected");
@@ -248,7 +254,7 @@ describe("Remote transport e2e", () => {
 
         // Fetch tracking: remote server applies createFetchTracker when creating
         // the transport; it emits fetch_request events over SSE to the client.
-        const fetchRequests = client.getFetchRequests();
+        const fetchRequests = fetchRequestLogState.getFetchRequests();
         expect(fetchRequests.length).toBeGreaterThan(0);
         const getRequest = fetchRequests.find((r) => r.method === "GET");
         expect(getRequest).toBeDefined();
@@ -275,10 +281,13 @@ describe("Remote transport e2e", () => {
         url: mcpHttpServer.url,
       };
 
-      const client = await setupRemoteAndConnect(config);
+      const { client } = await setupRemoteAndConnect(config);
 
       try {
-        const invocation = await client.callTool("echo", {
+        const { tools } = await client.listTools();
+        const tool = tools.find((t) => t.name === "echo");
+        expect(tool).toBeDefined();
+        const invocation = await client.callTool(tool!, {
           message: "sse-test",
         });
         expect(invocation.result?.content).toBeDefined();
@@ -308,14 +317,15 @@ describe("Remote transport e2e", () => {
         url: mcpHttpServer.url,
       };
 
-      const client = await setupRemoteAndConnect(config);
+      const { client, fetchRequestLogState } =
+        await setupRemoteAndConnect(config);
 
       try {
         expect(client.getStatus()).toBe("connected");
 
         await client.listTools();
 
-        const fetchRequests = client.getFetchRequests();
+        const fetchRequests = fetchRequestLogState.getFetchRequests();
         expect(fetchRequests.length).toBeGreaterThan(0);
         const postRequest = fetchRequests.find((r) => r.method === "POST");
         expect(postRequest).toBeDefined();
@@ -344,10 +354,13 @@ describe("Remote transport e2e", () => {
         url: mcpHttpServer.url,
       };
 
-      const client = await setupRemoteAndConnect(config);
+      const { client } = await setupRemoteAndConnect(config);
 
       try {
-        const invocation = await client.callTool("echo", {
+        const { tools } = await client.listTools();
+        const tool = tools.find((t) => t.name === "echo");
+        expect(tool).toBeDefined();
+        const invocation = await client.callTool(tool!, {
           message: "streamable-http-test",
         });
         expect(invocation.result?.content).toBeDefined();
@@ -602,7 +615,6 @@ describe("Remote transport e2e", () => {
             transport: createTransport,
             logger: remoteLogger,
           },
-          autoSyncLists: false,
           maxMessages: 100,
           maxFetchRequests: 100,
           maxStderrLogEvents: 100,

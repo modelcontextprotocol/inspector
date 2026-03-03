@@ -17,6 +17,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { InspectorClient } from "../mcp/inspectorClient.js";
+import { FetchRequestLogState } from "../mcp/state/index.js";
 import { createTransportNode } from "../mcp/node/transport.js";
 import {
   TestServerHttp,
@@ -1845,6 +1846,7 @@ describe("InspectorClient OAuth E2E", () => {
         } as MCPServerConfig,
         clientConfig,
       );
+      const fetchRequestLogState = new FetchRequestLogState(client);
 
       const authUrl = await client.runGuidedAuth();
       if (!authUrl) throw new Error("Expected authorization URL");
@@ -1866,7 +1868,7 @@ describe("InspectorClient OAuth E2E", () => {
       expect(oauthUrls.length).toBeGreaterThan(0);
 
       // Verify fetch tracking categories: auth vs transport
-      const fetchRequests = client.getFetchRequests();
+      const fetchRequests = fetchRequestLogState.getFetchRequests();
       const authFetches = fetchRequests.filter((r) => r.category === "auth");
       const transportFetches = fetchRequests.filter(
         (r) => r.category === "transport",

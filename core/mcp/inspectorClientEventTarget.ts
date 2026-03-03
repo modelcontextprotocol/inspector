@@ -1,11 +1,13 @@
 /**
- * Type-safe EventTarget for InspectorClient events
- *
- * This module provides a base class with overloaded addEventListener/removeEventListener
- * methods and a dispatchTypedEvent method that give compile-time type safety for event
- * names and event detail types.
+ * Type-safe EventTarget for InspectorClient events.
+ * Extends the generic TypedEventTarget with InspectorClientEventMap; TypedEvent
+ * is provided as a type alias for use in listener signatures.
  */
 
+import {
+  TypedEventTarget,
+  type TypedEventGeneric,
+} from "./typedEventTarget.js";
 import type {
   ConnectionStatus,
   MessageEntry,
@@ -17,9 +19,6 @@ import type {
 } from "./types.js";
 import type {
   Tool,
-  Resource,
-  ResourceTemplate,
-  Prompt,
   ServerCapabilities,
   Implementation,
   Root,
@@ -35,15 +34,17 @@ import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { JsonValue } from "../json/jsonUtils.js";
 
+/** Task with createdAt optional so we can emit synthetic tasks (e.g. on result/error) that omit it. */
+export type TaskWithOptionalCreatedAt = Omit<Task, "createdAt"> & {
+  createdAt?: string;
+};
+
 /**
  * Maps event names to their detail types for CustomEvents
  */
 export interface InspectorClientEventMap {
   statusChange: ConnectionStatus;
   toolsChange: Tool[];
-  resourcesChange: Resource[];
-  resourceTemplatesChange: ResourceTemplate[];
-  promptsChange: Prompt[];
   capabilitiesChange: ServerCapabilities | undefined;
   serverInfoChange: Implementation | undefined;
   instructionsChange: string | undefined;
@@ -85,23 +86,35 @@ export interface InspectorClientEventMap {
   rootsChange: Root[];
   resourceSubscriptionsChange: string[];
   // Task events
-  taskCreated: { taskId: string; task: Task };
+  /** Fired only from server notification notifications/tasks/status. */
   taskStatusChange: { taskId: string; task: Task };
-  taskCompleted: { taskId: string; result: CallToolResult };
-  taskFailed: { taskId: string; error: McpError };
+  /** Fired from callToolStream for each task update (taskCreated, taskStatus, result, error). */
+  toolCallTaskUpdated: {
+    taskId: string;
+    task: TaskWithOptionalCreatedAt;
+    result?: CallToolResult;
+    error?: McpError;
+  };
+  /** Fired from getRequestorTask() and callToolStream (client-origin task updates). */
+  requestorTaskUpdated: {
+    taskId: string;
+    task: TaskWithOptionalCreatedAt;
+    result?: CallToolResult;
+    error?: McpError;
+  };
   taskCancelled: { taskId: string };
   tasksChange: Task[];
   // Signal events (no payload)
   connect: void;
   disconnect: void;
-  messagesChange: void;
-  stderrLogsChange: void;
-  fetchRequestsChange: void;
   // List changed notification events (fired when server sends list_changed notifications)
   toolsListChanged: void;
   resourcesListChanged: void;
+  resourceTemplatesListChanged: void;
   promptsListChanged: void;
   tasksListChanged: void;
+  // Session persistence (dispatched by client; FetchRequestLogState listens and saves)
+  saveSession: { sessionId: string };
   // OAuth events
   oauthAuthorizationRequired: {
     url: URL;
@@ -120,97 +133,12 @@ export interface InspectorClientEventMap {
 }
 
 /**
- * Typed event class that extends CustomEvent with type-safe detail
+ * Type alias for InspectorClient typed events (for listener signatures).
  */
-export class TypedEvent<
-  K extends keyof InspectorClientEventMap,
-> extends CustomEvent<InspectorClientEventMap[K]> {
-  constructor(type: K, detail: InspectorClientEventMap[K]) {
-    super(type, { detail });
-  }
-}
+export type TypedEvent<K extends keyof InspectorClientEventMap> =
+  TypedEventGeneric<InspectorClientEventMap, K>;
 
 /**
- * Type-safe EventTarget for InspectorClient events
- *
- * Provides overloaded addEventListener/removeEventListener methods that
- * give compile-time type safety for event names and event detail types.
- * Extends the standard EventTarget, so all standard EventTarget functionality
- * is still available.
+ * Type-safe EventTarget for InspectorClient events.
  */
-export class InspectorClientEventTarget extends EventTarget {
-  /**
-   * Dispatch a type-safe event
-   * For void events, no detail parameter is required (or allowed)
-   * For events with payloads, the detail parameter is required
-   */
-  dispatchTypedEvent<K extends keyof InspectorClientEventMap>(
-    type: K,
-    ...args: InspectorClientEventMap[K] extends void
-      ? []
-      : [detail: InspectorClientEventMap[K]]
-  ): void {
-    const detail = args[0] as InspectorClientEventMap[K];
-    this.dispatchEvent(new TypedEvent(type, detail));
-  }
-
-  // Overload 1: All typed events
-  addEventListener<K extends keyof InspectorClientEventMap>(
-    type: K,
-    listener: (event: TypedEvent<K>) => void,
-    options?: boolean | AddEventListenerOptions,
-  ): void;
-
-  // Overload 2: Fallback for any string (for compatibility)
-  addEventListener(
-    type: string,
-    listener: EventListenerOrEventListenerObject | null,
-    options?: boolean | AddEventListenerOptions,
-  ): void;
-
-  // Implementation - must be compatible with all overloads
-  addEventListener(
-    type: string,
-    listener:
-      | ((event: TypedEvent<keyof InspectorClientEventMap>) => void)
-      | EventListenerOrEventListenerObject
-      | null,
-    options?: boolean | AddEventListenerOptions,
-  ): void {
-    super.addEventListener(
-      type,
-      listener as EventListenerOrEventListenerObject | null,
-      options,
-    );
-  }
-
-  // Overload 1: All typed events
-  removeEventListener<K extends keyof InspectorClientEventMap>(
-    type: K,
-    listener: (event: TypedEvent<K>) => void,
-    options?: boolean | EventListenerOptions,
-  ): void;
-
-  // Overload 2: Fallback for any string (for compatibility)
-  removeEventListener(
-    type: string,
-    listener: EventListenerOrEventListenerObject | null,
-    options?: boolean | EventListenerOptions,
-  ): void;
-
-  // Implementation - must be compatible with all overloads
-  removeEventListener(
-    type: string,
-    listener:
-      | ((event: TypedEvent<keyof InspectorClientEventMap>) => void)
-      | EventListenerOrEventListenerObject
-      | null,
-    options?: boolean | EventListenerOptions,
-  ): void {
-    super.removeEventListener(
-      type,
-      listener as EventListenerOrEventListenerObject | null,
-      options,
-    );
-  }
-}
+export class InspectorClientEventTarget extends TypedEventTarget<InspectorClientEventMap> {}

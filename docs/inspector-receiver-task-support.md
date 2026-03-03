@@ -11,9 +11,9 @@ InspectorClient supports two kinds of tasks.
 **Requestor tasks**
 
 - **Direction:** Client → server. We send a request that creates a task on the **server** (e.g. `tools/call` with `task: { ttl }`). The server returns a task reference.
-- **Storage:** `trackedRequestorTasks: Map<string, Task>`.
+- **Storage:** The **list** of requestor tasks is held by optional state managers (e.g. `PagedRequestorTasksState`, `ManagedRequestorTasksState`) in `core/mcp/state/`; see [protocol-and-state-managers-architecture.md](protocol-and-state-managers-architecture.md). InspectorClient still provides the RPCs (`listRequestorTasks`, `getRequestorTask`, etc.) and dispatches task-related events; in-flight task tracking may remain in InspectorClient.
 - **Flow:** We poll the server with `tasks/get` and `tasks/result` until the task completes.
-- **APIs:** `getRequestorTask`, `getRequestorTaskResult`, `listRequestorTasks`, `cancelRequestorTask`; internal `getTrackedRequestorTasks`, `upsertTrackedRequestorTask`.
+- **APIs:** `getRequestorTask`, `getRequestorTaskResult`, `listRequestorTasks`, `cancelRequestorTask`; state managers expose the list and subscribe to `taskStatusChange`, `requestorTaskUpdated`, etc.
 
 **Receiver tasks**
 

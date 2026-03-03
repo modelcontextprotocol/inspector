@@ -1,6 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as z from "zod/v4";
 import { InspectorClient } from "../mcp/inspectorClient.js";
+import {
+  MessageLogState,
+  FetchRequestLogState,
+  StderrLogState,
+  PagedResourcesState,
+  PagedResourceTemplatesState,
+  PagedPromptsState,
+  ManagedResourcesState,
+  ManagedPromptsState,
+} from "../mcp/state/index.js";
 import { createTransportNode } from "../mcp/node/transport.js";
 import { SamplingCreateMessage } from "../mcp/samplingCreateMessage.js";
 import { ElicitationCreateMessage } from "../mcp/elicitationCreateMessage.js";
@@ -20,10 +30,6 @@ import {
   createSendNotificationTool,
   createListRootsTool,
   createArgsPrompt,
-  createArchitectureResource,
-  createTestCwdResource,
-  createSimplePrompt,
-  createUserResourceTemplate,
   createNumberedTools,
   createNumberedResources,
   createNumberedResourceTemplates,
@@ -39,7 +45,6 @@ import type {
   ConnectionStatus,
   FetchRequestEntryBase,
 } from "../mcp/types.js";
-import type { InspectorClientEventMap } from "../mcp/inspectorClientEventTarget.js";
 import type { JsonValue } from "../json/jsonUtils.js";
 import type { TypedEvent } from "../mcp/inspectorClientEventTarget.js";
 import type {
@@ -48,6 +53,9 @@ import type {
   CallToolResult,
   Task,
   Tool,
+  Resource,
+  ResourceTemplate,
+  Prompt,
   Progress,
   ContentBlock,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -56,6 +64,79 @@ import {
   McpError,
   ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
+
+/** Get all tools from the client via listTools() (paginates if needed). */
+async function getAllTools(client: InspectorClient): Promise<Tool[]> {
+  const collected: Tool[] = [];
+  let cursor: string | undefined;
+  for (let i = 0; i < 100; i++) {
+    const r = await client.listTools(cursor);
+    collected.push(...r.tools);
+    cursor = r.nextCursor;
+    if (!cursor) break;
+  }
+  return collected;
+}
+
+/** Get a tool by name from the client via listTools() (paginates if needed). */
+async function getTool(client: InspectorClient, name: string): Promise<Tool> {
+  const tool = (await getAllTools(client)).find((t) => t.name === name);
+  if (tool) return tool;
+  throw new Error(`Tool ${name} not found`);
+}
+
+/** Get all resources from the client via listResources() (paginates if needed). */
+async function getAllResources(
+  client: InspectorClient,
+  metadata?: Record<string, string>,
+): Promise<Resource[]> {
+  const collected: Resource[] = [];
+  let cursor: string | undefined;
+  for (let i = 0; i < 100; i++) {
+    const r = await client.listResources(cursor, metadata);
+    collected.push(...r.resources);
+    cursor = r.nextCursor;
+    if (!cursor) break;
+  }
+  return collected;
+}
+
+/** Get all resource templates via listResourceTemplates() (paginates if needed). */
+async function getAllResourceTemplates(
+  client: InspectorClient,
+  metadata?: Record<string, string>,
+): Promise<ResourceTemplate[]> {
+  const collected: ResourceTemplate[] = [];
+  let cursor: string | undefined;
+  for (let i = 0; i < 100; i++) {
+    const r = await client.listResourceTemplates(cursor, metadata);
+    collected.push(...r.resourceTemplates);
+    cursor = r.nextCursor;
+    if (!cursor) break;
+  }
+  return collected;
+}
+
+/** Get all prompts via listPrompts() (paginates if needed). */
+async function getAllPrompts(
+  client: InspectorClient,
+  metadata?: Record<string, string>,
+): Promise<Prompt[]> {
+  const collected: Prompt[] = [];
+  let cursor: string | undefined;
+  for (let i = 0; i < 100; i++) {
+    const r = await client.listPrompts(cursor, metadata);
+    collected.push(...r.prompts);
+    cursor = r.nextCursor;
+    if (!cursor) break;
+  }
+  return collected;
+}
+
+/** Minimal Tool shape for tests that need to call a tool by name (e.g. server returns "not found"). */
+function minimalTool(name: string): Tool {
+  return { name, description: "", inputSchema: {} };
+}
 
 describe("InspectorClient", () => {
   let client: InspectorClient | null;
@@ -112,7 +193,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -130,7 +210,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -150,20 +229,27 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: true,
         },
       );
+      const pagedResourcesState = new PagedResourcesState(client);
+      const pagedPromptsState = new PagedPromptsState(client);
 
       await client.connect();
-      expect(client.getTools().length).toBeGreaterThan(0);
+      expect((await client.listTools()).tools.length).toBeGreaterThan(0);
+      await pagedResourcesState.loadPage();
+      await pagedPromptsState.loadPage();
+      expect(pagedResourcesState.getResources().length).toBeGreaterThan(0);
+      expect(pagedPromptsState.getPrompts().length).toBeGreaterThan(0);
 
       await client.disconnect();
-      expect(client.getTools().length).toBe(0);
-      expect(client.getResources().length).toBe(0);
-      expect(client.getPrompts().length).toBe(0);
+      expect(pagedResourcesState.getResources().length).toBe(0);
+      expect(pagedPromptsState.getPrompts().length).toBe(0);
+
+      pagedResourcesState.destroy();
+      pagedPromptsState.destroy();
     });
 
-    it("should clear messages on connect", async () => {
+    it("MessageLogState clears on connect when attached to client", async () => {
       client = new InspectorClient(
         {
           type: "stdio",
@@ -172,25 +258,19 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
-
+      const messageLogState = new MessageLogState(client);
       await client.connect();
-      // Make a request to generate messages
-      await client.listAllTools();
-      const firstConnectMessages = client.getMessages();
+      await getAllTools(client);
+      const firstConnectMessages = messageLogState.getMessages();
       expect(firstConnectMessages.length).toBeGreaterThan(0);
 
-      // Disconnect and reconnect
       await client.disconnect();
       await client.connect();
-      // After reconnect, messages should be cleared, but connect() itself creates new messages (initialize)
-      // So we should have messages from the new connection, but not from the old one
-      const secondConnectMessages = client.getMessages();
-      // The new connection should have at least the initialize message
+      await getAllTools(client);
+      const secondConnectMessages = messageLogState.getMessages();
       expect(secondConnectMessages.length).toBeGreaterThan(0);
-      // But the first message should be from the new connection (check timestamp)
       if (firstConnectMessages.length > 0 && secondConnectMessages.length > 0) {
         const lastFirstMessage =
           firstConnectMessages[firstConnectMessages.length - 1];
@@ -201,11 +281,12 @@ describe("InspectorClient", () => {
           );
         }
       }
+      messageLogState.destroy();
     });
   });
 
   describe("Message Tracking", () => {
-    it("should track requests", async () => {
+    it("should track requests (via MessageLogState)", async () => {
       client = new InspectorClient(
         {
           type: "stdio",
@@ -214,23 +295,23 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
-
+      const messageLogState = new MessageLogState(client);
       await client.connect();
-      await client.listAllTools();
+      await getAllTools(client);
 
-      const messages = client.getMessages();
+      const messages = messageLogState.getMessages();
       expect(messages.length).toBeGreaterThan(0);
       const request = messages.find((m) => m.direction === "request");
       expect(request).toBeDefined();
       if (request) {
         expect("method" in request.message).toBe(true);
       }
+      messageLogState.destroy();
     });
 
-    it("should track responses", async () => {
+    it("should track responses (via MessageLogState)", async () => {
       client = new InspectorClient(
         {
           type: "stdio",
@@ -239,44 +320,20 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
-
+      const messageLogState = new MessageLogState(client);
       await client.connect();
-      await client.listAllTools();
+      await getAllTools(client);
 
-      const messages = client.getMessages();
+      const messages = messageLogState.getMessages();
       const request = messages.find((m) => m.direction === "request");
       expect(request).toBeDefined();
       if (request && "response" in request) {
         expect(request.response).toBeDefined();
         expect(request.duration).toBeDefined();
       }
-    });
-
-    it("should respect maxMessages limit", async () => {
-      client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          maxMessages: 5,
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // Make multiple requests to exceed the limit
-      for (let i = 0; i < 10; i++) {
-        await client.listAllTools();
-      }
-
-      expect(client.getMessages().length).toBeLessThanOrEqual(5);
+      messageLogState.destroy();
     });
 
     it("should emit message events", async () => {
@@ -288,7 +345,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -298,12 +354,12 @@ describe("InspectorClient", () => {
       });
 
       await client.connect();
-      await client.listAllTools();
+      await getAllTools(client);
 
       expect(messageEvents.length).toBeGreaterThan(0);
     });
 
-    it("should emit messagesChange events", async () => {
+    it("MessageLogState getMessages(predicate) returns only matching entries", async () => {
       client = new InspectorClient(
         {
           type: "stdio",
@@ -312,86 +368,28 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
-
-      let changeCount = 0;
-      client.addEventListener("messagesChange", () => {
-        changeCount++;
-      });
-
+      const messageLogState = new MessageLogState(client);
       await client.connect();
-      await client.listAllTools();
+      await getAllTools(client);
 
-      expect(changeCount).toBeGreaterThan(0);
-    });
-
-    it("getMessages(predicate) returns only matching entries", async () => {
-      client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-      await client.listAllTools();
-
-      const all = client.getMessages();
+      const all = messageLogState.getMessages();
       expect(all.length).toBeGreaterThan(0);
 
-      const requests = client.getMessages((m) => m.direction === "request");
+      const requests = messageLogState.getMessages(
+        (m) => m.direction === "request",
+      );
       expect(requests.length).toBeLessThanOrEqual(all.length);
       expect(requests.every((m) => m.direction === "request")).toBe(true);
 
-      const notifications = client.getMessages(
+      const notifications = messageLogState.getMessages(
         (m) => m.direction === "notification",
       );
       expect(notifications.every((m) => m.direction === "notification")).toBe(
         true,
       );
-    });
-
-    it("clearMessages(predicate) removes only matching entries and dispatches messagesChange", async () => {
-      client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-      await client.listAllTools();
-
-      const before = client.getMessages().length;
-      expect(before).toBeGreaterThan(0);
-
-      let changeCount = 0;
-      client.addEventListener("messagesChange", () => {
-        changeCount++;
-      });
-
-      client.clearMessages((m) => m.direction === "request");
-      const after = client.getMessages();
-      expect(after.length).toBeLessThan(before);
-      expect(after.every((m) => m.direction !== "request")).toBe(true);
-      expect(changeCount).toBe(1);
-
-      client.clearMessages();
-      expect(client.getMessages().length).toBe(0);
-      // messagesChange fires again only if the list actually changed (e.g. if any non-request entries remained)
-      expect(changeCount).toBeGreaterThanOrEqual(1);
+      messageLogState.destroy();
     });
   });
 
@@ -411,14 +409,14 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
+      const fetchRequestLogState = new FetchRequestLogState(client);
       await client.connect();
-      await client.listAllTools();
+      await getAllTools(client);
 
-      const fetchRequests = client.getFetchRequests();
+      const fetchRequests = fetchRequestLogState.getFetchRequests();
       expect(fetchRequests.length).toBeGreaterThan(0);
       const request = fetchRequests[0];
       expect(request).toBeDefined();
@@ -427,6 +425,7 @@ describe("InspectorClient", () => {
         expect(request.method).toBe("GET");
         expect(request.category).toBe("transport");
       }
+      fetchRequestLogState.destroy();
     });
 
     it("should track HTTP requests for streamable-http transport", async () => {
@@ -443,14 +442,14 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
+      const fetchRequestLogState = new FetchRequestLogState(client);
       await client.connect();
-      await client.listAllTools();
+      await getAllTools(client);
 
-      const fetchRequests = client.getFetchRequests();
+      const fetchRequests = fetchRequestLogState.getFetchRequests();
       expect(fetchRequests.length).toBeGreaterThan(0);
       const request = fetchRequests[0];
       expect(request).toBeDefined();
@@ -459,6 +458,7 @@ describe("InspectorClient", () => {
         expect(request.method).toBe("POST");
         expect(request.category).toBe("transport");
       }
+      fetchRequestLogState.destroy();
     });
 
     it("should track request and response details", async () => {
@@ -475,16 +475,15 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
+      const fetchRequestLogState = new FetchRequestLogState(client);
       await client.connect();
-      await client.listAllTools();
+      await getAllTools(client);
 
-      const fetchRequests = client.getFetchRequests();
+      const fetchRequests = fetchRequestLogState.getFetchRequests();
       expect(fetchRequests.length).toBeGreaterThan(0);
-      // Find a request that has response details (not just the initial connection)
       const request = fetchRequests.find((r) => r.responseStatus !== undefined);
       expect(request).toBeDefined();
       if (request) {
@@ -494,35 +493,7 @@ describe("InspectorClient", () => {
         expect(request.duration).toBeDefined();
         expect(request.category).toBe("transport");
       }
-    });
-
-    it("should respect maxFetchRequests limit", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        tools: [createEchoTool()],
-      });
-
-      await server.start();
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          maxFetchRequests: 3,
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // Make multiple requests to exceed the limit
-      for (let i = 0; i < 10; i++) {
-        await client.listAllTools();
-      }
-
-      expect(client.getFetchRequests().length).toBeLessThanOrEqual(3);
+      fetchRequestLogState.destroy();
     });
 
     it("should emit fetchRequest events", async () => {
@@ -539,7 +510,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -549,12 +519,12 @@ describe("InspectorClient", () => {
       });
 
       await client.connect();
-      await client.listAllTools();
+      await getAllTools(client);
 
       expect(fetchRequestEvents.length).toBeGreaterThan(0);
     });
 
-    it("should emit fetchRequestsChange events", async () => {
+    it("should emit fetchRequest events", async () => {
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
@@ -568,19 +538,18 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
-      let changeFired = false;
-      client.addEventListener("fetchRequestsChange", () => {
-        changeFired = true;
+      const entries: unknown[] = [];
+      client.addEventListener("fetchRequest", (e) => {
+        entries.push((e as CustomEvent).detail);
       });
 
       await client.connect();
-      await client.listAllTools();
+      await getAllTools(client);
 
-      expect(changeFired).toBe(true);
+      expect(entries.length).toBeGreaterThan(0);
     });
   });
 
@@ -594,13 +563,12 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: true,
         },
       );
 
       await client.connect();
 
-      expect(client.getTools().length).toBeGreaterThan(0);
+      expect((await client.listTools()).tools.length).toBeGreaterThan(0);
       expect(client.getCapabilities()).toBeDefined();
       expect(client.getServerInfo()).toBeDefined();
     });
@@ -614,37 +582,13 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
 
-      expect(client.getTools().length).toBe(0);
-    });
-
-    it("should emit toolsChange event", async () => {
-      client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true,
-        },
-      );
-
-      const toolsEvents: Tool[][] = [];
-      client.addEventListener("toolsChange", (event) => {
-        toolsEvents.push(event.detail);
-      });
-
-      await client.connect();
-
-      expect(toolsEvents.length).toBeGreaterThan(0);
-      expect(toolsEvents[0]?.length).toBeGreaterThan(0);
+      // Client no longer stores tools; listTools() still returns server tools when called
+      expect((await client.listTools()).tools.length).toBeGreaterThan(0);
     });
   });
 
@@ -658,20 +602,20 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
       await client.connect();
     });
 
     it("should list tools", async () => {
-      const tools = await client!.listAllTools();
-      expect(Array.isArray(tools)).toBe(true);
-      expect(tools.length).toBeGreaterThan(0);
+      const result = await client!.listTools();
+      expect(Array.isArray(result.tools)).toBe(true);
+      expect(result.tools.length).toBeGreaterThan(0);
     });
 
     it("should call tool with string arguments", async () => {
-      const result = await client!.callTool("echo", {
+      const tool = await getTool(client!, "echo");
+      const result = await client!.callTool(tool, {
         message: "hello world",
       });
 
@@ -685,7 +629,8 @@ describe("InspectorClient", () => {
     });
 
     it("should call tool with number arguments", async () => {
-      const result = await client!.callTool("get_sum", {
+      const tool = await getTool(client!, "get_sum");
+      const result = await client!.callTool(tool, {
         a: 42,
         b: 58,
       });
@@ -700,7 +645,8 @@ describe("InspectorClient", () => {
     });
 
     it("should call tool with boolean arguments", async () => {
-      const result = await client!.callTool("get_annotated_message", {
+      const tool = await getTool(client!, "get_annotated_message");
+      const result = await client!.callTool(tool, {
         messageType: "success",
         includeImage: true,
       });
@@ -715,7 +661,8 @@ describe("InspectorClient", () => {
     });
 
     it("should return both content and structuredContent for tool with outputSchema (get_temp)", async () => {
-      const result = await client!.callTool("get_temp", {
+      const tool = await getTool(client!, "get_temp");
+      const result = await client!.callTool(tool, {
         city: "Seattle",
         units: "C",
       });
@@ -747,7 +694,10 @@ describe("InspectorClient", () => {
     });
 
     it("should handle tool not found", async () => {
-      const result = await client!.callTool("nonexistent-tool", {});
+      const result = await client!.callTool(
+        minimalTool("nonexistent-tool"),
+        {},
+      );
       // When tool is not found, the SDK returns an error response, not an exception
       expect(result.success).toBe(true); // SDK returns error in result, not as exception
       expect(result.result).toHaveProperty("isError", true);
@@ -785,7 +735,6 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
@@ -820,201 +769,6 @@ describe("InspectorClient", () => {
       expect(page4.tools.length).toBe(1);
       expect(page4.nextCursor).toBeUndefined();
       expect(page4.tools[0]?.name).toBe("tool_10");
-
-      // listAllTools should get all 10 tools
-      const allTools = await client.listAllTools();
-      expect(allTools.length).toBe(10);
-    });
-
-    it("should suppress events during listAllTools pagination and emit final event", async () => {
-      await client!.disconnect();
-      if (server) {
-        await server.stop();
-      }
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        tools: createNumberedTools(6),
-        maxPageSize: {
-          tools: 2,
-        },
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      const events: TypedEvent<"toolsChange">[] = [];
-      client.addEventListener("toolsChange", (e) => {
-        events.push(e);
-      });
-
-      // listAllTools should suppress events during pagination and emit one final event
-      await client.listAllTools();
-      expect(client.getTools().length).toBe(6);
-      // Should only emit one event (final), not one per page
-      expect(events.length).toBe(1);
-      expect(events[0]!.detail.length).toBe(6);
-    });
-
-    it("should accumulate tools when paginating with cursor", async () => {
-      // Disconnect and create a new server with pagination
-      await client!.disconnect();
-      if (server) {
-        await server.stop();
-      }
-
-      // Create server with 6 tools and page size of 2
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        tools: createNumberedTools(6),
-        maxPageSize: {
-          tools: 2,
-        },
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // Initially empty
-      expect(client.getTools().length).toBe(0);
-
-      // First page (no cursor) - should clear and load 2 tools
-      const page1 = await client.listTools();
-      expect(page1.tools.length).toBe(2);
-      expect(client.getTools().length).toBe(2);
-      expect(client.getTools()[0]?.name).toBe("tool_1");
-      expect(client.getTools()[1]?.name).toBe("tool_2");
-
-      // Second page (with cursor) - should append 2 more tools
-      const page2 = await client.listTools(page1.nextCursor);
-      expect(page2.tools.length).toBe(2);
-      expect(client.getTools().length).toBe(4);
-      expect(client.getTools()[2]?.name).toBe("tool_3");
-      expect(client.getTools()[3]?.name).toBe("tool_4");
-
-      // Third page (with cursor) - should append 2 more tools
-      const page3 = await client.listTools(page2.nextCursor);
-      expect(page3.tools.length).toBe(2);
-      expect(client.getTools().length).toBe(6);
-      expect(client.getTools()[4]?.name).toBe("tool_5");
-      expect(client.getTools()[5]?.name).toBe("tool_6");
-
-      // Calling without cursor again should reset
-      const page1Again = await client.listTools();
-      expect(page1Again.tools.length).toBe(2);
-      expect(client.getTools().length).toBe(2);
-      expect(client.getTools()[0]?.name).toBe("tool_1");
-    });
-
-    it("should emit toolsChange events when paginating", async () => {
-      await client!.disconnect();
-      if (server) {
-        await server.stop();
-      }
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        tools: createNumberedTools(6),
-        maxPageSize: {
-          tools: 2,
-        },
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      const events: TypedEvent<"toolsChange">[] = [];
-      client.addEventListener("toolsChange", (e) => {
-        events.push(e);
-      });
-
-      // First page should emit event
-      const page1 = await client.listTools();
-      expect(events.length).toBe(1);
-      expect(events[0]!.detail.length).toBe(2);
-
-      // Second page should emit event (with cursor, appends)
-      await client.listTools(page1.nextCursor);
-      expect(events.length).toBe(2);
-      expect(events[1]!.detail.length).toBe(4);
-    });
-
-    it("should clear tools and emit event", async () => {
-      await client!.disconnect();
-      if (server) {
-        await server.stop();
-      }
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        tools: createNumberedTools(3),
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // Load some tools
-      await client.listAllTools();
-      expect(client.getTools().length).toBe(3);
-
-      const events: TypedEvent<"toolsChange">[] = [];
-      client.addEventListener("toolsChange", (e) => {
-        events.push(e);
-      });
-
-      // Clear should emit event and empty the list
-      client.clearTools();
-      expect(client.getTools().length).toBe(0);
-      expect(events.length).toBe(1);
-      expect(events[0]!.detail.length).toBe(0);
     });
   });
 
@@ -1028,20 +782,18 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
       await client.connect();
     });
 
     it("should list resources", async () => {
-      const resources = await client!.listAllResources();
+      const resources = await getAllResources(client!);
       expect(Array.isArray(resources)).toBe(true);
     });
 
     it("should read resource", async () => {
-      // First get list of resources
-      const resources = await client!.listAllResources();
+      const resources = await getAllResources(client!);
       if (resources.length > 0) {
         const uri = resources[0]!.uri;
         const readResult = await client!.readResource(uri);
@@ -1075,7 +827,6 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
@@ -1111,8 +862,7 @@ describe("InspectorClient", () => {
       expect(page4.nextCursor).toBeUndefined();
       expect(page4.resources[0]?.uri).toBe("test://resource_10");
 
-      // listAllResources should get all 10 resources
-      const allResources = await client.listAllResources();
+      const allResources = await getAllResources(client);
       expect(allResources.length).toBe(10);
     });
 
@@ -1139,39 +889,34 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
 
-      const events: TypedEvent<"resourcesChange">[] = [];
-      client.addEventListener("resourcesChange", (e) => {
-        events.push(e);
+      const managedState = new ManagedResourcesState(client);
+      const events: Resource[][] = [];
+      managedState.addEventListener("resourcesChange", (e) => {
+        events.push(e.detail);
       });
 
-      // listAllResources should suppress events during pagination and emit one final event
-      await client.listAllResources();
-      expect(client.getResources().length).toBe(6);
-      // Should only emit one event (final), not one per page
+      await managedState.refresh();
+      expect(managedState.getResources().length).toBe(6);
       expect(events.length).toBe(1);
-      expect(events[0]!.detail.length).toBe(6);
+      expect(events[0]!.length).toBe(6);
+      managedState.destroy();
     });
 
     it("should accumulate resources when paginating with cursor", async () => {
-      // Disconnect and create a new server with pagination
       await client!.disconnect();
       if (server) {
         await server.stop();
       }
 
-      // Create server with 6 resources and page size of 2
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         resources: createNumberedResources(6),
-        maxPageSize: {
-          resources: 2,
-        },
+        maxPageSize: { resources: 2 },
       });
       await server.start();
 
@@ -1183,41 +928,38 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
+      const pagedState = new PagedResourcesState(client);
 
-      // Initially empty
-      expect(client.getResources().length).toBe(0);
+      expect(pagedState.getResources().length).toBe(0);
 
-      // First page (no cursor) - should clear and load 2 resources
-      const page1 = await client.listResources();
+      const page1 = await pagedState.loadPage();
       expect(page1.resources.length).toBe(2);
-      expect(client.getResources().length).toBe(2);
-      expect(client.getResources()[0]?.uri).toBe("test://resource_1");
-      expect(client.getResources()[1]?.uri).toBe("test://resource_2");
+      expect(pagedState.getResources().length).toBe(2);
+      expect(pagedState.getResources()[0]?.uri).toBe("test://resource_1");
+      expect(pagedState.getResources()[1]?.uri).toBe("test://resource_2");
 
-      // Second page (with cursor) - should append 2 more resources
-      const page2 = await client.listResources(page1.nextCursor);
+      const page2 = await pagedState.loadPage(page1.nextCursor);
       expect(page2.resources.length).toBe(2);
-      expect(client.getResources().length).toBe(4);
-      expect(client.getResources()[2]?.uri).toBe("test://resource_3");
-      expect(client.getResources()[3]?.uri).toBe("test://resource_4");
+      expect(pagedState.getResources().length).toBe(4);
+      expect(pagedState.getResources()[2]?.uri).toBe("test://resource_3");
+      expect(pagedState.getResources()[3]?.uri).toBe("test://resource_4");
 
-      // Third page (with cursor) - should append 2 more resources
-      const page3 = await client.listResources(page2.nextCursor);
+      const page3 = await pagedState.loadPage(page2.nextCursor);
       expect(page3.resources.length).toBe(2);
-      expect(client.getResources().length).toBe(6);
-      expect(client.getResources()[4]?.uri).toBe("test://resource_5");
-      expect(client.getResources()[5]?.uri).toBe("test://resource_6");
+      expect(pagedState.getResources().length).toBe(6);
+      expect(pagedState.getResources()[4]?.uri).toBe("test://resource_5");
+      expect(pagedState.getResources()[5]?.uri).toBe("test://resource_6");
 
-      // Calling without cursor again should reset
-      const page1Again = await client.listResources();
+      const page1Again = await pagedState.loadPage();
       expect(page1Again.resources.length).toBe(2);
-      expect(client.getResources().length).toBe(2);
-      expect(client.getResources()[0]?.uri).toBe("test://resource_1");
+      expect(pagedState.getResources().length).toBe(2);
+      expect(pagedState.getResources()[0]?.uri).toBe("test://resource_1");
+
+      pagedState.destroy();
     });
 
     it("should emit resourcesChange events when paginating", async () => {
@@ -1229,9 +971,7 @@ describe("InspectorClient", () => {
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         resources: createNumberedResources(6),
-        maxPageSize: {
-          resources: 2,
-        },
+        maxPageSize: { resources: 2 },
       });
       await server.start();
 
@@ -1243,29 +983,28 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
-
-      const events: TypedEvent<"resourcesChange">[] = [];
-      client.addEventListener("resourcesChange", (e) => {
-        events.push(e);
+      const pagedState = new PagedResourcesState(client);
+      const events: Resource[][] = [];
+      pagedState.addEventListener("resourcesChange", (e) => {
+        events.push(e.detail);
       });
 
-      // First page should emit event
-      const page1 = await client.listResources();
+      const page1 = await pagedState.loadPage();
       expect(events.length).toBe(1);
-      expect(events[0]!.detail.length).toBe(2);
+      expect(events[0]!.length).toBe(2);
 
-      // Second page should emit event (with cursor, appends)
-      await client.listResources(page1.nextCursor);
+      await pagedState.loadPage(page1.nextCursor);
       expect(events.length).toBe(2);
-      expect(events[1]!.detail.length).toBe(4);
+      expect(events[1]!.length).toBe(4);
+
+      pagedState.destroy();
     });
 
-    it("should not emit events when suppressEvents is true", async () => {
+    it("should emit resourcesChange when loading pages via PagedResourcesState", async () => {
       await client!.disconnect();
       if (server) {
         await server.stop();
@@ -1274,9 +1013,7 @@ describe("InspectorClient", () => {
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         resources: createNumberedResources(6),
-        maxPageSize: {
-          resources: 2,
-        },
+        maxPageSize: { resources: 2 },
       });
       await server.start();
 
@@ -1288,25 +1025,21 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
-
-      const events: TypedEvent<"resourcesChange">[] = [];
-      client.addEventListener("resourcesChange", (e) => {
-        events.push(e);
+      const pagedState = new PagedResourcesState(client);
+      const events: Resource[][] = [];
+      pagedState.addEventListener("resourcesChange", (e) => {
+        events.push(e.detail);
       });
 
-      // Suppress events - should update state but not emit
-      await client.listResources(undefined, undefined, true);
-      expect(client.getResources().length).toBe(2);
-      expect(events.length).toBe(0);
-
-      // Normal call should emit
-      await client.listResources();
+      await pagedState.loadPage();
+      expect(pagedState.getResources().length).toBe(2);
       expect(events.length).toBe(1);
+
+      pagedState.destroy();
     });
 
     it("should clear resources and emit event", async () => {
@@ -1329,26 +1062,25 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
+      const pagedState = new PagedResourcesState(client);
+      await pagedState.loadPage();
+      expect(pagedState.getResources().length).toBe(3);
 
-      // Load some resources
-      await client.listAllResources();
-      expect(client.getResources().length).toBe(3);
-
-      const events: TypedEvent<"resourcesChange">[] = [];
-      client.addEventListener("resourcesChange", (e) => {
-        events.push(e);
+      const events: Resource[][] = [];
+      pagedState.addEventListener("resourcesChange", (e) => {
+        events.push(e.detail);
       });
 
-      // Clear should emit event and empty the list
-      client.clearResources();
-      expect(client.getResources().length).toBe(0);
+      pagedState.clear();
+      expect(pagedState.getResources().length).toBe(0);
       expect(events.length).toBe(1);
-      expect(events[0]!.detail.length).toBe(0);
+      expect(events[0]!.length).toBe(0);
+
+      pagedState.destroy();
     });
   });
 
@@ -1368,7 +1100,6 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
@@ -1376,7 +1107,7 @@ describe("InspectorClient", () => {
     });
 
     it("should list resource templates", async () => {
-      const resourceTemplates = await client!.listAllResourceTemplates();
+      const resourceTemplates = await getAllResourceTemplates(client!);
       expect(Array.isArray(resourceTemplates)).toBe(true);
       expect(resourceTemplates.length).toBeGreaterThan(0);
 
@@ -1387,8 +1118,7 @@ describe("InspectorClient", () => {
     });
 
     it("should read resource from template", async () => {
-      // First get the template
-      const templates = await client!.listAllResourceTemplates();
+      const templates = await getAllResourceTemplates(client!);
       const fileTemplate = templates.find((t) => t.name === "file");
       expect(fileTemplate).toBeDefined();
 
@@ -1438,14 +1168,12 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
 
-      // Call listResources - this should include resources from the template's list callback
-      const resources = await client.listAllResources();
+      const resources = await getAllResources(client);
       expect(Array.isArray(resources)).toBe(true);
 
       // Verify that the resources from the list callback are included
@@ -1480,7 +1208,6 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
@@ -1536,25 +1263,20 @@ describe("InspectorClient", () => {
         "test://template_10/{param}",
       );
 
-      // listAllResourceTemplates should get all 10 templates
-      const allTemplates = await client.listAllResourceTemplates();
+      const allTemplates = await getAllResourceTemplates(client);
       expect(allTemplates.length).toBe(10);
     });
 
     it("should accumulate resource templates when paginating with cursor", async () => {
-      // Disconnect and create a new server with pagination
       await client!.disconnect();
       if (server) {
         await server.stop();
       }
 
-      // Create server with 6 templates and page size of 2
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         resourceTemplates: createNumberedResourceTemplates(6),
-        maxPageSize: {
-          resourceTemplates: 2,
-        },
+        maxPageSize: { resourceTemplates: 2 },
       });
       await server.start();
 
@@ -1566,55 +1288,52 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
+      const pagedState = new PagedResourceTemplatesState(client);
 
-      // Initially empty
-      expect(client.getResourceTemplates().length).toBe(0);
+      expect(pagedState.getResourceTemplates().length).toBe(0);
 
-      // First page (no cursor) - should clear and load 2 templates
-      const page1 = await client.listResourceTemplates();
+      const page1 = await pagedState.loadPage();
       expect(page1.resourceTemplates.length).toBe(2);
-      expect(client.getResourceTemplates().length).toBe(2);
-      expect(client.getResourceTemplates()[0]?.uriTemplate).toBe(
+      expect(pagedState.getResourceTemplates().length).toBe(2);
+      expect(pagedState.getResourceTemplates()[0]?.uriTemplate).toBe(
         "test://template_1/{param}",
       );
-      expect(client.getResourceTemplates()[1]?.uriTemplate).toBe(
+      expect(pagedState.getResourceTemplates()[1]?.uriTemplate).toBe(
         "test://template_2/{param}",
       );
 
-      // Second page (with cursor) - should append 2 more templates
-      const page2 = await client.listResourceTemplates(page1.nextCursor);
+      const page2 = await pagedState.loadPage(page1.nextCursor);
       expect(page2.resourceTemplates.length).toBe(2);
-      expect(client.getResourceTemplates().length).toBe(4);
-      expect(client.getResourceTemplates()[2]?.uriTemplate).toBe(
+      expect(pagedState.getResourceTemplates().length).toBe(4);
+      expect(pagedState.getResourceTemplates()[2]?.uriTemplate).toBe(
         "test://template_3/{param}",
       );
-      expect(client.getResourceTemplates()[3]?.uriTemplate).toBe(
+      expect(pagedState.getResourceTemplates()[3]?.uriTemplate).toBe(
         "test://template_4/{param}",
       );
 
-      // Third page (with cursor) - should append 2 more templates
-      const page3 = await client.listResourceTemplates(page2.nextCursor);
+      const page3 = await pagedState.loadPage(page2.nextCursor);
       expect(page3.resourceTemplates.length).toBe(2);
-      expect(client.getResourceTemplates().length).toBe(6);
-      expect(client.getResourceTemplates()[4]?.uriTemplate).toBe(
+      expect(pagedState.getResourceTemplates().length).toBe(6);
+      expect(pagedState.getResourceTemplates()[4]?.uriTemplate).toBe(
         "test://template_5/{param}",
       );
-      expect(client.getResourceTemplates()[5]?.uriTemplate).toBe(
+      expect(pagedState.getResourceTemplates()[5]?.uriTemplate).toBe(
         "test://template_6/{param}",
       );
 
-      // Calling without cursor again should reset
-      const page1Again = await client.listResourceTemplates();
+      const page1Again = await pagedState.loadPage();
       expect(page1Again.resourceTemplates.length).toBe(2);
-      expect(client.getResourceTemplates().length).toBe(2);
-      expect(client.getResourceTemplates()[0]?.uriTemplate).toBe(
+      expect(pagedState.getResourceTemplates().length).toBe(2);
+      expect(pagedState.getResourceTemplates()[0]?.uriTemplate).toBe(
         "test://template_1/{param}",
       );
+
+      pagedState.destroy();
     });
 
     it("should clear resource templates and emit event", async () => {
@@ -1637,26 +1356,25 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
+      const pagedState = new PagedResourceTemplatesState(client);
+      await pagedState.loadPage();
+      expect(pagedState.getResourceTemplates().length).toBe(3);
 
-      // Load some templates
-      await client.listAllResourceTemplates();
-      expect(client.getResourceTemplates().length).toBe(3);
-
-      const events: TypedEvent<"resourceTemplatesChange">[] = [];
-      client.addEventListener("resourceTemplatesChange", (e) => {
-        events.push(e);
+      const events: ResourceTemplate[][] = [];
+      pagedState.addEventListener("resourceTemplatesChange", (e) => {
+        events.push(e.detail);
       });
 
-      // Clear should emit event and empty the list
-      client.clearResourceTemplates();
-      expect(client.getResourceTemplates().length).toBe(0);
+      pagedState.clear();
+      expect(pagedState.getResourceTemplates().length).toBe(0);
       expect(events.length).toBe(1);
-      expect(events[0]!.detail.length).toBe(0);
+      expect(events[0]!.length).toBe(0);
+
+      pagedState.destroy();
     });
   });
 
@@ -1670,14 +1388,13 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
       await client.connect();
     });
 
     it("should list prompts", async () => {
-      const prompts = await client!.listAllPrompts();
+      const prompts = await getAllPrompts(client!);
       expect(Array.isArray(prompts)).toBe(true);
     });
 
@@ -1706,7 +1423,6 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
@@ -1742,8 +1458,7 @@ describe("InspectorClient", () => {
       expect(page4.nextCursor).toBeUndefined();
       expect(page4.prompts[0]?.name).toBe("prompt_10");
 
-      // listAllPrompts should get all 10 prompts
-      const allPrompts = await client.listAllPrompts();
+      const allPrompts = await getAllPrompts(client);
       expect(allPrompts.length).toBe(10);
     });
 
@@ -1756,9 +1471,7 @@ describe("InspectorClient", () => {
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         prompts: createNumberedPrompts(6),
-        maxPageSize: {
-          prompts: 2,
-        },
+        maxPageSize: { prompts: 2 },
       });
       await server.start();
 
@@ -1770,39 +1483,34 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
 
-      const events: TypedEvent<"promptsChange">[] = [];
-      client.addEventListener("promptsChange", (e) => {
-        events.push(e);
+      const managedState = new ManagedPromptsState(client);
+      const events: Prompt[][] = [];
+      managedState.addEventListener("promptsChange", (e) => {
+        events.push(e.detail);
       });
 
-      // listAllPrompts should suppress events during pagination and emit one final event
-      await client.listAllPrompts();
-      expect(client.getPrompts().length).toBe(6);
-      // Should only emit one event (final), not one per page
+      await managedState.refresh();
+      expect(managedState.getPrompts().length).toBe(6);
       expect(events.length).toBe(1);
-      expect(events[0]!.detail.length).toBe(6);
+      expect(events[0]!.length).toBe(6);
+      managedState.destroy();
     });
 
     it("should accumulate prompts when paginating with cursor", async () => {
-      // Disconnect and create a new server with pagination
       await client!.disconnect();
       if (server) {
         await server.stop();
       }
 
-      // Create server with 6 prompts and page size of 2
       server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         prompts: createNumberedPrompts(6),
-        maxPageSize: {
-          prompts: 2,
-        },
+        maxPageSize: { prompts: 2 },
       });
       await server.start();
 
@@ -1814,41 +1522,38 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
+      const pagedState = new PagedPromptsState(client);
 
-      // Initially empty
-      expect(client.getPrompts().length).toBe(0);
+      expect(pagedState.getPrompts().length).toBe(0);
 
-      // First page (no cursor) - should clear and load 2 prompts
-      const page1 = await client.listPrompts();
+      const page1 = await pagedState.loadPage();
       expect(page1.prompts.length).toBe(2);
-      expect(client.getPrompts().length).toBe(2);
-      expect(client.getPrompts()[0]?.name).toBe("prompt_1");
-      expect(client.getPrompts()[1]?.name).toBe("prompt_2");
+      expect(pagedState.getPrompts().length).toBe(2);
+      expect(pagedState.getPrompts()[0]?.name).toBe("prompt_1");
+      expect(pagedState.getPrompts()[1]?.name).toBe("prompt_2");
 
-      // Second page (with cursor) - should append 2 more prompts
-      const page2 = await client.listPrompts(page1.nextCursor);
+      const page2 = await pagedState.loadPage(page1.nextCursor);
       expect(page2.prompts.length).toBe(2);
-      expect(client.getPrompts().length).toBe(4);
-      expect(client.getPrompts()[2]?.name).toBe("prompt_3");
-      expect(client.getPrompts()[3]?.name).toBe("prompt_4");
+      expect(pagedState.getPrompts().length).toBe(4);
+      expect(pagedState.getPrompts()[2]?.name).toBe("prompt_3");
+      expect(pagedState.getPrompts()[3]?.name).toBe("prompt_4");
 
-      // Third page (with cursor) - should append 2 more prompts
-      const page3 = await client.listPrompts(page2.nextCursor);
+      const page3 = await pagedState.loadPage(page2.nextCursor);
       expect(page3.prompts.length).toBe(2);
-      expect(client.getPrompts().length).toBe(6);
-      expect(client.getPrompts()[4]?.name).toBe("prompt_5");
-      expect(client.getPrompts()[5]?.name).toBe("prompt_6");
+      expect(pagedState.getPrompts().length).toBe(6);
+      expect(pagedState.getPrompts()[4]?.name).toBe("prompt_5");
+      expect(pagedState.getPrompts()[5]?.name).toBe("prompt_6");
 
-      // Calling without cursor again should reset
-      const page1Again = await client.listPrompts();
+      const page1Again = await pagedState.loadPage();
       expect(page1Again.prompts.length).toBe(2);
-      expect(client.getPrompts().length).toBe(2);
-      expect(client.getPrompts()[0]?.name).toBe("prompt_1");
+      expect(pagedState.getPrompts().length).toBe(2);
+      expect(pagedState.getPrompts()[0]?.name).toBe("prompt_1");
+
+      pagedState.destroy();
     });
 
     it("should emit promptsChange events when paginating", async () => {
@@ -1874,26 +1579,25 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
-
-      const events: TypedEvent<"promptsChange">[] = [];
-      client.addEventListener("promptsChange", (e) => {
-        events.push(e);
+      const pagedState = new PagedPromptsState(client);
+      const events: Prompt[][] = [];
+      pagedState.addEventListener("promptsChange", (e) => {
+        events.push(e.detail);
       });
 
-      // First page should emit event
-      const page1 = await client.listPrompts();
+      const page1 = await pagedState.loadPage();
       expect(events.length).toBe(1);
-      expect(events[0]!.detail.length).toBe(2);
+      expect(events[0]!.length).toBe(2);
 
-      // Second page should emit event (with cursor, appends)
-      await client.listPrompts(page1.nextCursor);
+      await pagedState.loadPage(page1.nextCursor);
       expect(events.length).toBe(2);
-      expect(events[1]!.detail.length).toBe(4);
+      expect(events[1]!.length).toBe(4);
+
+      pagedState.destroy();
     });
 
     it("should clear prompts and emit event", async () => {
@@ -1916,26 +1620,25 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
         },
       );
 
       await client.connect();
+      const pagedState = new PagedPromptsState(client);
+      await pagedState.loadPage();
+      expect(pagedState.getPrompts().length).toBe(3);
 
-      // Load some prompts
-      await client.listAllPrompts();
-      expect(client.getPrompts().length).toBe(3);
-
-      const events: TypedEvent<"promptsChange">[] = [];
-      client.addEventListener("promptsChange", (e) => {
-        events.push(e);
+      const events: Prompt[][] = [];
+      pagedState.addEventListener("promptsChange", (e) => {
+        events.push(e.detail);
       });
 
-      // Clear should emit event and empty the list
-      client.clearPrompts();
-      expect(client.getPrompts().length).toBe(0);
+      pagedState.clear();
+      expect(pagedState.getPrompts().length).toBe(0);
       expect(events.length).toBe(1);
-      expect(events[0]!.detail.length).toBe(0);
+      expect(events[0]!.length).toBe(0);
+
+      pagedState.destroy();
     });
   });
 
@@ -1958,7 +1661,6 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
           progress: true,
         },
       );
@@ -1967,8 +1669,9 @@ describe("InspectorClient", () => {
 
       const progressToken = 12345;
 
+      const sendProgressTool = await getTool(client, "send_progress");
       client.callTool(
-        "send_progress",
+        sendProgressTool,
         {
           units: 3,
           delayMs: 50,
@@ -2029,7 +1732,6 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
           progress: false, // Disable progress
         },
       );
@@ -2045,8 +1747,9 @@ describe("InspectorClient", () => {
       const progressToken = 12345;
 
       // Call the tool with progressToken in metadata
+      const sendProgressTool = await getTool(client, "send_progress");
       await client.callTool(
-        "send_progress",
+        sendProgressTool,
         {
           units: 2,
           delayMs: 50,
@@ -2086,7 +1789,6 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
           progress: true,
         },
       );
@@ -2095,8 +1797,9 @@ describe("InspectorClient", () => {
 
       const progressToken = 67890;
 
+      const sendProgressTool2 = await getTool(client, "send_progress");
       client.callTool(
-        "send_progress",
+        sendProgressTool2,
         {
           units: 2,
           delayMs: 50,
@@ -2147,7 +1850,6 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
           progress: true,
           timeout: 2000,
           resetTimeoutOnProgress: true,
@@ -2157,8 +1859,9 @@ describe("InspectorClient", () => {
       await client.connect();
 
       const progressToken = 999;
+      const sendProgressTool = await getTool(client, "send_progress");
       const result = await client.callTool(
-        "send_progress",
+        sendProgressTool,
         { units: 3, delayMs: 100, total: 3, message: "Timeout test" },
         undefined,
         { progressToken: progressToken.toString() },
@@ -2193,7 +1896,6 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
           progress: true,
           timeout: 350,
           resetTimeoutOnProgress: true,
@@ -2202,8 +1904,9 @@ describe("InspectorClient", () => {
 
       await client.connect();
 
+      const sendProgressTool = await getTool(client, "send_progress");
       const result = await client.callTool(
-        "send_progress",
+        sendProgressTool,
         { units: 4, delayMs: 200, total: 4, message: "Reset test" },
         undefined,
         { progressToken: "reset-test" },
@@ -2238,7 +1941,6 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           clientIdentity: { name: "test", version: "1.0.0" },
-          autoSyncLists: false,
           progress: true,
           timeout: 150,
           resetTimeoutOnProgress: false,
@@ -2248,10 +1950,11 @@ describe("InspectorClient", () => {
       await client.connect();
 
       const progressToken = 888;
+      const sendProgressToolTimeout = await getTool(client, "send_progress");
       let err: unknown;
       try {
         await client.callTool(
-          "send_progress",
+          sendProgressToolTimeout,
           { units: 4, delayMs: 200, total: 4, message: "Timeout test" },
           undefined,
           { progressToken: progressToken.toString() },
@@ -2277,7 +1980,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
           initialLoggingLevel: "debug",
         },
       );
@@ -2302,20 +2004,22 @@ describe("InspectorClient", () => {
         {
           environment: { transport: createTransportNode },
           pipeStderr: true,
-          autoSyncLists: false,
         },
       );
 
+      const stderrLogState = new StderrLogState(client);
       await client.connect();
 
       const testMessage = `stderr-direct-${Date.now()}`;
-      await client.callTool("write_to_stderr", { message: testMessage });
+      const writeToStderrTool = await getTool(client, "write_to_stderr");
+      await client.callTool(writeToStderrTool, { message: testMessage });
 
-      const logs = client.getStderrLogs();
+      const logs = stderrLogState.getStderrLogs();
       expect(Array.isArray(logs)).toBe(true);
       const matching = logs.filter((l) => l.message.includes(testMessage));
       expect(matching.length).toBeGreaterThan(0);
       expect(matching[0]!.message).toContain(testMessage);
+      stderrLogState.destroy();
     });
   });
 
@@ -2329,7 +2033,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -2355,7 +2058,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -2377,7 +2079,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -2411,7 +2112,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
           sample: true, // Enable sampling capability
         },
       );
@@ -2432,7 +2132,8 @@ describe("InspectorClient", () => {
       );
 
       // Start the tool call (don't await yet - it will block until sampling is responded to)
-      const toolResultPromise = client.callTool("collect_sample", {
+      const collectSampleTool = await getTool(client, "collect_sample");
+      const toolResultPromise = client.callTool(collectSampleTool, {
         text: "Hello, world!",
       });
 
@@ -2507,7 +2208,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -2524,7 +2224,8 @@ describe("InspectorClient", () => {
       });
 
       // Call the send_notification tool
-      await client.callTool("send_notification", {
+      const sendNotifTool = await getTool(client, "send_notification");
+      await client.callTool(sendNotifTool, {
         message: "Test notification from stdio",
         level: "info",
       });
@@ -2570,7 +2271,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -2587,7 +2287,8 @@ describe("InspectorClient", () => {
       });
 
       // Call the send_notification tool
-      await client.callTool("send_notification", {
+      const sendNotifToolSse = await getTool(client, "send_notification");
+      await client.callTool(sendNotifToolSse, {
         message: "Test notification from SSE",
         level: "warning",
       });
@@ -2633,7 +2334,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -2650,7 +2350,8 @@ describe("InspectorClient", () => {
       });
 
       // Call the send_notification tool
-      await client.callTool("send_notification", {
+      const sendNotifToolHttp = await getTool(client, "send_notification");
+      await client.callTool(sendNotifToolHttp, {
         message: "Test notification from streamable-http",
         level: "error",
       });
@@ -2697,7 +2398,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
           elicit: true, // Enable elicitation capability
         },
       );
@@ -2718,7 +2418,11 @@ describe("InspectorClient", () => {
       );
 
       // Start the tool call (don't await yet - it will block until elicitation is responded to)
-      const toolResultPromise = client.callTool("collect_elicitation", {
+      const collectElicitationTool = await getTool(
+        client,
+        "collect_elicitation",
+      );
+      const toolResultPromise = client.callTool(collectElicitationTool, {
         message: "Please provide your name",
         schema: {
           type: "object",
@@ -2800,7 +2504,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
           elicit: { url: true }, // Enable elicitation capability
         },
       );
@@ -2821,7 +2524,11 @@ describe("InspectorClient", () => {
       );
 
       // Start the tool call (don't await yet - it will block until elicitation is responded to)
-      const toolResultPromise = client.callTool("collect_url_elicitation", {
+      const collectUrlElicitationTool = await getTool(
+        client,
+        "collect_url_elicitation",
+      );
+      const toolResultPromise = client.callTool(collectUrlElicitationTool, {
         message: "Please visit the URL to complete authentication",
         url: "https://example.com/auth",
         elicitationId: "test-url-elicitation-123",
@@ -2898,7 +2605,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
           elicit: { url: true },
         },
       );
@@ -2924,7 +2630,11 @@ describe("InspectorClient", () => {
         },
       );
 
-      const toolResultPromise = client.callTool("url_elicitation_form", {});
+      const urlElicitationFormTool = await getTool(
+        client,
+        "url_elicitation_form",
+      );
+      const toolResultPromise = client.callTool(urlElicitationFormTool, {});
 
       const pendingElicitation = await elicitationRequestPromise;
 
@@ -3006,7 +2716,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
           roots: initialRoots, // Enable roots capability
         },
       );
@@ -3014,7 +2723,8 @@ describe("InspectorClient", () => {
       await client.connect();
 
       // Call the list_roots tool - it will call roots/list on the client
-      const toolResult = await client.callTool("list_roots", {});
+      const listRootsTool = await getTool(client, "list_roots");
+      const toolResult = await client.callTool(listRootsTool, {});
 
       // Verify the tool result contains the roots
       expect(toolResult).toBeDefined();
@@ -3058,7 +2768,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
           roots: [], // Enable roots capability with empty array
         },
       );
@@ -3143,7 +2852,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -3190,7 +2898,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -3226,7 +2933,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -3285,7 +2991,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -3334,7 +3039,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
 
@@ -3349,1924 +3053,6 @@ describe("InspectorClient", () => {
       expect(result.values).toContain("async1.txt");
 
       await client.disconnect();
-      await server.stop();
-    });
-  });
-
-  describe("ContentCache integration", () => {
-    it("should expose cache property that returns null for all getters initially", async () => {
-      const client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      // Cache should be accessible
-      expect(client.cache).toBeDefined();
-
-      // All getters should return null initially
-      expect(client.cache.getResource("file:///test.txt")).toBeNull();
-      expect(client.cache.getResourceTemplate("file:///{path}")).toBeNull();
-      expect(client.cache.getPrompt("testPrompt")).toBeNull();
-      expect(client.cache.getToolCallResult("testTool")).toBeNull();
-
-      await client.disconnect();
-    });
-
-    it("should clear cache when disconnect() is called", async () => {
-      const client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true,
-        },
-      );
-
-      await client.connect();
-
-      // Verify cache is accessible
-      expect(client.cache).toBeDefined();
-
-      // Populate cache by calling fetch methods
-      const resources = await client.listAllResources();
-      let resourceUri: string | undefined;
-      if (resources.length > 0 && resources[0]) {
-        resourceUri = resources[0].uri;
-        await client.readResource(resourceUri);
-        expect(client.cache.getResource(resourceUri)).not.toBeNull();
-      }
-
-      const tools = await client.listAllTools();
-      let toolName: string | undefined;
-      if (tools.length > 0 && tools[0]) {
-        toolName = tools[0].name;
-        await client.callTool(toolName, {});
-        expect(client.cache.getToolCallResult(toolName)).not.toBeNull();
-      }
-
-      const prompts = await client.listAllPrompts();
-      let promptName: string | undefined;
-      if (prompts.length > 0 && prompts[0]) {
-        promptName = prompts[0].name;
-        await client.getPrompt(promptName);
-        expect(client.cache.getPrompt(promptName)).not.toBeNull();
-      }
-
-      // Disconnect should clear cache
-      await client.disconnect();
-
-      // After disconnect, cache should be cleared
-      if (resourceUri) {
-        expect(client.cache.getResource(resourceUri)).toBeNull();
-      }
-      if (toolName) {
-        expect(client.cache.getToolCallResult(toolName)).toBeNull();
-      }
-      if (promptName) {
-        expect(client.cache.getPrompt(promptName)).toBeNull();
-      }
-    });
-
-    it("should not break existing API", async () => {
-      const client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      // Verify existing properties and methods still work
-      expect(client.getStatus()).toBe("disconnected");
-      expect(client.getTools()).toEqual([]);
-      expect(client.getResources()).toEqual([]);
-      expect(client.getPrompts()).toEqual([]);
-
-      await client.connect();
-      expect(client.getStatus()).toBe("connected");
-
-      await client.disconnect();
-      expect(client.getStatus()).toBe("disconnected");
-    });
-
-    it("should cache resource content and dispatch event when readResource is called", async () => {
-      client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-      await client.connect();
-
-      const uri = "file:///test.txt";
-      let eventReceived = false;
-      let eventDetail:
-        | InspectorClientEventMap[keyof InspectorClientEventMap]
-        | null = null;
-
-      client.addEventListener(
-        "resourceContentChange",
-        (event) => {
-          eventReceived = true;
-          eventDetail = event.detail;
-        },
-        { once: true },
-      );
-
-      const invocation = await client.readResource(uri);
-
-      // Verify cache
-      const cached = client.cache.getResource(uri);
-      expect(cached).not.toBeNull();
-      expect(cached).toBe(invocation); // Object identity preserved
-
-      // Verify event was dispatched
-      expect(eventReceived).toBe(true);
-      expect(eventDetail).not.toBeNull();
-      const detail =
-        eventDetail! as InspectorClientEventMap["resourceContentChange"];
-      expect(detail.uri).toBe(uri);
-      expect(detail.content).toBe(invocation);
-      expect(detail.timestamp).toBeInstanceOf(Date);
-
-      await client.disconnect();
-    });
-
-    it("should cache resource template content and dispatch event when readResourceFromTemplate is called", async () => {
-      client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true, // Auto-fetch to populate templates
-        },
-      );
-      await client.connect();
-
-      const template = client.getResourceTemplates()[0];
-      if (!template) {
-        throw new Error("No resource templates available");
-      }
-
-      const params = { path: "test.txt" };
-      let eventReceived = false;
-      let eventDetail:
-        | InspectorClientEventMap[keyof InspectorClientEventMap]
-        | null = null;
-
-      client.addEventListener(
-        "resourceTemplateContentChange",
-        (event) => {
-          eventReceived = true;
-          eventDetail = event.detail;
-        },
-        { once: true },
-      );
-
-      const invocation = await client.readResourceFromTemplate(
-        template.uriTemplate,
-        params,
-      );
-
-      // Verify cache
-      const cached = client.cache.getResourceTemplate(template.uriTemplate);
-      expect(cached).not.toBeNull();
-      expect(cached).toBe(invocation); // Object identity preserved
-
-      // Verify event was dispatched
-      expect(eventReceived).toBe(true);
-      expect(eventDetail).not.toBeNull();
-      const detail =
-        eventDetail! as InspectorClientEventMap["resourceTemplateContentChange"];
-      expect(detail.uriTemplate).toBe(template.uriTemplate);
-      expect(detail.content).toBe(invocation);
-      expect(detail.params).toEqual(params);
-      expect(detail.timestamp).toBeInstanceOf(Date);
-
-      await client.disconnect();
-    });
-
-    it("should cache prompt content and dispatch event when getPrompt is called", async () => {
-      client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true, // Auto-fetch to populate prompts
-        },
-      );
-      await client.connect();
-
-      const prompt = client.getPrompts()[0];
-      if (!prompt) {
-        throw new Error("No prompts available");
-      }
-
-      let eventReceived = false;
-      let eventDetail:
-        | InspectorClientEventMap[keyof InspectorClientEventMap]
-        | null = null;
-
-      client.addEventListener(
-        "promptContentChange",
-        (event) => {
-          eventReceived = true;
-          eventDetail = event.detail;
-        },
-        { once: true },
-      );
-
-      const invocation = await client.getPrompt(prompt.name);
-
-      // Verify cache
-      const cached = client.cache.getPrompt(prompt.name);
-      expect(cached).not.toBeNull();
-      expect(cached).toBe(invocation); // Object identity preserved
-
-      // Verify event was dispatched
-      expect(eventReceived).toBe(true);
-      expect(eventDetail).not.toBeNull();
-      const detail =
-        eventDetail! as InspectorClientEventMap["promptContentChange"];
-      expect(detail.name).toBe(prompt.name);
-      expect(detail.content).toBe(invocation);
-      expect(detail.timestamp).toBeInstanceOf(Date);
-
-      await client.disconnect();
-    });
-
-    it("should cache successful tool call result and dispatch event", async () => {
-      client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true, // Auto-fetch to populate tools
-        },
-      );
-      await client.connect();
-
-      const tool = client.getTools().find((t) => t.name === "echo");
-      if (!tool) {
-        throw new Error("Echo tool not available");
-      }
-
-      let eventReceived = false;
-      let eventDetail:
-        | InspectorClientEventMap[keyof InspectorClientEventMap]
-        | null = null;
-
-      client.addEventListener(
-        "toolCallResultChange",
-        (event) => {
-          eventReceived = true;
-          eventDetail = event.detail;
-        },
-        { once: true },
-      );
-
-      const invocation = await client.callTool("echo", { message: "test" });
-
-      // Verify cache
-      const cached = client.cache.getToolCallResult("echo");
-      expect(cached).not.toBeNull();
-      expect(cached).toBe(invocation); // Object identity preserved
-      expect(cached?.success).toBe(true);
-
-      // Verify event was dispatched
-      expect(eventReceived).toBe(true);
-      expect(eventDetail).not.toBeNull();
-      const detail =
-        eventDetail! as InspectorClientEventMap["toolCallResultChange"];
-      expect(detail.toolName).toBe("echo");
-      expect(detail.success).toBe(true);
-      expect(detail.result).not.toBeNull();
-      expect(detail.timestamp).toBeInstanceOf(Date);
-
-      await client.disconnect();
-    });
-
-    it("should cache failed tool call result and dispatch event", async () => {
-      client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-      await client.connect();
-
-      let eventReceived = false;
-      let eventDetail:
-        | InspectorClientEventMap[keyof InspectorClientEventMap]
-        | null = null;
-
-      client.addEventListener(
-        "toolCallResultChange",
-        (event) => {
-          eventReceived = true;
-          eventDetail = event.detail;
-        },
-        { once: true },
-      );
-
-      const invocation = await client.callTool("nonexistent-tool", {});
-
-      // Verify cache
-      const cached = client.cache.getToolCallResult("nonexistent-tool");
-      expect(cached).not.toBeNull();
-      expect(cached).toBe(invocation); // Object identity preserved
-      // Note: The tool call might succeed if the server has a catch-all handler
-      // So we just verify the cache stores the result correctly
-      expect(cached?.toolName).toBe("nonexistent-tool");
-      expect(cached?.params).toEqual({});
-
-      // Verify event was dispatched
-      expect(eventReceived).toBe(true);
-      expect(eventDetail).not.toBeNull();
-      const detail =
-        eventDetail! as InspectorClientEventMap["toolCallResultChange"];
-      expect(detail.toolName).toBe("nonexistent-tool");
-      expect(detail.params).toEqual({});
-      expect(detail.timestamp).toBeInstanceOf(Date);
-      // Note: success/error depends on server behavior
-
-      await client.disconnect();
-    });
-
-    it("should replace cache entry on subsequent calls", async () => {
-      client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-      await client.connect();
-
-      const uri = "file:///test.txt";
-
-      // First call
-      const invocation1 = await client.readResource(uri);
-      const cached1 = client.cache.getResource(uri);
-      expect(cached1).toBe(invocation1);
-
-      // Advance clock so second readResource gets a strictly newer timestamp; no event/API to wait on.
-      await new Promise((resolve) => setTimeout(resolve, 10));
-
-      // Second call should replace cache
-      const invocation2 = await client.readResource(uri);
-      const cached2 = client.cache.getResource(uri);
-      expect(cached2).toBe(invocation2);
-      expect(cached2).not.toBe(invocation1); // Different object
-      expect(cached2?.timestamp.getTime()).toBeGreaterThan(
-        invocation1.timestamp.getTime(),
-      );
-
-      await client.disconnect();
-    });
-
-    it("should persist cache across multiple calls", async () => {
-      client = new InspectorClient(
-        {
-          type: "stdio",
-          command: serverCommand.command,
-          args: serverCommand.args,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-      await client.connect();
-
-      const uri = "file:///test.txt";
-
-      // First call
-      const invocation1 = await client.readResource(uri);
-      const cached1 = client.cache.getResource(uri);
-      expect(cached1).toBe(invocation1);
-
-      // Second call to same resource
-      const invocation2 = await client.readResource(uri);
-      const cached2 = client.cache.getResource(uri);
-      expect(cached2).toBe(invocation2);
-
-      // Cache should still be accessible
-      const cached3 = client.cache.getResource(uri);
-      expect(cached3).toBe(invocation2);
-
-      await client.disconnect();
-    });
-  });
-
-  describe("Resource Subscriptions", () => {
-    it("should initialize subscribedResources as empty Set", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      expect(client.getSubscribedResources()).toEqual([]);
-      expect(client.isSubscribedToResource("test://uri")).toBe(false);
-
-      await client.disconnect();
-      await server.stop();
-    });
-
-    it("should clear subscriptions on disconnect", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // Manually add a subscription (Phase 3 will add proper methods)
-      (
-        client as unknown as { subscribedResources: Set<string> }
-      ).subscribedResources.add("test://uri1");
-      (
-        client as unknown as { subscribedResources: Set<string> }
-      ).subscribedResources.add("test://uri2");
-
-      expect(client.getSubscribedResources()).toHaveLength(2);
-
-      await client.disconnect();
-
-      // Subscriptions should be cleared
-      expect(client.getSubscribedResources()).toEqual([]);
-
-      await server.stop();
-    });
-
-    it("should check server capability for resource subscriptions support", async () => {
-      // Server without resource subscriptions
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // Server doesn't support resource subscriptions
-      expect(client.supportsResourceSubscriptions()).toBe(false);
-
-      await client.disconnect();
-      await server.stop();
-
-      // Server with resource subscriptions (we'll need to add this capability in test server)
-      // For now, just test that the method exists and checks capabilities
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        // Note: We'd need to add subscribe capability to test server config
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // Still false because test server doesn't advertise subscribe capability
-      expect(client.supportsResourceSubscriptions()).toBe(false);
-
-      await client.disconnect();
-      await server.stop();
-    });
-  });
-
-  describe("ListChanged Notifications", () => {
-    it("should initialize listChangedNotifications config with defaults (all enabled)", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      // Defaults should be all enabled
-      expect(
-        (
-          client as unknown as {
-            listChangedNotifications: Record<string, unknown>;
-          }
-        ).listChangedNotifications,
-      ).toEqual({
-        tools: true,
-        resources: true,
-        prompts: true,
-      });
-
-      await client.disconnect();
-      await server.stop();
-    });
-
-    it("should respect listChangedNotifications config options", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-          listChangedNotifications: {
-            tools: false,
-            resources: true,
-            prompts: false,
-          },
-        },
-      );
-
-      expect(
-        (
-          client as unknown as {
-            listChangedNotifications: Record<string, unknown>;
-          }
-        ).listChangedNotifications,
-      ).toEqual({
-        tools: false,
-        resources: true,
-        prompts: false,
-      });
-
-      await client.disconnect();
-      await server.stop();
-    });
-
-    it("should update state and dispatch event when listAllTools() is called", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        tools: [createEchoTool()],
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // Clear initial state
-      expect(client.getTools()).toEqual([]);
-
-      // Wait for toolsChange event
-      const toolsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "toolsChange",
-          (event) => {
-            resolve(event);
-          },
-          { once: true },
-        );
-      });
-
-      const tools = await client!.listAllTools();
-      const event = await toolsChangePromise;
-
-      expect(tools.length).toBeGreaterThan(0);
-      expect(client.getTools()).toEqual(tools);
-      expect(event.detail).toEqual(tools);
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should update state, clean cache, and dispatch event when listResources() is called", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resources: [createArchitectureResource()],
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // Load a resource to populate cache (before listing)
-      const uri = "demo://resource/static/document/architecture.md";
-      await client.readResource(uri);
-      expect(client.cache.getResource(uri)).not.toBeNull();
-
-      // Wait for resourcesChange event
-      const resourcesChangePromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "resourcesChange",
-          (event) => {
-            resolve(event);
-          },
-          { once: true },
-        );
-      });
-
-      // listAllResources will reset and reload all resources
-      const resources = await client!.listAllResources();
-      const event = await resourcesChangePromise;
-
-      expect(resources.length).toBeGreaterThan(0);
-      expect(client.getResources()).toEqual(resources);
-      expect(event.detail).toEqual(resources);
-      // Cache should be preserved for existing resource
-      expect(client.cache.getResource(uri)).not.toBeNull();
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should clean up cache for removed resources when listResources() is called", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resources: [createArchitectureResource(), createTestCwdResource()],
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // First list resources to populate the list
-      await client!.listResources();
-
-      // Load both resources to populate cache
-      const uri1 = "demo://resource/static/document/architecture.md";
-      const uri2 = "test://cwd";
-      await client!.readResource(uri1);
-      await client!.readResource(uri2);
-      expect(client.cache.getResource(uri1)).not.toBeNull();
-      expect(client.cache.getResource(uri2)).not.toBeNull();
-
-      // Now remove one resource from server
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resources: [createArchitectureResource()], // Only keep uri1
-      });
-      await server.stop();
-      await server.start();
-
-      // Reconnect and list resources
-      await client!.disconnect();
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-      await client!.connect();
-
-      // Load the remaining resource to populate cache
-      await client!.readResource(uri1);
-
-      // listAllResources clears cache for removed resources
-      await client.listAllResources();
-
-      // Cache for uri1 should be preserved, uri2 should be cleared
-      expect(client.cache.getResource(uri1)).not.toBeNull();
-      expect(client.cache.getResource(uri2)).toBeNull();
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should update state, clean cache, and dispatch event when listAllResourceTemplates() is called", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resourceTemplates: [createFileResourceTemplate()],
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // First list resource templates to populate the list
-      await client.listAllResourceTemplates();
-
-      // Load a resource template to populate cache
-      const uriTemplate = "file:///{path}";
-      await client.readResourceFromTemplate(uriTemplate, { path: "test.txt" });
-      expect(client.cache.getResourceTemplate(uriTemplate)).not.toBeNull();
-
-      // Wait for resourceTemplatesChange event
-      const resourceTemplatesChangePromise = new Promise<CustomEvent>(
-        (resolve) => {
-          client!.addEventListener(
-            "resourceTemplatesChange",
-            (event) => {
-              resolve(event);
-            },
-            { once: true },
-          );
-        },
-      );
-
-      const templates = await client!.listAllResourceTemplates();
-      const event = await resourceTemplatesChangePromise;
-
-      expect(templates.length).toBeGreaterThan(0);
-      expect(client.getResourceTemplates()).toEqual(templates);
-      expect(event.detail).toEqual(templates);
-      // Cache should be preserved for existing template
-      expect(client.cache.getResourceTemplate(uriTemplate)).not.toBeNull();
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should update state, clean cache, and dispatch event when listAllPrompts() is called", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        prompts: [createSimplePrompt()],
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // First list prompts to populate the list
-      await client.listAllPrompts();
-
-      // Load a prompt to populate cache
-      const promptName = "simple_prompt";
-      await client.getPrompt(promptName);
-      expect(client.cache.getPrompt(promptName)).not.toBeNull();
-
-      // Wait for promptsChange event
-      const promptsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "promptsChange",
-          (event) => {
-            resolve(event);
-          },
-          { once: true },
-        );
-      });
-
-      const prompts = await client!.listAllPrompts();
-      const event = await promptsChangePromise;
-
-      expect(prompts.length).toBeGreaterThan(0);
-      expect(client.getPrompts()).toEqual(prompts);
-      expect(event.detail).toEqual(prompts);
-      // Cache should be preserved for existing prompt
-      expect(client.cache.getPrompt(promptName)).not.toBeNull();
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should handle tools/list_changed notification and reload tools", async () => {
-      const { createAddToolTool } =
-        await import("@modelcontextprotocol/inspector-test-server");
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        tools: [createEchoTool(), createAddToolTool()],
-        listChanged: { tools: true },
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true, // Auto-fetch to populate initial state
-        },
-      );
-
-      await client.connect();
-
-      const initialTools = client.getTools();
-      expect(initialTools.length).toBeGreaterThan(0);
-
-      // Wait for toolsChange event after notification
-      const toolsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "toolsChange",
-          (event) => {
-            resolve(event);
-          },
-          { once: true },
-        );
-      });
-
-      // Add a new tool (this will send list_changed notification)
-      await client!.callTool("add_tool", {
-        name: "newTool",
-        description: "A new test tool",
-      });
-      const event = await toolsChangePromise;
-
-      // Tools should be reloaded
-      const updatedTools = client.getTools();
-      expect(Array.isArray(updatedTools)).toBe(true);
-      // Should have the new tool
-      expect(updatedTools.find((t) => t.name === "newTool")).toBeDefined();
-      // Event detail should match current tools exactly
-      // (callTool() uses listToolsInternal() so it doesn't dispatch events,
-      //  so this event comes only from the notification handler)
-      expect(event.detail).toEqual(updatedTools);
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should fire toolsListChanged event when server sends tools/list_changed notification", async () => {
-      const { createAddToolTool } =
-        await import("@modelcontextprotocol/inspector-test-server");
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        tools: [createEchoTool(), createAddToolTool()],
-        listChanged: { tools: true },
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false, // Don't auto-reload
-        },
-      );
-
-      await client.connect();
-
-      // Wait for toolsListChanged event
-      const toolsListChangedPromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "toolsListChanged",
-          (event) => {
-            resolve(event);
-          },
-          { once: true },
-        );
-      });
-
-      // Add a new tool (this will send list_changed notification)
-      await client!.callTool("add_tool", {
-        name: "newTool",
-        description: "A new test tool",
-      });
-      await toolsListChangedPromise;
-
-      // Event should have fired (notification received)
-      // But tools should NOT be reloaded since autoSyncLists is false
-      const tools = client.getTools();
-      expect(tools.find((t) => t.name === "newTool")).toBeUndefined();
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should reload tools when autoSyncLists is true and toolsListChanged fires", async () => {
-      const { createAddToolTool } =
-        await import("@modelcontextprotocol/inspector-test-server");
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        tools: [createEchoTool(), createAddToolTool()],
-        listChanged: { tools: true },
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true, // Auto-reload enabled
-        },
-      );
-
-      await client.connect();
-
-      const events: CustomEvent[] = [];
-      client!.addEventListener("toolsListChanged", (event) => {
-        events.push(event);
-      });
-      client.addEventListener("toolsChange", (event) => {
-        events.push(event);
-      });
-
-      // Add a new tool (this will send list_changed notification)
-      await client.callTool("add_tool", {
-        name: "newTool",
-        description: "A new test tool",
-      });
-
-      // Wait a bit for events to fire
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Should have received both events
-      expect(events.length).toBeGreaterThanOrEqual(2);
-      expect(events.some((e) => e.type === "toolsListChanged")).toBe(true);
-      expect(events.some((e) => e.type === "toolsChange")).toBe(true);
-
-      // Tools should be reloaded
-      const tools = client.getTools();
-      expect(tools.find((t) => t.name === "newTool")).toBeDefined();
-
-      await client.disconnect();
-      await server.stop();
-    });
-
-    it("should handle resources/list_changed notification and reload resources and templates", async () => {
-      const { createAddResourceTool } =
-        await import("@modelcontextprotocol/inspector-test-server");
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resources: [createArchitectureResource()],
-        resourceTemplates: [createFileResourceTemplate()],
-        tools: [createAddResourceTool()],
-        listChanged: { resources: true },
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true,
-        },
-      );
-
-      await client.connect();
-
-      const initialResources = client.getResources();
-      const initialTemplates = client.getResourceTemplates();
-      expect(initialResources.length).toBeGreaterThan(0);
-      expect(initialTemplates.length).toBeGreaterThan(0);
-
-      // Wait for both change events
-      const resourcesChangePromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "resourcesChange",
-          (event) => {
-            resolve(event);
-          },
-          { once: true },
-        );
-      });
-
-      const resourceTemplatesChangePromise = new Promise<CustomEvent>(
-        (resolve) => {
-          client!.addEventListener(
-            "resourceTemplatesChange",
-            (event) => {
-              resolve(event);
-            },
-            { once: true },
-          );
-        },
-      );
-
-      // Add a new resource (this will send list_changed notification)
-      await client!.callTool("add_resource", {
-        uri: "test://new-resource",
-        name: "newResource",
-        text: "New resource content",
-      });
-      const resourcesEvent = await resourcesChangePromise;
-      const templatesEvent = await resourceTemplatesChangePromise;
-
-      // Both should be reloaded
-      expect(client.getResources()).toEqual(resourcesEvent.detail);
-      expect(client.getResourceTemplates()).toEqual(templatesEvent.detail);
-      // Should have the new resource
-      expect(
-        client.getResources().find((r) => r.uri === "test://new-resource"),
-      ).toBeDefined();
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should handle prompts/list_changed notification and reload prompts", async () => {
-      const { createAddPromptTool } =
-        await import("@modelcontextprotocol/inspector-test-server");
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        prompts: [createSimplePrompt()],
-        tools: [createAddPromptTool()],
-        listChanged: { prompts: true },
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true,
-        },
-      );
-
-      await client.connect();
-
-      const initialPrompts = client.getPrompts();
-      expect(initialPrompts.length).toBeGreaterThan(0);
-
-      // Wait for promptsChange event after notification
-      const promptsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "promptsChange",
-          (event) => {
-            resolve(event);
-          },
-          { once: true },
-        );
-      });
-
-      // Add a new prompt (this will send list_changed notification)
-      await client!.callTool("add_prompt", {
-        name: "newPrompt",
-        promptString: "This is a new prompt",
-      });
-      const event = await promptsChangePromise;
-
-      // Prompts should be reloaded
-      expect(client.getPrompts()).toEqual(event.detail);
-      // Should have the new prompt
-      expect(
-        client.getPrompts().find((p) => p.name === "newPrompt"),
-      ).toBeDefined();
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should respect listChangedNotifications config (disabled handlers)", async () => {
-      const { createAddToolTool } =
-        await import("@modelcontextprotocol/inspector-test-server");
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        tools: [createEchoTool(), createAddToolTool()],
-        listChanged: { tools: true },
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true,
-          listChangedNotifications: {
-            tools: false, // Disable tools listChanged handler
-            resources: true,
-            prompts: true,
-          },
-        },
-      );
-
-      await client.connect();
-
-      const initialTools = client.getTools();
-      const initialToolCount = initialTools.length;
-
-      // Set up event listener to detect if notification handler runs
-      // callTool() uses listToolsInternal() which doesn't dispatch events,
-      // so any toolsChange event must come from the notification handler
-      let eventReceived = false;
-      const testEventListener = () => {
-        eventReceived = true;
-      };
-      client!.addEventListener("toolsChange", testEventListener, {
-        once: true,
-      });
-
-      // Add a new tool (this will send list_changed notification from server)
-      // callTool() uses listToolsInternal() which doesn't dispatch events
-      // If handler is enabled, it will call listTools() which dispatches toolsChange
-      // Since handler is disabled, no event should be received
-      await client.callTool("add_tool", {
-        name: "testTool",
-        description: "Test tool",
-      });
-
-      // Observation window: we assert no toolsChange from notification handler; can't wait for a non-event.
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      // Remove listener
-      client!.removeEventListener("toolsChange", testEventListener);
-
-      // Event should NOT be received because handler is disabled
-      expect(eventReceived).toBe(false);
-
-      // Tools should not have changed (handler didn't run, so listTools() wasn't called)
-      // The server has the new tool, but the client's internal state hasn't been updated
-      const finalTools = client.getTools();
-      expect(finalTools.length).toBe(initialToolCount);
-      expect(finalTools).toEqual(initialTools);
-
-      // Verify the tool was actually added to the server by manually calling listAllTools()
-      // This proves the server received the add_tool call and the notification was sent
-      const serverTools = await client!.listAllTools();
-      expect(serverTools.length).toBeGreaterThan(initialToolCount);
-      expect(serverTools.find((t) => t.name === "testTool")).toBeDefined();
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should only register handlers when server supports listChanged capability", async () => {
-      // Create a server that doesn't advertise listChanged capability
-      // (we can't easily do this with our test server, but we can test the logic)
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        tools: [createEchoTool()],
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true,
-        },
-      );
-
-      await client.connect();
-
-      // Check that capabilities are set (handlers registered if server advertises listChanged)
-      // This is tested implicitly - if handlers were registered incorrectly, tests would fail
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should handle tools/list_changed notification on removal and clear tool call cache", async () => {
-      const { createRemoveToolTool } =
-        await import("@modelcontextprotocol/inspector-test-server");
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        tools: [createEchoTool(), createRemoveToolTool()],
-        listChanged: { tools: true },
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true,
-        },
-      );
-
-      await client!.connect();
-
-      // Call echo tool to populate cache
-      const toolName = "echo";
-      await client.callTool(toolName, { message: "test" });
-      expect(client.cache.getToolCallResult(toolName)).not.toBeNull();
-
-      // Wait for toolsChange event after notification
-      const toolsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "toolsChange",
-          (event) => {
-            resolve(event);
-          },
-          { once: true },
-        );
-      });
-
-      // Remove the tool (this will send list_changed notification)
-      await client!.callTool("remove_tool", { name: toolName });
-      const event = await toolsChangePromise;
-
-      // Tools should be reloaded
-      const updatedTools = client.getTools();
-      expect(updatedTools.find((t) => t.name === toolName)).toBeUndefined();
-      expect(event.detail).toEqual(updatedTools);
-
-      // Cache should be cleared for removed tool
-      expect(client.cache.getToolCallResult(toolName)).toBeNull();
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should handle resources/list_changed notification on removal and clear resource cache", async () => {
-      const { createRemoveResourceTool } =
-        await import("@modelcontextprotocol/inspector-test-server");
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resources: [createArchitectureResource()],
-        tools: [createRemoveResourceTool()],
-        listChanged: { resources: true },
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true,
-        },
-      );
-
-      await client.connect();
-
-      // Load resource to populate cache
-      const uri = "demo://resource/static/document/architecture.md";
-      await client.readResource(uri);
-      expect(client.cache.getResource(uri)).not.toBeNull();
-
-      // Wait for resourcesChange event after notification
-      const resourcesChangePromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "resourcesChange",
-          (event) => {
-            resolve(event);
-          },
-          { once: true },
-        );
-      });
-
-      // Remove the resource (this will send list_changed notification)
-      await client!.callTool("remove_resource", { uri });
-      const event = await resourcesChangePromise;
-
-      // Resources should be reloaded
-      const updatedResources = client.getResources();
-      expect(updatedResources.find((r) => r.uri === uri)).toBeUndefined();
-      expect(event.detail).toEqual(updatedResources);
-
-      // Cache should be cleared for removed resource
-      expect(client.cache.getResource(uri)).toBeNull();
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should handle prompts/list_changed notification on removal and clear prompt cache", async () => {
-      const { createRemovePromptTool } =
-        await import("@modelcontextprotocol/inspector-test-server");
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        prompts: [createSimplePrompt()],
-        tools: [createRemovePromptTool()],
-        listChanged: { prompts: true },
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: true,
-        },
-      );
-
-      await client.connect();
-
-      // Load prompt to populate cache
-      const promptName = "simple_prompt";
-      await client.getPrompt(promptName);
-      expect(client.cache.getPrompt(promptName)).not.toBeNull();
-
-      // Wait for promptsChange event after notification
-      const promptsChangePromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "promptsChange",
-          (event) => {
-            resolve(event);
-          },
-          { once: true },
-        );
-      });
-
-      // Remove the prompt (this will send list_changed notification)
-      await client!.callTool("remove_prompt", { name: promptName });
-      const event = await promptsChangePromise;
-
-      // Prompts should be reloaded
-      const updatedPrompts = client.getPrompts();
-      expect(updatedPrompts.find((p) => p.name === promptName)).toBeUndefined();
-      expect(event.detail).toEqual(updatedPrompts);
-
-      // Cache should be cleared for removed prompt
-      expect(client.cache.getPrompt(promptName)).toBeNull();
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should clean up cache for removed resource templates when listResourceTemplates() is called", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resourceTemplates: [
-          createFileResourceTemplate(),
-          createUserResourceTemplate(),
-        ],
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client!.connect();
-
-      // First list resource templates to populate the list
-      await client!.listAllResourceTemplates();
-
-      // Load both templates to populate cache
-      const uriTemplate1 = "file:///{path}";
-      const uriTemplate2 = "user://{userId}";
-      await client!.readResourceFromTemplate(uriTemplate1, {
-        path: "test.txt",
-      });
-      await client!.readResourceFromTemplate(uriTemplate2, { userId: "123" });
-      expect(client.cache.getResourceTemplate(uriTemplate1)).not.toBeNull();
-      expect(client.cache.getResourceTemplate(uriTemplate2)).not.toBeNull();
-
-      // Now remove one template from server
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resourceTemplates: [createFileResourceTemplate()], // Only keep uriTemplate1
-      });
-      await server.stop();
-      await server.start();
-
-      // Reconnect and list resource templates
-      await client.disconnect();
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-      await client.connect();
-
-      // First list resource templates to populate the list
-      await client.listAllResourceTemplates();
-
-      // Load uriTemplate1 again to populate cache
-      await client.readResourceFromTemplate(uriTemplate1, { path: "test.txt" });
-
-      // List resource templates (should only have uriTemplate1 now)
-      await client.listAllResourceTemplates();
-
-      // Cache for uriTemplate1 should be preserved, uriTemplate2 should be cleared
-      expect(client.cache.getResourceTemplate(uriTemplate1)).not.toBeNull();
-      expect(client.cache.getResourceTemplate(uriTemplate2)).toBeNull();
-
-      await client.disconnect();
-      await server.stop();
-    });
-
-    it("should clean up cache for removed prompts when listPrompts() is called", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        prompts: [createSimplePrompt(), createArgsPrompt()],
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // First list prompts to populate the list
-      await client.listAllPrompts();
-
-      // Load both prompts to populate cache
-      const promptName1 = "simple_prompt";
-      const promptName2 = "args_prompt";
-      await client.getPrompt(promptName1);
-      await client.getPrompt(promptName2, { city: "New York", state: "NY" });
-      expect(client.cache.getPrompt(promptName1)).not.toBeNull();
-      expect(client.cache.getPrompt(promptName2)).not.toBeNull();
-
-      // Now remove one prompt from server
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        prompts: [createSimplePrompt()], // Only keep promptName1
-      });
-      await server.stop();
-      await server.start();
-
-      // Reconnect and list prompts
-      await client.disconnect();
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-      await client.connect();
-
-      // First list prompts to populate the list
-      await client.listAllPrompts();
-
-      // Load promptName1 again to populate cache
-      await client.getPrompt(promptName1);
-
-      // List prompts (should only have promptName1 now)
-      await client.listAllPrompts();
-
-      // Cache for promptName1 should be preserved, promptName2 should be cleared
-      expect(client.cache.getPrompt(promptName1)).not.toBeNull();
-      expect(client.cache.getPrompt(promptName2)).toBeNull();
-
-      await client.disconnect();
-      await server.stop();
-    });
-  });
-
-  describe("Resource Subscriptions", () => {
-    it("should subscribe to a resource and track subscription state", async () => {
-      // Test server without subscriptions
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resources: [createArchitectureResource()],
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // Server doesn't support subscriptions
-      expect(client.supportsResourceSubscriptions()).toBe(false);
-
-      // Should throw error when trying to subscribe
-      await expect(
-        client.subscribeToResource(
-          "demo://resource/static/document/architecture.md",
-        ),
-      ).rejects.toThrow("Server does not support resource subscriptions");
-
-      await client.disconnect();
-      await server.stop();
-    });
-
-    it("should subscribe to a resource when server supports subscriptions", async () => {
-      const { createUpdateResourceTool } =
-        await import("@modelcontextprotocol/inspector-test-server");
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resources: [createArchitectureResource()],
-        tools: [createUpdateResourceTool()],
-        subscriptions: true,
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      // Server supports subscriptions
-      expect(client.supportsResourceSubscriptions()).toBe(true);
-
-      const uri = "demo://resource/static/document/architecture.md";
-
-      // Wait for resourceSubscriptionsChange event
-      const eventPromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "resourceSubscriptionsChange",
-          (event) => {
-            resolve(event);
-          },
-          { once: true },
-        );
-      });
-
-      // Subscribe to resource
-      await client!.subscribeToResource(uri);
-      const event = await eventPromise;
-
-      // Verify subscription state
-      expect(client.isSubscribedToResource(uri)).toBe(true);
-      expect(client.getSubscribedResources()).toContain(uri);
-      expect(event.detail).toContain(uri);
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should unsubscribe from a resource", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resources: [createArchitectureResource()],
-        subscriptions: true,
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client.connect();
-
-      const uri = "demo://resource/static/document/architecture.md";
-
-      // Subscribe first
-      await client.subscribeToResource(uri);
-      expect(client.isSubscribedToResource(uri)).toBe(true);
-
-      // Wait for resourceSubscriptionsChange event
-      const eventPromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "resourceSubscriptionsChange",
-          (event) => {
-            resolve(event);
-          },
-          { once: true },
-        );
-      });
-
-      // Unsubscribe
-      await client!.unsubscribeFromResource(uri);
-      const event = await eventPromise;
-
-      // Verify unsubscribed
-      expect(client.isSubscribedToResource(uri)).toBe(false);
-      expect(client.getSubscribedResources()).not.toContain(uri);
-      expect(event.detail).not.toContain(uri);
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should throw error when unsubscribe called while not connected", async () => {
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resources: [createArchitectureResource()],
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client!.connect();
-      await client.disconnect();
-
-      await expect(
-        client!.unsubscribeFromResource(
-          "demo://resource/static/document/architecture.md",
-        ),
-      ).rejects.toThrow();
-
-      await server.stop();
-    });
-
-    it("should handle resource updated notification and clear cache for subscribed resource", async () => {
-      const { createUpdateResourceTool } =
-        await import("@modelcontextprotocol/inspector-test-server");
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resources: [createArchitectureResource()],
-        tools: [createUpdateResourceTool()],
-        subscriptions: true,
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client!.connect();
-
-      const uri = "demo://resource/static/document/architecture.md";
-
-      // Load resource to populate cache
-      await client!.readResource(uri);
-      expect(client.cache.getResource(uri)).not.toBeNull();
-
-      // Subscribe to resource
-      await client!.subscribeToResource(uri);
-      expect(client.isSubscribedToResource(uri)).toBe(true);
-
-      // Wait for resourceUpdated event
-      const eventPromise = new Promise<CustomEvent>((resolve) => {
-        client!.addEventListener(
-          "resourceUpdated",
-          ((event: CustomEvent) => {
-            resolve(event);
-          }) as EventListener,
-          { once: true },
-        );
-      });
-
-      // Update the resource (this will send resource updated notification)
-      await client!.callTool("update_resource", {
-        uri,
-        text: "Updated content",
-      });
-
-      const event = await eventPromise;
-      expect(event.detail.uri).toBe(uri);
-
-      // Cache should be cleared
-      expect(client.cache.getResource(uri)).toBeNull();
-
-      await client!.disconnect();
-      await server.stop();
-    });
-
-    it("should ignore resource updated notification for unsubscribed resources", async () => {
-      const { createUpdateResourceTool } =
-        await import("@modelcontextprotocol/inspector-test-server");
-
-      server = createTestServerHttp({
-        serverInfo: createTestServerInfo(),
-        resources: [createArchitectureResource()],
-        tools: [createUpdateResourceTool()],
-        subscriptions: true,
-      });
-      await server.start();
-
-      client = new InspectorClient(
-        {
-          type: "streamable-http",
-          url: server.url,
-        },
-        {
-          environment: { transport: createTransportNode },
-          autoSyncLists: false,
-        },
-      );
-
-      await client!.connect();
-
-      const uri = "demo://resource/static/document/architecture.md";
-
-      // Load resource to populate cache
-      await client!.readResource(uri);
-      expect(client.cache.getResource(uri)).not.toBeNull();
-
-      // Don't subscribe - resource should NOT be in subscribedResources
-      expect(client.isSubscribedToResource(uri)).toBe(false);
-
-      // Set up event listener (should not receive event)
-      let eventReceived = false;
-      const testEventListener = () => {
-        eventReceived = true;
-      };
-      client!.addEventListener("resourceUpdated", testEventListener, {
-        once: true,
-      });
-
-      // Update the resource (this will send resource updated notification)
-      await client!.callTool("update_resource", {
-        uri,
-        text: "Updated content",
-      });
-
-      // Observation window: we assert no resourceUpdated for unsubscribed resource; can't wait for a non-event.
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Remove listener
-      client!.removeEventListener("resourceUpdated", testEventListener);
-
-      // Event should NOT be received because resource is not subscribed
-      expect(eventReceived).toBe(false);
-
-      // Cache should still be present (not cleared)
-      expect(client.cache.getResource(uri)).not.toBeNull();
-
-      await client!.disconnect();
       await server.stop();
     });
   });
@@ -5287,7 +3073,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
       await client.connect();
@@ -5308,8 +3093,9 @@ describe("InspectorClient", () => {
 
     it("should run tool as task (callTool with taskOptions returns task reference, poll getRequestorTask/getRequestorTaskResult yields result)", async () => {
       // Same path as web App "Run as task": callTool with taskOptions -> task reference -> poll until completed
+      const optionalTaskTool = await getTool(client!, "optional_task");
       const invocation = await client!.callTool(
-        "optional_task",
+        optionalTaskTool,
         { message: "e2e-run-as-task" },
         undefined,
         undefined,
@@ -5368,11 +3154,11 @@ describe("InspectorClient", () => {
     });
 
     it("should call tool with task support using callToolStream", async () => {
-      const taskCreatedEvents: Array<{ taskId: string; task: Task }> = [];
-      const taskStatusEvents: Array<{ taskId: string; task: Task }> = [];
-      const taskCompletedEvents: Array<{
+      const toolCallTaskUpdatedEvents: Array<{
         taskId: string;
-        result: CallToolResult;
+        task: Task;
+        result?: CallToolResult;
+        error?: unknown;
       }> = [];
       const toolCallResultEvents: Array<{
         toolName: string;
@@ -5385,21 +3171,9 @@ describe("InspectorClient", () => {
       }> = [];
 
       client!.addEventListener(
-        "taskCreated",
-        (event: TypedEvent<"taskCreated">) => {
-          taskCreatedEvents.push(event.detail);
-        },
-      );
-      client!.addEventListener(
-        "taskStatusChange",
-        (event: TypedEvent<"taskStatusChange">) => {
-          taskStatusEvents.push(event.detail);
-        },
-      );
-      client!.addEventListener(
-        "taskCompleted",
-        (event: TypedEvent<"taskCompleted">) => {
-          taskCompletedEvents.push(event.detail);
+        "toolCallTaskUpdated",
+        (event: TypedEvent<"toolCallTaskUpdated">) => {
+          toolCallTaskUpdatedEvents.push(event.detail);
         },
       );
       client!.addEventListener(
@@ -5409,7 +3183,8 @@ describe("InspectorClient", () => {
         },
       );
 
-      const result = await client!.callToolStream("simple_task", {
+      const simpleTaskTool = await getTool(client!, "simple_task");
+      const result = await client!.callToolStream(simpleTaskTool, {
         message: "test task",
       });
 
@@ -5441,9 +3216,9 @@ describe("InspectorClient", () => {
         expect(firstContent?.type).toBe("text");
       }
 
-      // Validate taskCreated event
-      expect(taskCreatedEvents.length).toBe(1);
-      const createdEvent = taskCreatedEvents[0]!;
+      // Validate toolCallTaskUpdated events - first is task created, then status updates, last has result
+      expect(toolCallTaskUpdatedEvents.length).toBeGreaterThanOrEqual(1);
+      const createdEvent = toolCallTaskUpdatedEvents[0]!;
       expect(createdEvent.taskId).toBeDefined();
       expect(typeof createdEvent.taskId).toBe("string");
       expect(createdEvent.task).toBeDefined();
@@ -5454,25 +3229,13 @@ describe("InspectorClient", () => {
 
       const taskId = createdEvent.taskId;
 
-      // Validate taskStatusChange events - simple_task flow:
-      // The SDK may send multiple status updates. For simple_task, we expect:
-      // 1. taskCreated (status: "working") - from SDK when task is created
-      // 2. taskStatusChange events - SDK may send status updates during execution
-      //    - At minimum: one with status "completed" when task finishes
-      //    - May also include: one with status "working" (initial status update)
-      // 3. taskCompleted - when result is available
-
-      // Verify we got at least one status change
-      expect(taskStatusEvents.length).toBeGreaterThanOrEqual(1);
-
-      // Verify all status events are for the same task and have valid structure
-      const statuses = taskStatusEvents.map((event) => {
+      // All events are for the same task and have valid structure
+      const statuses = toolCallTaskUpdatedEvents.map((event) => {
         expect(event.taskId).toBe(taskId);
         expect(event.task.taskId).toBe(taskId);
         expect(event.task).toHaveProperty("status");
         expect(event.task).toHaveProperty("ttl");
         expect(event.task).toHaveProperty("lastUpdatedAt");
-        // Verify lastUpdatedAt is a valid ISO string if present
         if (event.task.lastUpdatedAt) {
           expect(typeof event.task.lastUpdatedAt).toBe("string");
           expect(() => new Date(event.task.lastUpdatedAt!)).not.toThrow();
@@ -5480,28 +3243,22 @@ describe("InspectorClient", () => {
         return event.task.status;
       });
 
-      // The last status change must be "completed"
       expect(statuses[statuses.length - 1]).toBe("completed");
-
-      // All statuses should be either "working" or "completed" (no input_required, failed, cancelled)
       statuses.forEach((status) => {
         expect(["working", "completed"]).toContain(status);
       });
-
-      // If we have multiple events, they should be in order: working -> completed
-      if (taskStatusEvents.length > 1) {
-        // First status should be "working"
+      if (toolCallTaskUpdatedEvents.length > 1) {
         expect(statuses[0]).toBe("working");
-        // Last status should be "completed"
         expect(statuses[statuses.length - 1]).toBe("completed");
       } else {
-        // If only one event, it must be "completed"
         expect(statuses[0]).toBe("completed");
       }
 
-      // Validate taskCompleted event
-      expect(taskCompletedEvents.length).toBe(1);
-      const completedEvent = taskCompletedEvents[0]!;
+      // Last event must have result (completed)
+      const completedEvent = toolCallTaskUpdatedEvents.find(
+        (e) => e.result !== undefined,
+      )!;
+      expect(completedEvent).toBeDefined();
       expect(completedEvent.taskId).toBe(taskId);
       expect(completedEvent.result).toBeDefined();
       expect(completedEvent.result).toEqual(toolResult);
@@ -5515,8 +3272,8 @@ describe("InspectorClient", () => {
       expect(toolCallEvent.result).toEqual(toolResult);
       expect(toolCallEvent.timestamp).toBeInstanceOf(Date);
 
-      // Validate task in requestor tasks
-      const requestorTasks = client!.getTrackedRequestorTasks();
+      // Validate task in requestor tasks (from server list)
+      const { tasks: requestorTasks } = await client!.listRequestorTasks();
       const cachedTask = requestorTasks.find((t) => t.taskId === taskId);
       expect(cachedTask).toBeDefined();
       expect(cachedTask!.taskId).toBe(taskId);
@@ -5535,8 +3292,9 @@ describe("InspectorClient", () => {
     });
 
     it("should accept taskOptions (ttl) in callToolStream", async () => {
+      const simpleTaskTtlTool = await getTool(client!, "simple_task");
       const result = await client!.callToolStream(
-        "simple_task",
+        simpleTaskTtlTool,
         { message: "ttl-test" },
         undefined,
         undefined,
@@ -5544,7 +3302,7 @@ describe("InspectorClient", () => {
       );
       expect(result.success).toBe(true);
       expect(result.result).toBeDefined();
-      const tasks = client!.getTrackedRequestorTasks();
+      const { tasks } = await client!.listRequestorTasks();
       const task = tasks.find((t) => t.taskId && t.status === "completed");
       expect(task).toBeDefined();
       expect(task).toHaveProperty("ttl");
@@ -5552,13 +3310,14 @@ describe("InspectorClient", () => {
 
     it("should get task by taskId", async () => {
       // First create a task
-      const result = await client!.callToolStream("simple_task", {
+      const simpleTaskByIdTool = await getTool(client!, "simple_task");
+      const result = await client!.callToolStream(simpleTaskByIdTool, {
         message: "test",
       });
       expect(result.success).toBe(true);
 
-      // Get the taskId from active tasks
-      const activeTasks = client!.getTrackedRequestorTasks();
+      // Get the taskId from server task list
+      const { tasks: activeTasks } = await client!.listRequestorTasks();
       expect(activeTasks.length).toBeGreaterThan(0);
       const activeTask = activeTasks[0];
       expect(activeTask).toBeDefined();
@@ -5573,15 +3332,16 @@ describe("InspectorClient", () => {
 
     it("should get task result", async () => {
       // First create a task
-      const result = await client!.callToolStream("simple_task", {
+      const simpleTaskResultTool = await getTool(client!, "simple_task");
+      const result = await client!.callToolStream(simpleTaskResultTool, {
         message: "test result",
       });
       expect(result.success).toBe(true);
       expect(result.result).toBeDefined();
       expect(result.result).not.toBeNull();
 
-      // Get the taskId from client tasks
-      const requestorTasks = client!.getTrackedRequestorTasks();
+      // Get the taskId from server task list
+      const { tasks: requestorTasks } = await client!.listRequestorTasks();
       expect(requestorTasks.length).toBeGreaterThan(0);
       const task = requestorTasks.find((t) => t.status === "completed");
       expect(task).toBeDefined();
@@ -5617,38 +3377,46 @@ describe("InspectorClient", () => {
     });
 
     it("should throw error when calling callTool on task-required tool", async () => {
+      const simpleTaskRequiredTool = await getTool(client!, "simple_task");
       await expect(
-        client!.callTool("simple_task", { message: "test" }),
+        client!.callTool(simpleTaskRequiredTool, { message: "test" }),
       ).rejects.toThrow("requires task support");
     });
 
     it("should clear tasks on disconnect", async () => {
       // Create a task
-      await client!.callToolStream("simple_task", { message: "test" });
-      expect(client!.getTrackedRequestorTasks().length).toBeGreaterThan(0);
+      const simpleTaskDisconnectTool = await getTool(client!, "simple_task");
+      await client!.callToolStream(simpleTaskDisconnectTool, {
+        message: "test",
+      });
+      const listBefore = await client!.listRequestorTasks();
+      expect(listBefore.tasks.length).toBeGreaterThan(0);
 
       // Disconnect
       await client!.disconnect();
 
-      // Tasks should be cleared
-      expect(client!.getTrackedRequestorTasks().length).toBe(0);
+      // After disconnect we cannot list tasks (not connected); test that client is disconnected
+      expect(client!.getStatus()).toBe("disconnected");
     });
 
     it("should call tool with taskSupport: forbidden (immediate result, no task)", async () => {
       // forbiddenTask should return immediately without creating a task
-      const result = await client!.callToolStream("forbidden_task", {
+      const forbiddenTaskTool = await getTool(client!, "forbidden_task");
+      const result = await client!.callToolStream(forbiddenTaskTool, {
         message: "test",
       });
 
       expect(result.success).toBe(true);
       expect(result.result).toHaveProperty("content");
-      // No task should be created
-      expect(client!.getTrackedRequestorTasks().length).toBe(0);
+      // No task should be created (forbidden_task returns immediately)
+      const { tasks } = await client!.listRequestorTasks();
+      expect(tasks.length).toBe(0);
     });
 
     it("should call tool with taskSupport: optional (may or may not create task)", async () => {
       // optionalTask may create a task or return immediately
-      const result = await client!.callToolStream("optional_task", {
+      const optionalTaskStreamTool = await getTool(client!, "optional_task");
+      const result = await client!.callToolStream(optionalTaskStreamTool, {
         message: "test",
       });
 
@@ -5683,19 +3451,42 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
       await client!.connect();
 
       const failedPromise = expect(
-        client!.callToolStream("failingTask", { message: "test" }),
+        (async () => {
+          const failingTaskTool = await getTool(client!, "failingTask");
+          return client!.callToolStream(failingTaskTool, { message: "test" });
+        })(),
       ).rejects.toThrow();
 
-      const taskFailedDetail = await waitForEvent<{
+      const taskFailedDetail = await new Promise<{
         taskId: string;
-        error: Error;
-      }>(client, "taskFailed", { timeout: 2000 });
+        task: Task;
+        error: unknown;
+      }>((resolve, reject) => {
+        const timeout = setTimeout(
+          () =>
+            reject(
+              new Error("Timeout waiting for toolCallTaskUpdated with error"),
+            ),
+          2000,
+        );
+        const handler = (
+          e: Event & {
+            detail: { taskId: string; task: Task; error?: unknown };
+          },
+        ) => {
+          if (e.detail.error !== undefined) {
+            clearTimeout(timeout);
+            client!.removeEventListener("toolCallTaskUpdated", handler);
+            resolve(e.detail);
+          }
+        };
+        client!.addEventListener("toolCallTaskUpdated", handler);
+      });
       expect(taskFailedDetail.taskId).toBeDefined();
       expect(taskFailedDetail.error).toBeDefined();
 
@@ -5727,20 +3518,19 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
         },
       );
       await client!.connect();
 
-      const taskPromise = client!.callToolStream("longRunningTask", {
+      const longRunningTaskTool = await getTool(client!, "longRunningTask");
+      const taskPromise = client!.callToolStream(longRunningTaskTool, {
         message: "test",
       });
 
-      const taskCreatedDetail = await waitForEvent<{ taskId: string }>(
-        client,
-        "taskCreated",
-        { timeout: 3000 },
-      );
+      const taskCreatedDetail = await waitForEvent<{
+        taskId: string;
+        task: Task;
+      }>(client, "toolCallTaskUpdated", { timeout: 3000 });
       const taskId = taskCreatedDetail.taskId;
       expect(taskId).toBeDefined();
 
@@ -5787,7 +3577,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
           elicit: true,
         },
       );
@@ -5798,7 +3587,11 @@ describe("InspectorClient", () => {
         "newPendingElicitation",
         { timeout: 2000 },
       );
-      const taskPromise = client.callToolStream("taskWithElicitation", {
+      const taskWithElicitationTool = await getTool(
+        client,
+        "taskWithElicitation",
+      );
+      const taskPromise = client.callToolStream(taskWithElicitationTool, {
         message: "test",
       });
 
@@ -5809,7 +3602,7 @@ describe("InspectorClient", () => {
 
       // Verify task status is input_required (if taskId was extracted)
       if (elicitation.taskId) {
-        const activeTasks = client.getTrackedRequestorTasks();
+        const { tasks: activeTasks } = await client.listRequestorTasks();
         const task = activeTasks.find((t) => t.taskId === elicitation.taskId);
         if (task) {
           expect(task.status).toBe("input_required");
@@ -5850,7 +3643,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
           sample: true,
         },
       );
@@ -5861,12 +3653,13 @@ describe("InspectorClient", () => {
         "newPendingSample",
         { timeout: 3000 },
       );
-      const taskCreatedPromise = waitForEvent<{ taskId: string }>(
+      const taskCreatedPromise = waitForEvent<{ taskId: string; task: Task }>(
         client,
-        "taskCreated",
+        "toolCallTaskUpdated",
         { timeout: 3000 },
       );
-      const taskPromise = client!.callToolStream("taskWithSampling", {
+      const taskWithSamplingTool = await getTool(client!, "taskWithSampling");
+      const taskPromise = client!.callToolStream(taskWithSamplingTool, {
         message: "test",
       });
 
@@ -5917,7 +3710,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
           progress: true,
         },
       );
@@ -5925,20 +3717,17 @@ describe("InspectorClient", () => {
 
       const progressToken = Math.random().toString();
 
-      const taskCreatedPromise = waitForEvent<{ taskId: string }>(
+      const taskCreatedPromise = waitForEvent<{ taskId: string; task: Task }>(
         client,
-        "taskCreated",
+        "toolCallTaskUpdated",
         { timeout: 5000 },
       );
       const progressPromise = waitForProgressCount(client!, 5, {
         timeout: 5000,
       });
-      const taskCompletedPromise = waitForEvent<{
-        taskId: string;
-        result: unknown;
-      }>(client, "taskCompleted", { timeout: 5000 });
+      const taskWithProgressTool = await getTool(client!, "taskWithProgress");
       const resultPromise = client!.callToolStream(
-        "taskWithProgress",
+        taskWithProgressTool,
         { message: "test" },
         undefined,
         { progressToken },
@@ -5948,9 +3737,34 @@ describe("InspectorClient", () => {
       const taskId = taskCreatedDetail.taskId;
       expect(taskId).toBeDefined();
 
+      const taskCompletedDetail = await new Promise<{
+        taskId: string;
+        task: Task;
+        result: unknown;
+      }>((resolve, reject) => {
+        const timeout = setTimeout(
+          () =>
+            reject(
+              new Error("Timeout waiting for toolCallTaskUpdated with result"),
+            ),
+          5000,
+        );
+        const handler = (
+          e: Event & {
+            detail: { taskId: string; task: Task; result?: unknown };
+          },
+        ) => {
+          if (e.detail.result !== undefined) {
+            clearTimeout(timeout);
+            client!.removeEventListener("toolCallTaskUpdated", handler);
+            resolve(e.detail);
+          }
+        };
+        client!.addEventListener("toolCallTaskUpdated", handler);
+      });
+
       const progressEvents = await progressPromise;
       const result = await resultPromise;
-      const taskCompletedDetail = await taskCompletedPromise;
 
       // Verify task completed successfully
       expect(result.success).toBe(true);
@@ -6009,17 +3823,24 @@ describe("InspectorClient", () => {
         expect(relatedTask.taskId).toBe(taskId);
       });
 
-      // Verify task is in completed state
-      const activeTasks = client!.getTrackedRequestorTasks();
+      // Verify task is in completed state (from server list)
+      const { tasks: activeTasks } = await client!.listRequestorTasks();
       const completedTask = activeTasks.find((t) => t.taskId === taskId);
       expect(completedTask).toBeDefined();
       expect(completedTask!.status).toBe("completed");
     });
 
     it("should handle listTasks pagination", async () => {
-      await client!.callToolStream("simple_task", { message: "task1" });
-      await client!.callToolStream("simple_task", { message: "task2" });
-      await client!.callToolStream("simple_task", { message: "task3" });
+      const simpleTaskPaginationTool = await getTool(client!, "simple_task");
+      await client!.callToolStream(simpleTaskPaginationTool, {
+        message: "task1",
+      });
+      await client!.callToolStream(simpleTaskPaginationTool, {
+        message: "task2",
+      });
+      await client!.callToolStream(simpleTaskPaginationTool, {
+        message: "task3",
+      });
       const result = await client!.listRequestorTasks();
       expect(result.tasks.length).toBeGreaterThan(0);
 
@@ -6059,7 +3880,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
           sample: true,
           receiverTasks: true,
           receiverTaskTtlMs: 10_000,
@@ -6072,7 +3892,11 @@ describe("InspectorClient", () => {
         "newPendingSample",
         { timeout: 5000 },
       );
-      const taskPromise = client.callToolStream("receiverE2ESampling", {
+      const receiverE2ESamplingTool = await getTool(
+        client,
+        "receiverE2ESampling",
+      );
+      const taskPromise = client.callToolStream(receiverE2ESamplingTool, {
         message: "e2e",
       });
 
@@ -6135,7 +3959,6 @@ describe("InspectorClient", () => {
         },
         {
           environment: { transport: createTransportNode },
-          autoSyncLists: false,
           elicit: true,
           receiverTasks: true,
           receiverTaskTtlMs: 10_000,
@@ -6148,7 +3971,8 @@ describe("InspectorClient", () => {
         "newPendingElicitation",
         { timeout: 5000 },
       );
-      const taskPromise = client.callToolStream("receiverE2EElicit", {
+      const receiverE2EElicitTool = await getTool(client, "receiverE2EElicit");
+      const taskPromise = client.callToolStream(receiverE2EElicitTool, {
         message: "e2e",
       });
 

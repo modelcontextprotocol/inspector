@@ -120,7 +120,7 @@ export function ToolTestModal({
 
     try {
       // Use InspectorClient.callTool() which handles parameter conversion and metadata
-      const invocation = await inspectorClient.callTool(tool.name, values);
+      const invocation = await inspectorClient.callTool(tool, values);
 
       const duration = Date.now() - startTime;
 

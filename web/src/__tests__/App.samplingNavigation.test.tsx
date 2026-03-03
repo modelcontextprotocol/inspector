@@ -445,56 +445,34 @@ describe("App - Sampling navigation", () => {
       fireEvent.click(connectButton);
     });
 
-    await waitFor(
-      () => {
-        expect(dispatchNewPendingSample).not.toBeNull();
-        expect(newPendingSampleListeners.size).toBeGreaterThan(0);
-      },
-      { timeout: 3000 },
-    );
+    // Connected when Sampling tab exists (main pane with our Tabs is rendered)
+    await waitFor(() => {
+      expect(
+        screen.getByRole("tab", { name: /Sampling/i }),
+      ).toBeInTheDocument();
+    });
 
-    await waitFor(
-      () => {
-        expect(
-          screen.getByRole("tab", { name: /Sampling/i }),
-        ).toBeInTheDocument();
-      },
-      { timeout: 2000 },
-    );
+    await waitFor(() => {
+      expect(dispatchNewPendingSample).not.toBeNull();
+      expect(newPendingSampleListeners.size).toBeGreaterThan(0);
+    });
 
-    const respondFn = vi.fn().mockResolvedValue(undefined);
     const rejectFn = vi.fn().mockResolvedValue(undefined);
-
     await act(() => {
       dispatchNewPendingSample!({
         id: "sample-2",
         request: sampleRequest,
-        respond: respondFn,
+        respond: vi.fn().mockResolvedValue(undefined),
         reject: rejectFn,
       });
     });
 
-    await act(() => {
-      window.location.hash = "#sampling";
-      window.dispatchEvent(new HashChangeEvent("hashchange"));
-    });
-
-    const samplingTab = screen.getByRole("tab", { name: /Sampling/i });
-    await act(async () => {
-      fireEvent.click(samplingTab);
-    });
-
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("sampling-request")).toBeInTheDocument();
-      },
-      { timeout: 3000 },
-    );
-
-    const rejectButton = screen.getByRole("button", { name: /Reject/i });
+    // Handler already set activeTab to "sampling"; wait for the Reject button to be visible
+    const rejectButton = await screen.findByRole("button", { name: /Reject/i });
     await act(async () => {
       fireEvent.click(rejectButton);
     });
+    await act(async () => {});
 
     await waitFor(() => {
       expect(rejectFn).toHaveBeenCalled();

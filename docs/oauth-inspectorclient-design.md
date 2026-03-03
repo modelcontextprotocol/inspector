@@ -4,6 +4,8 @@
 
 This document outlines the design and implementation plan for adding MCP OAuth 2.1 support to `InspectorClient`. The goal is to extract the general-purpose OAuth logic from the web client into the shared package and integrate it into `InspectorClient`, making OAuth available for CLI, TUI, and other InspectorClient consumers.
 
+**Code locations:** Paths like `client/src/lib/` and `client/src/utils/` in this document refer to the **legacy web app** (on the main/v1 tree the web app lives in `client/`; on this branch it lives in `web/`). The extraction source was the legacy client; the active app on this branch is in `web/`.
+
 **Important**: The web client OAuth code will remain in place and will not be modified to use the shared code at this time. Future migration options (using shared code directly, relying on InspectorClient, or a combination) should be considered in the design but not implemented.
 
 ## Goals

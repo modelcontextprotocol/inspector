@@ -11,6 +11,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as fs from "node:fs/promises";
 import { InspectorClient } from "../mcp/inspectorClient.js";
+import { FetchRequestLogState } from "../mcp/state/index.js";
 import { createTransportNode } from "../mcp/node/transport.js";
 import type { MCPServerConfig } from "../mcp/types.js";
 import { NodeOAuthStorage } from "../auth/node/storage-node.js";
@@ -61,7 +62,6 @@ describe("InspectorClient OAuth", () => {
     };
     client = new InspectorClient(config, {
       environment: { transport: createTransportNode },
-      autoSyncLists: false,
     });
   });
 
@@ -96,7 +96,6 @@ describe("InspectorClient OAuth", () => {
               redirectUrlProvider: oauthConfig.redirectUrlProvider,
             },
           },
-          autoSyncLists: false,
           oauth: {
             clientId: oauthConfig.clientId,
             clientSecret: oauthConfig.clientSecret,
@@ -128,7 +127,6 @@ describe("InspectorClient OAuth", () => {
               redirectUrlProvider: oauthConfig.redirectUrlProvider,
             },
           },
-          autoSyncLists: false,
           oauth: {
             clientId: oauthConfig.clientId,
             clientSecret: oauthConfig.clientSecret,
@@ -160,7 +158,6 @@ describe("InspectorClient OAuth", () => {
               redirectUrlProvider: oauthConfig.redirectUrlProvider,
             },
           },
-          autoSyncLists: false,
           oauth: {
             clientId: oauthConfig.clientId,
             clientSecret: oauthConfig.clientSecret,
@@ -246,7 +243,6 @@ describe("InspectorClient OAuth", () => {
               redirectUrlProvider: oauthConfig.redirectUrlProvider,
             },
           },
-          autoSyncLists: false,
           oauth: {
             clientId: oauthConfig.clientId,
             clientSecret: oauthConfig.clientSecret,
@@ -256,11 +252,12 @@ describe("InspectorClient OAuth", () => {
         },
       );
 
+      const fetchRequestLogState = new FetchRequestLogState(testClient);
       // beginGuidedAuth runs metadata_discovery, client_registration, authorization_redirect
       // (stops at authorization_code awaiting user). Produces auth fetches only (no connect yet).
       await testClient.beginGuidedAuth();
 
-      const fetchRequests = testClient.getFetchRequests();
+      const fetchRequests = fetchRequestLogState.getFetchRequests();
       const authFetches = fetchRequests.filter(
         (req) => req.category === "auth",
       );
@@ -273,6 +270,7 @@ describe("InspectorClient OAuth", () => {
       );
       expect(hasOAuthUrls).toBe(true);
 
+      fetchRequestLogState.destroy();
       await testClient.disconnect();
     });
   });
@@ -491,6 +489,7 @@ describe("InspectorClient OAuth", () => {
         } as MCPServerConfig,
         clientConfig,
       );
+      const fetchRequestLogState = new FetchRequestLogState(testClient);
 
       // Auth-provider flow: authenticate first, complete OAuth, then connect.
       // connect() creates transport with authProvider; tokens are already in storage.
@@ -508,7 +507,7 @@ describe("InspectorClient OAuth", () => {
       const toolsResult = await testClient.listTools();
       expect(toolsResult).toBeDefined();
 
-      const fetchRequests = testClient.getFetchRequests();
+      const fetchRequests = fetchRequestLogState.getFetchRequests();
       expect(fetchRequests.length).toBeGreaterThan(0);
 
       // Auth fetches (discovery, token exchange) should have category 'auth'

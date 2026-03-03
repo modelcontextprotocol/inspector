@@ -33,13 +33,6 @@ vi.mock("../utils/configUtils", async (importOriginal) => {
 // Default connection state is disconnected (cast for mock)
 const disconnectedInspectorClientState: UseInspectorClientResult = {
   status: "disconnected",
-  messages: [],
-  stderrLogs: [],
-  fetchRequests: [],
-  tools: [],
-  resources: [],
-  resourceTemplates: [],
-  prompts: [],
   capabilities: {},
   serverInfo: { name: "", version: "" },
   instructions: undefined,

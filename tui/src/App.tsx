@@ -25,10 +25,26 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import {
+  ManagedToolsState,
+  ManagedResourcesState,
+  ManagedResourceTemplatesState,
+  ManagedPromptsState,
+  MessageLogState,
+  FetchRequestLogState,
+  StderrLogState,
+} from "@modelcontextprotocol/inspector-core/mcp/state/index.js";
+import {
   loadMcpServersConfig,
   createTransportNode,
 } from "@modelcontextprotocol/inspector-core/mcp/node/index.js";
 import { useInspectorClient } from "@modelcontextprotocol/inspector-core/react/useInspectorClient.js";
+import { useManagedTools } from "@modelcontextprotocol/inspector-core/react/useManagedTools.js";
+import { useManagedResources } from "@modelcontextprotocol/inspector-core/react/useManagedResources.js";
+import { useManagedResourceTemplates } from "@modelcontextprotocol/inspector-core/react/useManagedResourceTemplates.js";
+import { useManagedPrompts } from "@modelcontextprotocol/inspector-core/react/useManagedPrompts.js";
+import { useMessageLog } from "@modelcontextprotocol/inspector-core/react/useMessageLog.js";
+import { useFetchRequestLog } from "@modelcontextprotocol/inspector-core/react/useFetchRequestLog.js";
+import { useStderrLog } from "@modelcontextprotocol/inspector-core/react/useStderrLog.js";
 import {
   CallbackNavigation,
   MutableRedirectUrlProvider,
@@ -191,6 +207,27 @@ function App({
   const [inspectorClients, setInspectorClients] = useState<
     Record<string, InspectorClient>
   >({});
+  // ManagedToolsState per server (tools list from manager, not client)
+  const [managedToolsStates, setManagedToolsStates] = useState<
+    Record<string, ManagedToolsState>
+  >({});
+  const [managedResourcesStates, setManagedResourcesStates] = useState<
+    Record<string, ManagedResourcesState>
+  >({});
+  const [managedResourceTemplatesStates, setManagedResourceTemplatesStates] =
+    useState<Record<string, ManagedResourceTemplatesState>>({});
+  const [managedPromptsStates, setManagedPromptsStates] = useState<
+    Record<string, ManagedPromptsState>
+  >({});
+  const [messageLogStates, setMessageLogStates] = useState<
+    Record<string, MessageLogState>
+  >({});
+  const [fetchRequestLogStates, setFetchRequestLogStates] = useState<
+    Record<string, FetchRequestLogState>
+  >({});
+  const [stderrLogStates, setStderrLogStates] = useState<
+    Record<string, StderrLogState>
+  >({});
   const [dimensions, setDimensions] = useState({
     width: process.stdout.columns || 80,
     height: process.stdout.rows || 24,
@@ -234,9 +271,19 @@ function App({
     Record<string, MutableRedirectUrlProvider>
   >({});
 
-  // Create InspectorClient instances for each server on mount
+  // Create InspectorClient and state managers for each server on mount
   useEffect(() => {
     const newClients: Record<string, InspectorClient> = {};
+    const newManagers: Record<string, ManagedToolsState> = {};
+    const newManagedResourcesStates: Record<string, ManagedResourcesState> = {};
+    const newManagedResourceTemplatesStates: Record<
+      string,
+      ManagedResourceTemplatesState
+    > = {};
+    const newManagedPromptsStates: Record<string, ManagedPromptsState> = {};
+    const newMessageLogStates: Record<string, MessageLogState> = {};
+    const newFetchRequestLogStates: Record<string, FetchRequestLogState> = {};
+    const newStderrLogStates: Record<string, StderrLogState> = {};
     for (const serverName of serverNames) {
       if (!(serverName in inspectorClients)) {
         const serverConfig = mcpConfig.mcpServers[
@@ -250,9 +297,6 @@ function App({
         };
         const opts: InspectorClientOptions = {
           environment,
-          maxMessages: 1000,
-          maxStderrLogEvents: 1000,
-          maxFetchRequests: 1000,
           pipeStderr: true,
         };
         if (isOAuthCapableServer(serverConfig)) {
@@ -277,25 +321,85 @@ function App({
             ...(clientMetadataUrl && { clientMetadataUrl }),
           };
         }
-        newClients[serverName] = new InspectorClient(serverConfig, opts);
+        const client = new InspectorClient(serverConfig, opts);
+        newClients[serverName] = client;
+        newManagers[serverName] = new ManagedToolsState(client);
+        newManagedResourcesStates[serverName] = new ManagedResourcesState(
+          client,
+        );
+        newManagedResourceTemplatesStates[serverName] =
+          new ManagedResourceTemplatesState(client);
+        newManagedPromptsStates[serverName] = new ManagedPromptsState(client);
+        newMessageLogStates[serverName] = new MessageLogState(client);
+        newFetchRequestLogStates[serverName] = new FetchRequestLogState(client);
+        newStderrLogStates[serverName] = new StderrLogState(client);
       }
     }
     if (Object.keys(newClients).length > 0) {
       setInspectorClients((prev) => ({ ...prev, ...newClients }));
+      setManagedToolsStates((prev) => ({ ...prev, ...newManagers }));
+      setManagedResourcesStates((prev) => ({
+        ...prev,
+        ...newManagedResourcesStates,
+      }));
+      setManagedResourceTemplatesStates((prev) => ({
+        ...prev,
+        ...newManagedResourceTemplatesStates,
+      }));
+      setManagedPromptsStates((prev) => ({
+        ...prev,
+        ...newManagedPromptsStates,
+      }));
+      setMessageLogStates((prev) => ({ ...prev, ...newMessageLogStates }));
+      setFetchRequestLogStates((prev) => ({
+        ...prev,
+        ...newFetchRequestLogStates,
+      }));
+      setStderrLogStates((prev) => ({ ...prev, ...newStderrLogStates }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, clientSecret, clientMetadataUrl]);
 
-  // Cleanup: disconnect all clients on unmount
+  // Cleanup: destroy managers and disconnect all clients on unmount
   useEffect(() => {
     return () => {
+      Object.values(managedToolsStates).forEach((manager) => {
+        manager.destroy();
+      });
+      Object.values(managedResourcesStates).forEach((manager) => {
+        manager.destroy();
+      });
+      Object.values(managedResourceTemplatesStates).forEach((manager) => {
+        manager.destroy();
+      });
+      Object.values(managedPromptsStates).forEach((manager) => {
+        manager.destroy();
+      });
+      Object.values(messageLogStates).forEach((manager) => {
+        manager.destroy();
+      });
+      Object.values(fetchRequestLogStates).forEach((manager) => {
+        manager.destroy();
+      });
+      Object.values(stderrLogStates).forEach((manager) => {
+        manager.destroy();
+      });
       Object.values(inspectorClients).forEach((client) => {
         client.disconnect().catch(() => {
           // Ignore errors during cleanup
         });
       });
     };
-  }, [inspectorClients]);
+  }, [
+    inspectorClients,
+    managedToolsStates,
+    managedResourcesStates,
+    managedResourceTemplatesStates,
+    managedPromptsStates,
+    messageLogStates,
+    fetchRequestLogStates,
+    stderrLogStates,
+  ]);
 
   // Preselect the first server on mount
   useEffect(() => {
@@ -331,19 +435,93 @@ function App({
   // Use the hook to get reactive state from InspectorClient
   const {
     status: inspectorStatus,
-    messages: inspectorMessages,
-    stderrLogs: inspectorStderrLogs,
-    fetchRequests: inspectorFetchRequests,
-    tools: inspectorTools,
-    resources: inspectorResources,
-    resourceTemplates: inspectorResourceTemplates,
-    prompts: inspectorPrompts,
     capabilities: inspectorCapabilities,
     serverInfo: inspectorServerInfo,
     instructions: inspectorInstructions,
     connect: connectInspector,
     disconnect: disconnectInspector,
   } = useInspectorClient(selectedInspectorClient);
+
+  // Log state from managers (per-server)
+  const selectedMessageLogState = useMemo(
+    () =>
+      selectedServer && messageLogStates[selectedServer]
+        ? messageLogStates[selectedServer]
+        : null,
+    [selectedServer, messageLogStates],
+  );
+  const selectedFetchRequestLogState = useMemo(
+    () =>
+      selectedServer && fetchRequestLogStates[selectedServer]
+        ? fetchRequestLogStates[selectedServer]
+        : null,
+    [selectedServer, fetchRequestLogStates],
+  );
+  const selectedStderrLogState = useMemo(
+    () =>
+      selectedServer && stderrLogStates[selectedServer]
+        ? stderrLogStates[selectedServer]
+        : null,
+    [selectedServer, stderrLogStates],
+  );
+  const { messages: inspectorMessages } = useMessageLog(
+    selectedMessageLogState,
+  );
+  const { fetchRequests: inspectorFetchRequests } = useFetchRequestLog(
+    selectedFetchRequestLogState,
+  );
+  const { stderrLogs: inspectorStderrLogs } = useStderrLog(
+    selectedStderrLogState,
+  );
+
+  // Tools from ManagedToolsState (full list, auto-load on connect)
+  const selectedManagedToolsState = useMemo(
+    () =>
+      selectedServer && managedToolsStates[selectedServer]
+        ? managedToolsStates[selectedServer]
+        : null,
+    [selectedServer, managedToolsStates],
+  );
+  const { tools: managedTools } = useManagedTools(
+    selectedInspectorClient,
+    selectedManagedToolsState,
+  );
+
+  // Resources, resource templates, prompts from managed state managers
+  const selectedManagedResourcesState = useMemo(
+    () =>
+      selectedServer && managedResourcesStates[selectedServer]
+        ? managedResourcesStates[selectedServer]
+        : null,
+    [selectedServer, managedResourcesStates],
+  );
+  const selectedManagedResourceTemplatesState = useMemo(
+    () =>
+      selectedServer && managedResourceTemplatesStates[selectedServer]
+        ? managedResourceTemplatesStates[selectedServer]
+        : null,
+    [selectedServer, managedResourceTemplatesStates],
+  );
+  const selectedManagedPromptsState = useMemo(
+    () =>
+      selectedServer && managedPromptsStates[selectedServer]
+        ? managedPromptsStates[selectedServer]
+        : null,
+    [selectedServer, managedPromptsStates],
+  );
+  const { resources: managedResources } = useManagedResources(
+    selectedInspectorClient,
+    selectedManagedResourcesState,
+  );
+  const { resourceTemplates: managedResourceTemplates } =
+    useManagedResourceTemplates(
+      selectedInspectorClient,
+      selectedManagedResourceTemplatesState,
+    );
+  const { prompts: managedPrompts } = useManagedPrompts(
+    selectedInspectorClient,
+    selectedManagedPromptsState,
+  );
 
   // Connect handler - InspectorClient now handles fetching server data automatically
   const handleConnect = useCallback(async () => {
@@ -617,7 +795,7 @@ function App({
     }
   }, [selectedInspectorClient]);
 
-  // Build current server state from InspectorClient data
+  // Build current server state from InspectorClient data (tools from ManagedToolsState)
   const currentServerState = useMemo(() => {
     if (!selectedServer) return null;
     return {
@@ -626,10 +804,10 @@ function App({
       capabilities: inspectorCapabilities,
       serverInfo: inspectorServerInfo,
       instructions: inspectorInstructions,
-      resources: inspectorResources,
-      resourceTemplates: inspectorResourceTemplates,
-      prompts: inspectorPrompts,
-      tools: inspectorTools,
+      resources: managedResources,
+      resourceTemplates: managedResourceTemplates,
+      prompts: managedPrompts,
+      tools: managedTools,
       stderrLogs: inspectorStderrLogs, // InspectorClient manages this
     };
   }, [
@@ -638,10 +816,10 @@ function App({
     inspectorCapabilities,
     inspectorServerInfo,
     inspectorInstructions,
-    inspectorResources,
-    inspectorResourceTemplates,
-    inspectorPrompts,
-    inspectorTools,
+    managedResources,
+    managedResourceTemplates,
+    managedPrompts,
+    managedTools,
     inspectorStderrLogs,
   ]);
 
@@ -957,18 +1135,18 @@ function App({
     }
 
     setTabCounts({
-      resources: inspectorResources.length || 0,
-      prompts: inspectorPrompts.length || 0,
-      tools: inspectorTools.length || 0,
+      resources: managedResources.length || 0,
+      prompts: managedPrompts.length || 0,
+      tools: managedTools.length || 0,
       messages: inspectorMessages.length || 0,
       requests: inspectorFetchRequests.length || 0,
       logging: inspectorStderrLogs.length || 0,
     });
   }, [
     selectedServer,
-    inspectorResources,
-    inspectorPrompts,
-    inspectorTools,
+    managedResources,
+    managedPrompts,
+    managedTools,
     inspectorMessages,
     inspectorFetchRequests,
     inspectorStderrLogs,

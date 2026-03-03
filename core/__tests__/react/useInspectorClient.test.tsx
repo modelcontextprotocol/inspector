@@ -7,15 +7,13 @@ import { useInspectorClient } from "../../react/useInspectorClient.js";
 import type { InspectorClient } from "../../mcp/inspectorClient.js";
 import { InspectorClientEventTarget } from "../../mcp/inspectorClientEventTarget.js";
 import type { ConnectionStatus } from "../../mcp/index.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 /**
- * Mock InspectorClient that synchronously dispatches events when connect(),
- * disconnect(), or listTools() are called so state updates run inside act().
+ * Mock InspectorClient that synchronously dispatches events when connect() or
+ * disconnect() are called so state updates run inside act().
  */
 class MockInspectorClient extends InspectorClientEventTarget {
   private status: ConnectionStatus = "disconnected";
-  private tools: Tool[] = [];
 
   getStatus(): ConnectionStatus {
     return this.status;
@@ -28,9 +26,6 @@ class MockInspectorClient extends InspectorClientEventTarget {
   }
   getFetchRequests() {
     return [];
-  }
-  getTools(): Tool[] {
-    return [...this.tools];
   }
   getResources() {
     return [];
@@ -63,13 +58,6 @@ class MockInspectorClient extends InspectorClientEventTarget {
     this.status = "disconnected";
     this.dispatchTypedEvent("statusChange", "disconnected");
   }
-
-  async listTools(): Promise<void> {
-    this.tools = [
-      { name: "mock_tool", inputSchema: { type: "object" as const } },
-    ];
-    this.dispatchTypedEvent("toolsChange", this.tools);
-  }
 }
 
 describe("useInspectorClient", () => {
@@ -77,8 +65,6 @@ describe("useInspectorClient", () => {
     const { result } = renderHook(() => useInspectorClient(null));
 
     expect(result.current.status).toBe("disconnected");
-    expect(result.current.messages).toEqual([]);
-    expect(result.current.tools).toEqual([]);
     expect(result.current.appRendererClient).toBeNull();
 
     await act(async () => {
@@ -105,26 +91,6 @@ describe("useInspectorClient", () => {
     });
 
     expect(result.current.status).toBe("connected");
-  });
-
-  it("updates tools when client emits toolsChange", async () => {
-    const client = new MockInspectorClient();
-    const { result } = renderHook(() =>
-      useInspectorClient(client as unknown as InspectorClient),
-    );
-
-    await act(async () => {
-      await result.current.connect();
-    });
-    expect(result.current.status).toBe("connected");
-
-    await act(async () => {
-      await client.listTools();
-    });
-
-    const tools = result.current.tools;
-    expect(Array.isArray(tools)).toBe(true);
-    expect(tools.length).toBeGreaterThan(0);
   });
 
   it("updates status after disconnect", async () => {

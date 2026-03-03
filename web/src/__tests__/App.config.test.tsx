@@ -38,13 +38,6 @@ vi.mock(
   () => ({
     useInspectorClient: () => ({
       status: "disconnected",
-      messages: [],
-      stderrLogs: [],
-      fetchRequests: [],
-      tools: [],
-      resources: [],
-      resourceTemplates: [],
-      prompts: [],
       capabilities: null,
       serverInfo: null,
       instructions: undefined,

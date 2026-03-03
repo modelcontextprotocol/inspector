@@ -212,3 +212,205 @@ export interface ToolCallInvocation {
   error?: string; // Error message if success === false
   metadata?: Record<string, string>; // Optional metadata that was passed
 }
+
+// InspectorClient constructor and environment types
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { LoggingLevel, Root } from "@modelcontextprotocol/sdk/types.js";
+import type pino from "pino";
+import type {
+  OAuthNavigation,
+  RedirectUrlProvider,
+} from "../auth/providers.js";
+import type { OAuthStorage } from "../auth/storage.js";
+
+/**
+ * Type for the client-like object passed to AppRenderer / @mcp-ui.
+ * Structurally compatible with the MCP SDK Client but denotes the app-renderer
+ * proxy, not the raw client. Use this type when passing the client to the Apps tab.
+ */
+export type AppRendererClient = Client;
+
+/**
+ * Consolidated environment interface that defines all environment-specific seams.
+ * Each environment (Node, browser, tests) provides a complete implementation bundle.
+ */
+export interface InspectorClientEnvironment {
+  /**
+   * Factory that creates a client transport for the given server config.
+   * Required. Environment provides the implementation:
+   * - Node: createTransportNode
+   * - Browser: createRemoteTransport
+   */
+  transport: CreateTransport;
+
+  /**
+   * Optional fetch function for HTTP requests (OAuth discovery/token exchange and
+   * MCP transport). When provided, used for both auth and transport to bypass CORS.
+   * - Node: undefined (uses global fetch)
+   * - Browser: createRemoteFetch
+   */
+  fetch?: typeof fetch;
+
+  /**
+   * Optional logger for InspectorClient events (transport, OAuth, etc.).
+   * - Node: pino file logger
+   * - Browser: createRemoteLogger
+   */
+  logger?: pino.Logger;
+
+  /**
+   * OAuth environment components
+   */
+  oauth?: {
+    /**
+     * OAuth storage implementation
+     * - Node: NodeOAuthStorage (file-based)
+     * - Browser: BrowserOAuthStorage (sessionStorage) or RemoteOAuthStorage (shared state)
+     */
+    storage?: OAuthStorage;
+
+    /**
+     * Navigation handler for redirecting users to authorization URLs
+     * - Node: ConsoleNavigation
+     * - Browser: BrowserNavigation
+     */
+    navigation?: OAuthNavigation;
+
+    /**
+     * Redirect URL provider
+     * - Node: from OAuth callback server
+     * - Browser: from window.location or callback route
+     */
+    redirectUrlProvider?: RedirectUrlProvider;
+  };
+}
+
+export interface InspectorClientOptions {
+  /**
+   * Environment-specific implementations (transport, fetch, logger, OAuth components)
+   */
+  environment: InspectorClientEnvironment;
+
+  /**
+   * Client identity (name and version)
+   */
+  clientIdentity?: {
+    name: string;
+    version: string;
+  };
+  /**
+   * Whether to pipe stderr for stdio transports (default: true for TUI, false for CLI)
+   */
+  pipeStderr?: boolean;
+
+  /**
+   * Initial logging level to set after connection (if server supports logging)
+   * If not provided, logging level will not be set automatically
+   */
+  initialLoggingLevel?: LoggingLevel;
+
+  /**
+   * Whether to advertise sampling capability (default: true)
+   */
+  sample?: boolean;
+
+  /**
+   * Elicitation capability configuration
+   * - `true` - support form-based elicitation only (default, for backward compatibility)
+   * - `{ form: true }` - support form-based elicitation only
+   * - `{ url: true }` - support URL-based elicitation only
+   * - `{ form: true, url: true }` - support both form and URL-based elicitation
+   * - `false` or `undefined` - no elicitation support
+   */
+  elicit?:
+    | boolean
+    | {
+        form?: boolean;
+        url?: boolean;
+      };
+
+  /**
+   * Initial roots to configure. If provided (even if empty array), the client will
+   * advertise roots capability and handle roots/list requests from the server.
+   */
+  roots?: Root[];
+
+  /**
+   * Whether to enable listChanged notification handlers (default: true)
+   * If enabled, InspectorClient will subscribe to list_changed notifications and fire
+   * corresponding events (toolsListChanged, resourcesListChanged, promptsListChanged).
+   */
+  listChangedNotifications?: {
+    tools?: boolean; // default: true
+    resources?: boolean; // default: true
+    prompts?: boolean; // default: true
+  };
+
+  /**
+   * Whether to enable progress notification handling (default: true)
+   * If enabled, InspectorClient will register a handler for progress notifications and dispatch progressNotification events
+   */
+  progress?: boolean; // default: true
+
+  /**
+   * If true, receiving a progress notification resets the request timeout (default: true).
+   * Only applies to requests that can receive progress. Set to false for strict timeout caps.
+   */
+  resetTimeoutOnProgress?: boolean;
+
+  /**
+   * Per-request timeout in milliseconds. If not set, the SDK default (60_000) is used.
+   */
+  timeout?: number;
+
+  /**
+   * OAuth configuration (client credentials, scope, etc.)
+   * Note: OAuth environment components (storage, navigation, redirectUrlProvider)
+   * are in environment.oauth, but clientId/clientSecret/scope are config.
+   */
+  oauth?: {
+    /**
+     * Preregistered client ID (optional, will use DCR if not provided)
+     * If clientMetadataUrl is provided, this is ignored (CIMD mode)
+     */
+    clientId?: string;
+
+    /**
+     * Preregistered client secret (optional, only if client requires secret)
+     * If clientMetadataUrl is provided, this is ignored (CIMD mode)
+     */
+    clientSecret?: string;
+
+    /**
+     * Client metadata URL for CIMD (Client ID Metadata Documents) mode
+     * If provided, enables URL-based client IDs (SEP-991)
+     * The URL becomes the client_id, and the authorization server fetches it to discover client metadata
+     */
+    clientMetadataUrl?: string;
+
+    /**
+     * OAuth scope (optional, will be discovered if not provided)
+     */
+    scope?: string;
+  };
+
+  /**
+   * Optional session ID. If not provided, will be extracted from OAuth state
+   * when OAuth flow starts. Passed in saveSession event for FetchRequestLogState.
+   */
+  sessionId?: string;
+
+  /**
+   * When true, advertise receiver-task capability and handle task-augmented
+   * sampling/createMessage and elicit; register tasks/list, tasks/get,
+   * tasks/result, tasks/cancel handlers. Default false.
+   */
+  receiverTasks?: boolean;
+
+  /**
+   * TTL in ms for receiver tasks when server sends params.task without ttl.
+   * Only used when receiverTasks is true. If a function, called at task creation.
+   * Default 60_000 when omitted.
+   */
+  receiverTaskTtlMs?: number | (() => number);
+}

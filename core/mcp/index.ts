@@ -6,19 +6,12 @@ export type {
   InspectorClientOptions,
   InspectorClientEnvironment,
   AppRendererClient,
-} from "./inspectorClient.js";
+} from "./types.js";
 
 // Re-export type-safe event target types for consumers
 export type { InspectorClientEventMap } from "./inspectorClientEventTarget.js";
 
 export { getServerType } from "./config.js";
-
-// Re-export ContentCache
-export {
-  ContentCache,
-  type ReadOnlyContentCache,
-  type ReadWriteContentCache,
-} from "./contentCache.js";
 
 // Re-export types used by consumers
 export type {

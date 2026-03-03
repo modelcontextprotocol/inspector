@@ -28,6 +28,24 @@ import React, {
   useState,
 } from "react";
 import { useInspectorClient } from "@modelcontextprotocol/inspector-core/react/useInspectorClient.js";
+import { usePagedTools } from "@modelcontextprotocol/inspector-core/react/usePagedTools.js";
+import { usePagedResources } from "@modelcontextprotocol/inspector-core/react/usePagedResources.js";
+import { usePagedResourceTemplates } from "@modelcontextprotocol/inspector-core/react/usePagedResourceTemplates.js";
+import { usePagedPrompts } from "@modelcontextprotocol/inspector-core/react/usePagedPrompts.js";
+import { usePagedRequestorTasks } from "@modelcontextprotocol/inspector-core/react/usePagedRequestorTasks.js";
+import { useMessageLog } from "@modelcontextprotocol/inspector-core/react/useMessageLog.js";
+import { useFetchRequestLog } from "@modelcontextprotocol/inspector-core/react/useFetchRequestLog.js";
+import { useStderrLog } from "@modelcontextprotocol/inspector-core/react/useStderrLog.js";
+import {
+  PagedToolsState,
+  PagedResourcesState,
+  PagedResourceTemplatesState,
+  PagedPromptsState,
+  PagedRequestorTasksState,
+  MessageLogState,
+  FetchRequestLogState,
+  StderrLogState,
+} from "@modelcontextprotocol/inspector-core/mcp/state/index.js";
 import {
   InspectorClient,
   type InspectorClientOptions,
@@ -289,8 +307,6 @@ const App = () => {
     string | undefined
   >();
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [nextTaskCursor, setNextTaskCursor] = useState<string | undefined>();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const progressTokenRef = useRef(0);
 
@@ -317,6 +333,25 @@ const App = () => {
   // InspectorClient is created lazily when needed (connect/auth operations)
   const [inspectorClient, setInspectorClient] =
     useState<InspectorClient | null>(null);
+  // Paged state for tools, resources, resource templates, prompts; created with client
+  const [pagedToolsState, setPagedToolsState] =
+    useState<PagedToolsState | null>(null);
+  const [pagedResourcesState, setPagedResourcesState] =
+    useState<PagedResourcesState | null>(null);
+  const [pagedResourceTemplatesState, setPagedResourceTemplatesState] =
+    useState<PagedResourceTemplatesState | null>(null);
+  const [pagedPromptsState, setPagedPromptsState] =
+    useState<PagedPromptsState | null>(null);
+  const [pagedRequestorTasksState, setPagedRequestorTasksState] =
+    useState<PagedRequestorTasksState | null>(null);
+  // Log state managers (messages, fetch requests, stderr); created with client
+  const [messageLogState, setMessageLogState] =
+    useState<MessageLogState | null>(null);
+  const [fetchRequestLogState, setFetchRequestLogState] =
+    useState<FetchRequestLogState | null>(null);
+  const [stderrLogState, setStderrLogState] = useState<StderrLogState | null>(
+    null,
+  );
   // Same logger passed to InspectorClient (from createWebEnvironment); exposed for AuthDebugger/OAuthCallback
   const [inspectorLogger, setInspectorLogger] = useState<
     WebEnvironmentResult["logger"] | null
@@ -475,11 +510,6 @@ const App = () => {
 
       const clientOptions: InspectorClientOptions = {
         environment,
-        autoSyncLists: false,
-        maxMessages: 1000,
-        maxStderrLogEvents: 1000,
-        maxFetchRequests: 1000,
-        sessionStorage,
         sessionId,
         receiverTasks: true,
         receiverTaskTtlMs: getMCPTaskTtl(currentConfig),
@@ -497,7 +527,24 @@ const App = () => {
 
       const client = new InspectorClient(mcpConfig, clientOptions);
       inspectorClientTokenRef.current = currentToken;
+      messageLogState?.destroy();
+      fetchRequestLogState?.destroy();
+      stderrLogState?.destroy();
+      pagedResourcesState?.destroy();
+      pagedResourceTemplatesState?.destroy();
+      pagedPromptsState?.destroy();
+      pagedRequestorTasksState?.destroy();
       setInspectorClient(client);
+      setPagedToolsState(new PagedToolsState(client));
+      setPagedResourcesState(new PagedResourcesState(client));
+      setPagedResourceTemplatesState(new PagedResourceTemplatesState(client));
+      setPagedPromptsState(new PagedPromptsState(client));
+      setPagedRequestorTasksState(new PagedRequestorTasksState(client));
+      setMessageLogState(new MessageLogState(client));
+      setFetchRequestLogState(
+        new FetchRequestLogState(client, { sessionStorage, sessionId }),
+      );
+      setStderrLogState(new StderrLogState(client));
       return client;
     } catch (error) {
       toast({
@@ -520,6 +567,13 @@ const App = () => {
     oauthClientMetadataUrl,
     oauthScope,
     inspectorClient,
+    messageLogState,
+    fetchRequestLogState,
+    stderrLogState,
+    pagedResourcesState,
+    pagedResourceTemplatesState,
+    pagedPromptsState,
+    pagedRequestorTasksState,
     toast,
     authAcceptedWithoutToken,
   ]);
@@ -530,15 +584,43 @@ const App = () => {
     capabilities: serverCapabilities,
     serverInfo: serverImplementation,
     appRendererClient,
-    messages: inspectorMessages,
-    stderrLogs,
-    fetchRequests,
-    tools: inspectorTools,
-    resources: inspectorResources,
-    resourceTemplates: inspectorResourceTemplates,
-    prompts: inspectorPrompts,
     disconnect: disconnectMcpServer,
   } = useInspectorClient(inspectorClient);
+
+  // Log state from managers
+  const { messages: inspectorMessages } = useMessageLog(messageLogState);
+  const { fetchRequests } = useFetchRequestLog(fetchRequestLogState);
+  const { stderrLogs } = useStderrLog(stderrLogState);
+
+  // Tools from PagedToolsState (paged load, clear)
+  const {
+    tools: pagedTools,
+    loadPage: loadToolsPage,
+    clear: clearPagedTools,
+  } = usePagedTools(inspectorClient, pagedToolsState);
+
+  // Resources, resource templates, prompts from paged state managers
+  const {
+    resources: pagedResources,
+    loadPage: loadResourcesPage,
+    clear: clearPagedResources,
+  } = usePagedResources(inspectorClient, pagedResourcesState);
+  const {
+    resourceTemplates: pagedResourceTemplates,
+    loadPage: loadResourceTemplatesPage,
+    clear: clearPagedResourceTemplates,
+  } = usePagedResourceTemplates(inspectorClient, pagedResourceTemplatesState);
+  const {
+    prompts: pagedPrompts,
+    loadPage: loadPromptsPage,
+    clear: clearPagedPrompts,
+  } = usePagedPrompts(inspectorClient, pagedPromptsState);
+  const {
+    tasks: pagedRequestorTasks,
+    loadPage: loadTasksPage,
+    clear: clearPagedTasks,
+    nextCursor: nextTaskCursor,
+  } = usePagedRequestorTasks(inspectorClient, pagedRequestorTasksState);
 
   // Server supports task-augmented tools/call per SDK: capabilities.tasks.requests.tools.call
   const serverSupportsTaskToolCalls = useMemo(
@@ -586,10 +668,10 @@ const App = () => {
   // Use ref to track previous serialized value to prevent infinite loops
   const previousNotificationsRef = useRef<string>("[]");
 
-  // Sync notifications from client (same predicate as clearMessages for this view)
+  // Sync notifications from message log (same predicate as clearMessages for this view)
   useEffect(() => {
-    if (!inspectorClient) return;
-    const extracted = inspectorClient
+    if (!messageLogState) return;
+    const extracted = messageLogState
       .getMessages(notificationsMessagePredicate)
       .map((msg) => msg.message as ServerNotification);
     const serialized = JSON.stringify(extracted);
@@ -597,7 +679,7 @@ const App = () => {
       setNotifications(extracted);
       previousNotificationsRef.current = serialized;
     }
-  }, [inspectorClient, inspectorMessages]);
+  }, [messageLogState, inspectorMessages]);
 
   // Set up event listeners for sampling and elicitation
   useEffect(() => {
@@ -762,16 +844,16 @@ const App = () => {
 
   // Request history (same predicate as clearMessages for this view)
   const requestHistory =
-    inspectorClient?.getMessages(historyMessagePredicate).map((msg) => ({
+    messageLogState?.getMessages(historyMessagePredicate).map((msg) => ({
       request: JSON.stringify(msg.message),
       response: msg.response ? JSON.stringify(msg.response) : undefined,
     })) ?? [];
 
   const clearRequestHistory = useCallback(() => {
-    if (inspectorClient) {
-      inspectorClient.clearMessages(historyMessagePredicate);
+    if (messageLogState) {
+      messageLogState.clearMessages(historyMessagePredicate);
     }
-  }, [inspectorClient]);
+  }, [messageLogState]);
 
   useEffect(() => {
     if (serverCapabilities) {
@@ -1163,21 +1245,17 @@ const App = () => {
     });
   };
 
-  const clearError = (tabKey: keyof typeof errors) => {
+  const clearError = useCallback((tabKey: keyof typeof errors) => {
     setErrors((prev) => ({ ...prev, [tabKey]: null }));
-  };
+  }, []);
 
   const listResources = async () => {
     if (!inspectorClient) {
       throw new Error("InspectorClient is not connected");
     }
     try {
-      const response = await inspectorClient.listResources(
-        nextResourceCursor,
-        metadata,
-      );
-      // InspectorClient now updates resources state automatically (accumulates when cursor provided)
-      setNextResourceCursor(response.nextCursor);
+      const result = await loadResourcesPage(nextResourceCursor, metadata);
+      setNextResourceCursor(result.nextCursor);
       clearError("resources");
     } catch (e) {
       const errorString = (e as Error).message ?? String(e);
@@ -1194,12 +1272,11 @@ const App = () => {
       throw new Error("InspectorClient is not connected");
     }
     try {
-      const response = await inspectorClient.listResourceTemplates(
+      const result = await loadResourceTemplatesPage(
         nextResourceTemplateCursor,
         metadata,
       );
-      // InspectorClient now updates resourceTemplates state automatically (accumulates when cursor provided)
-      setNextResourceTemplateCursor(response.nextCursor);
+      setNextResourceTemplateCursor(result.nextCursor);
       clearError("resources");
     } catch (e) {
       const errorString = (e as Error).message ?? String(e);
@@ -1312,12 +1389,8 @@ const App = () => {
       throw new Error("InspectorClient is not connected");
     }
     try {
-      const response = await inspectorClient.listPrompts(
-        nextPromptCursor,
-        metadata,
-      );
-      // InspectorClient now updates prompts state automatically (accumulates when cursor provided)
-      setNextPromptCursor(response.nextCursor);
+      const result = await loadPromptsPage(nextPromptCursor, metadata);
+      setNextPromptCursor(result.nextCursor);
       clearError("prompts");
     } catch (e) {
       const errorString = (e as Error).message ?? String(e);
@@ -1329,19 +1402,15 @@ const App = () => {
     }
   };
 
-  const listTools = async () => {
-    if (!inspectorClient) {
+  const handleListTools = useCallback(async () => {
+    if (!pagedToolsState || !inspectorClient) {
       throw new Error("InspectorClient is not connected");
     }
     try {
-      const response = await inspectorClient.listTools(
-        nextToolCursor,
-        metadata,
-      );
-      // InspectorClient now updates tools state automatically (accumulates when cursor provided)
-      setNextToolCursor(response.nextCursor);
-      cacheToolOutputSchemas(response.tools);
       clearError("tools");
+      const result = await loadToolsPage(nextToolCursor);
+      setNextToolCursor(result.nextCursor);
+      cacheToolOutputSchemas(result.tools);
     } catch (e) {
       const errorString = (e as Error).message ?? String(e);
       setErrors((prev) => ({
@@ -1350,36 +1419,48 @@ const App = () => {
       }));
       throw e;
     }
-  };
+  }, [
+    pagedToolsState,
+    inspectorClient,
+    loadToolsPage,
+    nextToolCursor,
+    clearError,
+  ]);
+
+  const handleClearTools = useCallback(() => {
+    clearPagedTools();
+    setNextToolCursor(undefined);
+    cacheToolOutputSchemas([]);
+    clearError("tools");
+  }, [clearPagedTools, clearError]);
 
   const listTasks = useCallback(async () => {
     if (!inspectorClient) return;
     try {
-      const response = await inspectorClient.listRequestorTasks(nextTaskCursor);
-      setTasks((prev) =>
-        nextTaskCursor ? [...prev, ...response.tasks] : response.tasks,
-      );
-      setNextTaskCursor(response.nextCursor);
-      setErrors((prev) => ({ ...prev, tasks: null }));
+      clearError("tasks");
+      await loadTasksPage(nextTaskCursor);
     } catch (e) {
       const errorString = (e as Error).message ?? String(e);
       setErrors((prev) => ({ ...prev, tasks: errorString }));
     }
-  }, [inspectorClient, nextTaskCursor]);
+  }, [inspectorClient, loadTasksPage, nextTaskCursor, clearError]);
 
   const clearTasks = useCallback(() => {
-    setTasks([]);
-    setNextTaskCursor(undefined);
-  }, []);
+    clearPagedTasks();
+  }, [clearPagedTasks]);
 
   const cancelTask = useCallback(
     async (taskId: string) => {
       if (!inspectorClient) return;
       await inspectorClient.cancelRequestorTask(taskId);
       setErrors((prev) => ({ ...prev, tasks: null }));
-      await listTasks();
+      try {
+        await loadTasksPage(undefined);
+      } catch {
+        // ignore refresh error
+      }
     },
-    [inspectorClient, listTasks],
+    [inspectorClient, loadTasksPage],
   );
 
   // When switching to Tasks tab, load first page of tasks
@@ -1391,75 +1472,29 @@ const App = () => {
     ) {
       return;
     }
-    inspectorClient
-      .listRequestorTasks(undefined)
-      .then((response) => {
-        setTasks(response.tasks);
-        setNextTaskCursor(response.nextCursor);
-        setErrors((prev) => ({ ...prev, tasks: null }));
-      })
-      .catch((e) => {
-        const errorString = (e as Error).message ?? String(e);
-        setErrors((prev) => ({ ...prev, tasks: errorString }));
-      });
-  }, [activeTab, inspectorClient, serverCapabilities?.tasks]);
-
-  // Subscribe to tasks list_changed and task status so list and selection stay in sync
-  useEffect(() => {
-    if (!inspectorClient || !serverCapabilities?.tasks) return;
-    const onTasksListChanged = () => {
-      inspectorClient
-        .listRequestorTasks(undefined)
-        .then((response) => {
-          setTasks(response.tasks);
-          setNextTaskCursor(response.nextCursor);
-        })
-        .catch((e) => {
-          const errorString = (e as Error).message ?? String(e);
-          setErrors((prev) => ({ ...prev, tasks: errorString }));
-        });
-    };
-    const onTaskStatusChange = (
-      e: CustomEvent<{ taskId: string; task: Task }>,
-    ) => {
-      const { taskId, task } = e.detail;
-      setTasks((prev) => {
-        const idx = prev.findIndex((t) => t.taskId === taskId);
-        if (idx < 0) return [task, ...prev];
-        const next = [...prev];
-        next[idx] = task;
-        return next;
-      });
-      setSelectedTask((current) =>
-        current?.taskId === taskId ? task : current,
-      );
-    };
-    inspectorClient.addEventListener("tasksListChanged", onTasksListChanged);
-    inspectorClient.addEventListener("taskStatusChange", onTaskStatusChange);
-    return () => {
-      inspectorClient.removeEventListener(
-        "tasksListChanged",
-        onTasksListChanged,
-      );
-      inspectorClient.removeEventListener(
-        "taskStatusChange",
-        onTaskStatusChange,
-      );
-    };
-  }, [inspectorClient, serverCapabilities?.tasks]);
+    loadTasksPage(undefined).catch((e) => {
+      const errorString = (e as Error).message ?? String(e);
+      setErrors((prev) => ({ ...prev, tasks: errorString }));
+    });
+  }, [activeTab, inspectorClient, serverCapabilities?.tasks, loadTasksPage]);
 
   // When switching to Apps tab, ensure tools are listed so app tools are available
   useEffect(() => {
     if (
       connectionStatus === "connected" &&
       activeTab === "apps" &&
-      serverCapabilities?.tools
+      serverCapabilities?.tools &&
+      pagedTools.length === 0
     ) {
-      void listTools();
+      void loadToolsPage();
     }
-    // Intentionally omit listTools from deps: we only want to run when tab/capabilities/connection change
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- listTools identity is not stable; adding it would re-run every render
-  }, [connectionStatus, activeTab, serverCapabilities?.tools]);
+  }, [
+    connectionStatus,
+    activeTab,
+    serverCapabilities?.tools,
+    pagedTools.length,
+    loadToolsPage,
+  ]);
 
   const callTool = async (
     name: string,
@@ -1473,13 +1508,16 @@ const App = () => {
       throw new Error("InspectorClient is not connected");
     }
 
-    const tool = inspectorTools.find((t) => t.name === name);
-    const taskSupport = tool?.execution?.taskSupport ?? "forbidden";
+    const tool = pagedTools.find((t) => t.name === name);
+    if (!tool) {
+      throw new Error(`Tool "${name}" not found in tools list`);
+    }
+    const taskSupport = tool.execution?.taskSupport ?? "forbidden";
     const effectiveRunAsTask =
       taskSupport === "required" ||
       (taskSupport === "optional" && runAsTask === true);
 
-    const cleanedParams = tool?.inputSchema
+    const cleanedParams = tool.inputSchema
       ? cleanParams(params, tool.inputSchema as JsonSchemaType)
       : params;
     const generalMetadata = {
@@ -1500,56 +1538,42 @@ const App = () => {
         // Use callToolStream for task-augmented execution (required or optional+checked)
         let currentTaskId: string | undefined;
 
-        const onTaskCreated = (
-          e: CustomEvent<{ taskId: string; task: { taskId: string } }>,
-        ) => {
-          const { taskId } = e.detail;
-          currentTaskId = taskId;
-          setToolResult({
-            content: [
-              {
-                type: "text",
-                text: `Task created: ${taskId}. Polling for status...`,
-              },
-            ],
-            _meta: {
-              "io.modelcontextprotocol/related-task": { taskId },
-            },
-          } as CompatibilityCallToolResult);
-        };
-
-        const onTaskStatusChange = (
+        const onToolCallTaskUpdated = (
           e: CustomEvent<{
             taskId: string;
             task: { status: string; statusMessage?: string };
           }>,
         ) => {
           const { taskId, task } = e.detail;
+          if (currentTaskId === undefined) currentTaskId = taskId;
           if (currentTaskId !== taskId) return;
+          const statusText =
+            task.status === "working" || task.status === "pending"
+              ? "Polling..."
+              : "";
           setToolResult({
             content: [
               {
                 type: "text",
-                text: `Task status: ${task.status}${task.statusMessage ? ` - ${task.statusMessage}` : ""}. Polling...`,
+                text: `Task status: ${task.status}${task.statusMessage ? ` - ${task.statusMessage}` : ""}${statusText ? ` ${statusText}` : ""}`,
               },
             ],
             _meta: {
               "io.modelcontextprotocol/related-task": { taskId },
             },
           } as CompatibilityCallToolResult);
-          void inspectorClient.listRequestorTasks();
+          // PagedRequestorTasksState already receives requestorTaskUpdated from callToolStream
         };
 
-        inspectorClient.addEventListener("taskCreated", onTaskCreated);
         inspectorClient.addEventListener(
-          "taskStatusChange",
-          onTaskStatusChange,
+          "toolCallTaskUpdated",
+          onToolCallTaskUpdated,
         );
         setIsPollingTask(true);
 
         try {
           const invocation = await inspectorClient.callToolStream(
-            name,
+            tool,
             cleanedParams as Record<string, JsonValue>,
             generalMetadata,
             toolSpecificMetadata,
@@ -1573,17 +1597,16 @@ const App = () => {
                 };
           setToolResult(compatibilityResult);
         } finally {
-          inspectorClient.removeEventListener("taskCreated", onTaskCreated);
           inspectorClient.removeEventListener(
-            "taskStatusChange",
-            onTaskStatusChange,
+            "toolCallTaskUpdated",
+            onToolCallTaskUpdated,
           );
           setIsPollingTask(false);
         }
       } else {
         // Use callTool for non-task execution
         const invocation = await inspectorClient.callTool(
-          name,
+          tool,
           cleanedParams as Record<string, JsonValue>,
           generalMetadata,
           toolSpecificMetadata,
@@ -1632,8 +1655,8 @@ const App = () => {
   };
 
   const handleClearNotifications = () => {
-    if (inspectorClient) {
-      inspectorClient.clearMessages(notificationsMessagePredicate);
+    if (messageLogState) {
+      messageLogState.clearMessages(notificationsMessagePredicate);
     } else {
       setNotifications([]);
     }
@@ -1938,17 +1961,14 @@ const App = () => {
                 ) : (
                   <>
                     <ResourcesTab
-                      resources={inspectorResources}
-                      resourceTemplates={inspectorResourceTemplates}
+                      resources={pagedResources}
+                      resourceTemplates={pagedResourceTemplates}
                       listResources={() => {
                         clearError("resources");
                         listResources();
                       }}
                       clearResources={() => {
-                        // InspectorClient now has clearResources() method
-                        if (inspectorClient) {
-                          inspectorClient.clearResources();
-                        }
+                        clearPagedResources();
                         setNextResourceCursor(undefined);
                       }}
                       listResourceTemplates={() => {
@@ -1956,10 +1976,7 @@ const App = () => {
                         listResourceTemplates();
                       }}
                       clearResourceTemplates={() => {
-                        // InspectorClient now has clearResourceTemplates() method
-                        if (inspectorClient) {
-                          inspectorClient.clearResourceTemplates();
-                        }
+                        clearPagedResourceTemplates();
                         setNextResourceTemplateCursor(undefined);
                       }}
                       readResource={(uri) => {
@@ -1991,16 +2008,13 @@ const App = () => {
                       error={errors.resources}
                     />
                     <PromptsTab
-                      prompts={inspectorPrompts}
+                      prompts={pagedPrompts}
                       listPrompts={() => {
                         clearError("prompts");
                         listPrompts();
                       }}
                       clearPrompts={() => {
-                        // InspectorClient now has clearPrompts() method
-                        if (inspectorClient) {
-                          inspectorClient.clearPrompts();
-                        }
+                        clearPagedPrompts();
                         setNextPromptCursor(undefined);
                       }}
                       getPrompt={(name, args) => {
@@ -2021,10 +2035,10 @@ const App = () => {
                     />
                     <AppsTab
                       sandboxPath={sandboxUrl}
-                      tools={inspectorTools}
+                      tools={pagedTools}
                       listTools={() => {
                         clearError("tools");
-                        listTools();
+                        void handleListTools();
                       }}
                       error={errors.tools}
                       appRendererClient={appRendererClient}
@@ -2033,19 +2047,12 @@ const App = () => {
                       }}
                     />
                     <ToolsTab
-                      tools={inspectorTools}
+                      tools={pagedTools}
                       listTools={() => {
                         clearError("tools");
-                        listTools();
+                        void handleListTools();
                       }}
-                      clearTools={() => {
-                        // InspectorClient now has clearTools() method
-                        if (inspectorClient) {
-                          inspectorClient.clearTools();
-                        }
-                        setNextToolCursor(undefined);
-                        cacheToolOutputSchemas([]);
-                      }}
+                      clearTools={handleClearTools}
                       callTool={async (
                         name: string,
                         params: Record<string, unknown>,
@@ -2074,12 +2081,15 @@ const App = () => {
                       }}
                     />
                     <TasksTab
-                      tasks={tasks}
+                      tasks={pagedRequestorTasks}
                       listTasks={() => {
                         clearError("tasks");
-                        listTasks();
+                        void listTasks();
                       }}
-                      clearTasks={clearTasks}
+                      clearTasks={() => {
+                        clearTasks();
+                        setSelectedTask(null);
+                      }}
                       cancelTask={cancelTask}
                       selectedTask={selectedTask}
                       setSelectedTask={setSelectedTask}

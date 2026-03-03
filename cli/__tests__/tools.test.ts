@@ -378,7 +378,7 @@ describe("Tool Tests", () => {
         "message=test",
       ]);
 
-      // CLI returns exit code 0 but includes isError: true in JSON
+      // CLI returns exit code 0 but includes isError: true in JSON (server returns error)
       expectJsonError(result);
     });
 

@@ -2,6 +2,8 @@
 
 This document outlines a detailed plan to add MCP Apps support to the web app. The plan is informed by **reading PR 1044** (main implementation), PR 1043 (tests), and PR 1075 (tool-result fix), and by the current client and web codebases.
 
+**Code locations:** On the main/v1 tree the web app lives in `client/` and the proxy/server in `server/`. On this branch the web app lives in `web/`. References to `client/` and `server/` in this document refer to the v1/main tree (e.g. PR 1044); the current app implementation is in `web/`.
+
 **As-built (Phase 1 completed):** Phase 1 is implemented. Differences from the original plan are noted in **Section 9 (As-built notes)**. Manual verification: all **19 MCP app servers** in `configs/mcpapps.json` have been verified to work in the web app.
 
 ## Phases
