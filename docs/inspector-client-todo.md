@@ -105,6 +105,12 @@ If we are in a container:
 - **InspectorClient sub-managers** (architecture and responsibilities)
   - See: [inspector-client-sub-managers.md](inspector-client-sub-managers.md)
 - Research oauth device flow (esp for CLI/TUI)
+- Do a spike with alpha v2 TypeScript SDK when published: https://ts.sdk.modelcontextprotocol.io/v2/
+  - Leverage migration skill: https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/migration-SKILL.md
+  - Document the work/steps to update InspectorCore
+  - Provide feedback to SDK team
+  - Document any required changes to InspectorCore (or anything else)
+  - Possibly need to do this a few times (alpha/beta/release)
 
 ### TUI
 
