@@ -74,11 +74,13 @@ describe("Storage adapters", () => {
         tokens: { access_token: "test-token", token_type: "Bearer" },
       });
 
-      // Wait for persistence
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Verify file exists and contains state
-      expect(existsSync(filePath)).toBe(true);
+      // Wait for persistence (Zustand persist is async; poll for file so we don't race with cleanup)
+      await vi.waitFor(
+        () => {
+          expect(existsSync(filePath)).toBe(true);
+        },
+        { timeout: 2000, interval: 20 },
+      );
       const fileContent = readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(fileContent);
       expect(parsed.state.servers["https://example.com"].tokens).toEqual({
@@ -89,11 +91,7 @@ describe("Storage adapters", () => {
 
     it("loads persisted state on initialization", async () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
-      const filePath = join(
-        tmpdir(),
-        "inspector-storage-test-",
-        "test-store.json",
-      );
+      const filePath = join(tempDir!, "test-store.json");
 
       // Create initial store and persist
       const storage1 = createFileStorageAdapter({ filePath });
@@ -101,7 +99,12 @@ describe("Storage adapters", () => {
       store1.getState().setServerState("https://example.com", {
         tokens: { access_token: "initial-token", token_type: "Bearer" },
       });
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await vi.waitFor(
+        () => {
+          expect(existsSync(filePath)).toBe(true);
+        },
+        { timeout: 2000, interval: 20 },
+      );
 
       // Create new store instance (should load persisted state)
       const storage2 = createFileStorageAdapter({ filePath });

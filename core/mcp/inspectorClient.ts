@@ -11,7 +11,6 @@ import type {
   PromptGetInvocation,
   ToolCallInvocation,
   AppRendererClient,
-  InspectorClientEnvironment,
   InspectorClientOptions,
 } from "./types.js";
 import { getServerType as getServerTypeFromConfig } from "./config.js";
@@ -93,17 +92,12 @@ import {
 } from "./inspectorClientEventTarget.js";
 import { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
-import { BaseOAuthClientProvider } from "../auth/providers.js";
 import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
-import { EMPTY_GUIDED_STATE } from "../auth/types.js";
-import { OAuthStateMachine } from "../auth/state-machine.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type pino from "pino";
 import { silentLogger } from "../logging/logger.js";
 import { createFetchTracker } from "./fetchTracking.js";
-import { parseOAuthState } from "../auth/utils.js";
+import { OAuthManager, type OAuthManagerConfig } from "./oauthManager.js";
 
 /** Internal record for a receiver task (server polls us for status/result). */
 interface ReceiverTaskRecord {
@@ -157,11 +151,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   private receiverTasks: boolean;
   private receiverTaskTtlMs: number | (() => number);
   private receiverTaskRecords: Map<string, ReceiverTaskRecord> = new Map();
-  // OAuth support
-  private oauthConfig?: InspectorClientOptions["oauth"] &
-    NonNullable<InspectorClientEnvironment["oauth"]>;
-  private oauthStateMachine: OAuthStateMachine | null = null;
-  private oauthState: AuthGuidedState | null = null;
+  // OAuth support (config owned by oauthManager; client delegates and uses !!oauthManager for "is OAuth configured")
+  private oauthManager: OAuthManager | null = null;
   private logger: pino.Logger;
   private transportClientFactory: CreateTransport;
   private fetchFn?: typeof fetch;
@@ -203,14 +194,33 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     this.sessionId = options.sessionId;
 
-    // Merge OAuth config with environment components
+    // Merge OAuth config with environment components; create internal OAuth manager (owns config)
     if (options.oauth || options.environment.oauth) {
-      this.oauthConfig = {
+      const oauthConfig: OAuthManagerConfig = {
         // Environment components (storage, navigation, redirectUrlProvider)
         ...options.environment.oauth,
         // Config values (clientId, clientSecret, clientMetadataUrl, scope)
         ...options.oauth,
       };
+      this.oauthManager = new OAuthManager({
+        getServerUrl: () => this.getServerUrl(),
+        effectiveAuthFetch: this.effectiveAuthFetch,
+        getEventTarget: () => this,
+        onBeforeOAuthRedirect: (sessionId: string) => {
+          this.sessionId = sessionId;
+          this.saveSession();
+          return Promise.resolve();
+        },
+        initialConfig: oauthConfig,
+        dispatchOAuthStepChange: (detail) =>
+          this.dispatchTypedEvent("oauthStepChange", detail),
+        dispatchOAuthComplete: (detail) =>
+          this.dispatchTypedEvent("oauthComplete", detail),
+        dispatchOAuthAuthorizationRequired: (detail) =>
+          this.dispatchTypedEvent("oauthAuthorizationRequired", detail),
+        dispatchOAuthError: (detail) =>
+          this.dispatchTypedEvent("oauthError", detail),
+      });
     }
 
     // Transport is created in connect() (single place for create / wrap / attach).
@@ -366,7 +376,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     const serverType = getServerTypeFromConfig(this.transportConfig);
     return (
       (serverType === "sse" || serverType === "streamable-http") &&
-      !!this.oauthConfig
+      !!this.oauthManager
     );
   }
 
@@ -521,8 +531,9 @@ export class InspectorClient extends InspectorClientEventTarget {
           this.dispatchFetchRequest({ ...entry, category: "transport" });
         },
       };
-      if (this.isHttpOAuthConfig()) {
-        const provider = await this.createOAuthProvider("normal");
+      const oauthManager = this.oauthManager;
+      if (this.isHttpOAuthConfig() && oauthManager) {
+        const provider = await oauthManager.createOAuthProviderForTransport();
         transportOptions.authProvider = provider;
       }
       const { transport: baseTransport } = this.transportClientFactory(
@@ -1987,8 +1998,15 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   // ============================================================================
-  // OAuth Support
+  // OAuth Support (delegated to oauthManager)
   // ============================================================================
+
+  private ensureOAuthManager(): OAuthManager {
+    if (!this.oauthManager) {
+      throw new Error("OAuth not configured. Call setOAuthConfig() first.");
+    }
+    return this.oauthManager;
+  }
 
   /**
    * Get server URL from transport config (full URL including path, for OAuth discovery)
@@ -2015,69 +2033,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     clientMetadataUrl?: string;
     scope?: string;
   }): void {
-    if (!this.oauthConfig) {
+    if (!this.oauthManager) {
       throw new Error(
         "OAuth config must be set at creation. Pass oauth in constructor.",
       );
     }
-    this.oauthConfig = {
-      ...this.oauthConfig,
-      ...config,
-    } as NonNullable<InspectorClientOptions["oauth"]>;
-  }
-
-  /**
-   * Create and initialize an OAuth provider for the specified mode
-   */
-  private async createOAuthProvider(
-    mode: "normal" | "guided",
-  ): Promise<BaseOAuthClientProvider> {
-    if (!this.oauthConfig) {
-      throw new Error("OAuth not configured. Call setOAuthConfig() first.");
-    }
-
-    if (
-      !this.oauthConfig.storage ||
-      !this.oauthConfig.redirectUrlProvider ||
-      !this.oauthConfig.navigation
-    ) {
-      throw new Error(
-        "OAuth environment components (storage, navigation, redirectUrlProvider) are required.",
-      );
-    }
-
-    const serverUrl = this.getServerUrl();
-    const provider = new BaseOAuthClientProvider(
-      serverUrl,
-      {
-        storage: this.oauthConfig.storage,
-        redirectUrlProvider: this.oauthConfig.redirectUrlProvider,
-        navigation: this.oauthConfig.navigation,
-        clientMetadataUrl: this.oauthConfig.clientMetadataUrl,
-      },
-      mode,
-    );
-
-    // Set event target for event dispatch
-    provider.setEventTarget(this);
-
-    // Set scope if provided
-    if (this.oauthConfig.scope) {
-      await provider.saveScope(this.oauthConfig.scope);
-    }
-
-    // Save preregistered client info if provided (static client from config)
-    if (this.oauthConfig.clientId) {
-      const clientInfo: OAuthClientInformation = {
-        client_id: this.oauthConfig.clientId,
-        ...(this.oauthConfig.clientSecret && {
-          client_secret: this.oauthConfig.clientSecret,
-        }),
-      };
-      await provider.savePreregisteredClientInformation(clientInfo);
-    }
-
-    return provider;
+    this.oauthManager.setOAuthConfig(config);
   }
 
   /**
@@ -2085,57 +2046,7 @@ export class InspectorClient extends InspectorClientEventTarget {
    * Can be called directly by user or automatically triggered by 401 errors
    */
   async authenticate(): Promise<URL> {
-    if (!this.oauthConfig) {
-      throw new Error("OAuth not configured. Call setOAuthConfig() first.");
-    }
-
-    const provider = await this.createOAuthProvider("normal");
-    const serverUrl = this.getServerUrl();
-
-    // Clear any previously captured URL
-    provider.clearCapturedAuthUrl();
-
-    // Use SDK's auth() function - it handles client resolution, token refresh, etc.
-    const result = await auth(provider, {
-      serverUrl,
-      scope: provider.scope,
-      fetchFn: this.effectiveAuthFetch,
-    });
-
-    if (result === "AUTHORIZED") {
-      // Tokens were refreshed, no authorization URL needed
-      throw new Error(
-        "Unexpected: auth() returned AUTHORIZED without authorization code",
-      );
-    }
-
-    // Get the captured URL from the provider (set in redirectToAuthorization)
-    const capturedUrl = provider.getCapturedAuthUrl();
-    if (!capturedUrl) {
-      throw new Error("Failed to capture authorization URL");
-    }
-
-    // Extract sessionId from OAuth state parameter in authorization URL
-    const stateParam = capturedUrl.searchParams.get("state");
-    if (stateParam) {
-      const parsedState = parseOAuthState(stateParam);
-      if (parsedState?.authId) {
-        this.sessionId = parsedState.authId;
-        // Save session before navigation
-        await this.saveSession();
-      }
-    }
-
-    // Backfill oauthState so getOAuthState() returns consistent shape (normal flow)
-    const clientInfo = await provider.clientInformation();
-    this.oauthState = {
-      ...EMPTY_GUIDED_STATE,
-      authType: "normal",
-      oauthStep: "authorization_code",
-      authorizationUrl: capturedUrl,
-      oauthClientInfo: clientInfo ?? null,
-    };
-    return capturedUrl;
+    return this.ensureOAuthManager().authenticate();
   }
 
   /**
@@ -2144,44 +2055,7 @@ export class InspectorClient extends InspectorClientEventTarget {
    * set authorizationCode and call proceedOAuthStep() to complete.
    */
   async beginGuidedAuth(): Promise<void> {
-    if (!this.oauthConfig) {
-      throw new Error("OAuth not configured. Call setOAuthConfig() first.");
-    }
-
-    const provider = await this.createOAuthProvider("guided");
-    const serverUrl = this.getServerUrl();
-
-    this.oauthState = { ...EMPTY_GUIDED_STATE };
-    if (this.oauthConfig.clientId) {
-      this.oauthState.oauthClientInfo = {
-        client_id: this.oauthConfig.clientId,
-        ...(this.oauthConfig.clientSecret && {
-          client_secret: this.oauthConfig.clientSecret,
-        }),
-      };
-    }
-    this.oauthStateMachine = new OAuthStateMachine(
-      serverUrl,
-      provider,
-      (updates) => {
-        const state = this.oauthState;
-        if (!state) throw new Error("OAuth state not initialized");
-        const previousStep = state.oauthStep;
-        this.oauthState = { ...state, ...updates };
-        if (updates.oauthStep === "complete") {
-          this.oauthState.completedAt = Date.now();
-        }
-        const step = updates.oauthStep ?? previousStep;
-        this.dispatchTypedEvent("oauthStepChange", {
-          step,
-          previousStep,
-          state: updates,
-        });
-      },
-      this.effectiveAuthFetch,
-    );
-
-    await this.oauthStateMachine.executeStep(this.oauthState);
+    return this.ensureOAuthManager().beginGuidedAuth();
   }
 
   /**
@@ -2190,57 +2064,7 @@ export class InspectorClient extends InspectorClientEventTarget {
    * Returns the authorization URL when user must authorize, or undefined if already complete.
    */
   async runGuidedAuth(): Promise<URL | undefined> {
-    if (!this.oauthConfig) {
-      throw new Error("OAuth not configured. Call setOAuthConfig() first.");
-    }
-
-    if (!this.oauthStateMachine || !this.oauthState) {
-      await this.beginGuidedAuth();
-    }
-
-    const machine = this.oauthStateMachine;
-    if (!machine) {
-      throw new Error("Guided auth failed to initialize state");
-    }
-
-    while (true) {
-      const state = this.oauthState;
-      if (!state) {
-        throw new Error("Guided auth failed to initialize state");
-      }
-      if (
-        state.oauthStep === "authorization_code" ||
-        state.oauthStep === "complete"
-      ) {
-        break;
-      }
-      await machine.executeStep(state);
-    }
-
-    const state = this.oauthState;
-    if (state?.oauthStep === "complete") {
-      return undefined;
-    }
-    if (!state?.authorizationUrl) {
-      throw new Error("Failed to generate authorization URL");
-    }
-
-    // Extract sessionId from OAuth state parameter in authorization URL
-    const stateParam = state.authorizationUrl.searchParams.get("state");
-    if (stateParam) {
-      const parsedState = parseOAuthState(stateParam);
-      if (parsedState?.authId) {
-        this.sessionId = parsedState.authId;
-        // Save session before navigation
-        await this.saveSession();
-      }
-    }
-
-    this.dispatchTypedEvent("oauthAuthorizationRequired", {
-      url: state.authorizationUrl,
-    });
-
-    return state.authorizationUrl;
+    return this.ensureOAuthManager().runGuidedAuth();
   }
 
   /**
@@ -2256,48 +2080,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     authorizationCode: string,
     completeFlow: boolean = false,
   ): Promise<void> {
-    if (!this.oauthStateMachine || !this.oauthState) {
-      throw new Error(
-        "Not in guided OAuth flow. Call beginGuidedAuth() first.",
-      );
-    }
-    const currentStep = this.oauthState.oauthStep;
-    if (currentStep !== "authorization_code") {
-      throw new Error(
-        `Cannot set authorization code at step ${currentStep}. Expected step: authorization_code`,
-      );
-    }
-
-    this.oauthState.authorizationCode = authorizationCode;
-
-    if (completeFlow) {
-      // Execute current step (authorization_code -> token_request)
-      await this.oauthStateMachine.executeStep(this.oauthState);
-      // Continue through remaining steps until complete
-      // TypeScript doesn't track that executeStep mutates oauthState.oauthStep,
-      // so we use a type assertion to acknowledge the step changes dynamically
-      let step: OAuthStep = this.oauthState.oauthStep;
-      while (step !== "complete") {
-        await this.oauthStateMachine.executeStep(this.oauthState);
-        step = this.oauthState.oauthStep;
-      }
-
-      if (!this.oauthState.oauthTokens) {
-        throw new Error("Failed to exchange authorization code for tokens");
-      }
-
-      this.dispatchTypedEvent("oauthComplete", {
-        tokens: this.oauthState.oauthTokens,
-      });
-    } else {
-      // Manual mode: dispatch event to notify listeners that code was set
-      // (step transitions will happen when user calls proceedOAuthStep())
-      this.dispatchTypedEvent("oauthStepChange", {
-        step: this.oauthState.oauthStep,
-        previousStep: this.oauthState.oauthStep,
-        state: { authorizationCode },
-      });
-    }
+    return this.ensureOAuthManager().setGuidedAuthorizationCode(
+      authorizationCode,
+      completeFlow,
+    );
   }
 
   /**
@@ -2306,136 +2092,54 @@ export class InspectorClient extends InspectorClientEventTarget {
    * For normal mode, uses SDK auth() directly.
    */
   async completeOAuthFlow(authorizationCode: string): Promise<void> {
-    if (!this.oauthConfig) {
-      throw new Error("OAuth not configured. Call setOAuthConfig() first.");
-    }
-
-    try {
-      if (this.oauthStateMachine && this.oauthState) {
-        // Guided mode - use setGuidedAuthorizationCode with completeFlow=true
-        await this.setGuidedAuthorizationCode(authorizationCode, true);
-      } else {
-        // Normal mode - use SDK auth() with authorization code
-        const provider = await this.createOAuthProvider("normal");
-        const serverUrl = this.getServerUrl();
-
-        const result = await auth(provider, {
-          serverUrl,
-          authorizationCode,
-          fetchFn: this.effectiveAuthFetch,
-        });
-
-        if (result !== "AUTHORIZED") {
-          throw new Error(
-            `Expected AUTHORIZED after providing authorization code, got: ${result}`,
-          );
-        }
-
-        const tokens = await provider.tokens();
-        if (!tokens) {
-          throw new Error("Failed to retrieve tokens after authorization");
-        }
-
-        const clientInfo = await provider.clientInformation();
-        const completedAt = Date.now();
-        this.oauthState = this.oauthState
-          ? {
-              ...this.oauthState,
-              oauthStep: "complete",
-              oauthTokens: tokens,
-              oauthClientInfo: clientInfo ?? null,
-              completedAt,
-            }
-          : {
-              ...EMPTY_GUIDED_STATE,
-              authType: "normal",
-              oauthStep: "complete",
-              oauthTokens: tokens,
-              oauthClientInfo: clientInfo ?? null,
-              completedAt,
-            };
-
-        this.dispatchTypedEvent("oauthComplete", {
-          tokens,
-        });
-      }
-    } catch (error) {
-      this.dispatchTypedEvent("oauthError", {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      throw error;
-    }
+    return this.ensureOAuthManager().completeOAuthFlow(authorizationCode);
   }
 
   /**
    * Gets current OAuth tokens (if authorized)
    */
   async getOAuthTokens(): Promise<OAuthTokens | undefined> {
-    if (!this.oauthConfig) {
+    if (!this.oauthManager) {
       return undefined;
     }
-
-    // Return tokens from state machine if in guided mode
-    if (this.oauthState?.oauthTokens) {
-      return this.oauthState.oauthTokens;
-    }
-
-    // Otherwise get from provider storage
-    const provider = await this.createOAuthProvider("normal");
-    try {
-      return await provider.tokens();
-    } catch {
-      return undefined;
-    }
+    return this.oauthManager.getOAuthTokens();
   }
 
   /**
    * Clears OAuth tokens and client information
    */
   clearOAuthTokens(): void {
-    if (!this.oauthConfig?.storage) {
-      return;
-    }
-
-    const serverUrl = this.getServerUrl();
-    this.oauthConfig.storage.clear(serverUrl);
-
-    this.oauthState = null;
-    this.oauthStateMachine = null;
+    this.oauthManager?.clearOAuthTokens();
   }
 
   /**
    * Checks if client is currently OAuth authorized
    */
   async isOAuthAuthorized(): Promise<boolean> {
-    const tokens = await this.getOAuthTokens();
-    return tokens !== undefined;
+    if (!this.oauthManager) {
+      return false;
+    }
+    return this.oauthManager.isOAuthAuthorized();
   }
 
   /**
    * Get current OAuth state machine state (for guided mode)
    */
   getOAuthState(): AuthGuidedState | undefined {
-    return this.oauthState ? { ...this.oauthState } : undefined;
+    return this.oauthManager?.getOAuthState();
   }
 
   /**
    * Get current OAuth step (for guided mode)
    */
   getOAuthStep(): OAuthStep | undefined {
-    return this.oauthState?.oauthStep;
+    return this.oauthManager?.getOAuthStep();
   }
 
   /**
    * Manually progress to next step in guided OAuth flow
    */
   async proceedOAuthStep(): Promise<void> {
-    if (!this.oauthStateMachine || !this.oauthState) {
-      throw new Error(
-        "Not in guided OAuth flow. Call authenticateGuided() first.",
-      );
-    }
-
-    await this.oauthStateMachine.executeStep(this.oauthState);
+    return this.ensureOAuthManager().proceedOAuthStep();
   }
 }
