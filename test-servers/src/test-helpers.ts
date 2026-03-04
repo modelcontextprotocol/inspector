@@ -184,23 +184,35 @@ export async function waitForOAuthWellKnown(
   } = options ?? {};
   const wellKnownUrl = `${serverBaseUrl.replace(/\/$/, "")}/.well-known/oauth-authorization-server`;
   const start = Date.now();
+  let lastStatus: number | undefined;
+  let lastError: unknown;
   while (Date.now() - start < timeout) {
     try {
       const controller = new AbortController();
       const t = setTimeout(() => controller.abort(), requestTimeout);
       try {
         const res = await fetch(wellKnownUrl, { signal: controller.signal });
+        lastStatus = res.status;
         if (res.ok) return;
       } finally {
         clearTimeout(t);
       }
-    } catch {
+    } catch (err) {
+      lastError = err;
       // connection error or request timeout, retry
     }
     await new Promise((r) => setTimeout(r, interval));
   }
+  const statusPart =
+    lastStatus !== undefined
+      ? `lastStatus: ${lastStatus}`
+      : "lastStatus: (none)";
+  const errorPart =
+    lastError !== undefined
+      ? `lastError: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+      : "lastError: (none)";
   throw new Error(
-    `waitForOAuthWellKnown timed out after ${timeout}ms: ${wellKnownUrl}`,
+    `waitForOAuthWellKnown timed out after ${timeout}ms: ${wellKnownUrl}. ${statusPart}, ${errorPart}`,
   );
 }
 

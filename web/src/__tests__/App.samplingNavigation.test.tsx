@@ -467,8 +467,16 @@ describe("App - Sampling navigation", () => {
       });
     });
 
-    // Handler already set activeTab to "sampling"; wait for the Reject button to be visible
-    const rejectButton = await screen.findByRole("button", { name: /Reject/i });
+    // Wait for sampling UI to be in the document (same as Approve test) so Reject is wired to our callback
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("sampling-request")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+    const rejectButton = within(
+      screen.getByTestId("sampling-request"),
+    ).getByRole("button", { name: /Reject/i });
     await act(async () => {
       fireEvent.click(rejectButton);
     });
