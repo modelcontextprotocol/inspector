@@ -44,14 +44,8 @@ describe("PagedResourceTemplatesState", () => {
       state.destroy();
       state = null;
     }
-    if (client) {
-      try {
-        await client.disconnect();
-      } catch {
-        // ignore
-      }
-      client = null;
-    }
+    if (client) await client.disconnect(100);
+    client = null;
     if (server) {
       try {
         await server.stop();
@@ -163,7 +157,7 @@ describe("PagedResourceTemplatesState", () => {
     await client.connect();
     await state.loadPage();
     expect(state.getResourceTemplates().length).toBeGreaterThan(0);
-    await client!.disconnect();
+    await client!.disconnect(100);
     expect(state!.getResourceTemplates()).toEqual([]);
   });
 

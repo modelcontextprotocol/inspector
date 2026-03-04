@@ -854,10 +854,34 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Disconnect from the MCP server
+   * Disconnect from the MCP server.
+   * @param safeDisconnectTimeout If > 0, poll every 10ms until SDK _responseHandlers is empty or this many ms have elapsed, then close. Default 0 = close immediately.
    */
-  async disconnect(): Promise<void> {
+  async disconnect(safeDisconnectTimeout = 0): Promise<void> {
     if (this.client) {
+      if (safeDisconnectTimeout > 0) {
+        // This is pretty creepy, but there are test cases where client calls return but there
+        // are still response handlers pending. Usually a single macrotask delay is enough to
+        // clear them, but not always (it's been >10ms in some cases). The pending handlers
+        // themselves get the error (and in cases where those aren't awaited, the errors fly
+        // out of the test). This workaround where we directly access the handlers (otherwise
+        // private member of the SDK client) is creepy, but the least ugly working solution.
+        // We will re-valuate this with the v2 SDK. Currenly only tests that do quick disconnects
+        // use this setting.
+        //
+        const protocol = this.client as unknown as {
+          _responseHandlers?: Map<unknown, unknown>;
+        };
+        const handlers = protocol._responseHandlers;
+        const deadline = Date.now() + safeDisconnectTimeout;
+        while (
+          handlers?.size !== undefined &&
+          handlers.size > 0 &&
+          Date.now() < deadline
+        ) {
+          await new Promise((r) => setTimeout(r, 10));
+        }
+      }
       try {
         await this.client.close();
       } catch {

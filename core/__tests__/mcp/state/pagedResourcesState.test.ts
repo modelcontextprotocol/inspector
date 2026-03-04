@@ -44,14 +44,8 @@ describe("PagedResourcesState", () => {
       state.destroy();
       state = null;
     }
-    if (client) {
-      try {
-        await client.disconnect();
-      } catch {
-        // ignore
-      }
-      client = null;
-    }
+    if (client) await client.disconnect(100);
+    client = null;
     if (server) {
       try {
         await server.stop();
@@ -161,7 +155,7 @@ describe("PagedResourcesState", () => {
     await client.connect();
     await state.loadPage();
     expect(state.getResources().length).toBeGreaterThan(0);
-    await client!.disconnect();
+    await client!.disconnect(100);
     expect(state!.getResources()).toEqual([]);
   });
 

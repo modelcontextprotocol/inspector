@@ -2,7 +2,7 @@
  * ManagedResourcesState tests use a real InspectorClient and test server (same model
  * as managedToolsState.test.ts) so we exercise actual client/server behavior.
  */
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import type { Resource } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorClient } from "../../../mcp/inspectorClient.js";
 import { createTransportNode } from "../../../mcp/node/transport.js";
@@ -20,37 +20,13 @@ describe("ManagedResourcesState", () => {
   let server: TestServerHttp | null = null;
   let state: ManagedResourcesState | null = null;
 
-  let unhandledRejectionHandler: (
-    reason: unknown,
-    promise: Promise<unknown>,
-  ) => void;
-  beforeEach(() => {
-    unhandledRejectionHandler = (
-      reason: unknown,
-      promise: Promise<unknown>,
-    ) => {
-      const err = reason as { code?: number; message?: string };
-      if (err?.code === -32000 || err?.message?.includes("Connection closed")) {
-        promise.catch(() => {});
-        return;
-      }
-      throw reason;
-    };
-    process.on("unhandledRejection", unhandledRejectionHandler);
-  });
   afterEach(async () => {
     if (state) {
       state.destroy();
       state = null;
     }
-    if (client) {
-      try {
-        await client.disconnect();
-      } catch {
-        // ignore
-      }
-      client = null;
-    }
+    if (client) await client.disconnect(100);
+    client = null;
     if (server) {
       try {
         await server.stop();
@@ -59,7 +35,6 @@ describe("ManagedResourcesState", () => {
       }
       server = null;
     }
-    process.off("unhandledRejection", unhandledRejectionHandler);
   });
 
   function waitForResourcesChange(
@@ -112,6 +87,7 @@ describe("ManagedResourcesState", () => {
       { type: "streamable-http", url: server.url },
       {
         environment: { transport: createTransportNode },
+        clientIdentity: { name: "test", version: "1.0.0" },
       },
     );
     await client.connect();
@@ -175,7 +151,7 @@ describe("ManagedResourcesState", () => {
     await client.connect();
     await waitForResourcesChange(state!);
     expect(state!.getResources().length).toBeGreaterThan(0);
-    await client!.disconnect();
+    await client!.disconnect(100);
     expect(state!.getResources()).toEqual([]);
   });
 

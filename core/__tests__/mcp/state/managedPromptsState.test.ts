@@ -2,7 +2,7 @@
  * ManagedPromptsState tests use a real InspectorClient and test server (same model
  * as managedToolsState.test.ts) so we exercise actual client/server behavior.
  */
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorClient } from "../../../mcp/inspectorClient.js";
 import { createTransportNode } from "../../../mcp/node/transport.js";
@@ -20,37 +20,13 @@ describe("ManagedPromptsState", () => {
   let server: TestServerHttp | null = null;
   let state: ManagedPromptsState | null = null;
 
-  let unhandledRejectionHandler: (
-    reason: unknown,
-    promise: Promise<unknown>,
-  ) => void;
-  beforeEach(() => {
-    unhandledRejectionHandler = (
-      reason: unknown,
-      promise: Promise<unknown>,
-    ) => {
-      const err = reason as { code?: number; message?: string };
-      if (err?.code === -32000 || err?.message?.includes("Connection closed")) {
-        promise.catch(() => {});
-        return;
-      }
-      throw reason;
-    };
-    process.on("unhandledRejection", unhandledRejectionHandler);
-  });
   afterEach(async () => {
     if (state) {
       state.destroy();
       state = null;
     }
-    if (client) {
-      try {
-        await client.disconnect();
-      } catch {
-        // ignore
-      }
-      client = null;
-    }
+    if (client) await client.disconnect(100);
+    client = null;
     if (server) {
       try {
         await server.stop();
@@ -59,7 +35,6 @@ describe("ManagedPromptsState", () => {
       }
       server = null;
     }
-    process.off("unhandledRejection", unhandledRejectionHandler);
   });
 
   function waitForPromptsChange(s: ManagedPromptsState): Promise<Prompt[]> {
@@ -168,7 +143,7 @@ describe("ManagedPromptsState", () => {
     await client.connect();
     await waitForPromptsChange(state!);
     expect(state!.getPrompts().length).toBeGreaterThan(0);
-    await client!.disconnect();
+    await client!.disconnect(100);
     expect(state!.getPrompts()).toEqual([]);
   });
 

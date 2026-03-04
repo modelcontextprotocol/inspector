@@ -25,14 +25,8 @@ describe("ManagedToolsState", () => {
       state.destroy();
       state = null;
     }
-    if (client) {
-      try {
-        await client.disconnect();
-      } catch {
-        // ignore
-      }
-      client = null;
-    }
+    if (client) await client.disconnect(100);
+    client = null;
     if (server) {
       try {
         await server.stop();
@@ -167,7 +161,7 @@ describe("ManagedToolsState", () => {
     await client.connect();
     await waitForToolsChange(state!);
     expect(state!.getTools().length).toBeGreaterThan(0);
-    await client!.disconnect();
+    await client!.disconnect(100);
     expect(state!.getTools()).toEqual([]);
   });
 
