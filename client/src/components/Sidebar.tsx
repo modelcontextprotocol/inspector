@@ -133,6 +133,39 @@ const Sidebar = ({
     [toast],
   );
 
+  const fallbackCopyText = useCallback((text: string) => {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+
+    const copied = document.execCommand("copy");
+    document.body.removeChild(textarea);
+
+    if (!copied) {
+      throw new Error("Clipboard copy fallback failed");
+    }
+  }, []);
+
+  const copyTextToClipboard = useCallback(
+    async (text: string) => {
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return;
+        } catch {
+          // Fallback to execCommand in non-secure contexts or restricted permissions.
+        }
+      }
+
+      fallbackCopyText(text);
+    },
+    [fallbackCopyText],
+  );
+
   // Shared utility function to generate server config
   const generateServerConfig = useCallback(() => {
     if (transportType === "stdio") {
@@ -178,61 +211,51 @@ const Sidebar = ({
   }, [generateServerConfig]);
 
   // Memoized copy handlers
-  const handleCopyServerEntry = useCallback(() => {
+  const handleCopyServerEntry = useCallback(async () => {
     try {
       const configJson = generateMCPServerEntry();
-      navigator.clipboard
-        .writeText(configJson)
-        .then(() => {
-          setCopiedServerEntry(true);
+      await copyTextToClipboard(configJson);
 
-          toast({
-            title: "Config entry copied",
-            description:
-              transportType === "stdio"
-                ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
-                : transportType === "streamable-http"
-                  ? "Streamable HTTP URL has been copied. Use this URL directly in your MCP Client."
-                  : "SSE URL has been copied. Use this URL directly in your MCP Client.",
-          });
+      setCopiedServerEntry(true);
 
-          setTimeout(() => {
-            setCopiedServerEntry(false);
-          }, 2000);
-        })
-        .catch((error) => {
-          reportError(error);
-        });
+      toast({
+        title: "Config entry copied",
+        description:
+          transportType === "stdio"
+            ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
+            : transportType === "streamable-http"
+              ? "Streamable HTTP URL has been copied. Use this URL directly in your MCP Client."
+              : "SSE URL has been copied. Use this URL directly in your MCP Client.",
+      });
+
+      setTimeout(() => {
+        setCopiedServerEntry(false);
+      }, 2000);
     } catch (error) {
       reportError(error);
     }
-  }, [generateMCPServerEntry, transportType, toast, reportError]);
+  }, [generateMCPServerEntry, copyTextToClipboard, transportType, toast, reportError]);
 
-  const handleCopyServerFile = useCallback(() => {
+  const handleCopyServerFile = useCallback(async () => {
     try {
       const configJson = generateMCPServerFile();
-      navigator.clipboard
-        .writeText(configJson)
-        .then(() => {
-          setCopiedServerFile(true);
+      await copyTextToClipboard(configJson);
 
-          toast({
-            title: "Servers file copied",
-            description:
-              "Servers configuration has been copied to clipboard. Add this to your mcp.json file. Current testing server will be added as 'default-server'",
-          });
+      setCopiedServerFile(true);
 
-          setTimeout(() => {
-            setCopiedServerFile(false);
-          }, 2000);
-        })
-        .catch((error) => {
-          reportError(error);
-        });
+      toast({
+        title: "Servers file copied",
+        description:
+          "Servers configuration has been copied to clipboard. Add this to your mcp.json file. Current testing server will be added as 'default-server'",
+      });
+
+      setTimeout(() => {
+        setCopiedServerFile(false);
+      }, 2000);
     } catch (error) {
       reportError(error);
     }
-  }, [generateMCPServerFile, toast, reportError]);
+  }, [generateMCPServerFile, copyTextToClipboard, toast, reportError]);
 
   return (
     <div className="bg-card border-r border-border flex flex-col h-full">
