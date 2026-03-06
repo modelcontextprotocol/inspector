@@ -596,7 +596,6 @@ app.get(
       const endpoint = `${prefix}/message`;
 
       const webAppTransport = new SSEServerTransport(endpoint, res);
-      webAppTransports.set(webAppTransport.sessionId, webAppTransport);
       console.log("Created client transport");
 
       serverTransports.set(webAppTransport.sessionId, serverTransport);
@@ -604,23 +603,27 @@ app.get(
 
       await webAppTransport.start();
 
+      webAppTransports.set(webAppTransport.sessionId, webAppTransport);
+
       (serverTransport as StdioClientTransport).stderr!.on("data", (chunk) => {
         if (chunk.toString().includes("MODULE_NOT_FOUND")) {
           // Server command not found, remove transports
           const message = "Command not found, transports removed";
-          webAppTransport.send({
-            jsonrpc: "2.0",
-            method: "notifications/message",
-            params: {
-              level: "emergency",
-              logger: "proxy",
-              data: {
-                message,
+          webAppTransport
+            .send({
+              jsonrpc: "2.0",
+              method: "notifications/message",
+              params: {
+                level: "emergency",
+                logger: "proxy",
+                data: {
+                  message,
+                },
               },
-            },
-          });
-          webAppTransport.close();
-          serverTransport.close();
+            })
+            .catch(() => {});
+          webAppTransport.close().catch(() => {});
+          serverTransport.close().catch(() => {});
           webAppTransports.delete(webAppTransport.sessionId);
           serverTransports.delete(webAppTransport.sessionId);
           sessionHeaderHolders.delete(webAppTransport.sessionId);
@@ -658,17 +661,19 @@ app.get(
           } else {
             level = "info";
           }
-          webAppTransport.send({
-            jsonrpc: "2.0",
-            method: "notifications/message",
-            params: {
-              level,
-              logger: "stdio",
-              data: {
-                message,
+          webAppTransport
+            .send({
+              jsonrpc: "2.0",
+              method: "notifications/message",
+              params: {
+                level,
+                logger: "stdio",
+                data: {
+                  message,
+                },
               },
-            },
-          });
+            })
+            .catch(() => {});
         }
       });
 
@@ -707,7 +712,6 @@ app.get(
       const endpoint = `${prefix}/message`;
 
       const webAppTransport = new SSEServerTransport(endpoint, res);
-      webAppTransports.set(webAppTransport.sessionId, webAppTransport);
       console.log("Created client transport");
 
       serverTransports.set(webAppTransport.sessionId, serverTransport!); // eslint-disable-line @typescript-eslint/no-non-null-assertion
@@ -717,6 +721,8 @@ app.get(
       console.log("Created server transport");
 
       await webAppTransport.start();
+
+      webAppTransports.set(webAppTransport.sessionId, webAppTransport);
 
       mcpProxy({
         transportToClient: webAppTransport,
