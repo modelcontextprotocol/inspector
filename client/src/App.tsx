@@ -400,6 +400,27 @@ const App = () => {
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
 
+      if (notification.method === "notifications/tools/list_changed") {
+        setNextToolCursor(undefined);
+        setTools([]);
+        void listTools();
+      }
+
+      if (notification.method === "notifications/resources/list_changed") {
+        setNextResourceCursor(undefined);
+        setNextResourceTemplateCursor(undefined);
+        setResources([]);
+        setResourceTemplates([]);
+        void listResources();
+        void listResourceTemplates();
+      }
+
+      if (notification.method === "notifications/prompts/list_changed") {
+        setNextPromptCursor(undefined);
+        setPrompts([]);
+        void listPrompts();
+      }
+
       if (notification.method === "notifications/tasks/list_changed") {
         void listTasks();
       }
