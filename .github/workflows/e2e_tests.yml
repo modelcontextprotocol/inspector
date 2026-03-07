@@ -56,9 +56,9 @@ jobs:
         with:
           name: playwright-report
           path: |
-            client/playwright-report/
-            client/test-results/
-            client/results.json
+            web/playwright-report/
+            web/test-results/
+            web/results.json
           retention-days: 2
 
       - name: Publish Playwright Test Summary
@@ -66,7 +66,7 @@ jobs:
         if: steps.playwright-tests.conclusion != 'skipped'
         with:
           create-comment: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-          report-file: client/results.json
+          report-file: web/results.json
           comment-title: "🎭 Playwright E2E Test Results"
           job-summary: true
           icon-style: "emojis"

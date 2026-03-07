@@ -6,7 +6,7 @@ import {
   expectValidJson,
   expectJsonError,
 } from "./helpers/assertions.js";
-import { getTestMcpServerCommand } from "./helpers/test-server-stdio.js";
+import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
 
 describe("Tool Tests", () => {
   describe("Tool Discovery", () => {
@@ -29,10 +29,10 @@ describe("Tool Tests", () => {
       expect(json.tools[0]).toHaveProperty("name");
       expect(json.tools[0]).toHaveProperty("description");
       // Validate expected tools from test-mcp-server
-      const toolNames = json.tools.map((tool: any) => tool.name);
+      const toolNames = json.tools.map((tool: { name: string }) => tool.name);
       expect(toolNames).toContain("echo");
-      expect(toolNames).toContain("get-sum");
-      expect(toolNames).toContain("get-annotated-message");
+      expect(toolNames).toContain("get_sum");
+      expect(toolNames).toContain("get_annotated_message");
     });
   });
 
@@ -69,7 +69,7 @@ describe("Tool Tests", () => {
         "--method",
         "tools/call",
         "--tool-name",
-        "get-sum",
+        "get_sum",
         "--tool-arg",
         "a=42",
         "b=58",
@@ -95,7 +95,7 @@ describe("Tool Tests", () => {
         "--method",
         "tools/call",
         "--tool-name",
-        "get-sum",
+        "get_sum",
         "--tool-arg",
         "a=19.99",
         "b=20.01",
@@ -121,7 +121,7 @@ describe("Tool Tests", () => {
         "--method",
         "tools/call",
         "--tool-name",
-        "get-annotated-message",
+        "get_annotated_message",
         "--tool-arg",
         "messageType=success",
         "includeImage=true",
@@ -133,7 +133,9 @@ describe("Tool Tests", () => {
       expect(Array.isArray(json.content)).toBe(true);
       // Should have both text and image content
       expect(json.content.length).toBeGreaterThan(1);
-      const hasImage = json.content.some((item: any) => item.type === "image");
+      const hasImage = json.content.some(
+        (item: { type?: string }) => item.type === "image",
+      );
       expect(hasImage).toBe(true);
     });
 
@@ -146,7 +148,7 @@ describe("Tool Tests", () => {
         "--method",
         "tools/call",
         "--tool-name",
-        "get-annotated-message",
+        "get_annotated_message",
         "--tool-arg",
         "messageType=error",
         "includeImage=false",
@@ -157,7 +159,9 @@ describe("Tool Tests", () => {
       expect(json).toHaveProperty("content");
       expect(Array.isArray(json.content)).toBe(true);
       // Should only have text content, no image
-      const hasImage = json.content.some((item: any) => item.type === "image");
+      const hasImage = json.content.some(
+        (item: { type?: string }) => item.type === "image",
+      );
       expect(hasImage).toBe(false);
       // test-mcp-server returns "This is a {messageType} message"
       expect(json.content[0].text.toLowerCase()).toContain("error");
@@ -195,7 +199,7 @@ describe("Tool Tests", () => {
         "--method",
         "tools/call",
         "--tool-name",
-        "get-sum",
+        "get_sum",
         "--tool-arg",
         "a=42.5",
         "b=57.5",
@@ -374,7 +378,7 @@ describe("Tool Tests", () => {
         "message=test",
       ]);
 
-      // CLI returns exit code 0 but includes isError: true in JSON
+      // CLI returns exit code 0 but includes isError: true in JSON (server returns error)
       expectJsonError(result);
     });
 
@@ -421,7 +425,7 @@ describe("Tool Tests", () => {
         "--method",
         "prompts/get",
         "--prompt-name",
-        "args-prompt",
+        "args_prompt",
         "--prompt-args",
         "city=New York",
         "state=NY",
@@ -441,7 +445,7 @@ describe("Tool Tests", () => {
     });
 
     it("should handle prompt with simple arguments", async () => {
-      // Note: simple-prompt doesn't accept arguments, but the CLI should still
+      // Note: simple_prompt doesn't accept arguments, but the CLI should still
       // accept the command and the server should ignore the arguments
       const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
@@ -451,7 +455,7 @@ describe("Tool Tests", () => {
         "--method",
         "prompts/get",
         "--prompt-name",
-        "simple-prompt",
+        "simple_prompt",
         "--prompt-args",
         "name=test",
         "count=5",
@@ -464,7 +468,7 @@ describe("Tool Tests", () => {
       expect(json.messages.length).toBeGreaterThan(0);
       expect(json.messages[0]).toHaveProperty("content");
       expect(json.messages[0].content).toHaveProperty("type", "text");
-      // test-mcp-server's simple-prompt returns standard message (ignoring args)
+      // test-mcp-server's simple_prompt returns standard message (ignoring args)
       expect(json.messages[0].content.text).toBe(
         "This is a simple prompt for testing purposes.",
       );
@@ -503,7 +507,7 @@ describe("Tool Tests", () => {
         "--method",
         "tools/call",
         "--tool-name",
-        "get-sum",
+        "get_sum",
         "--tool-arg",
         "a=10",
         "b=20",

@@ -1,0 +1,5 @@
+{
+  "serverInfo": { "name": "url-elicitation-form-test", "version": "1.0.0" },
+  "tools": [{ "preset": "url_elicitation_form" }],
+  "transport": { "type": "stdio" }
+}

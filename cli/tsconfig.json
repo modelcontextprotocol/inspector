@@ -13,5 +13,6 @@
     "noUncheckedIndexedAccess": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "packages", "**/*.spec.ts", "build"]
+  "exclude": ["node_modules", "packages", "**/*.spec.ts", "build"],
+  "references": [{ "path": "../core" }]
 }

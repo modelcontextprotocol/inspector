@@ -1,5 +1,9 @@
 packages
-server/build
+core/build
+web/dist
+cli/build
+tui/build
+test-servers/build
 CODE_OF_CONDUCT.md
 SECURITY.md
 mcp.json

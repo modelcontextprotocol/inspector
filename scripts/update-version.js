@@ -37,9 +37,11 @@ console.log(`🔄 Updating all packages to version ${newVersion}...`);
 // List of package.json files to update
 const packagePaths = [
   "package.json",
-  "client/package.json",
-  "server/package.json",
+  "web/package.json",
+  "core/package.json",
   "cli/package.json",
+  "tui/package.json",
+  "test-servers/package.json",
 ];
 
 const updatedFiles = [];
