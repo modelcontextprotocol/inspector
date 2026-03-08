@@ -89,6 +89,39 @@ export const generateOAuthErrorDescription = (
 };
 
 /**
+ * Compute the `.well-known/oauth-protected-resource` URL in compliance with
+ * the MCP spec and RFC 9728 for protected resource metadata discovery.
+ *
+ * Per RFC 9728 §3, the resource path is appended after the well-known prefix
+ * at the origin root:
+ * - `https://host/resource`        → `https://host/.well-known/oauth-protected-resource/resource`
+ * - `https://host/public/mcp`      → `https://host/.well-known/oauth-protected-resource/public/mcp`
+ * - `https://host` (no path)       → `https://host/.well-known/oauth-protected-resource`
+ *
+ * @see https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#protected-resource-metadata-discovery-requirements
+ * @see https://www.rfc-editor.org/rfc/rfc9728#section-3
+ * @param resourceUrl - Full string URL or URL object for the resource endpoint
+ */
+export function getResourceMetadataDiscoveryUrl(
+  resourceUrl: string | URL,
+): string {
+  const url =
+    typeof resourceUrl === "string" ? new URL(resourceUrl) : resourceUrl;
+
+  // Strip trailing slash (except for bare origin) to avoid a double slash
+  // or a spurious trailing slash in the well-known URL.
+  const pathname =
+    url.pathname.endsWith("/") && url.pathname !== "/"
+      ? url.pathname.slice(0, -1)
+      : url.pathname;
+
+  const path = pathname === "/" ? "" : pathname;
+
+  return new URL(`/.well-known/oauth-protected-resource${path}`, url.origin)
+    .href;
+}
+
+/**
  * Returns the primary OAuth authorization server metadata discovery URL
  * for a given authorization server URL, including tenant path handling.
  */
