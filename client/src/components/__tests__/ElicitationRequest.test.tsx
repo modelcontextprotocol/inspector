@@ -199,4 +199,139 @@ describe("ElicitationRequest", () => {
       );
     });
   });
+
+  describe("URL Mode", () => {
+    const createUrlRequest = (): PendingElicitationRequest => ({
+      id: 2,
+      request: {
+        id: 2,
+        mode: "url",
+        message: "Please complete authentication",
+        url: "https://example.com/auth",
+        elicitationId: "elicit-123",
+      },
+    });
+
+    it("should render URL mode request with message but no clickable link", () => {
+      renderElicitationRequest(createUrlRequest());
+      expect(screen.getByTestId("elicitation-request")).toBeInTheDocument();
+      expect(
+        screen.getByText("Please complete authentication"),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    });
+
+    it("should render Open URL, Accept, Decline, and Cancel buttons", () => {
+      renderElicitationRequest(createUrlRequest());
+      expect(
+        screen.getByRole("button", { name: /open url/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /accept/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /decline/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /cancel/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("should not render DynamicJsonForm", () => {
+      renderElicitationRequest(createUrlRequest());
+      expect(screen.queryByTestId("dynamic-json-form")).not.toBeInTheDocument();
+    });
+
+    it("should show consent dialog with URL as text when Open URL is clicked", async () => {
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /open url/i }));
+      });
+
+      expect(screen.getByTestId("url-confirm-text")).toHaveTextContent(
+        "https://example.com/auth",
+      );
+      expect(screen.getByText("Open External URL")).toBeInTheDocument();
+    });
+
+    it("should open URL when confirmed in consent dialog", async () => {
+      const windowOpenSpy = jest
+        .spyOn(window, "open")
+        .mockImplementation(() => null);
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /open url/i }));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^open$/i }));
+      });
+
+      expect(windowOpenSpy).toHaveBeenCalledWith(
+        "https://example.com/auth",
+        "_blank",
+        "noopener,noreferrer",
+      );
+      expect(mockOnResolve).not.toHaveBeenCalled();
+      windowOpenSpy.mockRestore();
+    });
+
+    it("should close consent dialog without opening URL when cancelled", async () => {
+      const windowOpenSpy = jest
+        .spyOn(window, "open")
+        .mockImplementation(() => null);
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /open url/i }));
+      });
+
+      expect(screen.getByTestId("url-confirm-text")).toBeInTheDocument();
+
+      await act(async () => {
+        // The Cancel button inside the dialog
+        const dialogButtons = screen.getAllByRole("button", {
+          name: /cancel/i,
+        });
+        fireEvent.click(dialogButtons[dialogButtons.length - 1]);
+      });
+
+      expect(windowOpenSpy).not.toHaveBeenCalled();
+      expect(mockOnResolve).not.toHaveBeenCalled();
+      windowOpenSpy.mockRestore();
+    });
+
+    it("should resolve with accept and no content when Accept is clicked", async () => {
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /accept/i }));
+      });
+
+      expect(mockOnResolve).toHaveBeenCalledWith(2, { action: "accept" });
+      expect(mockOnResolve.mock.calls[0][1]).not.toHaveProperty("content");
+    });
+
+    it("should resolve with decline when Decline is clicked", async () => {
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /decline/i }));
+      });
+
+      expect(mockOnResolve).toHaveBeenCalledWith(2, { action: "decline" });
+    });
+
+    it("should resolve with cancel when Cancel is clicked", async () => {
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+      });
+
+      expect(mockOnResolve).toHaveBeenCalledWith(2, { action: "cancel" });
+    });
+  });
 });
