@@ -124,6 +124,7 @@ export function useConnection({
 }: UseConnectionOptions) {
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("disconnected");
+  const [connectionError, setConnectionError] = useState<unknown | null>(null);
   const { toast } = useToast();
   const [serverCapabilities, setServerCapabilities] =
     useState<ServerCapabilities | null>(null);
@@ -449,6 +450,7 @@ export function useConnection({
   };
 
   const connect = async (_e?: unknown, retryCount: number = 0) => {
+    setConnectionError(null);
     const clientCapabilities = {
       capabilities: {
         sampling: {},
@@ -484,7 +486,8 @@ export function useConnection({
     if (connectionType === "proxy") {
       try {
         await checkProxyHealth();
-      } catch {
+      } catch (error) {
+        setConnectionError(error);
         setConnectionStatus("error-connecting-to-proxy");
         return;
       }
@@ -815,6 +818,7 @@ export function useConnection({
               "Please enter the session token from the proxy server console in the Configuration settings.",
             variant: "destructive",
           });
+          setConnectionError(error);
           setConnectionStatus("error");
           return;
         }
@@ -1148,6 +1152,7 @@ export function useConnection({
         });
       }
       console.error(e);
+      setConnectionError(e);
       setConnectionStatus("error");
     }
   };
@@ -1191,6 +1196,7 @@ export function useConnection({
     setMcpClient(null);
     setClientTransport(null);
     setConnectionStatus("disconnected");
+    setConnectionError(null);
     setCompletionsSupported(false);
     setServerCapabilities(null);
     setMcpSessionId(null);
@@ -1204,6 +1210,7 @@ export function useConnection({
 
   return {
     connectionStatus,
+    connectionError,
     serverCapabilities,
     serverImplementation,
     mcpClient,
