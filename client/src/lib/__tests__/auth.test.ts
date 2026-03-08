@@ -85,6 +85,39 @@ describe("discoverScopes", () => {
       },
       expected: "read",
     },
+    {
+      name: "uses authorization_servers URL from resource metadata for discovery",
+      mockResolves: baseMetadata,
+      serverUrl: "https://mcp-server.com",
+      resourceMetadata: {
+        resource: "https://mcp-server.com",
+        authorization_servers: ["https://auth-server.com/"],
+      },
+      expected: "read write",
+      expectedCallUrl: "https://auth-server.com/",
+    },
+    {
+      name: "uses authorization_servers URL with path for discovery",
+      mockResolves: baseMetadata,
+      serverUrl: "https://mcp-server.com",
+      resourceMetadata: {
+        resource: "https://mcp-server.com",
+        authorization_servers: ["https://auth-server.com/realms/my-realm/"],
+      },
+      expected: "read write",
+      expectedCallUrl: "https://auth-server.com/realms/my-realm/",
+    },
+    {
+      name: "falls back to serverUrl when authorization_servers is empty",
+      mockResolves: baseMetadata,
+      serverUrl: "https://mcp-server.com",
+      resourceMetadata: {
+        resource: "https://mcp-server.com",
+        authorization_servers: [],
+      },
+      expected: "read write",
+      expectedCallUrl: "https://mcp-server.com/",
+    },
   ];
 
   const undefinedCases = [
