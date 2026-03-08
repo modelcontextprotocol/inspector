@@ -27,6 +27,11 @@ Object.defineProperty(navigator, "clipboard", {
     writeText: mockClipboardWrite,
   },
 });
+const mockExecCommand = jest.fn(() => true);
+Object.defineProperty(document, "execCommand", {
+  value: mockExecCommand,
+  writable: true,
+});
 
 // Setup fake timers
 jest.useFakeTimers();
@@ -76,6 +81,8 @@ describe("Sidebar", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.clearAllTimers();
+    mockClipboardWrite.mockResolvedValue(undefined);
+    mockExecCommand.mockReturnValue(true);
   });
 
   describe("Command and arguments", () => {
@@ -629,6 +636,51 @@ describe("Sidebar", () => {
         4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+    });
+
+    it("should fallback to execCommand when clipboard write fails for server entry", async () => {
+      mockClipboardWrite.mockRejectedValueOnce(new Error("NotAllowedError"));
+      renderSidebar({
+        transportType: "sse",
+        sseUrl: "http://localhost:3000/events",
+      });
+
+      await act(async () => {
+        const { serverEntry } = getCopyButtons();
+        fireEvent.click(serverEntry);
+        jest.runAllTimers();
+      });
+
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      expect(mockExecCommand).toHaveBeenCalledWith("copy");
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Config entry copied",
+        description:
+          "SSE URL has been copied. Use this URL directly in your MCP Client.",
+      });
+    });
+
+    it("should fallback to execCommand when clipboard write fails for servers file", async () => {
+      mockClipboardWrite.mockRejectedValueOnce(new Error("NotAllowedError"));
+      renderSidebar({
+        transportType: "stdio",
+        command: "node",
+        args: "server.js",
+      });
+
+      await act(async () => {
+        const { serversFile } = getCopyButtons();
+        fireEvent.click(serversFile);
+        jest.runAllTimers();
+      });
+
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      expect(mockExecCommand).toHaveBeenCalledWith("copy");
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Servers file copied",
+        description:
+          "Servers configuration has been copied to clipboard. Add this to your mcp.json file. Current testing server will be added as 'default-server'",
+      });
     });
   });
 

@@ -1100,6 +1100,36 @@ describe("ToolsTab", () => {
       expect(mockCallTool).toHaveBeenCalled();
     });
 
+    it("should run with latest JSON edits even before debounce completes", async () => {
+      const mockCallTool = jest.fn();
+      renderToolsTab({
+        tools: [toolWithJsonParams],
+        selectedTool: toolWithJsonParams,
+        callTool: mockCallTool,
+      });
+
+      const textareas = screen.getAllByRole("textbox");
+      expect(textareas.length).toBe(2);
+
+      fireEvent.change(textareas[0], {
+        target: { value: '{ "setting": "latest" }' },
+      });
+
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+
+      expect(mockCallTool).toHaveBeenCalledWith(
+        toolWithJsonParams.name,
+        expect.objectContaining({
+          config: { setting: "latest" },
+        }),
+        undefined,
+        false,
+      );
+    });
+
     it("should handle mixed valid and invalid JSON parameters", async () => {
       const mockCallTool = jest.fn();
       renderToolsTab({

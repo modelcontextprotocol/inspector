@@ -805,8 +805,20 @@ const ToolsTab = ({
                 )}
                 <Button
                   onClick={async () => {
-                    // Validate JSON inputs before calling tool
-                    if (checkValidationErrors(true)) return;
+                    const validatedParams: Record<string, unknown> = {
+                      ...params,
+                    };
+                    const hasErrors = Object.entries(formRefs.current).some(
+                      ([key, ref]) => {
+                        if (!ref) return false;
+                        const validation = ref.validateJson();
+                        if (!validation.isValid) return true;
+                        validatedParams[key] = validation.value;
+                        return false;
+                      },
+                    );
+                    setHasValidationErrors(hasErrors);
+                    if (hasErrors) return;
 
                     try {
                       setIsToolRunning(true);
@@ -826,7 +838,7 @@ const ToolsTab = ({
                       }, {});
                       await callTool(
                         selectedTool.name,
-                        params,
+                        validatedParams,
                         Object.keys(metadata).length ? metadata : undefined,
                         runAsTask,
                       );
