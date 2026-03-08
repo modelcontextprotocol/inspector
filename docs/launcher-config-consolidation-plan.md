@@ -1,5 +1,11 @@
 # Launcher and config consolidation plan
 
+## Phase 1 status: **Complete**
+
+Phase 1 is implemented per the design below. Each app has a **small entrypoint** in **`index.ts`** (is-main check + call runner) and a **runner** in **`web.ts`** / **`cli.ts`** / **`tui.tsx`** (Commander, core config, app logic). The launcher calls runners in-process with argv; entrypoints only call `runWeb(process.argv)` / `runCli(process.argv)` / `runTui(process.argv)`. All apps use the shared core config processor. Obsolete `web/bin/start.js` has been removed. Launcher: `launcher/src/index.ts` → `launcher/build/index.js`; root `bin` for `mcp-inspector` points there.
+
+---
+
 ## Goal
 
 - One **dedicated launcher** package under `launcher/` (implemented in `main.ts` with Commander, built to `build/main.js`) that only chooses which app to run and forwards argv; no config processing in the launcher.
@@ -12,42 +18,37 @@
 
 ### Entrypoints
 
-| User runs                                | What executes                                        | Config handling                                                                                                            |
-| ---------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `mcp-inspector` (or `npm run web`)       | `node cli/build/cli.js` (launcher)                   | Launcher parses argv, does `--config` / `--server` / mcp.json handling                                                     |
-| `mcp-inspector --web`                    | Same launcher → **spawns** `node web/bin/start.js`   | Launcher resolves config to Args, passes as CLI flags to child                                                             |
-| `mcp-inspector --cli`                    | Same launcher → **spawns** `node cli/build/index.js` | Launcher resolves config to command+args+transport+cwd, passes as argv to child                                            |
-| `mcp-inspector --tui`                    | Same launcher → **spawns** `node tui/build/tui.js`   | **No** launcher config: raw `process.argv.slice(2)` passed to TUI; TUI parses its own config file path and options         |
-| `npm run dev`                            | `node web/bin/start.js --dev`                        | **No** launcher; web parses argv only (no `--config`/`--server`), so no mcp.json unless you pass equivalent flags manually |
-| `mcp-inspector-web` (from web workspace) | `node web/bin/start.js`                              | Same as above                                                                                                              |
-| `mcp-inspector-tui` (from TUI workspace) | `node tui/build/tui.js`                              | TUI parses argv; expects config file path and options                                                                      |
-| `mcp-inspector-cli` (from CLI workspace) | `node cli/build/index.js`                            | CLI parses argv; expects target (URL or command) + method flags; **no** `--config`/`--server`                              |
+| User runs                                | What executes                                                         | Config handling                                                                                               |
+| ---------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `mcp-inspector` (or `npm run web`)       | `node launcher/build/index.js` (default: web)                         | Launcher forwards argv to web runner; web runner parses and uses core config                                  |
+| `mcp-inspector --web`                    | Launcher → **in-process** `runWeb(process.argv)` (web/build/index.js) | Launcher resolves config to Args, passes argv to web runner                                                   |
+| `mcp-inspector --cli`                    | Launcher → **in-process** `runCli(process.argv)` (cli/build/index.js) | CLI runner parses argv, calls core config processor (single-server), runs method                              |
+| `mcp-inspector --tui`                    | Launcher → **in-process** `runTui(process.argv)` (tui/build/index.js) | TUI runner parses argv, calls core config processor (multi-server) or getNamedServerConfigs, runs TUI         |
+| `npm run dev`                            | `vite --port 6274` (web package script)                               | **No** launcher; Vite only. For full argv/config use launcher or `node web/build/index.js --dev --config ...` |
+| `mcp-inspector-web` (from web workspace) | `node web/build/index.js`                                             | Web entrypoint: runWeb(process.argv) with Commander and core config                                           |
+| `mcp-inspector-tui` (from TUI workspace) | `node tui/build/index.js`                                             | Same as launcher path: runTui(process.argv); Commander + core config (--config, multi-server)                 |
+| `mcp-inspector-cli` (from CLI workspace) | `node cli/build/index.js`                                             | Same as launcher path: runCli(process.argv); Commander + core config (--config, --server, single-server)      |
 
-So:
+So (after Phase 1):
 
-- **Config from mcp.json** is only done in the launcher (`cli/src/cli.ts`): `loadConfigFile(configPath, serverName)` returns a single `ServerConfig`; `parseArgs()` then **merges that with all supported CLI options** (e.g. `--cwd`, `-e`, `--header`, args after `--`) and produces `Args` (command, args, transport, serverUrl, cwd, envArgs, etc.). So existing behavior is: file supplies base config; every supported param can override or extend it.
-- **Web** never sees `--config` or `--server`; it receives the **resolved** params (e.g. `--transport stdio --cwd /path -- node script.js`). Web's `start.js` parses those flags and env (e.g. `MCP_INITIAL_*`) and passes a config object into the dev or prod client.
-- **CLI (inspector-cli)** when spawned gets the same resolved target (command + args) as its positional arguments, plus `--transport`, `--cwd`, etc. It uses its own `parseArgs()` and `argsToMcpServerConfig()` (duplicated logic vs core's `argsToMcpServerConfig` in `core/mcp/node/config.ts`) to build `MCPServerConfig`.
-- **TUI** does not use the launcher's config at all when started via `mcp-inspector --tui`; it gets raw argv and requires a config **file path** and supports multiple servers from that file via core's `loadMcpServersConfig()`.
+- **Config** is done in **each runner** via **core**: web, CLI, and TUI each parse argv with Commander, extract the server-config subset, and call core's `resolveServerConfigs(options, mode)` (or TUI's `getNamedServerConfigs` when using a config file for multiple named servers). Single-server mode for web and CLI; multi-server for TUI. No config logic in the launcher.
+- **Web** runner (`web/src/web.ts`) parses `--config`, `--server`, `-e`, `--transport`, `--server-url`, `--cwd`, `--header`, `--dev`, and positionals; calls core in single-server mode; then spawns Vite (dev) or Hono (prod) with env vars.
+- **CLI** runner (`cli/src/cli.ts`) parses the same server-config options plus `--method`, etc.; calls core `resolveServerConfigs(..., "single")`; no duplicate `argsToMcpServerConfig` (removed).
+- **TUI** runner (`tui/tui.tsx`) parses `--config`, ad-hoc options, OAuth options; uses core `getNamedServerConfigs` or `resolveServerConfigs(..., "multi")`; passes configs to App as props.
 
-### Problems with the current design
+### Problems addressed by Phase 1 (historical)
 
-1. **Two processes for web and CLI**  
-   Launcher spawns `node web/bin/start.js` or `node cli/build/index.js`. That means extra process overhead, harder debugging, and serialization of config via argv/env instead of passing a config object.
+1. ~~**Two processes for web and CLI**~~  
+   **Fixed:** Launcher calls app runners in-process (runWeb/runCli/runTui with argv). No spawn.
 
-2. **Config logic is split and duplicated**
-   - Launcher: custom `loadConfigFile(configPath, serverName)` and `parseArgs()` that understand `--config`/`--server`, single-server only.
-   - Core: `loadMcpServersConfig(configPath)` (full file) and `argsToMcpServerConfig(args)` (target + transport → `MCPServerConfig`).
-   - CLI (index.ts): its own `argsToMcpServerConfig()` (duplicate of core's).
-   - TUI: uses core's `loadMcpServersConfig`; different UX (config file path + multi-server).
-   - Web: no config file support; only resolved params via argv/env.
+2. ~~**Config logic is split and duplicated**~~  
+   **Fixed:** Core provides `resolveServerConfigs`, helpers (`parseKeyValuePair`, `parseHeaderPair`), and `ServerConfigOptions`. Web, CLI, and TUI each use core; CLI duplicate `argsToMcpServerConfig` removed.
 
-3. **Direct launch is inconsistent**
-   - `npm run dev` or `mcp-inspector-web` cannot use `--config mcp.json --server demo`; they'd need to be extended to accept those flags and do the same resolution, or users must use the launcher.
-   - So "use one entrypoint" vs "run web (or TUI) directly" are at odds: direct run doesn't get launcher's config handling unless we duplicate or share it.
+3. ~~**Direct launch is inconsistent**~~  
+   **Fixed:** Direct run (e.g. `mcp-inspector-web --config mcp.json --server demo`) uses the same runner as launcher; each app's entrypoint is a thin wrapper that calls the runner with `process.argv`.
 
-4. **TUI is a special case**  
-   TUI expects a **file path** and multiple servers; launcher is single-server and doesn't pass config file to TUI when using `--tui`. So `mcp-inspector --tui ./mcp.json` would pass `./mcp.json` as a raw arg; TUI would parse it. But launcher's `--config`/`--server` flow (resolve one server from file) is never used for TUI—the comment in code says "we'll integrate config later."
+4. ~~**TUI is a special case**~~  
+   **Fixed:** TUI runner accepts same `--config` and server-config options, calls core in multi-server mode (or `getNamedServerConfigs` for named servers from file).
 
 ---
 
@@ -55,7 +56,7 @@ So:
 
 ### 1. Launcher: dedicated package under `launcher/`
 
-- A **dedicated launcher package** lives under **`launcher/`** (new workspace, same pattern as `cli/`, `web/`, `tui/`). It is implemented in **`launcher/src/main.ts`** using **Commander** for argument parsing. The package has a build step that compiles to e.g. `launcher/build/main.js`; the root package `bin` for `mcp-inspector` points to that file.
+- A **dedicated launcher package** lives under **`launcher/`** (new workspace, same pattern as `cli/`, `web/`, `tui/`). It is implemented in **`launcher/src/index.ts`** using **Commander** for argument parsing. The package has a build step that compiles to **`launcher/build/index.js`**; the root package `bin` for `mcp-inspector` points to that file.
 - **Responsibility:** Only to choose which app runs and to forward argv. The launcher:
   - Parses argv **only** to detect `--web`, `--cli`, or `--tui` (default when none specified, e.g. `--web`).
   - If `-h` or `--help` is present and no mode flag is set, prints launcher help and exits. Launcher help shows **only** the mode options (`--web`, `--cli`, `--tui`) and a note that all other arguments are forwarded to the selected app.
@@ -84,15 +85,15 @@ So:
 
 ### 4. Direct launch and entrypoints
 
-- Each app has a **single, consistently named entrypoint: `index.js`** under **`build/`**, matching the CLI/TUI pattern. So: `web/build/index.js`, `cli/build/index.js`, `tui/build/index.js`. The launcher and package `bin` fields point at these. This avoids mixed names (start, index, tui) and keeps `index.js` as the standard entrypoint name across apps.
-- The entrypoint is a thin wrapper: it calls the app's runner with `process.argv` (e.g. `runWeb(process.argv)`).
+- Each app has **two parts**: (1) a **small entrypoint** in **`index.ts`** (built to `build/index.js`) that only detects “run as main” and calls the runner with `process.argv`; (2) the **runner** in **`web.ts`** / **`cli.ts`** / **`tui.tsx`** that contains all parsing, config, and app logic (`runWeb`, `runCli`, `runTui`). The entrypoint is a thin wrapper; the runner is the single code path whether invoked from the launcher or from the app binary.
+- Entrypoints are consistently named **`index.js`** under **`build/`**: `web/build/index.js`, `cli/build/index.js`, `tui/build/index.js`. The launcher and package `bin` fields point at these.
 - Direct launch and launcher-invoked launch use the **same** runner code; the only difference is whether the process was started by the user running the app binary or by the launcher calling the runner. Behavior is identical.
 
 ### 5. Summary
 
 | Component            | Location                                                                                       | Responsibility                                                                                                                                                                                                                                             |
 | -------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Launcher**         | **`launcher/`** package (`src/main.ts`, Commander, build → `build/main.js`)                    | Parse only `--web`/`--cli`/`--tui` and `-h`. Show launcher help (mode options only). Call `runWeb(argv)` / `runCli(argv)` / `runTui(argv)` in-process. No config processing. Root `bin` points to `launcher/build/main.js`.                                |
+| **Launcher**         | **`launcher/`** package (`src/index.ts`, Commander, build → `build/index.js`)                  | Parse only `--web`/`--cli`/`--tui` and `-h`. Show launcher help (mode options only). Call `runWeb(argv)` / `runCli(argv)` / `runTui(argv)` in-process. No config processing. Root `bin` points to `launcher/build/index.js`.                               |
 | **Config processor** | **Core** (`core/mcp/node/`)                                                                    | Library: **helper functions** (e.g. `parseKeyValuePair`, `parseHeaderPair`) for option parsing; `resolveServerConfigs(options, mode)` returns **list** of `MCPServerConfig`. No Commander in core; each runner defines its own Commander options in place. |
 | **Runners**          | **Web** (`web/`), **CLI** (`cli/`), **TUI** (`tui/`)                                           | Parse argv, show app help, call core config processor with server-config subset and mode, get list of configs, run app. Same behavior when called from launcher or from app entrypoint.                                                                    |
 | **App entrypoints**  | **`index.js`** per app (e.g. `web/build/index.js`, `cli/build/index.js`, `tui/build/index.js`) | Thin wrapper: call runner with `process.argv`.                                                                                                                                                                                                             |
@@ -100,30 +101,103 @@ So:
 ### 6. Phasing
 
 1. **Core config module**  
-   In core (no Commander dependency): (a) **Helper functions** — export pure functions used by runners when defining Commander options, e.g. `parseKeyValuePair` (for `-e KEY=VALUE`) and `parseHeaderPair` (for `--header "Name: Value"`). Runners use these as option coerce/accumulator in their own `.option()` chains. (b) **Config processor** — `resolveServerConfigs(options, mode)` that accepts the structured options object (typed; core exports the options type) and a **mode** (`'single'` | `'multi'`), and returns a **list** of **`MCPServerConfig`**. Single mode: one entry (from file + overrides, or from args only). Multi mode with config path: load all servers from file; error if transport, server-url, or positional args are also provided; allow env, cwd, and headers as overrides (env/cwd for stdio servers, headers for HTTP/SSE). Multi mode without config path: single-element list from args. Deprecate/remove duplicate `argsToMcpServerConfig` in CLI.
+   **Done.** Core exports `parseKeyValuePair`, `parseHeaderPair`, `ServerConfigOptions`, `resolveServerConfigs(options, mode)` (single/multi), and `getNamedServerConfigs` (for TUI). CLI duplicate `argsToMcpServerConfig` removed.
 
 2. **Web runner**  
-   Refactor so that `runWeb(argv)` is the main API: it parses argv with Commander, calls core config processor with server-config subset and single-server mode, gets list of one config, handles `--dev` and `-h`, then runs. Entrypoint **`index.js`** (e.g. `web/build/index.js`) just calls `runWeb(process.argv)`.
+   **Done.** `runWeb(argv)` in `web/src/web.ts` parses argv with Commander, calls core in single-server mode, handles `--dev` and `-h`, then spawns dev/prod client. Entrypoint `web/src/index.ts` → `runWeb(process.argv)`. Build: `web/build/index.js`.
 
 3. **CLI runner**  
-   Refactor so that `runCli(argv)` is the main API: parses argv with Commander, calls core config processor with single-server mode, gets list of one config, handles `--method`, `-h`, etc., then runs. Entrypoint **`index.js`** calls `runCli(process.argv)`.
+   **Done.** `runCli(argv)` in `cli/src/cli.ts` parses argv with Commander, calls core in single-server mode, handles `--method`, `-h`, etc. Entrypoint `cli/src/index.ts` → `runCli(process.argv)`. Build: `cli/build/index.js`.
 
 4. **TUI runner**  
-   TUI already exports `runTui(args?)`; ensure it accepts argv and parses with Commander. It adopts the same server-config options as the other apps (e.g. `--config` instead of only a positional config path) and always calls core config processor with **multi-server** mode (processor returns all from file or a single-element list from args). Entrypoint **`index.js`** calls `runTui(process.argv)`.
+   **Done.** `runTui(args?)` in `tui/tui.tsx` parses argv with Commander, uses core `getNamedServerConfigs` or `resolveServerConfigs(..., "multi")`. Entrypoint `tui/index.ts` → `runTui(process.argv)`. Build: `tui/build/index.js`.
 
 5. **Launcher package (`launcher/`)**  
-   Add a new workspace **`launcher/`** with `src/main.ts` using Commander to parse **only** `--web`/`--cli`/`--tui` and `-h`. Show launcher help for `mcp-inspector -h` (only those mode options). Dynamic import of the chosen app and call the exported runner with argv: `runWeb(process.argv)` / `runCli(process.argv)` / `runTui(process.argv)`. No config processing; no spawn. Build to `launcher/build/main.js`; root package `bin` for `mcp-inspector` points to that file. Launcher package has Commander as a dependency.
+   **Done.** Workspace **`launcher/`** with `src/index.ts` using Commander to parse **only** `--web`/`--cli`/`--tui` and `-h`. Dynamic import of the chosen app and call the exported runner with argv: `runWeb(process.argv)` / `runCli(process.argv)` / `runTui(process.argv)`. No config processing; no spawn. Build to `launcher/build/index.js`; root package `bin` for `mcp-inspector` points to that file.
 
 6. **Entrypoints and direct launch**  
-   Standardize app entrypoints to **`build/index.js`** for all apps (same as CLI/TUI): add or move web to `web/build/index.js`, ensure `cli/build/index.js` and `tui/build/index.js` (rename `tui/build/tui.js` → `tui/build/index.js`). Update root and workspace `package.json` `bin` fields, scripts (e.g. `npm run dev`), and launcher to point at these paths. Each app's binary points at its `index.js`; direct run behaves identically to launcher-invoked run.
+   **Done.** All apps use **`build/index.js`**: `web/build/index.js`, `cli/build/index.js`, `tui/build/index.js`. Each entrypoint is a thin wrapper that calls the runner with `process.argv`. Root and workspace `package.json` `bin` and scripts point at these paths. Direct run behaves identically to launcher-invoked run.
+
+---
+
+## Phase 2: Web server in-process and config as object
+
+### Goal
+
+- The web runner starts the **Vite dev server** and **Hono production server** via their **Node APIs** (in-process), instead of spawning them as separate processes.
+- Config (initial MCP server(s), auth token, port, etc.) is passed as a **single config object** into the code that starts each server. No serialization to environment variables and no env parsing inside the servers.
+- The same runner process **is** the web server: one process for dev (Vite API) and one for prod (Hono in-process). This removes the “launcher spawns server” split and makes richer config (e.g. multi-server) straightforward.
+
+### Current state (after Phase 1)
+
+- The web runner (`runWeb` in `web.ts`) **spawns** either:
+  - **Dev:** `npx vite` as a child process, with MCP and auth config passed via env vars (`MCP_INITIAL_*`, `MCP_ENV_VARS`, auth token, etc.).
+  - **Prod:** `node dist/server.js` (Hono) as a child process, same env-var handoff.
+- The child reads `process.env` and reconstructs config. This works but:
+  - **Doesn’t scale:** Multi-server or more complex config would require more env vars and ad-hoc encoding (e.g. JSON in env).
+  - **Fragile:** Many env keys, easy to get out of sync between runner and server.
+  - **Unnecessary process boundary:** The runner could just start the server in the same process and pass a config object.
+
+### APIs (actual)
+
+**Vite (dev):** `import { createServer } from 'vite'`. `createServer(inlineConfig?: InlineConfig): Promise<ViteDevServer>`. `ViteDevServer.listen(port?: number, isRestart?: boolean): Promise<ViteDevServer>`. `ViteDevServer.close(): Promise<void>`. The Vite plugin in `vite.config.ts` already patches `server.close` to call `sandboxController.close()` first.
+
+**Hono (prod):** `import { serve } from '@hono/node-server'`. `serve(options, listeningCallback?)` returns Node's `http.Server`. `http.Server.close(callback?: (err?: Error) => void): this`. Prod also has `sandboxController`; shutdown must close sandbox then the HTTP server (wrap `server.close` in a Promise for async).
+
+### Design
+
+1. **Runner starts server via API**
+   - **Dev:** Use Vite’s Node API (`createServer` from `vite`) in the same process. Call `server.listen(port)`. HMR and all Vite dev behavior are unchanged; the CLI is a thin wrapper around this API.
+   - **Prod:** Call `startHonoServer(config)` (refactored from current `server.ts`); no spawn of `node dist/server.js`.
+   - No `spawn`/`exec` of Vite or Hono; one Node process for the web app.
+
+2. **Config as object**
+   - Define `WebServerConfig`: port, hostname, authToken, dangerouslyOmitAuth, initialMcpConfig (single `MCPServerConfig` or null), storageDir, allowedOrigins, sandbox options, optional logger. Runner builds it from argv + core `resolveServerConfigs`.
+   - Runner calls `startViteDevServer(config)` or `startHonoServer(config)`; both return `Promise<{ close(): Promise<void> }>`. Startup code uses the config object; no `process.env` for handoff.
+   - Env vars are only used where they are truly environment-specific (e.g. `NODE_ENV`, optional overrides). MCP/server config is not passed via env.
+
+3. **Servers implement the config**
+   - The **Vite dev** setup (middleware or plugin if needed) and the **Hono prod** app receive the config object and implement it: e.g. which initial server(s) to show, auth requirements, etc. Logic that today reads `MCP_INITIAL_*` and similar env vars is replaced by reading from the passed config.
+
+4. **Benefits**
+   - **Simpler:** No env var encoding/decoding; no long list of `MCP_INITIAL_*` and friends.
+   - **Scalable:** Multi-server config (and future options) are just more fields on the object; no need to invent new env vars or JSON-in-env schemes.
+   - **Single process:** Easier debugging, no spawn/kill plumbing, clear shutdown (close server and exit).
+
+5. **Tradeoffs**
+   - **Crash isolation:** If the server crashes, the whole process exits (same as today for the child; the parent runner would exit too once we’re in-process). Acceptable for a dev tool.
+   - **Shutdown:** Runner registers SIGINT/SIGTERM; handler calls `await handle.close()` then `process.exit(0)`. No drain wait; user said stop, so we stop.
+
+### Phasing (Phase 2)
+
+1. **Define WebServerConfig and start functions**
+   - Add `WebServerConfig` in web package (e.g. `web/src/web-server-config.ts`): port, hostname, authToken, dangerouslyOmitAuth, initialMcpConfig, storageDir, allowedOrigins, sandbox options, optional logger. Runner builds from argv + core processor.
+   - API: `startViteDevServer(config: WebServerConfig): Promise<{ close(): Promise<void> }>` and `startHonoServer(config: WebServerConfig): Promise<{ close(): Promise<void> }>`. Runner calls one, stores the returned handle, and on SIGINT/SIGTERM calls `await handle.close()` then `process.exit(0)`. Implementations in web package.
+
+2. **Vite dev: startViteDevServer**
+   - Implement `startViteDevServer(config: WebServerConfig): Promise<{ close(): Promise<void> }>`. Call `createServer(inlineConfig)` with config that includes the existing plugin (pass config into plugin). `await server.listen(config.port, config.hostname)`. Return `{ close: () => server.close() }`. Remove spawn of `npx vite` and `MCP_INITIAL_*` env vars.
+
+3. **Hono prod: startHonoServer**
+   - Export `startHonoServer(config: WebServerConfig): Promise<{ close(): Promise<void> }>` from web package. Create sandboxController, start it, build Hono app and `createRemoteApp` from config, call `serve(...)` from `@hono/node-server`, return `{ close: async () => { await sandboxController.close(); await new Promise<void>((res, rej) => httpServer.close(err => err ? rej(err) : res())); } }`. Do not register SIGINT/SIGTERM inside; runner owns signals. Remove spawn of `node dist/server.js`.
+
+4. **Config to client**
+   - Server gets config from `WebServerConfig` at start. Expose to client via `/api/config` or inline in HTML. Remove reads of `MCP_INITIAL_*` and `MCP_ENV_VARS` in server and Vite plugin.
+
+5. **Remove handoff env vars**
+   - Delete code that sets or reads `MCP_INITIAL_COMMAND`, `MCP_INITIAL_ARGS`, `MCP_INITIAL_TRANSPORT`, `MCP_INITIAL_SERVER_URL`, `MCP_INITIAL_HEADERS`, `MCP_INITIAL_CWD`, `MCP_ENV_VARS` for runner→server handoff. Update tests and docs.
+
+### References (Phase 2)
+
+- Vite: `createServer` / `ViteDevServer.listen` / `ViteDevServer.close` — https://vitejs.dev/guide/api-javascript.html
+- Hono: `serve` from `@hono/node-server` returns Node `http.Server`; `server.close(callback)` for shutdown.
+- Web runner: `web/src/web.ts`. Prod server: `web/src/server.ts`. Vite plugin: `web/vite.config.ts` (honoMiddlewarePlugin, server.close patch).
 
 ---
 
 ## References
 
-- Launcher: `cli/src/cli.ts` (parseArgs, loadConfigFile, runWeb, runCli, runTui).
-- Web entry: `web/bin/start.js` (argv parsing, startDevClient / startProdClient).
-- CLI entry: `cli/src/index.ts` (parseArgs, argsToMcpServerConfig, callMethod).
-- TUI entry: `tui/tui.tsx` (runTui, Commander for config file + options). After consolidation: entrypoint `tui/build/index.js`.
-- Core config: `core/mcp/node/config.ts` (loadMcpServersConfig, argsToMcpServerConfig).
-- Todo: `docs/inspector-client-todo.md` (Misc: "Look at the launcher flow… Single launcher just routes to app…").
+- Launcher: `launcher/src/index.ts` (Commander for --web/--cli/--tui only; dynamic import and call runWeb/runCli/runTui with process.argv). Build: `launcher/build/index.js`.
+- Web: entrypoint `web/src/index.ts` → `runWeb(process.argv)`; runner `web/src/web.ts` (Commander, core resolveServerConfigs single-server, spawn dev/prod client). Build: `web/build/index.js`.
+- CLI: entrypoint `cli/src/index.ts` → `runCli(process.argv)`; runner `cli/src/cli.ts` (Commander, core resolveServerConfigs single-server, callMethod). Build: `cli/build/index.js`.
+- TUI: entrypoint `tui/index.ts` → `runTui(process.argv)`; runner `tui/tui.tsx` (Commander, core getNamedServerConfigs / resolveServerConfigs multi-server). Build: `tui/build/index.js`.
+- Core config: `core/mcp/node/config.ts` (ServerConfigOptions, parseKeyValuePair, parseHeaderPair, resolveServerConfigs, getNamedServerConfigs, loadMcpServersConfig).

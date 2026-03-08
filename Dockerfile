@@ -39,7 +39,7 @@ RUN npm ci --omit=dev --ignore-scripts
 
 # Copy built files from builder stage
 COPY --from=builder /app/web/dist ./web/dist
-COPY --from=builder /app/web/bin ./web/bin
+COPY --from=builder /app/web/build ./web/build
 COPY --from=builder /app/cli/build ./cli/build
 
 # Set default port
@@ -47,4 +47,4 @@ ENV PORT=6274
 EXPOSE ${PORT}
 
 # Run web app
-CMD ["node", "web/bin/start.js"]
+CMD ["node", "web/build/index.js"]

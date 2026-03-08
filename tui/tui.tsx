@@ -2,6 +2,13 @@
 
 import { Command } from "commander";
 import { render } from "ink";
+import type { MCPServerConfig } from "@modelcontextprotocol/inspector-core/mcp/types.js";
+import {
+  getNamedServerConfigs,
+  resolveServerConfigs,
+  parseKeyValuePair,
+  parseHeaderPair,
+} from "@modelcontextprotocol/inspector-core/mcp/node/index.js";
 import App from "./src/App.js";
 
 export async function runTui(args?: string[]): Promise<void> {
@@ -10,7 +17,23 @@ export async function runTui(args?: string[]): Promise<void> {
   program
     .name("mcp-inspector-tui")
     .description("Terminal UI for MCP Inspector")
-    .argument("<config-file.json>", "path to MCP servers config file")
+    .option(
+      "--config <path>",
+      "Path to MCP servers config file (or use ad-hoc server options below)",
+    )
+    .option(
+      "-e <key=value...>",
+      "Environment variables for stdio servers",
+      parseKeyValuePair,
+      {},
+    )
+    .option("--cwd <path>", "Working directory for stdio servers")
+    .option(
+      "--header <header...>",
+      'HTTP headers as "Name: Value"',
+      parseHeaderPair,
+      {},
+    )
     .option(
       "--client-id <id>",
       "OAuth client ID (static client) for HTTP servers",
@@ -27,18 +50,59 @@ export async function runTui(args?: string[]): Promise<void> {
       "--callback-url <url>",
       "OAuth redirect/callback listener URL (default: http://127.0.0.1:0/oauth/callback)",
     )
+    .argument(
+      "[target...]",
+      "Command and args or URL for a single ad-hoc server (when not using --config)",
+    )
+    .option(
+      "--transport <type>",
+      "Transport: stdio, sse, or http (ad-hoc only)",
+    )
+    .option("--server-url <url>", "Server URL (ad-hoc only)")
     .parse(args ?? process.argv);
 
-  const configFile = program.args[0];
   const options = program.opts() as {
+    config?: string;
+    e?: Record<string, string>;
+    cwd?: string;
+    header?: Record<string, string>;
     clientId?: string;
     clientSecret?: string;
     clientMetadataUrl?: string;
     callbackUrl?: string;
+    transport?: "stdio" | "sse" | "http";
+    serverUrl?: string;
+  };
+  const targetArgs = program.args as string[];
+
+  let mcpServers: Record<string, MCPServerConfig>;
+  const serverOptions = {
+    configPath: options.config?.trim() || undefined,
+    target: targetArgs.length > 0 ? targetArgs : undefined,
+    cwd: options.cwd?.trim() || undefined,
+    env: options.e,
+    headers: options.header,
+    transport: options.transport,
+    serverUrl: options.serverUrl?.trim() || undefined,
   };
 
-  if (!configFile) {
-    program.error("Config file is required");
+  try {
+    if (serverOptions.configPath) {
+      mcpServers = getNamedServerConfigs(serverOptions);
+    } else {
+      const configs = resolveServerConfigs(serverOptions, "multi");
+      if (configs.length === 0) {
+        program.error(
+          "At least one server is required. Use --config <path> or ad-hoc target (command/URL).",
+        );
+      }
+      mcpServers = { default: configs[0]! };
+    }
+  } catch (err) {
+    if (err instanceof Error) {
+      program.error(err.message);
+    }
+    throw err;
   }
 
   interface CallbackUrlConfig {
@@ -141,7 +205,7 @@ export async function runTui(args?: string[]): Promise<void> {
   // Render the app
   const instance = render(
     <App
-      configFile={configFile}
+      mcpServers={mcpServers}
       clientId={options.clientId}
       clientSecret={options.clientSecret}
       clientMetadataUrl={options.clientMetadataUrl}
@@ -162,9 +226,7 @@ export async function runTui(args?: string[]): Promise<void> {
     if (process.stdout.isTTY) {
       process.stdout.write("\x1b[?1049l");
     }
-    console.error("Error:", error);
+    console.error("TUI Error:", error);
     process.exit(1);
   }
 }
-
-runTui();

@@ -6,17 +6,16 @@
   "author": "Anthropic, PBC (https://anthropic.com)",
   "homepage": "https://modelcontextprotocol.io",
   "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
-  "main": "build/cli.js",
+  "main": "build/index.js",
   "type": "module",
   "bin": {
-    "mcp-inspector-cli": "build/cli.js"
+    "mcp-inspector-cli": "./build/index.js"
   },
   "files": [
     "build"
   ],
   "scripts": {
     "build": "tsc",
-    "postbuild": "node scripts/make-executable.js",
     "lint": "prettier --check . && eslint . --max-warnings 0 && echo 'Lint passed.'",
     "test": "vitest run",
     "test:watch": "vitest",

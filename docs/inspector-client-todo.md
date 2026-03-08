@@ -114,6 +114,10 @@ If we are in a container:
 
 ### TUI
 
+Some interaction bugs (esp menu item selection). My guess is this is related to the rollback to React 18 (nothing else should have changed).
+@mcp-ui/client has a soon-to-be-deprecated UIResourceRendered that depends on @remote-dom/react, that only supports React 17/18
+See: https://discord.com/channels/1358869848138059966/1471514975171514631
+
 Close feature gap
 Follow v2 UX design
 Implement test strategy (vitest + Playwright?)

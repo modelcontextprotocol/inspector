@@ -2,10 +2,9 @@
 
 import { resolve } from "path";
 import { fileURLToPath } from "url";
-import { runCli, validLogLevels } from "./cli.js";
-import { handleError } from "./error-handler.js";
+import { runWeb } from "./web.js";
 
-export { runCli, validLogLevels };
+export { runWeb };
 
 const __filename = fileURLToPath(import.meta.url);
 const isMain =
@@ -13,7 +12,10 @@ const isMain =
   resolve(process.argv[1]) === resolve(__filename);
 
 if (isMain) {
-  runCli(process.argv)
-    .then(() => process.exit(0))
-    .catch(handleError);
+  runWeb(process.argv)
+    .then((code) => process.exit(code ?? 0))
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    });
 }

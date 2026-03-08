@@ -7,17 +7,18 @@
   "homepage": "https://modelcontextprotocol.io",
   "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "type": "module",
+  "main": "build/index.js",
   "bin": {
-    "mcp-inspector-web": "./bin/start.js"
+    "mcp-inspector-web": "./build/index.js"
   },
   "files": [
-    "bin",
+    "build",
     "dist"
   ],
   "scripts": {
     "dev": "vite --port 6274",
     "typecheck": "tsc -p tsconfig.app.json",
-    "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
+    "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json && tsc -p tsconfig.runner.json",
     "start": "node dist/server.js",
     "lint": "prettier --check . && eslint . --max-warnings 0 && echo 'Lint passed.'",
     "preview": "vite preview --port 6274",
@@ -56,7 +57,9 @@
     "tailwind-merge": "^2.5.3",
     "zod": "^3.25.76",
     "open": "^10.1.0",
-    "pino": "^9.6.0"
+    "pino": "^9.6.0",
+    "commander": "^13.1.0",
+    "spawn-rx": "^5.1.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.11.1",

@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CLI_PATH = resolve(__dirname, "../../build/cli.js");
+const CLI_PATH = resolve(__dirname, "../../build/index.js");
 
 export interface CliResult {
   exitCode: number | null;

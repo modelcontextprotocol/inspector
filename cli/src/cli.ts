@@ -1,272 +1,214 @@
-#!/usr/bin/env node
-
+import * as fs from "fs";
 import { Command } from "commander";
-import fs from "node:fs";
-import path from "node:path";
-import { dirname, resolve } from "path";
-import { spawnPromise } from "spawn-rx";
-import { fileURLToPath } from "url";
+type McpResponse = Record<string, unknown>;
+import { handleError } from "./error-handler.js";
+import { awaitableLog } from "./utils/awaitable-log.js";
+import type { MCPServerConfig } from "@modelcontextprotocol/inspector-core/mcp/types.js";
+import { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import {
+  ManagedToolsState,
+  ManagedResourcesState,
+  ManagedResourceTemplatesState,
+  ManagedPromptsState,
+} from "@modelcontextprotocol/inspector-core/mcp/state/index.js";
+import {
+  createTransportNode,
+  resolveServerConfigs,
+  parseKeyValuePair as parseEnvPair,
+  parseHeaderPair,
+} from "@modelcontextprotocol/inspector-core/mcp/node/index.js";
+import type { JsonValue } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import {
+  LoggingLevelSchema,
+  type LoggingLevel,
+} from "@modelcontextprotocol/sdk/types.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+export const validLogLevels: LoggingLevel[] = Object.values(
+  LoggingLevelSchema.enum,
+);
 
-// This represents the parsed arguments produced by parseArgs()
-//
-type Args = {
-  command: string;
-  args: string[];
-  envArgs: Record<string, string>;
-  cli: boolean;
-  dev?: boolean;
-  transport?: "stdio" | "sse" | "streamable-http";
-  serverUrl?: string;
-  headers?: Record<string, string>;
-  cwd?: string;
+type MethodArgs = {
+  method?: string;
+  promptName?: string;
+  promptArgs?: Record<string, JsonValue>;
+  uri?: string;
+  logLevel?: LoggingLevel;
+  toolName?: string;
+  toolArg?: Record<string, JsonValue>;
+  toolMeta?: Record<string, string>;
+  metadata?: Record<string, string>;
 };
 
-// This is only to provide typed access to the parsed program options
-// This could just be defined locally in parseArgs() since that's the only place it is used
-//
-type CliOptions = {
-  e?: Record<string, string>;
-  config?: string;
-  server?: string;
-  cli?: boolean;
-  dev?: boolean;
-  transport?: string;
-  serverUrl?: string;
-  header?: Record<string, string>;
-  cwd?: string;
-};
+async function callMethod(
+  serverConfig: MCPServerConfig,
+  args: MethodArgs & { method: string },
+): Promise<void> {
+  const pathA = "../package.json";
+  const pathB = "../../package.json";
+  const packageJsonData = await import(fs.existsSync(pathA) ? pathA : pathB, {
+    with: { type: "json" },
+  });
+  const packageJson = packageJsonData.default as {
+    name: string;
+    version: string;
+  };
 
-type ServerConfig =
-  | {
-      type: "stdio";
-      command: string;
-      args?: string[];
-      env?: Record<string, string>;
-      cwd?: string;
-    }
-  | {
-      type: "sse" | "streamable-http";
-      url: string;
-      headers?: Record<string, string>;
-      note?: string;
-    };
+  const [, name = packageJson.name] = packageJson.name.split("/");
+  const version = packageJson.version;
+  const clientIdentity = { name, version };
 
-function handleError(error: unknown): never {
-  let message: string;
-
-  if (error instanceof Error) {
-    message = error.message;
-  } else if (typeof error === "string") {
-    message = error;
-  } else {
-    message = "Unknown error";
-  }
-
-  console.error(message);
-
-  process.exit(1);
-}
-
-async function runWeb(args: Args): Promise<void> {
-  // Path to the web entry point
-  const inspectorWebPath = resolve(
-    __dirname,
-    "../../",
-    "web",
-    "bin",
-    "start.js",
-  );
-
-  const abort = new AbortController();
-  let cancelled: boolean = false;
-  process.on("SIGINT", () => {
-    cancelled = true;
-    abort.abort();
+  const inspectorClient = new InspectorClient(serverConfig, {
+    environment: {
+      transport: createTransportNode,
+    },
+    clientIdentity,
+    initialLoggingLevel: "debug",
+    progress: false,
+    sample: false,
+    elicit: false,
   });
 
-  // Build arguments to pass to start.js
-  const startArgs: string[] = [];
-
-  if (args.dev) {
-    startArgs.push("--dev");
-  }
-
-  // Pass environment variables
-  for (const [key, value] of Object.entries(args.envArgs)) {
-    startArgs.push("-e", `${key}=${value}`);
-  }
-
-  // Pass transport type if specified
-  if (args.transport) {
-    startArgs.push("--transport", args.transport);
-  }
-
-  // Pass server URL if specified
-  if (args.serverUrl) {
-    startArgs.push("--server-url", args.serverUrl);
-  }
-
-  // Pass headers if specified (for SSE/streamable-http)
-  if (args.headers && Object.keys(args.headers).length > 0) {
-    startArgs.push("--headers", JSON.stringify(args.headers));
-  }
-
-  // Pass cwd if specified (for stdio transport)
-  if (args.cwd) {
-    startArgs.push("--cwd", path.resolve(args.cwd));
-  }
-
-  // Pass command and args (using -- to separate them)
-  if (args.command) {
-    startArgs.push("--", args.command, ...args.args);
-  }
+  let managedToolsState: ManagedToolsState | null = null;
+  let managedResourcesState: ManagedResourcesState | null = null;
+  let managedResourceTemplatesState: ManagedResourceTemplatesState | null =
+    null;
+  let managedPromptsState: ManagedPromptsState | null = null;
 
   try {
-    await spawnPromise("node", [inspectorWebPath, ...startArgs], {
-      signal: abort.signal,
-      echoOutput: true,
-      // pipe the stdout through here, prevents issues with buffering and
-      // dropping the end of console.out after 8192 chars due to node
-      // closing the stdout pipe before the output has finished flushing
-      stdio: "inherit",
-    });
-  } catch (e) {
-    if (!cancelled || process.env.DEBUG) throw e;
-  }
-}
+    await inspectorClient.connect();
 
-async function runCli(args: Args): Promise<void> {
-  const projectRoot = resolve(__dirname, "..");
-  const cliPath = resolve(projectRoot, "build", "index.js");
+    let result: McpResponse;
 
-  const abort = new AbortController();
-
-  let cancelled = false;
-
-  process.on("SIGINT", () => {
-    cancelled = true;
-    abort.abort();
-  });
-
-  try {
-    // Build CLI arguments
-    const cliArgs = [cliPath];
-
-    // Add target URL/command first
-    cliArgs.push(args.command, ...args.args);
-
-    // Add transport flag if specified
-    if (args.transport && args.transport !== "stdio") {
-      // Convert streamable-http back to http for CLI mode
-      const cliTransport =
-        args.transport === "streamable-http" ? "http" : args.transport;
-      cliArgs.push("--transport", cliTransport);
+    if (args.method === "tools/list" || args.method === "tools/call") {
+      managedToolsState = new ManagedToolsState(inspectorClient);
+      managedToolsState.setMetadata(args.metadata);
+      await managedToolsState.refresh();
     }
 
-    // Add headers if specified
-    if (args.headers) {
-      for (const [key, value] of Object.entries(args.headers)) {
-        cliArgs.push("--header", `${key}: ${value}`);
+    if (args.method === "resources/list") {
+      managedResourcesState = new ManagedResourcesState(inspectorClient);
+      managedResourcesState.setMetadata(args.metadata);
+      await managedResourcesState.refresh();
+    } else if (args.method === "resources/templates/list") {
+      managedResourceTemplatesState = new ManagedResourceTemplatesState(
+        inspectorClient,
+      );
+      managedResourceTemplatesState.setMetadata(args.metadata);
+      await managedResourceTemplatesState.refresh();
+    } else if (args.method === "prompts/list") {
+      managedPromptsState = new ManagedPromptsState(inspectorClient);
+      managedPromptsState.setMetadata(args.metadata);
+      await managedPromptsState.refresh();
+    }
+
+    if (args.method === "tools/list") {
+      result = { tools: managedToolsState!.getTools() };
+    } else if (args.method === "tools/call") {
+      if (!args.toolName) {
+        throw new Error(
+          "Tool name is required for tools/call method. Use --tool-name to specify the tool name.",
+        );
       }
-    }
 
-    // Add cwd if specified (for stdio transport)
-    if (args.cwd) {
-      cliArgs.push("--cwd", path.resolve(args.cwd));
-    }
+      const tool = managedToolsState!
+        .getTools()
+        .find((t) => t.name === args.toolName);
+      if (!tool) {
+        result = {
+          content: [
+            {
+              type: "text" as const,
+              text: `Tool '${args.toolName}' not found.`,
+            },
+          ],
+          isError: true,
+        };
+      } else {
+        const invocation = await inspectorClient.callTool(
+          tool,
+          args.toolArg || {},
+          args.metadata,
+          args.toolMeta,
+        );
+        if (invocation.result !== null) {
+          result = invocation.result;
+        } else {
+          result = {
+            content: [
+              {
+                type: "text" as const,
+                text: invocation.error || "Tool call failed",
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    } else if (args.method === "resources/list") {
+      result = {
+        resources: managedResourcesState!.getResources(),
+      };
+    } else if (args.method === "resources/read") {
+      if (!args.uri) {
+        throw new Error(
+          "URI is required for resources/read method. Use --uri to specify the resource URI.",
+        );
+      }
 
-    await spawnPromise("node", cliArgs, {
-      env: { ...process.env, ...args.envArgs },
-      signal: abort.signal,
-      echoOutput: true,
-      // pipe the stdout through here, prevents issues with buffering and
-      // dropping the end of console.out after 8192 chars due to node
-      // closing the stdout pipe before the output has finished flushing
-      stdio: "inherit",
-    });
-  } catch (e) {
-    if (!cancelled || process.env.DEBUG) {
-      throw e;
-    }
-  }
-}
-
-async function runTui(tuiArgs: string[]): Promise<void> {
-  const projectRoot = resolve(__dirname, "../..");
-  const tuiPath = resolve(projectRoot, "tui", "build", "tui.js");
-
-  const abort = new AbortController();
-
-  let cancelled = false;
-
-  process.on("SIGINT", () => {
-    cancelled = true;
-    abort.abort();
-  });
-
-  try {
-    // Remove --tui flag and pass everything else directly to TUI
-    const filteredArgs = tuiArgs.filter((arg) => arg !== "--tui");
-
-    await spawnPromise("node", [tuiPath, ...filteredArgs], {
-      env: process.env,
-      signal: abort.signal,
-      echoOutput: true,
-      stdio: "inherit",
-    });
-  } catch (e) {
-    if (!cancelled || process.env.DEBUG) {
-      throw e;
-    }
-  }
-}
-
-function loadConfigFile(configPath: string, serverName: string): ServerConfig {
-  try {
-    const resolvedConfigPath = path.isAbsolute(configPath)
-      ? configPath
-      : path.resolve(process.cwd(), configPath);
-
-    if (!fs.existsSync(resolvedConfigPath)) {
-      throw new Error(`Config file not found: ${resolvedConfigPath}`);
-    }
-
-    const configContent = fs.readFileSync(resolvedConfigPath, "utf8");
-    const parsedConfig = JSON.parse(configContent);
-
-    if (!parsedConfig.mcpServers || !parsedConfig.mcpServers[serverName]) {
-      const availableServers = Object.keys(parsedConfig.mcpServers || {}).join(
-        ", ",
+      const invocation = await inspectorClient.readResource(
+        args.uri,
+        args.metadata,
       );
+      result = invocation.result;
+    } else if (args.method === "resources/templates/list") {
+      result = {
+        resourceTemplates:
+          managedResourceTemplatesState!.getResourceTemplates(),
+      };
+    } else if (args.method === "prompts/list") {
+      result = { prompts: managedPromptsState!.getPrompts() };
+    } else if (args.method === "prompts/get") {
+      if (!args.promptName) {
+        throw new Error(
+          "Prompt name is required for prompts/get method. Use --prompt-name to specify the prompt name.",
+        );
+      }
+
+      const invocation = await inspectorClient.getPrompt(
+        args.promptName,
+        args.promptArgs || {},
+        args.metadata,
+      );
+      result = invocation.result;
+    } else if (args.method === "logging/setLevel") {
+      if (!args.logLevel) {
+        throw new Error(
+          "Log level is required for logging/setLevel method. Use --log-level to specify the log level.",
+        );
+      }
+
+      await inspectorClient.setLoggingLevel(args.logLevel);
+      result = {};
+    } else {
       throw new Error(
-        `Server '${serverName}' not found in config file. Available servers: ${availableServers}`,
+        `Unsupported method: ${args.method}. Supported methods include: tools/list, tools/call, resources/list, resources/read, resources/templates/list, prompts/list, prompts/get, logging/setLevel`,
       );
     }
 
-    const serverConfig = parsedConfig.mcpServers[serverName];
-    if (serverConfig?.type === undefined) {
-      // Normalize missing type to "stdio" (backwards compatibility)
-      return { ...serverConfig, type: "stdio" };
-    } else if (serverConfig.type === "http") {
-      // Normalize "http" to "streamable-http" (some clients, like Claude Code, use http instead of streamable-http)
-      return { ...serverConfig, type: "streamable-http" };
-    }
-    return serverConfig;
-  } catch (err: unknown) {
-    if (err instanceof SyntaxError) {
-      throw new Error(`Invalid JSON in config file: ${err.message}`);
-    }
-
-    throw err;
+    await awaitableLog(JSON.stringify(result, null, 2));
+  } finally {
+    managedToolsState?.destroy();
+    managedResourcesState?.destroy();
+    managedResourceTemplatesState?.destroy();
+    managedPromptsState?.destroy();
+    await inspectorClient.disconnect();
   }
 }
 
 function parseKeyValuePair(
   value: string,
-  previous: Record<string, string> = {},
-): Record<string, string> {
+  previous: Record<string, JsonValue> = {},
+): Record<string, JsonValue> {
   const parts = value.split("=");
   const key = parts[0];
   const val = parts.slice(1).join("=");
@@ -277,202 +219,212 @@ function parseKeyValuePair(
     );
   }
 
-  return { ...previous, [key as string]: val };
-}
-
-function parseHeaderPair(
-  value: string,
-  previous: Record<string, string> = {},
-): Record<string, string> {
-  const colonIndex = value.indexOf(":");
-
-  if (colonIndex === -1) {
-    throw new Error(
-      `Invalid header format: ${value}. Use "HeaderName: Value" format.`,
-    );
+  let parsedValue: JsonValue;
+  try {
+    parsedValue = JSON.parse(val) as JsonValue;
+  } catch {
+    parsedValue = val;
   }
 
-  const key = value.slice(0, colonIndex).trim();
-  const val = value.slice(colonIndex + 1).trim();
-
-  if (key === "" || val === "") {
-    throw new Error(
-      `Invalid header format: ${value}. Use "HeaderName: Value" format.`,
-    );
-  }
-
-  return { ...previous, [key]: val };
+  return { ...previous, [key as string]: parsedValue };
 }
 
-function parseArgs(): Args {
+function parseArgs(argv?: string[]): {
+  serverConfig: MCPServerConfig;
+  methodArgs: MethodArgs & { method: string };
+} {
   const program = new Command();
-
-  const argSeparatorIndex = process.argv.indexOf("--");
-  let preArgs = process.argv;
-  let postArgs: string[] = [];
-
-  if (argSeparatorIndex !== -1) {
-    preArgs = process.argv.slice(0, argSeparatorIndex);
-    postArgs = process.argv.slice(argSeparatorIndex + 1);
+  const rawArgs = argv ?? process.argv;
+  const scriptArgs = rawArgs.slice(2);
+  const dashDashIndex = scriptArgs.indexOf("--");
+  let targetArgs: string[] = [];
+  let optionArgs: string[] = [];
+  if (dashDashIndex >= 0) {
+    targetArgs = scriptArgs.slice(0, dashDashIndex);
+    optionArgs = scriptArgs.slice(dashDashIndex + 1);
+  } else {
+    let i = 0;
+    while (i < scriptArgs.length && !scriptArgs[i]!.startsWith("-")) {
+      targetArgs.push(scriptArgs[i]!);
+      i++;
+    }
+    optionArgs = scriptArgs.slice(i);
   }
+  const preArgs: string[] = [
+    rawArgs[0] ?? "node",
+    rawArgs[1] ?? "inspector-cli",
+    ...optionArgs,
+  ];
 
   program
-    .name("inspector-bin")
-    .allowExcessArguments()
+    .name("inspector-cli")
     .allowUnknownOption()
+    .argument(
+      "[target...]",
+      "Command and arguments or URL of the MCP server (or use --config and --server)",
+    )
+    .option("--config <path>", "Config file path")
+    .option("--server <name>", "Server name from config file")
     .option(
       "-e <env>",
-      "environment variables in KEY=VALUE format",
+      "Environment variables for the server (KEY=VALUE)",
+      parseEnvPair,
+      {},
+    )
+    .option("--method <method>", "Method to invoke")
+    .option("--tool-name <toolName>", "Tool name (for tools/call method)")
+    .option(
+      "--tool-arg <pairs...>",
+      "Tool argument as key=value pair",
       parseKeyValuePair,
       {},
     )
-    .option("--config <path>", "config file path")
-    .option("--server <n>", "server name from config file")
-    .option("--cli", "enable CLI mode")
-    .option("--web", "launch web app (default)")
-    .option("--dev", "run web in dev mode (Vite)")
-    .option("--tui", "enable TUI mode")
-    .option("--transport <type>", "transport type (stdio, sse, http)")
-    .option("--server-url <url>", "server URL for SSE/HTTP transport")
-    .option("--cwd <path>", "working directory for stdio server process")
+    .option("--uri <uri>", "URI of the resource (for resources/read method)")
+    .option(
+      "--prompt-name <promptName>",
+      "Name of the prompt (for prompts/get method)",
+    )
+    .option(
+      "--prompt-args <pairs...>",
+      "Prompt arguments as key=value pairs",
+      parseKeyValuePair,
+      {},
+    )
+    .option(
+      "--log-level <level>",
+      "Logging level (for logging/setLevel method)",
+      (value: string) => {
+        if (!validLogLevels.includes(value as LoggingLevel)) {
+          throw new Error(
+            `Invalid log level: ${value}. Valid levels are: ${validLogLevels.join(", ")}`,
+          );
+        }
+        return value as LoggingLevel;
+      },
+    )
+    .option("--cwd <path>", "Working directory for stdio server process")
+    .option(
+      "--transport <type>",
+      "Transport type (sse, http, or stdio). Auto-detected from URL: /mcp → http, /sse → sse, commands → stdio",
+      (value: string) => {
+        const validTransports = ["sse", "http", "stdio"];
+        if (!validTransports.includes(value)) {
+          throw new Error(
+            `Invalid transport type: ${value}. Valid types are: ${validTransports.join(", ")}`,
+          );
+        }
+        return value as "sse" | "http" | "stdio";
+      },
+    )
+    .option("--server-url <url>", "Server URL for SSE/HTTP transport")
     .option(
       "--header <headers...>",
       'HTTP headers as "HeaderName: Value" pairs (for HTTP/SSE transports)',
       parseHeaderPair,
       {},
+    )
+    .option(
+      "--metadata <pairs...>",
+      "General metadata as key=value pairs (applied to all methods)",
+      parseKeyValuePair,
+      {},
+    )
+    .option(
+      "--tool-metadata <pairs...>",
+      "Tool-specific metadata as key=value pairs (for tools/call method only)",
+      parseKeyValuePair,
+      {},
     );
 
-  // Parse only the arguments before --
   program.parse(preArgs);
 
-  const options = program.opts() as CliOptions;
-  const remainingArgs = program.args;
-
-  // Add back any arguments that came after --
-  const finalArgs = [...remainingArgs, ...postArgs];
-
-  // If server specified but no config, default to mcp.json in cwd if it exists
-  if (!options.config && options.server) {
-    const defaultConfigPath = path.join(process.cwd(), "mcp.json");
-    if (fs.existsSync(defaultConfigPath)) {
-      options.config = "mcp.json";
-    } else {
-      throw new Error("--server requires --config to be specified");
-    }
-  }
-
-  // If config is provided without server, try to auto-select
-  if (options.config && !options.server) {
-    const configContent = fs.readFileSync(
-      path.isAbsolute(options.config)
-        ? options.config
-        : path.resolve(process.cwd(), options.config),
-      "utf8",
-    );
-    const parsedConfig = JSON.parse(configContent);
-    const servers = Object.keys(parsedConfig.mcpServers || {});
-
-    if (servers.length === 1) {
-      // Use the only server if there's just one
-      options.server = servers[0];
-    } else if (servers.length === 0) {
-      throw new Error("No servers found in config file");
-    } else {
-      // Multiple servers, require explicit selection
-      throw new Error(
-        `Multiple servers found in config file. Please specify one with --server.\nAvailable servers: ${servers.join(", ")}`,
-      );
-    }
-  }
-
-  // If config file is specified, load and use the options from the file. We must merge the args
-  // from the command line and the file together, or we will miss the method options (--method,
-  // etc.)
-  if (options.config && options.server) {
-    const config = loadConfigFile(options.config, options.server);
-    if (config.type === "stdio") {
-      const cwd = options.cwd ?? config.cwd ?? path.resolve(process.cwd());
-      return {
-        command: config.command,
-        args: [...(config.args || []), ...finalArgs],
-        envArgs: { ...(config.env || {}), ...(options.e || {}) },
-        cli: options.cli || false,
-        dev: options.dev || false,
-        transport: "stdio",
-        headers: options.header,
-        cwd: path.resolve(cwd),
-      };
-    } else if (config.type === "sse" || config.type === "streamable-http") {
-      const headers = {
-        ...(config.headers || {}),
-        ...(options.header || {}),
-      };
-      return {
-        command: config.url,
-        args: finalArgs,
-        envArgs: options.e || {},
-        cli: options.cli || false,
-        dev: options.dev || false,
-        transport: config.type,
-        serverUrl: config.url,
-        headers: Object.keys(headers).length > 0 ? headers : undefined,
-      };
-    }
-    throw new Error(`Invalid server config: ${JSON.stringify(config)}`);
-  }
-
-  // Otherwise use command line arguments
-  const command = finalArgs[0] || "";
-  const args = finalArgs.slice(1);
-
-  // Map "http" shorthand to "streamable-http"
-  let transport = options.transport;
-  if (transport === "http") {
-    transport = "streamable-http";
-  }
-
-  const cwd = options.cwd
-    ? path.resolve(options.cwd)
-    : path.resolve(process.cwd());
-
-  return {
-    command,
-    args,
-    envArgs: options.e || {},
-    cli: options.cli || false,
-    dev: options.dev || false,
-    transport: transport as "stdio" | "sse" | "streamable-http" | undefined,
-    serverUrl: options.serverUrl,
-    headers: options.header,
-    cwd,
+  const options = program.opts() as {
+    config?: string;
+    server?: string;
+    e?: Record<string, string>;
+    method?: string;
+    toolName?: string;
+    toolArg?: Record<string, JsonValue>;
+    uri?: string;
+    promptName?: string;
+    promptArgs?: Record<string, JsonValue>;
+    logLevel?: LoggingLevel;
+    metadata?: Record<string, JsonValue>;
+    toolMetadata?: Record<string, JsonValue>;
+    cwd?: string;
+    transport?: "sse" | "http" | "stdio";
+    serverUrl?: string;
+    header?: Record<string, string>;
   };
+
+  const serverOptions = {
+    configPath: options.config,
+    serverName: options.server,
+    target: targetArgs.length > 0 ? targetArgs : undefined,
+    transport: options.transport,
+    serverUrl: options.serverUrl,
+    cwd: options.cwd,
+    env: options.e,
+    headers: options.header,
+  };
+
+  const configs = resolveServerConfigs(serverOptions, "single");
+  const serverConfig = configs[0];
+  if (!serverConfig) {
+    throw new Error(
+      "Could not resolve server config. Specify a URL or command, or use --config and --server.",
+    );
+  }
+
+  if (!options.method) {
+    throw new Error(
+      "Method is required. Use --method to specify the method to invoke.",
+    );
+  }
+
+  const methodArgs: MethodArgs & { method: string } = {
+    method: options.method,
+    toolName: options.toolName,
+    toolArg: options.toolArg,
+    uri: options.uri,
+    promptName: options.promptName,
+    promptArgs: options.promptArgs,
+    logLevel: options.logLevel,
+    metadata: options.metadata
+      ? Object.fromEntries(
+          Object.entries(options.metadata).map(([key, value]) => [
+            key,
+            String(value),
+          ]),
+        )
+      : undefined,
+    toolMeta: options.toolMetadata
+      ? Object.fromEntries(
+          Object.entries(options.toolMetadata).map(([key, value]) => [
+            key,
+            String(value),
+          ]),
+        )
+      : undefined,
+  };
+
+  return { serverConfig, methodArgs };
 }
 
-async function main(): Promise<void> {
+export async function runCli(argv?: string[]): Promise<void> {
+  const { serverConfig, methodArgs } = parseArgs(argv ?? process.argv);
+  await callMethod(serverConfig, methodArgs);
+}
+
+export async function main(): Promise<void> {
   process.on("uncaughtException", (error) => {
     handleError(error);
   });
 
   try {
-    // For now we just pass the raw args to TUI (we'll integrate config later)
-    // The main issue is that Inspector only supports a single server and the TUI supports a set
-    //
-    // Check for --tui in raw argv - if present, bypass all parsing
-    if (process.argv.includes("--tui")) {
-      await runTui(process.argv.slice(2));
-      return;
-    }
-
-    const args = parseArgs();
-
-    if (args.cli) {
-      await runCli(args);
-    } else {
-      await runWeb(args);
-    }
+    await runCli();
+    process.exit(0);
   } catch (error) {
     handleError(error);
   }
 }
-
-main();

@@ -33,10 +33,7 @@ import {
   FetchRequestLogState,
   StderrLogState,
 } from "@modelcontextprotocol/inspector-core/mcp/state/index.js";
-import {
-  loadMcpServersConfig,
-  createTransportNode,
-} from "@modelcontextprotocol/inspector-core/mcp/node/index.js";
+import { createTransportNode } from "@modelcontextprotocol/inspector-core/mcp/node/index.js";
 import { useInspectorClient } from "@modelcontextprotocol/inspector-core/react/useInspectorClient.js";
 import { useManagedTools } from "@modelcontextprotocol/inspector-core/react/useManagedTools.js";
 import { useManagedResources } from "@modelcontextprotocol/inspector-core/react/useManagedResources.js";
@@ -115,7 +112,7 @@ type FocusArea =
   | "requestsDetail";
 
 interface AppProps {
-  configFile: string;
+  mcpServers: Record<string, MCPServerConfig>;
   clientId?: string;
   clientSecret?: string;
   clientMetadataUrl?: string;
@@ -134,7 +131,7 @@ function isOAuthCapableServer(config: MCPServerConfig | null): boolean {
 }
 
 function App({
-  configFile,
+  mcpServers,
   clientId,
   clientSecret,
   clientMetadataUrl,
@@ -151,8 +148,8 @@ function App({
   );
 
   useEffect(() => {
-    tuiLogger.info({ configFile }, "TUI started");
-  }, [configFile]);
+    tuiLogger.info({ serverNames: Object.keys(mcpServers) }, "TUI started");
+  }, [mcpServers]);
 
   const [selectedServer, setSelectedServer] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("info");
@@ -247,23 +244,9 @@ function App({
     };
   }, []);
 
-  // Parse MCP configuration
-  const mcpConfig = useMemo(() => {
-    try {
-      return loadMcpServersConfig(configFile);
-    } catch (error) {
-      if (error instanceof Error) {
-        console.error(error.message);
-      } else {
-        console.error("Error loading configuration: Unknown error");
-      }
-      process.exit(1);
-    }
-  }, [configFile]);
-
-  const serverNames = Object.keys(mcpConfig.mcpServers);
+  const serverNames = Object.keys(mcpServers);
   const selectedServerConfig = selectedServer
-    ? mcpConfig.mcpServers[selectedServer]
+    ? mcpServers[selectedServer]
     : null;
 
   // Mutable redirect URL providers, keyed by server name (populated before authenticate)
@@ -286,9 +269,7 @@ function App({
     const newStderrLogStates: Record<string, StderrLogState> = {};
     for (const serverName of serverNames) {
       if (!(serverName in inspectorClients)) {
-        const serverConfig = mcpConfig.mcpServers[
-          serverName
-        ] as MCPServerConfig & {
+        const serverConfig = mcpServers[serverName] as MCPServerConfig & {
           oauth?: Record<string, unknown>;
         };
         const environment: InspectorClientEnvironment = {

@@ -10,9 +10,9 @@
   "homepage": "https://modelcontextprotocol.io",
   "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
   "type": "module",
-  "main": "build/tui.js",
+  "main": "build/index.js",
   "bin": {
-    "mcp-inspector-tui": "./build/tui.js"
+    "mcp-inspector-tui": "./build/index.js"
   },
   "files": [
     "build"
