@@ -1,5 +1,6 @@
 import { discoverScopes } from "../auth";
 import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
+import { InspectorConfig } from "../configurationTypes";
 
 jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
   discoverAuthorizationServerMetadata: jest.fn(),
@@ -9,6 +10,39 @@ const mockDiscoverAuth =
   discoverAuthorizationServerMetadata as jest.MockedFunction<
     typeof discoverAuthorizationServerMetadata
   >;
+
+const mockConfig: InspectorConfig = {
+  MCP_SERVER_REQUEST_TIMEOUT: {
+    label: "Request Timeout",
+    description: "Timeout for MCP requests",
+    value: 30000,
+    is_session_item: false,
+  },
+  MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS: {
+    label: "Reset Timeout on Progress",
+    description: "Reset timeout on progress notifications",
+    value: true,
+    is_session_item: false,
+  },
+  MCP_REQUEST_MAX_TOTAL_TIMEOUT: {
+    label: "Max Total Timeout",
+    description: "Maximum total timeout",
+    value: 300000,
+    is_session_item: false,
+  },
+  MCP_PROXY_FULL_ADDRESS: {
+    label: "Proxy Address",
+    description: "Full address of the MCP proxy",
+    value: "http://localhost:6277",
+    is_session_item: false,
+  },
+  MCP_PROXY_AUTH_TOKEN: {
+    label: "Proxy Auth Token",
+    description: "Authentication token for the proxy",
+    value: "",
+    is_session_item: false,
+  },
+};
 
 const baseMetadata = {
   issuer: "https://test.com",
@@ -129,7 +163,12 @@ describe("discoverScopes", () => {
     }) => {
       mockDiscoverAuth.mockResolvedValue(mockResolves);
 
-      const result = await discoverScopes(serverUrl, resourceMetadata);
+      const result = await discoverScopes(
+        serverUrl,
+        "direct",
+        mockConfig,
+        resourceMetadata,
+      );
 
       expect(result).toBe(expected);
       if (expectedCallUrl) {
@@ -147,7 +186,12 @@ describe("discoverScopes", () => {
         mockDiscoverAuth.mockResolvedValue(mockResolves);
       }
 
-      const result = await discoverScopes(serverUrl, resourceMetadata);
+      const result = await discoverScopes(
+        serverUrl,
+        "direct",
+        mockConfig,
+        resourceMetadata,
+      );
 
       expect(result).toBeUndefined();
     },

@@ -12,21 +12,31 @@ import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/c
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
 import { generateOAuthState } from "@/utils/oauthUtils";
 import { validateRedirectUrl } from "@/utils/urlValidation";
+import { discoverAuthorizationServerMetadataViaProxy } from "./oauth-proxy";
+import { InspectorConfig } from "./configurationTypes";
 
 /**
  * Discovers OAuth scopes from server metadata, with preference for resource metadata scopes
  * @param serverUrl - The MCP server URL
+ * @param connectionType - Whether to use proxy or direct connection
+ * @param config - Inspector configuration (needed for proxy mode)
  * @param resourceMetadata - Optional resource metadata containing preferred scopes
  * @returns Promise resolving to space-separated scope string or undefined
  */
 export const discoverScopes = async (
   serverUrl: string,
+  connectionType: "direct" | "proxy",
+  config: InspectorConfig,
   resourceMetadata?: OAuthProtectedResourceMetadata,
 ): Promise<string | undefined> => {
   try {
-    const metadata = await discoverAuthorizationServerMetadata(
-      new URL("/", serverUrl),
-    );
+    const metadata =
+      connectionType === "proxy"
+        ? await discoverAuthorizationServerMetadataViaProxy(
+            new URL(serverUrl),
+            config,
+          )
+        : await discoverAuthorizationServerMetadata(new URL("/", serverUrl));
 
     // Prefer resource metadata scopes, but fall back to OAuth metadata if empty
     const resourceScopes = resourceMetadata?.scopes_supported;
