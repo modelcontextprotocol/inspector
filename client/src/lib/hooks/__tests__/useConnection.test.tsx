@@ -1087,7 +1087,7 @@ describe("useConnection", () => {
       );
     });
 
-    test("preserves server Authorization header when proxy auth is configured", async () => {
+    test("excludes server Authorization from requestInit when proxy auth is configured", async () => {
       const customHeaders: CustomHeaders = [
         {
           name: "Authorization",
@@ -1114,12 +1114,11 @@ describe("useConnection", () => {
         await result.current.connect();
       });
 
-      // Check that both headers are present and distinct
+      // Authorization should NOT be in requestInit to prevent leaking to
+      // discovery endpoints. The authProvider and custom fetch wrapper handle
+      // adding it only to MCP server requests.
       const headers = mockSSETransport.options?.requestInit?.headers;
-      expect(headers).toHaveProperty(
-        "Authorization",
-        "Bearer server-auth-token",
-      );
+      expect(headers).not.toHaveProperty("Authorization");
       expect(headers).toHaveProperty(
         "X-MCP-Proxy-Auth",
         "Bearer test-proxy-token",
@@ -1223,7 +1222,10 @@ describe("useConnection", () => {
       expect(mockSSETransport.options?.requestInit?.headers).toBeDefined();
 
       const headers = mockSSETransport.options?.requestInit?.headers;
-      expect(headers).toHaveProperty("Authorization", "Bearer token123");
+      // Authorization should NOT be in requestInit headers to prevent
+      // leaking to discovery/metadata endpoints. The authProvider handles
+      // OAuth tokens, and custom Authorization is applied via the fetch wrapper.
+      expect(headers).not.toHaveProperty("Authorization");
       expect(headers).toHaveProperty("X-Tenant-ID", "acme-inc");
       expect(headers).toHaveProperty("X-Environment", "staging");
       expect(headers).toHaveProperty(
@@ -1253,7 +1255,8 @@ describe("useConnection", () => {
       });
 
       const headers = mockSSETransport.options?.requestInit?.headers;
-      expect(headers).toHaveProperty("Authorization", "Bearer token123");
+      // Authorization excluded from requestInit to prevent leaking to discovery endpoints
+      expect(headers).not.toHaveProperty("Authorization");
       expect(headers).toHaveProperty("X-Enabled", "should-appear");
       expect(headers).not.toHaveProperty("X-Disabled");
     });
@@ -1283,7 +1286,7 @@ describe("useConnection", () => {
       );
     });
 
-    test("uses OAuth token when no custom headers or legacy auth provided", async () => {
+    test("uses OAuth token via authProvider, not requestInit headers", async () => {
       const propsWithoutAuth = {
         ...defaultProps,
       };
@@ -1294,8 +1297,12 @@ describe("useConnection", () => {
         await result.current.connect();
       });
 
+      // OAuth tokens should NOT be in requestInit headers to prevent
+      // leaking to discovery/metadata endpoints (see #1092).
+      // The authProvider handles adding Authorization dynamically
+      // via the transport's _commonHeaders() method.
       const headers = mockSSETransport.options?.requestInit?.headers;
-      expect(headers).toHaveProperty("Authorization", "Bearer mock-token");
+      expect(headers).not.toHaveProperty("Authorization");
     });
 
     test("warns of enabled empty Bearer token", async () => {
@@ -1322,8 +1329,9 @@ describe("useConnection", () => {
 
       const headers = mockSSETransport.options?.requestInit?.headers;
 
-      expect(headers).toHaveProperty("Authorization", "Bearer");
-      // Should not have the x-custom-auth-headers since Authorization is standard
+      // Empty Authorization headers are filtered out and never added to requestInit.
+      // The authProvider handles OAuth tokens dynamically instead.
+      expect(headers).not.toHaveProperty("Authorization");
       expect(headers).not.toHaveProperty("x-custom-auth-headers");
 
       // Should show toast notification for empty Authorization header
@@ -1352,8 +1360,11 @@ describe("useConnection", () => {
         await result.current.connect();
       });
 
+      // Authorization excluded from requestInit to prevent leaking to discovery
+      // endpoints. Custom Authorization is applied via the fetch wrapper only
+      // for MCP server requests.
       const headers = mockSSETransport.options?.requestInit?.headers;
-      expect(headers).toHaveProperty("Authorization", "Bearer custom-token");
+      expect(headers).not.toHaveProperty("Authorization");
     });
   });
 

@@ -520,41 +520,40 @@ export function useConnection({
         });
       }
 
-      const needsOAuthToken = !finalHeaders.some(
-        (header) =>
-          header.enabled &&
-          header.name.trim().toLowerCase() === "authorization",
+      // Do NOT add OAuth tokens to requestInit headers. The authProvider
+      // handles bearer tokens dynamically via the transport's _commonHeaders(),
+      // which only applies them to MCP server requests. Adding tokens here
+      // would leak them to OAuth discovery/metadata endpoints (/.well-known/*)
+      // via the SDK's createFetchWithInit wrapper. See: #1092
+
+      // Remove empty auth headers from custom headers
+      finalHeaders = finalHeaders.filter(
+        (header) => !isEmptyAuthHeader(header),
       );
 
-      if (needsOAuthToken) {
-        const oauthToken = (await serverAuthProvider.tokens())?.access_token;
-        if (oauthToken) {
-          // Add the OAuth token
-          finalHeaders = [
-            // Remove any existing Authorization headers with empty tokens
-            ...finalHeaders.filter((header) => !isEmptyAuthHeader(header)),
-            {
-              name: "Authorization",
-              value: `Bearer ${oauthToken}`,
-              enabled: true,
-            },
-          ];
-        }
-      }
-
-      // Process all enabled custom headers
+      // Process all enabled custom headers, separating Authorization from others.
+      // Authorization headers are excluded from requestInit to prevent them from
+      // leaking to discovery/metadata endpoints during OAuth flows.
       const customHeaderNames: string[] = [];
+      let customAuthorizationHeader: string | undefined;
       finalHeaders.forEach((header) => {
         if (header.enabled && header.name.trim() && header.value.trim()) {
           const headerName = header.name.trim();
           const headerValue = header.value.trim();
 
+          // Skip Authorization headers - they must not be in requestInit
+          // because the SDK passes requestInit headers to discovery endpoints.
+          // The authProvider handles OAuth tokens, and custom Authorization
+          // headers are applied only to MCP server requests below.
+          if (headerName.toLowerCase() === "authorization") {
+            customAuthorizationHeader = headerValue;
+            return;
+          }
+
           headers[headerName] = headerValue;
 
           // Track custom header names for server processing
-          if (headerName.toLowerCase() !== "authorization") {
-            customHeaderNames.push(headerName);
-          }
+          customHeaderNames.push(headerName);
         }
       });
 
@@ -569,6 +568,33 @@ export function useConnection({
         | SSEClientTransportOptions;
 
       let serverUrl: URL;
+
+      // Helper to merge request headers with custom headers from the UI,
+      // while ensuring Authorization from _commonHeaders() takes priority.
+      // Custom Authorization headers (from the UI) are only added when
+      // _commonHeaders() doesn't provide one (i.e., no OAuth token).
+      const mergeHeaders = (
+        initHeaders?: HeadersInit,
+        baseHeaders?: Record<string, string>,
+      ): Record<string, string> => {
+        const base = baseHeaders ? { ...baseHeaders } : {};
+        const init = initHeaders
+          ? initHeaders instanceof Headers
+            ? Object.fromEntries(initHeaders.entries())
+            : Array.isArray(initHeaders)
+              ? Object.fromEntries(initHeaders)
+              : { ...initHeaders }
+          : {};
+        const merged = { ...base, ...init };
+        // Add custom Authorization only if not already set by authProvider
+        if (
+          customAuthorizationHeader &&
+          !Object.keys(merged).some((k) => k.toLowerCase() === "authorization")
+        ) {
+          merged["Authorization"] = customAuthorizationHeader;
+        }
+        return merged;
+      };
 
       // Determine connection URL based on the connection type
       if (connectionType === "direct" && transportType !== "stdio") {
@@ -589,9 +615,13 @@ export function useConnection({
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
               ) => {
+                // Merge custom headers with SDK-provided headers (from
+                // _commonHeaders), letting the SDK's Authorization take
+                // priority over any custom Authorization header.
+                const merged = mergeHeaders(init?.headers, requestHeaders);
                 const response = await fetch(url, {
                   ...init,
-                  headers: requestHeaders,
+                  headers: merged,
                 });
 
                 // Capture protocol-related headers from response
@@ -614,9 +644,13 @@ export function useConnection({
                 requestHeaders["Accept"] =
                   "text/event-stream, application/json";
                 requestHeaders["Content-Type"] = "application/json";
+                // Merge custom headers with SDK-provided headers (from
+                // _commonHeaders), letting the SDK's Authorization take
+                // priority over any custom Authorization header.
+                const merged = mergeHeaders(init?.headers, requestHeaders);
                 const response = await fetch(url, {
-                  headers: requestHeaders,
                   ...init,
+                  headers: merged,
                 });
 
                 // Capture protocol-related headers from response
@@ -663,22 +697,25 @@ export function useConnection({
                 proxyFullAddress,
               );
             }
-            transportOptions = {
-              authProvider: serverAuthProvider,
-              eventSourceInit: {
-                fetch: (
-                  url: string | URL | globalThis.Request,
-                  init?: RequestInit,
-                ) =>
-                  fetch(url, {
-                    ...init,
-                    headers: { ...headers, ...proxyHeaders },
-                  }),
-              },
-              requestInit: {
-                headers: { ...headers, ...proxyHeaders },
-              },
-            };
+            {
+              const baseHeaders = { ...headers, ...proxyHeaders };
+              transportOptions = {
+                authProvider: serverAuthProvider,
+                eventSourceInit: {
+                  fetch: (
+                    url: string | URL | globalThis.Request,
+                    init?: RequestInit,
+                  ) =>
+                    fetch(url, {
+                      ...init,
+                      headers: mergeHeaders(init?.headers, baseHeaders),
+                    }),
+                },
+                requestInit: {
+                  headers: baseHeaders,
+                },
+              };
+            }
             break;
           }
 
@@ -694,51 +731,57 @@ export function useConnection({
                 proxyFullAddressSSE,
               );
             }
-            transportOptions = {
-              authProvider: serverAuthProvider,
-              eventSourceInit: {
-                fetch: (
-                  url: string | URL | globalThis.Request,
-                  init?: RequestInit,
-                ) =>
-                  fetch(url, {
-                    ...init,
-                    headers: { ...headers, ...proxyHeaders },
-                  }),
-              },
-              requestInit: {
-                headers: { ...headers, ...proxyHeaders },
-              },
-            };
+            {
+              const baseHeaders = { ...headers, ...proxyHeaders };
+              transportOptions = {
+                authProvider: serverAuthProvider,
+                eventSourceInit: {
+                  fetch: (
+                    url: string | URL | globalThis.Request,
+                    init?: RequestInit,
+                  ) =>
+                    fetch(url, {
+                      ...init,
+                      headers: mergeHeaders(init?.headers, baseHeaders),
+                    }),
+                },
+                requestInit: {
+                  headers: baseHeaders,
+                },
+              };
+            }
             break;
           }
 
           case "streamable-http":
             mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
             mcpProxyServerUrl.searchParams.append("url", sseUrl);
-            transportOptions = {
-              authProvider: serverAuthProvider,
-              eventSourceInit: {
-                fetch: (
-                  url: string | URL | globalThis.Request,
-                  init?: RequestInit,
-                ) =>
-                  fetch(url, {
-                    ...init,
-                    headers: { ...headers, ...proxyHeaders },
-                  }),
-              },
-              requestInit: {
-                headers: { ...headers, ...proxyHeaders },
-              },
-              // TODO these should be configurable...
-              reconnectionOptions: {
-                maxReconnectionDelay: 30000,
-                initialReconnectionDelay: 1000,
-                reconnectionDelayGrowFactor: 1.5,
-                maxRetries: 2,
-              },
-            };
+            {
+              const baseHeaders = { ...headers, ...proxyHeaders };
+              transportOptions = {
+                authProvider: serverAuthProvider,
+                eventSourceInit: {
+                  fetch: (
+                    url: string | URL | globalThis.Request,
+                    init?: RequestInit,
+                  ) =>
+                    fetch(url, {
+                      ...init,
+                      headers: mergeHeaders(init?.headers, baseHeaders),
+                    }),
+                },
+                requestInit: {
+                  headers: baseHeaders,
+                },
+                // TODO these should be configurable...
+                reconnectionOptions: {
+                  maxReconnectionDelay: 30000,
+                  initialReconnectionDelay: 1000,
+                  reconnectionDelayGrowFactor: 1.5,
+                  maxRetries: 2,
+                },
+              };
+            }
             break;
         }
         serverUrl = mcpProxyServerUrl as URL;
