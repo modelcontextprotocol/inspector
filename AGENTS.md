@@ -92,11 +92,12 @@ is there will be moved to a `v1.x/main` branch.
 
 ```
 inspector/
-├── clients/    
-│   ├── cli/  
+├── client/    
+│   ├── cli/
+│   ├── core/
+│   ├── launcher/  
 │   ├── tui/  
 │   └── web/
-├── core/    
 ├── configs/    
 ├── docs/    
 ├── specification/                     
