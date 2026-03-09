@@ -1,12 +1,24 @@
-import { useCallback, useMemo, useEffect } from "react";
+import { useCallback, useMemo, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DebugInspectorOAuthClientProvider } from "../lib/auth";
+import {
+  DebugInspectorOAuthClientProvider,
+  clearClientInformationFromSessionStorage,
+} from "../lib/auth";
 import { AlertCircle } from "lucide-react";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
 import { OAuthStateMachine } from "../lib/oauth-state-machine";
 import { SESSION_KEYS } from "../lib/constants";
 import { validateRedirectUrl } from "@/utils/urlValidation";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export interface AuthDebuggerProps {
   serverUrl: string;
@@ -61,6 +73,9 @@ const AuthDebugger = ({
   authState,
   updateAuthState,
 }: AuthDebuggerProps) => {
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [clearDcrClient, setClearDcrClient] = useState(false);
+
   // Check for existing tokens on mount
   useEffect(() => {
     if (serverUrl && !authState.oauthTokens) {
@@ -94,8 +109,15 @@ const AuthDebugger = ({
       return;
     }
 
+    // Clear cached DCR client info so Step 2 performs a fresh registration
+    clearClientInformationFromSessionStorage({
+      serverUrl,
+      isPreregistered: false,
+    });
+
     updateAuthState({
       oauthStep: "metadata_discovery",
+      oauthClientInfo: null,
       authorizationUrl: null,
       statusMessage: null,
       latestError: null,
@@ -216,26 +238,42 @@ const AuthDebugger = ({
     }
   }, [serverUrl, updateAuthState, authState]);
 
-  const handleClearOAuth = useCallback(() => {
-    if (serverUrl) {
-      const serverAuthProvider = new DebugInspectorOAuthClientProvider(
-        serverUrl,
-      );
-      serverAuthProvider.clear();
-      updateAuthState({
-        ...EMPTY_DEBUGGER_STATE,
-        statusMessage: {
-          type: "success",
-          message: "OAuth tokens cleared successfully",
-        },
-      });
+  const handleClearOAuth = useCallback(
+    (alsoClearDcrClient: boolean) => {
+      if (serverUrl) {
+        const serverAuthProvider = new DebugInspectorOAuthClientProvider(
+          serverUrl,
+        );
+        serverAuthProvider.clear();
 
-      // Clear success message after 3 seconds
-      setTimeout(() => {
-        updateAuthState({ statusMessage: null });
-      }, 3000);
-    }
-  }, [serverUrl, updateAuthState]);
+        if (alsoClearDcrClient) {
+          clearClientInformationFromSessionStorage({
+            serverUrl,
+            isPreregistered: false,
+          });
+        }
+
+        updateAuthState({
+          ...EMPTY_DEBUGGER_STATE,
+          oauthClientInfo: alsoClearDcrClient
+            ? null
+            : EMPTY_DEBUGGER_STATE.oauthClientInfo,
+          statusMessage: {
+            type: "success",
+            message: alsoClearDcrClient
+              ? "OAuth tokens and client registration cleared successfully"
+              : "OAuth tokens cleared successfully",
+          },
+        });
+
+        // Clear success message after 3 seconds
+        setTimeout(() => {
+          updateAuthState({ statusMessage: null });
+        }, 3000);
+      }
+    },
+    [serverUrl, updateAuthState],
+  );
 
   return (
     <div className="w-full p-4">
@@ -295,7 +333,13 @@ const AuthDebugger = ({
                         : "Quick OAuth Flow"}
                   </Button>
 
-                  <Button variant="outline" onClick={handleClearOAuth}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setClearDcrClient(false);
+                      setClearDialogOpen(true);
+                    }}
+                  >
                     Clear OAuth State
                   </Button>
                 </div>
@@ -316,6 +360,50 @@ const AuthDebugger = ({
           </div>
         </div>
       </div>
+
+      <Dialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear OAuth State</DialogTitle>
+            <DialogDescription>
+              This will clear OAuth tokens, code verifier, and server metadata
+              for this session.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-start space-x-2 py-2">
+            <Checkbox
+              id="clear-dcr-client"
+              checked={clearDcrClient}
+              onCheckedChange={(checked) => setClearDcrClient(checked === true)}
+            />
+            <div className="grid gap-1.5 leading-none">
+              <label
+                htmlFor="clear-dcr-client"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                Also clear registered client information
+              </label>
+              <p className="text-xs text-muted-foreground">
+                The server will need to re-register this client on the next
+                OAuth flow.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                handleClearOAuth(clearDcrClient);
+                setClearDialogOpen(false);
+              }}
+            >
+              Clear
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
