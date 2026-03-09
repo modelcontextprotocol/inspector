@@ -52,6 +52,7 @@ import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/lib/hooks/useToast";
 import { ConnectionStatus, CLIENT_IDENTITY } from "../constants";
 import { Notification } from "../notificationTypes";
+import { RequestHistoryEntry } from "../types/requestHistory";
 import {
   auth,
   discoverOAuthProtectedResourceMetadata,
@@ -131,9 +132,9 @@ export function useConnection({
   const [clientTransport, setClientTransport] = useState<Transport | null>(
     null,
   );
-  const [requestHistory, setRequestHistory] = useState<
-    { request: string; response?: string }[]
-  >([]);
+  const [requestHistory, setRequestHistory] = useState<RequestHistoryEntry[]>(
+    [],
+  );
   const [completionsSupported, setCompletionsSupported] = useState(false);
   const [mcpSessionId, setMcpSessionId] = useState<string | null>(null);
   const [mcpProtocolVersion, setMcpProtocolVersion] = useState<string | null>(
@@ -187,12 +188,25 @@ export function useConnection({
     saveScopeToSessionStorage(sseUrl, oauthScope);
   }, [oauthScope, sseUrl]);
 
-  const pushHistory = (request: object, response?: object) => {
+  const pushHistory = (
+    request: object,
+    response?: object,
+    requestedAt?: string,
+  ) => {
+    const now = new Date().toISOString();
+    const requestTime = requestedAt || now;
+    const responseTime = response !== undefined ? now : undefined;
+
     setRequestHistory((prev) => [
       ...prev,
       {
         request: JSON.stringify(request),
         response: response !== undefined ? JSON.stringify(response) : undefined,
+        requestedAt: requestTime,
+        respondedAt: responseTime,
+        durationMs: responseTime
+          ? new Date(responseTime).getTime() - new Date(requestTime).getTime()
+          : undefined,
       },
     ]);
   };
@@ -205,6 +219,7 @@ export function useConnection({
     if (!mcpClient) {
       throw new Error("MCP client not connected");
     }
+    const requestedAt = new Date().toISOString();
     try {
       const abortController = new AbortController();
 
@@ -256,11 +271,11 @@ export function useConnection({
           mcpRequestOptions,
         );
 
-        pushHistory(requestWithMetadata, response);
+        pushHistory(requestWithMetadata, response, requestedAt);
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        pushHistory(requestWithMetadata, { error: errorMessage });
+        pushHistory(requestWithMetadata, { error: errorMessage }, requestedAt);
         throw error;
       }
 
