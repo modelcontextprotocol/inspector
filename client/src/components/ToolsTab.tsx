@@ -836,17 +836,16 @@ const ToolsTab = ({
                   }}
                   disabled={
                     isToolRunning ||
-                    isPollingTask ||
                     hasValidationErrors ||
                     hasReservedMetadataEntry ||
                     hasInvalidMetaPrefixEntry ||
                     hasInvalidMetaNameEntry
                   }
                 >
-                  {isToolRunning || isPollingTask ? (
+                  {isToolRunning ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      {isPollingTask ? "Polling Task..." : "Running..."}
+                      Running...
                     </>
                   ) : (
                     <>

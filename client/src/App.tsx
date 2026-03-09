@@ -997,6 +997,92 @@ const App = () => {
     cacheToolOutputSchemas(response.tools);
   };
 
+  const pollTaskInBackground = async (
+    taskId: string,
+    pollInterval: number,
+    initialResponseMeta: Record<string, unknown> | undefined,
+  ) => {
+    setIsPollingTask(true);
+    let taskCompleted = false;
+
+    while (!taskCompleted) {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+
+        const taskStatus = await sendMCPRequest(
+          {
+            method: "tasks/get",
+            params: { taskId },
+          },
+          GetTaskResultSchema,
+        );
+
+        if (
+          taskStatus.status === "completed" ||
+          taskStatus.status === "failed" ||
+          taskStatus.status === "cancelled"
+        ) {
+          taskCompleted = true;
+          console.log(
+            `Polling complete for task ${taskId}: ${taskStatus.status}`,
+          );
+
+          if (taskStatus.status === "completed") {
+            console.log(`Fetching result for task ${taskId}`);
+            const result = await sendMCPRequest(
+              {
+                method: "tasks/result",
+                params: { taskId },
+              },
+              CompatibilityCallToolResultSchema,
+            );
+            console.log(`Result received for task ${taskId}:`, result);
+            setToolResult(result as CompatibilityCallToolResult);
+          } else {
+            setToolResult({
+              content: [
+                {
+                  type: "text",
+                  text: `Task ${taskStatus.status}: ${taskStatus.statusMessage || "No additional information"}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+          void listTasks();
+        } else {
+          setToolResult({
+            content: [
+              {
+                type: "text",
+                text: `Task status: ${taskStatus.status}${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Polling...`,
+              },
+            ],
+            _meta: {
+              ...(initialResponseMeta || {}),
+              "io.modelcontextprotocol/related-task": { taskId },
+            },
+          });
+          void listTasks();
+        }
+      } catch (pollingError) {
+        console.error("Error polling task status:", pollingError);
+        setToolResult({
+          content: [
+            {
+              type: "text",
+              text: `Error polling task status: ${pollingError instanceof Error ? pollingError.message : String(pollingError)}`,
+            },
+          ],
+          isError: true,
+        });
+        taskCompleted = true;
+      }
+    }
+
+    setIsPollingTask(false);
+  };
+
   const callTool = async (
     name: string,
     params: Record<string, unknown>,
@@ -1061,8 +1147,6 @@ const App = () => {
       if (runAsTask && isTaskResult(response)) {
         const taskId = response.task.taskId;
         const pollInterval = response.task.pollInterval;
-        // Set polling state BEFORE setting tool result for proper UI update
-        setIsPollingTask(true);
         // Safely extract any _meta from the original response (if present)
         const initialResponseMeta =
           response &&
@@ -1070,7 +1154,7 @@ const App = () => {
           "_meta" in (response as Record<string, unknown>)
             ? ((response as { _meta?: Record<string, unknown> })._meta ?? {})
             : undefined;
-        let latestToolResult: CompatibilityCallToolResult = {
+        const initialTaskResult: CompatibilityCallToolResult = {
           content: [
             {
               type: "text",
@@ -1082,107 +1166,17 @@ const App = () => {
             "io.modelcontextprotocol/related-task": { taskId },
           },
         };
-        setToolResult(latestToolResult);
+        setToolResult(initialTaskResult);
 
-        // Polling loop
-        let taskCompleted = false;
-        while (!taskCompleted) {
-          try {
-            // Wait for 1 second before polling
-            await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        // Poll in the background so the UI remains interactive.
+        // This allows users to run other tool calls while a task is
+        // being polled, matching the MCP specification's intent for
+        // concurrent task operations.
+        void pollTaskInBackground(taskId, pollInterval, initialResponseMeta);
 
-            const taskStatus = await sendMCPRequest(
-              {
-                method: "tasks/get",
-                params: { taskId },
-              },
-              GetTaskResultSchema,
-            );
-
-            if (
-              taskStatus.status === "completed" ||
-              taskStatus.status === "failed" ||
-              taskStatus.status === "cancelled"
-            ) {
-              taskCompleted = true;
-              console.log(
-                `Polling complete for task ${taskId}: ${taskStatus.status}`,
-              );
-
-              if (taskStatus.status === "completed") {
-                console.log(`Fetching result for task ${taskId}`);
-                const result = await sendMCPRequest(
-                  {
-                    method: "tasks/result",
-                    params: { taskId },
-                  },
-                  CompatibilityCallToolResultSchema,
-                );
-                console.log(`Result received for task ${taskId}:`, result);
-                latestToolResult = result as CompatibilityCallToolResult;
-                setToolResult(latestToolResult);
-
-                // Refresh tasks list to show completed state
-                void listTasks();
-              } else {
-                latestToolResult = {
-                  content: [
-                    {
-                      type: "text",
-                      text: `Task ${taskStatus.status}: ${taskStatus.statusMessage || "No additional information"}`,
-                    },
-                  ],
-                  isError: true,
-                };
-                setToolResult(latestToolResult);
-                // Refresh tasks list to show failed/cancelled state
-                void listTasks();
-              }
-            } else {
-              // Update status message while polling
-              // Safely extract any _meta from the original response (if present)
-              const pollingResponseMeta =
-                response &&
-                typeof response === "object" &&
-                "_meta" in (response as Record<string, unknown>)
-                  ? ((response as { _meta?: Record<string, unknown> })._meta ??
-                    {})
-                  : undefined;
-              latestToolResult = {
-                content: [
-                  {
-                    type: "text",
-                    text: `Task status: ${taskStatus.status}${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Polling...`,
-                  },
-                ],
-                _meta: {
-                  ...(pollingResponseMeta || {}),
-                  "io.modelcontextprotocol/related-task": { taskId },
-                },
-              };
-              setToolResult(latestToolResult);
-              // Refresh tasks list to show progress
-              void listTasks();
-            }
-          } catch (pollingError) {
-            console.error("Error polling task status:", pollingError);
-            latestToolResult = {
-              content: [
-                {
-                  type: "text",
-                  text: `Error polling task status: ${pollingError instanceof Error ? pollingError.message : String(pollingError)}`,
-                },
-              ],
-              isError: true,
-            };
-            setToolResult(latestToolResult);
-            taskCompleted = true;
-          }
-        }
-        setIsPollingTask(false);
-        // Clear any validation errors since tool execution completed
+        // Clear any validation errors since tool execution started
         setErrors((prev) => ({ ...prev, tools: null }));
-        return latestToolResult;
+        return initialTaskResult;
       } else {
         const directResult = response as CompatibilityCallToolResult;
         setToolResult(directResult);
