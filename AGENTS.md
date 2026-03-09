@@ -95,7 +95,7 @@ inspector/
 ├── clients/    
 │   ├── cli/  
 │   ├── tui/  
-│   ├── web/
+│   └── web/
 ├── core/    
 ├── configs/    
 ├── docs/    
@@ -108,6 +108,6 @@ inspector/
 │   ├── v2_tech_stack.md        # Tech stack used in this version of the Inspector
 │   ├── v2_ux.md                # Design mockups in ASCII
 │   ├── v2_ux_features.md       # Feature mockups in ASCII
-│   ├── v2_ux_handlers.md       # Handler mockups in ASCII
-├── test-servers/   
+│   └── v2_ux_handlers.md       # Handler mockups in ASCII
+└── test-servers/   
 ```
