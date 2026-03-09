@@ -4,12 +4,15 @@
  */
 
 import { createServer, type Server } from "node:http";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export interface SandboxControllerOptions {
   /** Port to bind (0 = dynamic). */
   port: number;
-  /** HTML content to serve for GET /sandbox and /sandbox/ */
-  sandboxHtml: string;
   /** Host to bind (default localhost). */
   host?: string;
 }
@@ -40,9 +43,20 @@ export function resolveSandboxPort(): number {
 export function createSandboxController(
   options: SandboxControllerOptions,
 ): SandboxController {
-  const { port, sandboxHtml, host = "localhost" } = options;
+  const { port, host = "localhost" } = options;
   let server: Server | null = null;
   let sandboxUrl: string | null = null;
+
+  let sandboxHtml: string;
+  try {
+    const sandboxHtmlPath = join(__dirname, "../static/sandbox_proxy.html");
+    sandboxHtml = readFileSync(sandboxHtmlPath, "utf-8");
+  } catch (e) {
+    sandboxHtml =
+      "<!DOCTYPE html><html><body>Sandbox not loaded: " +
+      String((e as Error).message) +
+      "</body></html>";
+  }
 
   return {
     async start(): Promise<{ port: number; url: string }> {

@@ -1,9 +1,7 @@
-import open from "open";
-import { resolve, dirname } from "path";
+import { resolve, join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { randomBytes } from "crypto";
 import { Command } from "commander";
-import { spawnPromise, spawn } from "spawn-rx";
 import type {
   MCPServerConfig,
   StreamableHttpServerConfig,
@@ -18,6 +16,10 @@ import {
   parseHeaderPair,
   type ServerConfigOptions,
 } from "@modelcontextprotocol/inspector-core/mcp/node/config.js";
+import { resolveSandboxPort } from "./sandbox-controller.js";
+import type { WebServerConfig } from "./web-server-config.js";
+import { startViteDevServer } from "./start-vite-dev-server.js";
+import { startHonoServer } from "./server.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -85,199 +87,58 @@ function mcpConfigToWebClientOptions(
   };
 }
 
-async function startDevClient(
-  clientOptions: WebClientOptions & {
-    CLIENT_PORT: string;
-    inspectorApiToken: string;
-    dangerouslyOmitAuth: boolean;
-    abort: AbortController;
-    cancelledRef: { current: boolean };
-  },
-): Promise<void> {
-  const {
-    CLIENT_PORT,
-    inspectorApiToken,
-    dangerouslyOmitAuth,
-    command,
-    mcpServerArgs,
-    transport,
-    serverUrl,
-    headers,
-    envVars,
-    cwd,
-    abort,
-    cancelledRef,
-  } = clientOptions;
-  const clientCommand = "npx";
-  const host = process.env.HOST || "localhost";
-  const clientArgs = ["vite", "--port", CLIENT_PORT, "--host", host];
+function buildWebServerConfig(
+  clientOptions: WebClientOptions,
+  port: number,
+  hostname: string,
+  authToken: string,
+  dangerouslyOmitAuth: boolean,
+): WebServerConfig {
+  const baseUrl = `http://${hostname}:${port}`;
+  const initialMcpConfig: MCPServerConfig | null =
+    clientOptions.command != null || clientOptions.serverUrl != null
+      ? clientOptions.transport === "stdio"
+        ? {
+            type: "stdio",
+            command: clientOptions.command ?? "",
+            args:
+              clientOptions.mcpServerArgs.length > 0
+                ? clientOptions.mcpServerArgs
+                : undefined,
+            cwd: clientOptions.cwd ?? undefined,
+            env:
+              Object.keys(clientOptions.envVars).length > 0
+                ? clientOptions.envVars
+                : undefined,
+          }
+        : clientOptions.transport === "sse"
+          ? {
+              type: "sse",
+              url: clientOptions.serverUrl ?? "",
+              headers: clientOptions.headers ?? undefined,
+            }
+          : {
+              type: "streamable-http",
+              url: clientOptions.serverUrl ?? "",
+              headers: clientOptions.headers ?? undefined,
+            }
+      : null;
 
-  const configEnv = {
-    ...process.env,
-    CLIENT_PORT,
-    ...(dangerouslyOmitAuth
-      ? {}
-      : { [API_SERVER_ENV_VARS.AUTH_TOKEN]: inspectorApiToken }),
-    ...(command ? { MCP_INITIAL_COMMAND: command } : {}),
-    ...(mcpServerArgs.length > 0
-      ? { MCP_INITIAL_ARGS: mcpServerArgs.join(" ") }
-      : {}),
-    ...(transport ? { MCP_INITIAL_TRANSPORT: transport } : {}),
-    ...(serverUrl ? { MCP_INITIAL_SERVER_URL: serverUrl } : {}),
-    ...(headers && Object.keys(headers).length > 0
-      ? { MCP_INITIAL_HEADERS: JSON.stringify(headers) }
-      : {}),
-    ...(Object.keys(envVars).length > 0
-      ? { MCP_ENV_VARS: JSON.stringify(envVars) }
-      : {}),
-    ...(cwd ? { MCP_INITIAL_CWD: cwd } : {}),
+  return {
+    port,
+    hostname,
+    authToken,
+    dangerouslyOmitAuth,
+    initialMcpConfig,
+    storageDir: process.env.MCP_STORAGE_DIR,
+    allowedOrigins: process.env.ALLOWED_ORIGINS?.split(",").filter(Boolean) ?? [
+      baseUrl,
+    ],
+    sandboxPort: resolveSandboxPort(),
+    sandboxHost: hostname,
+    logger: undefined,
+    autoOpen: process.env.MCP_AUTO_OPEN_ENABLED !== "false",
   };
-
-  const client = spawn(clientCommand, clientArgs, {
-    cwd: resolve(__dirname, ".."),
-    env: configEnv,
-    signal: abort.signal,
-    echoOutput: true,
-    split: false,
-  });
-
-  const params = new URLSearchParams();
-  if (!dangerouslyOmitAuth && inspectorApiToken) {
-    params.set(API_SERVER_ENV_VARS.AUTH_TOKEN, inspectorApiToken);
-  }
-  const url =
-    params.size > 0
-      ? `http://${host}:${CLIENT_PORT}/?${params.toString()}`
-      : `http://${host}:${CLIENT_PORT}`;
-
-  setTimeout(() => {
-    console.log(`\n🚀 MCP Inspector Web is up and running at:\n   ${url}\n`);
-    console.log(
-      `   Static files served by: Vite (dev) / Inspector API server (prod)\n`,
-    );
-    if (process.env.MCP_AUTO_OPEN_ENABLED !== "false") {
-      console.log("🌐 Opening browser...");
-      open(url);
-    }
-  }, 3000);
-
-  await new Promise<void>((resolvePromise) => {
-    client.subscribe({
-      complete: () => resolvePromise(),
-      error: (err) => {
-        if (!cancelledRef.current || process.env.DEBUG) {
-          console.error("Client error:", err);
-        }
-        resolvePromise();
-      },
-      next: () => {},
-    });
-  });
-}
-
-async function startProdClient(
-  clientOptions: WebClientOptions & {
-    CLIENT_PORT: string;
-    inspectorApiToken: string;
-    dangerouslyOmitAuth: boolean;
-    abort: AbortController;
-    cancelledRef: { current: boolean };
-  },
-): Promise<void> {
-  const {
-    CLIENT_PORT,
-    inspectorApiToken,
-    dangerouslyOmitAuth,
-    command,
-    mcpServerArgs,
-    transport,
-    serverUrl,
-    headers,
-    envVars,
-    cwd,
-    abort,
-  } = clientOptions;
-  const honoServerPath = resolve(__dirname, "../dist/server.js");
-
-  try {
-    await spawnPromise("node", [honoServerPath], {
-      env: {
-        ...process.env,
-        CLIENT_PORT,
-        ...(dangerouslyOmitAuth
-          ? {}
-          : { [API_SERVER_ENV_VARS.AUTH_TOKEN]: inspectorApiToken }),
-        ...(command ? { MCP_INITIAL_COMMAND: command } : {}),
-        ...(mcpServerArgs.length > 0
-          ? { MCP_INITIAL_ARGS: mcpServerArgs.join(" ") }
-          : {}),
-        ...(transport ? { MCP_INITIAL_TRANSPORT: transport } : {}),
-        ...(serverUrl ? { MCP_INITIAL_SERVER_URL: serverUrl } : {}),
-        ...(headers && Object.keys(headers).length > 0
-          ? { MCP_INITIAL_HEADERS: JSON.stringify(headers) }
-          : {}),
-        ...(Object.keys(envVars).length > 0
-          ? { MCP_ENV_VARS: JSON.stringify(envVars) }
-          : {}),
-        ...(cwd ? { MCP_INITIAL_CWD: cwd } : {}),
-      },
-      signal: abort.signal,
-      echoOutput: true,
-    });
-  } catch (err: unknown) {
-    const code =
-      (err as { code?: number; exitCode?: number })?.code ??
-      (err as { exitCode?: number })?.exitCode;
-    if (typeof code === "number" && code !== 0) {
-      process.exit(code);
-    }
-    throw err;
-  }
-}
-
-async function runWithOptions(options: WebClientOptions): Promise<number> {
-  const CLIENT_PORT = process.env.CLIENT_PORT ?? "6274";
-
-  console.log(
-    options.isDev
-      ? "Starting MCP inspector in development mode..."
-      : "Starting MCP inspector...",
-  );
-
-  const dangerouslyOmitAuth = !!process.env.DANGEROUSLY_OMIT_AUTH;
-  const inspectorApiToken = dangerouslyOmitAuth
-    ? ""
-    : process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ||
-      process.env[LEGACY_AUTH_TOKEN_ENV] ||
-      randomBytes(32).toString("hex");
-
-  const abort = new AbortController();
-  const cancelledRef = { current: false };
-  process.on("SIGINT", () => {
-    cancelledRef.current = true;
-    abort.abort();
-  });
-
-  const clientOptions = {
-    ...options,
-    CLIENT_PORT,
-    inspectorApiToken,
-    dangerouslyOmitAuth,
-    abort,
-    cancelledRef,
-  };
-
-  try {
-    if (options.isDev) {
-      await startDevClient(clientOptions);
-    } else {
-      await startProdClient(clientOptions);
-    }
-  } catch (e) {
-    if (!cancelledRef.current || process.env.DEBUG) throw e;
-  }
-
-  return 0;
 }
 
 export async function runWeb(argv: string[]): Promise<number> {
@@ -382,12 +243,53 @@ export async function runWeb(argv: string[]): Promise<number> {
     }
   }
 
+  const port = parseInt(process.env.CLIENT_PORT ?? "6274", 10);
+  const hostname = process.env.HOST ?? "localhost";
+  const dangerouslyOmitAuth = !!process.env.DANGEROUSLY_OMIT_AUTH;
+  const authToken = dangerouslyOmitAuth
+    ? ""
+    : ((process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] as string | undefined) ??
+      (process.env[LEGACY_AUTH_TOKEN_ENV] as string | undefined) ??
+      randomBytes(32).toString("hex"));
+
+  const webConfig = buildWebServerConfig(
+    clientOptions,
+    port,
+    hostname,
+    authToken,
+    dangerouslyOmitAuth,
+  );
+  if (!clientOptions.isDev) {
+    webConfig.staticRoot = join(__dirname, "..", "dist");
+  }
+
+  console.log(
+    clientOptions.isDev
+      ? "Starting MCP inspector in development mode..."
+      : "Starting MCP inspector...",
+  );
+
+  let handle: { close(): Promise<void> };
+
   try {
-    return await runWithOptions(clientOptions);
+    if (clientOptions.isDev) {
+      handle = await startViteDevServer(webConfig);
+    } else {
+      handle = await startHonoServer(webConfig);
+    }
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Web client failed to start.";
     console.error("Error:", message);
     process.exit(1);
   }
+
+  const shutdown = () => {
+    void handle.close().then(() => process.exit(0));
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  // Process stays alive until SIGINT/SIGTERM (handler exits). Return a never-resolving promise.
+  return new Promise<number>(() => {});
 }

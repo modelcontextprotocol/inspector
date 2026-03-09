@@ -55,12 +55,9 @@ describe("resolveSandboxPort", () => {
 });
 
 describe("createSandboxController", () => {
-  const minimalHtml = "<!DOCTYPE html><html><body>ok</body></html>";
-
   it("start() returns port and url, getUrl() returns URL until close", async () => {
     const controller = createSandboxController({
       port: 0,
-      sandboxHtml: minimalHtml,
       host: "127.0.0.1",
     });
     const { port, url } = await controller.start();
@@ -74,7 +71,6 @@ describe("createSandboxController", () => {
   it("with port 0 (dynamic): start() uses OS-assigned port", async () => {
     const controller = createSandboxController({
       port: 0,
-      sandboxHtml: minimalHtml,
     });
     const { port, url } = await controller.start();
     expect(port).toBeGreaterThan(0);
@@ -85,7 +81,6 @@ describe("createSandboxController", () => {
   it("close() is idempotent", async () => {
     const controller = createSandboxController({
       port: 0,
-      sandboxHtml: minimalHtml,
     });
     await controller.start();
     await controller.close();

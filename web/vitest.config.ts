@@ -5,7 +5,13 @@ import viteConfig from "./vite.config";
 // Extend Vite config for Vitest (shared resolve, plugins)
 export default defineConfig({
   ...viteConfig,
-  plugins: viteConfig.plugins || [],
+  plugins: (viteConfig.plugins || []).filter(
+    (plugin) =>
+      plugin &&
+      typeof plugin === "object" &&
+      "name" in plugin &&
+      plugin.name !== "hono-api-middleware",
+  ),
   resolve: {
     ...viteConfig.resolve,
     alias: {

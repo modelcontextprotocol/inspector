@@ -27,6 +27,20 @@ import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { API_SERVER_ENV_VARS } from "../constants.js";
 
+/**
+ * Shape of the initial config returned by GET /api/config (defaults for client).
+ * When provided via options.initialConfig, used instead of building from process.env.
+ */
+export interface InitialConfigPayload {
+  defaultCommand?: string;
+  defaultArgs?: string[];
+  defaultTransport?: string;
+  defaultServerUrl?: string;
+  defaultHeaders?: Record<string, string>;
+  defaultCwd?: string;
+  defaultEnvironment: Record<string, string>;
+}
+
 export interface RemoteServerOptions {
   /** Optional auth token. If not provided, uses API_SERVER_ENV_VARS.AUTH_TOKEN env var or generates one. Ignored when dangerouslyOmitAuth is true. */
   authToken?: string;
@@ -49,6 +63,9 @@ export interface RemoteServerOptions {
 
   /** Optional sandbox URL for MCP Apps tab. When set, GET /api/config includes sandboxUrl. */
   sandboxUrl?: string;
+
+  /** Optional initial config for GET /api/config. When set, used instead of buildInitialConfigFromEnv(). */
+  initialConfig?: InitialConfigPayload;
 }
 
 export interface CreateRemoteAppResult {
@@ -359,7 +376,7 @@ export function createRemoteApp(
   }
 
   app.get("/api/config", (c) => {
-    const initialConfig = buildInitialConfigFromEnv();
+    const initialConfig = options.initialConfig ?? buildInitialConfigFromEnv();
     const payload = options.sandboxUrl
       ? { ...initialConfig, sandboxUrl: options.sandboxUrl }
       : initialConfig;

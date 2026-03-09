@@ -1,3 +1,8 @@
+/**
+ * Hono production server. Export startHonoServer(config) for in-process use by the runner.
+ * When run as the main module (e.g. node dist/server.js), build config from env and start.
+ */
+
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,169 +11,138 @@ import open from "open";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import pino from "pino";
 import { createRemoteApp } from "@modelcontextprotocol/inspector-core/mcp/remote/node";
+import { createSandboxController } from "./sandbox-controller.js";
+import type { WebServerConfig } from "./web-server-config.js";
 import {
-  API_SERVER_ENV_VARS,
-  LEGACY_AUTH_TOKEN_ENV,
-} from "@modelcontextprotocol/inspector-core/mcp/remote";
-import {
-  createSandboxController,
-  resolveSandboxPort,
-} from "./sandbox-controller.js";
+  webServerConfigToInitialPayload,
+  buildWebServerConfigFromEnv,
+  printServerBanner,
+} from "./web-server-config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// When run as dist/server.js, __dirname is dist/; index and assets live there
-const distPath = __dirname;
-const sandboxHtmlPath = join(__dirname, "../static/sandbox_proxy.html");
 
-const app = new Hono();
-
-const dangerouslyOmitAuth = !!process.env.DANGEROUSLY_OMIT_AUTH;
-const authToken = dangerouslyOmitAuth
-  ? ""
-  : (process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ??
-    process.env[LEGACY_AUTH_TOKEN_ENV] ??
-    randomBytes(32).toString("hex"));
-
-const port = parseInt(process.env.CLIENT_PORT || "6274", 10);
-const host = process.env.HOST || "localhost";
-const baseUrl = `http://${host}:${port}`;
-
-let sandboxHtml: string;
-try {
-  sandboxHtml = readFileSync(sandboxHtmlPath, "utf-8");
-} catch (e) {
-  sandboxHtml =
-    "<!DOCTYPE html><html><body>Sandbox not loaded: " +
-    String((e as Error).message) +
-    "</body></html>";
+export interface WebServerHandle {
+  close(): Promise<void>;
 }
 
-const sandboxController = createSandboxController({
-  port: resolveSandboxPort(),
-  sandboxHtml,
-  host,
-});
-await sandboxController.start();
-
-const { app: apiApp } = createRemoteApp({
-  authToken: dangerouslyOmitAuth ? undefined : authToken,
-  dangerouslyOmitAuth,
-  storageDir: process.env.MCP_STORAGE_DIR,
-  allowedOrigins: process.env.ALLOWED_ORIGINS?.split(",") ?? [baseUrl],
-  sandboxUrl: sandboxController.getUrl() ?? undefined,
-  logger: process.env.MCP_LOG_FILE
-    ? pino(
-        { level: "info" },
-        pino.destination({
-          dest: process.env.MCP_LOG_FILE,
-          append: true,
-          mkdir: true,
-        }),
-      )
-    : undefined,
-});
-
-const SHUTDOWN_TIMEOUT_MS = 10_000;
-
-async function shutdown(): Promise<void> {
-  if (shuttingDown) return;
-  shuttingDown = true;
-
-  const forceExit = setTimeout(() => {
-    console.error("Shutdown timeout; forcing exit");
-    process.exit(1);
-  }, SHUTDOWN_TIMEOUT_MS);
-
-  try {
-    await sandboxController.close();
-  } catch (err) {
-    console.error("Sandbox close error:", err);
-  }
-
-  httpServer.close((err) => {
-    clearTimeout(forceExit);
-    if (err) {
-      console.error("Server close error:", err);
-      process.exit(1);
-    }
-    process.exit(0);
+/**
+ * Start the Hono production server in-process. Returns a handle that closes sandbox then HTTP server.
+ * Caller owns SIGINT/SIGTERM; do not register signal handlers here.
+ */
+export async function startHonoServer(
+  config: WebServerConfig,
+): Promise<WebServerHandle> {
+  const sandboxController = createSandboxController({
+    port: config.sandboxPort,
+    host: config.sandboxHost,
   });
+  await sandboxController.start();
+
+  const resolvedAuthToken =
+    config.authToken ||
+    (config.dangerouslyOmitAuth ? "" : randomBytes(32).toString("hex"));
+
+  const rootPath = config.staticRoot ?? __dirname;
+
+  const { app: apiApp } = createRemoteApp({
+    authToken: config.dangerouslyOmitAuth ? undefined : resolvedAuthToken,
+    dangerouslyOmitAuth: config.dangerouslyOmitAuth,
+    storageDir: config.storageDir,
+    allowedOrigins: config.allowedOrigins,
+    sandboxUrl: sandboxController.getUrl() ?? undefined,
+    logger: config.logger,
+    initialConfig: webServerConfigToInitialPayload(config),
+  });
+
+  const app = new Hono();
+  app.use("/api/*", async (c) => {
+    return apiApp.fetch(c.req.raw);
+  });
+
+  app.get("/", async (c) => {
+    try {
+      const indexPath = join(rootPath, "index.html");
+      const html = readFileSync(indexPath, "utf-8");
+      return c.html(html);
+    } catch (error) {
+      console.error("Error serving index.html:", error);
+      return c.notFound();
+    }
+  });
+
+  app.use(
+    "/*",
+    serveStatic({
+      root: rootPath,
+      rewriteRequestPath: (path) => {
+        if (!path.includes(".") && !path.startsWith("/api")) {
+          return "/index.html";
+        }
+        return path;
+      },
+    }),
+  );
+
+  const httpServer = serve(
+    {
+      fetch: app.fetch,
+      port: config.port,
+      hostname: config.hostname,
+    },
+    (info) => {
+      const sandboxUrl = sandboxController.getUrl();
+      const url = printServerBanner(
+        config,
+        info.port,
+        resolvedAuthToken,
+        sandboxUrl ?? undefined,
+      );
+      if (config.autoOpen) {
+        open(url);
+      }
+    },
+  );
+
+  httpServer.on("error", (err: Error) => {
+    if (err.message.includes("EADDRINUSE")) {
+      console.error(
+        `❌  MCP Inspector PORT IS IN USE at http://${config.hostname}:${config.port} ❌ `,
+      );
+      process.exit(1);
+    } else {
+      throw err;
+    }
+  });
+
+  return {
+    async close(): Promise<void> {
+      await sandboxController.close();
+      if ("closeAllConnections" in httpServer) {
+        httpServer.closeAllConnections();
+      }
+      await new Promise<void>((resolve, reject) => {
+        httpServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    },
+  };
 }
 
-let shuttingDown = false;
-process.on("SIGINT", () => {
-  void shutdown();
-});
-process.on("SIGTERM", () => {
-  void shutdown();
-});
+/** Run when this file is executed as the main module (e.g. node dist/server.js). */
+async function runStandalone(): Promise<void> {
+  const config = buildWebServerConfigFromEnv();
+  const handle = await startHonoServer(config);
+  const shutdown = () => {
+    void handle.close().then(() => process.exit(0));
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}
 
-app.use("/api/*", async (c) => {
-  return apiApp.fetch(c.req.raw);
-});
-
-app.get("/", async (c) => {
-  try {
-    const indexPath = join(distPath, "index.html");
-    const html = readFileSync(indexPath, "utf-8");
-    return c.html(html);
-  } catch (error) {
-    console.error("Error serving index.html:", error);
-    return c.notFound();
-  }
-});
-
-app.use(
-  "/*",
-  serveStatic({
-    root: distPath,
-    rewriteRequestPath: (path) => {
-      if (!path.includes(".") && !path.startsWith("/api")) {
-        return "/index.html";
-      }
-      return path;
-    },
-  }),
-);
-
-const httpServer = serve(
-  {
-    fetch: app.fetch,
-    port,
-    hostname: host,
-  },
-  (info) => {
-    const baseUrl = `http://${host}:${info.port}`;
-    const url =
-      dangerouslyOmitAuth || !authToken
-        ? baseUrl
-        : `${baseUrl}?${API_SERVER_ENV_VARS.AUTH_TOKEN}=${authToken}`;
-    console.log(`\n🚀 MCP Inspector Web is up and running at:\n   ${url}\n`);
-    const sandboxUrl = sandboxController.getUrl();
-    if (sandboxUrl) {
-      console.log(`   Sandbox (MCP Apps): ${sandboxUrl}\n`);
-    }
-    if (dangerouslyOmitAuth) {
-      console.log("   Auth: disabled (DANGEROUSLY_OMIT_AUTH)\n");
-    } else {
-      console.log(`   Auth token: ${authToken}\n`);
-    }
-    if (process.env.MCP_AUTO_OPEN_ENABLED !== "false") {
-      console.log("🌐 Opening browser...");
-      open(url);
-    }
-  },
-);
-
-httpServer.on("error", (err: Error) => {
-  if (err.message.includes("EADDRINUSE")) {
-    console.error(
-      `❌  MCP Inspector PORT IS IN USE at http://${host}:${port} ❌ `,
-    );
-    process.exit(1);
-  } else {
-    throw err;
-  }
-});
+const isMain =
+  typeof process.argv[1] === "string" &&
+  (process.argv[1].endsWith("server.js") ||
+    process.argv[1].endsWith("server.cjs"));
+if (isMain) {
+  void runStandalone();
+}

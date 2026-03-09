@@ -12,5 +12,9 @@
     "declaration": false,
     "noEmit": false
   },
-  "include": ["src/server.ts"]
+  "include": [
+    "src/server.ts",
+    "src/web-server-config.ts",
+    "src/sandbox-controller.ts"
+  ]
 }
