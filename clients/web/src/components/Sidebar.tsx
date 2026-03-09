@@ -32,7 +32,7 @@ import {
 import { InspectorConfig } from "@/lib/configurationTypes";
 import { ConnectionStatus } from "@/lib/constants";
 import useTheme from "../lib/hooks/useTheme";
-import { version } from "../../../package.json";
+import { version } from "../../../../package.json";
 import {
   Tooltip,
   TooltipTrigger,

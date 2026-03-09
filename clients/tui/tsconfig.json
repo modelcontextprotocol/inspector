@@ -14,5 +14,5 @@
   },
   "include": ["src/**/*", "tui.tsx", "index.ts"],
   "exclude": ["node_modules", "build"],
-  "references": [{ "path": "../core" }]
+  "references": [{ "path": "../../core" }]
 }

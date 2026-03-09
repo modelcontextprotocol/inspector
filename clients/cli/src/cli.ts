@@ -1,4 +1,5 @@
-import * as fs from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath, pathToFileURL } from "url";
 import { Command } from "commander";
 type McpResponse = Record<string, unknown>;
 import { handleError } from "./error-handler.js";
@@ -43,9 +44,9 @@ async function callMethod(
   serverConfig: MCPServerConfig,
   args: MethodArgs & { method: string },
 ): Promise<void> {
-  const pathA = "../package.json";
-  const pathB = "../../package.json";
-  const packageJsonData = await import(fs.existsSync(pathA) ? pathA : pathB, {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const packageJsonPath = join(__dirname, "../package.json");
+  const packageJsonData = await import(pathToFileURL(packageJsonPath).href, {
     with: { type: "json" },
   });
   const packageJson = packageJsonData.default as {

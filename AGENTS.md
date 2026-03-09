@@ -29,8 +29,8 @@
 
 The project is organized as a monorepo with workspaces:
 
-- `web/`: Web application (Vite, TypeScript, Tailwind)
+- `clients/web/`: Web application (Vite, TypeScript, Tailwind)
 - `core/`: Core shared code used by web, CLI, and TUI
-- `cli/`: Command-line interface for testing and invoking MCP server methods directly
-- `tui/`: Terminal user interface
+- `clients/cli/`: Command-line interface for testing and invoking MCP server methods directly
+- `clients/tui/`: Terminal user interface
 - `test-servers/`: Composable MCP test servers, fixtures, and harness

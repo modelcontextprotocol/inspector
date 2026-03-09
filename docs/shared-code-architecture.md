@@ -47,9 +47,11 @@ The architecture addresses these issues by providing a single source of truth fo
 
 ```
 inspector/
-├── cli/              # CLI workspace (uses core)
-├── tui/              # TUI workspace (uses core)
-├── web/              # Web client workspace (uses core)
+├── clients/
+│   ├── cli/              # CLI workspace (uses core)
+│   ├── tui/              # TUI workspace (uses core)
+│   ├── web/              # Web client workspace (uses core)
+│   └── launcher/         # Global binary wrapper
 ├── core/              # Shared workspace package (InspectorClient, state managers, react, auth)
 │   ├── mcp/           # InspectorClient (protocol) + state managers
 │   │   └── state/     # Optional state managers (tools, resources, logs, tasks)

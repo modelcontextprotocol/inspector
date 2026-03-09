@@ -6,7 +6,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   /* Run your local dev server before starting the tests */
   webServer: {
-    cwd: "..",
+    cwd: "../..",
     command: "npm run dev",
     url: "http://localhost:6274",
     reuseExistingServer: !process.env.CI,
