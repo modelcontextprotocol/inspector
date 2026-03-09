@@ -3,17 +3,17 @@ name: CLI Tests
 on:
   push:
     paths:
-      - "cli/**"
+      - "clients/cli/**"
   pull_request:
     paths:
-      - "cli/**"
+      - "clients/cli/**"
 
 jobs:
   test:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./cli
+        working-directory: ./clients/cli
     steps:
       - uses: actions/checkout@v6
 

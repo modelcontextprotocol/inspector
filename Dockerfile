@@ -7,10 +7,11 @@ WORKDIR /app
 # Copy package files for installation
 COPY package*.json ./
 COPY .npmrc ./
-COPY web/package*.json ./web/
+COPY clients/web/package*.json ./clients/web/
 COPY core/package*.json ./core/
-COPY cli/package*.json ./cli/
-COPY tui/package*.json ./tui/
+COPY clients/cli/package*.json ./clients/cli/
+COPY clients/tui/package*.json ./clients/tui/
+COPY clients/launcher/package*.json ./clients/launcher/
 
 # Install dependencies
 RUN npm ci --ignore-scripts
@@ -29,22 +30,24 @@ WORKDIR /app
 # Copy package files for production
 COPY package*.json ./
 COPY .npmrc ./
-COPY web/package*.json ./web/
+COPY clients/web/package*.json ./clients/web/
 COPY core/package*.json ./core/
-COPY cli/package*.json ./cli/
-COPY tui/package*.json ./tui/
+COPY clients/cli/package*.json ./clients/cli/
+COPY clients/tui/package*.json ./clients/tui/
+COPY clients/launcher/package*.json ./clients/launcher/
 
 # Install only production dependencies
 RUN npm ci --omit=dev --ignore-scripts
 
 # Copy built files from builder stage
-COPY --from=builder /app/web/dist ./web/dist
-COPY --from=builder /app/web/build ./web/build
-COPY --from=builder /app/cli/build ./cli/build
+COPY --from=builder /app/clients/web/dist ./clients/web/dist
+COPY --from=builder /app/clients/web/build ./clients/web/build
+COPY --from=builder /app/clients/cli/build ./clients/cli/build
+COPY --from=builder /app/clients/launcher/build ./clients/launcher/build
 
 # Set default port
 ENV PORT=6274
 EXPOSE ${PORT}
 
 # Run web app
-CMD ["node", "web/build/index.js"]
+CMD ["node", "clients/launcher/build/index.js", "--web"]
