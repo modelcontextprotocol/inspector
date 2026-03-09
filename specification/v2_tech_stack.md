@@ -7,7 +7,7 @@
   * [Web Client](#web-client)
       * [Language and Framework](#language-and-framework)
       * [Components and theme](#components-and-theme)
-  * [Proxy Server](#proxy-server)
+  * [Server](#proxy-server)
       * [Language and Runtime](#language-and-runtime)
       * [Transport Operation](#server)
       * [Logging](#logging)
@@ -69,7 +69,7 @@ See [PR #980 discussion](https://github.com/modelcontextprotocol/inspector/pull/
    - Single install provides all components
    - Consistent API across all components
 
-## Proxy Server
+## Server
 ### Language and Runtime
 * Typescript
 * Node
