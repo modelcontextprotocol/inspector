@@ -229,7 +229,7 @@ The web client uses InspectorClient for all MCP operations:
 
 ### Feature coverage
 
-InspectorClient supports OAuth (static client, CIMD, DCR, guided auth), completions (`getCompletions`), elicitation, sampling, roots, progress notifications, and custom headers via `MCPServerConfig`. For which features are implemented in the TUI vs. web client, see [tui-web-client-feature-gaps.md](tui-web-client-feature-gaps.md).
+InspectorClient supports OAuth (static client, CIMD, DCR, guided auth), completions (`getCompletions`), elicitation, sampling, roots, progress notifications, and custom headers via `MCPServerConfig`. For which features are implemented in the TUI vs. web client, see [mcp-feature-tracker.md](mcp-feature-tracker.md).
 
 ## Web App Integration
 
@@ -288,4 +288,4 @@ The architecture provides:
 - **Type safety** through shared types
 - **Event-driven updates** via EventTarget (cross-platform compatible)
 
-**As-built:** CLI, TUI, and web client use InspectorClient from core. TUI and web use state managers and the same React hooks; CLI calls InspectorClient methods directly. For TUI vs. web feature coverage, see [tui-web-client-feature-gaps.md](tui-web-client-feature-gaps.md).
+**As-built:** CLI, TUI, and web client use InspectorClient from core. TUI and web use state managers and the same React hooks; CLI calls InspectorClient methods directly. For TUI vs. web feature coverage, see [mcp-feature-tracker.md](mcp-feature-tracker.md).
