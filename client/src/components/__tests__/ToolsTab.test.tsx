@@ -11,6 +11,7 @@ import {
   META_PREFIX_RULES_MESSAGE,
   RESERVED_NAMESPACE_MESSAGE,
 } from "../../utils/metaUtils";
+import { DEFAULT_INSPECTOR_CONFIG } from "../../lib/constants";
 
 describe("ToolsTab", () => {
   beforeEach(() => {
@@ -73,6 +74,7 @@ describe("ToolsTab", () => {
     error: null,
     resourceContent: {},
     onReadResource: jest.fn(),
+    config: DEFAULT_INSPECTOR_CONFIG,
   };
 
   const renderToolsTab = (props = {}) => {
@@ -89,7 +91,9 @@ describe("ToolsTab", () => {
     });
 
     // Enter a value in the first tool's input
-    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    const input = screen.getByRole("textbox", {
+      name: "num",
+    }) as HTMLInputElement;
     await act(async () => {
       fireEvent.change(input, { target: { value: "42" } });
     });
@@ -103,7 +107,9 @@ describe("ToolsTab", () => {
     );
 
     // Verify input is reset
-    const newInput = screen.getByRole("spinbutton") as HTMLInputElement;
+    const newInput = screen.getByRole("textbox", {
+      name: "num",
+    }) as HTMLInputElement;
     expect(newInput.value).toBe("");
   });
 
@@ -112,10 +118,10 @@ describe("ToolsTab", () => {
       selectedTool: mockTools[1], // Use the tool with integer type
     });
 
-    const input = screen.getByRole("spinbutton", {
+    const input = screen.getByRole("textbox", {
       name: /count/i,
     }) as HTMLInputElement;
-    expect(input).toHaveProperty("type", "number");
+    expect(input).toHaveProperty("type", "text");
     fireEvent.change(input, { target: { value: "42" } });
     expect(input.value).toBe("42");
 
@@ -139,7 +145,9 @@ describe("ToolsTab", () => {
       selectedTool: mockTools[0],
     });
 
-    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    const input = screen.getByRole("textbox", {
+      name: "num",
+    }) as HTMLInputElement;
 
     // Complete the negative number
     fireEvent.change(input, { target: { value: "-42" } });
@@ -1068,8 +1076,8 @@ describe("ToolsTab", () => {
       });
 
       // Fill in the simple parameters
-      const messageInput = screen.getByRole("textbox");
-      const countInput = screen.getByRole("spinbutton");
+      const messageInput = screen.getByRole("textbox", { name: "message" });
+      const countInput = screen.getByRole("textbox", { name: "count" });
 
       fireEvent.change(messageInput, { target: { value: "test message" } });
       fireEvent.change(countInput, { target: { value: "5" } });

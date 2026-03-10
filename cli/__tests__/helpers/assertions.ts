@@ -5,14 +5,20 @@ import type { CliResult } from "./cli-runner.js";
  * Assert that CLI command succeeded (exit code 0)
  */
 export function expectCliSuccess(result: CliResult) {
-  expect(result.exitCode).toBe(0);
+  expect(
+    result.exitCode,
+    `CLI failed with code ${result.exitCode}. Output:\n${result.output}`,
+  ).toBe(0);
 }
 
 /**
  * Assert that CLI command failed (non-zero exit code)
  */
 export function expectCliFailure(result: CliResult) {
-  expect(result.exitCode).not.toBe(0);
+  expect(
+    result.exitCode,
+    `CLI expected to fail but succeeded with code 0. Output:\n${result.output}`,
+  ).not.toBe(0);
 }
 
 /**

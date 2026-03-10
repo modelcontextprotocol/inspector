@@ -1,3 +1,5 @@
+const path = require("path");
+
 module.exports = {
   preset: "ts-jest",
   testEnvironment: "jest-fixed-jsdom",
@@ -5,6 +7,15 @@ module.exports = {
     "^@/(.*)$": "<rootDir>/src/$1",
     "\\.css$": "<rootDir>/src/__mocks__/styleMock.js",
   },
+  setupFilesAfterEnv: ["<rootDir>/src/setupTests.ts"],
+  silent: true,
+  reporters: [
+    "summary",
+    [
+      path.resolve(__dirname, "../tests/helpers/jest-file-reporter.cjs"),
+      { filename: "test-failures.log" },
+    ],
+  ],
   transform: {
     "^.+\\.tsx?$": [
       "ts-jest",

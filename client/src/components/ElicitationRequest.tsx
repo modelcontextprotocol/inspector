@@ -9,6 +9,7 @@ import {
   ElicitationResponse,
 } from "./ElicitationTab";
 import Ajv from "ajv";
+import addFormats from "ajv-formats";
 
 export type ElicitationRequestProps = {
   request: PendingElicitationRequest;
@@ -80,6 +81,7 @@ const ElicitationRequest = ({
       }
 
       const ajv = new Ajv();
+      addFormats(ajv);
       const validate = ajv.compile(request.request.requestedSchema);
       const isValid = validate(formData);
 

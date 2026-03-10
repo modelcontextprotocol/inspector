@@ -35,7 +35,7 @@
     "start": "node client/bin/start.js",
     "start-server": "cd server && npm run start",
     "start-client": "cd client && npm run preview",
-    "test": "npm run prettier-check && cd client && npm test",
+    "test": "npm run prettier-check; cd client && npm test",
     "test-cli": "cd cli && npm run test",
     "test:e2e": "MCP_AUTO_OPEN_ENABLED=false npm run test:e2e --workspace=client",
     "prettier-fix": "prettier --write .",

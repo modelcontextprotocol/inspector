@@ -2,7 +2,7 @@
 
 import open from "open";
 import { resolve, dirname } from "path";
-import { spawnPromise, spawn } from "spawn-rx";
+import { spawnPromise, spawn } from "spawn-rx/lib/index.js";
 import { fileURLToPath } from "url";
 import { randomBytes } from "crypto";
 
