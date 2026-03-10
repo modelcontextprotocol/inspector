@@ -122,16 +122,16 @@ export async function runTui(args?: string[]): Promise<void> {
       program.error(
         `Invalid callback URL: ${(err as Error)?.message ?? String(err)}`,
       );
-      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" };
+      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" }; // never reached; program.error() throws
     }
     if (url.protocol !== "http:") {
       program.error("Callback URL must use http scheme");
-      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" };
+      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" }; // never reached; program.error() throws
     }
     const hostname = url.hostname;
     if (!hostname) {
       program.error("Callback URL must include a hostname");
-      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" };
+      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" }; // never reached; program.error() throws
     }
     const pathname = url.pathname || "/";
     let port: number;

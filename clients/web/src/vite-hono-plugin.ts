@@ -33,12 +33,6 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
         );
       }
 
-      server.httpServer.on("close", () => {
-        sandboxController.close().catch((err) => {
-          console.error("Sandbox close error:", err);
-        });
-      });
-
       const originalClose = server.close.bind(server);
       server.close = async () => {
         await sandboxController.close();

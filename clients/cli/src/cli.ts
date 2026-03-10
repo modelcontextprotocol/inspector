@@ -214,7 +214,7 @@ function parseKeyValuePair(
   const key = parts[0];
   const val = parts.slice(1).join("=");
 
-  if (val === undefined || val === "") {
+  if (!key || val === undefined || val === "") {
     throw new Error(
       `Invalid parameter format: ${value}. Use key=value format.`,
     );

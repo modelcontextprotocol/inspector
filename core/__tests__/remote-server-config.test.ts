@@ -8,6 +8,7 @@ describe("createRemoteApp GET /api/config", () => {
       dangerouslyOmitAuth: true,
       allowedOrigins: ["http://127.0.0.1:6274"],
       sandboxUrl,
+      initialConfig: { defaultEnvironment: {} },
     });
     const res = await app.request(new Request("http://test/api/config"));
     expect(res.status).toBe(200);
@@ -19,6 +20,7 @@ describe("createRemoteApp GET /api/config", () => {
     const { app } = createRemoteApp({
       dangerouslyOmitAuth: true,
       allowedOrigins: ["http://127.0.0.1:6274"],
+      initialConfig: { defaultEnvironment: {} },
     });
     const res = await app.request(new Request("http://test/api/config"));
     expect(res.status).toBe(200);

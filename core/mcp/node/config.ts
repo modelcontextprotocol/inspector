@@ -169,11 +169,15 @@ function buildConfigFromOptions(options: ServerConfigOptions): MCPServerConfig {
       transportType = t;
     } else {
       const u = new URL(url);
-      transportType = u.pathname.endsWith("/mcp")
-        ? "streamable-http"
-        : u.pathname.endsWith("/sse")
-          ? "sse"
-          : "sse";
+      if (u.pathname.endsWith("/mcp")) {
+        transportType = "streamable-http";
+      } else if (u.pathname.endsWith("/sse")) {
+        transportType = "sse";
+      } else {
+        throw new Error(
+          `Transport type not specified and could not be determined from URL: ${url}.`,
+        );
+      }
     }
     if (transportType === "sse") {
       const config: SseServerConfig = { type: "sse", url };

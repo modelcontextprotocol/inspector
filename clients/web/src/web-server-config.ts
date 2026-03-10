@@ -4,17 +4,13 @@
 
 import pino from "pino";
 import type { Logger } from "pino";
-import type {
-  MCPServerConfig,
-  StdioServerConfig,
-  SseServerConfig,
-  StreamableHttpServerConfig,
-} from "@modelcontextprotocol/inspector-core/mcp/types.js";
+import type { MCPServerConfig } from "@modelcontextprotocol/inspector-core/mcp/types.js";
 import {
   API_SERVER_ENV_VARS,
   LEGACY_AUTH_TOKEN_ENV,
 } from "@modelcontextprotocol/inspector-core/mcp/remote";
 import type { InitialConfigPayload } from "@modelcontextprotocol/inspector-core/mcp/remote/node";
+import { resolveSandboxPort } from "./sandbox-controller.js";
 
 export interface WebServerConfig {
   port: number;
@@ -164,85 +160,9 @@ export function buildWebServerConfigFromEnv(): WebServerConfig {
       (process.env[LEGACY_AUTH_TOKEN_ENV] as string | undefined) ??
       "");
 
-  let initialMcpConfig: MCPServerConfig | null = null;
-  const cmd = process.env.MCP_INITIAL_COMMAND;
-  const transport = process.env.MCP_INITIAL_TRANSPORT;
-  const serverUrl = process.env.MCP_INITIAL_SERVER_URL;
-  if (cmd) {
-    const args = process.env.MCP_INITIAL_ARGS?.split(" ") ?? [];
-    let env: Record<string, string> | undefined;
-    if (process.env.MCP_ENV_VARS) {
-      try {
-        env = JSON.parse(process.env.MCP_ENV_VARS) as Record<string, string>;
-      } catch {
-        // ignore invalid JSON
-      }
-    }
-    const stdio: StdioServerConfig = {
-      type: "stdio",
-      command: cmd,
-      args: args.length > 0 ? args : undefined,
-      cwd: process.env.MCP_INITIAL_CWD ?? undefined,
-      env,
-    };
-    initialMcpConfig = stdio;
-  } else if (transport === "sse" && serverUrl) {
-    let headers: Record<string, string> | undefined;
-    try {
-      const h = process.env.MCP_INITIAL_HEADERS;
-      if (h) headers = JSON.parse(h) as Record<string, string>;
-    } catch {
-      // ignore
-    }
-    initialMcpConfig = {
-      type: "sse",
-      url: serverUrl,
-      headers,
-    } as SseServerConfig;
-  } else if (
-    (transport === "streamable-http" || transport === "http") &&
-    serverUrl
-  ) {
-    let headers: Record<string, string> | undefined;
-    try {
-      const h = process.env.MCP_INITIAL_HEADERS;
-      if (h) headers = JSON.parse(h) as Record<string, string>;
-    } catch {
-      // ignore
-    }
-    initialMcpConfig = {
-      type: "streamable-http",
-      url: serverUrl,
-      headers,
-    } as StreamableHttpServerConfig;
-  } else if (serverUrl) {
-    let headers: Record<string, string> | undefined;
-    try {
-      const h = process.env.MCP_INITIAL_HEADERS;
-      if (h) headers = JSON.parse(h) as Record<string, string>;
-    } catch {
-      // ignore
-    }
-    initialMcpConfig = {
-      type: "streamable-http",
-      url: serverUrl,
-      headers,
-    } as StreamableHttpServerConfig;
-  }
+  const initialMcpConfig: MCPServerConfig | null = null;
 
-  const sandboxPort = (() => {
-    const fromSandbox = process.env.MCP_SANDBOX_PORT;
-    if (fromSandbox !== undefined && fromSandbox !== "") {
-      const n = parseInt(fromSandbox, 10);
-      if (!Number.isNaN(n) && n >= 0) return n;
-    }
-    const fromServer = process.env.SERVER_PORT;
-    if (fromServer !== undefined && fromServer !== "") {
-      const n = parseInt(fromServer, 10);
-      if (!Number.isNaN(n) && n >= 0) return n;
-    }
-    return 0;
-  })();
+  const sandboxPort = resolveSandboxPort();
 
   let logger: Logger | undefined;
   if (process.env.MCP_LOG_FILE) {

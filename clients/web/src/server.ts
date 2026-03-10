@@ -4,7 +4,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import open from "open";
@@ -20,7 +20,8 @@ import {
   printServerBanner,
 } from "./web-server-config.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export interface WebServerHandle {
   close(): Promise<void>;
@@ -140,9 +141,8 @@ async function runStandalone(): Promise<void> {
 }
 
 const isMain =
-  typeof process.argv[1] === "string" &&
-  (process.argv[1].endsWith("server.js") ||
-    process.argv[1].endsWith("server.cjs"));
+  process.argv[1] !== undefined &&
+  resolve(process.argv[1]) === resolve(__filename);
 if (isMain) {
   void runStandalone();
 }
