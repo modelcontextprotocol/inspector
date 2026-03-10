@@ -21,3 +21,4 @@ mcp.json
 .claude/settings.local.json
 *.log
 mcp-logs/
+client/coverage/

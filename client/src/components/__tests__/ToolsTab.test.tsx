@@ -938,9 +938,9 @@ describe("ToolsTab", () => {
         selectedTool: toolWithStringParam,
       });
 
-      // Should render textarea, not select
+      // Verify textarea, not select
       expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
-      expect(screen.getByRole("textbox")).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "text" })).toBeInTheDocument();
     });
   });
 
@@ -966,18 +966,19 @@ describe("ToolsTab", () => {
 
     it("should prevent tool execution when JSON validation fails", async () => {
       const mockCallTool = jest.fn();
-      renderToolsTab({
+      const { container } = renderToolsTab({
         tools: [toolWithJsonParams],
         selectedTool: toolWithJsonParams,
         callTool: mockCallTool,
       });
 
-      // Find JSON editor textareas (there should be at least 1 for JSON parameters)
-      const textareas = screen.getAllByRole("textbox");
-      expect(textareas.length).toBeGreaterThanOrEqual(1);
+      // Find JSON editor textareas using their specific class
+      const jsonTextareas = container.querySelectorAll(
+        ".npm__react-simple-code-editor__textarea",
+      );
+      const configTextarea = jsonTextareas[0];
 
       // Enter invalid JSON in the first textarea
-      const configTextarea = textareas[0];
       fireEvent.change(configTextarea, {
         target: { value: '{ "invalid": json }' },
       });
@@ -994,21 +995,23 @@ describe("ToolsTab", () => {
 
     it("should allow tool execution when JSON validation passes", async () => {
       const mockCallTool = jest.fn();
-      renderToolsTab({
+      const { container } = renderToolsTab({
         tools: [toolWithJsonParams],
         selectedTool: toolWithJsonParams,
         callTool: mockCallTool,
       });
 
-      // Find JSON editor textareas (should have one for each required field: config and data)
-      const textareas = screen.getAllByRole("textbox");
-      expect(textareas.length).toBe(2);
+      const jsonTextareas = container.querySelectorAll(
+        ".npm__react-simple-code-editor__textarea",
+      );
+      const configTextarea = jsonTextareas[0];
+      const dataTextarea = jsonTextareas[1];
 
       // Enter valid JSON in each textarea
-      fireEvent.change(textareas[0], {
+      fireEvent.change(configTextarea, {
         target: { value: '{ "setting": "value" }' },
       });
-      fireEvent.change(textareas[1], {
+      fireEvent.change(dataTextarea, {
         target: { value: '["item1", "item2"]' },
       });
 
@@ -1029,16 +1032,19 @@ describe("ToolsTab", () => {
 
     it("should handle mixed valid and invalid JSON parameters", async () => {
       const mockCallTool = jest.fn();
-      renderToolsTab({
+      const { container } = renderToolsTab({
         tools: [toolWithJsonParams],
         selectedTool: toolWithJsonParams,
         callTool: mockCallTool,
       });
 
-      const textareas = screen.getAllByRole("textbox");
+      const jsonTextareas = container.querySelectorAll(
+        ".npm__react-simple-code-editor__textarea",
+      );
+      const configTextarea = jsonTextareas[0];
 
-      // Enter invalid JSON that contains both valid and invalid parts
-      fireEvent.change(textareas[0], {
+      // Enter invalid JSON
+      fireEvent.change(configTextarea, {
         target: {
           value:
             '{ "config": { "setting": "value" }, "data": ["unclosed array" }',
@@ -1075,7 +1081,7 @@ describe("ToolsTab", () => {
         callTool: mockCallTool,
       });
 
-      // Fill in the simple parameters
+      // Fill in the simple parameters (using names because they ARE supported for standard inputs)
       const messageInput = screen.getByRole("textbox", { name: "message" });
       const countInput = screen.getByRole("textbox", { name: "count" });
 
@@ -1102,18 +1108,21 @@ describe("ToolsTab", () => {
 
     it("should handle empty JSON parameters correctly", async () => {
       const mockCallTool = jest.fn();
-      renderToolsTab({
+      const { container } = renderToolsTab({
         tools: [toolWithJsonParams],
         selectedTool: toolWithJsonParams,
         callTool: mockCallTool,
       });
 
-      const textareas = screen.getAllByRole("textbox");
-      expect(textareas.length).toBe(2);
+      const jsonTextareas = container.querySelectorAll(
+        ".npm__react-simple-code-editor__textarea",
+      );
+      const configTextarea = jsonTextareas[0];
+      const dataTextarea = jsonTextareas[1];
 
       // Clear both textareas (empty JSON should be valid)
-      fireEvent.change(textareas[0], { target: { value: "{}" } });
-      fireEvent.change(textareas[1], { target: { value: "[]" } });
+      fireEvent.change(configTextarea, { target: { value: "{}" } });
+      fireEvent.change(dataTextarea, { target: { value: "[]" } });
 
       // Wait for debounced updates
       await act(async () => {
