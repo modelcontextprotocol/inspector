@@ -4,84 +4,71 @@
 import { describe, it, expect } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useManagedTools } from "../../react/useManagedTools.js";
+import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ManagedToolsState } from "../../mcp/state/managedToolsState.js";
-import type { InspectorClient } from "../../mcp/inspectorClient.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 /**
- * Mock ManagedToolsState: getTools(), refresh(), and toolsChange events.
+ * Mock ManagedToolsState: getStore(), getTools(), refresh(), setMetadata(), destroy().
+ * Not typed as implements ManagedToolsState because the real class has private fields.
  */
-class MockManagedToolsState extends EventTarget {
-  private _tools: Tool[] = [];
+class MockManagedToolsState {
+  private store: StoreApi<{ tools: Tool[] }>;
+
+  constructor() {
+    this.store = createStore<{ tools: Tool[] }>()((_set) => ({ tools: [] }));
+  }
+
+  getStore() {
+    return {
+      getState: () => this.store.getState(),
+      subscribe: (listener: () => void) => this.store.subscribe(listener),
+    };
+  }
 
   getTools(): Tool[] {
-    return [...this._tools];
+    return this.store.getState().tools;
   }
 
   setTools(tools: Tool[]): void {
-    this._tools = tools;
-    this.dispatchEvent(new CustomEvent("toolsChange", { detail: tools }));
+    this.store.setState({ tools });
   }
+
+  setMetadata(): void {}
 
   async refresh(): Promise<Tool[]> {
     return this.getTools();
   }
 
   destroy(): void {
-    this._tools = [];
+    this.store.setState({ tools: [] });
   }
 }
 
 describe("useManagedTools", () => {
-  it("returns empty tools and no-op refresh when given null client and null manager", async () => {
-    const { result } = renderHook(() => useManagedTools(null, null));
-
-    expect(result.current.tools).toEqual([]);
-
-    await act(async () => {
-      const next = await result.current.refresh();
-      expect(next).toEqual([]);
-    });
-    expect(result.current.tools).toEqual([]);
-  });
-
-  it("returns empty tools when manager is null", async () => {
-    const client = {} as InspectorClient;
-    const { result } = renderHook(() => useManagedTools(client, null));
-
-    expect(result.current.tools).toEqual([]);
-
-    await act(async () => {
-      const next = await result.current.refresh();
-      expect(next).toEqual([]);
-    });
-  });
-
-  it("syncs initial tools from manager", () => {
+  it("syncs initial tools from manager store", () => {
     const manager = new MockManagedToolsState();
     manager.setTools([
       { name: "a", inputSchema: { type: "object" as const } },
       { name: "b", inputSchema: { type: "object" as const } },
     ]);
-    const client = {} as InspectorClient;
 
     const { result } = renderHook(() =>
-      useManagedTools(client, manager as unknown as ManagedToolsState),
+      useManagedTools(manager as unknown as ManagedToolsState),
     );
 
     expect(result.current.tools).toHaveLength(2);
     expect(result.current.tools.map((t) => t.name)).toEqual(["a", "b"]);
   });
 
-  it("updates tools when manager dispatches toolsChange", async () => {
+  it("updates tools when manager store updates", async () => {
     const manager = new MockManagedToolsState();
     manager.setTools([
       { name: "first", inputSchema: { type: "object" as const } },
     ]);
-    const client = {} as InspectorClient;
 
     const { result } = renderHook(() =>
-      useManagedTools(client, manager as unknown as ManagedToolsState),
+      useManagedTools(manager as unknown as ManagedToolsState),
     );
 
     expect(result.current.tools).toHaveLength(1);
@@ -101,13 +88,12 @@ describe("useManagedTools", () => {
     ]);
   });
 
-  it("refresh updates state from manager", async () => {
+  it("refresh returns tools from manager", async () => {
     const manager = new MockManagedToolsState();
     manager.setTools([{ name: "x", inputSchema: { type: "object" as const } }]);
-    const client = {} as InspectorClient;
 
     const { result } = renderHook(() =>
-      useManagedTools(client, manager as unknown as ManagedToolsState),
+      useManagedTools(manager as unknown as ManagedToolsState),
     );
 
     expect(result.current.tools).toHaveLength(1);
@@ -125,29 +111,5 @@ describe("useManagedTools", () => {
     });
 
     expect(result.current.tools).toHaveLength(2);
-  });
-
-  it("clears tools when manager switches to null", async () => {
-    const manager = new MockManagedToolsState();
-    manager.setTools([
-      { name: "only", inputSchema: { type: "object" as const } },
-    ]);
-    const client = {} as InspectorClient;
-
-    const { result, rerender } = renderHook(
-      ({ client: c, manager: m }) => useManagedTools(c, m),
-      {
-        initialProps: {
-          client,
-          manager: manager as unknown as ManagedToolsState,
-        },
-      },
-    );
-
-    expect(result.current.tools).toHaveLength(1);
-
-    rerender({ client, manager: null });
-
-    expect(result.current.tools).toEqual([]);
   });
 });
