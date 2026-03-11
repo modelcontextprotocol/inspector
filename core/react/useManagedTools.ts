@@ -1,5 +1,4 @@
-import { useSyncExternalStore } from "react";
-import { useCallback } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ManagedToolsState } from "../mcp/state/managedToolsState.js";
 
@@ -8,21 +7,24 @@ export interface UseManagedToolsResult {
   refresh: (metadata?: Record<string, string>) => Promise<Tool[]>;
 }
 
+const EMPTY_TOOLS: Tool[] = []; // Stable empty array reference to avoid re-renders
+const NOOP_SUBSCRIBE = () => () => {};
+
 /**
  * Subscribes to the manager's store and returns tools + refresh.
- * Requires a ManagedToolsState (only call when you have a manager).
+ * When manager is null/undefined, returns empty tools and a no-op refresh.
  */
 export function useManagedTools(
-  managedToolsState: ManagedToolsState,
+  managedToolsState: ManagedToolsState | null | undefined,
 ): UseManagedToolsResult {
-  const store = managedToolsState.getStore();
   const tools = useSyncExternalStore(
-    store.subscribe,
-    () => store.getState().tools,
+    managedToolsState?.getStore()?.subscribe ?? NOOP_SUBSCRIBE,
+    () => managedToolsState?.getStore()?.getState()?.tools ?? EMPTY_TOOLS,
   );
 
   const refresh = useCallback(
     async (metadata?: Record<string, string>): Promise<Tool[]> => {
+      if (!managedToolsState) return EMPTY_TOOLS;
       return managedToolsState.refresh(metadata);
     },
     [managedToolsState],

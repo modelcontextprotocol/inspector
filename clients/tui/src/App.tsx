@@ -35,10 +35,7 @@ import {
 } from "@modelcontextprotocol/inspector-core/mcp/state/index.js";
 import { createTransportNode } from "@modelcontextprotocol/inspector-core/mcp/node/index.js";
 import { useInspectorClient } from "@modelcontextprotocol/inspector-core/react/useInspectorClient.js";
-import {
-  useManagedTools,
-  type UseManagedToolsResult,
-} from "@modelcontextprotocol/inspector-core/react/useManagedTools.js";
+import { useManagedTools } from "@modelcontextprotocol/inspector-core/react/useManagedTools.js";
 import { useManagedResources } from "@modelcontextprotocol/inspector-core/react/useManagedResources.js";
 import { useManagedResourceTemplates } from "@modelcontextprotocol/inspector-core/react/useManagedResourceTemplates.js";
 import { useManagedPrompts } from "@modelcontextprotocol/inspector-core/react/useManagedPrompts.js";
@@ -70,21 +67,6 @@ import { ToolTestModal } from "./components/ToolTestModal.js";
 import { ResourceTestModal } from "./components/ResourceTestModal.js";
 import { PromptTestModal } from "./components/PromptTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
-
-/** Syncs useManagedTools(manager) result to parent so the hook is only called when manager exists. */
-function ManagedToolsSync({
-  manager,
-  onResult,
-}: {
-  manager: ManagedToolsState;
-  onResult: (r: UseManagedToolsResult) => void;
-}) {
-  const result = useManagedTools(manager);
-  useEffect(() => {
-    onResult(result);
-  }, [result, onResult]);
-  return null;
-}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -473,7 +455,7 @@ function App({
     selectedStderrLogState,
   );
 
-  // Tools from ManagedToolsState (full list, auto-load on connect). Hook is only called when we have a manager (via ManagedToolsSync).
+  // Tools from ManagedToolsState (full list, auto-load on connect)
   const selectedManagedToolsState = useMemo(
     () =>
       selectedServer && managedToolsStates[selectedServer]
@@ -481,14 +463,7 @@ function App({
         : null,
     [selectedServer, managedToolsStates],
   );
-  const [managedToolsResult, setManagedToolsResult] =
-    useState<UseManagedToolsResult>({ tools: [], refresh: async () => [] });
-  useEffect(() => {
-    if (!selectedManagedToolsState) {
-      setManagedToolsResult({ tools: [], refresh: async () => [] });
-    }
-  }, [selectedManagedToolsState]);
-  const managedTools = managedToolsResult.tools;
+  const { tools: managedTools } = useManagedTools(selectedManagedToolsState);
 
   // Resources, resource templates, prompts from managed state managers
   const selectedManagedResourcesState = useMemo(
@@ -1383,477 +1358,468 @@ function App({
   };
 
   return (
-    <>
-      {selectedManagedToolsState ? (
-        <ManagedToolsSync
-          manager={selectedManagedToolsState}
-          onResult={setManagedToolsResult}
-        />
-      ) : null}
+    <Box
+      flexDirection="column"
+      width={dimensions.width}
+      height={dimensions.height}
+    >
+      {/* Header row across the top */}
       <Box
-        flexDirection="column"
         width={dimensions.width}
-        height={dimensions.height}
+        height={headerHeight}
+        borderStyle="single"
+        borderTop={false}
+        borderLeft={false}
+        borderRight={false}
+        paddingX={1}
+        justifyContent="space-between"
+        alignItems="center"
       >
-        {/* Header row across the top */}
+        <Box>
+          <Text bold color="cyan">
+            {packageJson.name}
+          </Text>
+          <Text dimColor> - {packageJson.description}</Text>
+        </Box>
+        <Text dimColor>v{packageJson.version}</Text>
+      </Box>
+
+      {/* Main content area */}
+      <Box
+        flexDirection="row"
+        height={availableHeight + tabsHeight}
+        width={dimensions.width}
+      >
+        {/* Left column - Server list */}
         <Box
-          width={dimensions.width}
-          height={headerHeight}
+          width={serverListWidth}
+          height={availableHeight + tabsHeight}
           borderStyle="single"
           borderTop={false}
+          borderBottom={false}
           borderLeft={false}
-          borderRight={false}
+          borderRight={true}
+          flexDirection="column"
           paddingX={1}
-          justifyContent="space-between"
-          alignItems="center"
         >
-          <Box>
-            <Text bold color="cyan">
-              {packageJson.name}
+          <Box marginTop={1} marginBottom={1}>
+            <Text
+              bold
+              backgroundColor={focus === "serverList" ? "yellow" : undefined}
+            >
+              MCP Servers
             </Text>
-            <Text dimColor> - {packageJson.description}</Text>
           </Box>
-          <Text dimColor>v{packageJson.version}</Text>
+          <Box flexDirection="column" flexGrow={1}>
+            {serverNames.map((serverName) => {
+              const isSelected = selectedServer === serverName;
+              return (
+                <Box key={serverName} paddingY={0}>
+                  <Text>
+                    {isSelected ? "▶ " : "  "}
+                    {serverName}
+                  </Text>
+                </Box>
+              );
+            })}
+          </Box>
+
+          {/* Fixed footer */}
+          <Box flexShrink={0} height={1} justifyContent="center">
+            <Text bold color="white">
+              ESC to exit
+            </Text>
+          </Box>
         </Box>
 
-        {/* Main content area */}
+        {/* Right column - Server details, Tabs and content */}
         <Box
-          flexDirection="row"
+          flexGrow={1}
           height={availableHeight + tabsHeight}
-          width={dimensions.width}
+          flexDirection="column"
         >
-          {/* Left column - Server list */}
+          {/* Server Details - Flexible height */}
           <Box
-            width={serverListWidth}
-            height={availableHeight + tabsHeight}
+            width={contentWidth}
             borderStyle="single"
             borderTop={false}
-            borderBottom={false}
             borderLeft={false}
-            borderRight={true}
-            flexDirection="column"
+            borderRight={false}
+            borderBottom={true}
             paddingX={1}
+            paddingY={1}
+            flexDirection="column"
+            flexShrink={0}
           >
-            <Box marginTop={1} marginBottom={1}>
-              <Text
-                bold
-                backgroundColor={focus === "serverList" ? "yellow" : undefined}
+            <Box flexDirection="column">
+              <Box
+                flexDirection="row"
+                justifyContent="space-between"
+                alignItems="center"
               >
-                MCP Servers
-              </Text>
-            </Box>
-            <Box flexDirection="column" flexGrow={1}>
-              {serverNames.map((serverName) => {
-                const isSelected = selectedServer === serverName;
-                return (
-                  <Box key={serverName} paddingY={0}>
-                    <Text>
-                      {isSelected ? "▶ " : "  "}
-                      {serverName}
-                    </Text>
-                  </Box>
-                );
-              })}
-            </Box>
-
-            {/* Fixed footer */}
-            <Box flexShrink={0} height={1} justifyContent="center">
-              <Text bold color="white">
-                ESC to exit
-              </Text>
+                <Text bold color="cyan">
+                  {selectedServer}
+                </Text>
+                <Box flexDirection="row" alignItems="center" gap={1}>
+                  {currentServerState && (
+                    <>
+                      <Text color={getStatusColor(currentServerState.status)}>
+                        {getStatusSymbol(currentServerState.status)}{" "}
+                        {currentServerState.status}
+                      </Text>
+                      <Text> </Text>
+                      {(currentServerState?.status === "disconnected" ||
+                        currentServerState?.status === "error") && (
+                        <Text color="cyan" bold>
+                          [<Text underline>C</Text>onnect]
+                        </Text>
+                      )}
+                      {(currentServerState?.status === "connected" ||
+                        currentServerState?.status === "connecting") && (
+                        <Text color="red" bold>
+                          [<Text underline>D</Text>isconnect]
+                        </Text>
+                      )}
+                    </>
+                  )}
+                </Box>
+              </Box>
+              {show401AuthHint && (
+                <Box marginTop={1}>
+                  <Text color="yellow">
+                    401 Unauthorized. Press <Text bold>A</Text> to authenticate.
+                  </Text>
+                </Box>
+              )}
+              {oauthStatus !== "idle" && (
+                <Box marginTop={1}>
+                  {oauthStatus === "authenticating" && (
+                    <Text dimColor>OAuth: authenticating…</Text>
+                  )}
+                  {oauthStatus === "success" && oauthMessage && (
+                    <Text color="green">{oauthMessage}</Text>
+                  )}
+                  {oauthStatus === "error" && oauthMessage && (
+                    <Text color="red">OAuth: {oauthMessage}</Text>
+                  )}
+                </Box>
+              )}
             </Box>
           </Box>
 
-          {/* Right column - Server details, Tabs and content */}
+          {/* Tabs */}
+          <Tabs
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            width={contentWidth}
+            counts={tabCounts}
+            focused={focus === "tabs"}
+            showAuth={
+              !!(
+                selectedServer &&
+                selectedServerConfig &&
+                isOAuthCapableServer(selectedServerConfig)
+              )
+            }
+            showLogging={
+              selectedServer && inspectorClients[selectedServer]
+                ? inspectorClients[selectedServer].getServerType() === "stdio"
+                : false
+            }
+            showRequests={
+              selectedServer && inspectorClients[selectedServer]
+                ? (() => {
+                    const serverType =
+                      inspectorClients[selectedServer].getServerType();
+                    return (
+                      serverType === "sse" || serverType === "streamable-http"
+                    );
+                  })()
+                : false
+            }
+          />
+
+          {/* Tab Content */}
           <Box
             flexGrow={1}
-            height={availableHeight + tabsHeight}
-            flexDirection="column"
+            minHeight={6}
+            width={contentWidth}
+            borderTop={false}
+            borderLeft={false}
+            borderRight={false}
+            borderBottom={false}
           >
-            {/* Server Details - Flexible height */}
-            <Box
-              width={contentWidth}
-              borderStyle="single"
-              borderTop={false}
-              borderLeft={false}
-              borderRight={false}
-              borderBottom={true}
-              paddingX={1}
-              paddingY={1}
-              flexDirection="column"
-              flexShrink={0}
-            >
-              <Box flexDirection="column">
-                <Box
-                  flexDirection="row"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
-                  <Text bold color="cyan">
-                    {selectedServer}
-                  </Text>
-                  <Box flexDirection="row" alignItems="center" gap={1}>
-                    {currentServerState && (
-                      <>
-                        <Text color={getStatusColor(currentServerState.status)}>
-                          {getStatusSymbol(currentServerState.status)}{" "}
-                          {currentServerState.status}
-                        </Text>
-                        <Text> </Text>
-                        {(currentServerState?.status === "disconnected" ||
-                          currentServerState?.status === "error") && (
-                          <Text color="cyan" bold>
-                            [<Text underline>C</Text>onnect]
-                          </Text>
-                        )}
-                        {(currentServerState?.status === "connected" ||
-                          currentServerState?.status === "connecting") && (
-                          <Text color="red" bold>
-                            [<Text underline>D</Text>isconnect]
-                          </Text>
-                        )}
-                      </>
-                    )}
-                  </Box>
-                </Box>
-                {show401AuthHint && (
-                  <Box marginTop={1}>
-                    <Text color="yellow">
-                      401 Unauthorized. Press <Text bold>A</Text> to
-                      authenticate.
-                    </Text>
-                  </Box>
-                )}
-                {oauthStatus !== "idle" && (
-                  <Box marginTop={1}>
-                    {oauthStatus === "authenticating" && (
-                      <Text dimColor>OAuth: authenticating…</Text>
-                    )}
-                    {oauthStatus === "success" && oauthMessage && (
-                      <Text color="green">{oauthMessage}</Text>
-                    )}
-                    {oauthStatus === "error" && oauthMessage && (
-                      <Text color="red">OAuth: {oauthMessage}</Text>
-                    )}
-                  </Box>
-                )}
-              </Box>
-            </Box>
-
-            {/* Tabs */}
-            <Tabs
-              activeTab={activeTab}
-              onTabChange={setActiveTab}
-              width={contentWidth}
-              counts={tabCounts}
-              focused={focus === "tabs"}
-              showAuth={
-                !!(
-                  selectedServer &&
-                  selectedServerConfig &&
-                  isOAuthCapableServer(selectedServerConfig)
-                )
-              }
-              showLogging={
-                selectedServer && inspectorClients[selectedServer]
-                  ? inspectorClients[selectedServer].getServerType() === "stdio"
-                  : false
-              }
-              showRequests={
-                selectedServer && inspectorClients[selectedServer]
-                  ? (() => {
-                      const serverType =
-                        inspectorClients[selectedServer].getServerType();
-                      return (
-                        serverType === "sse" || serverType === "streamable-http"
-                      );
-                    })()
-                  : false
-              }
-            />
-
-            {/* Tab Content */}
-            <Box
-              flexGrow={1}
-              minHeight={6}
-              width={contentWidth}
-              borderTop={false}
-              borderLeft={false}
-              borderRight={false}
-              borderBottom={false}
-            >
-              {activeTab === "info" && (
-                <InfoTab
-                  serverName={selectedServer}
-                  serverConfig={selectedServerConfig}
-                  serverState={currentServerState}
-                  width={contentWidth}
-                  height={contentHeight}
-                  focused={
-                    focus === "tabContentList" || focus === "tabContentDetails"
-                  }
-                />
-              )}
-              {activeTab === "auth" &&
-              selectedServer &&
-              selectedServerConfig &&
-              isOAuthCapableServer(selectedServerConfig) ? (
-                <AuthTab
-                  serverName={selectedServer}
-                  serverConfig={selectedServerConfig}
-                  inspectorClient={selectedInspectorClient}
-                  oauthStatus={oauthStatus}
-                  oauthMessage={oauthMessage}
-                  width={contentWidth}
-                  height={contentHeight}
-                  focused={
-                    focus === "tabContentList" || focus === "tabContentDetails"
-                  }
-                  selectedAction={selectedAuthAction}
-                  onSelectedActionChange={setSelectedAuthAction}
-                  onQuickAuth={handleQuickAuth}
-                  onGuidedStart={handleGuidedStart}
-                  onGuidedAdvance={handleGuidedAdvance}
-                  onRunGuidedToCompletion={handleRunGuidedToCompletion}
-                  onClearOAuth={handleClearOAuth}
-                  isOAuthCapable={true}
-                />
-              ) : null}
-              {activeTab === "resources" &&
+            {activeTab === "info" && (
+              <InfoTab
+                serverName={selectedServer}
+                serverConfig={selectedServerConfig}
+                serverState={currentServerState}
+                width={contentWidth}
+                height={contentHeight}
+                focused={
+                  focus === "tabContentList" || focus === "tabContentDetails"
+                }
+              />
+            )}
+            {activeTab === "auth" &&
+            selectedServer &&
+            selectedServerConfig &&
+            isOAuthCapableServer(selectedServerConfig) ? (
+              <AuthTab
+                serverName={selectedServer}
+                serverConfig={selectedServerConfig}
+                inspectorClient={selectedInspectorClient}
+                oauthStatus={oauthStatus}
+                oauthMessage={oauthMessage}
+                width={contentWidth}
+                height={contentHeight}
+                focused={
+                  focus === "tabContentList" || focus === "tabContentDetails"
+                }
+                selectedAction={selectedAuthAction}
+                onSelectedActionChange={setSelectedAuthAction}
+                onQuickAuth={handleQuickAuth}
+                onGuidedStart={handleGuidedStart}
+                onGuidedAdvance={handleGuidedAdvance}
+                onRunGuidedToCompletion={handleRunGuidedToCompletion}
+                onClearOAuth={handleClearOAuth}
+                isOAuthCapable={true}
+              />
+            ) : null}
+            {activeTab === "resources" &&
+            currentServerState?.status === "connected" &&
+            selectedInspectorClient ? (
+              <ResourcesTab
+                key={`resources-${selectedServer}`}
+                resources={currentServerState.resources}
+                resourceTemplates={currentServerState.resourceTemplates}
+                inspectorClient={selectedInspectorClient}
+                width={contentWidth}
+                height={contentHeight}
+                onCountChange={(count) =>
+                  setTabCounts((prev) => ({ ...prev, resources: count }))
+                }
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
+                onViewDetails={(resource) =>
+                  setDetailsModal({
+                    title: `Resource: ${"uri" in resource ? resource.name || resource.uri || "Unknown" : "Resource content"}`,
+                    content: renderResourceDetails(resource),
+                  })
+                }
+                onFetchResource={() => {
+                  // Resource fetching is handled internally by ResourcesTab
+                  // This callback is just for triggering the fetch
+                }}
+                onFetchTemplate={(template) => {
+                  setResourceTestModal({
+                    template,
+                    inspectorClient: selectedInspectorClient,
+                  });
+                }}
+                modalOpen={
+                  !!(toolTestModal || resourceTestModal || detailsModal)
+                }
+              />
+            ) : activeTab === "prompts" &&
               currentServerState?.status === "connected" &&
               selectedInspectorClient ? (
-                <ResourcesTab
-                  key={`resources-${selectedServer}`}
-                  resources={currentServerState.resources}
-                  resourceTemplates={currentServerState.resourceTemplates}
-                  inspectorClient={selectedInspectorClient}
-                  width={contentWidth}
-                  height={contentHeight}
-                  onCountChange={(count) =>
-                    setTabCounts((prev) => ({ ...prev, resources: count }))
-                  }
-                  focusedPane={
-                    focus === "tabContentDetails"
-                      ? "details"
-                      : focus === "tabContentList"
-                        ? "list"
-                        : null
-                  }
-                  onViewDetails={(resource) =>
-                    setDetailsModal({
-                      title: `Resource: ${"uri" in resource ? resource.name || resource.uri || "Unknown" : "Resource content"}`,
-                      content: renderResourceDetails(resource),
-                    })
-                  }
-                  onFetchResource={() => {
-                    // Resource fetching is handled internally by ResourcesTab
-                    // This callback is just for triggering the fetch
-                  }}
-                  onFetchTemplate={(template) => {
-                    setResourceTestModal({
-                      template,
-                      inspectorClient: selectedInspectorClient,
-                    });
-                  }}
-                  modalOpen={
-                    !!(toolTestModal || resourceTestModal || detailsModal)
-                  }
-                />
-              ) : activeTab === "prompts" &&
-                currentServerState?.status === "connected" &&
-                selectedInspectorClient ? (
-                <PromptsTab
-                  key={`prompts-${selectedServer}`}
-                  prompts={currentServerState.prompts}
-                  inspectorClient={selectedInspectorClient}
-                  width={contentWidth}
-                  height={contentHeight}
-                  onCountChange={(count) =>
-                    setTabCounts((prev) => ({ ...prev, prompts: count }))
-                  }
-                  focusedPane={
-                    focus === "tabContentDetails"
-                      ? "details"
-                      : focus === "tabContentList"
-                        ? "list"
-                        : null
-                  }
-                  onViewDetails={(prompt) =>
-                    setDetailsModal({
-                      title: `Prompt: ${prompt.name || "Unknown"}`,
-                      content: renderPromptDetails(prompt),
-                    })
-                  }
-                  onFetchPrompt={(prompt) => {
-                    setPromptTestModal({
-                      prompt,
-                      inspectorClient: selectedInspectorClient,
-                    });
-                  }}
-                  modalOpen={
-                    !!(
-                      toolTestModal ||
-                      resourceTestModal ||
-                      promptTestModal ||
-                      detailsModal
-                    )
-                  }
-                />
-              ) : activeTab === "tools" &&
-                currentServerState?.status === "connected" &&
-                selectedInspectorClient ? (
-                <ToolsTab
-                  key={`tools-${selectedServer}`}
-                  tools={currentServerState.tools}
-                  isConnected={inspectorStatus === "connected"}
-                  width={contentWidth}
-                  height={contentHeight}
-                  onCountChange={(count) =>
-                    setTabCounts((prev) => ({ ...prev, tools: count }))
-                  }
-                  focusedPane={
-                    focus === "tabContentDetails"
-                      ? "details"
-                      : focus === "tabContentList"
-                        ? "list"
-                        : null
-                  }
-                  onTestTool={(tool) =>
-                    setToolTestModal({
-                      tool,
-                      inspectorClient: selectedInspectorClient,
-                    })
-                  }
-                  onViewDetails={(tool) =>
-                    setDetailsModal({
-                      title: `Tool: ${tool.name || "Unknown"}`,
-                      content: renderToolDetails(tool),
-                    })
-                  }
-                  modalOpen={!!(toolTestModal || detailsModal)}
-                />
-              ) : activeTab === "messages" && selectedInspectorClient ? (
-                <HistoryTab
-                  serverName={selectedServer}
-                  messages={inspectorMessages}
-                  width={contentWidth}
-                  height={contentHeight}
-                  onCountChange={(count) =>
-                    setTabCounts((prev) => ({ ...prev, messages: count }))
-                  }
-                  focusedPane={
-                    focus === "messagesDetail"
-                      ? "details"
-                      : focus === "messagesList"
-                        ? "messages"
-                        : null
-                  }
-                  modalOpen={!!(toolTestModal || detailsModal)}
-                  onViewDetails={(message) => {
-                    const label =
-                      message.direction === "request" &&
-                      "method" in message.message
-                        ? message.message.method
-                        : message.direction === "response"
-                          ? "Response"
-                          : message.direction === "notification" &&
-                              "method" in message.message
-                            ? message.message.method
-                            : "Message";
-                    setDetailsModal({
-                      title: `Message: ${label}`,
-                      content: renderMessageDetails(message),
-                    });
-                  }}
-                />
-              ) : activeTab === "requests" &&
-                selectedInspectorClient &&
-                (inspectorStatus === "connected" ||
-                  inspectorFetchRequests.length > 0) ? (
-                <RequestsTab
-                  serverName={selectedServer}
-                  requests={inspectorFetchRequests}
-                  width={contentWidth}
-                  height={contentHeight}
-                  onCountChange={(count) =>
-                    setTabCounts((prev) => ({ ...prev, requests: count }))
-                  }
-                  focusedPane={
-                    focus === "requestsDetail"
-                      ? "details"
-                      : focus === "requestsList"
-                        ? "requests"
-                        : null
-                  }
-                  modalOpen={!!(toolTestModal || detailsModal)}
-                  onViewDetails={(request) => {
-                    setDetailsModal({
-                      title: `Request: ${request.method} ${request.url}`,
-                      content: renderRequestDetails(request),
-                    });
-                  }}
-                />
-              ) : activeTab === "logging" && selectedInspectorClient ? (
-                <NotificationsTab
-                  stderrLogs={inspectorStderrLogs}
-                  width={contentWidth}
-                  height={contentHeight}
-                  onCountChange={(count) =>
-                    setTabCounts((prev) => ({ ...prev, logging: count }))
-                  }
-                  focused={
-                    focus === "tabContentList" || focus === "tabContentDetails"
-                  }
-                />
-              ) : null}
-            </Box>
+              <PromptsTab
+                key={`prompts-${selectedServer}`}
+                prompts={currentServerState.prompts}
+                inspectorClient={selectedInspectorClient}
+                width={contentWidth}
+                height={contentHeight}
+                onCountChange={(count) =>
+                  setTabCounts((prev) => ({ ...prev, prompts: count }))
+                }
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
+                onViewDetails={(prompt) =>
+                  setDetailsModal({
+                    title: `Prompt: ${prompt.name || "Unknown"}`,
+                    content: renderPromptDetails(prompt),
+                  })
+                }
+                onFetchPrompt={(prompt) => {
+                  setPromptTestModal({
+                    prompt,
+                    inspectorClient: selectedInspectorClient,
+                  });
+                }}
+                modalOpen={
+                  !!(
+                    toolTestModal ||
+                    resourceTestModal ||
+                    promptTestModal ||
+                    detailsModal
+                  )
+                }
+              />
+            ) : activeTab === "tools" &&
+              currentServerState?.status === "connected" &&
+              selectedInspectorClient ? (
+              <ToolsTab
+                key={`tools-${selectedServer}`}
+                tools={currentServerState.tools}
+                isConnected={inspectorStatus === "connected"}
+                width={contentWidth}
+                height={contentHeight}
+                onCountChange={(count) =>
+                  setTabCounts((prev) => ({ ...prev, tools: count }))
+                }
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
+                onTestTool={(tool) =>
+                  setToolTestModal({
+                    tool,
+                    inspectorClient: selectedInspectorClient,
+                  })
+                }
+                onViewDetails={(tool) =>
+                  setDetailsModal({
+                    title: `Tool: ${tool.name || "Unknown"}`,
+                    content: renderToolDetails(tool),
+                  })
+                }
+                modalOpen={!!(toolTestModal || detailsModal)}
+              />
+            ) : activeTab === "messages" && selectedInspectorClient ? (
+              <HistoryTab
+                serverName={selectedServer}
+                messages={inspectorMessages}
+                width={contentWidth}
+                height={contentHeight}
+                onCountChange={(count) =>
+                  setTabCounts((prev) => ({ ...prev, messages: count }))
+                }
+                focusedPane={
+                  focus === "messagesDetail"
+                    ? "details"
+                    : focus === "messagesList"
+                      ? "messages"
+                      : null
+                }
+                modalOpen={!!(toolTestModal || detailsModal)}
+                onViewDetails={(message) => {
+                  const label =
+                    message.direction === "request" &&
+                    "method" in message.message
+                      ? message.message.method
+                      : message.direction === "response"
+                        ? "Response"
+                        : message.direction === "notification" &&
+                            "method" in message.message
+                          ? message.message.method
+                          : "Message";
+                  setDetailsModal({
+                    title: `Message: ${label}`,
+                    content: renderMessageDetails(message),
+                  });
+                }}
+              />
+            ) : activeTab === "requests" &&
+              selectedInspectorClient &&
+              (inspectorStatus === "connected" ||
+                inspectorFetchRequests.length > 0) ? (
+              <RequestsTab
+                serverName={selectedServer}
+                requests={inspectorFetchRequests}
+                width={contentWidth}
+                height={contentHeight}
+                onCountChange={(count) =>
+                  setTabCounts((prev) => ({ ...prev, requests: count }))
+                }
+                focusedPane={
+                  focus === "requestsDetail"
+                    ? "details"
+                    : focus === "requestsList"
+                      ? "requests"
+                      : null
+                }
+                modalOpen={!!(toolTestModal || detailsModal)}
+                onViewDetails={(request) => {
+                  setDetailsModal({
+                    title: `Request: ${request.method} ${request.url}`,
+                    content: renderRequestDetails(request),
+                  });
+                }}
+              />
+            ) : activeTab === "logging" && selectedInspectorClient ? (
+              <NotificationsTab
+                stderrLogs={inspectorStderrLogs}
+                width={contentWidth}
+                height={contentHeight}
+                onCountChange={(count) =>
+                  setTabCounts((prev) => ({ ...prev, logging: count }))
+                }
+                focused={
+                  focus === "tabContentList" || focus === "tabContentDetails"
+                }
+              />
+            ) : null}
           </Box>
         </Box>
-
-        {/* Tool Test Modal - rendered at App level for full screen overlay */}
-        {toolTestModal && (
-          <ToolTestModal
-            tool={toolTestModal.tool}
-            inspectorClient={toolTestModal.inspectorClient}
-            width={dimensions.width}
-            height={dimensions.height}
-            onClose={() => setToolTestModal(null)}
-          />
-        )}
-
-        {/* Resource Test Modal - rendered at App level for full screen overlay */}
-        {resourceTestModal && (
-          <ResourceTestModal
-            template={resourceTestModal.template}
-            inspectorClient={resourceTestModal.inspectorClient}
-            width={dimensions.width}
-            height={dimensions.height}
-            onClose={() => setResourceTestModal(null)}
-          />
-        )}
-
-        {promptTestModal && (
-          <PromptTestModal
-            prompt={promptTestModal.prompt}
-            inspectorClient={promptTestModal.inspectorClient}
-            width={dimensions.width}
-            height={dimensions.height}
-            onClose={() => setPromptTestModal(null)}
-          />
-        )}
-
-        {/* Details Modal - rendered at App level for full screen overlay */}
-        {detailsModal && (
-          <DetailsModal
-            title={detailsModal.title}
-            content={detailsModal.content}
-            width={dimensions.width}
-            height={dimensions.height}
-            onClose={() => setDetailsModal(null)}
-          />
-        )}
       </Box>
-    </>
+
+      {/* Tool Test Modal - rendered at App level for full screen overlay */}
+      {toolTestModal && (
+        <ToolTestModal
+          tool={toolTestModal.tool}
+          inspectorClient={toolTestModal.inspectorClient}
+          width={dimensions.width}
+          height={dimensions.height}
+          onClose={() => setToolTestModal(null)}
+        />
+      )}
+
+      {/* Resource Test Modal - rendered at App level for full screen overlay */}
+      {resourceTestModal && (
+        <ResourceTestModal
+          template={resourceTestModal.template}
+          inspectorClient={resourceTestModal.inspectorClient}
+          width={dimensions.width}
+          height={dimensions.height}
+          onClose={() => setResourceTestModal(null)}
+        />
+      )}
+
+      {promptTestModal && (
+        <PromptTestModal
+          prompt={promptTestModal.prompt}
+          inspectorClient={promptTestModal.inspectorClient}
+          width={dimensions.width}
+          height={dimensions.height}
+          onClose={() => setPromptTestModal(null)}
+        />
+      )}
+
+      {/* Details Modal - rendered at App level for full screen overlay */}
+      {detailsModal && (
+        <DetailsModal
+          title={detailsModal.title}
+          content={detailsModal.content}
+          width={dimensions.width}
+          height={dimensions.height}
+          onClose={() => setDetailsModal(null)}
+        />
+      )}
+    </Box>
   );
 }
 

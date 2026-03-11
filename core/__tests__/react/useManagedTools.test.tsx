@@ -46,6 +46,20 @@ class MockManagedToolsState {
 }
 
 describe("useManagedTools", () => {
+  it("returns empty tools and no-op refresh when manager is null or undefined", async () => {
+    const { result: resultNull } = renderHook(() => useManagedTools(null));
+    expect(resultNull.current.tools).toEqual([]);
+    const fromNull = await resultNull.current.refresh();
+    expect(fromNull).toEqual([]);
+
+    const { result: resultUndef } = renderHook(() =>
+      useManagedTools(undefined),
+    );
+    expect(resultUndef.current.tools).toEqual([]);
+    const fromUndef = await resultUndef.current.refresh();
+    expect(fromUndef).toEqual([]);
+  });
+
   it("syncs initial tools from manager store", () => {
     const manager = new MockManagedToolsState();
     manager.setTools([
