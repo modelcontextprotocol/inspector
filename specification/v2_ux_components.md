@@ -9,7 +9,7 @@ We are developing React components with Mantine, Zustand, and Storybook using a 
 
 The idea is that a component receives everything it needs through props — the data it renders *and* the callbacks it fires when the user interacts. The component itself has no idea where the data came from or what happens when a button is clicked. It just calls `onSave(formData)` and trusts that someone upstream is handling it.
 
-This creaes clean layering: Zustand stores own the state and logic, container components (or hooks) wire stores to presentational components, and the presentational components themselves are pure rendering machines. Storybook targets that bottom layer exclusively.
+This creates clean layering: Zustand stores own the state and logic, container components (or hooks) wire stores to presentational components, and the presentational components themselves are pure rendering machines. Storybook targets that bottom layer exclusively.
 
 ## What Storybook Does
 
