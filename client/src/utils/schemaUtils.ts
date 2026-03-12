@@ -1,10 +1,39 @@
 import type { JsonValue, JsonSchemaType, JsonObject } from "./jsonUtils";
 import Ajv from "ajv";
+import Ajv2020 from "ajv/dist/2020";
 import type { ValidateFunction } from "ajv";
+import addFormats from "ajv-formats";
 import type { Tool, JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
 
-const ajv = new Ajv();
+// Use Draft 2020-12 by default for modern schemas
+const ajv2020 = new Ajv2020();
+addFormats(ajv2020);
+
+// Use Draft 07 for schemas that explicitly declare it
+// Ajv class from "ajv" defaults to Draft 07 in this version
+const ajv7 = new Ajv({ schemaId: "id" });
+// Ajv 8 has a throwing "id" keyword by default to encourage "$id".
+// For Draft 07, we remove it and add it back as a no-op keyword to allow it
+// to be used for URI resolution without triggering strict mode errors.
+ajv7.removeKeyword("id");
+ajv7.addKeyword("id");
+addFormats(ajv7);
+
+/**
+ * Returns the appropriate Ajv instance for a given schema based on its $schema dialect.
+ * @param schema The JSON schema to inspect
+ * @returns An Ajv instance (defaulting to Draft 2020-12)
+ */
+export function getAjvForSchema(schema: unknown): Ajv | Ajv2020 {
+  if (schema && typeof schema === "object" && "$schema" in schema) {
+    const schemaUrl = (schema as { $schema: string }).$schema;
+    if (typeof schemaUrl === "string" && schemaUrl.includes("draft-07")) {
+      return ajv7;
+    }
+  }
+  return ajv2020;
+}
 
 // Cache for compiled validators
 const toolOutputValidators = new Map<string, ValidateFunction>();
@@ -19,6 +48,7 @@ export function cacheToolOutputSchemas(tools: Tool[]): void {
   for (const tool of tools) {
     if (tool.outputSchema) {
       try {
+        const ajv = getAjvForSchema(tool.outputSchema);
         const validator = ajv.compile(tool.outputSchema);
         toolOutputValidators.set(tool.name, validator);
       } catch (error) {
@@ -61,9 +91,11 @@ export function validateToolOutput(
 
   const isValid = validator(structuredContent);
   if (!isValid) {
+    // We don't necessarily know which Ajv instance was used to compile this validator,
+    // but ajv2020's errorsText should be sufficient for formatting.
     return {
       isValid: false,
-      error: ajv.errorsText(validator.errors),
+      error: ajv2020.errorsText(validator.errors),
     };
   }
 

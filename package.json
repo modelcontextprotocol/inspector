@@ -21,6 +21,7 @@
     "server",
     "cli"
   ],
+  "packageManager": "npm@11.11.0",
   "scripts": {
     "build": "npm run build-server && npm run build-client && npm run build-cli",
     "build-server": "cd server && npm run build",
@@ -56,7 +57,7 @@
     "node-fetch": "^3.3.2",
     "open": "^11.0.0",
     "shell-quote": "^1.8.3",
-    "spawn-rx": "^6.0.0",
+    "spawn-rx": "5.1.2",
     "ts-node": "^10.9.2",
     "zod": "^4.3.6"
   },

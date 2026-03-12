@@ -3,13 +3,11 @@ import { Button } from "@/components/ui/button";
 import DynamicJsonForm from "./DynamicJsonForm";
 import JsonView from "./JsonView";
 import { JsonSchemaType, JsonValue } from "@/utils/jsonUtils";
-import { generateDefaultValue } from "@/utils/schemaUtils";
+import { generateDefaultValue, getAjvForSchema } from "@/utils/schemaUtils";
 import {
   PendingElicitationRequest,
   ElicitationResponse,
 } from "./ElicitationTab";
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
 
 export type ElicitationRequestProps = {
   request: PendingElicitationRequest;
@@ -80,8 +78,7 @@ const ElicitationRequest = ({
         return;
       }
 
-      const ajv = new Ajv();
-      addFormats(ajv);
+      const ajv = getAjvForSchema(request.request.requestedSchema);
       const validate = ajv.compile(request.request.requestedSchema);
       const isValid = validate(formData);
 

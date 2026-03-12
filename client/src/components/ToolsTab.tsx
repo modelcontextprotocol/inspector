@@ -106,9 +106,26 @@ const ToolsTab = ({
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
   const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
+  const [isSticky, setIsSticky] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const [metadataEntries, setMetadataEntries] = useState<
     { id: string; key: string; value: string }[]
   >([]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsSticky(!entry.isIntersecting);
+      },
+      { threshold: 0 },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.unobserve(sentinel);
+  }, [selectedTool]);
   const [hasValidationErrors, setHasValidationErrors] = useState(false);
   const [multilineFields, setMultilineFields] = useState<Set<string>>(
     new Set(),
@@ -287,7 +304,7 @@ const ToolsTab = ({
         </ResizablePanel>
         <HorizontalHandle withHandle onDoubleClick={toggleTools} />
         <ResizablePanel defaultSize="75%">
-          <div className="h-full ml-2 bg-card border border-border rounded-lg shadow overflow-y-auto min-w-0">
+          <div className="h-full ml-2 bg-card border border-border rounded-lg shadow overflow-y-auto min-w-0 relative">
             <div className="p-4 border-b border-gray-200 dark:border-border h-16 flex items-center">
               <div className="flex items-center gap-2">
                 {selectedTool && (
@@ -634,70 +651,80 @@ const ToolsTab = ({
                         </div>
                       );
                     })}
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="run-as-task"
-                        checked={runAsTask}
-                        onCheckedChange={(checked: boolean) =>
-                          setRunAsTask(checked)
-                        }
-                      />
-                      <Label
-                        htmlFor="run-as-task"
-                        className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
-                      >
-                        Run as task
-                      </Label>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        type="submit"
-                        disabled={
-                          isToolRunning ||
-                          isPollingTask ||
-                          hasValidationErrors ||
-                          hasReservedMetadataEntry ||
-                          hasInvalidMetaPrefixEntry ||
-                          hasInvalidMetaNameEntry
-                        }
-                      >
-                        {isToolRunning || isPollingTask ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            {isPollingTask ? "Polling Task..." : "Running..."}
-                          </>
-                        ) : (
-                          <>
-                            <Send className="w-4 h-4 mr-2" />
-                            Run Tool
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={async () => {
-                          try {
-                            navigator.clipboard.writeText(
-                              JSON.stringify(params, null, 2),
-                            );
-                            setCopied(true);
-                          } catch (error) {
-                            toast({
-                              title: "Error",
-                              description: `There was an error copying input to the clipboard: ${error instanceof Error ? error.message : String(error)}`,
-                              variant: "destructive",
-                            });
+                    <div className="h-6 -mt-6" />
+                    <div ref={sentinelRef} />
+                    <div
+                      className={cn(
+                        "space-y-4",
+                        isSticky &&
+                          "fixed top-16 translate-x-[-17px] translate-y-[-4px] z-50 bg-card p-4 rounded-lg border shadow-lg max-w-sm",
+                      )}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="run-as-task"
+                          checked={runAsTask}
+                          onCheckedChange={(checked: boolean) =>
+                            setRunAsTask(checked)
                           }
-                        }}
-                      >
-                        {copied ? (
-                          <CheckCheck className="h-4 w-4 mr-2 dark:text-green-700 text-green-600" />
-                        ) : (
-                          <Copy className="h-4 w-4 mr-2" />
-                        )}
-                        Copy Input
-                      </Button>
+                        />
+                        <Label
+                          htmlFor="run-as-task"
+                          className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
+                        >
+                          Run as task
+                        </Label>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          type="submit"
+                          disabled={
+                            isToolRunning ||
+                            isPollingTask ||
+                            hasValidationErrors ||
+                            hasReservedMetadataEntry ||
+                            hasInvalidMetaPrefixEntry ||
+                            hasInvalidMetaNameEntry
+                          }
+                        >
+                          {isToolRunning || isPollingTask ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              {isPollingTask ? "Polling Task..." : "Running..."}
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-4 h-4 mr-2" />
+                              Run Tool
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              navigator.clipboard.writeText(
+                                JSON.stringify(params, null, 2),
+                              );
+                              setCopied(true);
+                            } catch (error) {
+                              toast({
+                                title: "Error",
+                                description: `There was an error copying input to the clipboard: ${error instanceof Error ? error.message : String(error)}`,
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                        >
+                          {copied ? (
+                            <CheckCheck className="h-4 w-4 mr-2 dark:text-green-700 text-green-600" />
+                          ) : (
+                            <Copy className="h-4 w-4 mr-2" />
+                          )}
+                          Copy Input
+                        </Button>
+                      </div>
                     </div>
                   </form>
                   <div className="pb-4">
