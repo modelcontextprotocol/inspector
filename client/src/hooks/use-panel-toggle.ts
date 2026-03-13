@@ -12,7 +12,8 @@ export function usePanelToggle() {
   const toggle = useCallback(() => {
     const panel = panelRef.current;
     if (panel) {
-      if (panel.isCollapsed()) {
+      const isActuallyCollapsed = panel.isCollapsed() || panel.getSize() < 5;
+      if (isActuallyCollapsed) {
         panel.expand();
       } else {
         panel.collapse();

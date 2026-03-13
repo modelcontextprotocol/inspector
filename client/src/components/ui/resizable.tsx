@@ -29,7 +29,7 @@ const ResizableHandle = ({
 }) => (
   <ResizablePrimitive.Separator
     className={cn(
-      "relative flex items-center justify-center bg-border transition-colors hover:bg-primary/50",
+      "relative flex items-center justify-center bg-border transition-colors data-[separator=hover]:!bg-primary/50 data-[separator=active]:!bg-primary",
       "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1",
       className,
     )}
