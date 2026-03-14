@@ -20,7 +20,7 @@ It uses **environment isolation** to remain fully portable across Node.js (CLI, 
 
 ### State Managers
 
-While `InspectorClient` is stateless, list and log state are held in dedicated state managers located in `src/mcp/state/`.
+While `InspectorClient` is stateless, list and log state are held in dedicated state managers located in `core/mcp/state/`.
 
 These managers (e.g. `PagedToolsState`, `MessageLogState`) subscribe to the `InspectorClient` events, request data via its RPCs, hold caches or lists, and emit their own granular change events.
 
