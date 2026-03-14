@@ -10,7 +10,7 @@ For detailed information about the shared architecture, please see the [Shared C
 
 ### InspectorClient
 
-The `InspectorClient` (`src/mcp/inspectorClient.ts`) wraps the official MCP SDK `Client`. Its responsibilities include:
+The `InspectorClient` (`core/mcp/inspectorClient.ts`) wraps the official MCP SDK `Client`. Its responsibilities include:
 
 - Managing the lifecycle and connection of the transport layer.
 - Exposing stateless list RPCs (e.g. `listTools`, `listResources`).
