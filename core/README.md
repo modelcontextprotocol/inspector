@@ -26,4 +26,4 @@ These managers (e.g. `PagedToolsState`, `MessageLogState`) subscribe to the `Ins
 
 ### React Integration
 
-For clients utilizing React (Web and TUI), the `src/react/` directory provides custom React hooks (e.g. `useInspectorClient`, `usePagedTools`, `useMessageLog`) that bind the class-based state managers to component state.
+For clients utilizing React (Web and TUI), the `core/react/` directory provides custom React hooks (e.g. `useInspectorClient`, `usePagedTools`, `useMessageLog`) that bind the class-based state managers to component state.
