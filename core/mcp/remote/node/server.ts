@@ -27,6 +27,19 @@ import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { API_SERVER_ENV_VARS } from "../constants.js";
 
+/**
+ * Shape of the initial config returned by GET /api/config (defaults for client).
+ */
+export interface InitialConfigPayload {
+  defaultCommand?: string;
+  defaultArgs?: string[];
+  defaultTransport?: string;
+  defaultServerUrl?: string;
+  defaultHeaders?: Record<string, string>;
+  defaultCwd?: string;
+  defaultEnvironment: Record<string, string>;
+}
+
 export interface RemoteServerOptions {
   /** Optional auth token. If not provided, uses API_SERVER_ENV_VARS.AUTH_TOKEN env var or generates one. Ignored when dangerouslyOmitAuth is true. */
   authToken?: string;
@@ -49,6 +62,9 @@ export interface RemoteServerOptions {
 
   /** Optional sandbox URL for MCP Apps tab. When set, GET /api/config includes sandboxUrl. */
   sandboxUrl?: string;
+
+  /** Initial config for GET /api/config. Caller must pass this (e.g. from webServerConfigToInitialPayload(config)). */
+  initialConfig: InitialConfigPayload;
 }
 
 export interface CreateRemoteAppResult {
@@ -170,89 +186,6 @@ function createAuthMiddleware(authToken: string) {
 }
 
 /**
- * Build initial config object from process.env for GET /api/config.
- * Same shape as previously injected via __INITIAL_CONFIG__.
- */
-function buildInitialConfigFromEnv(): {
-  defaultCommand?: string;
-  defaultArgs?: string[];
-  defaultTransport?: string;
-  defaultServerUrl?: string;
-  defaultHeaders?: Record<string, string>;
-  defaultCwd?: string;
-  defaultEnvironment: Record<string, string>;
-} {
-  const defaultEnvKeys =
-    process.platform === "win32"
-      ? [
-          "APPDATA",
-          "HOMEDRIVE",
-          "HOMEPATH",
-          "LOCALAPPDATA",
-          "PATH",
-          "PROCESSOR_ARCHITECTURE",
-          "SYSTEMDRIVE",
-          "SYSTEMROOT",
-          "TEMP",
-          "USERNAME",
-          "USERPROFILE",
-          "PROGRAMFILES",
-        ]
-      : ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"];
-
-  const defaultEnvironment: Record<string, string> = {};
-  for (const key of defaultEnvKeys) {
-    const value = process.env[key];
-    if (value && !value.startsWith("()")) {
-      defaultEnvironment[key] = value;
-    }
-  }
-  if (process.env.MCP_ENV_VARS) {
-    try {
-      Object.assign(
-        defaultEnvironment,
-        JSON.parse(process.env.MCP_ENV_VARS) as Record<string, string>,
-      );
-    } catch {
-      // Ignore invalid MCP_ENV_VARS
-    }
-  }
-
-  return {
-    ...(process.env.MCP_INITIAL_COMMAND
-      ? { defaultCommand: process.env.MCP_INITIAL_COMMAND }
-      : {}),
-    ...(process.env.MCP_INITIAL_ARGS
-      ? { defaultArgs: process.env.MCP_INITIAL_ARGS.split(" ") }
-      : {}),
-    ...(process.env.MCP_INITIAL_TRANSPORT
-      ? { defaultTransport: process.env.MCP_INITIAL_TRANSPORT }
-      : {}),
-    ...(process.env.MCP_INITIAL_SERVER_URL
-      ? { defaultServerUrl: process.env.MCP_INITIAL_SERVER_URL }
-      : {}),
-    ...(process.env.MCP_INITIAL_HEADERS
-      ? (() => {
-          try {
-            const parsed = JSON.parse(
-              process.env.MCP_INITIAL_HEADERS,
-            ) as Record<string, string>;
-            return Object.keys(parsed).length > 0
-              ? { defaultHeaders: parsed }
-              : {};
-          } catch {
-            return {};
-          }
-        })()
-      : {}),
-    ...(process.env.MCP_INITIAL_CWD
-      ? { defaultCwd: process.env.MCP_INITIAL_CWD }
-      : {}),
-    defaultEnvironment,
-  };
-}
-
-/**
  * Simple OAuth client provider that just returns tokens.
  * Used by remote server to inject Bearer tokens into transport requests.
  */
@@ -333,7 +266,7 @@ function forwardLogEvent(
 }
 
 export function createRemoteApp(
-  options: RemoteServerOptions = {},
+  options: RemoteServerOptions,
 ): CreateRemoteAppResult {
   const dangerouslyOmitAuth = !!options.dangerouslyOmitAuth;
 
@@ -359,10 +292,9 @@ export function createRemoteApp(
   }
 
   app.get("/api/config", (c) => {
-    const initialConfig = buildInitialConfigFromEnv();
     const payload = options.sandboxUrl
-      ? { ...initialConfig, sandboxUrl: options.sandboxUrl }
-      : initialConfig;
+      ? { ...options.initialConfig, sandboxUrl: options.sandboxUrl }
+      : options.initialConfig;
     return c.json(payload);
   });
 

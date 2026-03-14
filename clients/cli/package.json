@@ -1,0 +1,37 @@
+{
+  "name": "@modelcontextprotocol/inspector-cli",
+  "version": "0.20.0",
+  "description": "CLI for the Model Context Protocol inspector",
+  "license": "MIT",
+  "author": "Anthropic, PBC (https://anthropic.com)",
+  "homepage": "https://modelcontextprotocol.io",
+  "bugs": "https://github.com/modelcontextprotocol/inspector/issues",
+  "main": "build/index.js",
+  "type": "module",
+  "bin": {
+    "mcp-inspector-cli": "./build/index.js"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "prettier --check . && eslint . --max-warnings 0 && echo 'Lint passed.'",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cli": "vitest run cli.test.ts",
+    "test:cli-tools": "vitest run tools.test.ts",
+    "test:cli-headers": "vitest run headers.test.ts",
+    "test:cli-metadata": "vitest run metadata.test.ts"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/inspector-test-server": "*",
+    "tsx": "^4.7.0",
+    "vitest": "^4.0.17"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/inspector-core": "*",
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "commander": "^13.1.0"
+  }
+}

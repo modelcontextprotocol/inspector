@@ -82,6 +82,7 @@ async function startRemoteServer(
 }> {
   const { app, authToken } = createRemoteApp({
     storageDir: options.storageDir,
+    initialConfig: { defaultEnvironment: {} },
   });
   return new Promise((resolve, reject) => {
     const server = serve(

@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "build",
+    "rootDir": "src",
+    "skipLibCheck": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "noEmit": false
+  },
+  "include": [
+    "src/index.ts",
+    "src/web.ts",
+    "src/web-server-config.ts",
+    "src/start-vite-dev-server.ts",
+    "src/vite-base-config.ts",
+    "src/vite-hono-plugin.ts",
+    "src/server.ts",
+    "src/sandbox-controller.ts"
+  ]
+}

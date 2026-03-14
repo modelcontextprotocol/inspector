@@ -103,7 +103,6 @@ If we are in a container:
   - No more process spawning (just call the main/run of the desired app)
   - See: [launcher-config-consolidation-plan.md](launcher-config-consolidation-plan.md)
 - **InspectorClient sub-managers** (architecture and responsibilities)
-  - See: [inspector-client-sub-managers.md](inspector-client-sub-managers.md)
 - Research oauth device flow (esp for CLI/TUI)
 - Do a spike with alpha v2 TypeScript SDK when published: https://ts.sdk.modelcontextprotocol.io/v2/
   - Leverage migration skill: https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/migration-SKILL.md
@@ -113,6 +112,10 @@ If we are in a container:
   - Possibly need to do this a few times (alpha/beta/release)
 
 ### TUI
+
+Some interaction bugs (esp menu item selection). My guess is this is related to the rollback to React 18 (nothing else should have changed).
+@mcp-ui/client has a soon-to-be-deprecated UIResourceRendered that depends on @remote-dom/react, that only supports React 17/18
+See: https://discord.com/channels/1358869848138059966/1471514975171514631
 
 Close feature gap
 Follow v2 UX design

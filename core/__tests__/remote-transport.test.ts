@@ -44,6 +44,7 @@ async function startRemoteServer(
     storageDir: options.storageDir,
     allowedOrigins: options.allowedOrigins,
     dangerouslyOmitAuth: options.dangerouslyOmitAuth,
+    initialConfig: { defaultEnvironment: {} },
   });
   return new Promise((resolve, reject) => {
     const server = serve(

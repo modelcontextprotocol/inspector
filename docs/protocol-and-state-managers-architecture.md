@@ -29,7 +29,7 @@ This document describes how the Inspector protocol and state managers work: **In
 - **OAuth and session:** Connection and auth; dispatches `saveSession` with sessionId (persistence is in FetchRequestLogState).
 - **Log events (per-entry only):** Dispatches `message`, `fetchRequest`, `stderrLog` with payload. Does not maintain log lists or emit list-change events; log managers do that.
 
-**Still inside InspectorClient (not extracted to external managers):** roots (and `getRoots()`), pendingSamples, pendingElicitations, receiverTaskRecords, OAuth state machine, sessionId. These may be refactored into internal sub-managers later; see [inspector-client-sub-managers.md](inspector-client-sub-managers.md).
+**Still inside InspectorClient (not extracted to external managers):** roots (and `getRoots()`), pendingSamples, pendingElicitations, receiverTaskRecords, OAuth state machine, sessionId. These may be refactored into internal sub-managers later.
 
 ---
 

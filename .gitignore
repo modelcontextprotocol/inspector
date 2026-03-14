@@ -3,22 +3,25 @@
 .idea
 node_modules/
 *-workspace/
-web/tsconfig.app.tsbuildinfo
-web/tsconfig.node.tsbuildinfo
-web/tsconfig.jest.tsbuildinfo
+clients/web/tsconfig.app.tsbuildinfo
+clients/web/tsconfig.node.tsbuildinfo
+clients/web/tsconfig.jest.tsbuildinfo
 core/build
-cli/build
-tui/build
+clients/cli/build
+clients/tui/build
+clients/launcher/build
+clients/web/build
+clients/web/dist
 test-servers/build
 test-output
 tool-test-output
 metadata-test-output
 # symlinked by `npm run link:sdk`:
 sdk
-web/playwright-report/
-web/results.json
-web/test-results/
-web/e2e/test-results/
+clients/web/playwright-report/
+clients/web/results.json
+clients/web/test-results/
+clients/web/e2e/test-results/
 # Only ignore mcp.json at repo root (configs in configs/ are committed)
 /mcp.json
 .claude/settings.local.json

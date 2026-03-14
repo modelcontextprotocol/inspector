@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "./build",
+    "rootDir": "./src",
+    "strict": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@modelcontextprotocol/inspector-web": ["./src/app-runners.d.ts"],
+      "@modelcontextprotocol/inspector-cli": ["./src/app-runners.d.ts"],
+      "@modelcontextprotocol/inspector-tui": ["./src/app-runners.d.ts"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "build"]
+}

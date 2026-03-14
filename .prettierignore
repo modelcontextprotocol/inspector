@@ -1,8 +1,10 @@
 packages
 core/build
-web/dist
-cli/build
-tui/build
+clients/web/dist
+clients/web/build
+clients/cli/build
+clients/tui/build
+clients/launcher/build
 test-servers/build
 CODE_OF_CONDUCT.md
 SECURITY.md

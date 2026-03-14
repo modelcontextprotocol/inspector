@@ -7,11 +7,11 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     projects: [
-      "cli/vitest.config.ts",
+      "clients/cli/vitest.config.ts",
       "core/vitest.config.ts",
       "test-servers/vitest.config.ts",
-      "tui/vitest.config.ts",
-      "web/vitest.config.ts",
+      "clients/tui/vitest.config.ts",
+      "clients/web/vitest.config.ts",
     ],
   },
 });

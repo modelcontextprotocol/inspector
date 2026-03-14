@@ -18,10 +18,11 @@ console.log("🔍 Checking version consistency across packages...\n");
 // List of package.json files to check
 const packagePaths = [
   "package.json",
-  "web/package.json",
+  "clients/web/package.json",
   "core/package.json",
-  "cli/package.json",
-  "tui/package.json",
+  "clients/cli/package.json",
+  "clients/tui/package.json",
+  "clients/launcher/package.json",
   "test-servers/package.json",
 ];
 
