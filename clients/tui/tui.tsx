@@ -119,19 +119,16 @@ export async function runTui(args?: string[]): Promise<void> {
     try {
       url = new URL(raw);
     } catch (err) {
-      program.error(
+      throw new Error(
         `Invalid callback URL: ${(err as Error)?.message ?? String(err)}`,
       );
-      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" }; // never reached; program.error() throws
     }
     if (url.protocol !== "http:") {
-      program.error("Callback URL must use http scheme");
-      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" }; // never reached; program.error() throws
+      throw new Error("Callback URL must use http scheme");
     }
     const hostname = url.hostname;
     if (!hostname) {
-      program.error("Callback URL must include a hostname");
-      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" }; // never reached; program.error() throws
+      throw new Error("Callback URL must include a hostname");
     }
     const pathname = url.pathname || "/";
     let port: number;
@@ -145,13 +142,21 @@ export async function runTui(args?: string[]): Promise<void> {
         port < 0 ||
         port > 65535
       ) {
-        program.error("Callback URL port must be between 0 and 65535");
+        throw new Error("Callback URL port must be between 0 and 65535");
       }
     }
     return { hostname, port, pathname };
   }
 
-  const callbackUrlConfig = parseCallbackUrl(options.callbackUrl);
+  let callbackUrlConfig: CallbackUrlConfig;
+  try {
+    callbackUrlConfig = parseCallbackUrl(options.callbackUrl);
+  } catch (err) {
+    if (err instanceof Error) {
+      program.error(err.message);
+    }
+    throw err;
+  }
 
   // Intercept stdout.write to filter out \x1b[3J (Erase Saved Lines)
   // This prevents Ink's clearTerminal from clearing scrollback on macOS Terminal
