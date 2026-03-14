@@ -49,7 +49,7 @@
     "test-cli": "cd clients/cli && npm run test",
     "test-core": "cd core && npm run test",
     "test-web": "cd clients/web && npm run test",
-    "test:e2e": "MCP_AUTO_OPEN_ENABLED=false npm run test:e2e --workspace=clients/web",
+    "test-web:e2e": "MCP_AUTO_OPEN_ENABLED=false npm run test:e2e --workspace=clients/web",
     "prettier-fix": "prettier --write .",
     "prettier-check": "prettier --check .",
     "lint": "prettier --check . && eslint . --max-warnings 0 && echo 'Lint passed.'",
