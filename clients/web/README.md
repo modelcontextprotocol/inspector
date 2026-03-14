@@ -2,7 +2,7 @@
 
 The Web Client is a React-based application that provides a rich, interactive browser UI for exploring, testing, and debugging MCP servers. It is the primary interface for most users.
 
-![MCP Inspector Screenshot](https://raw.githubusercontent.com/modelcontextprotocol/inspector/main/mcp-inspector.png)
+![MCP Inspector Screenshot](./web-screenshot.png)
 
 ## Running the Web Inspector
 
