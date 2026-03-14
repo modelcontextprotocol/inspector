@@ -30,7 +30,7 @@ The architecture addresses these issues by providing a single source of truth fo
 
 ### Architecture Diagram
 
-![Shared Code Architecture](shared-code-architecture.svg)
+![Shared Code Architecture](images/shared-code-architecture.svg)
 
 **Key concept**: Each environment (CLI, TUI, web client) injects environment-specific dependencies into `InspectorClient`. All three use the same `InspectorClient` and optional state managers from core:
 

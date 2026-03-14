@@ -16,8 +16,7 @@
   },
   "files": [
     "build",
-    "README.md",
-    "tui-screenshot.png"
+    "README.md"
   ],
   "scripts": {
     "build": "tsc",

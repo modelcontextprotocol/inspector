@@ -14,8 +14,7 @@
   "files": [
     "build",
     "dist",
-    "README.md",
-    "web-screenshot.png"
+    "README.md"
   ],
   "scripts": {
     "dev": "vite --port 6274",

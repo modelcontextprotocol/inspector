@@ -6,7 +6,7 @@ The MCP inspector is a developer tool for testing and debugging [Model Context P
 
 The MCP Inspector provides multiple client interfaces built around a shared core protocol layer. For a deep dive into the underlying architecture, see our [Shared Code Architecture documentation](./docs/shared-code-architecture.md).
 
-![Shared Code Architecture](./docs/shared-code-architecture.svg)
+![Shared Code Architecture](./docs/images/shared-code-architecture.svg)
 
 The repository consists of the following main packages:
 

@@ -2,7 +2,7 @@
 
 The Terminal User Interface (TUI) client brings the interactive exploration capabilities of the Web Client directly to your terminal. It is built using [Ink](https://github.com/vadimdemedes/ink) to provide a rich, React-like component experience in a command-line environment.
 
-![MCP Inspector TUI Screenshot](./tui-screenshot.png)
+![MCP Inspector TUI Screenshot](../../docs/images/tui-screenshot.png)
 
 ## Running the TUI
 
