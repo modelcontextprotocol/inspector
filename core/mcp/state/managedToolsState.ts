@@ -24,6 +24,10 @@ export class ManagedToolsState {
   private readonly store = createStore<{ tools: Tool[] }>()((_set) => ({
     tools: [],
   }));
+  private readonly readOnlyStore: ManagedToolsReadOnlyStore = {
+    getState: () => this.store.getState(),
+    subscribe: (listener) => this.store.subscribe(listener),
+  };
   private client: InspectorClient | null = null;
   private unsubscribe: (() => void) | null = null;
   private _metadata: Record<string, string> | undefined = undefined;
@@ -56,10 +60,7 @@ export class ManagedToolsState {
 
   /** Read-only store for subscription (e.g. useStore(manager.getStore(), s => s.tools)). */
   getStore(): ManagedToolsReadOnlyStore {
-    return {
-      getState: () => this.store.getState(),
-      subscribe: (listener) => this.store.subscribe(listener),
-    };
+    return this.readOnlyStore;
   }
 
   getTools(): Tool[] {

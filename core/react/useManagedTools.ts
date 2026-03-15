@@ -17,9 +17,10 @@ const NOOP_SUBSCRIBE = () => () => {};
 export function useManagedTools(
   managedToolsState: ManagedToolsState | null | undefined,
 ): UseManagedToolsResult {
+  const store = managedToolsState?.getStore() ?? null;
   const tools = useSyncExternalStore(
-    managedToolsState?.getStore()?.subscribe ?? NOOP_SUBSCRIBE,
-    () => managedToolsState?.getStore()?.getState()?.tools ?? EMPTY_TOOLS,
+    store?.subscribe ?? NOOP_SUBSCRIBE,
+    store ? () => store.getState().tools : () => EMPTY_TOOLS,
   );
 
   const refresh = useCallback(
