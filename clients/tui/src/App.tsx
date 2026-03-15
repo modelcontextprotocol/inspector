@@ -204,7 +204,7 @@ function App({
   const [inspectorClients, setInspectorClients] = useState<
     Record<string, InspectorClient>
   >({});
-  // ManagedToolsState per server (tools list from manager, not client)
+  // ManagedToolsState per server (tools list from manager)
   const [managedToolsStates, setManagedToolsStates] = useState<
     Record<string, ManagedToolsState>
   >({});
@@ -463,10 +463,7 @@ function App({
         : null,
     [selectedServer, managedToolsStates],
   );
-  const { tools: managedTools } = useManagedTools(
-    selectedInspectorClient,
-    selectedManagedToolsState,
-  );
+  const { tools: managedTools } = useManagedTools(selectedManagedToolsState);
 
   // Resources, resource templates, prompts from managed state managers
   const selectedManagedResourcesState = useMemo(
@@ -776,7 +773,7 @@ function App({
     }
   }, [selectedInspectorClient]);
 
-  // Build current server state from InspectorClient data (tools from ManagedToolsState)
+  // Build current server state from InspectorClient data (tools from managed tools store)
   const currentServerState = useMemo(() => {
     if (!selectedServer) return null;
     return {
