@@ -10,7 +10,7 @@ For detailed information about the shared architecture, please see the [Shared C
 
 ### InspectorClient
 
-The `InspectorClient` (`src/mcp/inspectorClient.ts`) wraps the official MCP SDK `Client`. Its responsibilities include:
+The `InspectorClient` (`core/mcp/inspectorClient.ts`) wraps the official MCP SDK `Client`. Its responsibilities include:
 
 - Managing the lifecycle and connection of the transport layer.
 - Exposing stateless list RPCs (e.g. `listTools`, `listResources`).
@@ -20,10 +20,10 @@ It uses **environment isolation** to remain fully portable across Node.js (CLI, 
 
 ### State Managers
 
-While `InspectorClient` is stateless, list and log state are held in dedicated state managers located in `src/mcp/state/`.
+While `InspectorClient` is stateless, list and log state are held in dedicated state managers located in `core/mcp/state/`.
 
 These managers (e.g. `PagedToolsState`, `MessageLogState`) subscribe to the `InspectorClient` events, request data via its RPCs, hold caches or lists, and emit their own granular change events.
 
 ### React Integration
 
-For clients utilizing React (Web and TUI), the `src/react/` directory provides custom React hooks (e.g. `useInspectorClient`, `usePagedTools`, `useMessageLog`) that bind the class-based state managers to component state.
+For clients utilizing React (Web and TUI), the `core/react/` directory provides custom React hooks (e.g. `useInspectorClient`, `usePagedTools`, `useMessageLog`) that bind the class-based state managers to component state.

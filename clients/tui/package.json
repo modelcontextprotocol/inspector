@@ -15,7 +15,8 @@
     "mcp-inspector-tui": "./build/index.js"
   },
   "files": [
-    "build"
+    "build",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc",

@@ -13,7 +13,8 @@
   },
   "files": [
     "build",
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
     "dev": "vite --port 6274",
