@@ -1133,15 +1133,28 @@ function App({
     inspectorStderrLogs,
   ]);
 
-  // Set focus to the default for the active tab whenever the tab changes
+  // Keep focus state consistent when switching tabs (only adjust if focus is already in tab content)
   useEffect(() => {
     if (activeTab === "messages") {
-      setFocus("messagesList");
+      if (focus === "tabContentList" || focus === "tabContentDetails") {
+        setFocus("messagesList");
+      }
     } else if (activeTab === "requests") {
-      setFocus("requestsList");
+      if (focus === "tabContentList" || focus === "tabContentDetails") {
+        setFocus("requestsList");
+      }
     } else {
-      setFocus("tabContentList");
+      if (
+        focus === "messagesList" ||
+        focus === "messagesDetail" ||
+        focus === "requestsList" ||
+        focus === "requestsDetail"
+      ) {
+        setFocus("tabContentList");
+      }
     }
+    // Intentionally not depending on focus to avoid loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   // Switch away from logging tab if server is not stdio
