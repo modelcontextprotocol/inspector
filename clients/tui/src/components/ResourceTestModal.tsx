@@ -5,7 +5,6 @@ import { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import { uriTemplateToForm } from "../utils/uriTemplateToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
-import { ModalBackdrop } from "./ModalBackdrop.js";
 
 // Helper to extract error message from various error types
 function getErrorMessage(error: unknown): string {
@@ -200,10 +199,6 @@ export function ResourceTestModal({
       justifyContent="center"
       alignItems="center"
     >
-      <ModalBackdrop
-        width={terminalDimensions.width}
-        height={terminalDimensions.height}
-      />
       {/* Modal Content */}
       <Box
         width={modalWidth}
@@ -213,6 +208,7 @@ export function ResourceTestModal({
         flexDirection="column"
         paddingX={1}
         paddingY={1}
+        backgroundColor="black"
       >
         {/* Header */}
         <Box flexShrink={0} marginBottom={1}>

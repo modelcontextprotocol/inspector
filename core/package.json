@@ -37,7 +37,7 @@
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
     "pino": "^9.6.0",
-    "react": "^18.3.1"
+    "react": "^19.0.0"
   },
   "dependencies": {
     "atomically": "^2.1.1",
@@ -48,12 +48,12 @@
     "@hono/node-server": "^1.19.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "zod": "^3.25 || ^4.0",
-    "@types/react": "^18.3.23",
+    "@types/react": "^19.0.0",
     "pino": "^9.6.0",
     "typescript": "^5.4.2",
     "vitest": "^4.0.17",
     "@testing-library/react": "^16.0.0",
-    "react": "^18.3.1",
+    "react": "^19.0.0",
     "jsdom": "^25.0.0",
     "express": "^5.1.0",
     "@types/express": "^5.0.0",

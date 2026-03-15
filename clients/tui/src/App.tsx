@@ -1428,7 +1428,12 @@ function App({
           </Box>
 
           {/* Fixed footer */}
-          <Box flexShrink={0} height={1} justifyContent="center">
+          <Box
+            flexShrink={0}
+            height={1}
+            justifyContent="center"
+            backgroundColor="gray"
+          >
             <Text bold color="white">
               ESC to exit
             </Text>

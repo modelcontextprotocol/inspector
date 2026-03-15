@@ -8,7 +8,6 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import { promptArgsToForm } from "../utils/promptArgsToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
-import { ModalBackdrop } from "./ModalBackdrop.js";
 
 // Helper to extract error message from various error types
 function getErrorMessage(error: unknown): string {
@@ -186,10 +185,6 @@ export function PromptTestModal({
       justifyContent="center"
       alignItems="center"
     >
-      <ModalBackdrop
-        width={terminalDimensions.width}
-        height={terminalDimensions.height}
-      />
       {/* Modal Content */}
       <Box
         width={modalWidth}
@@ -199,6 +194,7 @@ export function PromptTestModal({
         flexDirection="column"
         paddingX={1}
         paddingY={1}
+        backgroundColor="black"
       >
         {/* Header */}
         <Box flexShrink={0} marginBottom={1}>
