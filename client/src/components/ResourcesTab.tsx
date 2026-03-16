@@ -13,6 +13,13 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { AlertCircle, ChevronRight, FileText, RefreshCw } from "lucide-react";
 import ListPane from "./ListPane";
+import {
+  ResizableHandle,
+  HorizontalHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+  useDefaultLayout,
+} from "@/components/ui/resizable";
 import { useEffect, useState } from "react";
 import { useCompletionState } from "@/lib/hooks/useCompletionState";
 import JsonView from "./JsonView";
@@ -110,191 +117,231 @@ const ResourcesTab = ({
     }
   };
 
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: "persistence-resources-tab",
+  });
+
   return (
-    <TabsContent value="resources">
-      <div className="grid grid-cols-3 gap-4">
-        <ListPane
-          items={resources}
-          listItems={listResources}
-          clearItems={() => {
-            clearResources();
-            // Condition to check if selected resource is not resource template's resource
-            if (!selectedTemplate) {
-              setSelectedResource(null);
-            }
-          }}
-          setSelectedItem={(resource) => {
-            setSelectedResource(resource);
-            readResource(resource.uri);
-            setSelectedTemplate(null);
-          }}
-          renderItem={(resource) => (
-            <div className="flex items-center w-full">
-              <IconDisplay icons={(resource as WithIcons).icons} size="sm" />
-              {!(resource as WithIcons).icons && (
-                <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
+    <TabsContent value="resources" className="h-full mt-0 focus-visible:ring-0">
+      <ResizablePanelGroup
+        defaultLayout={defaultLayout}
+        onLayoutChanged={onLayoutChanged}
+        orientation="horizontal"
+        className="h-full gap-2"
+      >
+        <ResizablePanel defaultSize="30%" minSize="10%">
+          <div className="h-full pr-1">
+            <ListPane
+              items={resources}
+              listItems={listResources}
+              clearItems={() => {
+                clearResources();
+                // Condition to check if selected resource is not resource template's resource
+                if (!selectedTemplate) {
+                  setSelectedResource(null);
+                }
+              }}
+              setSelectedItem={(resource) => {
+                setSelectedResource(resource);
+                readResource(resource.uri);
+                setSelectedTemplate(null);
+              }}
+              renderItem={(resource) => (
+                <div className="flex items-center w-full">
+                  <IconDisplay
+                    icons={(resource as WithIcons).icons}
+                    size="sm"
+                  />
+                  {!(resource as WithIcons).icons && (
+                    <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
+                  )}
+                  <span
+                    className="flex-1 truncate"
+                    title={resource.uri.toString()}
+                  >
+                    {resource.name}
+                  </span>
+                  <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400" />
+                </div>
               )}
-              <span className="flex-1 truncate" title={resource.uri.toString()}>
-                {resource.name}
-              </span>
-              <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400" />
-            </div>
-          )}
-          title="Resources"
-          buttonText={nextCursor ? "List More Resources" : "List Resources"}
-          isButtonDisabled={!nextCursor && resources.length > 0}
-        />
+              title="Resources"
+              buttonText={nextCursor ? "List More Resources" : "List Resources"}
+              isButtonDisabled={!nextCursor && resources.length > 0}
+            />
+          </div>
+        </ResizablePanel>
 
-        <ListPane
-          items={resourceTemplates}
-          listItems={listResourceTemplates}
-          clearItems={() => {
-            clearResourceTemplates();
-            // Condition to check if selected resource is resource template's resource
-            if (selectedTemplate) {
-              setSelectedResource(null);
-            }
-            setSelectedTemplate(null);
-          }}
-          setSelectedItem={(template) => {
-            setSelectedTemplate(template);
-            setSelectedResource(null);
-            setTemplateValues({});
-          }}
-          renderItem={(template) => (
-            <div className="flex items-center w-full">
-              <IconDisplay icons={(template as WithIcons).icons} size="sm" />
-              {!(template as WithIcons).icons && (
-                <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
+        <ResizableHandle withHandle />
+
+        <ResizablePanel defaultSize="30%" minSize="10%">
+          <div className="h-full px-1">
+            <ListPane
+              items={resourceTemplates}
+              listItems={listResourceTemplates}
+              clearItems={() => {
+                clearResourceTemplates();
+                // Condition to check if selected resource is resource template's resource
+                if (selectedTemplate) {
+                  setSelectedResource(null);
+                }
+                setSelectedTemplate(null);
+              }}
+              setSelectedItem={(template) => {
+                setSelectedTemplate(template);
+                setSelectedResource(null);
+                setTemplateValues({});
+              }}
+              renderItem={(template) => (
+                <div className="flex items-center w-full">
+                  <IconDisplay
+                    icons={(template as WithIcons).icons}
+                    size="sm"
+                  />
+                  {!(template as WithIcons).icons && (
+                    <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
+                  )}
+                  <span
+                    className="flex-1 truncate"
+                    title={template.uriTemplate}
+                  >
+                    {template.name}
+                  </span>
+                  <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400" />
+                </div>
               )}
-              <span className="flex-1 truncate" title={template.uriTemplate}>
-                {template.name}
-              </span>
-              <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400" />
-            </div>
-          )}
-          title="Resource Templates"
-          buttonText={
-            nextTemplateCursor ? "List More Templates" : "List Templates"
-          }
-          isButtonDisabled={!nextTemplateCursor && resourceTemplates.length > 0}
-        />
+              title="Resource Templates"
+              buttonText={
+                nextTemplateCursor ? "List More Templates" : "List Templates"
+              }
+              isButtonDisabled={
+                !nextTemplateCursor && resourceTemplates.length > 0
+              }
+            />
+          </div>
+        </ResizablePanel>
 
-        <div className="bg-card border border-border rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200 dark:border-border flex justify-between items-center">
-            <div className="flex items-center gap-2 truncate">
-              {(selectedResource || selectedTemplate) && (
-                <IconDisplay
-                  icons={
-                    ((selectedResource || selectedTemplate) as WithIcons).icons
-                  }
-                  size="md"
+        <HorizontalHandle withHandle />
+
+        <ResizablePanel defaultSize="40%" minSize="20%">
+          <div className="bg-card border border-border rounded-lg shadow h-full flex flex-col ml-1">
+            <div className="p-4 border-b border-gray-200 dark:border-border flex justify-between items-center flex-shrink-0">
+              <div className="flex items-center gap-2 truncate">
+                {(selectedResource || selectedTemplate) && (
+                  <IconDisplay
+                    icons={
+                      ((selectedResource || selectedTemplate) as WithIcons)
+                        .icons
+                    }
+                    size="md"
+                  />
+                )}
+                <h3
+                  className="font-semibold truncate"
+                  title={selectedResource?.name || selectedTemplate?.name}
+                >
+                  {selectedResource
+                    ? selectedResource.name
+                    : selectedTemplate
+                      ? selectedTemplate.name
+                      : "Select a resource or template"}
+                </h3>
+              </div>
+              {selectedResource && (
+                <div className="flex row-auto gap-1 justify-end w-2/5">
+                  {resourceSubscriptionsSupported &&
+                    !resourceSubscriptions.has(selectedResource.uri) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          subscribeToResource(selectedResource.uri)
+                        }
+                      >
+                        Subscribe
+                      </Button>
+                    )}
+                  {resourceSubscriptionsSupported &&
+                    resourceSubscriptions.has(selectedResource.uri) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          unsubscribeFromResource(selectedResource.uri)
+                        }
+                      >
+                        Unsubscribe
+                      </Button>
+                    )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => readResource(selectedResource.uri)}
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Refresh
+                  </Button>
+                </div>
+              )}
+            </div>
+            <div className="p-4 flex-1 overflow-auto">
+              {error ? (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription className="break-all">
+                    {error}
+                  </AlertDescription>
+                </Alert>
+              ) : selectedResource ? (
+                <JsonView
+                  data={resourceContent}
+                  className="bg-gray-50 dark:bg-gray-800 p-4 rounded text-sm overflow-auto h-full text-gray-900 dark:text-gray-100"
                 />
+              ) : selectedTemplate ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {selectedTemplate.description}
+                  </p>
+                  {new UriTemplate(
+                    selectedTemplate.uriTemplate,
+                  ).variableNames?.map((key) => {
+                    return (
+                      <div key={key}>
+                        <Label htmlFor={key}>{key}</Label>
+                        <Combobox
+                          id={key}
+                          placeholder={`Enter ${key}`}
+                          value={templateValues[key] || ""}
+                          onChange={(value) =>
+                            handleTemplateValueChange(key, value)
+                          }
+                          onInputChange={(value) =>
+                            handleTemplateValueChange(key, value)
+                          }
+                          options={completions[key] || []}
+                        />
+                      </div>
+                    );
+                  })}
+                  <Button
+                    onClick={handleReadTemplateResource}
+                    disabled={Object.keys(templateValues).length === 0}
+                  >
+                    Read Resource
+                  </Button>
+                </div>
+              ) : (
+                <Alert>
+                  <AlertDescription>
+                    Select a resource or template from the list to view its
+                    contents
+                  </AlertDescription>
+                </Alert>
               )}
-              <h3
-                className="font-semibold truncate"
-                title={selectedResource?.name || selectedTemplate?.name}
-              >
-                {selectedResource
-                  ? selectedResource.name
-                  : selectedTemplate
-                    ? selectedTemplate.name
-                    : "Select a resource or template"}
-              </h3>
             </div>
-            {selectedResource && (
-              <div className="flex row-auto gap-1 justify-end w-2/5">
-                {resourceSubscriptionsSupported &&
-                  !resourceSubscriptions.has(selectedResource.uri) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => subscribeToResource(selectedResource.uri)}
-                    >
-                      Subscribe
-                    </Button>
-                  )}
-                {resourceSubscriptionsSupported &&
-                  resourceSubscriptions.has(selectedResource.uri) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        unsubscribeFromResource(selectedResource.uri)
-                      }
-                    >
-                      Unsubscribe
-                    </Button>
-                  )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => readResource(selectedResource.uri)}
-                >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Refresh
-                </Button>
-              </div>
-            )}
           </div>
-          <div className="p-4">
-            {error ? (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Error</AlertTitle>
-                <AlertDescription className="break-all">
-                  {error}
-                </AlertDescription>
-              </Alert>
-            ) : selectedResource ? (
-              <JsonView
-                data={resourceContent}
-                className="bg-gray-50 dark:bg-gray-800 p-4 rounded text-sm overflow-auto max-h-96 text-gray-900 dark:text-gray-100"
-              />
-            ) : selectedTemplate ? (
-              <div className="space-y-4">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {selectedTemplate.description}
-                </p>
-                {new UriTemplate(
-                  selectedTemplate.uriTemplate,
-                ).variableNames?.map((key) => {
-                  return (
-                    <div key={key}>
-                      <Label htmlFor={key}>{key}</Label>
-                      <Combobox
-                        id={key}
-                        placeholder={`Enter ${key}`}
-                        value={templateValues[key] || ""}
-                        onChange={(value) =>
-                          handleTemplateValueChange(key, value)
-                        }
-                        onInputChange={(value) =>
-                          handleTemplateValueChange(key, value)
-                        }
-                        options={completions[key] || []}
-                      />
-                    </div>
-                  );
-                })}
-                <Button
-                  onClick={handleReadTemplateResource}
-                  disabled={Object.keys(templateValues).length === 0}
-                >
-                  Read Resource
-                </Button>
-              </div>
-            ) : (
-              <Alert>
-                <AlertDescription>
-                  Select a resource or template from the list to view its
-                  contents
-                </AlertDescription>
-              </Alert>
-            )}
-          </div>
-        </div>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </TabsContent>
   );
 };

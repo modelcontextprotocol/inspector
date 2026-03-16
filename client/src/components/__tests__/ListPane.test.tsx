@@ -8,6 +8,7 @@ describe("ListPane", () => {
     { id: 1, name: "Tool 1", description: "First tool" },
     { id: 2, name: "Tool 2", description: "Second tool" },
     { id: 3, name: "Another Tool", description: "Third tool" },
+    { id: 4, name: "Extra Tool", description: "Fourth tool" },
   ];
 
   const defaultProps = {
@@ -76,40 +77,22 @@ describe("ListPane", () => {
   });
 
   describe("Search Functionality", () => {
-    it("should show search icon initially", () => {
+    it("should show search input when items > 3", () => {
       renderListPane();
-
-      const searchButton = screen.getByRole("button", { name: "Search" });
-      expect(searchButton).toBeInTheDocument();
-      expect(searchButton.querySelector("svg")).toBeInTheDocument();
-    });
-
-    it("should expand search input when search icon is clicked", async () => {
-      renderListPane();
-
-      const searchButton = screen.getByRole("button", { name: "Search" });
-      await act(async () => {
-        fireEvent.click(searchButton);
-      });
 
       const searchInput = screen.getByPlaceholderText("Search...");
       expect(searchInput).toBeInTheDocument();
+    });
 
-      // Wait for the setTimeout to complete and focus to be set
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 150));
-      });
+    it("should hide search input when items <= 3", () => {
+      renderListPane({ items: mockItems.slice(0, 3) });
 
-      expect(searchInput).toHaveFocus();
+      const searchInput = screen.queryByPlaceholderText("Search...");
+      expect(searchInput).not.toBeInTheDocument();
     });
 
     it("should filter items based on search query", async () => {
       renderListPane();
-
-      const searchButton = screen.getByRole("button", { name: "Search" });
-      await act(async () => {
-        fireEvent.click(searchButton);
-      });
 
       const searchInput = screen.getByPlaceholderText("Search...");
       await act(async () => {
@@ -129,13 +112,8 @@ describe("ListPane", () => {
       expect(screen.getByText("Another Tool")).toBeInTheDocument();
     });
 
-    it("should show 'No items found of matching \"NonExistent\"' when search has no results", async () => {
+    it("should show 'No items found matching \"NonExistent\"' when search has no results", async () => {
       renderListPane();
-
-      const searchButton = screen.getByRole("button", { name: "Search" });
-      await act(async () => {
-        fireEvent.click(searchButton);
-      });
 
       const searchInput = screen.getByPlaceholderText("Search...");
 
@@ -149,53 +127,8 @@ describe("ListPane", () => {
       expect(screen.queryByText("Tool 1")).not.toBeInTheDocument();
     });
 
-    it("should collapse search when input is empty and loses focus", async () => {
-      renderListPane();
-
-      const searchButton = screen.getByRole("button", { name: "Search" });
-      await act(async () => {
-        fireEvent.click(searchButton);
-      });
-
-      const searchInput = screen.getByPlaceholderText("Search...");
-
-      await act(async () => {
-        fireEvent.change(searchInput, { target: { value: "test" } });
-        fireEvent.change(searchInput, { target: { value: "" } });
-        fireEvent.blur(searchInput);
-      });
-
-      const searchButtonAfterCollapse = screen.getByRole("button", {
-        name: "Search",
-      });
-      expect(searchButtonAfterCollapse).toBeInTheDocument();
-      expect(searchButtonAfterCollapse).not.toHaveClass("opacity-0");
-    });
-
-    it("should keep search expanded when input has content and loses focus", async () => {
-      renderListPane();
-
-      const searchButton = screen.getByRole("button", { name: "Search" });
-      await act(async () => {
-        fireEvent.click(searchButton);
-      });
-
-      const searchInput = screen.getByPlaceholderText("Search...");
-      await act(async () => {
-        fireEvent.change(searchInput, { target: { value: "test" } });
-        fireEvent.blur(searchInput);
-      });
-
-      expect(screen.getByPlaceholderText("Search...")).toBeInTheDocument();
-    });
-
     it("should search through all item properties (description)", async () => {
       renderListPane();
-
-      const searchButton = screen.getByRole("button", { name: "Search" });
-      await act(async () => {
-        fireEvent.click(searchButton);
-      });
 
       const searchInput = screen.getByPlaceholderText("Search...");
       await act(async () => {

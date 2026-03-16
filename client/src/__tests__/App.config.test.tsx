@@ -59,18 +59,6 @@ jest.mock("../lib/hooks/useConnection", () => ({
   }),
 }));
 
-jest.mock("../lib/hooks/useDraggablePane", () => ({
-  useDraggablePane: () => ({
-    height: 300,
-    handleDragStart: jest.fn(),
-  }),
-  useDraggableSidebar: () => ({
-    width: 320,
-    isDragging: false,
-    handleDragStart: jest.fn(),
-  }),
-}));
-
 jest.mock("../components/Sidebar", () => ({
   __esModule: true,
   default: () => <div>Sidebar</div>,

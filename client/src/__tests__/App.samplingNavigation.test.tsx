@@ -59,21 +59,25 @@ jest.mock("../utils/configUtils", () => ({
   saveInspectorConfig: jest.fn(),
 }));
 
-jest.mock("../lib/hooks/useDraggablePane", () => ({
-  useDraggablePane: () => ({
-    height: 300,
-    handleDragStart: jest.fn(),
-  }),
-  useDraggableSidebar: () => ({
-    width: 320,
-    isDragging: false,
-    handleDragStart: jest.fn(),
-  }),
-}));
-
 jest.mock("../components/Sidebar", () => ({
   __esModule: true,
   default: () => <div>Sidebar</div>,
+}));
+
+jest.mock("@/components/ui/resizable", () => ({
+  ResizablePanelGroup: ({ children }: any) => (
+    <div data-testid="resizable-group">{children}</div>
+  ),
+  ResizablePanel: ({ children }: any) => (
+    <div data-testid="resizable-panel">{children}</div>
+  ),
+  ResizableHandle: () => <div data-testid="resizable-handle" />,
+  VerticalHandle: () => <div data-testid="vertical-handle" />,
+  HorizontalHandle: () => <div data-testid="horizontal-handle" />,
+  useDefaultLayout: () => ({
+    defaultLayout: undefined,
+    onLayoutChanged: jest.fn(),
+  }),
 }));
 
 jest.mock("../lib/hooks/useToast", () => ({
