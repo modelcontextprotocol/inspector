@@ -1,31 +1,38 @@
 /**
- * ManagedToolsState: holds full tool list, syncs on toolsListChanged.
- * Takes InspectorClient (will become InspectorClientProtocol in Stage 5).
+ * ManagedToolsState: keeps full tool list in sync with the server.
+ * State is held in a Zustand store; manager updates it and exposes getStore() for read-only subscription.
  */
 
+import { createStore } from "zustand/vanilla";
 import type { InspectorClient } from "../inspectorClient.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { TypedEventTarget } from "../typedEventTarget.js";
 
 const MAX_PAGES = 100;
 
-export interface ManagedToolsStateEventMap {
-  toolsChange: Tool[];
+/** Read-only store view: getState + subscribe, no setState. Use for hooks and other consumers. */
+export interface ManagedToolsReadOnlyStore {
+  getState: () => { tools: Tool[] };
+  subscribe: (listener: () => void) => () => void;
 }
 
 /**
  * State manager that keeps a full tool list in sync with the server.
- * Subscribes to client's connect (initial load), toolsListChanged, and statusChange; fetches all pages on refresh.
- * If the caller wants metadata on list_tools (e.g. CLI --metadata), set it via setMetadata() so internal refresh() calls use it.
+ * Subscribes to client's connect, toolsListChanged, and statusChange; fetches all pages on refresh.
+ * Use getStore() for subscription (e.g. in React via useStore); use getTools() for one-off read.
  */
-export class ManagedToolsState extends TypedEventTarget<ManagedToolsStateEventMap> {
-  private tools: Tool[] = [];
+export class ManagedToolsState {
+  private readonly store = createStore<{ tools: Tool[] }>()((_set) => ({
+    tools: [],
+  }));
+  private readonly readOnlyStore: ManagedToolsReadOnlyStore = {
+    getState: () => this.store.getState(),
+    subscribe: (listener) => this.store.subscribe(listener),
+  };
   private client: InspectorClient | null = null;
   private unsubscribe: (() => void) | null = null;
   private _metadata: Record<string, string> | undefined = undefined;
 
   constructor(client: InspectorClient) {
-    super();
     this.client = client;
     const onConnect = (): void => {
       void this.refresh();
@@ -35,8 +42,7 @@ export class ManagedToolsState extends TypedEventTarget<ManagedToolsStateEventMa
     };
     const onStatusChange = (): void => {
       if (this.client?.getStatus() === "disconnected") {
-        this.tools = [];
-        this.dispatchTypedEvent("toolsChange", []);
+        this.store.setState({ tools: [] });
       }
     };
     this.client.addEventListener("connect", onConnect);
@@ -52,8 +58,13 @@ export class ManagedToolsState extends TypedEventTarget<ManagedToolsStateEventMa
     };
   }
 
+  /** Read-only store for subscription (e.g. useStore(manager.getStore(), s => s.tools)). */
+  getStore(): ManagedToolsReadOnlyStore {
+    return this.readOnlyStore;
+  }
+
   getTools(): Tool[] {
-    return [...this.tools];
+    return [...this.store.getState().tools];
   }
 
   /**
@@ -75,12 +86,12 @@ export class ManagedToolsState extends TypedEventTarget<ManagedToolsStateEventMa
       return this.getTools();
     }
     const effectiveMetadata = metadata ?? this._metadata;
-    this.tools = [];
+    const tools: Tool[] = [];
     let cursor: string | undefined;
     let pageCount = 0;
     do {
       const result = await client.listTools(cursor, effectiveMetadata);
-      this.tools = cursor ? [...this.tools, ...result.tools] : result.tools;
+      tools.push(...result.tools);
       cursor = result.nextCursor;
       pageCount++;
       if (pageCount >= MAX_PAGES) {
@@ -89,7 +100,7 @@ export class ManagedToolsState extends TypedEventTarget<ManagedToolsStateEventMa
         );
       }
     } while (cursor);
-    this.dispatchTypedEvent("toolsChange", this.tools);
+    this.store.setState({ tools });
     return this.getTools();
   }
 
@@ -99,6 +110,6 @@ export class ManagedToolsState extends TypedEventTarget<ManagedToolsStateEventMa
   destroy(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
-    this.tools = [];
+    this.store.setState({ tools: [] });
   }
 }
