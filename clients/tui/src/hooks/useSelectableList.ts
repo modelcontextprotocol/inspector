@@ -38,13 +38,15 @@ export function useSelectableList(
     [visibleCount],
   );
 
-  // Reset when deps change (e.g. different server)
+  // Reset when deps change (e.g. different server). Depend on list contents
+  // so we don't reset on every render (options.resetWhen is a new array each time).
+  const resetDeps = options?.resetWhen ?? [];
   useEffect(() => {
-    if (options?.resetWhen) {
+    if (resetDeps.length > 0) {
       setSelectedIndex(0);
       setFirstVisible(0);
     }
-  }, [options?.resetWhen]);
+  }, [resetDeps.length, ...resetDeps]);
 
   // Clamp when list shrinks
   useEffect(() => {
