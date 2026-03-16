@@ -30,7 +30,7 @@ export function ToolsTab({
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(
     tools.length,
     visibleCount,
-    { resetWhen: [tools] },
+    { resetWhen: tools },
   );
   const [error] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollViewRef>(null);

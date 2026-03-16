@@ -11,8 +11,8 @@ function clampFirstVisible(
 }
 
 export interface UseSelectableListOptions {
-  /** When these change, reset selection to 0 (e.g. [tools] when switching servers) */
-  resetWhen?: unknown[];
+  /** When this reference changes, reset selection to 0 (e.g. tools list when switching servers) */
+  resetWhen?: unknown;
 }
 
 /**
@@ -38,15 +38,13 @@ export function useSelectableList(
     [visibleCount],
   );
 
-  // Reset when deps change (e.g. different server). Depend on list contents
-  // so we don't reset on every render (options.resetWhen is a new array each time).
-  const resetDeps = options?.resetWhen ?? [];
+  // Reset when the list reference changes (e.g. different server).
   useEffect(() => {
-    if (resetDeps.length > 0) {
+    if (options?.resetWhen !== undefined) {
       setSelectedIndex(0);
       setFirstVisible(0);
     }
-  }, [resetDeps.length, ...resetDeps]);
+  }, [options?.resetWhen]);
 
   // Clamp when list shrinks
   useEffect(() => {
