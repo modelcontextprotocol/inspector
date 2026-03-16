@@ -6,7 +6,6 @@ import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { JsonValue } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import { schemaToForm } from "../utils/schemaToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
-import { ModalBackdrop } from "./ModalBackdrop.js";
 
 interface ToolTestModalProps {
   tool: Tool;
@@ -181,10 +180,6 @@ export function ToolTestModal({
       justifyContent="center"
       alignItems="center"
     >
-      <ModalBackdrop
-        width={terminalDimensions.width}
-        height={terminalDimensions.height}
-      />
       {/* Modal Content */}
       <Box
         width={modalWidth}
@@ -194,6 +189,7 @@ export function ToolTestModal({
         flexDirection="column"
         paddingX={1}
         paddingY={1}
+        backgroundColor="black"
       >
         {/* Header */}
         <Box flexShrink={0} marginBottom={1}>

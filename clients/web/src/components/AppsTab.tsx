@@ -389,9 +389,9 @@ const AppsTab = ({
                                   ) : prop.type === "object" ||
                                     prop.type === "array" ? (
                                     <DynamicJsonForm
-                                      ref={(ref) =>
-                                        (formRefs.current[key] = ref)
-                                      }
+                                      ref={(ref) => {
+                                        formRefs.current[key] = ref;
+                                      }}
                                       schema={{
                                         type: prop.type,
                                         properties: prop.properties,
@@ -439,9 +439,9 @@ const AppsTab = ({
                                     />
                                   ) : (
                                     <DynamicJsonForm
-                                      ref={(ref) =>
-                                        (formRefs.current[key] = ref)
-                                      }
+                                      ref={(ref) => {
+                                        formRefs.current[key] = ref;
+                                      }}
                                       schema={{
                                         type: prop.type,
                                         properties: prop.properties,
