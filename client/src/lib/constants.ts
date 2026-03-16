@@ -83,4 +83,11 @@ export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
     value: 60000,
     is_session_item: false,
   },
+  MCP_ENABLE_BROWSER_HISTORY: {
+    label: "Enable browser history for input fields",
+    description:
+      "Use a hidden iframe to trick the browser into saving tool parameter history",
+    value: true,
+    is_session_item: false,
+  },
 } as const;

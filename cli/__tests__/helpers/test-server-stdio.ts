@@ -213,8 +213,10 @@ export function getTestMcpServerPath(): string {
  * Get the command and args to run the test MCP server
  */
 export function getTestMcpServerCommand(): { command: string; args: string[] } {
+  const projectRoot = path.resolve(__dirname, "../../../");
+  const tsxPath = path.resolve(projectRoot, "node_modules", ".bin", "tsx");
   return {
-    command: "tsx",
+    command: tsxPath,
     args: [getTestMcpServerPath()],
   };
 }
