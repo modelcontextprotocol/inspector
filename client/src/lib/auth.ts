@@ -137,6 +137,32 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
     return getScopeFromSessionStorage(this.serverUrl);
   }
 
+  /**
+   * Suppress the RFC 8707 `resource` parameter in authorization requests.
+   *
+   * The MCP TypeScript SDK reads the `resource` field from RFC 9728 Protected
+   * Resource Metadata (PRM) and by default forwards it as a `resource` query
+   * parameter on the /authorize URL. Authorization servers that do not support
+   * the RFC 8707 `resource` parameter — notably Azure Entra ID v2.0, which
+   * treats it as a v1.0-only concept — reject the request with an error such
+   * as AADSTS9010010 ("The resource parameter … doesn't match … the requested
+   * scopes"), even when the PRM `resource` value is a perfectly valid
+   * RFC 9728-compliant server URL.
+   *
+   * By implementing this hook and returning `undefined`, we tell the SDK to
+   * omit the `resource` parameter entirely. The authorization server identity
+   * and supported scopes are still fully discovered from PRM via the
+   * `authorization_servers` and `scopes_supported` fields, so discovery is
+   * unaffected. Only the redundant (and potentially incompatible) `resource`
+   * query parameter is dropped from the authorize URL.
+   */
+  validateResourceURL(
+    _serverUrl: URL,
+    _resourceMetadataUrl?: string,
+  ): Promise<URL | undefined> {
+    return Promise.resolve(undefined);
+  }
+
   get redirectUrl() {
     return window.location.origin + "/oauth/callback";
   }
