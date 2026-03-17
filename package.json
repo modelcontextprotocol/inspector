@@ -1,0 +1,24 @@
+{
+  "name": "@modelcontextprotocol/inspector-web",
+  "version": "2.0.0",
+  "description": "Web interface for the Model Context Protocol Inspector",
+  "keywords": [
+    "MCP",
+    "inspector"
+  ],
+  "homepage": "https://github.com/modelcontextprotocol/inspector#readme",
+  "bugs": {
+    "url": "https://github.com/modelcontextprotocol/inspector/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/modelcontextprotocol/inspector.git"
+  },
+  "license": "MIT",
+  "author": "The MCP Maintainers and Community",
+  "type": "module",
+  "main": "./build/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
