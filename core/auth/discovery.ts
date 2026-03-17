@@ -16,9 +16,11 @@ export const discoverScopes = async (
   try {
     // Use the authorization server URL from resource metadata if available,
     // otherwise fall back to the MCP server URL
-    const authServerUrl = resourceMetadata?.authorization_servers?.length
-      ? new URL(resourceMetadata.authorization_servers[0])
-      : new URL("/", serverUrl);
+    const firstAuthServer = resourceMetadata?.authorization_servers?.[0];
+    const authServerUrl =
+      firstAuthServer !== undefined
+        ? new URL(firstAuthServer)
+        : new URL("/", serverUrl);
     const metadata = await discoverAuthorizationServerMetadata(authServerUrl, {
       fetchFn,
     });
