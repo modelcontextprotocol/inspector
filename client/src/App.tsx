@@ -893,8 +893,11 @@ const App = () => {
     setPromptContent(JSON.stringify(response, null, 2));
   };
 
-  const readResource = async (uri: string) => {
-    if (fetchingResources.has(uri) || resourceContentMap[uri]) {
+  const readResource = async (uri: string, force: boolean = false) => {
+    if (fetchingResources.has(uri)) {
+      return;
+    }
+    if (!force && resourceContentMap[uri]) {
       return;
     }
 
@@ -1471,9 +1474,9 @@ const App = () => {
                         setResourceTemplates([]);
                         setNextResourceTemplateCursor(undefined);
                       }}
-                      readResource={(uri) => {
+                      readResource={(uri, force) => {
                         clearError("resources");
-                        readResource(uri);
+                        readResource(uri, force);
                       }}
                       selectedResource={selectedResource}
                       setSelectedResource={(resource) => {
