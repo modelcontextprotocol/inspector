@@ -142,19 +142,25 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
    *
    * The MCP TypeScript SDK reads the `resource` field from RFC 9728 Protected
    * Resource Metadata (PRM) and by default forwards it as a `resource` query
-   * parameter on the /authorize URL. Authorization servers that do not support
-   * the RFC 8707 `resource` parameter — notably Azure Entra ID v2.0, which
-   * treats it as a v1.0-only concept — reject the request with an error such
-   * as AADSTS9010010 ("The resource parameter … doesn't match … the requested
-   * scopes"), even when the PRM `resource` value is a perfectly valid
-   * RFC 9728-compliant server URL.
+   * parameter on the /authorize URL. However, RFC 8707 defines the `resource`
+   * parameter as OPTIONAL — authorization servers are not required to support
+   * it. Some servers actively reject the parameter:  specifically, Azure Entra
+   * ID v2.0 returns AADSTS9010010 ("The resource parameter … doesn't match …
+   * the requested scopes") when `resource` is present, even when the PRM
+   * `resource` value is a valid RFC 9728-compliant server URL.
    *
    * By implementing this hook and returning `undefined`, we tell the SDK to
    * omit the `resource` parameter entirely. The authorization server identity
    * and supported scopes are still fully discovered from PRM via the
    * `authorization_servers` and `scopes_supported` fields, so discovery is
-   * unaffected. Only the redundant (and potentially incompatible) `resource`
-   * query parameter is dropped from the authorize URL.
+   * unaffected.
+   *
+   * Trade-off: In multi-resource environments (one authorization server
+   * protecting several resource servers), the `resource` parameter helps
+   * audience-restrict tokens to a specific resource. For the Inspector — a
+   * single-connection developer tool where the scope already encodes the
+   * target resource — omitting it is safe and compatible with all major
+   * authorization servers (Keycloak, Auth0, Okta, PingFederate, Entra ID).
    */
   validateResourceURL(
     _serverUrl: URL,
