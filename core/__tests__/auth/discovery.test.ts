@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { discoverScopes } from "../../auth/discovery.js";
+import {
+  discoverScopes,
+  getAuthorizationServerUrl,
+} from "../../auth/discovery.js";
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 // Mock SDK functions
@@ -262,6 +265,53 @@ describe("OAuth Scope Discovery", () => {
     expect(discoverAuthorizationServerMetadata).toHaveBeenCalledWith(
       new URL("/", "https://mcp-server.com"),
       { fetchFn: undefined },
+    );
+  });
+});
+
+describe("getAuthorizationServerUrl", () => {
+  const serverUrl = "https://mcp.example.com";
+
+  it("returns server URL when resourceMetadata is null", () => {
+    expect(getAuthorizationServerUrl(serverUrl, null)).toEqual(
+      new URL("/", serverUrl),
+    );
+  });
+
+  it("returns server URL when resourceMetadata is undefined", () => {
+    expect(getAuthorizationServerUrl(serverUrl)).toEqual(
+      new URL("/", serverUrl),
+    );
+  });
+
+  it("returns server URL when authorization_servers is empty array", () => {
+    const resourceMetadata: OAuthProtectedResourceMetadata = {
+      resource: serverUrl,
+      authorization_servers: [],
+    };
+    expect(getAuthorizationServerUrl(serverUrl, resourceMetadata)).toEqual(
+      new URL("/", serverUrl),
+    );
+  });
+
+  it("falls back to server URL when authorization_servers[0] is empty string", () => {
+    const resourceMetadata: OAuthProtectedResourceMetadata = {
+      resource: serverUrl,
+      authorization_servers: [""],
+    };
+    expect(getAuthorizationServerUrl(serverUrl, resourceMetadata)).toEqual(
+      new URL("/", serverUrl),
+    );
+  });
+
+  it("returns authorization_servers[0] when present and truthy", () => {
+    const authUrl = "https://auth.example.com/";
+    const resourceMetadata: OAuthProtectedResourceMetadata = {
+      resource: serverUrl,
+      authorization_servers: [authUrl],
+    };
+    expect(getAuthorizationServerUrl(serverUrl, resourceMetadata)).toEqual(
+      new URL(authUrl),
     );
   });
 });

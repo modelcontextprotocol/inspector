@@ -167,6 +167,44 @@ describe("OAuthStateMachine", () => {
       );
     });
 
+    it("should use authorization_servers URL from resource metadata for auth server discovery", async () => {
+      const authServerUrl = "https://auth-server.com/";
+      const resourceMetaDifferentAuth: OAuthProtectedResourceMetadata = {
+        resource: serverUrl,
+        authorization_servers: [authServerUrl],
+        scopes_supported: ["read", "write"],
+      };
+      const selectedResource = new URL(serverUrl);
+      const {
+        discoverOAuthProtectedResourceMetadata,
+        discoverAuthorizationServerMetadata,
+        selectResourceURL,
+      } = await import("@modelcontextprotocol/sdk/client/auth.js");
+      vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue(
+        resourceMetaDifferentAuth,
+      );
+      vi.mocked(selectResourceURL).mockResolvedValue(selectedResource);
+
+      const stateMachine = new OAuthStateMachine(
+        serverUrl,
+        mockProvider,
+        updateState,
+      );
+      await stateMachine.executeStep(state);
+
+      expect(discoverAuthorizationServerMetadata).toHaveBeenCalledWith(
+        new URL(authServerUrl),
+        expect.any(Object),
+      );
+      expect(updateState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resourceMetadata: resourceMetaDifferentAuth,
+          authServerUrl: new URL(authServerUrl),
+          oauthStep: "client_registration",
+        }),
+      );
+    });
+
     it("should call selectResourceURL only when resource metadata is present", async () => {
       const { discoverOAuthProtectedResourceMetadata, selectResourceURL } =
         await import("@modelcontextprotocol/sdk/client/auth.js");
