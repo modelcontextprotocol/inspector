@@ -1,8 +1,8 @@
-import { Badge } from '@mantine/core';
+import { Badge } from "@mantine/core";
 
 export const ThemeBadge = Badge.extend({
   defaultProps: {
-    size: 'sm',
-    radius: 'sm',
+    size: "sm",
+    radius: "sm",
   },
 });

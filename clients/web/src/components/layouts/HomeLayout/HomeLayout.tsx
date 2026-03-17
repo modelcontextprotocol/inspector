@@ -1,5 +1,11 @@
-import type { ReactNode } from 'react';
-import { ActionIcon, AppShell, Group, Title, useComputedColorScheme } from '@mantine/core';
+import type { ReactNode } from "react";
+import {
+  ActionIcon,
+  AppShell,
+  Group,
+  Title,
+  useComputedColorScheme,
+} from "@mantine/core";
 
 export interface HomeLayoutProps {
   children: ReactNode;
@@ -20,7 +26,7 @@ export function HomeLayout({ children, onToggleTheme }: HomeLayoutProps) {
             aria-label="Toggle color scheme"
             onClick={onToggleTheme}
           >
-            {colorScheme === 'dark' ? '\u2600' : '\u263E'}
+            {colorScheme === "dark" ? "\u2600" : "\u263E"}
           </ActionIcon>
         </Group>
       </AppShell.Header>

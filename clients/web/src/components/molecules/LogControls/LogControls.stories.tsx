@@ -1,6 +1,6 @@
-import type { Meta, StoryObj } from '@storybook/react-vite';
-import { fn } from 'storybook/test';
-import { LogControls } from './LogControls';
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fn } from "storybook/test";
+import { LogControls } from "./LogControls";
 
 const allLevelsVisible: Record<string, boolean> = {
   debug: true,
@@ -14,7 +14,7 @@ const allLevelsVisible: Record<string, boolean> = {
 };
 
 const meta: Meta<typeof LogControls> = {
-  title: 'Molecules/LogControls',
+  title: "Molecules/LogControls",
   component: LogControls,
   args: {
     onSetLevel: fn(),
@@ -30,16 +30,16 @@ type Story = StoryObj<typeof LogControls>;
 
 export const AllLevelsVisible: Story = {
   args: {
-    currentLevel: 'info',
-    filterText: '',
+    currentLevel: "info",
+    filterText: "",
     visibleLevels: allLevelsVisible,
   },
 };
 
 export const FilteredLevels: Story = {
   args: {
-    currentLevel: 'warning',
-    filterText: '',
+    currentLevel: "warning",
+    filterText: "",
     visibleLevels: {
       debug: false,
       info: false,
@@ -55,16 +55,16 @@ export const FilteredLevels: Story = {
 
 export const WithFilterText: Story = {
   args: {
-    currentLevel: 'info',
-    filterText: 'connection timeout',
+    currentLevel: "info",
+    filterText: "connection timeout",
     visibleLevels: allLevelsVisible,
   },
 };
 
 export const DebugLevel: Story = {
   args: {
-    currentLevel: 'debug',
-    filterText: '',
+    currentLevel: "debug",
+    filterText: "",
     visibleLevels: allLevelsVisible,
   },
 };

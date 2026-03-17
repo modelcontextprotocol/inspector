@@ -9,7 +9,7 @@ import {
   Text,
   TextInput,
   Title,
-} from '@mantine/core';
+} from "@mantine/core";
 
 export interface RootEntry {
   name: string;
@@ -94,14 +94,12 @@ export function RootsTable({
         <Button variant="light" onClick={onBrowse}>
           Browse
         </Button>
-        <Button onClick={onAddRoot}>
-          Add
-        </Button>
+        <Button onClick={onAddRoot}>Add</Button>
       </Group>
 
       <Alert color="yellow" title="Warning">
-        Roots give the server access to these directories. Only add directories you trust the server
-        to access.
+        Roots give the server access to these directories. Only add directories
+        you trust the server to access.
       </Alert>
     </Stack>
   );

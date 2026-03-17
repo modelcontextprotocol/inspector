@@ -1,4 +1,4 @@
-import { Group, Progress, Stack, Text } from '@mantine/core';
+import { Group, Progress, Stack, Text } from "@mantine/core";
 
 export interface ProgressDisplayProps {
   progress: number;
@@ -6,7 +6,11 @@ export interface ProgressDisplayProps {
   elapsed?: string;
 }
 
-export function ProgressDisplay({ progress, description, elapsed }: ProgressDisplayProps) {
+export function ProgressDisplay({
+  progress,
+  description,
+  elapsed,
+}: ProgressDisplayProps) {
   return (
     <Stack gap="xs">
       <Group justify="space-between">

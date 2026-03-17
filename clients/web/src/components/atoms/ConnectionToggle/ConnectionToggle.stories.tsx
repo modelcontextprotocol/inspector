@@ -1,9 +1,9 @@
-import type { Meta, StoryObj } from '@storybook/react-vite';
-import { fn } from 'storybook/test';
-import { ConnectionToggle } from './ConnectionToggle';
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fn } from "storybook/test";
+import { ConnectionToggle } from "./ConnectionToggle";
 
 const meta: Meta<typeof ConnectionToggle> = {
-  title: 'Atoms/ConnectionToggle',
+  title: "Atoms/ConnectionToggle",
   component: ConnectionToggle,
   args: {
     onChange: fn(),

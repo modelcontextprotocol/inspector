@@ -1,7 +1,7 @@
-import { Badge } from '@mantine/core'
+import { Badge } from "@mantine/core";
 
 export interface TransportBadgeProps {
-  transport: 'stdio' | 'http'
+  transport: "stdio" | "http";
 }
 
 export function TransportBadge({ transport }: TransportBadgeProps) {
@@ -9,5 +9,5 @@ export function TransportBadge({ transport }: TransportBadgeProps) {
     <Badge variant="outline" color="gray">
       {transport.toUpperCase()}
     </Badge>
-  )
+  );
 }

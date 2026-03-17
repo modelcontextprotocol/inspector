@@ -68,7 +68,7 @@
 }
 
 /* Dark mode overrides — tokens that need adjustment in dark scheme */
-[data-mantine-color-scheme='dark'] {
+[data-mantine-color-scheme="dark"] {
   --inspector-surface-code: var(--mantine-color-dark-6);
   --inspector-border-subtle: var(--mantine-color-dark-4);
 }

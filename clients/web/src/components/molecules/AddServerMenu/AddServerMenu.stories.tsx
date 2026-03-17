@@ -1,9 +1,9 @@
-import type { Meta, StoryObj } from '@storybook/react-vite';
-import { fn } from 'storybook/test';
-import { AddServerMenu } from './AddServerMenu';
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fn } from "storybook/test";
+import { AddServerMenu } from "./AddServerMenu";
 
 const meta: Meta<typeof AddServerMenu> = {
-  title: 'Molecules/AddServerMenu',
+  title: "Molecules/AddServerMenu",
   component: AddServerMenu,
   args: {
     onAddManually: fn(),

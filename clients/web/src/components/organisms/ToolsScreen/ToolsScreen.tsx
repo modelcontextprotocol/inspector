@@ -1,21 +1,21 @@
-import { Grid, Paper, Stack, Text, TextInput } from '@mantine/core'
-import { ListChangedIndicator } from '../../atoms/ListChangedIndicator/ListChangedIndicator'
-import { ToolListItem } from '../../molecules/ToolListItem/ToolListItem'
-import { ToolDetailPanel } from '../../molecules/ToolDetailPanel/ToolDetailPanel'
-import { ResultPanel } from '../../molecules/ResultPanel/ResultPanel'
-import type { ToolListItemProps } from '../../molecules/ToolListItem/ToolListItem'
-import type { ToolDetailPanelProps } from '../../molecules/ToolDetailPanel/ToolDetailPanel'
-import type { ResultPanelProps } from '../../molecules/ResultPanel/ResultPanel'
+import { Grid, Paper, Stack, Text, TextInput } from "@mantine/core";
+import { ListChangedIndicator } from "../../atoms/ListChangedIndicator/ListChangedIndicator";
+import { ToolListItem } from "../../molecules/ToolListItem/ToolListItem";
+import { ToolDetailPanel } from "../../molecules/ToolDetailPanel/ToolDetailPanel";
+import { ResultPanel } from "../../molecules/ResultPanel/ResultPanel";
+import type { ToolListItemProps } from "../../molecules/ToolListItem/ToolListItem";
+import type { ToolDetailPanelProps } from "../../molecules/ToolDetailPanel/ToolDetailPanel";
+import type { ResultPanelProps } from "../../molecules/ResultPanel/ResultPanel";
 
 export interface ToolsScreenProps {
-  tools: ToolListItemProps[]
-  selectedTool?: ToolDetailPanelProps
-  result?: ResultPanelProps
-  listChanged: boolean
-  searchText: string
-  onSearchChange: (text: string) => void
-  onRefreshList: () => void
-  onSelectTool: (name: string) => void
+  tools: ToolListItemProps[];
+  selectedTool?: ToolDetailPanelProps;
+  result?: ResultPanelProps;
+  listChanged: boolean;
+  searchText: string;
+  onSearchChange: (text: string) => void;
+  onRefreshList: () => void;
+  onSelectTool: (name: string) => void;
 }
 
 export function ToolsScreen({
@@ -29,15 +29,20 @@ export function ToolsScreen({
   onSelectTool,
 }: ToolsScreenProps) {
   const filteredTools = searchText
-    ? tools.filter((tool) => tool.name.toLowerCase().includes(searchText.toLowerCase()))
-    : tools
+    ? tools.filter((tool) =>
+        tool.name.toLowerCase().includes(searchText.toLowerCase()),
+      )
+    : tools;
 
   return (
     <Grid>
       <Grid.Col span={3}>
         <Paper withBorder p="md">
           <Stack gap="sm">
-            <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
+            <ListChangedIndicator
+              visible={listChanged}
+              onRefresh={onRefreshList}
+            />
             <TextInput
               placeholder="Search tools..."
               value={searchText}
@@ -78,5 +83,5 @@ export function ToolsScreen({
         </Paper>
       </Grid.Col>
     </Grid>
-  )
+  );
 }

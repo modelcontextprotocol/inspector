@@ -1,8 +1,8 @@
-import type { Meta, StoryObj } from '@storybook/react-vite';
-import { StatusIndicator } from './StatusIndicator';
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { StatusIndicator } from "./StatusIndicator";
 
 const meta: Meta<typeof StatusIndicator> = {
-  title: 'Atoms/StatusIndicator',
+  title: "Atoms/StatusIndicator",
   component: StatusIndicator,
 };
 
@@ -11,32 +11,32 @@ type Story = StoryObj<typeof StatusIndicator>;
 
 export const Connected: Story = {
   args: {
-    status: 'connected',
+    status: "connected",
     latencyMs: 23,
   },
 };
 
 export const Connecting: Story = {
   args: {
-    status: 'connecting',
+    status: "connecting",
   },
 };
 
 export const Disconnected: Story = {
   args: {
-    status: 'disconnected',
+    status: "disconnected",
   },
 };
 
 export const Failed: Story = {
   args: {
-    status: 'failed',
+    status: "failed",
   },
 };
 
 export const FailedWithRetries: Story = {
   args: {
-    status: 'failed',
+    status: "failed",
     retryCount: 3,
   },
 };

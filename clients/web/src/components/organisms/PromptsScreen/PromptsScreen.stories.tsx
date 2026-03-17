@@ -1,10 +1,10 @@
-import type { Meta, StoryObj } from '@storybook/react-vite';
-import { fn } from 'storybook/test';
-import { PromptsScreen } from './PromptsScreen';
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fn } from "storybook/test";
+import { PromptsScreen } from "./PromptsScreen";
 
 const meta: Meta<typeof PromptsScreen> = {
   component: PromptsScreen,
-  parameters: { layout: 'fullscreen' },
+  parameters: { layout: "fullscreen" },
   args: {
     onRefreshList: fn(),
   },
@@ -17,9 +17,12 @@ export const NoSelection: Story = {
   args: {
     promptForm: {
       prompts: [
-        { name: 'summarize', description: 'Summarize a document' },
-        { name: 'translate', description: 'Translate text to another language' },
-        { name: 'code-review', description: 'Review code for issues' },
+        { name: "summarize", description: "Summarize a document" },
+        {
+          name: "translate",
+          description: "Translate text to another language",
+        },
+        { name: "code-review", description: "Review code for issues" },
       ],
       selectedPrompt: undefined,
       arguments: [],
@@ -37,18 +40,25 @@ export const WithResult: Story = {
   args: {
     promptForm: {
       prompts: [
-        { name: 'summarize', description: 'Summarize a document' },
-        { name: 'translate', description: 'Translate text to another language' },
-        { name: 'code-review', description: 'Review code for issues' },
+        { name: "summarize", description: "Summarize a document" },
+        {
+          name: "translate",
+          description: "Translate text to another language",
+        },
+        { name: "code-review", description: "Review code for issues" },
       ],
-      selectedPrompt: 'translate',
+      selectedPrompt: "translate",
       arguments: [
-        { name: 'text', required: true, description: 'The text to translate' },
-        { name: 'targetLanguage', required: true, description: 'Target language code' },
+        { name: "text", required: true, description: "The text to translate" },
+        {
+          name: "targetLanguage",
+          required: true,
+          description: "Target language code",
+        },
       ],
       argumentValues: {
-        text: 'Hello, how are you?',
-        targetLanguage: 'es',
+        text: "Hello, how are you?",
+        targetLanguage: "es",
       },
       onSelectPrompt: fn(),
       onArgumentChange: fn(),
@@ -57,12 +67,13 @@ export const WithResult: Story = {
     messages: {
       messages: [
         {
-          role: 'user',
-          content: 'Translate the following text to Spanish: "Hello, how are you?"',
+          role: "user",
+          content:
+            'Translate the following text to Spanish: "Hello, how are you?"',
         },
         {
-          role: 'assistant',
-          content: 'Hola, como estas?',
+          role: "assistant",
+          content: "Hola, como estas?",
         },
       ],
       onCopy: fn(),

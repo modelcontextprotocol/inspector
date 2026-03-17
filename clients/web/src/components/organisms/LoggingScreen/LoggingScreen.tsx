@@ -1,8 +1,18 @@
-import { Button, Checkbox, Grid, Group, Paper, ScrollArea, Stack, Text, Title } from '@mantine/core';
-import { LogControls } from '../../molecules/LogControls/LogControls';
-import { LogEntry } from '../../atoms/LogEntry/LogEntry';
-import type { LogControlsProps } from '../../molecules/LogControls/LogControls';
-import type { LogEntryProps } from '../../atoms/LogEntry/LogEntry';
+import {
+  Button,
+  Checkbox,
+  Grid,
+  Group,
+  Paper,
+  ScrollArea,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
+import { LogControls } from "../../molecules/LogControls/LogControls";
+import { LogEntry } from "../../atoms/LogEntry/LogEntry";
+import type { LogControlsProps } from "../../molecules/LogControls/LogControls";
+import type { LogEntryProps } from "../../atoms/LogEntry/LogEntry";
 
 export interface LoggingScreenProps {
   controls: LogControlsProps;

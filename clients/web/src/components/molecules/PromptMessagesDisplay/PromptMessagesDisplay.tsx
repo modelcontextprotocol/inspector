@@ -1,5 +1,5 @@
-import { Button, Stack, Text, Title } from '@mantine/core';
-import { MessageBubble } from '../../atoms/MessageBubble/MessageBubble';
+import { Button, Stack, Text, Title } from "@mantine/core";
+import { MessageBubble } from "../../atoms/MessageBubble/MessageBubble";
 
 export interface PromptMessage {
   role: string;
@@ -13,7 +13,10 @@ export interface PromptMessagesDisplayProps {
   onCopy: () => void;
 }
 
-export function PromptMessagesDisplay({ messages, onCopy }: PromptMessagesDisplayProps) {
+export function PromptMessagesDisplay({
+  messages,
+  onCopy,
+}: PromptMessagesDisplayProps) {
   return (
     <Stack gap="md">
       <Title order={4}>Messages</Title>
@@ -24,7 +27,7 @@ export function PromptMessagesDisplay({ messages, onCopy }: PromptMessagesDispla
           <MessageBubble
             key={index}
             index={index}
-            role={message.role as 'user' | 'assistant'}
+            role={message.role as "user" | "assistant"}
             content={message.content}
             imageContent={message.imageContent}
             audioContent={message.audioContent}

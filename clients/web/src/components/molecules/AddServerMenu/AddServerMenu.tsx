@@ -1,4 +1,4 @@
-import { Button, Menu } from '@mantine/core';
+import { Button, Menu } from "@mantine/core";
 
 export interface AddServerMenuProps {
   onAddManually: () => void;
@@ -17,15 +17,9 @@ export function AddServerMenu({
         <Button rightSection="&#x25BE;">+ Add Server</Button>
       </Menu.Target>
       <Menu.Dropdown>
-        <Menu.Item onClick={onAddManually}>
-          + Add manually
-        </Menu.Item>
-        <Menu.Item onClick={onImportConfig}>
-          Import config
-        </Menu.Item>
-        <Menu.Item onClick={onImportServerJson}>
-          Import server.json
-        </Menu.Item>
+        <Menu.Item onClick={onAddManually}>+ Add manually</Menu.Item>
+        <Menu.Item onClick={onImportConfig}>Import config</Menu.Item>
+        <Menu.Item onClick={onImportServerJson}>Import server.json</Menu.Item>
       </Menu.Dropdown>
     </Menu>
   );

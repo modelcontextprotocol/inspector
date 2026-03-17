@@ -1,14 +1,22 @@
-import { Badge, Button, Group, Paper, Stack, Text, Textarea } from '@mantine/core'
+import {
+  Badge,
+  Button,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  Textarea,
+} from "@mantine/core";
 
 export interface InlineSamplingRequestProps {
-  queuePosition: string
-  modelHints?: string[]
-  messagePreview: string
-  responseText: string
-  onAutoRespond: () => void
-  onEditAndSend: () => void
-  onReject: () => void
-  onViewDetails: () => void
+  queuePosition: string;
+  modelHints?: string[];
+  messagePreview: string;
+  responseText: string;
+  onAutoRespond: () => void;
+  onEditAndSend: () => void;
+  onReject: () => void;
+  onViewDetails: () => void;
 }
 
 export function InlineSamplingRequest({
@@ -32,7 +40,7 @@ export function InlineSamplingRequest({
         </Group>
 
         {modelHints && (
-          <Text size="sm">Model hints: {modelHints.join(', ')}</Text>
+          <Text size="sm">Model hints: {modelHints.join(", ")}</Text>
         )}
 
         <Text size="sm" c="dimmed" lineClamp={2}>
@@ -65,5 +73,5 @@ export function InlineSamplingRequest({
         </Group>
       </Stack>
     </Paper>
-  )
+  );
 }

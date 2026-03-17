@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react'
-import { Alert, Stack } from '@mantine/core'
+import type { ReactNode } from "react";
+import { Alert, Stack } from "@mantine/core";
 
 export interface PendingClientRequestsProps {
-  count: number
-  children: ReactNode
+  count: number;
+  children: ReactNode;
 }
 
 export function PendingClientRequests({
@@ -18,5 +18,5 @@ export function PendingClientRequests({
     >
       <Stack gap="md">{children}</Stack>
     </Alert>
-  )
+  );
 }

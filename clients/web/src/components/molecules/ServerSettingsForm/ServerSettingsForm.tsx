@@ -9,7 +9,7 @@ import {
   Text,
   TextInput,
   Title,
-} from '@mantine/core';
+} from "@mantine/core";
 
 export interface KeyValuePair {
   key: string;
@@ -17,7 +17,7 @@ export interface KeyValuePair {
 }
 
 export interface ServerSettingsFormProps {
-  connectionMode: 'proxy' | 'direct';
+  connectionMode: "proxy" | "direct";
   headers: KeyValuePair[];
   metadata: KeyValuePair[];
   connectionTimeout: number;
@@ -37,8 +37,8 @@ export interface ServerSettingsFormProps {
 }
 
 const CONNECTION_MODE_OPTIONS = [
-  { value: 'proxy', label: 'Via Proxy' },
-  { value: 'direct', label: 'Direct' },
+  { value: "proxy", label: "Via Proxy" },
+  { value: "direct", label: "Direct" },
 ];
 
 function KeyValueRows({
@@ -68,7 +68,11 @@ function KeyValueRows({
             value={item.value}
             onChange={(e) => onChange(index, item.key, e.currentTarget.value)}
           />
-          <ActionIcon color="red" variant="subtle" onClick={() => onRemove(index)}>
+          <ActionIcon
+            color="red"
+            variant="subtle"
+            onClick={() => onRemove(index)}
+          >
             X
           </ActionIcon>
         </Group>
@@ -97,7 +101,8 @@ export function ServerSettingsForm({
   onOAuthChange,
 }: ServerSettingsFormProps) {
   const handleTimeoutChange = (field: string) => (value: number | string) => {
-    const numValue = typeof value === 'string' ? parseInt(value, 10) || 0 : value;
+    const numValue =
+      typeof value === "string" ? parseInt(value, 10) || 0 : value;
     onTimeoutChange(field, numValue);
   };
 
@@ -111,8 +116,8 @@ export function ServerSettingsForm({
           if (value) onConnectionModeChange(value);
         }}
         description={
-          connectionMode === 'proxy'
-            ? 'Route through inspector proxy (required for STDIO)'
+          connectionMode === "proxy"
+            ? "Route through inspector proxy (required for STDIO)"
             : undefined
         }
       />
@@ -133,7 +138,11 @@ export function ServerSettingsForm({
           No custom headers configured
         </Text>
       ) : (
-        <KeyValueRows items={headers} onChange={onHeaderChange} onRemove={onRemoveHeader} />
+        <KeyValueRows
+          items={headers}
+          onChange={onHeaderChange}
+          onRemove={onRemoveHeader}
+        />
       )}
 
       <Divider />
@@ -152,7 +161,11 @@ export function ServerSettingsForm({
           No request metadata configured
         </Text>
       ) : (
-        <KeyValueRows items={metadata} onChange={onMetadataChange} onRemove={onRemoveMetadata} />
+        <KeyValueRows
+          items={metadata}
+          onChange={onMetadataChange}
+          onRemove={onRemoveMetadata}
+        />
       )}
 
       <Divider />
@@ -163,13 +176,13 @@ export function ServerSettingsForm({
           label="Connection Timeout"
           suffix=" ms"
           value={connectionTimeout}
-          onChange={handleTimeoutChange('connectionTimeout')}
+          onChange={handleTimeoutChange("connectionTimeout")}
         />
         <NumberInput
           label="Request Timeout"
           suffix=" ms"
           value={requestTimeout}
-          onChange={handleTimeoutChange('requestTimeout')}
+          onChange={handleTimeoutChange("requestTimeout")}
         />
       </Group>
 
@@ -181,19 +194,19 @@ export function ServerSettingsForm({
       </Text>
       <TextInput
         label="Client ID"
-        value={oauthClientId ?? ''}
-        onChange={(e) => onOAuthChange('clientId', e.currentTarget.value)}
+        value={oauthClientId ?? ""}
+        onChange={(e) => onOAuthChange("clientId", e.currentTarget.value)}
       />
       <TextInput
         label="Client Secret"
-        value={oauthClientSecret ?? ''}
+        value={oauthClientSecret ?? ""}
         type="password"
-        onChange={(e) => onOAuthChange('clientSecret', e.currentTarget.value)}
+        onChange={(e) => onOAuthChange("clientSecret", e.currentTarget.value)}
       />
       <TextInput
         label="Scopes"
-        value={oauthScopes ?? ''}
-        onChange={(e) => onOAuthChange('scopes', e.currentTarget.value)}
+        value={oauthScopes ?? ""}
+        onChange={(e) => onOAuthChange("scopes", e.currentTarget.value)}
       />
     </Stack>
   );

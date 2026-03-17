@@ -1,31 +1,41 @@
-import { Button, Divider, Group, Paper, Select, Stack, Text, TextInput, Title } from '@mantine/core'
-import { HistoryEntry } from '../../molecules/HistoryEntry/HistoryEntry'
-import type { HistoryEntryProps } from '../../molecules/HistoryEntry/HistoryEntry'
+import {
+  Button,
+  Divider,
+  Group,
+  Paper,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  Title,
+} from "@mantine/core";
+import { HistoryEntry } from "../../molecules/HistoryEntry/HistoryEntry";
+import type { HistoryEntryProps } from "../../molecules/HistoryEntry/HistoryEntry";
 
 export interface HistoryScreenProps {
-  entries: HistoryEntryProps[]
-  pinnedEntries: HistoryEntryProps[]
-  searchText: string
-  methodFilter?: string
-  totalCount: number
-  displayedCount: number
-  onSearchChange: (text: string) => void
-  onMethodFilterChange: (method: string) => void
-  onLoadMore: () => void
-  onClearAll: () => void
-  onExport: () => void
+  entries: HistoryEntryProps[];
+  pinnedEntries: HistoryEntryProps[];
+  searchText: string;
+  methodFilter?: string;
+  totalCount: number;
+  displayedCount: number;
+  onSearchChange: (text: string) => void;
+  onMethodFilterChange: (method: string) => void;
+  onLoadMore: () => void;
+  onClearAll: () => void;
+  onExport: () => void;
 }
 
 const METHOD_OPTIONS = [
-  'tools/call',
-  'tools/list',
-  'resources/read',
-  'resources/list',
-  'prompts/get',
-  'prompts/list',
-  'sampling/createMessage',
-  'elicitation/create',
-]
+  "tools/call",
+  "tools/list",
+  "resources/read",
+  "resources/list",
+  "prompts/get",
+  "prompts/list",
+  "sampling/createMessage",
+  "elicitation/create",
+];
 
 export function HistoryScreen({
   entries,
@@ -55,7 +65,7 @@ export function HistoryScreen({
               placeholder="Filter by method"
               data={METHOD_OPTIONS}
               value={methodFilter}
-              onChange={(value) => onMethodFilterChange(value ?? '')}
+              onChange={(value) => onMethodFilterChange(value ?? "")}
               clearable
             />
             <Button variant="light" size="sm" onClick={onExport}>
@@ -74,7 +84,10 @@ export function HistoryScreen({
         ) : (
           <Stack gap="md">
             {entries.map((entry) => (
-              <HistoryEntry key={`${entry.timestamp}-${entry.method}`} {...entry} />
+              <HistoryEntry
+                key={`${entry.timestamp}-${entry.method}`}
+                {...entry}
+              />
             ))}
           </Stack>
         )}
@@ -85,7 +98,10 @@ export function HistoryScreen({
             <Title order={4}>Pinned Requests ({pinnedEntries.length})</Title>
             <Stack gap="sm">
               {pinnedEntries.map((entry) => (
-                <HistoryEntry key={`${entry.timestamp}-${entry.method}`} {...entry} />
+                <HistoryEntry
+                  key={`${entry.timestamp}-${entry.method}`}
+                  {...entry}
+                />
               ))}
             </Stack>
           </>
@@ -103,5 +119,5 @@ export function HistoryScreen({
         </Group>
       </Stack>
     </Paper>
-  )
+  );
 }

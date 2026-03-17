@@ -1,8 +1,8 @@
-import type { Meta, StoryObj } from '@storybook/react-vite';
-import { CapabilityItem } from './CapabilityItem';
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { CapabilityItem } from "./CapabilityItem";
 
 const meta: Meta<typeof CapabilityItem> = {
-  title: 'Atoms/CapabilityItem',
+  title: "Atoms/CapabilityItem",
   component: CapabilityItem,
 };
 
@@ -11,14 +11,14 @@ type Story = StoryObj<typeof CapabilityItem>;
 
 export const Supported: Story = {
   args: {
-    name: 'Tools',
+    name: "Tools",
     supported: true,
   },
 };
 
 export const SupportedWithCount: Story = {
   args: {
-    name: 'Tools',
+    name: "Tools",
     supported: true,
     count: 4,
   },
@@ -26,7 +26,7 @@ export const SupportedWithCount: Story = {
 
 export const NotSupported: Story = {
   args: {
-    name: 'Completions',
+    name: "Completions",
     supported: false,
   },
 };

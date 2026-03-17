@@ -1,8 +1,8 @@
-import type { Meta, StoryObj } from '@storybook/react-vite';
-import { CopyButton } from './CopyButton';
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { CopyButton } from "./CopyButton";
 
 const meta: Meta<typeof CopyButton> = {
-  title: 'Atoms/CopyButton',
+  title: "Atoms/CopyButton",
   component: CopyButton,
 };
 
@@ -11,13 +11,13 @@ type Story = StoryObj<typeof CopyButton>;
 
 export const Default: Story = {
   args: {
-    value: 'Hello, world!',
+    value: "Hello, world!",
   },
 };
 
 export const LongValue: Story = {
   args: {
     value:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.',
+      "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
   },
 };

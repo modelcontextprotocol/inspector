@@ -1,12 +1,12 @@
-import { Button, Group, Stack, Text, Title } from '@mantine/core'
-import { TaskCard } from '../../molecules/TaskCard/TaskCard'
-import type { TaskCardProps } from '../../molecules/TaskCard/TaskCard'
+import { Button, Group, Stack, Text, Title } from "@mantine/core";
+import { TaskCard } from "../../molecules/TaskCard/TaskCard";
+import type { TaskCardProps } from "../../molecules/TaskCard/TaskCard";
 
 export interface TasksScreenProps {
-  activeTasks: TaskCardProps[]
-  completedTasks: TaskCardProps[]
-  onRefresh: () => void
-  onClearHistory: () => void
+  activeTasks: TaskCardProps[];
+  completedTasks: TaskCardProps[];
+  onRefresh: () => void;
+  onClearHistory: () => void;
 }
 
 export function TasksScreen({
@@ -51,5 +51,5 @@ export function TasksScreen({
         </Stack>
       )}
     </Stack>
-  )
+  );
 }

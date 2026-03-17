@@ -1,11 +1,11 @@
-import type { ReactNode } from 'react';
-import { ActionIcon, AppShell, Button, Group, Tabs, Text } from '@mantine/core';
-import { useComputedColorScheme } from '@mantine/core';
-import { StatusIndicator } from '../../atoms/StatusIndicator/StatusIndicator';
+import type { ReactNode } from "react";
+import { ActionIcon, AppShell, Button, Group, Tabs, Text } from "@mantine/core";
+import { useComputedColorScheme } from "@mantine/core";
+import { StatusIndicator } from "../../atoms/StatusIndicator/StatusIndicator";
 
 export interface ConnectedLayoutProps {
   serverName: string;
-  status: 'connected' | 'connecting' | 'failed';
+  status: "connected" | "connecting" | "failed";
   latencyMs?: number;
   activeTab: string;
   availableTabs: string[];
@@ -17,7 +17,7 @@ export interface ConnectedLayoutProps {
 
 const ServerName = Text.withProps({
   fw: 600,
-  size: 'lg',
+  size: "lg",
 });
 
 export function ConnectedLayout({
@@ -63,7 +63,7 @@ export function ConnectedLayout({
               aria-label="Toggle color scheme"
               onClick={onToggleTheme}
             >
-              {colorScheme === 'dark' ? '\u2600' : '\u263E'}
+              {colorScheme === "dark" ? "\u2600" : "\u263E"}
             </ActionIcon>
             <Button
               variant="outline"

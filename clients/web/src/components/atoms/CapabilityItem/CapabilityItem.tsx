@@ -1,4 +1,4 @@
-import { Group, Text } from '@mantine/core';
+import { Group, Text } from "@mantine/core";
 
 export interface CapabilityItemProps {
   name: string;
@@ -6,12 +6,18 @@ export interface CapabilityItemProps {
   count?: number;
 }
 
-export function CapabilityItem({ name, supported, count }: CapabilityItemProps) {
+export function CapabilityItem({
+  name,
+  supported,
+  count,
+}: CapabilityItemProps) {
   const label = count != null ? `${name} (${count})` : name;
 
   return (
     <Group gap="xs">
-      <Text c={supported ? 'green' : 'red'}>{supported ? '\u2713' : '\u2717'}</Text>
+      <Text c={supported ? "green" : "red"}>
+        {supported ? "\u2713" : "\u2717"}
+      </Text>
       <Text>{label}</Text>
     </Group>
   );

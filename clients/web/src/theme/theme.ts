@@ -1,4 +1,4 @@
-import { createTheme } from '@mantine/core';
+import { createTheme } from "@mantine/core";
 import {
   ThemeActionIcon,
   ThemeAlert,
@@ -11,17 +11,17 @@ import {
   ThemeSelect,
   ThemeSwitch,
   ThemeTextInput,
-} from './index';
+} from "./index";
 
 export const theme = createTheme({
   /* ── Color ──────────────────────────────────────────────── */
-  primaryColor: 'dark',
+  primaryColor: "dark",
   primaryShade: { light: 7, dark: 4 },
   autoContrast: true,
 
   /* ── Shape ──────────────────────────────────────────────── */
-  defaultRadius: 'md',
-  cursorType: 'pointer',
+  defaultRadius: "md",
+  cursorType: "pointer",
 
   /* ── Typography ─────────────────────────────────────────── */
   fontFamily:
@@ -29,7 +29,7 @@ export const theme = createTheme({
   fontFamilyMonospace:
     'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
   headings: {
-    fontWeight: '600',
+    fontWeight: "600",
   },
 
   /* ── Component overrides ────────────────────────────────── */

@@ -1,7 +1,7 @@
-import { Button, Code, Image, Stack } from '@mantine/core';
+import { Button, Code, Image, Stack } from "@mantine/core";
 
 export interface ContentViewerProps {
-  type: 'text' | 'json' | 'image' | 'audio';
+  type: "text" | "json" | "image" | "audio";
   content: string;
   mimeType?: string;
   onCopy?: () => void;
@@ -15,22 +15,27 @@ function formatJson(content: string): string {
   }
 }
 
-export function ContentViewer({ type, content, mimeType, onCopy }: ContentViewerProps) {
+export function ContentViewer({
+  type,
+  content,
+  mimeType,
+  onCopy,
+}: ContentViewerProps) {
   return (
     <Stack gap="xs">
-      {type === 'json' && <Code block>{formatJson(content)}</Code>}
-      {type === 'text' && <Code block>{content}</Code>}
-      {type === 'image' && (
+      {type === "json" && <Code block>{formatJson(content)}</Code>}
+      {type === "text" && <Code block>{content}</Code>}
+      {type === "image" && (
         <Image
-          src={`data:${mimeType || 'image/png'};base64,${content}`}
+          src={`data:${mimeType || "image/png"};base64,${content}`}
           alt="Content preview"
           maw={400}
           radius="md"
         />
       )}
-      {type === 'audio' && (
+      {type === "audio" && (
         <audio controls>
-          <source src={`data:${mimeType || 'audio/wav'};base64,${content}`} />
+          <source src={`data:${mimeType || "audio/wav"};base64,${content}`} />
         </audio>
       )}
       {onCopy && (

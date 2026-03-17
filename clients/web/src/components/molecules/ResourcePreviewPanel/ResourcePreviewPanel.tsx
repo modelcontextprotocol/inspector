@@ -1,22 +1,22 @@
-import { Button, Group, Stack, Text, Title } from '@mantine/core'
-import { ContentViewer } from '../../atoms/ContentViewer/ContentViewer'
+import { Button, Group, Stack, Text, Title } from "@mantine/core";
+import { ContentViewer } from "../../atoms/ContentViewer/ContentViewer";
 
 export interface ResourcePreviewPanelProps {
-  uri: string
-  mimeType: string
-  annotations?: { audience?: string; priority?: number }
-  content: string
-  lastUpdated?: string
-  isSubscribed: boolean
-  onCopy: () => void
-  onSubscribe: () => void
-  onUnsubscribe: () => void
+  uri: string;
+  mimeType: string;
+  annotations?: { audience?: string; priority?: number };
+  content: string;
+  lastUpdated?: string;
+  isSubscribed: boolean;
+  onCopy: () => void;
+  onSubscribe: () => void;
+  onUnsubscribe: () => void;
 }
 
-function resolveContentType(mimeType: string): 'json' | 'image' | 'text' {
-  if (mimeType === 'application/json') return 'json'
-  if (mimeType.startsWith('image/')) return 'image'
-  return 'text'
+function resolveContentType(mimeType: string): "json" | "image" | "text" {
+  if (mimeType === "application/json") return "json";
+  if (mimeType.startsWith("image/")) return "image";
+  return "text";
 }
 
 export function ResourcePreviewPanel({
@@ -34,7 +34,10 @@ export function ResourcePreviewPanel({
     <Stack gap="md">
       <Title order={4}>Content Preview</Title>
       <Text size="sm">
-        URI: <Text span c="blue">{uri}</Text>
+        URI:{" "}
+        <Text span c="blue">
+          {uri}
+        </Text>
       </Text>
       <Text size="sm" c="dimmed">
         MIME: {mimeType}
@@ -43,10 +46,14 @@ export function ResourcePreviewPanel({
         <Stack gap="xs">
           <Text size="sm">Annotations:</Text>
           {annotations.audience && (
-            <Text size="sm" c="dimmed">Audience: {annotations.audience}</Text>
+            <Text size="sm" c="dimmed">
+              Audience: {annotations.audience}
+            </Text>
           )}
           {annotations.priority !== undefined && (
-            <Text size="sm" c="dimmed">Priority: {annotations.priority}</Text>
+            <Text size="sm" c="dimmed">
+              Priority: {annotations.priority}
+            </Text>
           )}
         </Stack>
       )}
@@ -64,7 +71,7 @@ export function ResourcePreviewPanel({
           size="sm"
           onClick={isSubscribed ? onUnsubscribe : onSubscribe}
         >
-          {isSubscribed ? 'Unsubscribe' : 'Subscribe'}
+          {isSubscribed ? "Unsubscribe" : "Subscribe"}
         </Button>
       </Group>
       {lastUpdated && (
@@ -73,5 +80,5 @@ export function ResourcePreviewPanel({
         </Text>
       )}
     </Stack>
-  )
+  );
 }

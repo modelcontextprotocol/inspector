@@ -1,9 +1,9 @@
-import type { Meta, StoryObj } from '@storybook/react-vite';
-import { fn } from 'storybook/test';
-import { SchemaForm } from './SchemaForm';
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fn } from "storybook/test";
+import { SchemaForm } from "./SchemaForm";
 
 const meta: Meta<typeof SchemaForm> = {
-  title: 'Molecules/SchemaForm',
+  title: "Molecules/SchemaForm",
   component: SchemaForm,
   args: {
     onChange: fn(),
@@ -16,12 +16,12 @@ type Story = StoryObj<typeof SchemaForm>;
 export const StringFields: Story = {
   args: {
     schema: {
-      type: 'object',
+      type: "object",
       properties: {
-        name: { type: 'string', title: 'Name' },
-        description: { type: 'string', title: 'Description' },
+        name: { type: "string", title: "Name" },
+        description: { type: "string", title: "Description" },
       },
-      required: ['name'],
+      required: ["name"],
     },
     values: {},
   },
@@ -30,10 +30,10 @@ export const StringFields: Story = {
 export const NumberFields: Story = {
   args: {
     schema: {
-      type: 'object',
+      type: "object",
       properties: {
-        age: { type: 'integer', title: 'Age', minimum: 0, maximum: 150 },
-        price: { type: 'number', title: 'Price', minimum: 0 },
+        age: { type: "integer", title: "Age", minimum: 0, maximum: 150 },
+        price: { type: "number", title: "Price", minimum: 0 },
       },
     },
     values: {},
@@ -43,10 +43,10 @@ export const NumberFields: Story = {
 export const BooleanFields: Story = {
   args: {
     schema: {
-      type: 'object',
+      type: "object",
       properties: {
-        enabled: { type: 'boolean', title: 'Enabled' },
-        verbose: { type: 'boolean', title: 'Verbose' },
+        enabled: { type: "boolean", title: "Enabled" },
+        verbose: { type: "boolean", title: "Verbose" },
       },
     },
     values: {},
@@ -56,12 +56,12 @@ export const BooleanFields: Story = {
 export const EnumDropdown: Story = {
   args: {
     schema: {
-      type: 'object',
+      type: "object",
       properties: {
         format: {
-          type: 'string',
-          title: 'Format',
-          enum: ['json', 'csv', 'xml'],
+          type: "string",
+          title: "Format",
+          enum: ["json", "csv", "xml"],
         },
       },
     },
@@ -72,15 +72,15 @@ export const EnumDropdown: Story = {
 export const TitledEnum: Story = {
   args: {
     schema: {
-      type: 'object',
+      type: "object",
       properties: {
         size: {
-          type: 'string',
-          title: 'Size',
+          type: "string",
+          title: "Size",
           oneOf: [
-            { const: 'small', title: 'Small (1-10)' },
-            { const: 'medium', title: 'Medium (11-100)' },
-            { const: 'large', title: 'Large (100+)' },
+            { const: "small", title: "Small (1-10)" },
+            { const: "medium", title: "Medium (11-100)" },
+            { const: "large", title: "Large (100+)" },
           ],
         },
       },
@@ -92,15 +92,15 @@ export const TitledEnum: Story = {
 export const MixedTypes: Story = {
   args: {
     schema: {
-      type: 'object',
+      type: "object",
       properties: {
-        name: { type: 'string', title: 'Name' },
-        count: { type: 'number', title: 'Count' },
-        active: { type: 'boolean', title: 'Active' },
+        name: { type: "string", title: "Name" },
+        count: { type: "number", title: "Count" },
+        active: { type: "boolean", title: "Active" },
         color: {
-          type: 'string',
-          title: 'Color',
-          enum: ['red', 'green', 'blue'],
+          type: "string",
+          title: "Color",
+          enum: ["red", "green", "blue"],
         },
       },
     },
@@ -111,16 +111,16 @@ export const MixedTypes: Story = {
 export const WithDefaults: Story = {
   args: {
     schema: {
-      type: 'object',
+      type: "object",
       properties: {
-        name: { type: 'string', title: 'Name', default: 'John Doe' },
-        count: { type: 'number', title: 'Count', default: 42 },
-        active: { type: 'boolean', title: 'Active', default: true },
+        name: { type: "string", title: "Name", default: "John Doe" },
+        count: { type: "number", title: "Count", default: 42 },
+        active: { type: "boolean", title: "Active", default: true },
         format: {
-          type: 'string',
-          title: 'Format',
-          enum: ['json', 'csv', 'xml'],
-          default: 'json',
+          type: "string",
+          title: "Format",
+          enum: ["json", "csv", "xml"],
+          default: "json",
         },
       },
     },
@@ -131,22 +131,22 @@ export const WithDefaults: Story = {
 export const WithDescriptions: Story = {
   args: {
     schema: {
-      type: 'object',
+      type: "object",
       properties: {
         name: {
-          type: 'string',
-          title: 'Name',
-          description: 'Enter your full name as it appears on your ID',
+          type: "string",
+          title: "Name",
+          description: "Enter your full name as it appears on your ID",
         },
         email: {
-          type: 'string',
-          title: 'Email',
-          description: 'A valid email address for notifications',
+          type: "string",
+          title: "Email",
+          description: "A valid email address for notifications",
         },
         age: {
-          type: 'integer',
-          title: 'Age',
-          description: 'Your age in years',
+          type: "integer",
+          title: "Age",
+          description: "Your age in years",
           minimum: 0,
           maximum: 150,
         },
@@ -159,23 +159,23 @@ export const WithDescriptions: Story = {
 export const Disabled: Story = {
   args: {
     schema: {
-      type: 'object',
+      type: "object",
       properties: {
-        name: { type: 'string', title: 'Name' },
-        count: { type: 'number', title: 'Count' },
-        active: { type: 'boolean', title: 'Active' },
+        name: { type: "string", title: "Name" },
+        count: { type: "number", title: "Count" },
+        active: { type: "boolean", title: "Active" },
         color: {
-          type: 'string',
-          title: 'Color',
-          enum: ['red', 'green', 'blue'],
+          type: "string",
+          title: "Color",
+          enum: ["red", "green", "blue"],
         },
       },
     },
     values: {
-      name: 'Example',
+      name: "Example",
       count: 10,
       active: true,
-      color: 'green',
+      color: "green",
     },
     disabled: true,
   },

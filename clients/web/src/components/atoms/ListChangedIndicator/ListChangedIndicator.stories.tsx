@@ -1,9 +1,9 @@
-import type { Meta, StoryObj } from '@storybook/react-vite';
-import { fn } from 'storybook/test';
-import { ListChangedIndicator } from './ListChangedIndicator';
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fn } from "storybook/test";
+import { ListChangedIndicator } from "./ListChangedIndicator";
 
 const meta: Meta<typeof ListChangedIndicator> = {
-  title: 'Atoms/ListChangedIndicator',
+  title: "Atoms/ListChangedIndicator",
   component: ListChangedIndicator,
 };
 

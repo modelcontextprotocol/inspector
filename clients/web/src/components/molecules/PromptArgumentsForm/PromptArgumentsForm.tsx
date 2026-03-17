@@ -1,4 +1,4 @@
-import { Button, Select, Stack, Text, TextInput, Title } from '@mantine/core';
+import { Button, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 
 export interface PromptArgument {
   name: string;
@@ -60,8 +60,10 @@ export function PromptArgumentsForm({
               withAsterisk={arg.required}
               description={arg.description}
               placeholder={`Enter ${arg.name}...`}
-              value={argumentValues[arg.name] || ''}
-              onChange={(event) => onArgumentChange(arg.name, event.currentTarget.value)}
+              value={argumentValues[arg.name] || ""}
+              onChange={(event) =>
+                onArgumentChange(arg.name, event.currentTarget.value)
+              }
             />
           ))}
         </>

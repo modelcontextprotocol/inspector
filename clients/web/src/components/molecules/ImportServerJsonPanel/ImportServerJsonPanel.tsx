@@ -1,45 +1,58 @@
-import { Button, Divider, Group, Radio, Stack, Text, TextInput, Textarea, Title } from '@mantine/core'
+import {
+  Button,
+  Divider,
+  Group,
+  Radio,
+  Stack,
+  Text,
+  TextInput,
+  Textarea,
+  Title,
+} from "@mantine/core";
 
 export interface ValidationResult {
-  type: 'success' | 'warning' | 'info' | 'error'
-  message: string
+  type: "success" | "warning" | "info" | "error";
+  message: string;
 }
 
 export interface PackageInfo {
-  registryType: string
-  identifier: string
-  runtimeHint: string
+  registryType: string;
+  identifier: string;
+  runtimeHint: string;
 }
 
 export interface EnvVarInfo {
-  name: string
-  description?: string
-  required: boolean
-  value: string
+  name: string;
+  description?: string;
+  required: boolean;
+  value: string;
 }
 
 export interface ImportServerJsonPanelProps {
-  jsonContent: string
-  validationResults: ValidationResult[]
-  packages?: PackageInfo[]
-  selectedPackageIndex: number
-  envVars: EnvVarInfo[]
-  serverName: string
-  onJsonChange: (content: string) => void
-  onValidate: () => void
-  onSelectPackage: (index: number) => void
-  onEnvVarChange: (name: string, value: string) => void
-  onServerNameChange: (name: string) => void
-  onAddServer: () => void
-  onCancel: () => void
+  jsonContent: string;
+  validationResults: ValidationResult[];
+  packages?: PackageInfo[];
+  selectedPackageIndex: number;
+  envVars: EnvVarInfo[];
+  serverName: string;
+  onJsonChange: (content: string) => void;
+  onValidate: () => void;
+  onSelectPackage: (index: number) => void;
+  onEnvVarChange: (name: string, value: string) => void;
+  onServerNameChange: (name: string) => void;
+  onAddServer: () => void;
+  onCancel: () => void;
 }
 
-const validationIcons: Record<ValidationResult['type'], { icon: string; color: string }> = {
-  success: { icon: '\u2713', color: 'green' },
-  warning: { icon: '\u26A0', color: 'yellow' },
-  info: { icon: '\u2139', color: 'blue' },
-  error: { icon: '\u2717', color: 'red' },
-}
+const validationIcons: Record<
+  ValidationResult["type"],
+  { icon: string; color: string }
+> = {
+  success: { icon: "\u2713", color: "green" },
+  warning: { icon: "\u26A0", color: "yellow" },
+  info: { icon: "\u2139", color: "blue" },
+  error: { icon: "\u2717", color: "red" },
+};
 
 export function ImportServerJsonPanel({
   jsonContent,
@@ -78,13 +91,13 @@ export function ImportServerJsonPanel({
       <Title order={5}>Validation Results:</Title>
 
       {validationResults.map((result, index) => {
-        const { icon, color } = validationIcons[result.type]
+        const { icon, color } = validationIcons[result.type];
         return (
           <Group key={index} gap="xs">
             <Text c={color}>{icon}</Text>
             <Text size="sm">{result.message}</Text>
           </Group>
-        )
+        );
       })}
 
       {packages && packages.length > 1 && (
@@ -119,7 +132,9 @@ export function ImportServerJsonPanel({
               description={envVar.description}
               withAsterisk={envVar.required}
               value={envVar.value}
-              onChange={(e) => onEnvVarChange(envVar.name, e.currentTarget.value)}
+              onChange={(e) =>
+                onEnvVarChange(envVar.name, e.currentTarget.value)
+              }
             />
           ))}
         </>
@@ -143,5 +158,5 @@ export function ImportServerJsonPanel({
         <Button onClick={onAddServer}>Add Server</Button>
       </Group>
     </Stack>
-  )
+  );
 }

@@ -1,8 +1,8 @@
-import { Image, Paper, Stack, Text } from '@mantine/core';
+import { Image, Paper, Stack, Text } from "@mantine/core";
 
 export interface MessageBubbleProps {
   index: number;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
   imageContent?: { data: string; mimeType: string };
   audioContent?: { data: string; mimeType: string };

@@ -1,25 +1,34 @@
-import { Button, Checkbox, Group, Select, Stack, Text, TextInput, Title } from '@mantine/core';
+import {
+  Button,
+  Checkbox,
+  Group,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  Title,
+} from "@mantine/core";
 
 const LOG_LEVELS = [
-  'debug',
-  'info',
-  'notice',
-  'warning',
-  'error',
-  'critical',
-  'alert',
-  'emergency',
+  "debug",
+  "info",
+  "notice",
+  "warning",
+  "error",
+  "critical",
+  "alert",
+  "emergency",
 ] as const;
 
 const LEVEL_COLORS: Record<string, { c: string; fw?: number }> = {
-  debug: { c: 'dimmed' },
-  info: { c: 'blue' },
-  notice: { c: 'teal' },
-  warning: { c: 'yellow' },
-  error: { c: 'red' },
-  critical: { c: 'red', fw: 700 },
-  alert: { c: 'red', fw: 700 },
-  emergency: { c: 'red', fw: 900 },
+  debug: { c: "dimmed" },
+  info: { c: "blue" },
+  notice: { c: "teal" },
+  warning: { c: "yellow" },
+  error: { c: "red" },
+  critical: { c: "red", fw: 700 },
+  alert: { c: "red", fw: 700 },
+  emergency: { c: "red", fw: 900 },
 };
 
 export interface LogControlsProps {

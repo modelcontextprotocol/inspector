@@ -1,18 +1,27 @@
-import { Badge, Button, Code, Group, Loader, Paper, Stack, Text } from '@mantine/core'
-import type { JsonSchema } from '../SchemaForm/SchemaForm'
-import { SchemaForm } from '../SchemaForm/SchemaForm'
+import {
+  Badge,
+  Button,
+  Code,
+  Group,
+  Loader,
+  Paper,
+  Stack,
+  Text,
+} from "@mantine/core";
+import type { JsonSchema } from "../SchemaForm/SchemaForm";
+import { SchemaForm } from "../SchemaForm/SchemaForm";
 
 export interface InlineElicitationRequestProps {
-  mode: 'form' | 'url'
-  message: string
-  queuePosition: string
-  schema?: JsonSchema
-  values?: Record<string, unknown>
-  url?: string
-  isWaiting?: boolean
-  onChange: (values: Record<string, unknown>) => void
-  onSubmit: () => void
-  onCancel: () => void
+  mode: "form" | "url";
+  message: string;
+  queuePosition: string;
+  schema?: JsonSchema;
+  values?: Record<string, unknown>;
+  url?: string;
+  isWaiting?: boolean;
+  onChange: (values: Record<string, unknown>) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
 }
 
 export function InlineElicitationRequest({
@@ -28,7 +37,7 @@ export function InlineElicitationRequest({
   onCancel,
 }: InlineElicitationRequestProps) {
   const badgeLabel =
-    mode === 'form' ? 'elicitation/create (form)' : 'elicitation/create (url)'
+    mode === "form" ? "elicitation/create (form)" : "elicitation/create (url)";
 
   return (
     <Paper p="md" withBorder>
@@ -44,7 +53,7 @@ export function InlineElicitationRequest({
           {message}
         </Text>
 
-        {mode === 'form' && schema && (
+        {mode === "form" && schema && (
           <SchemaForm
             schema={schema}
             values={values ?? {}}
@@ -52,7 +61,7 @@ export function InlineElicitationRequest({
           />
         )}
 
-        {mode === 'url' && url && (
+        {mode === "url" && url && (
           <>
             <Code block>{url}</Code>
             {isWaiting && (
@@ -68,7 +77,7 @@ export function InlineElicitationRequest({
           <Button size="xs" variant="light" onClick={onCancel}>
             Cancel
           </Button>
-          {mode === 'form' && (
+          {mode === "form" && (
             <Button size="xs" onClick={onSubmit}>
               Submit
             </Button>
@@ -76,5 +85,5 @@ export function InlineElicitationRequest({
         </Group>
       </Stack>
     </Paper>
-  )
+  );
 }

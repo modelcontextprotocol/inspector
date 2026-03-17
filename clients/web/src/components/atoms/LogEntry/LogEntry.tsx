@@ -1,6 +1,14 @@
-import { Badge, Group, Text } from '@mantine/core';
+import { Badge, Group, Text } from "@mantine/core";
 
-export type LogLevel = 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
+export type LogLevel =
+  | "debug"
+  | "info"
+  | "notice"
+  | "warning"
+  | "error"
+  | "critical"
+  | "alert"
+  | "emergency";
 
 export interface LogEntryProps {
   timestamp: string;
@@ -10,40 +18,40 @@ export interface LogEntryProps {
 }
 
 const levelBadgeColor: Record<LogLevel, string> = {
-  debug: 'gray',
-  info: 'blue',
-  notice: 'teal',
-  warning: 'yellow',
-  error: 'red',
-  critical: 'red',
-  alert: 'red',
-  emergency: 'red',
+  debug: "gray",
+  info: "blue",
+  notice: "teal",
+  warning: "yellow",
+  error: "red",
+  critical: "red",
+  alert: "red",
+  emergency: "red",
 };
 
 const levelBadgeVariant: Record<LogLevel, string> = {
-  debug: 'light',
-  info: 'light',
-  notice: 'light',
-  warning: 'light',
-  error: 'light',
-  critical: 'filled',
-  alert: 'filled',
-  emergency: 'filled',
+  debug: "light",
+  info: "light",
+  notice: "light",
+  warning: "light",
+  error: "light",
+  critical: "filled",
+  alert: "filled",
+  emergency: "filled",
 };
 
 const levelMessageColor: Record<LogLevel, string | undefined> = {
-  debug: 'dimmed',
-  info: 'blue',
+  debug: "dimmed",
+  info: "blue",
   notice: undefined,
-  warning: 'yellow',
-  error: 'red',
-  critical: 'red',
-  alert: 'red',
-  emergency: 'red',
+  warning: "yellow",
+  error: "red",
+  critical: "red",
+  alert: "red",
+  emergency: "red",
 };
 
 function isBoldLevel(level: LogLevel): boolean {
-  return level === 'alert' || level === 'emergency';
+  return level === "alert" || level === "emergency";
 }
 
 export function LogEntry({ timestamp, level, message, logger }: LogEntryProps) {

@@ -1,16 +1,16 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
-import { fn } from 'storybook/test'
-import { PendingClientRequests } from './PendingClientRequests'
-import { InlineSamplingRequest } from '../InlineSamplingRequest/InlineSamplingRequest'
-import { InlineElicitationRequest } from '../InlineElicitationRequest/InlineElicitationRequest'
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fn } from "storybook/test";
+import { PendingClientRequests } from "./PendingClientRequests";
+import { InlineSamplingRequest } from "../InlineSamplingRequest/InlineSamplingRequest";
+import { InlineElicitationRequest } from "../InlineElicitationRequest/InlineElicitationRequest";
 
 const meta: Meta<typeof PendingClientRequests> = {
-  title: 'Molecules/PendingClientRequests',
+  title: "Molecules/PendingClientRequests",
   component: PendingClientRequests,
-}
+};
 
-export default meta
-type Story = StoryObj<typeof PendingClientRequests>
+export default meta;
+type Story = StoryObj<typeof PendingClientRequests>;
 
 export const SingleSampling: Story = {
   args: {
@@ -27,7 +27,7 @@ export const SingleSampling: Story = {
       />
     ),
   },
-}
+};
 
 export const SingleElicitation: Story = {
   args: {
@@ -38,12 +38,12 @@ export const SingleElicitation: Story = {
         message="Please provide your database connection details."
         queuePosition="1 of 1"
         schema={{
-          type: 'object',
+          type: "object",
           properties: {
-            host: { type: 'string', title: 'Host' },
-            port: { type: 'integer', title: 'Port' },
+            host: { type: "string", title: "Host" },
+            port: { type: "integer", title: "Port" },
           },
-          required: ['host'],
+          required: ["host"],
         }}
         values={{}}
         onChange={fn()}
@@ -52,7 +52,7 @@ export const SingleElicitation: Story = {
       />
     ),
   },
-}
+};
 
 export const MultipleMixed: Story = {
   args: {
@@ -73,16 +73,16 @@ export const MultipleMixed: Story = {
           message="Please confirm the deployment target."
           queuePosition="2 of 2"
           schema={{
-            type: 'object',
+            type: "object",
             properties: {
               environment: {
-                type: 'string',
-                title: 'Environment',
-                enum: ['staging', 'production'],
+                type: "string",
+                title: "Environment",
+                enum: ["staging", "production"],
               },
-              confirm: { type: 'boolean', title: 'Confirm deployment' },
+              confirm: { type: "boolean", title: "Confirm deployment" },
             },
-            required: ['environment', 'confirm'],
+            required: ["environment", "confirm"],
           }}
           values={{}}
           onChange={fn()}
@@ -92,4 +92,4 @@ export const MultipleMixed: Story = {
       </>
     ),
   },
-}
+};

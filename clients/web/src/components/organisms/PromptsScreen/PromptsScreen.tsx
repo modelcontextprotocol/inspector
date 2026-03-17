@@ -1,9 +1,9 @@
-import { Grid, Paper, Stack, Text } from '@mantine/core';
-import { PromptArgumentsForm } from '../../molecules/PromptArgumentsForm/PromptArgumentsForm';
-import { PromptMessagesDisplay } from '../../molecules/PromptMessagesDisplay/PromptMessagesDisplay';
-import { ListChangedIndicator } from '../../atoms/ListChangedIndicator/ListChangedIndicator';
-import type { PromptArgumentsFormProps } from '../../molecules/PromptArgumentsForm/PromptArgumentsForm';
-import type { PromptMessagesDisplayProps } from '../../molecules/PromptMessagesDisplay/PromptMessagesDisplay';
+import { Grid, Paper, Stack, Text } from "@mantine/core";
+import { PromptArgumentsForm } from "../../molecules/PromptArgumentsForm/PromptArgumentsForm";
+import { PromptMessagesDisplay } from "../../molecules/PromptMessagesDisplay/PromptMessagesDisplay";
+import { ListChangedIndicator } from "../../atoms/ListChangedIndicator/ListChangedIndicator";
+import type { PromptArgumentsFormProps } from "../../molecules/PromptArgumentsForm/PromptArgumentsForm";
+import type { PromptMessagesDisplayProps } from "../../molecules/PromptMessagesDisplay/PromptMessagesDisplay";
 
 export interface PromptsScreenProps {
   promptForm: PromptArgumentsFormProps;
@@ -23,7 +23,10 @@ export function PromptsScreen({
       <Grid.Col span={5}>
         <Paper withBorder p="md">
           <Stack gap="md">
-            <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
+            <ListChangedIndicator
+              visible={listChanged}
+              onRefresh={onRefreshList}
+            />
             <PromptArgumentsForm {...promptForm} />
           </Stack>
         </Paper>

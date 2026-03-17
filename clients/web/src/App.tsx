@@ -7,15 +7,15 @@ import {
   useComputedColorScheme,
   ActionIcon,
   Group,
-} from '@mantine/core'
+} from "@mantine/core";
 
 function App() {
-  const { setColorScheme } = useMantineColorScheme()
-  const computedColorScheme = useComputedColorScheme('light')
+  const { setColorScheme } = useMantineColorScheme();
+  const computedColorScheme = useComputedColorScheme("light");
 
   const toggleColorScheme = () => {
-    setColorScheme(computedColorScheme === 'dark' ? 'light' : 'dark')
-  }
+    setColorScheme(computedColorScheme === "dark" ? "light" : "dark");
+  };
 
   return (
     <Container size="sm" py="xl">
@@ -28,7 +28,7 @@ function App() {
             size="lg"
             aria-label="Toggle color scheme"
           >
-            {computedColorScheme === 'dark' ? '\u2600' : '\u263E'}
+            {computedColorScheme === "dark" ? "\u2600" : "\u263E"}
           </ActionIcon>
         </Group>
         <Text c="var(--inspector-text-secondary)">
@@ -36,7 +36,7 @@ function App() {
         </Text>
       </Stack>
     </Container>
-  )
+  );
 }
 
-export default App
+export default App;

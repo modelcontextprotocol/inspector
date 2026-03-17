@@ -1,4 +1,4 @@
-import { Alert, Anchor, Group, Spoiler, Stack, Text } from '@mantine/core';
+import { Alert, Anchor, Group, Spoiler, Stack, Text } from "@mantine/core";
 
 export interface InlineErrorProps {
   message: string;

@@ -1,5 +1,13 @@
-import { Badge, Blockquote, Code, SimpleGrid, Stack, Text, Title } from '@mantine/core';
-import { CapabilityItem } from '../../atoms/CapabilityItem/CapabilityItem';
+import {
+  Badge,
+  Blockquote,
+  Code,
+  SimpleGrid,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
+import { CapabilityItem } from "../../atoms/CapabilityItem/CapabilityItem";
 
 export interface CapabilityInfo {
   name: string;
@@ -34,13 +42,19 @@ export function ServerInfoContent({
 
       <SimpleGrid cols={2}>
         <Text size="sm">Name</Text>
-        <Text size="sm" fw={600}>{name}</Text>
+        <Text size="sm" fw={600}>
+          {name}
+        </Text>
 
         <Text size="sm">Version</Text>
-        <Text size="sm" fw={600}>{version}</Text>
+        <Text size="sm" fw={600}>
+          {version}
+        </Text>
 
         <Text size="sm">Protocol</Text>
-        <Text size="sm" fw={600}>{protocolVersion}</Text>
+        <Text size="sm" fw={600}>
+          {protocolVersion}
+        </Text>
 
         <Text size="sm">Transport</Text>
         <Badge variant="outline">{transport}</Badge>
@@ -91,7 +105,9 @@ export function ServerInfoContent({
             {oauthDetails.scopes && oauthDetails.scopes.length > 0 && (
               <SimpleGrid cols={2}>
                 <Text size="sm">Scopes</Text>
-                <Text size="sm" fw={600}>{oauthDetails.scopes.join(', ')}</Text>
+                <Text size="sm" fw={600}>
+                  {oauthDetails.scopes.join(", ")}
+                </Text>
               </SimpleGrid>
             )}
             {oauthDetails.accessToken && (

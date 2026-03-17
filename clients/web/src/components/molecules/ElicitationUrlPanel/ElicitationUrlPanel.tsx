@@ -1,13 +1,22 @@
-import { Alert, Button, Code, Divider, Group, Loader, Stack, Text } from '@mantine/core'
+import {
+  Alert,
+  Button,
+  Code,
+  Divider,
+  Group,
+  Loader,
+  Stack,
+  Text,
+} from "@mantine/core";
 
 export interface ElicitationUrlPanelProps {
-  message: string
-  url: string
-  elicitationId: string
-  isWaiting: boolean
-  onCopyUrl: () => void
-  onOpenInBrowser: () => void
-  onCancel: () => void
+  message: string;
+  url: string;
+  elicitationId: string;
+  isWaiting: boolean;
+  onCopyUrl: () => void;
+  onOpenInBrowser: () => void;
+  onCancel: () => void;
 }
 
 export function ElicitationUrlPanel({
@@ -56,5 +65,5 @@ export function ElicitationUrlPanel({
         </Button>
       </Group>
     </Stack>
-  )
+  );
 }

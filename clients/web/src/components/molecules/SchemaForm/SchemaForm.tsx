@@ -7,7 +7,7 @@ import {
   Stack,
   Text,
   TextInput,
-} from '@mantine/core';
+} from "@mantine/core";
 
 export interface JsonSchema {
   type?: string;
@@ -48,7 +48,12 @@ function resolveValue(value: unknown, fieldSchema: JsonSchema): unknown {
   return getDefaultValue(fieldSchema);
 }
 
-export function SchemaForm({ schema, values, onChange, disabled = false }: SchemaFormProps) {
+export function SchemaForm({
+  schema,
+  values,
+  onChange,
+  disabled = false,
+}: SchemaFormProps) {
   const properties = schema.properties ?? {};
   const requiredFields = schema.required ?? [];
 
@@ -63,7 +68,7 @@ export function SchemaForm({ schema, values, onChange, disabled = false }: Schem
     const rawValue = resolveValue(values[fieldName], fieldSchema);
 
     // string with enum
-    if (fieldSchema.type === 'string' && fieldSchema.enum) {
+    if (fieldSchema.type === "string" && fieldSchema.enum) {
       return (
         <Select
           key={fieldName}
@@ -79,7 +84,7 @@ export function SchemaForm({ schema, values, onChange, disabled = false }: Schem
     }
 
     // string with oneOf
-    if (fieldSchema.type === 'string' && fieldSchema.oneOf) {
+    if (fieldSchema.type === "string" && fieldSchema.oneOf) {
       const data = fieldSchema.oneOf.map((item) => ({
         value: item.const,
         label: item.title ?? item.const,
@@ -99,7 +104,7 @@ export function SchemaForm({ schema, values, onChange, disabled = false }: Schem
     }
 
     // plain string
-    if (fieldSchema.type === 'string') {
+    if (fieldSchema.type === "string") {
       return (
         <TextInput
           key={fieldName}
@@ -107,16 +112,18 @@ export function SchemaForm({ schema, values, onChange, disabled = false }: Schem
           description={description}
           withAsterisk={isRequired}
           disabled={disabled}
-          value={(rawValue as string) ?? ''}
+          value={(rawValue as string) ?? ""}
           minLength={fieldSchema.minLength}
           maxLength={fieldSchema.maxLength}
-          onChange={(event) => handleFieldChange(fieldName, event.currentTarget.value)}
+          onChange={(event) =>
+            handleFieldChange(fieldName, event.currentTarget.value)
+          }
         />
       );
     }
 
     // number or integer
-    if (fieldSchema.type === 'number' || fieldSchema.type === 'integer') {
+    if (fieldSchema.type === "number" || fieldSchema.type === "integer") {
       return (
         <NumberInput
           key={fieldName}
@@ -124,11 +131,11 @@ export function SchemaForm({ schema, values, onChange, disabled = false }: Schem
           description={description}
           withAsterisk={isRequired}
           disabled={disabled}
-          value={(rawValue as number) ?? ''}
+          value={(rawValue as number) ?? ""}
           min={fieldSchema.minimum}
           max={fieldSchema.maximum}
           onChange={(val) => {
-            const numericValue = typeof val === 'string' ? undefined : val;
+            const numericValue = typeof val === "string" ? undefined : val;
             handleFieldChange(fieldName, numericValue);
           }}
         />
@@ -136,7 +143,7 @@ export function SchemaForm({ schema, values, onChange, disabled = false }: Schem
     }
 
     // boolean
-    if (fieldSchema.type === 'boolean') {
+    if (fieldSchema.type === "boolean") {
       return (
         <Checkbox
           key={fieldName}
@@ -144,13 +151,15 @@ export function SchemaForm({ schema, values, onChange, disabled = false }: Schem
           description={description}
           disabled={disabled}
           checked={(rawValue as boolean) ?? false}
-          onChange={(event) => handleFieldChange(fieldName, event.currentTarget.checked)}
+          onChange={(event) =>
+            handleFieldChange(fieldName, event.currentTarget.checked)
+          }
         />
       );
     }
 
     // array with items having anyOf
-    if (fieldSchema.type === 'array' && fieldSchema.items?.anyOf) {
+    if (fieldSchema.type === "array" && fieldSchema.items?.anyOf) {
       const data = fieldSchema.items.anyOf.map((item) => ({
         value: item.const,
         label: item.title ?? item.const,
@@ -170,7 +179,7 @@ export function SchemaForm({ schema, values, onChange, disabled = false }: Schem
     }
 
     // nested object
-    if (fieldSchema.type === 'object' && fieldSchema.properties) {
+    if (fieldSchema.type === "object" && fieldSchema.properties) {
       return (
         <Stack key={fieldName} gap="sm">
           <Text fw={500} size="sm">
@@ -185,7 +194,9 @@ export function SchemaForm({ schema, values, onChange, disabled = false }: Schem
             <SchemaForm
               schema={fieldSchema}
               values={(rawValue as Record<string, unknown>) ?? {}}
-              onChange={(nestedValues) => handleFieldChange(fieldName, nestedValues)}
+              onChange={(nestedValues) =>
+                handleFieldChange(fieldName, nestedValues)
+              }
               disabled={disabled}
             />
           </Stack>
@@ -203,7 +214,7 @@ export function SchemaForm({ schema, values, onChange, disabled = false }: Schem
         disabled={disabled}
         formatOnBlur
         autosize
-        value={rawValue !== undefined ? JSON.stringify(rawValue, null, 2) : ''}
+        value={rawValue !== undefined ? JSON.stringify(rawValue, null, 2) : ""}
         onChange={(val) => {
           try {
             handleFieldChange(fieldName, JSON.parse(val));

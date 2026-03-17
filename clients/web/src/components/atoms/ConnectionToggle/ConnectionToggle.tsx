@@ -1,4 +1,4 @@
-import { Switch } from '@mantine/core';
+import { Switch } from "@mantine/core";
 
 export interface ConnectionToggleProps {
   checked: boolean;
@@ -7,7 +7,12 @@ export interface ConnectionToggleProps {
   onChange: (checked: boolean) => void;
 }
 
-export function ConnectionToggle({ checked, loading, disabled, onChange }: ConnectionToggleProps) {
+export function ConnectionToggle({
+  checked,
+  loading,
+  disabled,
+  onChange,
+}: ConnectionToggleProps) {
   return (
     <Switch
       size="lg"

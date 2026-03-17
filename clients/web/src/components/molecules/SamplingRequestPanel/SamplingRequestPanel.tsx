@@ -11,48 +11,48 @@ import {
   TextInput,
   Textarea,
   Title,
-} from '@mantine/core'
-import { MessageBubble } from '../../atoms/MessageBubble/MessageBubble'
+} from "@mantine/core";
+import { MessageBubble } from "../../atoms/MessageBubble/MessageBubble";
 
 export interface SamplingMessage {
-  role: string
-  content: string
-  imageContent?: { data: string; mimeType: string }
+  role: string;
+  content: string;
+  imageContent?: { data: string; mimeType: string };
 }
 
 export interface SamplingTool {
-  name: string
-  description?: string
-  inputSchema: Record<string, unknown>
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
 }
 
 export interface SamplingRequestPanelProps {
-  messages: SamplingMessage[]
-  modelHints?: string[]
-  costPriority?: number
-  speedPriority?: number
-  intelligencePriority?: number
-  maxTokens?: number
-  stopSequences?: string[]
-  temperature?: number
-  includeContext?: string
-  tools?: SamplingTool[]
-  toolChoice?: string
-  responseText: string
-  modelUsed: string
-  stopReason: string
-  onResponseChange: (text: string) => void
-  onModelChange: (model: string) => void
-  onStopReasonChange: (reason: string) => void
-  onAutoRespond: () => void
-  onSend: () => void
-  onReject: () => void
+  messages: SamplingMessage[];
+  modelHints?: string[];
+  costPriority?: number;
+  speedPriority?: number;
+  intelligencePriority?: number;
+  maxTokens?: number;
+  stopSequences?: string[];
+  temperature?: number;
+  includeContext?: string;
+  tools?: SamplingTool[];
+  toolChoice?: string;
+  responseText: string;
+  modelUsed: string;
+  stopReason: string;
+  onResponseChange: (text: string) => void;
+  onModelChange: (model: string) => void;
+  onStopReasonChange: (reason: string) => void;
+  onAutoRespond: () => void;
+  onSend: () => void;
+  onReject: () => void;
 }
 
 function formatPriority(value: number): string {
-  if (value < 0.4) return `low (${value})`
-  if (value <= 0.7) return `medium (${value})`
-  return `high (${value})`
+  if (value < 0.4) return `low (${value})`;
+  if (value <= 0.7) return `medium (${value})`;
+  return `high (${value})`;
 }
 
 export function SamplingRequestPanel({
@@ -88,7 +88,7 @@ export function SamplingRequestPanel({
         <MessageBubble
           key={index}
           index={index}
-          role={message.role as 'user' | 'assistant'}
+          role={message.role as "user" | "assistant"}
           content={message.content}
           imageContent={message.imageContent}
         />
@@ -105,25 +105,40 @@ export function SamplingRequestPanel({
               ))}
             </Group>
             {costPriority !== undefined && (
-              <Text size="sm">Cost Priority: {formatPriority(costPriority)}</Text>
+              <Text size="sm">
+                Cost Priority: {formatPriority(costPriority)}
+              </Text>
             )}
             {speedPriority !== undefined && (
-              <Text size="sm">Speed Priority: {formatPriority(speedPriority)}</Text>
+              <Text size="sm">
+                Speed Priority: {formatPriority(speedPriority)}
+              </Text>
             )}
             {intelligencePriority !== undefined && (
-              <Text size="sm">Intelligence Priority: {formatPriority(intelligencePriority)}</Text>
+              <Text size="sm">
+                Intelligence Priority: {formatPriority(intelligencePriority)}
+              </Text>
             )}
           </Stack>
         </Paper>
       )}
 
       <Title order={5}>Parameters:</Title>
-      <Text size="sm">Max Tokens: {maxTokens ?? 'not specified'}</Text>
-      <Text size="sm">Stop Sequences: {stopSequences ? JSON.stringify(stopSequences) : 'not specified'}</Text>
-      <Text size="sm">Temperature: {temperature !== undefined ? temperature : 'not specified'}</Text>
+      <Text size="sm">Max Tokens: {maxTokens ?? "not specified"}</Text>
+      <Text size="sm">
+        Stop Sequences:{" "}
+        {stopSequences ? JSON.stringify(stopSequences) : "not specified"}
+      </Text>
+      <Text size="sm">
+        Temperature: {temperature !== undefined ? temperature : "not specified"}
+      </Text>
 
       {includeContext && (
-        <Checkbox label={`Include Context: ${includeContext}`} checked readOnly />
+        <Checkbox
+          label={`Include Context: ${includeContext}`}
+          checked
+          readOnly
+        />
       )}
 
       {tools && tools.length > 0 && (
@@ -159,9 +174,9 @@ export function SamplingRequestPanel({
         />
         <Select
           label="Stop Reason"
-          data={['end_turn', 'max_tokens', 'stop_sequence', 'toolUse']}
+          data={["end_turn", "max_tokens", "stop_sequence", "toolUse"]}
           value={stopReason}
-          onChange={(value) => onStopReasonChange(value ?? '')}
+          onChange={(value) => onStopReasonChange(value ?? "")}
         />
       </Group>
       <Group justify="flex-end">
@@ -174,5 +189,5 @@ export function SamplingRequestPanel({
         <Button onClick={onSend}>Send Response</Button>
       </Group>
     </Stack>
-  )
+  );
 }

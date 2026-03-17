@@ -1,17 +1,26 @@
-import { Badge, Button, Card, Code, Group, Menu, Stack, Text } from '@mantine/core';
-import { StatusIndicator } from '../../atoms/StatusIndicator/StatusIndicator';
-import { TransportBadge } from '../../atoms/TransportBadge/TransportBadge';
-import { ConnectionToggle } from '../../atoms/ConnectionToggle/ConnectionToggle';
-import { CopyButton } from '../../atoms/CopyButton/CopyButton';
-import { InlineError } from '../../atoms/InlineError/InlineError';
+import {
+  Badge,
+  Button,
+  Card,
+  Code,
+  Group,
+  Menu,
+  Stack,
+  Text,
+} from "@mantine/core";
+import { StatusIndicator } from "../../atoms/StatusIndicator/StatusIndicator";
+import { TransportBadge } from "../../atoms/TransportBadge/TransportBadge";
+import { ConnectionToggle } from "../../atoms/ConnectionToggle/ConnectionToggle";
+import { CopyButton } from "../../atoms/CopyButton/CopyButton";
+import { InlineError } from "../../atoms/InlineError/InlineError";
 
 export interface ServerCardProps {
   name: string;
   version?: string;
-  transport: 'stdio' | 'http';
+  transport: "stdio" | "http";
   connectionMode: string;
   command: string;
-  status: 'connected' | 'connecting' | 'disconnected' | 'failed';
+  status: "connected" | "connecting" | "disconnected" | "failed";
   retryCount?: number;
   error?: { message: string; details?: string };
   canTestClientFeatures: boolean;
@@ -29,15 +38,15 @@ export interface ServerCardProps {
 }
 
 const HeaderLeft = Group.withProps({
-  gap: 'sm',
+  gap: "sm",
 });
 
 const HeaderRight = Group.withProps({
-  gap: 'sm',
+  gap: "sm",
 });
 
 const ActionsRow = Group.withProps({
-  gap: 'xs',
+  gap: "xs",
 });
 
 export function ServerCard({
@@ -61,18 +70,18 @@ export function ServerCard({
   onTestElicitationUrl,
   onConfigureRoots,
 }: ServerCardProps) {
-  const isConnected = status === 'connected';
-  const isConnecting = status === 'connecting';
+  const isConnected = status === "connected";
+  const isConnecting = status === "connecting";
 
   return (
     <Card withBorder padding="lg">
       <Stack gap="sm">
         <Group justify="space-between">
           <HeaderLeft>
-            <Text fw={600} size="lg">{name}</Text>
-            {version && (
-              <Badge variant="outline">{version}</Badge>
-            )}
+            <Text fw={600} size="lg">
+              {name}
+            </Text>
+            {version && <Badge variant="outline">{version}</Badge>}
           </HeaderLeft>
           <HeaderRight>
             <StatusIndicator status={status} retryCount={retryCount} />
@@ -87,12 +96,16 @@ export function ServerCard({
 
         <Group gap="sm">
           <TransportBadge transport={transport} />
-          <Text size="sm" c="dimmed">{connectionMode}</Text>
+          <Text size="sm" c="dimmed">
+            {connectionMode}
+          </Text>
         </Group>
 
         <Group gap="xs">
           <Code>
-            <Text lineClamp={1} size="sm">{command}</Text>
+            <Text lineClamp={1} size="sm">
+              {command}
+            </Text>
           </Code>
           <CopyButton value={command} />
         </Group>

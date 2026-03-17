@@ -1,28 +1,28 @@
-import { Button, Divider, Group, Stack, Text, Title } from '@mantine/core'
-import { AnnotationBadge } from '../../atoms/AnnotationBadge/AnnotationBadge'
-import { ProgressDisplay } from '../../atoms/ProgressDisplay/ProgressDisplay'
-import { SchemaForm } from '../SchemaForm/SchemaForm'
-import type { JsonSchema } from '../SchemaForm/SchemaForm'
+import { Button, Divider, Group, Stack, Text, Title } from "@mantine/core";
+import { AnnotationBadge } from "../../atoms/AnnotationBadge/AnnotationBadge";
+import { ProgressDisplay } from "../../atoms/ProgressDisplay/ProgressDisplay";
+import { SchemaForm } from "../SchemaForm/SchemaForm";
+import type { JsonSchema } from "../SchemaForm/SchemaForm";
 
 export interface ToolAnnotations {
-  audience?: string
-  readOnly?: boolean
-  destructive?: boolean
-  longRunning?: boolean
-  hints?: string
+  audience?: string;
+  readOnly?: boolean;
+  destructive?: boolean;
+  longRunning?: boolean;
+  hints?: string;
 }
 
 export interface ToolDetailPanelProps {
-  name: string
-  description?: string
-  annotations?: ToolAnnotations
-  schema: JsonSchema
-  formValues: Record<string, unknown>
-  isExecuting: boolean
-  progress?: { percent: number; description?: string }
-  onFormChange: (values: Record<string, unknown>) => void
-  onExecute: () => void
-  onCancel: () => void
+  name: string;
+  description?: string;
+  annotations?: ToolAnnotations;
+  schema: JsonSchema;
+  formValues: Record<string, unknown>;
+  isExecuting: boolean;
+  progress?: { percent: number; description?: string };
+  onFormChange: (values: Record<string, unknown>) => void;
+  onExecute: () => void;
+  onCancel: () => void;
 }
 
 export function ToolDetailPanel({
@@ -43,7 +43,7 @@ export function ToolDetailPanel({
       annotations.readOnly ||
       annotations.destructive ||
       annotations.longRunning ||
-      annotations.hints)
+      annotations.hints);
 
   return (
     <Stack gap="md">
@@ -60,13 +60,20 @@ export function ToolDetailPanel({
           <Text size="sm">Annotations:</Text>
           <Group gap="xs">
             {annotations.audience && (
-              <AnnotationBadge label={annotations.audience} variant="audience" />
+              <AnnotationBadge
+                label={annotations.audience}
+                variant="audience"
+              />
             )}
-            {annotations.readOnly && <AnnotationBadge label="read-only" variant="readOnly" />}
+            {annotations.readOnly && (
+              <AnnotationBadge label="read-only" variant="readOnly" />
+            )}
             {annotations.destructive && (
               <AnnotationBadge label="destructive" variant="destructive" />
             )}
-            {annotations.longRunning && <AnnotationBadge label="long-run" variant="longRun" />}
+            {annotations.longRunning && (
+              <AnnotationBadge label="long-run" variant="longRun" />
+            )}
             {annotations.hints && (
               <Text size="xs" c="dimmed" fs="italic">
                 {annotations.hints}
@@ -85,10 +92,20 @@ export function ToolDetailPanel({
         disabled={isExecuting}
       />
 
-      {progress && <ProgressDisplay progress={progress.percent} description={progress.description} />}
+      {progress && (
+        <ProgressDisplay
+          progress={progress.percent}
+          description={progress.description}
+        />
+      )}
 
       <Group>
-        <Button fullWidth onClick={onExecute} disabled={isExecuting} loading={isExecuting}>
+        <Button
+          fullWidth
+          onClick={onExecute}
+          disabled={isExecuting}
+          loading={isExecuting}
+        >
           Execute Tool
         </Button>
         {isExecuting && (
@@ -98,5 +115,5 @@ export function ToolDetailPanel({
         )}
       </Group>
     </Stack>
-  )
+  );
 }

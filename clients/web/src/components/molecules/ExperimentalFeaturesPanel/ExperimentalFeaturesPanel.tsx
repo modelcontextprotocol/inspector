@@ -12,45 +12,45 @@ import {
   TextInput,
   Textarea,
   Title,
-} from '@mantine/core'
+} from "@mantine/core";
 
 export interface ExperimentalCapability {
-  name: string
-  description?: string
-  methods?: string[]
+  name: string;
+  description?: string;
+  methods?: string[];
 }
 
 export interface ClientExperimentalCapability {
-  name: string
-  enabled: boolean
+  name: string;
+  enabled: boolean;
 }
 
 export interface KeyValuePair {
-  key: string
-  value: string
+  key: string;
+  value: string;
 }
 
 export interface RequestHistoryItem {
-  timestamp: string
-  method: string
-  status: string
-  durationMs: number
+  timestamp: string;
+  method: string;
+  status: string;
+  durationMs: number;
 }
 
 export interface ExperimentalFeaturesPanelProps {
-  serverCapabilities: ExperimentalCapability[]
-  clientCapabilities: ClientExperimentalCapability[]
-  requestJson: string
-  responseJson?: string
-  customHeaders: KeyValuePair[]
-  requestHistory: RequestHistoryItem[]
-  onToggleClientCapability: (name: string, enabled: boolean) => void
-  onRequestChange: (json: string) => void
-  onSendRequest: () => void
-  onAddHeader: () => void
-  onRemoveHeader: (index: number) => void
-  onHeaderChange: (index: number, key: string, value: string) => void
-  onCopyResponse: () => void
+  serverCapabilities: ExperimentalCapability[];
+  clientCapabilities: ClientExperimentalCapability[];
+  requestJson: string;
+  responseJson?: string;
+  customHeaders: KeyValuePair[];
+  requestHistory: RequestHistoryItem[];
+  onToggleClientCapability: (name: string, enabled: boolean) => void;
+  onRequestChange: (json: string) => void;
+  onSendRequest: () => void;
+  onAddHeader: () => void;
+  onRemoveHeader: (index: number) => void;
+  onHeaderChange: (index: number, key: string, value: string) => void;
+  onCopyResponse: () => void;
 }
 
 export function ExperimentalFeaturesPanel({
@@ -90,7 +90,7 @@ export function ExperimentalFeaturesPanel({
               )}
               {cap.methods && cap.methods.length > 0 && (
                 <Text size="xs" c="dimmed">
-                  Methods: {cap.methods.join(', ')}
+                  Methods: {cap.methods.join(", ")}
                 </Text>
               )}
               <Group>
@@ -112,7 +112,9 @@ export function ExperimentalFeaturesPanel({
           key={clientCap.name}
           label={clientCap.name}
           checked={clientCap.enabled}
-          onChange={(e) => onToggleClientCapability(clientCap.name, e.currentTarget.checked)}
+          onChange={(e) =>
+            onToggleClientCapability(clientCap.name, e.currentTarget.checked)
+          }
         />
       ))}
 
@@ -129,14 +131,22 @@ export function ExperimentalFeaturesPanel({
           <TextInput
             placeholder="Header name"
             value={header.key}
-            onChange={(e) => onHeaderChange(index, e.currentTarget.value, header.value)}
+            onChange={(e) =>
+              onHeaderChange(index, e.currentTarget.value, header.value)
+            }
           />
           <TextInput
             placeholder="Header value"
             value={header.value}
-            onChange={(e) => onHeaderChange(index, header.key, e.currentTarget.value)}
+            onChange={(e) =>
+              onHeaderChange(index, header.key, e.currentTarget.value)
+            }
           />
-          <ActionIcon variant="light" color="red" onClick={() => onRemoveHeader(index)}>
+          <ActionIcon
+            variant="light"
+            color="red"
+            onClick={() => onRemoveHeader(index)}
+          >
             <Text size="xs">✕</Text>
           </ActionIcon>
         </Group>
@@ -203,5 +213,5 @@ export function ExperimentalFeaturesPanel({
         </>
       )}
     </Stack>
-  )
+  );
 }

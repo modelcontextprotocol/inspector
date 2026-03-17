@@ -1,17 +1,17 @@
-import { Button, Group, Stack, Text, Title } from '@mantine/core'
-import { ContentViewer } from '../../atoms/ContentViewer/ContentViewer'
+import { Button, Group, Stack, Text, Title } from "@mantine/core";
+import { ContentViewer } from "../../atoms/ContentViewer/ContentViewer";
 
 export interface ResultContentItem {
-  type: string
-  text?: string
-  data?: string
-  mimeType?: string
+  type: string;
+  text?: string;
+  data?: string;
+  mimeType?: string;
 }
 
 export interface ResultPanelProps {
-  content: ResultContentItem[]
-  onCopy: () => void
-  onClear: () => void
+  content: ResultContentItem[];
+  onCopy: () => void;
+  onClear: () => void;
 }
 
 export function ResultPanel({ content, onCopy, onClear }: ResultPanelProps) {
@@ -27,22 +27,22 @@ export function ResultPanel({ content, onCopy, onClear }: ResultPanelProps) {
               return (
                 <ContentViewer
                   key={index}
-                  type={item.type === 'text' ? 'text' : 'json'}
+                  type={item.type === "text" ? "text" : "json"}
                   content={item.text}
                 />
-              )
+              );
             }
             if (item.data !== undefined) {
               return (
                 <ContentViewer
                   key={index}
-                  type={item.mimeType?.startsWith('image') ? 'image' : 'audio'}
+                  type={item.mimeType?.startsWith("image") ? "image" : "audio"}
                   content={item.data}
                   mimeType={item.mimeType}
                 />
-              )
+              );
             }
-            return null
+            return null;
           })}
         </>
       )}
@@ -55,5 +55,5 @@ export function ResultPanel({ content, onCopy, onClear }: ResultPanelProps) {
         </Button>
       </Group>
     </Stack>
-  )
+  );
 }

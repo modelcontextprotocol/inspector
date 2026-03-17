@@ -1,7 +1,14 @@
-import { Container, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core';
-import { ServerCard } from '../../molecules/ServerCard/ServerCard';
-import { AddServerMenu } from '../../molecules/AddServerMenu/AddServerMenu';
-import type { ServerCardProps } from '../../molecules/ServerCard/ServerCard';
+import {
+  Container,
+  Group,
+  SimpleGrid,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
+import { ServerCard } from "../../molecules/ServerCard/ServerCard";
+import { AddServerMenu } from "../../molecules/AddServerMenu/AddServerMenu";
+import type { ServerCardProps } from "../../molecules/ServerCard/ServerCard";
 
 export interface ServerListScreenProps {
   servers: ServerCardProps[];

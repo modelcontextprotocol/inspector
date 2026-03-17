@@ -1,7 +1,7 @@
-import { AppShell } from '@mantine/core';
+import { AppShell } from "@mantine/core";
 
 export const ThemeAppShell = AppShell.extend({
   defaultProps: {
-    padding: 'md',
+    padding: "md",
   },
 });

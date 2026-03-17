@@ -1,7 +1,12 @@
-import { Badge, Button, Card, Group, Stack, Text } from '@mantine/core';
-import { ProgressDisplay } from '../../atoms/ProgressDisplay/ProgressDisplay';
+import { Badge, Button, Card, Group, Stack, Text } from "@mantine/core";
+import { ProgressDisplay } from "../../atoms/ProgressDisplay/ProgressDisplay";
 
-export type TaskStatus = 'waiting' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type TaskStatus =
+  | "waiting"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export interface TaskCardProps {
   taskId: string;
@@ -21,11 +26,11 @@ export interface TaskCardProps {
 }
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
-  waiting: 'gray',
-  running: 'blue',
-  completed: 'green',
-  failed: 'red',
-  cancelled: 'yellow',
+  waiting: "gray",
+  running: "blue",
+  completed: "green",
+  failed: "red",
+  cancelled: "yellow",
 };
 
 export function TaskCard({
@@ -44,7 +49,7 @@ export function TaskCard({
   onCancel,
   onDismiss,
 }: TaskCardProps) {
-  const isActive = status === 'waiting' || status === 'running';
+  const isActive = status === "waiting" || status === "running";
 
   return (
     <Card withBorder padding="md">
@@ -56,18 +61,22 @@ export function TaskCard({
             </Text>
             <Badge color={STATUS_COLORS[status]}>{status}</Badge>
           </Group>
-          {progress !== undefined && (
-            <ProgressDisplay progress={progress} />
-          )}
+          {progress !== undefined && <ProgressDisplay progress={progress} />}
         </Group>
 
         <Text size="sm" c="dimmed">
-          Method: <Text component="span" fw={600}>{method}</Text>
+          Method:{" "}
+          <Text component="span" fw={600}>
+            {method}
+          </Text>
         </Text>
 
         {target && (
           <Text size="sm" c="dimmed">
-            Tool/Resource: <Text component="span" fw={600}>{target}</Text>
+            Tool/Resource:{" "}
+            <Text component="span" fw={600}>
+              {target}
+            </Text>
           </Text>
         )}
 
