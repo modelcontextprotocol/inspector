@@ -14,10 +14,14 @@ export const discoverScopes = async (
   fetchFn?: typeof fetch,
 ): Promise<string | undefined> => {
   try {
-    const metadata = await discoverAuthorizationServerMetadata(
-      new URL("/", serverUrl),
-      { fetchFn },
-    );
+    // Use the authorization server URL from resource metadata if available,
+    // otherwise fall back to the MCP server URL
+    const authServerUrl = resourceMetadata?.authorization_servers?.length
+      ? new URL(resourceMetadata.authorization_servers[0])
+      : new URL("/", serverUrl);
+    const metadata = await discoverAuthorizationServerMetadata(authServerUrl, {
+      fetchFn,
+    });
 
     // Prefer resource metadata scopes, but fall back to OAuth metadata if empty
     const resourceScopes = resourceMetadata?.scopes_supported;

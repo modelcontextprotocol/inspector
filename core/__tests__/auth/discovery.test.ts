@@ -176,4 +176,92 @@ describe("OAuth Scope Discovery", () => {
       { fetchFn: mockFetchFn },
     );
   });
+
+  it("should use authorization_servers URL from resource metadata for discovery (different domain)", async () => {
+    const { discoverAuthorizationServerMetadata } =
+      await import("@modelcontextprotocol/sdk/client/auth.js");
+    vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
+      issuer: "https://auth-server.com",
+      authorization_endpoint: "https://auth-server.com/authorize",
+      token_endpoint: "https://auth-server.com/token",
+      response_types_supported: ["code"],
+      scopes_supported: ["read", "write"],
+    });
+
+    const resourceMetadata: OAuthProtectedResourceMetadata = {
+      resource: "https://mcp-server.com",
+      authorization_servers: ["https://auth-server.com/"],
+      scopes_supported: ["read", "write"],
+    };
+
+    const scopes = await discoverScopes(
+      "https://mcp-server.com",
+      resourceMetadata,
+    );
+
+    expect(scopes).toBe("read write");
+    expect(discoverAuthorizationServerMetadata).toHaveBeenCalledWith(
+      new URL("https://auth-server.com/"),
+      { fetchFn: undefined },
+    );
+  });
+
+  it("should preserve full path in authorization_servers URL", async () => {
+    const { discoverAuthorizationServerMetadata } =
+      await import("@modelcontextprotocol/sdk/client/auth.js");
+    vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
+      issuer: "https://auth-server.com/realms/my-realm",
+      authorization_endpoint:
+        "https://auth-server.com/realms/my-realm/authorize",
+      token_endpoint: "https://auth-server.com/realms/my-realm/token",
+      response_types_supported: ["code"],
+      scopes_supported: ["read", "write"],
+    });
+
+    const resourceMetadata: OAuthProtectedResourceMetadata = {
+      resource: "https://mcp-server.com",
+      authorization_servers: ["https://auth-server.com/realms/my-realm/"],
+      scopes_supported: ["read", "write"],
+    };
+
+    const scopes = await discoverScopes(
+      "https://mcp-server.com",
+      resourceMetadata,
+    );
+
+    expect(scopes).toBe("read write");
+    expect(discoverAuthorizationServerMetadata).toHaveBeenCalledWith(
+      new URL("https://auth-server.com/realms/my-realm/"),
+      { fetchFn: undefined },
+    );
+  });
+
+  it("should fall back to serverUrl when authorization_servers is empty", async () => {
+    const { discoverAuthorizationServerMetadata } =
+      await import("@modelcontextprotocol/sdk/client/auth.js");
+    vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
+      issuer: "https://mcp-server.com",
+      authorization_endpoint: "https://mcp-server.com/authorize",
+      token_endpoint: "https://mcp-server.com/token",
+      response_types_supported: ["code"],
+      scopes_supported: ["read", "write"],
+    });
+
+    const resourceMetadata: OAuthProtectedResourceMetadata = {
+      resource: "https://mcp-server.com",
+      authorization_servers: [],
+      scopes_supported: ["read", "write"],
+    };
+
+    const scopes = await discoverScopes(
+      "https://mcp-server.com",
+      resourceMetadata,
+    );
+
+    expect(scopes).toBe("read write");
+    expect(discoverAuthorizationServerMetadata).toHaveBeenCalledWith(
+      new URL("/", "https://mcp-server.com"),
+      { fetchFn: undefined },
+    );
+  });
 });
