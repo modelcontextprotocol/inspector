@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { fn } from 'storybook/test';
-import { Container, Paper, Stack, Text } from '@mantine/core';
+import { Text } from '@mantine/core';
 import { HomeLayout } from './HomeLayout';
+import { ServerListScreen } from '../../organisms/ServerListScreen/ServerListScreen';
+import type { ServerCardProps } from '../../molecules/ServerCard/ServerCard';
 
 const meta: Meta<typeof HomeLayout> = {
   title: 'Layouts/HomeLayout',
@@ -15,31 +17,88 @@ const meta: Meta<typeof HomeLayout> = {
 export default meta;
 type Story = StoryObj<typeof HomeLayout>;
 
-export const Light: Story = {
+function makeServerCallbacks(): Pick<
+  ServerCardProps,
+  | 'onToggleConnection'
+  | 'onCopyCommand'
+  | 'onServerInfo'
+  | 'onSettings'
+  | 'onEdit'
+  | 'onClone'
+  | 'onRemove'
+> {
+  return {
+    onToggleConnection: fn(),
+    onCopyCommand: fn(),
+    onServerInfo: fn(),
+    onSettings: fn(),
+    onEdit: fn(),
+    onClone: fn(),
+    onRemove: fn(),
+  };
+}
+
+export const Empty: Story = {
   args: {
-    children: <Text>Page content goes here</Text>,
+    children: (
+      <ServerListScreen
+        servers={[]}
+        onAddManually={fn()}
+        onImportConfig={fn()}
+        onImportServerJson={fn()}
+      />
+    ),
   },
 };
 
-export const WithContent: Story = {
+export const WithServers: Story = {
   args: {
     children: (
-      <Container>
-        <Stack>
-          <Paper p="md" shadow="xs">
-            <Text fw={500}>Local Dev Server</Text>
-            <Text size="sm" c="dimmed">npx @modelcontextprotocol/server-filesystem</Text>
-          </Paper>
-          <Paper p="md" shadow="xs">
-            <Text fw={500}>Database Tools</Text>
-            <Text size="sm" c="dimmed">python -m mcp_server_sqlite</Text>
-          </Paper>
-          <Paper p="md" shadow="xs">
-            <Text fw={500}>Remote API Server</Text>
-            <Text size="sm" c="dimmed">https://api.example.com/mcp</Text>
-          </Paper>
-        </Stack>
-      </Container>
+      <ServerListScreen
+        servers={[
+          {
+            name: 'everything-server',
+            version: '1.0.0',
+            transport: 'stdio',
+            connectionMode: 'Via Proxy',
+            command: 'npx -y @modelcontextprotocol/server-everything',
+            status: 'connected',
+            canTestClientFeatures: true,
+            ...makeServerCallbacks(),
+          },
+          {
+            name: 'filesystem-server',
+            version: '0.6.2',
+            transport: 'stdio',
+            connectionMode: 'Via Proxy',
+            command: 'npx -y @modelcontextprotocol/server-filesystem /home/user',
+            status: 'disconnected',
+            canTestClientFeatures: false,
+            ...makeServerCallbacks(),
+          },
+          {
+            name: 'remote-server',
+            version: '2.1.0',
+            transport: 'http',
+            connectionMode: 'Direct',
+            command: 'https://api.example.com/mcp',
+            status: 'failed',
+            retryCount: 3,
+            error: { message: 'Connection timeout after 20s' },
+            canTestClientFeatures: false,
+            ...makeServerCallbacks(),
+          },
+        ]}
+        onAddManually={fn()}
+        onImportConfig={fn()}
+        onImportServerJson={fn()}
+      />
     ),
+  },
+};
+
+export const MinimalContent: Story = {
+  args: {
+    children: <Text c="dimmed" ta="center" py="xl">Page content goes here</Text>,
   },
 };
