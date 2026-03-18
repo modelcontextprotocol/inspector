@@ -174,6 +174,7 @@ export async function buildWebServerConfigFromEnv(): Promise<WebServerConfig> {
         append: true,
         mkdir: true,
         level: "info",
+        name: "mcp-inspector-web",
       })
     : silentLogger;
 

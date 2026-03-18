@@ -264,6 +264,7 @@ export async function runWeb(argv: string[]): Promise<number> {
         append: true,
         mkdir: true,
         level: "info",
+        name: "mcp-inspector-web",
       })
     : silentLogger;
 
