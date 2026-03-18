@@ -40,8 +40,8 @@ export type { OAuthStateMode } from "./utils.js";
 // Discovery
 export { discoverScopes } from "./discovery.js";
 
-// Logging (re-exported from core/logging)
-export { silentLogger } from "../logging/index.js";
+// Logging (re-exported from core/logging/node)
+export { silentLogger } from "../logging/node/index.js";
 // State Machine
 export type { StateMachineContext, StateTransition } from "./state-machine.js";
 export { oauthTransitions, OAuthStateMachine } from "./state-machine.js";

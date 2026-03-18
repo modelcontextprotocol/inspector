@@ -72,7 +72,7 @@ All of these are set via **environment variables**; the web app has no command-l
 | **Sandbox port** (MCP Apps)        | Env: `MCP_SANDBOX_PORT`; if unset, `SERVER_PORT` (legacy). Use `0` or leave unset for an automatic port.                           | automatic          |
 | **Storage directory** (e.g. OAuth) | Env: `MCP_STORAGE_DIR`                                                                                                             | (unset)            |
 | **Allowed origins** (CORS)         | Env: `ALLOWED_ORIGINS` (comma-separated)                                                                                           | client origin only |
-| **Log file**                       | Env: `MCP_LOG_FILE` — if set, server logs are appended to this file.                                                               | (unset)            |
+| **Log file**                       | Env: `MCP_LOG_FILE` — if set, server and InspectorClient logs are appended to this file.                                           | (unset)            |
 | **Open browser on start**          | Env: `MCP_AUTO_OPEN_ENABLED` — set to `false` to disable.                                                                          | `true`             |
 | **Development mode**               | CLI only: `--dev` (Vite with HMR). No env var.                                                                                     | off                |
 

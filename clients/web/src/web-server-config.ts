@@ -2,9 +2,12 @@
  * Config object for the web server (dev and prod). Passed in-process; no env handoff.
  */
 
-import pino from "pino";
 import type { Logger } from "pino";
 import type { MCPServerConfig } from "@modelcontextprotocol/inspector-core/mcp/types.js";
+import {
+  createFileLogger,
+  silentLogger,
+} from "@modelcontextprotocol/inspector-core/logging/node";
 import {
   API_SERVER_ENV_VARS,
   LEGACY_AUTH_TOKEN_ENV,
@@ -24,7 +27,7 @@ export interface WebServerConfig {
   /** Sandbox port (0 = dynamic). */
   sandboxPort: number;
   sandboxHost: string;
-  logger: Logger | undefined;
+  logger: Logger;
   /** When true, open browser after server starts. */
   autoOpen: boolean;
   /** Root directory for static files (index.html, assets). When runner starts server in-process, pass path to dist/. */
@@ -148,8 +151,9 @@ export function printServerBanner(
 
 /**
  * Build WebServerConfig from process.env. Used when running server as standalone (e.g. node dist/server.js).
+ * When MCP_LOG_FILE is set, returns a Promise (file logger destination must be awaited).
  */
-export function buildWebServerConfigFromEnv(): WebServerConfig {
+export async function buildWebServerConfigFromEnv(): Promise<WebServerConfig> {
   const port = parseInt(process.env.CLIENT_PORT ?? "6274", 10);
   const hostname = process.env.HOST ?? "localhost";
   const baseUrl = `http://${hostname}:${port}`;
@@ -164,17 +168,14 @@ export function buildWebServerConfigFromEnv(): WebServerConfig {
 
   const sandboxPort = resolveSandboxPort();
 
-  let logger: Logger | undefined;
-  if (process.env.MCP_LOG_FILE) {
-    logger = pino(
-      { level: "info" },
-      pino.destination({
+  const logger = process.env.MCP_LOG_FILE
+    ? await createFileLogger({
         dest: process.env.MCP_LOG_FILE,
         append: true,
         mkdir: true,
-      }),
-    );
-  }
+        level: "info",
+      })
+    : silentLogger;
 
   return {
     port,

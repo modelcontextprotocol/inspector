@@ -39,6 +39,12 @@ When connecting to SSE or Streamable HTTP servers that use OAuth, you can pass:
 | `--client-metadata-url <url>` | OAuth Client ID Metadata Document URL (CIMD).                                        |
 | `--callback-url <url>`        | OAuth redirect/callback listener URL (default: `http://127.0.0.1:0/oauth/callback`). |
 
+### Logging (env)
+
+| Env var        | Description                                                     |
+| -------------- | --------------------------------------------------------------- |
+| `MCP_LOG_FILE` | If set, TUI and InspectorClient logs are appended to this file. |
+
 ## Features
 
 The TUI provides terminal-native tabs and panes for interacting with your MCP server:

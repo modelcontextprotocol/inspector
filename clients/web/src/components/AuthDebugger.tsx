@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertCircle } from "lucide-react";
 import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
-import { silentLogger } from "@modelcontextprotocol/inspector-core/logging";
+import { silentLogger } from "@modelcontextprotocol/inspector-core/logging/node";
 import type { AuthGuidedState } from "@modelcontextprotocol/inspector-core/auth/types.js";
 import type { WebEnvironmentResult } from "@/lib/adapters/environmentFactory";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";

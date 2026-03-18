@@ -2,6 +2,7 @@ import { resolve, join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { randomBytes } from "crypto";
 import { Command } from "commander";
+import type { Logger } from "pino";
 import type {
   MCPServerConfig,
   StreamableHttpServerConfig,
@@ -16,6 +17,10 @@ import {
   parseHeaderPair,
   type ServerConfigOptions,
 } from "@modelcontextprotocol/inspector-core/mcp/node/config.js";
+import {
+  createFileLogger,
+  silentLogger,
+} from "@modelcontextprotocol/inspector-core/logging/node";
 import { resolveSandboxPort } from "./sandbox-controller.js";
 import type { WebServerConfig } from "./web-server-config.js";
 import { startViteDevServer } from "./start-vite-dev-server.js";
@@ -93,6 +98,7 @@ function buildWebServerConfig(
   hostname: string,
   authToken: string,
   dangerouslyOmitAuth: boolean,
+  logger: Logger,
 ): WebServerConfig {
   const baseUrl = `http://${hostname}:${port}`;
   const initialMcpConfig: MCPServerConfig | null =
@@ -136,7 +142,7 @@ function buildWebServerConfig(
     ],
     sandboxPort: resolveSandboxPort(),
     sandboxHost: hostname,
-    logger: undefined,
+    logger,
     autoOpen: process.env.MCP_AUTO_OPEN_ENABLED !== "false",
   };
 }
@@ -252,12 +258,22 @@ export async function runWeb(argv: string[]): Promise<number> {
       (process.env[LEGACY_AUTH_TOKEN_ENV] as string | undefined) ??
       randomBytes(32).toString("hex"));
 
+  const logger = process.env.MCP_LOG_FILE
+    ? await createFileLogger({
+        dest: process.env.MCP_LOG_FILE,
+        append: true,
+        mkdir: true,
+        level: "info",
+      })
+    : silentLogger;
+
   const webConfig = buildWebServerConfig(
     clientOptions,
     port,
     hostname,
     authToken,
     dangerouslyOmitAuth,
+    logger,
   );
   if (!clientOptions.isDev) {
     webConfig.staticRoot = join(__dirname, "..", "dist");

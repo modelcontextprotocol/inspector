@@ -98,6 +98,12 @@ Options that specify the MCP server (config file, ad-hoc command/URL, env vars, 
 | `--metadata <key=value>`      | General metadata (key=value); applied to all methods.                                     |
 | `--tool-metadata <key=value>` | Tool-specific metadata for `tools/call`.                                                  |
 
+### Logging (env)
+
+| Env var        | Description                                                     |
+| -------------- | --------------------------------------------------------------- |
+| `MCP_LOG_FILE` | If set, CLI and InspectorClient logs are appended to this file. |
+
 ## Why use the CLI?
 
 While the Web Client provides a rich visual interface, the CLI is designed for:
