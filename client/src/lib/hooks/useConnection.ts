@@ -582,16 +582,22 @@ export function useConnection({
         switch (transportType) {
           case "sse":
             requestHeaders["Accept"] = "text/event-stream";
-            requestHeaders["content-type"] = "application/json";
             transportOptions = {
               authProvider: serverAuthProvider,
               fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
               ) => {
+                const mergedHeaders = { ...requestHeaders };
+                // Only set Content-Type on requests with a body (e.g. POST).
+                // GET requests (such as OAuth metadata discovery) must not
+                // include Content-Type, as some servers reject it with 415.
+                if (init?.body) {
+                  mergedHeaders["content-type"] = "application/json";
+                }
                 const response = await fetch(url, {
                   ...init,
-                  headers: requestHeaders,
+                  headers: mergedHeaders,
                 });
 
                 // Capture protocol-related headers from response
@@ -611,11 +617,16 @@ export function useConnection({
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
               ) => {
-                requestHeaders["Accept"] =
-                  "text/event-stream, application/json";
-                requestHeaders["Content-Type"] = "application/json";
+                const mergedHeaders = { ...requestHeaders };
+                mergedHeaders["Accept"] = "text/event-stream, application/json";
+                // Only set Content-Type on requests with a body (e.g. POST).
+                // GET requests (such as OAuth metadata discovery) must not
+                // include Content-Type, as some servers reject it with 415.
+                if (init?.body) {
+                  mergedHeaders["Content-Type"] = "application/json";
+                }
                 const response = await fetch(url, {
-                  headers: requestHeaders,
+                  headers: mergedHeaders,
                   ...init,
                 });
 
