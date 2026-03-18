@@ -1,170 +1,160 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Trash2, Plus } from "lucide-react";
-import { cn } from "@/lib/utils";
-import {
-  META_NAME_RULES_MESSAGE,
-  META_PREFIX_RULES_MESSAGE,
-  RESERVED_NAMESPACE_MESSAGE,
-  hasValidMetaName,
-  hasValidMetaPrefix,
-  isReservedMetaKey,
-} from "@/utils/metaUtils";
+import JsonEditor from "@/components/JsonEditor";
 
-interface MetadataEntry {
-  key: string;
-  value: string;
+interface MetaDataTabProps {
+  metaData: Record<string, unknown>;
+  onMetaDataChange: (metaData: Record<string, unknown>) => void;
 }
 
-interface MetadataTabProps {
-  metadata: Record<string, string>;
-  onMetadataChange: (metadata: Record<string, string>) => void;
-}
-
-const MetadataTab: React.FC<MetadataTabProps> = ({
-  metadata,
-  onMetadataChange,
+const MetaDataTab: React.FC<MetaDataTabProps> = ({
+  metaData,
+  onMetaDataChange,
 }) => {
-  const [entries, setEntries] = useState<MetadataEntry[]>(() => {
-    return Object.entries(metadata).map(([key, value]) => ({ key, value }));
+  const stringifyCompact = (
+    value: Record<string, unknown> | null | undefined,
+  ) => {
+    if (!value || Object.keys(value).length === 0) {
+      return "";
+    }
+
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  };
+
+  const stringifyPretty = (value: Record<string, unknown>) => {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return "";
+    }
+  };
+
+  const initialCompact = stringifyCompact(metaData);
+  const [jsonValue, setJsonValue] = useState<string>(() => {
+    if (!initialCompact) {
+      return "";
+    }
+
+    return stringifyPretty(metaData);
   });
 
-  const addEntry = () => {
-    setEntries([...entries, { key: "", value: "" }]);
-  };
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const lastMetaDataStringRef = useRef<string>(initialCompact);
 
-  const removeEntry = (index: number) => {
-    const newEntries = entries.filter((_, i) => i !== index);
-    setEntries(newEntries);
-    updateMetadata(newEntries);
-  };
+  useEffect(() => {
+    const compact = stringifyCompact(metaData);
 
-  const updateEntry = (
-    index: number,
-    field: "key" | "value",
-    value: string,
-  ) => {
-    const newEntries = [...entries];
-    newEntries[index][field] = value;
-    setEntries(newEntries);
-    updateMetadata(newEntries);
-  };
+    if (compact === lastMetaDataStringRef.current) {
+      return;
+    }
 
-  const updateMetadata = (newEntries: MetadataEntry[]) => {
-    const metadataObject: Record<string, string> = {};
-    newEntries.forEach(({ key, value }) => {
-      const trimmedKey = key.trim();
+    lastMetaDataStringRef.current = compact;
+
+    if (!compact) {
+      setJsonValue("");
+      setJsonError(null);
+      return;
+    }
+
+    if (metaData) {
+      const pretty = stringifyPretty(metaData);
+      setJsonValue(pretty);
+      setJsonError(null);
+    }
+  }, [metaData]);
+
+  const handleJsonChange = (value: string) => {
+    setJsonValue(value);
+
+    if (!value.trim()) {
+      onMetaDataChange({});
+      lastMetaDataStringRef.current = "";
+      setJsonError(null);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(value);
+
       if (
-        trimmedKey &&
-        value.trim() &&
-        hasValidMetaPrefix(trimmedKey) &&
-        !isReservedMetaKey(trimmedKey) &&
-        hasValidMetaName(trimmedKey)
+        parsed === null ||
+        Array.isArray(parsed) ||
+        typeof parsed !== "object"
       ) {
-        metadataObject[trimmedKey] = value.trim();
+        setJsonError("Meta data must be a JSON object");
+        return;
       }
-    });
-    onMetadataChange(metadataObject);
+
+      onMetaDataChange(parsed);
+      lastMetaDataStringRef.current = JSON.stringify(parsed);
+      setJsonError(null);
+    } catch {
+      setJsonError("Invalid JSON format");
+    }
+  };
+
+  const handlePrettyClick = () => {
+    if (!jsonValue.trim()) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(jsonValue);
+
+      if (
+        parsed === null ||
+        Array.isArray(parsed) ||
+        typeof parsed !== "object"
+      ) {
+        setJsonError("Meta data must be a JSON object");
+        return;
+      }
+
+      const pretty = stringifyPretty(parsed);
+      setJsonValue(pretty);
+      onMetaDataChange(parsed);
+      lastMetaDataStringRef.current = JSON.stringify(parsed);
+      setJsonError(null);
+    } catch {
+      setJsonError("Invalid JSON format");
+    }
   };
 
   return (
     <TabsContent value="metadata">
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <div>
-            <h3 className="text-lg font-semibold">Metadata</h3>
+            <h3 className="text-lg font-semibold">Meta Data</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Key-value pairs that will be included in all MCP requests
+              Provide an object containing key-value pairs that will be included
+              in all MCP requests.
             </p>
           </div>
-          <Button onClick={addEntry} size="sm">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Entry
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handlePrettyClick}
+            className="flex-shrink-0"
+          >
+            Pretty
           </Button>
         </div>
 
-        <div className="space-y-3">
-          {entries.map((entry, index) => {
-            const trimmedKey = entry.key.trim();
-            const hasInvalidPrefix =
-              trimmedKey !== "" && !hasValidMetaPrefix(trimmedKey);
-            const isReservedKey =
-              trimmedKey !== "" && isReservedMetaKey(trimmedKey);
-            const hasInvalidName =
-              trimmedKey !== "" && !hasValidMetaName(trimmedKey);
-            const validationMessage = hasInvalidPrefix
-              ? META_PREFIX_RULES_MESSAGE
-              : isReservedKey
-                ? RESERVED_NAMESPACE_MESSAGE
-                : hasInvalidName
-                  ? META_NAME_RULES_MESSAGE
-                  : null;
-            return (
-              <div key={index} className="space-y-1">
-                <div className="flex items-center space-x-2">
-                  <div className="flex-1">
-                    <Label htmlFor={`key-${index}`} className="sr-only">
-                      Key
-                    </Label>
-                    <Input
-                      id={`key-${index}`}
-                      placeholder="Key"
-                      value={entry.key}
-                      onChange={(e) =>
-                        updateEntry(index, "key", e.target.value)
-                      }
-                      aria-invalid={Boolean(validationMessage)}
-                      className={cn(
-                        validationMessage &&
-                          "border-red-500 focus-visible:ring-red-500 focus-visible:ring-1",
-                      )}
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <Label htmlFor={`value-${index}`} className="sr-only">
-                      Value
-                    </Label>
-                    <Input
-                      id={`value-${index}`}
-                      placeholder="Value"
-                      value={entry.value}
-                      onChange={(e) =>
-                        updateEntry(index, "value", e.target.value)
-                      }
-                      disabled={Boolean(validationMessage)}
-                    />
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => removeEntry(index)}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-                {validationMessage && (
-                  <p className="text-xs text-red-600 dark:text-red-400">
-                    {validationMessage}
-                  </p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {entries.length === 0 && (
-          <div className="text-center py-8">
-            <p className="text-gray-500 dark:text-gray-400 mb-4">
-              No metadata entries. Click "Add Entry" to add key-value pairs.
-            </p>
-          </div>
-        )}
+        <JsonEditor
+          value={jsonValue}
+          onChange={handleJsonChange}
+          error={jsonError || undefined}
+        />
       </div>
     </TabsContent>
   );
 };
 
-export default MetadataTab;
+export default MetaDataTab;
