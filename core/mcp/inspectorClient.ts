@@ -95,7 +95,7 @@ import { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type pino from "pino";
-import { silentLogger } from "../logging/logger.js";
+import { silentLogger } from "../logging/node/logger.js";
 import { createFetchTracker } from "./fetchTracking.js";
 import { OAuthManager, type OAuthManagerConfig } from "./oauthManager.js";
 

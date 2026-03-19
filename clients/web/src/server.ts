@@ -34,6 +34,7 @@ export interface WebServerHandle {
 export async function startHonoServer(
   config: WebServerConfig,
 ): Promise<WebServerHandle> {
+  config.logger.info("Web server starting");
   const sandboxController = createSandboxController({
     port: config.sandboxPort,
     host: config.sandboxHost,
@@ -131,7 +132,7 @@ export async function startHonoServer(
 
 /** Run when this file is executed as the main module (e.g. node dist/server.js). */
 async function runStandalone(): Promise<void> {
-  const config = buildWebServerConfigFromEnv();
+  const config = await buildWebServerConfigFromEnv();
   const handle = await startHonoServer(config);
   const shutdown = () => {
     void handle.close().then(() => process.exit(0));
