@@ -1659,8 +1659,8 @@ const App = () => {
                     />
                     <AuthDebuggerWrapper />
                     <MetadataTab
-                      metaData={metadata}
-                      onMetaDataChange={handleMetadataChange}
+                      metadata={metadata}
+                      onMetadataChange={handleMetadataChange}
                     />
                   </>
                 )}

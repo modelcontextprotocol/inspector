@@ -3,14 +3,14 @@ import { TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import JsonEditor from "@/components/JsonEditor";
 
-interface MetaDataTabProps {
-  metaData: Record<string, unknown>;
-  onMetaDataChange: (metaData: Record<string, unknown>) => void;
+interface MetadataTabProps {
+  metadata: Record<string, unknown>;
+  onMetadataChange: (metadata: Record<string, unknown>) => void;
 }
 
-const MetaDataTab: React.FC<MetaDataTabProps> = ({
-  metaData,
-  onMetaDataChange,
+const MetadataTab: React.FC<MetadataTabProps> = ({
+  metadata,
+  onMetadataChange,
 }) => {
   const stringifyCompact = (
     value: Record<string, unknown> | null | undefined,
@@ -34,26 +34,26 @@ const MetaDataTab: React.FC<MetaDataTabProps> = ({
     }
   };
 
-  const initialCompact = stringifyCompact(metaData);
+  const initialCompact = stringifyCompact(metadata);
   const [jsonValue, setJsonValue] = useState<string>(() => {
     if (!initialCompact) {
       return "";
     }
 
-    return stringifyPretty(metaData);
+    return stringifyPretty(metadata);
   });
 
   const [jsonError, setJsonError] = useState<string | null>(null);
-  const lastMetaDataStringRef = useRef<string>(initialCompact);
+  const lastMetadataStringRef = useRef<string>(initialCompact);
 
   useEffect(() => {
-    const compact = stringifyCompact(metaData);
+    const compact = stringifyCompact(metadata);
 
-    if (compact === lastMetaDataStringRef.current) {
+    if (compact === lastMetadataStringRef.current) {
       return;
     }
 
-    lastMetaDataStringRef.current = compact;
+    lastMetadataStringRef.current = compact;
 
     if (!compact) {
       setJsonValue("");
@@ -61,19 +61,19 @@ const MetaDataTab: React.FC<MetaDataTabProps> = ({
       return;
     }
 
-    if (metaData) {
-      const pretty = stringifyPretty(metaData);
+    if (metadata) {
+      const pretty = stringifyPretty(metadata);
       setJsonValue(pretty);
       setJsonError(null);
     }
-  }, [metaData]);
+  }, [metadata]);
 
   const handleJsonChange = (value: string) => {
     setJsonValue(value);
 
     if (!value.trim()) {
-      onMetaDataChange({});
-      lastMetaDataStringRef.current = "";
+      onMetadataChange({});
+      lastMetadataStringRef.current = "";
       setJsonError(null);
       return;
     }
@@ -90,8 +90,8 @@ const MetaDataTab: React.FC<MetaDataTabProps> = ({
         return;
       }
 
-      onMetaDataChange(parsed);
-      lastMetaDataStringRef.current = JSON.stringify(parsed);
+      onMetadataChange(parsed);
+      lastMetadataStringRef.current = JSON.stringify(parsed);
       setJsonError(null);
     } catch {
       setJsonError("Invalid JSON format");
@@ -117,8 +117,8 @@ const MetaDataTab: React.FC<MetaDataTabProps> = ({
 
       const pretty = stringifyPretty(parsed);
       setJsonValue(pretty);
-      onMetaDataChange(parsed);
-      lastMetaDataStringRef.current = JSON.stringify(parsed);
+      onMetadataChange(parsed);
+      lastMetadataStringRef.current = JSON.stringify(parsed);
       setJsonError(null);
     } catch {
       setJsonError("Invalid JSON format");
@@ -157,4 +157,4 @@ const MetaDataTab: React.FC<MetaDataTabProps> = ({
   );
 };
 
-export default MetaDataTab;
+export default MetadataTab;

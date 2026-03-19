@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import MetaDataTab from "../MetaDataTab";
+import MetadataTab from "../MetadataTab";
 import { Tabs } from "@/components/ui/tabs";
 
 jest.mock("react-simple-code-editor", () => {
@@ -29,16 +29,16 @@ jest.mock("prismjs", () => ({
 jest.mock("prismjs/components/prism-json", () => {});
 jest.mock("prismjs/themes/prism.css", () => {});
 
-describe("MetaDataTab", () => {
+describe("MetadataTab", () => {
   const defaultProps = {
-    metaData: {},
-    onMetaDataChange: jest.fn(),
+    metadata: {},
+    onMetadataChange: jest.fn(),
   };
 
-  const renderMetaDataTab = (props = {}) => {
+  const renderMetadataTab = (props = {}) => {
     return render(
       <Tabs defaultValue="metadata">
-        <MetaDataTab {...defaultProps} {...props} />
+        <MetadataTab {...defaultProps} {...props} />
       </Tabs>,
     );
   };
@@ -49,7 +49,7 @@ describe("MetaDataTab", () => {
 
   describe("Initial Rendering", () => {
     it("should render the metadata tab with title and description", () => {
-      renderMetaDataTab();
+      renderMetadataTab();
 
       expect(screen.getByText("Meta Data")).toBeInTheDocument();
       expect(
@@ -60,14 +60,14 @@ describe("MetaDataTab", () => {
     });
 
     it("should render Pretty button", () => {
-      renderMetaDataTab();
+      renderMetadataTab();
 
       const prettyButton = screen.getByRole("button", { name: /pretty/i });
       expect(prettyButton).toBeInTheDocument();
     });
 
     it("should render JSON editor", () => {
-      renderMetaDataTab();
+      renderMetadataTab();
 
       expect(screen.getByTestId("json-editor")).toBeInTheDocument();
     });
@@ -75,12 +75,12 @@ describe("MetaDataTab", () => {
 
   describe("Initial Data Handling", () => {
     it("should initialize with existing metadata", () => {
-      const initialMetaData = {
+      const initialMetadata = {
         API_KEY: "test-key",
         VERSION: "1.0.0",
       };
 
-      renderMetaDataTab({ metaData: initialMetaData });
+      renderMetadataTab({ metadata: initialMetadata });
 
       const editor = screen.getByTestId("json-editor") as HTMLTextAreaElement;
       expect(editor.value).toContain("API_KEY");
@@ -90,8 +90,8 @@ describe("MetaDataTab", () => {
     });
 
     it("should pretty print metadata by default", () => {
-      renderMetaDataTab({
-        metaData: { firstKey: "value" },
+      renderMetadataTab({
+        metadata: { firstKey: "value" },
       });
 
       const editor = screen.getByTestId("json-editor") as HTMLTextAreaElement;
@@ -102,20 +102,20 @@ describe("MetaDataTab", () => {
   });
 
   describe("Editing JSON", () => {
-    it("should call onMetaDataChange when valid JSON is entered", () => {
-      const onMetaDataChange = jest.fn();
-      renderMetaDataTab({ onMetaDataChange });
+    it("should call onMetadataChange when valid JSON is entered", () => {
+      const onMetadataChange = jest.fn();
+      renderMetadataTab({ onMetadataChange });
 
       const editor = screen.getByTestId("json-editor");
       fireEvent.change(editor, {
         target: { value: '{"key":"value"}' },
       });
 
-      expect(onMetaDataChange).toHaveBeenCalledWith({ key: "value" });
+      expect(onMetadataChange).toHaveBeenCalledWith({ key: "value" });
     });
 
     it("should show error for invalid JSON", () => {
-      renderMetaDataTab();
+      renderMetadataTab();
 
       const editor = screen.getByTestId("json-editor");
       fireEvent.change(editor, {
@@ -125,20 +125,20 @@ describe("MetaDataTab", () => {
       expect(screen.getByText("Invalid JSON format")).toBeInTheDocument();
     });
 
-    it("should not call onMetaDataChange when JSON is invalid", () => {
-      const onMetaDataChange = jest.fn();
-      renderMetaDataTab({ onMetaDataChange });
+    it("should not call onMetadataChange when JSON is invalid", () => {
+      const onMetadataChange = jest.fn();
+      renderMetadataTab({ onMetadataChange });
 
       const editor = screen.getByTestId("json-editor");
       fireEvent.change(editor, {
         target: { value: '{"key": }' },
       });
 
-      expect(onMetaDataChange).not.toHaveBeenCalled();
+      expect(onMetadataChange).not.toHaveBeenCalled();
     });
 
     it("should clear error when JSON becomes valid", () => {
-      renderMetaDataTab();
+      renderMetadataTab();
 
       const editor = screen.getByTestId("json-editor");
       fireEvent.change(editor, {
@@ -155,10 +155,10 @@ describe("MetaDataTab", () => {
     });
 
     it("should clear metadata when input is emptied", () => {
-      const onMetaDataChange = jest.fn();
-      renderMetaDataTab({
-        metaData: { key: "value" },
-        onMetaDataChange,
+      const onMetadataChange = jest.fn();
+      renderMetadataTab({
+        metadata: { key: "value" },
+        onMetadataChange,
       });
 
       const editor = screen.getByTestId("json-editor");
@@ -167,11 +167,11 @@ describe("MetaDataTab", () => {
         target: { value: "" },
       });
 
-      expect(onMetaDataChange).toHaveBeenCalledWith({});
+      expect(onMetadataChange).toHaveBeenCalledWith({});
     });
 
     it("should display object validation error when JSON is not an object", () => {
-      renderMetaDataTab();
+      renderMetadataTab();
 
       const editor = screen.getByTestId("json-editor");
       fireEvent.change(editor, {
@@ -186,8 +186,8 @@ describe("MetaDataTab", () => {
 
   describe("Pretty Button", () => {
     it("should format the JSON when clicked", () => {
-      const onMetaDataChange = jest.fn();
-      renderMetaDataTab({ onMetaDataChange });
+      const onMetadataChange = jest.fn();
+      renderMetadataTab({ onMetadataChange });
 
       const editor = screen.getByTestId("json-editor") as HTMLTextAreaElement;
 
@@ -202,12 +202,12 @@ describe("MetaDataTab", () => {
       expect(editor.value).toBe(`{
   "key": "value"
 }`);
-      expect(onMetaDataChange).toHaveBeenLastCalledWith({ key: "value" });
+      expect(onMetadataChange).toHaveBeenLastCalledWith({ key: "value" });
     });
 
     it("should not do anything when editor is empty", () => {
-      const onMetaDataChange = jest.fn();
-      renderMetaDataTab({ onMetaDataChange });
+      const onMetadataChange = jest.fn();
+      renderMetadataTab({ onMetadataChange });
 
       const editor = screen.getByTestId("json-editor") as HTMLTextAreaElement;
       const prettyButton = screen.getByRole("button", { name: /pretty/i });
@@ -215,11 +215,11 @@ describe("MetaDataTab", () => {
       fireEvent.click(prettyButton);
 
       expect(editor.value).toBe("");
-      expect(onMetaDataChange).not.toHaveBeenCalled();
+      expect(onMetadataChange).not.toHaveBeenCalled();
     });
 
     it("should show error when JSON cannot be parsed on pretty click", () => {
-      renderMetaDataTab();
+      renderMetadataTab();
 
       const editor = screen.getByTestId("json-editor");
       fireEvent.change(editor, {
@@ -236,13 +236,13 @@ describe("MetaDataTab", () => {
 
   describe("Props Synchronization", () => {
     it("should update editor contents when props change", () => {
-      const { rerender } = renderMetaDataTab({});
+      const { rerender } = renderMetadataTab({});
 
       expect(screen.getByTestId("json-editor")).toHaveValue("");
 
       rerender(
         <Tabs defaultValue="metadata">
-          <MetaDataTab {...defaultProps} metaData={{ nextKey: "nextValue" }} />
+          <MetadataTab {...defaultProps} metadata={{ nextKey: "nextValue" }} />
         </Tabs>,
       );
 
