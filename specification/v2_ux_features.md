@@ -1,7 +1,7 @@
 # Inspector V2 UX - Feature Screens
 
-### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_tech_stack.md)
-### UX: [Overview](v2_ux.md) | Features | [Handlers](v2_ux_handlers.md) | [Screenshots](v2_screenshots.md)
+### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_web_client.md) | V2 UX
+#### [Overview](v2_ux.md) | Features | [Handlers](v2_ux_handlers.md) | [Screenshots](v2_screenshots.md) | [Components](v2_ux_components.md)
 
 ---
 

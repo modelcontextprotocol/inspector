@@ -1,0 +1,217 @@
+import {
+  ActionIcon,
+  Alert,
+  Button,
+  Card,
+  Checkbox,
+  Divider,
+  Group,
+  Stack,
+  Table,
+  Text,
+  TextInput,
+  Textarea,
+  Title,
+} from "@mantine/core";
+
+export interface ExperimentalCapability {
+  name: string;
+  description?: string;
+  methods?: string[];
+}
+
+export interface ClientExperimentalCapability {
+  name: string;
+  enabled: boolean;
+}
+
+export interface KeyValuePair {
+  key: string;
+  value: string;
+}
+
+export interface RequestHistoryItem {
+  timestamp: string;
+  method: string;
+  status: string;
+  durationMs: number;
+}
+
+export interface ExperimentalFeaturesPanelProps {
+  serverCapabilities: ExperimentalCapability[];
+  clientCapabilities: ClientExperimentalCapability[];
+  requestJson: string;
+  responseJson?: string;
+  customHeaders: KeyValuePair[];
+  requestHistory: RequestHistoryItem[];
+  onToggleClientCapability: (name: string, enabled: boolean) => void;
+  onRequestChange: (json: string) => void;
+  onSendRequest: () => void;
+  onAddHeader: () => void;
+  onRemoveHeader: (index: number) => void;
+  onHeaderChange: (index: number, key: string, value: string) => void;
+  onCopyResponse: () => void;
+}
+
+export function ExperimentalFeaturesPanel({
+  serverCapabilities,
+  clientCapabilities,
+  requestJson,
+  responseJson,
+  customHeaders,
+  requestHistory,
+  onToggleClientCapability,
+  onRequestChange,
+  onSendRequest,
+  onAddHeader,
+  onRemoveHeader,
+  onHeaderChange,
+  onCopyResponse,
+}: ExperimentalFeaturesPanelProps) {
+  return (
+    <Stack gap="md">
+      <Alert color="yellow">
+        These features are non-standard and may change or be removed.
+      </Alert>
+
+      <Title order={5}>Server Experimental Capabilities:</Title>
+
+      {serverCapabilities.length === 0 ? (
+        <Text c="dimmed">No experimental capabilities</Text>
+      ) : (
+        serverCapabilities.map((cap) => (
+          <Card key={cap.name} withBorder p="sm">
+            <Stack gap="xs">
+              <Text fw={600}>{cap.name}</Text>
+              {cap.description && (
+                <Text size="sm" c="dimmed">
+                  {cap.description}
+                </Text>
+              )}
+              {cap.methods && cap.methods.length > 0 && (
+                <Text size="xs" c="dimmed">
+                  Methods: {cap.methods.join(", ")}
+                </Text>
+              )}
+              <Group>
+                <Button size="xs" variant="light">
+                  Test →
+                </Button>
+              </Group>
+            </Stack>
+          </Card>
+        ))
+      )}
+
+      <Divider />
+
+      <Title order={5}>Client Experimental Capabilities:</Title>
+
+      {clientCapabilities.map((clientCap) => (
+        <Checkbox
+          key={clientCap.name}
+          label={clientCap.name}
+          checked={clientCap.enabled}
+          onChange={(e) =>
+            onToggleClientCapability(clientCap.name, e.currentTarget.checked)
+          }
+        />
+      ))}
+
+      <Divider />
+
+      <Title order={5}>Advanced JSON-RPC Tester</Title>
+
+      <Text size="sm" c="dimmed">
+        Send raw JSON-RPC requests to test ANY method
+      </Text>
+
+      {customHeaders.map((header, index) => (
+        <Group key={index}>
+          <TextInput
+            placeholder="Header name"
+            value={header.key}
+            onChange={(e) =>
+              onHeaderChange(index, e.currentTarget.value, header.value)
+            }
+          />
+          <TextInput
+            placeholder="Header value"
+            value={header.value}
+            onChange={(e) =>
+              onHeaderChange(index, header.key, e.currentTarget.value)
+            }
+          />
+          <ActionIcon
+            variant="light"
+            color="red"
+            onClick={() => onRemoveHeader(index)}
+          >
+            <Text size="xs">✕</Text>
+          </ActionIcon>
+        </Group>
+      ))}
+
+      <Group>
+        <Button size="xs" variant="light" onClick={onAddHeader}>
+          + Add Header
+        </Button>
+      </Group>
+
+      <Textarea
+        label="Request"
+        ff="monospace"
+        value={requestJson}
+        onChange={(e) => onRequestChange(e.currentTarget.value)}
+        autosize
+        minRows={6}
+      />
+
+      <Button onClick={onSendRequest}>Send Request</Button>
+
+      {responseJson && (
+        <>
+          <Textarea
+            label="Response"
+            ff="monospace"
+            value={responseJson}
+            readOnly
+            autosize
+            minRows={4}
+          />
+          <Group>
+            <Button variant="light" size="xs" onClick={onCopyResponse}>
+              Copy
+            </Button>
+          </Group>
+        </>
+      )}
+
+      {requestHistory.length > 0 && (
+        <>
+          <Title order={5}>Request History:</Title>
+          <Table>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Timestamp</Table.Th>
+                <Table.Th>Method</Table.Th>
+                <Table.Th>Status</Table.Th>
+                <Table.Th>Duration</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {requestHistory.map((item, index) => (
+                <Table.Tr key={index}>
+                  <Table.Td>{item.timestamp}</Table.Td>
+                  <Table.Td>{item.method}</Table.Td>
+                  <Table.Td>{item.status}</Table.Td>
+                  <Table.Td>{item.durationMs}ms</Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </>
+      )}
+    </Stack>
+  );
+}
