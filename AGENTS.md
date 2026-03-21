@@ -100,3 +100,9 @@ inspector/
       // Component.tsx
       const MessageContainer = Paper.withProps({ variant: 'message' });
     ```
+- Theme files vs. Storybook atom components
+  - **Theme files** (`src/theme/<Component>.ts`) and **atom components** (`src/components/atoms/`) serve different purposes and both are needed.
+  - Theme files customize every instance of a Mantine component app-wide — defaults (size, radius), custom variants, and global style overrides. They are applied automatically by `MantineProvider`.
+  - Atom components add domain-specific semantics on top of Mantine primitives. For example, `AnnotationBadge` maps domain concepts (audience, destructive, longRun) to Mantine's styling primitives (color, variant). Storybook documents these domain components for designers and developers.
+  - Atom components MUST import from `@mantine/core`, NOT from `src/theme/`. The theme layer is applied transparently by the provider — atoms do not need to know about `Theme<Name>` constants.
+  - NEVER push domain-specific variant logic (e.g., annotation types, transport types) into theme files. Domain variants belong in the atom component that owns those semantics. Theme files are for styling that applies to the Mantine primitive globally.
