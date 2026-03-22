@@ -35,7 +35,9 @@ export function ElicitationUrlPanel({
       </Text>
       <Divider />
       <Text size="sm">The server is requesting you visit:</Text>
-      <Code block>{url}</Code>
+      <Code block variant="wrapping">
+        {url}
+      </Code>
       <Group>
         <Button variant="light" onClick={onCopyUrl}>
           Copy URL

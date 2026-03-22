@@ -16,28 +16,33 @@ export function InlineError({
   maxRetries,
   docLink,
 }: InlineErrorProps) {
+  const hasDetails =
+    retryCount !== undefined || details !== undefined || docLink !== undefined;
+
   return (
     <Alert color="red" variant="light" title={message}>
-      <Stack gap="xs">
-        {retryCount !== undefined && (
-          <Text size="sm">
-            Retry attempt {retryCount}
-            {maxRetries !== undefined && ` of ${maxRetries}`}
-          </Text>
-        )}
-        {details && (
-          <Spoiler maxHeight={0} showLabel="Show more" hideLabel="Show less">
-            <Text size="sm">{details}</Text>
-          </Spoiler>
-        )}
-        {docLink && (
-          <Group>
-            <Anchor href={docLink} target="_blank" size="sm">
-              View Troubleshooting Guide &rarr;
-            </Anchor>
-          </Group>
-        )}
-      </Stack>
+      {hasDetails && (
+        <Stack gap="xs">
+          {retryCount !== undefined && (
+            <Text size="sm">
+              Retry attempt {retryCount}
+              {maxRetries !== undefined && ` of ${maxRetries}`}
+            </Text>
+          )}
+          {details && (
+            <Spoiler maxHeight={0} showLabel="Show more" hideLabel="Show less">
+              <Text size="sm">{details}</Text>
+            </Spoiler>
+          )}
+          {docLink && (
+            <Group>
+              <Anchor href={docLink} target="_blank" size="sm">
+                View Troubleshooting Guide &rarr;
+              </Anchor>
+            </Group>
+          )}
+        </Stack>
+      )}
     </Alert>
   );
 }
