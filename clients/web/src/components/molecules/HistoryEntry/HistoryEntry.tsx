@@ -25,7 +25,7 @@ export interface HistoryEntryProps {
   durationMs: number;
   parameters?: Record<string, unknown>;
   response?: Record<string, unknown>;
-  children?: HistoryChildEntry[];
+  childEntries?: HistoryChildEntry[];
   isPinned: boolean;
   pinLabel?: string;
   isExpanded: boolean;
@@ -42,7 +42,7 @@ export function HistoryEntry({
   durationMs,
   parameters,
   response,
-  children,
+  childEntries,
   isPinned,
   pinLabel,
   isExpanded,
@@ -102,9 +102,9 @@ export function HistoryEntry({
                 <Code block>{JSON.stringify(response, null, 2)}</Code>
               </Stack>
             )}
-            {children && children.length > 0 && (
+            {childEntries && childEntries.length > 0 && (
               <Stack gap="xs">
-                {children.map((child, index) => (
+                {childEntries.map((child, index) => (
                   <Group key={index} pl="lg" gap="sm">
                     <Text size="sm" c="dimmed" ff="monospace">
                       +--{" "}

@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn } from "storybook/test";
 import { ContentViewer } from "./ContentViewer";
 
 const meta: Meta<typeof ContentViewer> = {
@@ -74,6 +73,15 @@ export const WithCopyButton: Story = {
   args: {
     type: "text",
     content: "Hello, world!\nThis text can be copied.",
-    onCopy: fn(),
+    copyable: true,
+  },
+};
+
+export const JsonWithCopy: Story = {
+  args: {
+    type: "json",
+    content:
+      '{"name":"my-app","version":"1.0.0","description":"Sample configuration file"}',
+    copyable: true,
   },
 };

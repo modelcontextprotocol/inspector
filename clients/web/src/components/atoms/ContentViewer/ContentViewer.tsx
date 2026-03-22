@@ -1,10 +1,11 @@
-import { Button, Code, Image, Stack } from "@mantine/core";
+import { Code, Flex, Image, Stack } from "@mantine/core";
+import { CopyButton } from "../CopyButton/CopyButton";
 
 export interface ContentViewerProps {
   type: "text" | "json" | "image" | "audio";
   content: string;
   mimeType?: string;
-  onCopy?: () => void;
+  copyable?: boolean;
 }
 
 function formatJson(content: string): string {
@@ -15,16 +16,33 @@ function formatJson(content: string): string {
   }
 }
 
+const ContentWrapper = Flex.withProps({
+  pos: "relative",
+  direction: "column",
+});
+
 export function ContentViewer({
   type,
   content,
   mimeType,
-  onCopy,
+  copyable = false,
 }: ContentViewerProps) {
+  const showCopy = copyable && (type === "text" || type === "json");
+
   return (
     <Stack gap="xs">
-      {type === "json" && <Code block>{formatJson(content)}</Code>}
-      {type === "text" && <Code block>{content}</Code>}
+      {(type === "json" || type === "text") && (
+        <ContentWrapper>
+          <Code block p={36}>
+            {type === "json" ? formatJson(content) : content}
+          </Code>
+          {showCopy && (
+            <Flex pos="absolute" top={4} right={4}>
+              <CopyButton value={content} />
+            </Flex>
+          )}
+        </ContentWrapper>
+      )}
       {type === "image" && (
         <Image
           src={`data:${mimeType || "image/png"};base64,${content}`}
@@ -37,11 +55,6 @@ export function ContentViewer({
         <audio controls>
           <source src={`data:${mimeType || "audio/wav"};base64,${content}`} />
         </audio>
-      )}
-      {onCopy && (
-        <Button variant="light" size="xs" onClick={onCopy}>
-          Copy
-        </Button>
       )}
     </Stack>
   );

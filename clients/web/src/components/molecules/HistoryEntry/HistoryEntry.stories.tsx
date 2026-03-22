@@ -75,7 +75,7 @@ export const WithChildren: Story = {
     response: {
       result: "completed",
     },
-    children: [
+    childEntries: [
       {
         timestamp: "+120ms",
         method: "sampling/createMessage",
