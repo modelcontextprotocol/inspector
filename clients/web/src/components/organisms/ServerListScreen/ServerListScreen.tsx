@@ -4,7 +4,6 @@ import {
   SimpleGrid,
   Stack,
   Text,
-  Title,
 } from "@mantine/core";
 import { ServerCard } from "../../molecules/ServerCard/ServerCard";
 import { AddServerMenu } from "../../molecules/AddServerMenu/AddServerMenu";
@@ -26,8 +25,7 @@ export function ServerListScreen({
   return (
     <Container size="xl" py="xl">
       <Stack gap="lg">
-        <Group justify="space-between">
-          <Title order={1}>MCP Inspector</Title>
+        <Group justify="flex-end">
           <AddServerMenu
             onAddManually={onAddManually}
             onImportConfig={onImportConfig}

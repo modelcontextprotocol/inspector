@@ -55,7 +55,6 @@ export function ResourceTemplateInput({
           <TextInput
             key={part.value}
             size="sm"
-            label={part.value}
             placeholder={part.value}
             value={variables[part.value] ?? ""}
             onChange={(e) =>

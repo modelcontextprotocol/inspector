@@ -75,7 +75,6 @@ const selectedResourceProps: ResourcePreviewPanelProps = {
   ),
   lastUpdated: "2026-03-17T10:30:00Z",
   isSubscribed: true,
-  onCopy: fn(),
   onSubscribe: fn(),
   onUnsubscribe: fn(),
 };

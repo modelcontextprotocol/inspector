@@ -1,4 +1,4 @@
-import { Grid, Paper, Stack, Text } from "@mantine/core";
+import { Card, Container, Grid, Stack, Text } from "@mantine/core";
 import { PromptArgumentsForm } from "../../molecules/PromptArgumentsForm/PromptArgumentsForm";
 import { PromptMessagesDisplay } from "../../molecules/PromptMessagesDisplay/PromptMessagesDisplay";
 import { ListChangedIndicator } from "../../atoms/ListChangedIndicator/ListChangedIndicator";
@@ -19,9 +19,10 @@ export function PromptsScreen({
   onRefreshList,
 }: PromptsScreenProps) {
   return (
-    <Grid>
+    <Container size="xl" py="xl">
+    <Grid align="stretch">
       <Grid.Col span={5}>
-        <Paper withBorder p="md">
+        <Card withBorder padding="lg" h="100%">
           <Stack gap="md">
             <ListChangedIndicator
               visible={listChanged}
@@ -29,10 +30,10 @@ export function PromptsScreen({
             />
             <PromptArgumentsForm {...promptForm} />
           </Stack>
-        </Paper>
+        </Card>
       </Grid.Col>
       <Grid.Col span={7}>
-        <Paper withBorder p="md">
+        <Card withBorder padding="lg" h="100%">
           {messages ? (
             <PromptMessagesDisplay {...messages} />
           ) : (
@@ -40,8 +41,9 @@ export function PromptsScreen({
               Select a prompt and click Get Prompt to see messages
             </Text>
           )}
-        </Paper>
+        </Card>
       </Grid.Col>
     </Grid>
+    </Container>
   );
 }

@@ -1,4 +1,4 @@
-import { Grid, Paper, Stack, Text, TextInput } from "@mantine/core";
+import { Card, Container, Grid, Stack, Text, TextInput, Title } from "@mantine/core";
 import { ListChangedIndicator } from "../../atoms/ListChangedIndicator/ListChangedIndicator";
 import { ToolListItem } from "../../molecules/ToolListItem/ToolListItem";
 import { ToolDetailPanel } from "../../molecules/ToolDetailPanel/ToolDetailPanel";
@@ -35,10 +35,12 @@ export function ToolsScreen({
     : tools;
 
   return (
-    <Grid>
+    <Container size="xl" py="xl">
+    <Grid align="stretch">
       <Grid.Col span={3}>
-        <Paper withBorder p="md">
+        <Card withBorder padding="lg" h="100%">
           <Stack gap="sm">
+            <Title order={4}>Tools</Title>
             <ListChangedIndicator
               visible={listChanged}
               onRefresh={onRefreshList}
@@ -56,11 +58,11 @@ export function ToolsScreen({
               />
             ))}
           </Stack>
-        </Paper>
+        </Card>
       </Grid.Col>
 
       <Grid.Col span={5}>
-        <Paper withBorder p="md" variant="contained">
+        <Card withBorder padding="lg" h="100%">
           {selectedTool ? (
             <ToolDetailPanel {...selectedTool} />
           ) : (
@@ -68,11 +70,11 @@ export function ToolsScreen({
               Select a tool to view details
             </Text>
           )}
-        </Paper>
+        </Card>
       </Grid.Col>
 
       <Grid.Col span={4}>
-        <Paper withBorder p="md">
+        <Card withBorder padding="lg" h="100%">
           {result ? (
             <ResultPanel {...result} />
           ) : (
@@ -80,8 +82,9 @@ export function ToolsScreen({
               Results will appear here
             </Text>
           )}
-        </Paper>
+        </Card>
       </Grid.Col>
     </Grid>
+    </Container>
   );
 }

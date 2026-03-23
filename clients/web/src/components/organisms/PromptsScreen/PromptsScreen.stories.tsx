@@ -76,7 +76,6 @@ export const WithResult: Story = {
           content: "Hola, como estas?",
         },
       ],
-      onCopy: fn(),
     },
     listChanged: false,
   },

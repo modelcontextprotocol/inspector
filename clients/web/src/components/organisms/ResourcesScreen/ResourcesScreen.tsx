@@ -1,4 +1,4 @@
-import { Accordion, Grid, Paper, Stack, Text, TextInput } from "@mantine/core";
+import { Accordion, Card, Container, Grid, Stack, Text, TextInput, Title } from "@mantine/core";
 import { ListChangedIndicator } from "../../atoms/ListChangedIndicator/ListChangedIndicator";
 import { ResourceListItem } from "../../molecules/ResourceListItem/ResourceListItem";
 import { ResourcePreviewPanel } from "../../molecules/ResourcePreviewPanel/ResourcePreviewPanel";
@@ -38,11 +38,19 @@ export function ResourcesScreen({
     r.name.toLowerCase().includes(searchText.toLowerCase()),
   );
 
+  const openSections = [
+    ...(filteredResources.length > 0 ? ["resources"] : []),
+    ...(templates.length > 0 ? ["templates"] : []),
+    ...(subscriptions.length > 0 ? ["subscriptions"] : []),
+  ];
+
   return (
-    <Grid>
+    <Container size="xl" py="xl">
+    <Grid align="stretch">
       <Grid.Col span={4}>
-        <Paper withBorder p="md">
+        <Card withBorder padding="lg" h="100%">
           <Stack gap="sm">
+            <Title order={4}>Resources</Title>
             <ListChangedIndicator
               visible={listChanged}
               onRefresh={onRefreshList}
@@ -54,11 +62,11 @@ export function ResourcesScreen({
             />
             <Accordion
               multiple
-              defaultValue={["resources", "templates", "subscriptions"]}
+              defaultValue={openSections}
             >
               <Accordion.Item value="resources">
-                <Accordion.Control>
-                  Resources ({filteredResources.length})
+                <Accordion.Control disabled={filteredResources.length === 0}>
+                  URIs ({filteredResources.length})
                 </Accordion.Control>
                 <Accordion.Panel>
                   <Stack gap="xs">
@@ -70,7 +78,7 @@ export function ResourcesScreen({
               </Accordion.Item>
 
               <Accordion.Item value="templates">
-                <Accordion.Control>
+                <Accordion.Control disabled={templates.length === 0}>
                   Templates ({templates.length})
                 </Accordion.Control>
                 <Accordion.Panel>
@@ -86,7 +94,7 @@ export function ResourcesScreen({
               </Accordion.Item>
 
               <Accordion.Item value="subscriptions">
-                <Accordion.Control>
+                <Accordion.Control disabled={subscriptions.length === 0}>
                   Subscriptions ({subscriptions.length})
                 </Accordion.Control>
                 <Accordion.Panel>
@@ -107,11 +115,11 @@ export function ResourcesScreen({
               </Accordion.Item>
             </Accordion>
           </Stack>
-        </Paper>
+        </Card>
       </Grid.Col>
 
       <Grid.Col span={8}>
-        <Paper withBorder p="md">
+        <Card withBorder padding="lg">
           {selectedResource ? (
             <ResourcePreviewPanel {...selectedResource} />
           ) : (
@@ -119,8 +127,9 @@ export function ResourcesScreen({
               Select a resource to preview
             </Text>
           )}
-        </Paper>
+        </Card>
       </Grid.Col>
     </Grid>
+    </Container>
   );
 }

@@ -5,9 +5,7 @@ import { PromptMessagesDisplay } from "./PromptMessagesDisplay";
 const meta: Meta<typeof PromptMessagesDisplay> = {
   title: "Molecules/PromptMessagesDisplay",
   component: PromptMessagesDisplay,
-  args: {
-    onCopy: fn(),
-  },
+  args: {},
 };
 
 export default meta;

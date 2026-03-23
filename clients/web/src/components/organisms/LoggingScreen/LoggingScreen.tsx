@@ -1,6 +1,7 @@
 import {
   Button,
   Checkbox,
+  Container,
   Grid,
   Group,
   Paper,
@@ -30,6 +31,7 @@ export function LoggingScreen({
   onCopyAll,
 }: LoggingScreenProps) {
   return (
+    <Container size="xl" py="xl">
     <Grid align="stretch">
       <Grid.Col span={3}>
         <Paper withBorder p="md" h="100%">
@@ -69,5 +71,6 @@ export function LoggingScreen({
         </Paper>
       </Grid.Col>
     </Grid>
+    </Container>
   );
 }

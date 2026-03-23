@@ -1,5 +1,4 @@
-import { Group, Stack, Text, UnstyledButton } from "@mantine/core";
-import { AnnotationBadge } from "../../atoms/AnnotationBadge/AnnotationBadge";
+import { Text, UnstyledButton } from "@mantine/core";
 
 export interface ResourceAnnotations {
   audience?: string;
@@ -14,15 +13,8 @@ export interface ResourceListItemProps {
   onClick: () => void;
 }
 
-function priorityLabel(priority: number): string {
-  if (priority >= 0.7) return "priority: high";
-  if (priority >= 0.4) return "priority: medium";
-  return "priority: low";
-}
-
 export function ResourceListItem({
   name,
-  annotations,
   selected,
   onClick,
 }: ResourceListItemProps) {
@@ -34,25 +26,7 @@ export function ResourceListItem({
       style={{ borderRadius: "var(--mantine-radius-md)" }}
       onClick={onClick}
     >
-      <Stack gap="xs">
-        <Text fw={500}>{name}</Text>
-        {annotations && (
-          <Group gap="xs">
-            {annotations.audience && (
-              <AnnotationBadge
-                label={annotations.audience}
-                variant="audience"
-              />
-            )}
-            {annotations.priority !== undefined && (
-              <AnnotationBadge
-                label={priorityLabel(annotations.priority)}
-                variant="priority"
-              />
-            )}
-          </Group>
-        )}
-      </Stack>
+      <Text fw={500}>{name}</Text>
     </UnstyledButton>
   );
 }

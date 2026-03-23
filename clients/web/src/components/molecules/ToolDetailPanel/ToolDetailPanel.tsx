@@ -52,11 +52,6 @@ export function ToolDetailPanel({
       <Text fw={700} size="lg" truncate="end">
         {title ?? name}
       </Text>
-      {title && (
-        <Text size="sm" c="dimmed" truncate="end">
-          {name}
-        </Text>
-      )}
       {hasAnnotations && (
         <Group gap="xs">
           {annotations.audience && (

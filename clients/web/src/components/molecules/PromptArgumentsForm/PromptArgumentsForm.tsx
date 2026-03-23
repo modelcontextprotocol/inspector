@@ -34,7 +34,7 @@ export function PromptArgumentsForm({
 
   return (
     <Stack gap="md">
-      <Title order={4}>Select Prompt</Title>
+      <Title order={4}>Prompts</Title>
       <Select
         data={prompts.map((p) => ({ value: p.name, label: p.name }))}
         value={selectedPrompt ?? null}

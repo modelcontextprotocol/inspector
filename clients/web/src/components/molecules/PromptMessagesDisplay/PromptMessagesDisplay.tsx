@@ -1,4 +1,4 @@
-import { Button, Stack, Text, Title } from "@mantine/core";
+import { Stack, Text, Title } from "@mantine/core";
 import { MessageBubble } from "../../atoms/MessageBubble/MessageBubble";
 
 export interface PromptMessage {
@@ -10,12 +10,10 @@ export interface PromptMessage {
 
 export interface PromptMessagesDisplayProps {
   messages: PromptMessage[];
-  onCopy: () => void;
 }
 
 export function PromptMessagesDisplay({
   messages,
-  onCopy,
 }: PromptMessagesDisplayProps) {
   return (
     <Stack gap="md">
@@ -34,9 +32,6 @@ export function PromptMessagesDisplay({
           />
         ))
       )}
-      <Button variant="light" size="sm" onClick={onCopy}>
-        Copy
-      </Button>
     </Stack>
   );
 }
