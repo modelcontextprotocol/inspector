@@ -52,7 +52,6 @@ export function PromptArgumentsForm({
       )}
       {promptArguments.length > 0 && (
         <>
-          <Title order={5}>Arguments</Title>
           {promptArguments.map((arg) => (
             <TextInput
               key={arg.name}

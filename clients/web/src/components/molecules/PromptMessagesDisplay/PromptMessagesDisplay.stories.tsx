@@ -24,6 +24,7 @@ export const SingleMessage: Story = {
 
 export const Conversation: Story = {
   args: {
+    onCopyAll: fn(),
     messages: [
       {
         role: "user",
@@ -55,6 +56,7 @@ export const WithImage: Story = {
 
 export const LongConversation: Story = {
   args: {
+    onCopyAll: fn(),
     messages: [
       {
         role: "user",

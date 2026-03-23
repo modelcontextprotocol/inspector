@@ -1,4 +1,5 @@
-import { Image, Paper, Stack, Text } from "@mantine/core";
+import { Group, Image, Paper, Stack, Text } from "@mantine/core";
+import { CopyButton } from "../CopyButton/CopyButton";
 
 export interface MessageBubbleProps {
   index: number;
@@ -18,9 +19,12 @@ export function MessageBubble({
   return (
     <Paper p="md" radius="md" withBorder>
       <Stack gap="xs">
-        <Text size="xs" c="dimmed">
-          [{index}] role: {role}
-        </Text>
+        <Group justify="space-between">
+          <Text size="xs" c="dimmed">
+            [{index}] role: {role}
+          </Text>
+          <CopyButton value={content} />
+        </Group>
         <Text size="sm">&quot;{content}&quot;</Text>
         {imageContent && (
           <Image

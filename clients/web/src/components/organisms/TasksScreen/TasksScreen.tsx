@@ -1,4 +1,4 @@
-import { Button, Container, Group, Stack, Text, Title } from "@mantine/core";
+import { Button, Container, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import { TaskCard } from "../../molecules/TaskCard/TaskCard";
 import type { TaskCardProps } from "../../molecules/TaskCard/TaskCard";
 
@@ -17,14 +17,14 @@ export function TasksScreen({
 }: TasksScreenProps) {
   return (
     <Container size="xl" py="xl">
+    <Paper withBorder p="md">
     <Stack gap="lg">
-      <Group justify="flex-end">
-        <Button variant="dark" onClick={onRefresh}>
+      <Group justify="space-between">
+        <Title order={4}>Active Tasks ({activeTasks.length})</Title>
+        <Button variant="light" size="xs" onClick={onRefresh}>
           Refresh Tasks
         </Button>
       </Group>
-
-      <Title order={4}>Active Tasks ({activeTasks.length})</Title>
       {activeTasks.length === 0 ? (
         <Text c="dimmed">No active tasks</Text>
       ) : (
@@ -53,6 +53,7 @@ export function TasksScreen({
         </Stack>
       )}
     </Stack>
+    </Paper>
     </Container>
   );
 }

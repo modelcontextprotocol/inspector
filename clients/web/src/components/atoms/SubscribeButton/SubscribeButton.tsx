@@ -10,7 +10,7 @@ export function SubscribeButton({
   onToggle,
 }: SubscribeButtonProps) {
   return (
-    <Button variant="outline" size="sm" onClick={onToggle}>
+    <Button variant="filled" size="sm" onClick={onToggle}>
       {subscribed ? "Unsubscribe" : "Subscribe"}
     </Button>
   );

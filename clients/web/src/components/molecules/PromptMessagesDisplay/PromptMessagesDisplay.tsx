@@ -1,4 +1,4 @@
-import { Stack, Text, Title } from "@mantine/core";
+import { Button, Group, Stack, Text, Title } from "@mantine/core";
 import { MessageBubble } from "../../atoms/MessageBubble/MessageBubble";
 
 export interface PromptMessage {
@@ -10,14 +10,23 @@ export interface PromptMessage {
 
 export interface PromptMessagesDisplayProps {
   messages: PromptMessage[];
+  onCopyAll?: () => void;
 }
 
 export function PromptMessagesDisplay({
   messages,
+  onCopyAll,
 }: PromptMessagesDisplayProps) {
   return (
     <Stack gap="md">
-      <Title order={4}>Messages</Title>
+      <Group justify="space-between">
+        <Title order={4}>Messages</Title>
+        {onCopyAll && messages.length > 0 && (
+          <Button variant="light" size="sm" onClick={onCopyAll}>
+            Copy All
+          </Button>
+        )}
+      </Group>
       {messages.length === 0 ? (
         <Text c="dimmed">No messages to display</Text>
       ) : (

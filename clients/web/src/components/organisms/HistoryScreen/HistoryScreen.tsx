@@ -1,5 +1,6 @@
 import {
   Button,
+  Container,
   Divider,
   Group,
   Paper,
@@ -51,6 +52,7 @@ export function HistoryScreen({
   onExport,
 }: HistoryScreenProps) {
   return (
+    <Container size="xl" py="xl">
     <Paper withBorder p="md">
       <Stack gap="md">
         <Group justify="space-between" wrap="wrap">
@@ -119,5 +121,6 @@ export function HistoryScreen({
         </Group>
       </Stack>
     </Paper>
+    </Container>
   );
 }

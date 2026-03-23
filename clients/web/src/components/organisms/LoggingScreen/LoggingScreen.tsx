@@ -1,10 +1,11 @@
 import {
   Button,
+  Card,
   Checkbox,
   Container,
   Grid,
   Group,
-  Paper,
+
   ScrollArea,
   Stack,
   Text,
@@ -34,12 +35,12 @@ export function LoggingScreen({
     <Container size="xl" py="xl">
     <Grid align="stretch">
       <Grid.Col span={3}>
-        <Paper withBorder p="md" h="100%">
+        <Card withBorder padding="lg">
           <LogControls {...controls} />
-        </Paper>
+        </Card>
       </Grid.Col>
       <Grid.Col span={9}>
-        <Paper withBorder p="md" h="100%">
+        <Card withBorder padding="lg" h="100%">
           <Stack gap="sm" h="100%">
             <Group justify="space-between">
               <Title order={4}>Log Stream</Title>
@@ -68,7 +69,7 @@ export function LoggingScreen({
               </Stack>
             )}
           </Stack>
-        </Paper>
+        </Card>
       </Grid.Col>
     </Grid>
     </Container>

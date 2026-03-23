@@ -65,6 +65,7 @@ export const WithResult: Story = {
       onGetPrompt: fn(),
     },
     messages: {
+      onCopyAll: fn(),
       messages: [
         {
           role: "user",
