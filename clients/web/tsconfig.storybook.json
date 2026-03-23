@@ -3,6 +3,6 @@
   "compilerOptions": {
     "types": ["vite/client"]
   },
-  "include": ["src/**/*.stories.ts", "src/**/*.stories.tsx"],
+  "include": ["src/**/*.stories.ts", "src/**/*.stories.tsx", ".storybook/**/*.ts", ".storybook/**/*.tsx"],
   "exclude": []
 }

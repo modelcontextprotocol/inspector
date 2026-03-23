@@ -38,7 +38,7 @@ export function InlineError({
             <Button
               variant="transparent"
               size="compact-xs"
-              c="dark"
+              c="var(--inspector-text-primary)"
               onClick={() => setExpanded((v) => !v)}
             >
               {expanded ? "Show less" : "Show more"}
