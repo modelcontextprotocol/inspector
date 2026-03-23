@@ -7,7 +7,6 @@ const meta: Meta<typeof ServerCard> = {
   component: ServerCard,
   args: {
     onToggleConnection: fn(),
-    onCopyCommand: fn(),
     onServerInfo: fn(),
     onSettings: fn(),
     onEdit: fn(),

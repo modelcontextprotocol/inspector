@@ -2,12 +2,12 @@ import {
   Badge,
   Button,
   Card,
-  Code,
   Collapse,
   Group,
   Stack,
   Text,
 } from "@mantine/core";
+import { ContentViewer } from "../../atoms/ContentViewer/ContentViewer";
 
 export interface HistoryChildEntry {
   timestamp: string;
@@ -66,12 +66,12 @@ export function HistoryEntry({
             )}
           </Group>
           <Group gap="sm">
-            <Badge color={status === "success" ? "green" : "red"}>
-              {status === "success" ? "OK" : "Error"}
-            </Badge>
             <Text size="sm" c="dimmed">
               {durationMs}ms
             </Text>
+            <Badge color={status === "success" ? "green" : "red"}>
+              {status === "success" ? "OK" : "Error"}
+            </Badge>
           </Group>
         </Group>
 
@@ -93,13 +93,21 @@ export function HistoryEntry({
             {parameters && (
               <Stack gap="xs">
                 <Text size="sm">Parameters:</Text>
-                <Code block>{JSON.stringify(parameters, null, 2)}</Code>
+                <ContentViewer
+                  type="json"
+                  content={JSON.stringify(parameters)}
+                  copyable
+                />
               </Stack>
             )}
             {response && (
               <Stack gap="xs">
                 <Text size="sm">Response:</Text>
-                <Code block>{JSON.stringify(response, null, 2)}</Code>
+                <ContentViewer
+                  type="json"
+                  content={JSON.stringify(response)}
+                  copyable
+                />
               </Stack>
             )}
             {childEntries && childEntries.length > 0 && (

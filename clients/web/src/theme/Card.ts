@@ -6,4 +6,8 @@ export const ThemeCard = Card.extend({
     radius: "md",
     withBorder: true,
   },
+  classNames: (_theme, props) => {
+    if (props.variant === "responsive") return { root: "card-responsive" };
+    return {};
+  },
 });

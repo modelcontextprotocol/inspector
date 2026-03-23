@@ -19,7 +19,6 @@ type Story = StoryObj<typeof ServerListScreen>;
 function makeServerCallbacks(): Pick<
   ServerCardProps,
   | "onToggleConnection"
-  | "onCopyCommand"
   | "onServerInfo"
   | "onSettings"
   | "onEdit"
@@ -32,7 +31,6 @@ function makeServerCallbacks(): Pick<
 > {
   return {
     onToggleConnection: fn(),
-    onCopyCommand: fn(),
     onServerInfo: fn(),
     onSettings: fn(),
     onEdit: fn(),

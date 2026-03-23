@@ -2,7 +2,6 @@ import {
   Badge,
   Button,
   Card,
-  Code,
   Group,
   Menu,
   Stack,
@@ -11,7 +10,7 @@ import {
 import { StatusIndicator } from "../../atoms/StatusIndicator/StatusIndicator";
 import { TransportBadge } from "../../atoms/TransportBadge/TransportBadge";
 import { ConnectionToggle } from "../../atoms/ConnectionToggle/ConnectionToggle";
-import { CopyButton } from "../../atoms/CopyButton/CopyButton";
+import { ContentViewer } from "../../atoms/ContentViewer/ContentViewer";
 import { InlineError } from "../../atoms/InlineError/InlineError";
 
 export interface ServerCardProps {
@@ -25,7 +24,6 @@ export interface ServerCardProps {
   error?: { message: string; details?: string };
   canTestClientFeatures: boolean;
   onToggleConnection: (connect: boolean) => void;
-  onCopyCommand: () => void;
   onServerInfo: () => void;
   onSettings: () => void;
   onEdit: () => void;
@@ -76,7 +74,7 @@ export function ServerCard({
   return (
     <Card withBorder padding="lg">
       <Stack gap="sm">
-        <Group justify="space-between">
+        <Group justify="space-between" wrap="wrap">
           <HeaderLeft>
             <Text fw={600} size="lg">
               {name}
@@ -101,14 +99,7 @@ export function ServerCard({
           </Text>
         </Group>
 
-        <Group gap="xs">
-          <Code>
-            <Text lineClamp={1} size="sm">
-              {command}
-            </Text>
-          </Code>
-          <CopyButton value={command} />
-        </Group>
+        <ContentViewer type="text" content={command} copyable />
 
         {error && (
           <InlineError
@@ -118,49 +109,50 @@ export function ServerCard({
           />
         )}
 
-        <ActionsRow>
-          <Button variant="subtle" size="xs" onClick={onServerInfo}>
-            Server Info
-          </Button>
-          <Button variant="subtle" size="xs" onClick={onSettings}>
-            Settings
-          </Button>
-          {canTestClientFeatures && (
-            <Menu>
-              <Menu.Target>
-                <Button variant="subtle" size="xs">
-                  Test Client Features &#x25BE;
-                </Button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item onClick={onTestSampling}>
-                  Simulate Sampling Request
-                </Menu.Item>
-                <Menu.Item onClick={onTestElicitationForm}>
-                  Simulate Elicitation (Form)
-                </Menu.Item>
-                <Menu.Item onClick={onTestElicitationUrl}>
-                  Simulate Elicitation (URL)
-                </Menu.Item>
-                <Menu.Item onClick={onConfigureRoots}>
-                  Configure Roots
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
-          )}
-        </ActionsRow>
-
-        <ActionsRow>
-          <Button variant="subtle" size="xs" onClick={onClone}>
-            Clone
-          </Button>
-          <Button variant="subtle" size="xs" onClick={onEdit}>
-            Edit
-          </Button>
-          <Button variant="subtle" size="xs" color="red" onClick={onRemove}>
-            Remove
-          </Button>
-        </ActionsRow>
+        <Group justify="space-between">
+          <ActionsRow>
+            <Button variant="subtle" size="xs" onClick={onClone}>
+              Clone
+            </Button>
+            <Button variant="subtle" size="xs" onClick={onEdit}>
+              Edit
+            </Button>
+            <Button variant="subtle" size="xs" color="red" onClick={onRemove}>
+              Remove
+            </Button>
+          </ActionsRow>
+          <ActionsRow>
+            <Button variant="subtle" size="xs" onClick={onServerInfo}>
+              Server Info
+            </Button>
+            <Button variant="subtle" size="xs" onClick={onSettings}>
+              Settings
+            </Button>
+            {canTestClientFeatures && (
+              <Menu>
+                <Menu.Target>
+                  <Button variant="subtle" size="xs">
+                    Test Client Features &#x25BE;
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item onClick={onTestSampling}>
+                    Simulate Sampling Request
+                  </Menu.Item>
+                  <Menu.Item onClick={onTestElicitationForm}>
+                    Simulate Elicitation (Form)
+                  </Menu.Item>
+                  <Menu.Item onClick={onTestElicitationUrl}>
+                    Simulate Elicitation (URL)
+                  </Menu.Item>
+                  <Menu.Item onClick={onConfigureRoots}>
+                    Configure Roots
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+            )}
+          </ActionsRow>
+        </Group>
       </Stack>
     </Card>
   );

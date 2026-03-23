@@ -30,15 +30,15 @@ export function LoggingScreen({
   onCopyAll,
 }: LoggingScreenProps) {
   return (
-    <Grid>
+    <Grid align="stretch">
       <Grid.Col span={3}>
-        <Paper withBorder p="md">
+        <Paper withBorder p="md" h="100%">
           <LogControls {...controls} />
         </Paper>
       </Grid.Col>
       <Grid.Col span={9}>
-        <Paper withBorder p="md">
-          <Stack gap="sm">
+        <Paper withBorder p="md" h="100%">
+          <Stack gap="sm" h="100%">
             <Group justify="space-between">
               <Title order={4}>Log Stream</Title>
               <Group>
@@ -52,17 +52,18 @@ export function LoggingScreen({
                 </Button>
               </Group>
             </Group>
-            <ScrollArea h={500}>
-              <Stack gap="xs">
-                {entries.map((entry, index) => (
-                  <LogEntry key={index} {...entry} />
-                ))}
+            {entries.length > 0 ? (
+              <ScrollArea flex={1}>
+                <Stack gap="xs">
+                  {entries.map((entry, index) => (
+                    <LogEntry key={index} {...entry} />
+                  ))}
+                </Stack>
+              </ScrollArea>
+            ) : (
+              <Stack flex={1} align="center" justify="center">
+                <Text c="dimmed">No log entries</Text>
               </Stack>
-            </ScrollArea>
-            {entries.length === 0 && (
-              <Text c="dimmed" ta="center">
-                No log entries
-              </Text>
             )}
           </Stack>
         </Paper>

@@ -103,3 +103,15 @@
 .inspector-spin {
   animation: inspector-spin 1s linear infinite;
 }
+
+/* ── Responsive card ────────────────────────────────────── */
+
+.card-responsive {
+  width: 100%;
+}
+
+@media (min-width: 62em) {
+  .card-responsive {
+    width: 50%;
+  }
+}
