@@ -117,7 +117,7 @@ export function ServerCard({
             <Button variant="subtle" size="xs" onClick={onEdit}>
               Edit
             </Button>
-            <Button variant="transparent" size="xs" color="red" onClick={onRemove}>
+            <Button variant="subtle" size="xs" color="red.6" onClick={onRemove}>
               Remove
             </Button>
           </ActionsRow>

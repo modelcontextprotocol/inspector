@@ -22,9 +22,9 @@
   --inspector-text-inverse: var(--mantine-color-white);
 
   /* ── Surfaces ──────────────────────────────────────────── */
-  --inspector-surface-body: var(--mantine-color-body);
-  --inspector-surface-card: var(--mantine-color-default);
-  --inspector-surface-code: var(--mantine-color-gray-0);
+  --inspector-surface-body: var(--mantine-color-dark-9);
+  --inspector-surface-card: var(--mantine-color-gray-0);
+  --inspector-surface-code: var(--mantine-color-white);
 
   /* ── Borders ───────────────────────────────────────────── */
   --inspector-border-default: var(--mantine-color-default-border);
@@ -69,7 +69,8 @@
 
 /* Dark mode overrides — tokens that need adjustment in dark scheme */
 [data-mantine-color-scheme="dark"] {
-  --inspector-surface-code: var(--mantine-color-dark-6);
+  --inspector-surface-card: var(--mantine-color-gray-9);
+  --inspector-surface-code: var(--mantine-color-dark-9);
   --inspector-border-subtle: var(--mantine-color-dark-4);
 }
 

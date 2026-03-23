@@ -10,4 +10,7 @@ export const ThemeCard = Card.extend({
     if (props.variant === "responsive") return { root: "card-responsive" };
     return {};
   },
+  styles: () => ({
+    root: { backgroundColor: "var(--inspector-surface-card)" },
+  }),
 });
