@@ -51,6 +51,7 @@ export interface ExperimentalFeaturesPanelProps {
   onRemoveHeader: (index: number) => void;
   onHeaderChange: (index: number, key: string, value: string) => void;
   onCopyResponse: () => void;
+  onTestCapability: (name: string) => void;
 }
 
 export function ExperimentalFeaturesPanel({
@@ -67,6 +68,7 @@ export function ExperimentalFeaturesPanel({
   onRemoveHeader,
   onHeaderChange,
   onCopyResponse,
+  onTestCapability,
 }: ExperimentalFeaturesPanelProps) {
   return (
     <Stack gap="md">
@@ -94,7 +96,11 @@ export function ExperimentalFeaturesPanel({
                 </Text>
               )}
               <Group>
-                <Button size="xs" variant="light">
+                <Button
+                  size="xs"
+                  variant="light"
+                  onClick={() => onTestCapability(cap.name)}
+                >
                   Test →
                 </Button>
               </Group>

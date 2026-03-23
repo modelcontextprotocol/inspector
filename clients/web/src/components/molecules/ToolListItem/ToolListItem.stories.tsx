@@ -27,27 +27,11 @@ export const Selected: Story = {
   },
 };
 
-export const WithAnnotations: Story = {
+export const WithTitle: Story = {
   args: {
     name: "get_weather",
+    title: "Get Weather",
     selected: false,
-    annotations: [
-      { label: "user", variant: "audience" },
-      { label: "read-only", variant: "readOnly" },
-    ],
-  },
-};
-
-export const MultipleAnnotations: Story = {
-  args: {
-    name: "update_database",
-    selected: false,
-    annotations: [
-      { label: "user", variant: "audience" },
-      { label: "read-only", variant: "readOnly" },
-      { label: "destructive", variant: "destructive" },
-      { label: "long-run", variant: "longRun" },
-    ],
   },
 };
 

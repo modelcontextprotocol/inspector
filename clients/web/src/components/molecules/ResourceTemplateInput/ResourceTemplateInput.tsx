@@ -48,7 +48,7 @@ export function ResourceTemplateInput({
     <Group gap="xs" align="flex-end">
       {parts.map((part, index) =>
         part.type === "static" ? (
-          <Text key={index} size="sm">
+          <Text key={index} size="sm" pb={6}>
             {part.value}
           </Text>
         ) : (

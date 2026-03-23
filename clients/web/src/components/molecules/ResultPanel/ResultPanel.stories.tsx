@@ -6,7 +6,6 @@ const meta: Meta<typeof ResultPanel> = {
   title: "Molecules/ResultPanel",
   component: ResultPanel,
   args: {
-    onCopy: fn(),
     onClear: fn(),
   },
 };

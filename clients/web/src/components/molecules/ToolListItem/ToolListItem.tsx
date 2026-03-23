@@ -1,22 +1,15 @@
-import { Group, Stack, Text, UnstyledButton } from "@mantine/core";
-import { AnnotationBadge } from "../../atoms/AnnotationBadge/AnnotationBadge";
-import type { AnnotationVariant } from "../../atoms/AnnotationBadge/AnnotationBadge";
-
-export interface ToolAnnotation {
-  label: string;
-  variant?: AnnotationVariant;
-}
+import { Stack, Text, UnstyledButton } from "@mantine/core";
 
 export interface ToolListItemProps {
   name: string;
-  annotations?: ToolAnnotation[];
+  title?: string;
   selected: boolean;
   onClick: () => void;
 }
 
 export function ToolListItem({
   name,
-  annotations,
+  title,
   selected,
   onClick,
 }: ToolListItemProps) {
@@ -28,18 +21,14 @@ export function ToolListItem({
       style={{ borderRadius: "var(--mantine-radius-md)" }}
       onClick={onClick}
     >
-      <Stack gap="xs">
-        <Text fw={500}>{name}</Text>
-        {annotations && annotations.length > 0 && (
-          <Group gap="xs">
-            {annotations.map((annotation) => (
-              <AnnotationBadge
-                key={annotation.label}
-                label={annotation.label}
-                variant={annotation.variant}
-              />
-            ))}
-          </Group>
+      <Stack gap={2}>
+        <Text fw={500} truncate>
+          {title ?? name}
+        </Text>
+        {title && (
+          <Text size="xs" c="dimmed" truncate>
+            {name}
+          </Text>
         )}
       </Stack>
     </UnstyledButton>

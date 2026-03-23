@@ -6,7 +6,6 @@ const meta: Meta<typeof ResourcePreviewPanel> = {
   title: "Molecules/ResourcePreviewPanel",
   component: ResourcePreviewPanel,
   args: {
-    onCopy: fn(),
     onSubscribe: fn(),
     onUnsubscribe: fn(),
   },

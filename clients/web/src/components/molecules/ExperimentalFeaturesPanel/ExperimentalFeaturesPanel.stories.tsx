@@ -13,6 +13,7 @@ const meta: Meta<typeof ExperimentalFeaturesPanel> = {
     onRemoveHeader: fn(),
     onHeaderChange: fn(),
     onCopyResponse: fn(),
+    onTestCapability: fn(),
     clientCapabilities: [
       { name: "experimental/customSampling", enabled: false },
       { name: "experimental/batchRequests", enabled: true },

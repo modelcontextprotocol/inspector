@@ -10,11 +10,10 @@ export interface ResultContentItem {
 
 export interface ResultPanelProps {
   content: ResultContentItem[];
-  onCopy: () => void;
   onClear: () => void;
 }
 
-export function ResultPanel({ content, onCopy, onClear }: ResultPanelProps) {
+export function ResultPanel({ content, onClear }: ResultPanelProps) {
   return (
     <Stack>
       <Title order={4}>Results</Title>
@@ -29,6 +28,7 @@ export function ResultPanel({ content, onCopy, onClear }: ResultPanelProps) {
                   key={index}
                   type={item.type === "text" ? "text" : "json"}
                   content={item.text}
+                  copyable
                 />
               );
             }
@@ -47,9 +47,6 @@ export function ResultPanel({ content, onCopy, onClear }: ResultPanelProps) {
         </>
       )}
       <Group>
-        <Button variant="light" size="sm" onClick={onCopy}>
-          Copy
-        </Button>
         <Button variant="light" size="sm" onClick={onClear}>
           Clear
         </Button>

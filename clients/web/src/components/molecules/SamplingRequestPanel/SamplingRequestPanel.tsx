@@ -1,7 +1,6 @@
 import {
   Badge,
   Button,
-  Checkbox,
   Divider,
   Group,
   Paper,
@@ -134,11 +133,10 @@ export function SamplingRequestPanel({
       </Text>
 
       {includeContext && (
-        <Checkbox
-          label={`Include Context: ${includeContext}`}
-          checked
-          readOnly
-        />
+        <Group gap="xs">
+          <Text size="sm">Include Context:</Text>
+          <Badge>{includeContext}</Badge>
+        </Group>
       )}
 
       {tools && tools.length > 0 && (

@@ -60,7 +60,7 @@ export function ToolsScreen({
       </Grid.Col>
 
       <Grid.Col span={5}>
-        <Paper withBorder p="md">
+        <Paper withBorder p="md" variant="contained">
           {selectedTool ? (
             <ToolDetailPanel {...selectedTool} />
           ) : (

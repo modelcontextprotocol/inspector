@@ -17,6 +17,14 @@ export const ThemePaper = Paper.extend({
         },
       };
     }
+    if (props.variant === "contained") {
+      return {
+        root: {
+          overflow: "hidden",
+          minWidth: 0,
+        },
+      };
+    }
     return { root: {} };
   },
 });

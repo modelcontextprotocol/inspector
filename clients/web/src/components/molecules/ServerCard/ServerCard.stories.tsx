@@ -89,6 +89,19 @@ export const WithClientFeatures: Story = {
   },
 };
 
+export const LongServerName: Story = {
+  args: {
+    name: "my-organization-super-long-experimental-mcp-server-with-many-features-v2",
+    version: "1.0.0-beta.42",
+    transport: "stdio",
+    connectionMode: "Subprocess",
+    command:
+      "npx -y @my-organization/super-long-experimental-mcp-server-with-many-features-v2",
+    status: "connected",
+    canTestClientFeatures: true,
+  },
+};
+
 export const HttpDirect: Story = {
   args: {
     name: "Remote API Server",

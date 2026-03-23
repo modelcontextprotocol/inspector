@@ -1,4 +1,4 @@
-import { Button, Divider, Group, Stack, Text, Title } from "@mantine/core";
+import { Button, Divider, Group, Stack, Text } from "@mantine/core";
 import { AnnotationBadge } from "../../atoms/AnnotationBadge/AnnotationBadge";
 import { ProgressDisplay } from "../../atoms/ProgressDisplay/ProgressDisplay";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
@@ -14,6 +14,7 @@ export interface ToolAnnotations {
 
 export interface ToolDetailPanelProps {
   name: string;
+  title?: string;
   description?: string;
   annotations?: ToolAnnotations;
   schema: JsonSchema;
@@ -27,6 +28,7 @@ export interface ToolDetailPanelProps {
 
 export function ToolDetailPanel({
   name,
+  title,
   description,
   annotations,
   schema,
@@ -46,41 +48,44 @@ export function ToolDetailPanel({
       annotations.hints);
 
   return (
-    <Stack gap="md">
-      <Title order={4}>Tool: {name}</Title>
+    <Stack gap="md" miw={0}>
+      <Text fw={700} size="lg" truncate="end">
+        {title ?? name}
+      </Text>
+      {title && (
+        <Text size="sm" c="dimmed" truncate="end">
+          {name}
+        </Text>
+      )}
+      {hasAnnotations && (
+        <Group gap="xs">
+          {annotations.audience && (
+            <AnnotationBadge
+              label={annotations.audience}
+              variant="audience"
+            />
+          )}
+          {annotations.readOnly && (
+            <AnnotationBadge label="read-only" variant="readOnly" />
+          )}
+          {annotations.destructive && (
+            <AnnotationBadge label="destructive" variant="destructive" />
+          )}
+          {annotations.longRunning && (
+            <AnnotationBadge label="long-run" variant="longRun" />
+          )}
+          {annotations.hints && (
+            <Text size="xs" c="dimmed" fs="italic">
+              {annotations.hints}
+            </Text>
+          )}
+        </Group>
+      )}
 
       {description && (
         <Text size="sm" c="dimmed">
           {description}
         </Text>
-      )}
-
-      {hasAnnotations && (
-        <>
-          <Text size="sm">Annotations:</Text>
-          <Group gap="xs">
-            {annotations.audience && (
-              <AnnotationBadge
-                label={annotations.audience}
-                variant="audience"
-              />
-            )}
-            {annotations.readOnly && (
-              <AnnotationBadge label="read-only" variant="readOnly" />
-            )}
-            {annotations.destructive && (
-              <AnnotationBadge label="destructive" variant="destructive" />
-            )}
-            {annotations.longRunning && (
-              <AnnotationBadge label="long-run" variant="longRun" />
-            )}
-            {annotations.hints && (
-              <Text size="xs" c="dimmed" fs="italic">
-                {annotations.hints}
-              </Text>
-            )}
-          </Group>
-        </>
       )}
 
       <Divider />

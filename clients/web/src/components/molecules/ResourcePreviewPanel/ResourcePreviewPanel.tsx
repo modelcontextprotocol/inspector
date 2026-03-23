@@ -8,7 +8,6 @@ export interface ResourcePreviewPanelProps {
   content: string;
   lastUpdated?: string;
   isSubscribed: boolean;
-  onCopy: () => void;
   onSubscribe: () => void;
   onUnsubscribe: () => void;
 }
@@ -26,7 +25,6 @@ export function ResourcePreviewPanel({
   content,
   lastUpdated,
   isSubscribed,
-  onCopy,
   onSubscribe,
   onUnsubscribe,
 }: ResourcePreviewPanelProps) {
@@ -61,11 +59,9 @@ export function ResourcePreviewPanel({
         type={resolveContentType(mimeType)}
         content={content}
         mimeType={mimeType}
+        copyable
       />
       <Group>
-        <Button variant="light" size="sm" onClick={onCopy}>
-          Copy
-        </Button>
         <Button
           variant="light"
           size="sm"

@@ -21,23 +21,26 @@ export default meta;
 type Story = StoryObj<typeof ToolsScreen>;
 
 const sampleTools: ToolListItemProps[] = [
-  { name: "send_message", selected: false, onClick: fn() },
+  {
+    name: "send_message",
+    title: "Send Message",
+    selected: false,
+    onClick: fn(),
+  },
   {
     name: "create_record",
-    annotations: [{ label: "read-only" }],
+    title: "Create Record",
     selected: false,
     onClick: fn(),
   },
   {
     name: "delete_records",
-    annotations: [{ label: "destructive", variant: "destructive" }],
     selected: false,
     onClick: fn(),
   },
   { name: "list_users", selected: false, onClick: fn() },
   {
     name: "batch_process",
-    annotations: [{ label: "long-run", variant: "longRun" }],
     selected: false,
     onClick: fn(),
   },
@@ -45,6 +48,7 @@ const sampleTools: ToolListItemProps[] = [
 
 const selectedToolData: ToolDetailPanelProps = {
   name: "create_record",
+  title: "Create Record",
   description: "Creates a new record with the given parameters",
   schema: {
     type: "object",
@@ -79,7 +83,6 @@ const resultData: ResultPanelProps = {
       ),
     },
   ],
-  onCopy: fn(),
   onClear: fn(),
 };
 
@@ -108,6 +111,51 @@ export const WithResult: Story = {
     tools: toolsWithSelected("create_record"),
     selectedTool: selectedToolData,
     result: resultData,
+  },
+};
+
+export const LongToolName: Story = {
+  args: {
+    tools: [
+      ...sampleTools,
+      {
+        name: "organization_internal_database_complex_multi_table_join_query_with_aggregation_and_filtering",
+        selected: true,
+        onClick: fn(),
+      },
+    ],
+    selectedTool: {
+      name: "organization_internal_database_complex_multi_table_join_query_with_aggregation_and_filtering",
+      annotations: {
+        readOnly: true,
+        longRunning: true,
+      },
+      description:
+        "Executes a complex multi-table join query across the organization's internal database with support for aggregation functions, nested filtering, and pagination of large result sets.",
+      schema: {
+        type: "object",
+        properties: {
+          primary_table_name: {
+            type: "string",
+            description: "The main table to query from",
+          },
+          join_configuration: {
+            type: "string",
+            description: "JSON configuration for table joins",
+          },
+          aggregation_functions: {
+            type: "string",
+            description: "Comma-separated list of aggregation functions to apply",
+          },
+        },
+        required: ["primary_table_name"],
+      },
+      formValues: {},
+      isExecuting: false,
+      onFormChange: fn(),
+      onExecute: fn(),
+      onCancel: fn(),
+    },
   },
 };
 
