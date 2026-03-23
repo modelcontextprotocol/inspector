@@ -104,14 +104,8 @@
   animation: inspector-spin 1s linear infinite;
 }
 
-/* ── Responsive card ────────────────────────────────────── */
+/* ── Grid alignment ─────────────────────────────────────── */
 
-.card-responsive {
-  width: 100%;
-}
-
-@media (min-width: 62em) {
-  .card-responsive {
-    width: 50%;
-  }
+.grid-align-start {
+  align-items: start;
 }

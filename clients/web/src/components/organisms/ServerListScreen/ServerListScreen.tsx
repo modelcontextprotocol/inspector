@@ -40,7 +40,7 @@ export function ServerListScreen({
             No servers configured. Add a server to get started.
           </Text>
         ) : (
-          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg" className="grid-align-start">
             {servers.map((server) => (
               <ServerCard key={server.name} {...server} />
             ))}
