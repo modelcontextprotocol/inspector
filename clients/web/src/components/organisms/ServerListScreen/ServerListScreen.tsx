@@ -10,6 +10,17 @@ export interface ServerListScreenProps {
   onImportServerJson: () => void;
 }
 
+const PageContainer = Container.withProps({
+  size: "xl",
+  py: "xl",
+});
+
+const EmptyState = Text.withProps({
+  c: "dimmed",
+  ta: "center",
+  py: "xl",
+});
+
 export function ServerListScreen({
   servers,
   onAddManually,
@@ -17,7 +28,7 @@ export function ServerListScreen({
   onImportServerJson,
 }: ServerListScreenProps) {
   return (
-    <Container size="xl" py="xl">
+    <PageContainer>
       <Stack gap="lg">
         <Group justify="flex-end">
           <AddServerMenu
@@ -28,9 +39,9 @@ export function ServerListScreen({
         </Group>
 
         {servers.length === 0 ? (
-          <Text c="dimmed" ta="center" py="xl">
+          <EmptyState>
             No servers configured. Add a server to get started.
-          </Text>
+          </EmptyState>
         ) : (
           <SimpleGrid
             cols={{ base: 1, md: 2 }}
@@ -43,6 +54,6 @@ export function ServerListScreen({
           </SimpleGrid>
         )}
       </Stack>
-    </Container>
+    </PageContainer>
   );
 }

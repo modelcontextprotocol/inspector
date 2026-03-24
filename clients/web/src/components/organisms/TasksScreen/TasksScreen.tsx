@@ -17,6 +17,25 @@ export interface TasksScreenProps {
   onClearHistory: () => void;
 }
 
+const PageContainer = Container.withProps({
+  size: "xl",
+  py: "xl",
+});
+
+const ContentPanel = Paper.withProps({
+  withBorder: true,
+  p: "md",
+});
+
+const CompactButton = Button.withProps({
+  variant: "light",
+  size: "xs",
+});
+
+function formatSectionTitle(label: string, count: number): string {
+  return `${label} (${count})`;
+}
+
 export function TasksScreen({
   activeTasks,
   completedTasks,
@@ -24,14 +43,14 @@ export function TasksScreen({
   onClearHistory,
 }: TasksScreenProps) {
   return (
-    <Container size="xl" py="xl">
-      <Paper withBorder p="md">
+    <PageContainer>
+      <ContentPanel>
         <Stack gap="lg">
           <Group justify="space-between">
-            <Title order={4}>Active Tasks ({activeTasks.length})</Title>
-            <Button variant="light" size="xs" onClick={onRefresh}>
-              Refresh Tasks
-            </Button>
+            <Title order={4}>
+              {formatSectionTitle("Active Tasks", activeTasks.length)}
+            </Title>
+            <CompactButton onClick={onRefresh}>Refresh Tasks</CompactButton>
           </Group>
           {activeTasks.length === 0 ? (
             <Text c="dimmed">No active tasks</Text>
@@ -44,11 +63,13 @@ export function TasksScreen({
           )}
 
           <Group justify="space-between">
-            <Title order={4}>Completed Tasks ({completedTasks.length})</Title>
+            <Title order={4}>
+              {formatSectionTitle("Completed Tasks", completedTasks.length)}
+            </Title>
             {completedTasks.length > 0 && (
-              <Button variant="light" size="xs" onClick={onClearHistory}>
+              <CompactButton onClick={onClearHistory}>
                 Clear History
-              </Button>
+              </CompactButton>
             )}
           </Group>
           {completedTasks.length === 0 ? (
@@ -61,7 +82,7 @@ export function TasksScreen({
             </Stack>
           )}
         </Stack>
-      </Paper>
-    </Container>
+      </ContentPanel>
+    </PageContainer>
   );
 }

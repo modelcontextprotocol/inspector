@@ -12,6 +12,23 @@ export interface PromptsScreenProps {
   onRefreshList: () => void;
 }
 
+const PageContainer = Container.withProps({
+  size: "xl",
+  py: "xl",
+});
+
+const FullHeightCard = Card.withProps({
+  withBorder: true,
+  padding: "lg",
+  h: "100%",
+});
+
+const EmptyState = Text.withProps({
+  c: "dimmed",
+  ta: "center",
+  py: "xl",
+});
+
 export function PromptsScreen({
   promptForm,
   messages,
@@ -19,10 +36,10 @@ export function PromptsScreen({
   onRefreshList,
 }: PromptsScreenProps) {
   return (
-    <Container size="xl" py="xl">
+    <PageContainer>
       <Grid align="stretch">
         <Grid.Col span={5}>
-          <Card withBorder padding="lg" h="100%">
+          <FullHeightCard>
             <Stack gap="md">
               <ListChangedIndicator
                 visible={listChanged}
@@ -30,20 +47,20 @@ export function PromptsScreen({
               />
               <PromptArgumentsForm {...promptForm} />
             </Stack>
-          </Card>
+          </FullHeightCard>
         </Grid.Col>
         <Grid.Col span={7}>
-          <Card withBorder padding="lg" h="100%">
+          <FullHeightCard>
             {messages ? (
               <PromptMessagesDisplay {...messages} />
             ) : (
-              <Text c="dimmed" ta="center" py="xl">
+              <EmptyState>
                 Select a prompt and click Get Prompt to see messages
-              </Text>
+              </EmptyState>
             )}
-          </Card>
+          </FullHeightCard>
         </Grid.Col>
       </Grid>
-    </Container>
+    </PageContainer>
   );
 }

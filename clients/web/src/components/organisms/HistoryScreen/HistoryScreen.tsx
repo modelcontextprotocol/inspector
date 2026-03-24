@@ -38,6 +38,49 @@ const METHOD_OPTIONS = [
   "elicitation/create",
 ];
 
+const PageContainer = Container.withProps({
+  size: "xl",
+  py: "xl",
+});
+
+const ContentPanel = Paper.withProps({
+  withBorder: true,
+  p: "md",
+});
+
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "wrap",
+});
+
+const ToolbarButton = Button.withProps({
+  variant: "light",
+  size: "sm",
+});
+
+const EmptyState = Text.withProps({
+  c: "dimmed",
+  ta: "center",
+  py: "xl",
+});
+
+const CountText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+function entryKey(entry: HistoryEntryProps): string {
+  return `${entry.timestamp}-${entry.method}`;
+}
+
+function formatPinnedTitle(count: number): string {
+  return `Pinned Requests (${count})`;
+}
+
+function formatPagination(displayed: number, total: number): string {
+  return `Showing ${displayed} of ${total} entries`;
+}
+
 export function HistoryScreen({
   entries,
   pinnedEntries,
@@ -52,10 +95,10 @@ export function HistoryScreen({
   onExport,
 }: HistoryScreenProps) {
   return (
-    <Container size="xl" py="xl">
-      <Paper withBorder p="md">
+    <PageContainer>
+      <ContentPanel>
         <Stack gap="md">
-          <Group justify="space-between" wrap="wrap">
+          <HeaderRow>
             <Title order={3}>Request History</Title>
             <Group>
               <TextInput
@@ -70,26 +113,17 @@ export function HistoryScreen({
                 onChange={(value) => onMethodFilterChange(value ?? "")}
                 clearable
               />
-              <Button variant="light" size="sm" onClick={onExport}>
-                Export JSON
-              </Button>
-              <Button variant="light" size="sm" onClick={onClearAll}>
-                Clear All
-              </Button>
+              <ToolbarButton onClick={onExport}>Export JSON</ToolbarButton>
+              <ToolbarButton onClick={onClearAll}>Clear All</ToolbarButton>
             </Group>
-          </Group>
+          </HeaderRow>
 
           {entries.length === 0 ? (
-            <Text c="dimmed" ta="center" py="xl">
-              No request history
-            </Text>
+            <EmptyState>No request history</EmptyState>
           ) : (
             <Stack gap="md">
               {entries.map((entry) => (
-                <HistoryEntry
-                  key={`${entry.timestamp}-${entry.method}`}
-                  {...entry}
-                />
+                <HistoryEntry key={entryKey(entry)} {...entry} />
               ))}
             </Stack>
           )}
@@ -97,30 +131,25 @@ export function HistoryScreen({
           {pinnedEntries.length > 0 && (
             <>
               <Divider />
-              <Title order={4}>Pinned Requests ({pinnedEntries.length})</Title>
+              <Title order={4}>{formatPinnedTitle(pinnedEntries.length)}</Title>
               <Stack gap="sm">
                 {pinnedEntries.map((entry) => (
-                  <HistoryEntry
-                    key={`${entry.timestamp}-${entry.method}`}
-                    {...entry}
-                  />
+                  <HistoryEntry key={entryKey(entry)} {...entry} />
                 ))}
               </Stack>
             </>
           )}
 
           <Group justify="flex-end">
-            <Text size="sm" c="dimmed">
-              Showing {displayedCount} of {totalCount} entries
-            </Text>
+            <CountText>
+              {formatPagination(displayedCount, totalCount)}
+            </CountText>
             {displayedCount < totalCount && (
-              <Button variant="light" size="sm" onClick={onLoadMore}>
-                Load More
-              </Button>
+              <ToolbarButton onClick={onLoadMore}>Load More</ToolbarButton>
             )}
           </Group>
         </Stack>
-      </Paper>
-    </Container>
+      </ContentPanel>
+    </PageContainer>
   );
 }

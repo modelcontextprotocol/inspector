@@ -26,6 +26,23 @@ export interface ToolsScreenProps {
   onSelectTool: (name: string) => void;
 }
 
+const PageContainer = Container.withProps({
+  size: "xl",
+  py: "xl",
+});
+
+const FullHeightCard = Card.withProps({
+  withBorder: true,
+  padding: "lg",
+  h: "100%",
+});
+
+const EmptyState = Text.withProps({
+  c: "dimmed",
+  ta: "center",
+  py: "xl",
+});
+
 export function ToolsScreen({
   tools,
   selectedTool,
@@ -43,10 +60,10 @@ export function ToolsScreen({
     : tools;
 
   return (
-    <Container size="xl" py="xl">
+    <PageContainer>
       <Grid align="stretch">
         <Grid.Col span={3}>
-          <Card withBorder padding="lg" h="100%">
+          <FullHeightCard>
             <Stack gap="sm">
               <Title order={4}>Tools</Title>
               <ListChangedIndicator
@@ -66,33 +83,29 @@ export function ToolsScreen({
                 />
               ))}
             </Stack>
-          </Card>
+          </FullHeightCard>
         </Grid.Col>
 
         <Grid.Col span={5}>
-          <Card withBorder padding="lg" h="100%">
+          <FullHeightCard>
             {selectedTool ? (
               <ToolDetailPanel {...selectedTool} />
             ) : (
-              <Text c="dimmed" ta="center" py="xl">
-                Select a tool to view details
-              </Text>
+              <EmptyState>Select a tool to view details</EmptyState>
             )}
-          </Card>
+          </FullHeightCard>
         </Grid.Col>
 
         <Grid.Col span={4}>
-          <Card withBorder padding="lg" h="100%">
+          <FullHeightCard>
             {result ? (
               <ResultPanel {...result} />
             ) : (
-              <Text c="dimmed" ta="center" py="xl">
-                Results will appear here
-              </Text>
+              <EmptyState>Results will appear here</EmptyState>
             )}
-          </Card>
+          </FullHeightCard>
         </Grid.Col>
       </Grid>
-    </Container>
+    </PageContainer>
   );
 }

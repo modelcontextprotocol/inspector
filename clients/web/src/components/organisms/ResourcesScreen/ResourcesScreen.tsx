@@ -33,6 +33,42 @@ export interface ResourcesScreenProps {
   onSelectResource: (uri: string) => void;
 }
 
+const PageContainer = Container.withProps({
+  size: "xl",
+  py: "xl",
+});
+
+const FullHeightCard = Card.withProps({
+  withBorder: true,
+  padding: "lg",
+  h: "100%",
+});
+
+const DetailCard = Card.withProps({
+  withBorder: true,
+  padding: "lg",
+});
+
+const EmptyState = Text.withProps({
+  c: "dimmed",
+  ta: "center",
+  py: "xl",
+});
+
+const SubscriptionMeta = Text.withProps({
+  span: true,
+  c: "dimmed",
+  size: "xs",
+});
+
+function formatSectionCount(label: string, count: number): string {
+  return `${label} (${count})`;
+}
+
+function formatLastUpdated(lastUpdated: string): string {
+  return ` — ${lastUpdated}`;
+}
+
 export function ResourcesScreen({
   resources,
   templates,
@@ -54,10 +90,10 @@ export function ResourcesScreen({
   ];
 
   return (
-    <Container size="xl" py="xl">
+    <PageContainer>
       <Grid align="stretch">
         <Grid.Col span={4}>
-          <Card withBorder padding="lg" h="100%">
+          <FullHeightCard>
             <Stack gap="sm">
               <Title order={4}>Resources</Title>
               <ListChangedIndicator
@@ -72,7 +108,7 @@ export function ResourcesScreen({
               <Accordion multiple defaultValue={openSections}>
                 <Accordion.Item value="resources">
                   <Accordion.Control disabled={filteredResources.length === 0}>
-                    URIs ({filteredResources.length})
+                    {formatSectionCount("URIs", filteredResources.length)}
                   </Accordion.Control>
                   <Accordion.Panel>
                     <Stack gap="xs">
@@ -85,7 +121,7 @@ export function ResourcesScreen({
 
                 <Accordion.Item value="templates">
                   <Accordion.Control disabled={templates.length === 0}>
-                    Templates ({templates.length})
+                    {formatSectionCount("Templates", templates.length)}
                   </Accordion.Control>
                   <Accordion.Panel>
                     <Stack gap="xs">
@@ -101,7 +137,7 @@ export function ResourcesScreen({
 
                 <Accordion.Item value="subscriptions">
                   <Accordion.Control disabled={subscriptions.length === 0}>
-                    Subscriptions ({subscriptions.length})
+                    {formatSectionCount("Subscriptions", subscriptions.length)}
                   </Accordion.Control>
                   <Accordion.Panel>
                     <Stack gap="xs">
@@ -109,10 +145,9 @@ export function ResourcesScreen({
                         <Text key={sub.name} size="sm">
                           {sub.name}
                           {sub.lastUpdated && (
-                            <Text span c="dimmed" size="xs">
-                              {" "}
-                              — {sub.lastUpdated}
-                            </Text>
+                            <SubscriptionMeta>
+                              {formatLastUpdated(sub.lastUpdated)}
+                            </SubscriptionMeta>
                           )}
                         </Text>
                       ))}
@@ -121,21 +156,19 @@ export function ResourcesScreen({
                 </Accordion.Item>
               </Accordion>
             </Stack>
-          </Card>
+          </FullHeightCard>
         </Grid.Col>
 
         <Grid.Col span={8}>
-          <Card withBorder padding="lg">
+          <DetailCard>
             {selectedResource ? (
               <ResourcePreviewPanel {...selectedResource} />
             ) : (
-              <Text c="dimmed" ta="center" py="xl">
-                Select a resource to preview
-              </Text>
+              <EmptyState>Select a resource to preview</EmptyState>
             )}
-          </Card>
+          </DetailCard>
         </Grid.Col>
       </Grid>
-    </Container>
+    </PageContainer>
   );
 }

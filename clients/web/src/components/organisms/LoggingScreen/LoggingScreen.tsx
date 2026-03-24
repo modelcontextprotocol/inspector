@@ -23,6 +23,38 @@ export interface LoggingScreenProps {
   onCopyAll: () => void;
 }
 
+const PageContainer = Container.withProps({
+  size: "xl",
+  py: "xl",
+});
+
+const SidebarCard = Card.withProps({
+  withBorder: true,
+  padding: "lg",
+});
+
+const FullHeightCard = Card.withProps({
+  withBorder: true,
+  padding: "lg",
+  h: "100%",
+});
+
+const FullHeightStack = Stack.withProps({
+  gap: "sm",
+  h: "100%",
+});
+
+const ToolbarButton = Button.withProps({
+  variant: "light",
+  size: "sm",
+});
+
+const EmptyCenter = Stack.withProps({
+  flex: 1,
+  align: "center",
+  justify: "center",
+});
+
 export function LoggingScreen({
   controls,
   entries,
@@ -31,16 +63,16 @@ export function LoggingScreen({
   onCopyAll,
 }: LoggingScreenProps) {
   return (
-    <Container size="xl" py="xl">
+    <PageContainer>
       <Grid align="stretch">
         <Grid.Col span={3}>
-          <Card withBorder padding="lg">
+          <SidebarCard>
             <LogControls {...controls} />
-          </Card>
+          </SidebarCard>
         </Grid.Col>
         <Grid.Col span={9}>
-          <Card withBorder padding="lg" h="100%">
-            <Stack gap="sm" h="100%">
+          <FullHeightCard>
+            <FullHeightStack>
               <Group justify="space-between">
                 <Title order={4}>Log Stream</Title>
                 <Group>
@@ -49,9 +81,7 @@ export function LoggingScreen({
                     checked={autoScroll}
                     onChange={onToggleAutoScroll}
                   />
-                  <Button variant="light" size="sm" onClick={onCopyAll}>
-                    Copy All
-                  </Button>
+                  <ToolbarButton onClick={onCopyAll}>Copy All</ToolbarButton>
                 </Group>
               </Group>
               {entries.length > 0 ? (
@@ -63,14 +93,14 @@ export function LoggingScreen({
                   </Stack>
                 </ScrollArea>
               ) : (
-                <Stack flex={1} align="center" justify="center">
+                <EmptyCenter>
                   <Text c="dimmed">No log entries</Text>
-                </Stack>
+                </EmptyCenter>
               )}
-            </Stack>
-          </Card>
+            </FullHeightStack>
+          </FullHeightCard>
         </Grid.Col>
       </Grid>
-    </Container>
+    </PageContainer>
   );
 }
