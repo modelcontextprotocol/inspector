@@ -53,74 +53,74 @@ export function HistoryScreen({
 }: HistoryScreenProps) {
   return (
     <Container size="xl" py="xl">
-    <Paper withBorder p="md">
-      <Stack gap="md">
-        <Group justify="space-between" wrap="wrap">
-          <Title order={3}>Request History</Title>
-          <Group>
-            <TextInput
-              placeholder="Search..."
-              value={searchText}
-              onChange={(event) => onSearchChange(event.currentTarget.value)}
-            />
-            <Select
-              placeholder="Filter by method"
-              data={METHOD_OPTIONS}
-              value={methodFilter}
-              onChange={(value) => onMethodFilterChange(value ?? "")}
-              clearable
-            />
-            <Button variant="light" size="sm" onClick={onExport}>
-              Export JSON
-            </Button>
-            <Button variant="light" size="sm" onClick={onClearAll}>
-              Clear All
-            </Button>
-          </Group>
-        </Group>
-
-        {entries.length === 0 ? (
-          <Text c="dimmed" ta="center" py="xl">
-            No request history
-          </Text>
-        ) : (
-          <Stack gap="md">
-            {entries.map((entry) => (
-              <HistoryEntry
-                key={`${entry.timestamp}-${entry.method}`}
-                {...entry}
+      <Paper withBorder p="md">
+        <Stack gap="md">
+          <Group justify="space-between" wrap="wrap">
+            <Title order={3}>Request History</Title>
+            <Group>
+              <TextInput
+                placeholder="Search..."
+                value={searchText}
+                onChange={(event) => onSearchChange(event.currentTarget.value)}
               />
-            ))}
-          </Stack>
-        )}
+              <Select
+                placeholder="Filter by method"
+                data={METHOD_OPTIONS}
+                value={methodFilter}
+                onChange={(value) => onMethodFilterChange(value ?? "")}
+                clearable
+              />
+              <Button variant="light" size="sm" onClick={onExport}>
+                Export JSON
+              </Button>
+              <Button variant="light" size="sm" onClick={onClearAll}>
+                Clear All
+              </Button>
+            </Group>
+          </Group>
 
-        {pinnedEntries.length > 0 && (
-          <>
-            <Divider />
-            <Title order={4}>Pinned Requests ({pinnedEntries.length})</Title>
-            <Stack gap="sm">
-              {pinnedEntries.map((entry) => (
+          {entries.length === 0 ? (
+            <Text c="dimmed" ta="center" py="xl">
+              No request history
+            </Text>
+          ) : (
+            <Stack gap="md">
+              {entries.map((entry) => (
                 <HistoryEntry
                   key={`${entry.timestamp}-${entry.method}`}
                   {...entry}
                 />
               ))}
             </Stack>
-          </>
-        )}
-
-        <Group justify="flex-end">
-          <Text size="sm" c="dimmed">
-            Showing {displayedCount} of {totalCount} entries
-          </Text>
-          {displayedCount < totalCount && (
-            <Button variant="light" size="sm" onClick={onLoadMore}>
-              Load More
-            </Button>
           )}
-        </Group>
-      </Stack>
-    </Paper>
+
+          {pinnedEntries.length > 0 && (
+            <>
+              <Divider />
+              <Title order={4}>Pinned Requests ({pinnedEntries.length})</Title>
+              <Stack gap="sm">
+                {pinnedEntries.map((entry) => (
+                  <HistoryEntry
+                    key={`${entry.timestamp}-${entry.method}`}
+                    {...entry}
+                  />
+                ))}
+              </Stack>
+            </>
+          )}
+
+          <Group justify="flex-end">
+            <Text size="sm" c="dimmed">
+              Showing {displayedCount} of {totalCount} entries
+            </Text>
+            {displayedCount < totalCount && (
+              <Button variant="light" size="sm" onClick={onLoadMore}>
+                Load More
+              </Button>
+            )}
+          </Group>
+        </Stack>
+      </Paper>
     </Container>
   );
 }

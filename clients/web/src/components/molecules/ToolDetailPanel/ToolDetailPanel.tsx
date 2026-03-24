@@ -55,10 +55,7 @@ export function ToolDetailPanel({
       {hasAnnotations && (
         <Group gap="xs">
           {annotations.audience && (
-            <AnnotationBadge
-              label={annotations.audience}
-              variant="audience"
-            />
+            <AnnotationBadge label={annotations.audience} variant="audience" />
           )}
           {annotations.readOnly && (
             <AnnotationBadge label="read-only" variant="readOnly" />

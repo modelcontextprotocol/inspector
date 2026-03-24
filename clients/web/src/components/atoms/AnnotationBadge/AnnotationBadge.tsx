@@ -32,7 +32,10 @@ export function AnnotationBadge({
   const colorScheme = useComputedColorScheme();
   const { color, variant: badgeVariant } = variantMap[variant];
   const textColor =
-    (variant === "priority" || variant === "destructive") && colorScheme === "dark" ? "black" : undefined;
+    (variant === "priority" || variant === "destructive") &&
+    colorScheme === "dark"
+      ? "black"
+      : undefined;
 
   return (
     <Badge color={color} variant={badgeVariant} c={textColor}>

@@ -16,30 +16,121 @@ const allTabs = ["Tools", "Resources", "Prompts", "Logs", "Tasks", "History"];
 
 const logMessages: { level: LogLevel; message: string; logger?: string }[] = [
   { level: "info", message: "Server started on port 3000" },
-  { level: "debug", message: "Loading configuration from /etc/mcp/config.json", logger: "config" },
-  { level: "warning", message: "Deprecated API endpoint called: /v1/tools", logger: "http" },
+  {
+    level: "debug",
+    message: "Loading configuration from /etc/mcp/config.json",
+    logger: "config",
+  },
+  {
+    level: "warning",
+    message: "Deprecated API endpoint called: /v1/tools",
+    logger: "http",
+  },
   { level: "info", message: "Client connected: inspector-web-ui" },
-  { level: "error", message: "Failed to read resource: file not found at /data/missing.txt", logger: "resources" },
-  { level: "info", message: "Tool execution completed: search_files (245ms)", logger: "tools" },
-  { level: "debug", message: "Parsing JSON-RPC request body", logger: "transport" },
-  { level: "info", message: "Listing available tools for client session", logger: "tools" },
-  { level: "warning", message: "Slow query detected: 1200ms for resource lookup", logger: "db" },
-  { level: "info", message: "Resource subscription added: file:///config.json", logger: "resources" },
-  { level: "debug", message: "Heartbeat ping received from client", logger: "session" },
-  { level: "error", message: "Permission denied reading /etc/secrets.env", logger: "resources" },
-  { level: "info", message: "Prompt 'summarize' resolved with 2 messages", logger: "prompts" },
-  { level: "debug", message: "Cache hit for resource: db://users/42", logger: "cache" },
-  { level: "info", message: "Tool 'create_record' executed successfully in 89ms", logger: "tools" },
-  { level: "warning", message: "Client reconnection attempt #3", logger: "session" },
-  { level: "info", message: "New resource detected: file:///data/output.csv", logger: "resources" },
-  { level: "debug", message: "Serializing response payload (2.4KB)", logger: "transport" },
-  { level: "error", message: "Timeout waiting for tool response after 30s", logger: "tools" },
-  { level: "info", message: "Session initialized with capabilities: tools, resources, prompts" },
-  { level: "debug", message: "Validating input schema for tool 'batch_process'", logger: "tools" },
-  { level: "info", message: "Resource template resolved: db://tables/users/rows/15", logger: "resources" },
-  { level: "warning", message: "Memory usage at 78% — consider increasing limits", logger: "system" },
-  { level: "info", message: "Client disconnected gracefully", logger: "session" },
-  { level: "debug", message: "Flushing log buffer to disk (128 entries)", logger: "logging" },
+  {
+    level: "error",
+    message: "Failed to read resource: file not found at /data/missing.txt",
+    logger: "resources",
+  },
+  {
+    level: "info",
+    message: "Tool execution completed: search_files (245ms)",
+    logger: "tools",
+  },
+  {
+    level: "debug",
+    message: "Parsing JSON-RPC request body",
+    logger: "transport",
+  },
+  {
+    level: "info",
+    message: "Listing available tools for client session",
+    logger: "tools",
+  },
+  {
+    level: "warning",
+    message: "Slow query detected: 1200ms for resource lookup",
+    logger: "db",
+  },
+  {
+    level: "info",
+    message: "Resource subscription added: file:///config.json",
+    logger: "resources",
+  },
+  {
+    level: "debug",
+    message: "Heartbeat ping received from client",
+    logger: "session",
+  },
+  {
+    level: "error",
+    message: "Permission denied reading /etc/secrets.env",
+    logger: "resources",
+  },
+  {
+    level: "info",
+    message: "Prompt 'summarize' resolved with 2 messages",
+    logger: "prompts",
+  },
+  {
+    level: "debug",
+    message: "Cache hit for resource: db://users/42",
+    logger: "cache",
+  },
+  {
+    level: "info",
+    message: "Tool 'create_record' executed successfully in 89ms",
+    logger: "tools",
+  },
+  {
+    level: "warning",
+    message: "Client reconnection attempt #3",
+    logger: "session",
+  },
+  {
+    level: "info",
+    message: "New resource detected: file:///data/output.csv",
+    logger: "resources",
+  },
+  {
+    level: "debug",
+    message: "Serializing response payload (2.4KB)",
+    logger: "transport",
+  },
+  {
+    level: "error",
+    message: "Timeout waiting for tool response after 30s",
+    logger: "tools",
+  },
+  {
+    level: "info",
+    message: "Session initialized with capabilities: tools, resources, prompts",
+  },
+  {
+    level: "debug",
+    message: "Validating input schema for tool 'batch_process'",
+    logger: "tools",
+  },
+  {
+    level: "info",
+    message: "Resource template resolved: db://tables/users/rows/15",
+    logger: "resources",
+  },
+  {
+    level: "warning",
+    message: "Memory usage at 78% — consider increasing limits",
+    logger: "system",
+  },
+  {
+    level: "info",
+    message: "Client disconnected gracefully",
+    logger: "session",
+  },
+  {
+    level: "debug",
+    message: "Flushing log buffer to disk (128 entries)",
+    logger: "logging",
+  },
 ];
 
 function pad(n: number): string {
@@ -81,8 +172,18 @@ export const ToolsActive: Story = {
     children: (
       <ToolsScreen
         tools={[
-          { name: "send_message", title: "Send Message", selected: false, onClick: fn() },
-          { name: "create_record", title: "Create Record", selected: true, onClick: fn() },
+          {
+            name: "send_message",
+            title: "Send Message",
+            selected: false,
+            onClick: fn(),
+          },
+          {
+            name: "create_record",
+            title: "Create Record",
+            selected: true,
+            onClick: fn(),
+          },
           { name: "delete_records", selected: false, onClick: fn() },
           { name: "list_users", selected: false, onClick: fn() },
           { name: "batch_process", selected: false, onClick: fn() },
@@ -96,7 +197,10 @@ export const ToolsActive: Story = {
             properties: {
               title: { type: "string", description: "Record title" },
               count: { type: "number", description: "Number of items" },
-              enabled: { type: "boolean", description: "Whether the record is active" },
+              enabled: {
+                type: "boolean",
+                description: "Whether the record is active",
+              },
             },
             required: ["title"],
           },
@@ -111,7 +215,13 @@ export const ToolsActive: Story = {
             {
               type: "text",
               text: JSON.stringify(
-                { id: 42, title: "New Record", count: 5, enabled: true, createdAt: "2026-03-17T12:00:00Z" },
+                {
+                  id: 42,
+                  title: "New Record",
+                  count: 5,
+                  enabled: true,
+                  createdAt: "2026-03-17T12:00:00Z",
+                },
                 null,
                 2,
               ),
@@ -172,7 +282,11 @@ export const ResourcesActive: Story = {
           mimeType: "application/json",
           annotations: { audience: "developer", priority: 0.8 },
           content: JSON.stringify(
-            { name: "my-project", version: "1.0.0", settings: { debug: true, logLevel: "info" } },
+            {
+              name: "my-project",
+              version: "1.0.0",
+              settings: { debug: true, logLevel: "info" },
+            },
             null,
             2,
           ),
@@ -199,13 +313,24 @@ export const PromptsActive: Story = {
         promptForm={{
           prompts: [
             { name: "summarize", description: "Summarize a document" },
-            { name: "translate", description: "Translate text to another language" },
+            {
+              name: "translate",
+              description: "Translate text to another language",
+            },
             { name: "code-review", description: "Review code for issues" },
           ],
           selectedPrompt: "translate",
           arguments: [
-            { name: "text", required: true, description: "The text to translate" },
-            { name: "targetLanguage", required: true, description: "Target language code" },
+            {
+              name: "text",
+              required: true,
+              description: "The text to translate",
+            },
+            {
+              name: "targetLanguage",
+              required: true,
+              description: "Target language code",
+            },
           ],
           argumentValues: {
             text: "Hello, how are you?",
@@ -218,7 +343,11 @@ export const PromptsActive: Story = {
         messages={{
           onCopyAll: fn(),
           messages: [
-            { role: "user", content: 'Translate the following text to Spanish: "Hello, how are you?"' },
+            {
+              role: "user",
+              content:
+                'Translate the following text to Spanish: "Hello, how are you?"',
+            },
             { role: "assistant", content: "Hola, como estas?" },
           ],
         }}

@@ -1,12 +1,4 @@
-import {
-  Badge,
-  Button,
-  Card,
-  Group,
-  Menu,
-  Stack,
-  Text,
-} from "@mantine/core";
+import { Badge, Button, Card, Group, Menu, Stack, Text } from "@mantine/core";
 import { StatusIndicator } from "../../atoms/StatusIndicator/StatusIndicator";
 import { TransportBadge } from "../../atoms/TransportBadge/TransportBadge";
 import { ConnectionToggle } from "../../atoms/ConnectionToggle/ConnectionToggle";

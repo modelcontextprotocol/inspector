@@ -1,10 +1,4 @@
-import {
-  Container,
-  Group,
-  SimpleGrid,
-  Stack,
-  Text,
-} from "@mantine/core";
+import { Container, Group, SimpleGrid, Stack, Text } from "@mantine/core";
 import { ServerCard } from "../../molecules/ServerCard/ServerCard";
 import { AddServerMenu } from "../../molecules/AddServerMenu/AddServerMenu";
 import type { ServerCardProps } from "../../molecules/ServerCard/ServerCard";
@@ -38,7 +32,11 @@ export function ServerListScreen({
             No servers configured. Add a server to get started.
           </Text>
         ) : (
-          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg" className="grid-align-start">
+          <SimpleGrid
+            cols={{ base: 1, md: 2 }}
+            spacing="lg"
+            className="grid-align-start"
+          >
             {servers.map((server) => (
               <ServerCard key={server.name} {...server} />
             ))}

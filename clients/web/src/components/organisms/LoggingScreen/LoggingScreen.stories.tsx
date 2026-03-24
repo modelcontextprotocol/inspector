@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { LoggingScreen } from "./LoggingScreen";
 import type { LogControlsProps } from "../../molecules/LogControls/LogControls";
-import type { LogEntryProps } from "../../atoms/LogEntry/LogEntry";
+import type { LogEntryProps, LogLevel } from "../../atoms/LogEntry/LogEntry";
 
 function makeControls(): LogControlsProps {
   return {
@@ -46,32 +46,123 @@ export const Empty: Story = {
   },
 };
 
-const logMessages: { level: string; message: string; logger?: string }[] = [
+const logMessages: { level: LogLevel; message: string; logger?: string }[] = [
   { level: "info", message: "Server started on port 3000" },
-  { level: "debug", message: "Loading configuration from /etc/mcp/config.json", logger: "config" },
-  { level: "warning", message: "Deprecated API endpoint called: /v1/tools", logger: "http" },
+  {
+    level: "debug",
+    message: "Loading configuration from /etc/mcp/config.json",
+    logger: "config",
+  },
+  {
+    level: "warning",
+    message: "Deprecated API endpoint called: /v1/tools",
+    logger: "http",
+  },
   { level: "info", message: "Client connected: inspector-web-ui" },
-  { level: "error", message: "Failed to read resource: file not found at /data/missing.txt", logger: "resources" },
-  { level: "info", message: "Tool execution completed: search_files (245ms)", logger: "tools" },
-  { level: "debug", message: "Parsing JSON-RPC request body", logger: "transport" },
-  { level: "info", message: "Listing available tools for client session", logger: "tools" },
-  { level: "warning", message: "Slow query detected: 1200ms for resource lookup", logger: "db" },
-  { level: "info", message: "Resource subscription added: file:///config.json", logger: "resources" },
-  { level: "debug", message: "Heartbeat ping received from client", logger: "session" },
-  { level: "error", message: "Permission denied reading /etc/secrets.env", logger: "resources" },
-  { level: "info", message: "Prompt 'summarize' resolved with 2 messages", logger: "prompts" },
-  { level: "debug", message: "Cache hit for resource: db://users/42", logger: "cache" },
-  { level: "info", message: "Tool 'create_record' executed successfully in 89ms", logger: "tools" },
-  { level: "warning", message: "Client reconnection attempt #3", logger: "session" },
-  { level: "info", message: "New resource detected: file:///data/output.csv", logger: "resources" },
-  { level: "debug", message: "Serializing response payload (2.4KB)", logger: "transport" },
-  { level: "error", message: "Timeout waiting for tool response after 30s", logger: "tools" },
-  { level: "info", message: "Session initialized with capabilities: tools, resources, prompts" },
-  { level: "debug", message: "Validating input schema for tool 'batch_process'", logger: "tools" },
-  { level: "info", message: "Resource template resolved: db://tables/users/rows/15", logger: "resources" },
-  { level: "warning", message: "Memory usage at 78% — consider increasing limits", logger: "system" },
-  { level: "info", message: "Client disconnected gracefully", logger: "session" },
-  { level: "debug", message: "Flushing log buffer to disk (128 entries)", logger: "logging" },
+  {
+    level: "error",
+    message: "Failed to read resource: file not found at /data/missing.txt",
+    logger: "resources",
+  },
+  {
+    level: "info",
+    message: "Tool execution completed: search_files (245ms)",
+    logger: "tools",
+  },
+  {
+    level: "debug",
+    message: "Parsing JSON-RPC request body",
+    logger: "transport",
+  },
+  {
+    level: "info",
+    message: "Listing available tools for client session",
+    logger: "tools",
+  },
+  {
+    level: "warning",
+    message: "Slow query detected: 1200ms for resource lookup",
+    logger: "db",
+  },
+  {
+    level: "info",
+    message: "Resource subscription added: file:///config.json",
+    logger: "resources",
+  },
+  {
+    level: "debug",
+    message: "Heartbeat ping received from client",
+    logger: "session",
+  },
+  {
+    level: "error",
+    message: "Permission denied reading /etc/secrets.env",
+    logger: "resources",
+  },
+  {
+    level: "info",
+    message: "Prompt 'summarize' resolved with 2 messages",
+    logger: "prompts",
+  },
+  {
+    level: "debug",
+    message: "Cache hit for resource: db://users/42",
+    logger: "cache",
+  },
+  {
+    level: "info",
+    message: "Tool 'create_record' executed successfully in 89ms",
+    logger: "tools",
+  },
+  {
+    level: "warning",
+    message: "Client reconnection attempt #3",
+    logger: "session",
+  },
+  {
+    level: "info",
+    message: "New resource detected: file:///data/output.csv",
+    logger: "resources",
+  },
+  {
+    level: "debug",
+    message: "Serializing response payload (2.4KB)",
+    logger: "transport",
+  },
+  {
+    level: "error",
+    message: "Timeout waiting for tool response after 30s",
+    logger: "tools",
+  },
+  {
+    level: "info",
+    message: "Session initialized with capabilities: tools, resources, prompts",
+  },
+  {
+    level: "debug",
+    message: "Validating input schema for tool 'batch_process'",
+    logger: "tools",
+  },
+  {
+    level: "info",
+    message: "Resource template resolved: db://tables/users/rows/15",
+    logger: "resources",
+  },
+  {
+    level: "warning",
+    message: "Memory usage at 78% — consider increasing limits",
+    logger: "system",
+  },
+  {
+    level: "info",
+    message: "Client disconnected gracefully",
+    logger: "session",
+  },
+  {
+    level: "debug",
+    message: "Flushing log buffer to disk (128 entries)",
+    logger: "logging",
+  },
 ];
 
 function pad(n: number): string {

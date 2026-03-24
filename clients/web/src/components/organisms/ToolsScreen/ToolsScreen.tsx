@@ -1,4 +1,12 @@
-import { Card, Container, Grid, Stack, Text, TextInput, Title } from "@mantine/core";
+import {
+  Card,
+  Container,
+  Grid,
+  Stack,
+  Text,
+  TextInput,
+  Title,
+} from "@mantine/core";
 import { ListChangedIndicator } from "../../atoms/ListChangedIndicator/ListChangedIndicator";
 import { ToolListItem } from "../../molecules/ToolListItem/ToolListItem";
 import { ToolDetailPanel } from "../../molecules/ToolDetailPanel/ToolDetailPanel";
@@ -36,55 +44,55 @@ export function ToolsScreen({
 
   return (
     <Container size="xl" py="xl">
-    <Grid align="stretch">
-      <Grid.Col span={3}>
-        <Card withBorder padding="lg" h="100%">
-          <Stack gap="sm">
-            <Title order={4}>Tools</Title>
-            <ListChangedIndicator
-              visible={listChanged}
-              onRefresh={onRefreshList}
-            />
-            <TextInput
-              placeholder="Search tools..."
-              value={searchText}
-              onChange={(event) => onSearchChange(event.currentTarget.value)}
-            />
-            {filteredTools.map((tool) => (
-              <ToolListItem
-                key={tool.name}
-                {...tool}
-                onClick={() => onSelectTool(tool.name)}
+      <Grid align="stretch">
+        <Grid.Col span={3}>
+          <Card withBorder padding="lg" h="100%">
+            <Stack gap="sm">
+              <Title order={4}>Tools</Title>
+              <ListChangedIndicator
+                visible={listChanged}
+                onRefresh={onRefreshList}
               />
-            ))}
-          </Stack>
-        </Card>
-      </Grid.Col>
+              <TextInput
+                placeholder="Search tools..."
+                value={searchText}
+                onChange={(event) => onSearchChange(event.currentTarget.value)}
+              />
+              {filteredTools.map((tool) => (
+                <ToolListItem
+                  key={tool.name}
+                  {...tool}
+                  onClick={() => onSelectTool(tool.name)}
+                />
+              ))}
+            </Stack>
+          </Card>
+        </Grid.Col>
 
-      <Grid.Col span={5}>
-        <Card withBorder padding="lg" h="100%">
-          {selectedTool ? (
-            <ToolDetailPanel {...selectedTool} />
-          ) : (
-            <Text c="dimmed" ta="center" py="xl">
-              Select a tool to view details
-            </Text>
-          )}
-        </Card>
-      </Grid.Col>
+        <Grid.Col span={5}>
+          <Card withBorder padding="lg" h="100%">
+            {selectedTool ? (
+              <ToolDetailPanel {...selectedTool} />
+            ) : (
+              <Text c="dimmed" ta="center" py="xl">
+                Select a tool to view details
+              </Text>
+            )}
+          </Card>
+        </Grid.Col>
 
-      <Grid.Col span={4}>
-        <Card withBorder padding="lg" h="100%">
-          {result ? (
-            <ResultPanel {...result} />
-          ) : (
-            <Text c="dimmed" ta="center" py="xl">
-              Results will appear here
-            </Text>
-          )}
-        </Card>
-      </Grid.Col>
-    </Grid>
+        <Grid.Col span={4}>
+          <Card withBorder padding="lg" h="100%">
+            {result ? (
+              <ResultPanel {...result} />
+            ) : (
+              <Text c="dimmed" ta="center" py="xl">
+                Results will appear here
+              </Text>
+            )}
+          </Card>
+        </Grid.Col>
+      </Grid>
     </Container>
   );
 }

@@ -7,6 +7,7 @@ import '../src/App.css'
 import { theme } from '../src/theme/theme'
 import { useEffect } from 'react'
 
+// eslint-disable-next-line react-refresh/only-export-components
 function ColorSchemeWrapper({
   colorScheme,
   children,

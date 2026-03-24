@@ -1,5 +1,13 @@
 import type { ReactNode } from "react";
-import { ActionIcon, AppShell, Button, Group, Image, SegmentedControl, Text } from "@mantine/core";
+import {
+  ActionIcon,
+  AppShell,
+  Button,
+  Group,
+  Image,
+  SegmentedControl,
+  Text,
+} from "@mantine/core";
 import { useComputedColorScheme } from "@mantine/core";
 import { StatusIndicator } from "../../atoms/StatusIndicator/StatusIndicator";
 import mcpLogo from "../../../theme/assets/MCP.svg";
@@ -42,7 +50,13 @@ export function ConnectedLayout({
       <AppShell.Header>
         <Group h="100%" px="md" wrap="nowrap" gap={0}>
           <Group gap="md" wrap="nowrap" w="33.33%" miw={0}>
-            <Image src={colorScheme === "dark" ? mcpLogoDark : mcpLogo} alt="MCP" w={28} h={28} fit="contain" />
+            <Image
+              src={colorScheme === "dark" ? mcpLogoDark : mcpLogo}
+              alt="MCP"
+              w={28}
+              h={28}
+              fit="contain"
+            />
             <ServerName>{serverName}</ServerName>
           </Group>
 

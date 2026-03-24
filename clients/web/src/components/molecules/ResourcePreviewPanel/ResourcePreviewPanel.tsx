@@ -69,10 +69,7 @@ export function ResourcePreviewPanel({
       <Group justify="space-between">
         <Group gap="xs">
           {annotations?.audience && (
-            <AnnotationBadge
-              label={annotations.audience}
-              variant="audience"
-            />
+            <AnnotationBadge label={annotations.audience} variant="audience" />
           )}
           {annotations?.priority !== undefined && (
             <AnnotationBadge

@@ -5,7 +5,6 @@ import {
   Container,
   Grid,
   Group,
-
   ScrollArea,
   Stack,
   Text,
@@ -33,45 +32,45 @@ export function LoggingScreen({
 }: LoggingScreenProps) {
   return (
     <Container size="xl" py="xl">
-    <Grid align="stretch">
-      <Grid.Col span={3}>
-        <Card withBorder padding="lg">
-          <LogControls {...controls} />
-        </Card>
-      </Grid.Col>
-      <Grid.Col span={9}>
-        <Card withBorder padding="lg" h="100%">
-          <Stack gap="sm" h="100%">
-            <Group justify="space-between">
-              <Title order={4}>Log Stream</Title>
-              <Group>
-                <Checkbox
-                  label="Auto-scroll"
-                  checked={autoScroll}
-                  onChange={onToggleAutoScroll}
-                />
-                <Button variant="light" size="sm" onClick={onCopyAll}>
-                  Copy All
-                </Button>
+      <Grid align="stretch">
+        <Grid.Col span={3}>
+          <Card withBorder padding="lg">
+            <LogControls {...controls} />
+          </Card>
+        </Grid.Col>
+        <Grid.Col span={9}>
+          <Card withBorder padding="lg" h="100%">
+            <Stack gap="sm" h="100%">
+              <Group justify="space-between">
+                <Title order={4}>Log Stream</Title>
+                <Group>
+                  <Checkbox
+                    label="Auto-scroll"
+                    checked={autoScroll}
+                    onChange={onToggleAutoScroll}
+                  />
+                  <Button variant="light" size="sm" onClick={onCopyAll}>
+                    Copy All
+                  </Button>
+                </Group>
               </Group>
-            </Group>
-            {entries.length > 0 ? (
-              <ScrollArea flex={1}>
-                <Stack gap="xs">
-                  {entries.map((entry, index) => (
-                    <LogEntry key={index} {...entry} />
-                  ))}
+              {entries.length > 0 ? (
+                <ScrollArea flex={1}>
+                  <Stack gap="xs">
+                    {entries.map((entry, index) => (
+                      <LogEntry key={index} {...entry} />
+                    ))}
+                  </Stack>
+                </ScrollArea>
+              ) : (
+                <Stack flex={1} align="center" justify="center">
+                  <Text c="dimmed">No log entries</Text>
                 </Stack>
-              </ScrollArea>
-            ) : (
-              <Stack flex={1} align="center" justify="center">
-                <Text c="dimmed">No log entries</Text>
-              </Stack>
-            )}
-          </Stack>
-        </Card>
-      </Grid.Col>
-    </Grid>
+              )}
+            </Stack>
+          </Card>
+        </Grid.Col>
+      </Grid>
     </Container>
   );
 }

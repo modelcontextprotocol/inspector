@@ -20,30 +20,30 @@ export function PromptsScreen({
 }: PromptsScreenProps) {
   return (
     <Container size="xl" py="xl">
-    <Grid align="stretch">
-      <Grid.Col span={5}>
-        <Card withBorder padding="lg" h="100%">
-          <Stack gap="md">
-            <ListChangedIndicator
-              visible={listChanged}
-              onRefresh={onRefreshList}
-            />
-            <PromptArgumentsForm {...promptForm} />
-          </Stack>
-        </Card>
-      </Grid.Col>
-      <Grid.Col span={7}>
-        <Card withBorder padding="lg" h="100%">
-          {messages ? (
-            <PromptMessagesDisplay {...messages} />
-          ) : (
-            <Text c="dimmed" ta="center" py="xl">
-              Select a prompt and click Get Prompt to see messages
-            </Text>
-          )}
-        </Card>
-      </Grid.Col>
-    </Grid>
+      <Grid align="stretch">
+        <Grid.Col span={5}>
+          <Card withBorder padding="lg" h="100%">
+            <Stack gap="md">
+              <ListChangedIndicator
+                visible={listChanged}
+                onRefresh={onRefreshList}
+              />
+              <PromptArgumentsForm {...promptForm} />
+            </Stack>
+          </Card>
+        </Grid.Col>
+        <Grid.Col span={7}>
+          <Card withBorder padding="lg" h="100%">
+            {messages ? (
+              <PromptMessagesDisplay {...messages} />
+            ) : (
+              <Text c="dimmed" ta="center" py="xl">
+                Select a prompt and click Get Prompt to see messages
+              </Text>
+            )}
+          </Card>
+        </Grid.Col>
+      </Grid>
     </Container>
   );
 }

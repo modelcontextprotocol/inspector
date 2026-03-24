@@ -145,7 +145,8 @@ export const LongToolName: Story = {
           },
           aggregation_functions: {
             type: "string",
-            description: "Comma-separated list of aggregation functions to apply",
+            description:
+              "Comma-separated list of aggregation functions to apply",
           },
         },
         required: ["primary_table_name"],
