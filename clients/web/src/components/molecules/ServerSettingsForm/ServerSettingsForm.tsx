@@ -41,6 +41,27 @@ const CONNECTION_MODE_OPTIONS = [
   { value: "direct", label: "Direct" },
 ];
 
+const RemoveIcon = ActionIcon.withProps({
+  color: "red",
+  variant: "subtle",
+});
+
+const AddButton = Button.withProps({
+  size: "xs",
+  variant: "light",
+});
+
+const HintText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const EmptyHint = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+  fs: "italic",
+});
+
 function KeyValueRows({
   items,
   onChange,
@@ -68,13 +89,7 @@ function KeyValueRows({
             value={item.value}
             onChange={(e) => onChange(index, item.key, e.currentTarget.value)}
           />
-          <ActionIcon
-            color="red"
-            variant="subtle"
-            onClick={() => onRemove(index)}
-          >
-            X
-          </ActionIcon>
+          <RemoveIcon onClick={() => onRemove(index)}>X</RemoveIcon>
         </Group>
       ))}
     </>
@@ -126,17 +141,11 @@ export function ServerSettingsForm({
 
       <Group justify="space-between">
         <Title order={5}>Custom Headers</Title>
-        <Button size="xs" variant="light" onClick={onAddHeader}>
-          + Add Header
-        </Button>
+        <AddButton onClick={onAddHeader}>+ Add Header</AddButton>
       </Group>
-      <Text size="sm" c="dimmed">
-        Headers sent with every HTTP request to this server
-      </Text>
+      <HintText>Headers sent with every HTTP request to this server</HintText>
       {headers.length === 0 ? (
-        <Text size="sm" c="dimmed" fs="italic">
-          No custom headers configured
-        </Text>
+        <EmptyHint>No custom headers configured</EmptyHint>
       ) : (
         <KeyValueRows
           items={headers}
@@ -149,17 +158,13 @@ export function ServerSettingsForm({
 
       <Group justify="space-between">
         <Title order={5}>Request Metadata</Title>
-        <Button size="xs" variant="light" onClick={onAddMetadata}>
-          + Add Metadata
-        </Button>
+        <AddButton onClick={onAddMetadata}>+ Add Metadata</AddButton>
       </Group>
-      <Text size="sm" c="dimmed">
+      <HintText>
         Metadata sent with every MCP request (included in _meta field)
-      </Text>
+      </HintText>
       {metadata.length === 0 ? (
-        <Text size="sm" c="dimmed" fs="italic">
-          No request metadata configured
-        </Text>
+        <EmptyHint>No request metadata configured</EmptyHint>
       ) : (
         <KeyValueRows
           items={metadata}
@@ -189,9 +194,9 @@ export function ServerSettingsForm({
       <Divider />
 
       <Title order={5}>OAuth Settings</Title>
-      <Text size="sm" c="dimmed">
+      <HintText>
         Pre-configure OAuth credentials for servers requiring authentication
-      </Text>
+      </HintText>
       <TextInput
         label="Client ID"
         value={oauthClientId ?? ""}

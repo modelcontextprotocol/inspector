@@ -54,6 +54,15 @@ const validationIcons: Record<
   error: { icon: "\u2717", color: "red" },
 };
 
+const HintText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+function formatPackageLabel(pkg: PackageInfo): string {
+  return `${pkg.registryType}: ${pkg.identifier} (${pkg.runtimeHint})`;
+}
+
 export function ImportServerJsonPanel({
   jsonContent,
   validationResults,
@@ -73,9 +82,7 @@ export function ImportServerJsonPanel({
     <Stack gap="md">
       <Title order={4}>Import MCP Registry server.json</Title>
 
-      <Text size="sm" c="dimmed">
-        Paste server.json content or drag and drop a file:
-      </Text>
+      <HintText>Paste server.json content or drag and drop a file:</HintText>
 
       <Textarea
         value={jsonContent}
@@ -113,7 +120,7 @@ export function ImportServerJsonPanel({
                 <Radio
                   key={index}
                   value={String(index)}
-                  label={`${pkg.registryType}: ${pkg.identifier} (${pkg.runtimeHint})`}
+                  label={formatPackageLabel(pkg)}
                 />
               ))}
             </Stack>

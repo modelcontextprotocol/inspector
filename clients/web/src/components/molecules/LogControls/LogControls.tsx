@@ -31,6 +31,11 @@ const LEVEL_COLORS: Record<string, { c: string; fw?: number }> = {
   emergency: { c: "red", fw: 900 },
 };
 
+const ToolbarButton = Button.withProps({
+  variant: "light",
+  size: "sm",
+});
+
 export interface LogControlsProps {
   currentLevel: string;
   filterText: string;
@@ -93,12 +98,8 @@ export function LogControls({
       })}
 
       <Group>
-        <Button variant="light" size="sm" onClick={onClear}>
-          Clear
-        </Button>
-        <Button variant="light" size="sm" onClick={onExport}>
-          Export
-        </Button>
+        <ToolbarButton onClick={onClear}>Clear</ToolbarButton>
+        <ToolbarButton onClick={onExport}>Export</ToolbarButton>
       </Group>
     </Stack>
   );

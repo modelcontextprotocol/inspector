@@ -34,6 +34,63 @@ export interface HistoryEntryProps {
   onTogglePin: () => void;
 }
 
+const EntryContainer = Card.withProps({
+  withBorder: true,
+  padding: "md",
+});
+
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+});
+
+const TimestampText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+  ff: "monospace",
+});
+
+const TargetText = Text.withProps({
+  size: "sm",
+  fw: 500,
+});
+
+const DurationText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const SubtleButton = Button.withProps({
+  variant: "subtle",
+  size: "xs",
+});
+
+const ChildMethodBadge = Badge.withProps({
+  color: "dark",
+  size: "sm",
+});
+
+function formatDuration(ms: number): string {
+  return `${ms}ms`;
+}
+
+function formatStatusLabel(status: "success" | "error"): string {
+  return status === "success" ? "OK" : "Error";
+}
+
+function statusColor(status: "success" | "error"): string {
+  return status === "success" ? "green" : "red";
+}
+
+function formatPinLabel(isPinned: boolean, pinLabel?: string): string {
+  const base = isPinned ? "Unpin" : "Pin";
+  return isPinned && pinLabel ? `${base} (${pinLabel})` : base;
+}
+
+function serializeJson(value: Record<string, unknown>): string {
+  return JSON.stringify(value);
+}
+
 export function HistoryEntry({
   timestamp,
   method,
@@ -51,41 +108,30 @@ export function HistoryEntry({
   onTogglePin,
 }: HistoryEntryProps) {
   return (
-    <Card withBorder padding="md">
+    <EntryContainer>
       <Stack gap="sm">
-        <Group justify="space-between" wrap="nowrap">
+        <HeaderRow>
           <Group gap="sm">
-            <Text size="sm" c="dimmed" ff="monospace">
-              {timestamp}
-            </Text>
+            <TimestampText>{timestamp}</TimestampText>
             <Badge color="dark">{method}</Badge>
-            {target && (
-              <Text size="sm" fw={500}>
-                {target}
-              </Text>
-            )}
+            {target && <TargetText>{target}</TargetText>}
           </Group>
           <Group gap="sm">
-            <Text size="sm" c="dimmed">
-              {durationMs}ms
-            </Text>
-            <Badge color={status === "success" ? "green" : "red"}>
-              {status === "success" ? "OK" : "Error"}
+            <DurationText>{formatDuration(durationMs)}</DurationText>
+            <Badge color={statusColor(status)}>
+              {formatStatusLabel(status)}
             </Badge>
           </Group>
-        </Group>
+        </HeaderRow>
 
         <Group gap="xs">
-          <Button variant="subtle" size="xs" onClick={onReplay}>
-            Replay
-          </Button>
-          <Button variant="subtle" size="xs" onClick={onTogglePin}>
-            {isPinned ? "Unpin" : "Pin"}
-            {isPinned && pinLabel ? ` (${pinLabel})` : ""}
-          </Button>
-          <Button variant="subtle" size="xs" onClick={onToggleExpand} ml="auto">
+          <SubtleButton onClick={onReplay}>Replay</SubtleButton>
+          <SubtleButton onClick={onTogglePin}>
+            {formatPinLabel(isPinned, pinLabel)}
+          </SubtleButton>
+          <SubtleButton onClick={onToggleExpand} ml="auto">
             {isExpanded ? "Collapse" : "Expand"}
-          </Button>
+          </SubtleButton>
         </Group>
 
         <Collapse in={isExpanded}>
@@ -95,7 +141,7 @@ export function HistoryEntry({
                 <Text size="sm">Parameters:</Text>
                 <ContentViewer
                   type="json"
-                  content={JSON.stringify(parameters)}
+                  content={serializeJson(parameters)}
                   copyable
                 />
               </Stack>
@@ -105,7 +151,7 @@ export function HistoryEntry({
                 <Text size="sm">Response:</Text>
                 <ContentViewer
                   type="json"
-                  content={JSON.stringify(response)}
+                  content={serializeJson(response)}
                   copyable
                 />
               </Stack>
@@ -114,25 +160,16 @@ export function HistoryEntry({
               <Stack gap="xs">
                 {childEntries.map((child, index) => (
                   <Group key={index} pl="lg" gap="sm">
-                    <Text size="sm" c="dimmed" ff="monospace">
-                      +--{" "}
-                    </Text>
-                    <Text size="sm" c="dimmed" ff="monospace">
-                      {child.timestamp}
-                    </Text>
-                    <Badge color="dark" size="sm">
-                      {child.method}
-                    </Badge>
+                    <TimestampText>+-- </TimestampText>
+                    <TimestampText>{child.timestamp}</TimestampText>
+                    <ChildMethodBadge>{child.method}</ChildMethodBadge>
                     {child.target && <Text size="sm">{child.target}</Text>}
-                    <Badge
-                      color={child.status === "success" ? "green" : "red"}
-                      size="sm"
-                    >
-                      {child.status === "success" ? "OK" : "Error"}
+                    <Badge color={statusColor(child.status)} size="sm">
+                      {formatStatusLabel(child.status)}
                     </Badge>
-                    <Text size="sm" c="dimmed">
-                      {child.durationMs}ms
-                    </Text>
+                    <DurationText>
+                      {formatDuration(child.durationMs)}
+                    </DurationText>
                   </Group>
                 ))}
               </Stack>
@@ -140,6 +177,6 @@ export function HistoryEntry({
           </Stack>
         </Collapse>
       </Stack>
-    </Card>
+    </EntryContainer>
   );
 }

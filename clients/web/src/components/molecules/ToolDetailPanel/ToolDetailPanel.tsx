@@ -26,6 +26,43 @@ export interface ToolDetailPanelProps {
   onCancel: () => void;
 }
 
+const ToolTitle = Text.withProps({
+  fw: 700,
+  size: "lg",
+  truncate: "end",
+});
+
+const HintsText = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+  fs: "italic",
+});
+
+const DescriptionText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const CancelButton = Button.withProps({
+  variant: "light",
+  color: "red",
+});
+
+function resolveTitle(name: string, title?: string): string {
+  return title ?? name;
+}
+
+function hasAnyAnnotation(annotations?: ToolAnnotations): boolean {
+  return !!(
+    annotations &&
+    (annotations.audience ||
+      annotations.readOnly ||
+      annotations.destructive ||
+      annotations.longRunning ||
+      annotations.hints)
+  );
+}
+
 export function ToolDetailPanel({
   name,
   title,
@@ -39,20 +76,10 @@ export function ToolDetailPanel({
   onExecute,
   onCancel,
 }: ToolDetailPanelProps) {
-  const hasAnnotations =
-    annotations &&
-    (annotations.audience ||
-      annotations.readOnly ||
-      annotations.destructive ||
-      annotations.longRunning ||
-      annotations.hints);
-
   return (
     <Stack gap="md" miw={0}>
-      <Text fw={700} size="lg" truncate="end">
-        {title ?? name}
-      </Text>
-      {hasAnnotations && (
+      <ToolTitle>{resolveTitle(name, title)}</ToolTitle>
+      {hasAnyAnnotation(annotations) && annotations && (
         <Group gap="xs">
           {annotations.audience && (
             <AnnotationBadge label={annotations.audience} variant="audience" />
@@ -66,19 +93,11 @@ export function ToolDetailPanel({
           {annotations.longRunning && (
             <AnnotationBadge label="long-run" variant="longRun" />
           )}
-          {annotations.hints && (
-            <Text size="xs" c="dimmed" fs="italic">
-              {annotations.hints}
-            </Text>
-          )}
+          {annotations.hints && <HintsText>{annotations.hints}</HintsText>}
         </Group>
       )}
 
-      {description && (
-        <Text size="sm" c="dimmed">
-          {description}
-        </Text>
-      )}
+      {description && <DescriptionText>{description}</DescriptionText>}
 
       <Divider />
 
@@ -105,11 +124,7 @@ export function ToolDetailPanel({
         >
           Execute Tool
         </Button>
-        {isExecuting && (
-          <Button variant="light" color="red" onClick={onCancel}>
-            Cancel
-          </Button>
-        )}
+        {isExecuting && <CancelButton onClick={onCancel}>Cancel</CancelButton>}
       </Group>
     </Stack>
   );

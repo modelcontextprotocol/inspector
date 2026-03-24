@@ -19,6 +19,47 @@ export interface InlineSamplingRequestProps {
   onViewDetails: () => void;
 }
 
+const RequestContainer = Paper.withProps({
+  p: "md",
+  withBorder: true,
+});
+
+const QueueLabel = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
+const PreviewText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+  lineClamp: 2,
+});
+
+const DetailButton = Button.withProps({
+  variant: "subtle",
+  size: "xs",
+});
+
+const ActionsRow = Group.withProps({
+  justify: "flex-end",
+  gap: "xs",
+});
+
+const CompactButton = Button.withProps({
+  size: "xs",
+  variant: "light",
+});
+
+const RejectButton = Button.withProps({
+  size: "xs",
+  variant: "light",
+  color: "red",
+});
+
+function formatModelHints(hints: string[]): string {
+  return `Model hints: ${hints.join(", ")}`;
+}
+
 export function InlineSamplingRequest({
   queuePosition,
   modelHints,
@@ -30,26 +71,18 @@ export function InlineSamplingRequest({
   onViewDetails,
 }: InlineSamplingRequestProps) {
   return (
-    <Paper p="md" withBorder>
+    <RequestContainer>
       <Stack gap="sm">
         <Group justify="space-between">
           <Badge color="blue">sampling/createMessage</Badge>
-          <Text size="xs" c="dimmed">
-            {queuePosition}
-          </Text>
+          <QueueLabel>{queuePosition}</QueueLabel>
         </Group>
 
-        {modelHints && (
-          <Text size="sm">Model hints: {modelHints.join(", ")}</Text>
-        )}
+        {modelHints && <Text size="sm">{formatModelHints(modelHints)}</Text>}
 
-        <Text size="sm" c="dimmed" lineClamp={2}>
-          {messagePreview}
-        </Text>
+        <PreviewText>{messagePreview}</PreviewText>
 
-        <Button variant="subtle" size="xs" onClick={onViewDetails}>
-          View Details
-        </Button>
+        <DetailButton onClick={onViewDetails}>View Details</DetailButton>
 
         <Textarea
           size="sm"
@@ -60,18 +93,12 @@ export function InlineSamplingRequest({
           readOnly
         />
 
-        <Group justify="flex-end" gap="xs">
-          <Button size="xs" variant="light" onClick={onAutoRespond}>
-            Auto-respond
-          </Button>
-          <Button size="xs" variant="light" onClick={onEditAndSend}>
-            Edit &amp; Send
-          </Button>
-          <Button size="xs" variant="light" color="red" onClick={onReject}>
-            Reject
-          </Button>
-        </Group>
+        <ActionsRow>
+          <CompactButton onClick={onAutoRespond}>Auto-respond</CompactButton>
+          <CompactButton onClick={onEditAndSend}>Edit &amp; Send</CompactButton>
+          <RejectButton onClick={onReject}>Reject</RejectButton>
+        </ActionsRow>
       </Stack>
-    </Paper>
+    </RequestContainer>
   );
 }

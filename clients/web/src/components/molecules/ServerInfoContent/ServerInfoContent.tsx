@@ -26,6 +26,15 @@ export interface ServerInfoContentProps {
   oauthDetails?: { authUrl?: string; scopes?: string[]; accessToken?: string };
 }
 
+const ValueText = Text.withProps({
+  size: "sm",
+  fw: 600,
+});
+
+function formatScopes(scopes: string[]): string {
+  return scopes.join(", ");
+}
+
 export function ServerInfoContent({
   name,
   version,
@@ -42,19 +51,13 @@ export function ServerInfoContent({
 
       <SimpleGrid cols={2}>
         <Text size="sm">Name</Text>
-        <Text size="sm" fw={600}>
-          {name}
-        </Text>
+        <ValueText>{name}</ValueText>
 
         <Text size="sm">Version</Text>
-        <Text size="sm" fw={600}>
-          {version}
-        </Text>
+        <ValueText>{version}</ValueText>
 
         <Text size="sm">Protocol</Text>
-        <Text size="sm" fw={600}>
-          {protocolVersion}
-        </Text>
+        <ValueText>{protocolVersion}</ValueText>
 
         <Text size="sm">Transport</Text>
         <Badge variant="outline">{transport}</Badge>
@@ -105,9 +108,7 @@ export function ServerInfoContent({
             {oauthDetails.scopes && oauthDetails.scopes.length > 0 && (
               <SimpleGrid cols={2}>
                 <Text size="sm">Scopes</Text>
-                <Text size="sm" fw={600}>
-                  {oauthDetails.scopes.join(", ")}
-                </Text>
+                <ValueText>{formatScopes(oauthDetails.scopes)}</ValueText>
               </SimpleGrid>
             )}
             {oauthDetails.accessToken && (

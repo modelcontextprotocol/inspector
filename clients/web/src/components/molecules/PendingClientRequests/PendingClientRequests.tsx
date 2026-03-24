@@ -6,16 +6,16 @@ export interface PendingClientRequestsProps {
   children: ReactNode;
 }
 
+function formatTitle(count: number): string {
+  return `Pending Client Requests (${count})`;
+}
+
 export function PendingClientRequests({
   count,
   children,
 }: PendingClientRequestsProps) {
   return (
-    <Alert
-      color="blue"
-      variant="light"
-      title={`Pending Client Requests (${count})`}
-    >
+    <Alert color="blue" variant="light" title={formatTitle(count)}>
       <Stack gap="md">{children}</Stack>
     </Alert>
   );

@@ -33,6 +33,58 @@ const STATUS_COLORS: Record<TaskStatus, string> = {
   cancelled: "yellow",
 };
 
+const TaskContainer = Card.withProps({
+  withBorder: true,
+  padding: "md",
+});
+
+const TaskIdText = Text.withProps({
+  size: "sm",
+  ff: "monospace",
+});
+
+const DetailText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const ValueSpan = Text.withProps({
+  component: "span",
+  fw: 600,
+});
+
+const ProgressNote = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+  fs: "italic",
+});
+
+const SubtleButton = Button.withProps({
+  variant: "subtle",
+  size: "xs",
+});
+
+const CancelButton = Button.withProps({
+  variant: "subtle",
+  color: "red",
+  size: "xs",
+});
+
+function formatTaskId(taskId: string): string {
+  return `Task: ${taskId}`;
+}
+
+function formatTimeline(
+  startedAt: string,
+  completedAt?: string,
+  elapsed?: string,
+): string {
+  let result = `Started: ${startedAt}`;
+  if (completedAt) result += ` | Completed: ${completedAt}`;
+  if (elapsed) result += ` | Elapsed: ${elapsed}`;
+  return result;
+}
+
 export function TaskCard({
   taskId,
   status,
@@ -52,46 +104,34 @@ export function TaskCard({
   const isActive = status === "waiting" || status === "running";
 
   return (
-    <Card withBorder padding="md">
+    <TaskContainer>
       <Stack gap="xs">
         <Group justify="space-between">
           <Group>
-            <Text size="sm" ff="monospace">
-              Task: {taskId}
-            </Text>
+            <TaskIdText>{formatTaskId(taskId)}</TaskIdText>
             <Badge color={STATUS_COLORS[status]}>{status}</Badge>
           </Group>
           {progress !== undefined && <ProgressDisplay progress={progress} />}
         </Group>
 
-        <Text size="sm" c="dimmed">
-          Method:{" "}
-          <Text component="span" fw={600}>
-            {method}
-          </Text>
-        </Text>
+        <DetailText>
+          Method: <ValueSpan>{method}</ValueSpan>
+        </DetailText>
 
         {target && (
-          <Text size="sm" c="dimmed">
-            Tool/Resource:{" "}
-            <Text component="span" fw={600}>
-              {target}
-            </Text>
-          </Text>
+          <DetailText>
+            Tool/Resource: <ValueSpan>{target}</ValueSpan>
+          </DetailText>
         )}
 
         {startedAt && (
-          <Text size="sm" c="dimmed">
-            Started: {startedAt}
-            {completedAt && <> | Completed: {completedAt}</>}
-            {elapsed && <> | Elapsed: {elapsed}</>}
-          </Text>
+          <DetailText>
+            {formatTimeline(startedAt, completedAt, elapsed)}
+          </DetailText>
         )}
 
         {progressDescription && (
-          <Text size="sm" c="dimmed" fs="italic">
-            {progressDescription}
-          </Text>
+          <ProgressNote>{progressDescription}</ProgressNote>
         )}
 
         {error && (
@@ -103,25 +143,17 @@ export function TaskCard({
         <Group justify="flex-end">
           {isActive ? (
             <>
-              <Button variant="subtle" size="xs" onClick={onViewDetails}>
-                View Details
-              </Button>
-              <Button variant="subtle" color="red" size="xs" onClick={onCancel}>
-                Cancel
-              </Button>
+              <SubtleButton onClick={onViewDetails}>View Details</SubtleButton>
+              <CancelButton onClick={onCancel}>Cancel</CancelButton>
             </>
           ) : (
             <>
-              <Button variant="subtle" size="xs" onClick={onViewResult}>
-                View Result
-              </Button>
-              <Button variant="subtle" size="xs" onClick={onDismiss}>
-                Dismiss
-              </Button>
+              <SubtleButton onClick={onViewResult}>View Result</SubtleButton>
+              <SubtleButton onClick={onDismiss}>Dismiss</SubtleButton>
             </>
           )}
         </Group>
       </Stack>
-    </Card>
+    </TaskContainer>
   );
 }

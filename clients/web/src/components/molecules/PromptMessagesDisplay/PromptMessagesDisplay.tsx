@@ -8,6 +8,11 @@ export interface PromptMessage {
   audioContent?: { data: string; mimeType: string };
 }
 
+const CopyAllButton = Button.withProps({
+  variant: "light",
+  size: "sm",
+});
+
 export interface PromptMessagesDisplayProps {
   messages: PromptMessage[];
   onCopyAll?: () => void;
@@ -22,9 +27,7 @@ export function PromptMessagesDisplay({
       <Group justify="space-between">
         <Title order={4}>Messages</Title>
         {onCopyAll && messages.length > 0 && (
-          <Button variant="light" size="sm" onClick={onCopyAll}>
-            Copy All
-          </Button>
+          <CopyAllButton onClick={onCopyAll}>Copy All</CopyAllButton>
         )}
       </Group>
       {messages.length === 0 ? (

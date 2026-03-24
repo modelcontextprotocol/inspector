@@ -9,3 +9,4 @@ export { ThemePaper } from "./Paper";
 export { ThemeSelect } from "./Select";
 export { ThemeSwitch } from "./Switch";
 export { ThemeTextInput } from "./TextInput";
+export { ThemeUnstyledButton } from "./UnstyledButton";

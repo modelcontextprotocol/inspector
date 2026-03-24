@@ -22,8 +22,8 @@ export function ResourceListItem({
     <UnstyledButton
       w="100%"
       p="sm"
+      variant="listItem"
       bg={selected ? "var(--mantine-primary-color-light)" : undefined}
-      style={{ borderRadius: "var(--mantine-radius-md)" }}
       onClick={onClick}
     >
       <Text fw={500}>{name}</Text>

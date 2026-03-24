@@ -19,6 +19,30 @@ export interface ElicitationUrlPanelProps {
   onCancel: () => void;
 }
 
+const ItalicMessage = Text.withProps({
+  size: "md",
+  fs: "italic",
+});
+
+const WrappingCode = Code.withProps({
+  block: true,
+  variant: "wrapping",
+});
+
+const HintText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const MetaText = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
+function formatElicitationId(id: string): string {
+  return `Elicitation ID: ${id}`;
+}
+
 export function ElicitationUrlPanel({
   message,
   url,
@@ -30,14 +54,10 @@ export function ElicitationUrlPanel({
 }: ElicitationUrlPanelProps) {
   return (
     <Stack gap="md">
-      <Text size="md" fs="italic">
-        {message}
-      </Text>
+      <ItalicMessage>{message}</ItalicMessage>
       <Divider />
       <Text size="sm">The server is requesting you visit:</Text>
-      <Code block variant="wrapping">
-        {url}
-      </Code>
+      <WrappingCode>{url}</WrappingCode>
       <Group>
         <Button variant="light" onClick={onCopyUrl}>
           Copy URL
@@ -50,14 +70,10 @@ export function ElicitationUrlPanel({
       {isWaiting && (
         <Group>
           <Loader size="sm" />
-          <Text size="sm" c="dimmed">
-            Waiting for completion...
-          </Text>
+          <HintText>Waiting for completion...</HintText>
         </Group>
       )}
-      <Text size="xs" c="dimmed">
-        Elicitation ID: {elicitationId}
-      </Text>
+      <MetaText>{formatElicitationId(elicitationId)}</MetaText>
       <Alert color="yellow" title="Warning">
         This will open an external URL. Verify the domain before proceeding.
       </Alert>

@@ -36,6 +36,11 @@ function parseTemplate(template: string): TemplatePart[] {
   return parts;
 }
 
+const StaticPart = Text.withProps({
+  size: "sm",
+  pb: 6,
+});
+
 export function ResourceTemplateInput({
   template,
   variables,
@@ -48,9 +53,7 @@ export function ResourceTemplateInput({
     <Group gap="xs" align="flex-end">
       {parts.map((part, index) =>
         part.type === "static" ? (
-          <Text key={index} size="sm" pb={6}>
-            {part.value}
-          </Text>
+          <StaticPart key={index}>{part.value}</StaticPart>
         ) : (
           <TextInput
             key={part.value}

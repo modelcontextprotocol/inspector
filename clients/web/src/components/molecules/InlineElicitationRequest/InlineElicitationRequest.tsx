@@ -24,6 +24,37 @@ export interface InlineElicitationRequestProps {
   onCancel: () => void;
 }
 
+const RequestContainer = Paper.withProps({
+  p: "md",
+  withBorder: true,
+});
+
+const QueueLabel = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
+const ItalicMessage = Text.withProps({
+  size: "sm",
+  fs: "italic",
+});
+
+const ActionsRow = Group.withProps({
+  justify: "flex-end",
+  gap: "xs",
+});
+
+const CompactButton = Button.withProps({
+  size: "xs",
+  variant: "light",
+});
+
+function getBadgeLabel(mode: "form" | "url"): string {
+  return mode === "form"
+    ? "elicitation/create (form)"
+    : "elicitation/create (url)";
+}
+
 export function InlineElicitationRequest({
   mode,
   message,
@@ -36,22 +67,15 @@ export function InlineElicitationRequest({
   onSubmit,
   onCancel,
 }: InlineElicitationRequestProps) {
-  const badgeLabel =
-    mode === "form" ? "elicitation/create (form)" : "elicitation/create (url)";
-
   return (
-    <Paper p="md" withBorder>
+    <RequestContainer>
       <Stack gap="sm">
         <Group justify="space-between">
-          <Badge color="violet">{badgeLabel}</Badge>
-          <Text size="xs" c="dimmed">
-            {queuePosition}
-          </Text>
+          <Badge color="violet">{getBadgeLabel(mode)}</Badge>
+          <QueueLabel>{queuePosition}</QueueLabel>
         </Group>
 
-        <Text size="sm" fs="italic">
-          {message}
-        </Text>
+        <ItalicMessage>{message}</ItalicMessage>
 
         {mode === "form" && schema && (
           <SchemaForm
@@ -73,17 +97,15 @@ export function InlineElicitationRequest({
           </>
         )}
 
-        <Group justify="flex-end" gap="xs">
-          <Button size="xs" variant="light" onClick={onCancel}>
-            Cancel
-          </Button>
+        <ActionsRow>
+          <CompactButton onClick={onCancel}>Cancel</CompactButton>
           {mode === "form" && (
             <Button size="xs" onClick={onSubmit}>
               Submit
             </Button>
           )}
-        </Group>
+        </ActionsRow>
       </Stack>
-    </Paper>
+    </RequestContainer>
   );
 }

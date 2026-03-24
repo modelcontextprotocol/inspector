@@ -54,6 +54,39 @@ export interface ExperimentalFeaturesPanelProps {
   onTestCapability: (name: string) => void;
 }
 
+const HintText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const MetaText = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
+const CapCard = Card.withProps({
+  withBorder: true,
+  p: "sm",
+});
+
+const CompactButton = Button.withProps({
+  size: "xs",
+  variant: "light",
+});
+
+const RemoveIcon = ActionIcon.withProps({
+  variant: "light",
+  color: "red",
+});
+
+function formatMethods(methods: string[]): string {
+  return `Methods: ${methods.join(", ")}`;
+}
+
+function formatDuration(ms: number): string {
+  return `${ms}ms`;
+}
+
 export function ExperimentalFeaturesPanel({
   serverCapabilities,
   clientCapabilities,
@@ -82,30 +115,20 @@ export function ExperimentalFeaturesPanel({
         <Text c="dimmed">No experimental capabilities</Text>
       ) : (
         serverCapabilities.map((cap) => (
-          <Card key={cap.name} withBorder p="sm">
+          <CapCard key={cap.name}>
             <Stack gap="xs">
               <Text fw={600}>{cap.name}</Text>
-              {cap.description && (
-                <Text size="sm" c="dimmed">
-                  {cap.description}
-                </Text>
-              )}
+              {cap.description && <HintText>{cap.description}</HintText>}
               {cap.methods && cap.methods.length > 0 && (
-                <Text size="xs" c="dimmed">
-                  Methods: {cap.methods.join(", ")}
-                </Text>
+                <MetaText>{formatMethods(cap.methods)}</MetaText>
               )}
               <Group>
-                <Button
-                  size="xs"
-                  variant="light"
-                  onClick={() => onTestCapability(cap.name)}
-                >
+                <CompactButton onClick={() => onTestCapability(cap.name)}>
                   Test →
-                </Button>
+                </CompactButton>
               </Group>
             </Stack>
-          </Card>
+          </CapCard>
         ))
       )}
 
@@ -128,9 +151,7 @@ export function ExperimentalFeaturesPanel({
 
       <Title order={5}>Advanced JSON-RPC Tester</Title>
 
-      <Text size="sm" c="dimmed">
-        Send raw JSON-RPC requests to test ANY method
-      </Text>
+      <HintText>Send raw JSON-RPC requests to test ANY method</HintText>
 
       {customHeaders.map((header, index) => (
         <Group key={index}>
@@ -148,20 +169,14 @@ export function ExperimentalFeaturesPanel({
               onHeaderChange(index, header.key, e.currentTarget.value)
             }
           />
-          <ActionIcon
-            variant="light"
-            color="red"
-            onClick={() => onRemoveHeader(index)}
-          >
+          <RemoveIcon onClick={() => onRemoveHeader(index)}>
             <Text size="xs">✕</Text>
-          </ActionIcon>
+          </RemoveIcon>
         </Group>
       ))}
 
       <Group>
-        <Button size="xs" variant="light" onClick={onAddHeader}>
-          + Add Header
-        </Button>
+        <CompactButton onClick={onAddHeader}>+ Add Header</CompactButton>
       </Group>
 
       <Textarea
@@ -186,9 +201,7 @@ export function ExperimentalFeaturesPanel({
             minRows={4}
           />
           <Group>
-            <Button variant="light" size="xs" onClick={onCopyResponse}>
-              Copy
-            </Button>
+            <CompactButton onClick={onCopyResponse}>Copy</CompactButton>
           </Group>
         </>
       )}
@@ -211,7 +224,7 @@ export function ExperimentalFeaturesPanel({
                   <Table.Td>{item.timestamp}</Table.Td>
                   <Table.Td>{item.method}</Table.Td>
                   <Table.Td>{item.status}</Table.Td>
-                  <Table.Td>{item.durationMs}ms</Table.Td>
+                  <Table.Td>{formatDuration(item.durationMs)}</Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>

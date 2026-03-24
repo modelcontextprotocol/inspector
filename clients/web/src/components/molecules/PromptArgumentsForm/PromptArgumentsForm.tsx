@@ -21,6 +21,15 @@ export interface PromptArgumentsFormProps {
   onGetPrompt: () => void;
 }
 
+const DescriptionText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+function formatPlaceholder(name: string): string {
+  return `Enter ${name}...`;
+}
+
 export function PromptArgumentsForm({
   prompts,
   selectedPrompt,
@@ -46,9 +55,7 @@ export function PromptArgumentsForm({
         placeholder="Choose a prompt..."
       />
       {selectedPrompt && selectedPromptInfo?.description && (
-        <Text size="sm" c="dimmed">
-          {selectedPromptInfo.description}
-        </Text>
+        <DescriptionText>{selectedPromptInfo.description}</DescriptionText>
       )}
       {promptArguments.length > 0 && (
         <>
@@ -58,7 +65,7 @@ export function PromptArgumentsForm({
               label={arg.name}
               withAsterisk={arg.required}
               description={arg.description}
-              placeholder={`Enter ${arg.name}...`}
+              placeholder={formatPlaceholder(arg.name)}
               value={argumentValues[arg.name] || ""}
               onChange={(event) =>
                 onArgumentChange(arg.name, event.currentTarget.value)

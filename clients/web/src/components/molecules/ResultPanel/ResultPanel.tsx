@@ -13,6 +13,19 @@ export interface ResultPanelProps {
   onClear: () => void;
 }
 
+const ClearButton = Button.withProps({
+  variant: "light",
+  size: "sm",
+});
+
+function resolveTextType(type: string): "text" | "json" {
+  return type === "text" ? "text" : "json";
+}
+
+function resolveMediaType(mimeType?: string): "image" | "audio" {
+  return mimeType?.startsWith("image") ? "image" : "audio";
+}
+
 export function ResultPanel({ content, onClear }: ResultPanelProps) {
   return (
     <Stack>
@@ -26,7 +39,7 @@ export function ResultPanel({ content, onClear }: ResultPanelProps) {
               return (
                 <ContentViewer
                   key={index}
-                  type={item.type === "text" ? "text" : "json"}
+                  type={resolveTextType(item.type)}
                   content={item.text}
                   copyable
                 />
@@ -36,7 +49,7 @@ export function ResultPanel({ content, onClear }: ResultPanelProps) {
               return (
                 <ContentViewer
                   key={index}
-                  type={item.mimeType?.startsWith("image") ? "image" : "audio"}
+                  type={resolveMediaType(item.mimeType)}
                   content={item.data}
                   mimeType={item.mimeType}
                 />
@@ -47,9 +60,7 @@ export function ResultPanel({ content, onClear }: ResultPanelProps) {
         </>
       )}
       <Group>
-        <Button variant="light" size="sm" onClick={onClear}>
-          Clear
-        </Button>
+        <ClearButton onClick={onClear}>Clear</ClearButton>
       </Group>
     </Stack>
   );

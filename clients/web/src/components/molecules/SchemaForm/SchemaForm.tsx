@@ -27,6 +27,20 @@ export interface JsonSchema {
   format?: string;
 }
 
+const FieldLabel = Text.withProps({
+  fw: 500,
+  size: "sm",
+});
+
+const FieldDescription = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
+function serializeJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
 export interface SchemaFormProps {
   schema: JsonSchema;
   values: Record<string, unknown>;
@@ -182,14 +196,8 @@ export function SchemaForm({
     if (fieldSchema.type === "object" && fieldSchema.properties) {
       return (
         <Stack key={fieldName} gap="sm">
-          <Text fw={500} size="sm">
-            {label}
-          </Text>
-          {description && (
-            <Text size="xs" c="dimmed">
-              {description}
-            </Text>
-          )}
+          <FieldLabel>{label}</FieldLabel>
+          {description && <FieldDescription>{description}</FieldDescription>}
           <Stack gap="sm" pl="md">
             <SchemaForm
               schema={fieldSchema}
@@ -214,7 +222,7 @@ export function SchemaForm({
         disabled={disabled}
         formatOnBlur
         autosize
-        value={rawValue !== undefined ? JSON.stringify(rawValue, null, 2) : ""}
+        value={rawValue !== undefined ? serializeJson(rawValue) : ""}
         onChange={(val) => {
           try {
             handleFieldChange(fieldName, JSON.parse(val));

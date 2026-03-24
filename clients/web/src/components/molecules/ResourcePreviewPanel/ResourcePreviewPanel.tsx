@@ -1,4 +1,4 @@
-import { Group, Stack, Text, Title } from "@mantine/core";
+import { Flex, Group, Stack, Text, Title } from "@mantine/core";
 import { AnnotationBadge } from "../../atoms/AnnotationBadge/AnnotationBadge";
 import { ContentViewer } from "../../atoms/ContentViewer/ContentViewer";
 import { CopyButton } from "../../atoms/CopyButton/CopyButton";
@@ -27,6 +27,41 @@ function resolveContentType(mimeType: string): "json" | "image" | "text" {
   return "text";
 }
 
+function formatLastUpdated(lastUpdated: string): string {
+  return `Last updated: ${lastUpdated}`;
+}
+
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+});
+
+const UriGroup = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
+});
+
+const UriText = Text.withProps({
+  size: "sm",
+  c: "blue",
+  truncate: "end",
+});
+
+const MetaRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+});
+
+const TimestampText = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
+const MimeText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
 export function ResourcePreviewPanel({
   uri,
   mimeType,
@@ -39,33 +74,27 @@ export function ResourcePreviewPanel({
 }: ResourcePreviewPanelProps) {
   return (
     <Stack gap="md">
-      <Group justify="space-between" wrap="nowrap">
+      <HeaderRow>
         <Title order={4}>Resource</Title>
-        <Group gap="xs" wrap="nowrap">
-          <Text size="sm" c="blue" truncate="end">
-            {uri}
-          </Text>
+        <UriGroup>
+          <UriText>{uri}</UriText>
           <CopyButton value={uri} />
-        </Group>
-      </Group>
+        </UriGroup>
+      </HeaderRow>
       <ContentViewer
         type={resolveContentType(mimeType)}
         content={content}
         mimeType={mimeType}
         copyable
       />
-      <Group justify="space-between" wrap="nowrap">
+      <MetaRow>
         {lastUpdated ? (
-          <Text size="xs" c="dimmed">
-            Last updated: {lastUpdated}
-          </Text>
+          <TimestampText>{formatLastUpdated(lastUpdated)}</TimestampText>
         ) : (
-          <span />
+          <Flex />
         )}
-        <Text size="sm" c="dimmed">
-          {mimeType}
-        </Text>
-      </Group>
+        <MimeText>{mimeType}</MimeText>
+      </MetaRow>
       <Group justify="space-between">
         <Group gap="xs">
           {annotations?.audience && (

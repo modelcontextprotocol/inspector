@@ -7,6 +7,21 @@ export interface ToolListItemProps {
   onClick: () => void;
 }
 
+const ItemLabel = Text.withProps({
+  fw: 500,
+  truncate: true,
+});
+
+const ItemSubLabel = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+  truncate: true,
+});
+
+function resolveLabel(name: string, title?: string): string {
+  return title ?? name;
+}
+
 export function ToolListItem({
   name,
   title,
@@ -17,19 +32,13 @@ export function ToolListItem({
     <UnstyledButton
       w="100%"
       p="sm"
+      variant="listItem"
       bg={selected ? "var(--mantine-primary-color-light)" : undefined}
-      style={{ borderRadius: "var(--mantine-radius-md)" }}
       onClick={onClick}
     >
       <Stack gap={2}>
-        <Text fw={500} truncate>
-          {title ?? name}
-        </Text>
-        {title && (
-          <Text size="xs" c="dimmed" truncate>
-            {name}
-          </Text>
-        )}
+        <ItemLabel>{resolveLabel(name, title)}</ItemLabel>
+        {title && <ItemSubLabel>{name}</ItemSubLabel>}
       </Stack>
     </UnstyledButton>
   );

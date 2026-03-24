@@ -39,6 +39,27 @@ const ActionsRow = Group.withProps({
   gap: "xs",
 });
 
+const ServerName = Text.withProps({
+  fw: 600,
+  size: "lg",
+});
+
+const ModeText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const SubtleButton = Button.withProps({
+  variant: "subtle",
+  size: "xs",
+});
+
+const RemoveButton = Button.withProps({
+  variant: "subtle",
+  size: "xs",
+  color: "red.6",
+});
+
 export function ServerCard({
   name,
   version,
@@ -68,9 +89,7 @@ export function ServerCard({
       <Stack gap="sm">
         <Group justify="space-between" wrap="wrap">
           <HeaderLeft>
-            <Text fw={600} size="lg">
-              {name}
-            </Text>
+            <ServerName>{name}</ServerName>
             {version && <Badge variant="outline">{version}</Badge>}
           </HeaderLeft>
           <HeaderRight>
@@ -86,9 +105,7 @@ export function ServerCard({
 
         <Group gap="sm">
           <TransportBadge transport={transport} />
-          <Text size="sm" c="dimmed">
-            {connectionMode}
-          </Text>
+          <ModeText>{connectionMode}</ModeText>
         </Group>
 
         <ContentViewer type="text" content={command} copyable />
@@ -103,29 +120,17 @@ export function ServerCard({
 
         <Group justify="space-between">
           <ActionsRow>
-            <Button variant="subtle" size="xs" onClick={onClone}>
-              Clone
-            </Button>
-            <Button variant="subtle" size="xs" onClick={onEdit}>
-              Edit
-            </Button>
-            <Button variant="subtle" size="xs" color="red.6" onClick={onRemove}>
-              Remove
-            </Button>
+            <SubtleButton onClick={onClone}>Clone</SubtleButton>
+            <SubtleButton onClick={onEdit}>Edit</SubtleButton>
+            <RemoveButton onClick={onRemove}>Remove</RemoveButton>
           </ActionsRow>
           <ActionsRow>
-            <Button variant="subtle" size="xs" onClick={onServerInfo}>
-              Server Info
-            </Button>
-            <Button variant="subtle" size="xs" onClick={onSettings}>
-              Settings
-            </Button>
+            <SubtleButton onClick={onServerInfo}>Server Info</SubtleButton>
+            <SubtleButton onClick={onSettings}>Settings</SubtleButton>
             {canTestClientFeatures && (
               <Menu>
                 <Menu.Target>
-                  <Button variant="subtle" size="xs">
-                    Test Client Features &#x25BE;
-                  </Button>
+                  <SubtleButton>Test Client Features &#x25BE;</SubtleButton>
                 </Menu.Target>
                 <Menu.Dropdown>
                   <Menu.Item onClick={onTestSampling}>

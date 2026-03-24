@@ -54,6 +54,39 @@ function formatPriority(value: number): string {
   return `high (${value})`;
 }
 
+function formatOptional(value: unknown, fallback: string): string {
+  return value !== undefined ? String(value) : fallback;
+}
+
+function serializeJson(value: unknown): string {
+  return JSON.stringify(value);
+}
+
+const HintText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const PreferencesContainer = Paper.withProps({
+  p: "sm",
+  withBorder: true,
+});
+
+const ToolCard = Paper.withProps({
+  p: "xs",
+  withBorder: true,
+});
+
+const ToolName = Text.withProps({
+  size: "sm",
+  fw: 600,
+});
+
+const RejectButton = Button.withProps({
+  variant: "light",
+  color: "red",
+});
+
 export function SamplingRequestPanel({
   messages,
   modelHints,
@@ -78,9 +111,7 @@ export function SamplingRequestPanel({
 }: SamplingRequestPanelProps) {
   return (
     <Stack gap="md">
-      <Text size="sm" c="dimmed">
-        The server is requesting an LLM completion.
-      </Text>
+      <HintText>The server is requesting an LLM completion.</HintText>
 
       <Title order={5}>Messages:</Title>
       {messages.map((message, index) => (
@@ -94,7 +125,7 @@ export function SamplingRequestPanel({
       ))}
 
       {modelHints && modelHints.length > 0 && (
-        <Paper p="sm" withBorder>
+        <PreferencesContainer>
           <Stack gap="xs">
             <Title order={5}>Model Preferences:</Title>
             <Group gap="xs">
@@ -119,17 +150,19 @@ export function SamplingRequestPanel({
               </Text>
             )}
           </Stack>
-        </Paper>
+        </PreferencesContainer>
       )}
 
       <Title order={5}>Parameters:</Title>
-      <Text size="sm">Max Tokens: {maxTokens ?? "not specified"}</Text>
       <Text size="sm">
-        Stop Sequences:{" "}
-        {stopSequences ? JSON.stringify(stopSequences) : "not specified"}
+        Max Tokens: {formatOptional(maxTokens, "not specified")}
       </Text>
       <Text size="sm">
-        Temperature: {temperature !== undefined ? temperature : "not specified"}
+        Stop Sequences:{" "}
+        {stopSequences ? serializeJson(stopSequences) : "not specified"}
+      </Text>
+      <Text size="sm">
+        Temperature: {formatOptional(temperature, "not specified")}
       </Text>
 
       {includeContext && (
@@ -143,12 +176,10 @@ export function SamplingRequestPanel({
         <>
           <Title order={5}>Available Tools:</Title>
           {tools.map((tool) => (
-            <Paper key={tool.name} p="xs" withBorder>
-              <Text size="sm" fw={600}>
-                {tool.name}
-              </Text>
+            <ToolCard key={tool.name}>
+              <ToolName>{tool.name}</ToolName>
               {tool.description && <Text size="sm">{tool.description}</Text>}
-            </Paper>
+            </ToolCard>
           ))}
         </>
       )}
@@ -181,9 +212,7 @@ export function SamplingRequestPanel({
         <Button variant="light" onClick={onAutoRespond}>
           Auto-respond
         </Button>
-        <Button variant="light" color="red" onClick={onReject}>
-          Reject
-        </Button>
+        <RejectButton onClick={onReject}>Reject</RejectButton>
         <Button onClick={onSend}>Send Response</Button>
       </Group>
     </Stack>

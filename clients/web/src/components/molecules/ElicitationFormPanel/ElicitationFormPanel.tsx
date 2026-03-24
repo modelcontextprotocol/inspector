@@ -12,6 +12,19 @@ export interface ElicitationFormPanelProps {
   onCancel: () => void;
 }
 
+const QuotedMessage = Text.withProps({
+  size: "md",
+  fs: "italic",
+});
+
+function formatQuoted(text: string): string {
+  return `\u201C${text}\u201D`;
+}
+
+function formatWarning(serverName: string): string {
+  return `Only provide information you trust this server with. The server \u201C${serverName}\u201D is requesting this data.`;
+}
+
 export function ElicitationFormPanel({
   message,
   schema,
@@ -23,14 +36,11 @@ export function ElicitationFormPanel({
 }: ElicitationFormPanelProps) {
   return (
     <Stack gap="md">
-      <Text size="md" fs="italic">
-        &ldquo;{message}&rdquo;
-      </Text>
+      <QuotedMessage>{formatQuoted(message)}</QuotedMessage>
       <Divider />
       <SchemaForm schema={schema} values={values} onChange={onChange} />
       <Alert color="yellow" title="Warning">
-        Only provide information you trust this server with. The server &ldquo;
-        {serverName}&rdquo; is requesting this data.
+        {formatWarning(serverName)}
       </Alert>
       <Group justify="flex-end">
         <Button variant="light" onClick={onCancel}>

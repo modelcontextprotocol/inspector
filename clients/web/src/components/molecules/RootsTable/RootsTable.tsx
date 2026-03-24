@@ -27,6 +27,21 @@ export interface RootsTableProps {
   onBrowse: () => void;
 }
 
+const HintText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const RemoveIcon = ActionIcon.withProps({
+  color: "red",
+  variant: "subtle",
+});
+
+const AddRootButton = Button.withProps({
+  variant: "light",
+  fullWidth: true,
+});
+
 export function RootsTable({
   roots,
   newRootName,
@@ -40,9 +55,7 @@ export function RootsTable({
   return (
     <Stack gap="md">
       <Title order={4}>Roots Configuration</Title>
-      <Text size="sm" c="dimmed">
-        Filesystem roots exposed to the connected server:
-      </Text>
+      <HintText>Filesystem roots exposed to the connected server:</HintText>
 
       {roots.length > 0 && (
         <Table>
@@ -59,13 +72,9 @@ export function RootsTable({
                 <Table.Td>{root.name}</Table.Td>
                 <Table.Td>{root.uri}</Table.Td>
                 <Table.Td>
-                  <ActionIcon
-                    color="red"
-                    variant="subtle"
-                    onClick={() => onRemoveRoot(root.uri)}
-                  >
+                  <RemoveIcon onClick={() => onRemoveRoot(root.uri)}>
                     X
-                  </ActionIcon>
+                  </RemoveIcon>
                 </Table.Td>
               </Table.Tr>
             ))}
@@ -73,9 +82,7 @@ export function RootsTable({
         </Table>
       )}
 
-      <Button variant="light" fullWidth onClick={onAddRoot}>
-        + Add Root
-      </Button>
+      <AddRootButton onClick={onAddRoot}>+ Add Root</AddRootButton>
 
       <Divider />
 
