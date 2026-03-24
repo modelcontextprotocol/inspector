@@ -6,6 +6,20 @@ export interface ProgressDisplayProps {
   elapsed?: string;
 }
 
+function formatPercent(progress: number): string {
+  return `${progress}%`;
+}
+
+const ProgressLabel = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const ElapsedText = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
 export function ProgressDisplay({
   progress,
   description,
@@ -14,21 +28,11 @@ export function ProgressDisplay({
   return (
     <Stack gap="xs">
       <Group justify="space-between">
-        {description && (
-          <Text size="sm" c="dimmed">
-            {description}
-          </Text>
-        )}
-        <Text size="sm" c="dimmed">
-          {progress}%
-        </Text>
+        {description && <ProgressLabel>{description}</ProgressLabel>}
+        <ProgressLabel>{formatPercent(progress)}</ProgressLabel>
       </Group>
       <Progress value={progress} size="sm" />
-      {elapsed && (
-        <Text size="xs" c="dimmed">
-          {elapsed}
-        </Text>
-      )}
+      {elapsed && <ElapsedText>{elapsed}</ElapsedText>}
     </Stack>
   );
 }

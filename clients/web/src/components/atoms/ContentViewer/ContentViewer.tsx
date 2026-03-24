@@ -16,9 +16,29 @@ function formatJson(content: string): string {
   }
 }
 
+function buildDataUri(mimeType: string, content: string): string {
+  return `data:${mimeType};base64,${content}`;
+}
+
+function formatContent(type: "text" | "json", content: string): string {
+  return type === "json" ? formatJson(content) : content;
+}
+
 const ContentWrapper = Flex.withProps({
   pos: "relative",
   direction: "column",
+});
+
+const CopyOverlay = Flex.withProps({
+  pos: "absolute",
+  top: 4,
+  right: 4,
+});
+
+const PreviewImage = Image.withProps({
+  alt: "Content preview",
+  maw: 400,
+  radius: "md",
 });
 
 export function ContentViewer({
@@ -34,26 +54,21 @@ export function ContentViewer({
       {(type === "json" || type === "text") && (
         <ContentWrapper>
           <Code block p={36}>
-            {type === "json" ? formatJson(content) : content}
+            {formatContent(type, content)}
           </Code>
           {showCopy && (
-            <Flex pos="absolute" top={4} right={4}>
+            <CopyOverlay>
               <CopyButton value={content} />
-            </Flex>
+            </CopyOverlay>
           )}
         </ContentWrapper>
       )}
       {type === "image" && (
-        <Image
-          src={`data:${mimeType || "image/png"};base64,${content}`}
-          alt="Content preview"
-          maw={400}
-          radius="md"
-        />
+        <PreviewImage src={buildDataUri(mimeType || "image/png", content)} />
       )}
       {type === "audio" && (
         <audio controls>
-          <source src={`data:${mimeType || "audio/wav"};base64,${content}`} />
+          <source src={buildDataUri(mimeType || "audio/wav", content)} />
         </audio>
       )}
     </Stack>

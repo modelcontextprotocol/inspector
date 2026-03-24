@@ -9,6 +9,35 @@ export interface MessageBubbleProps {
   audioContent?: { data: string; mimeType: string };
 }
 
+function buildDataUri(mimeType: string, data: string): string {
+  return `data:${mimeType};base64,${data}`;
+}
+
+function formatRoleLabel(index: number, role: string): string {
+  return `[${index}] role: ${role}`;
+}
+
+function formatQuotedContent(content: string): string {
+  return `"${content}"`;
+}
+
+const BubbleContainer = Paper.withProps({
+  p: "md",
+  radius: "md",
+  withBorder: true,
+});
+
+const RoleLabel = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
+const PreviewImage = Image.withProps({
+  maw: 300,
+  radius: "sm",
+  mt: "xs",
+});
+
 export function MessageBubble({
   index,
   role,
@@ -17,32 +46,27 @@ export function MessageBubble({
   audioContent,
 }: MessageBubbleProps) {
   return (
-    <Paper p="md" radius="md" withBorder>
+    <BubbleContainer>
       <Stack gap="xs">
         <Group justify="space-between">
-          <Text size="xs" c="dimmed">
-            [{index}] role: {role}
-          </Text>
+          <RoleLabel>{formatRoleLabel(index, role)}</RoleLabel>
           <CopyButton value={content} />
         </Group>
-        <Text size="sm">&quot;{content}&quot;</Text>
+        <Text size="sm">{formatQuotedContent(content)}</Text>
         {imageContent && (
-          <Image
-            src={`data:${imageContent.mimeType};base64,${imageContent.data}`}
-            maw={300}
-            radius="sm"
-            mt="xs"
+          <PreviewImage
+            src={buildDataUri(imageContent.mimeType, imageContent.data)}
           />
         )}
         {audioContent && (
           <audio controls>
             <source
-              src={`data:${audioContent.mimeType};base64,${audioContent.data}`}
+              src={buildDataUri(audioContent.mimeType, audioContent.data)}
               type={audioContent.mimeType}
             />
           </audio>
         )}
       </Stack>
-    </Paper>
+    </BubbleContainer>
   );
 }

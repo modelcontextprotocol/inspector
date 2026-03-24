@@ -9,6 +9,46 @@ export interface InlineErrorProps {
   docLink?: string;
 }
 
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+});
+
+const MessageGroup = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+});
+
+const ErrorMessage = Text.withProps({
+  size: "sm",
+  fw: 500,
+  c: "red",
+});
+
+const RetryText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const ExpandButton = Button.withProps({
+  variant: "transparent",
+  size: "compact-xs",
+  c: "var(--inspector-text-primary)",
+});
+
+const DocLinkButton = Button.withProps({
+  variant: "light",
+  size: "xs",
+  component: "a",
+  target: "_blank",
+});
+
+function formatRetryLabel(retryCount: number, maxRetries?: number): string {
+  return maxRetries !== undefined
+    ? `Retry attempt ${retryCount} of ${maxRetries}`
+    : `Retry attempt ${retryCount}`;
+}
+
 export function InlineError({
   message,
   details,
@@ -22,42 +62,26 @@ export function InlineError({
   return (
     <Alert color="red" variant="light">
       <Stack gap="xs">
-        <Group justify="space-between" wrap="nowrap">
-          <Group gap="sm" wrap="nowrap">
-            <Text size="sm" fw={500} c="red">
-              {message}
-            </Text>
+        <HeaderRow>
+          <MessageGroup>
+            <ErrorMessage>{message}</ErrorMessage>
             {retryCount !== undefined && (
-              <Text size="sm" c="dimmed">
-                Retry attempt {retryCount}
-                {maxRetries !== undefined && ` of ${maxRetries}`}
-              </Text>
+              <RetryText>{formatRetryLabel(retryCount, maxRetries)}</RetryText>
             )}
-          </Group>
+          </MessageGroup>
           {hasExpandable && (
-            <Button
-              variant="transparent"
-              size="compact-xs"
-              c="var(--inspector-text-primary)"
-              onClick={() => setExpanded((v) => !v)}
-            >
+            <ExpandButton onClick={() => setExpanded((v) => !v)}>
               {expanded ? "Show less" : "Show more"}
-            </Button>
+            </ExpandButton>
           )}
-        </Group>
+        </HeaderRow>
         <Collapse in={expanded}>
           <Stack gap="xs">
             {details && <Text size="sm">{details}</Text>}
             {docLink && (
-              <Button
-                variant="light"
-                size="xs"
-                component="a"
-                href={docLink}
-                target="_blank"
-              >
+              <DocLinkButton href={docLink}>
                 View Troubleshooting Guide
-              </Button>
+              </DocLinkButton>
             )}
           </Stack>
         </Collapse>

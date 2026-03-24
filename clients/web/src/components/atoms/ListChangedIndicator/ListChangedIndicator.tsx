@@ -1,15 +1,25 @@
-import { Button, Flex, Group, Text } from "@mantine/core";
+import { Button, Group, Paper, Text } from "@mantine/core";
 
 export interface ListChangedIndicatorProps {
   visible: boolean;
   onRefresh: () => void;
 }
 
-const Dot = Flex.withProps({
+const Dot = Paper.withProps({
   w: 8,
   h: 8,
-  style: { borderRadius: "50%" },
+  radius: "xl",
   bg: "var(--inspector-status-connecting)",
+});
+
+const UpdateLabel = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const RefreshButton = Button.withProps({
+  size: "xs",
+  variant: "light",
 });
 
 export function ListChangedIndicator({
@@ -21,12 +31,8 @@ export function ListChangedIndicator({
   return (
     <Group gap="xs">
       <Dot />
-      <Text size="sm" c="dimmed">
-        List updated
-      </Text>
-      <Button size="xs" variant="light" onClick={onRefresh}>
-        ↻ Refresh
-      </Button>
+      <UpdateLabel>List updated</UpdateLabel>
+      <RefreshButton onClick={onRefresh}>↻ Refresh</RefreshButton>
     </Group>
   );
 }

@@ -54,24 +54,37 @@ function isBoldLevel(level: LogLevel): boolean {
   return level === "alert" || level === "emergency";
 }
 
+function getBoldWeight(level: LogLevel): number | undefined {
+  return isBoldLevel(level) ? 700 : undefined;
+}
+
+function formatLogger(logger: string): string {
+  return `[${logger}]`;
+}
+
+const TimestampText = Text.withProps({
+  size: "sm",
+  ff: "monospace",
+  c: "dimmed",
+});
+
+const LoggerText = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
 export function LogEntry({ timestamp, level, message, logger }: LogEntryProps) {
   return (
     <Group gap="sm" wrap="nowrap">
-      <Text size="sm" ff="monospace" c="dimmed">
-        {timestamp}
-      </Text>
+      <TimestampText>{timestamp}</TimestampText>
       <Badge
         color={levelBadgeColor[level]}
         variant={levelBadgeVariant[level]}
-        fw={isBoldLevel(level) ? 700 : undefined}
+        fw={getBoldWeight(level)}
       >
         {level}
       </Badge>
-      {logger && (
-        <Text size="xs" c="dimmed">
-          [{logger}]
-        </Text>
-      )}
+      {logger && <LoggerText>{formatLogger(logger)}</LoggerText>}
       <Text size="sm" c={levelMessageColor[level]}>
         {message}
       </Text>

@@ -1,4 +1,4 @@
-import { Flex, Group, Text } from "@mantine/core";
+import { Group, Paper, Text } from "@mantine/core";
 
 export interface StatusIndicatorProps {
   status: "connected" | "connecting" | "disconnected" | "failed";
@@ -30,10 +30,10 @@ function getLabel(
   }
 }
 
-const Dot = Flex.withProps({
+const Dot = Paper.withProps({
   w: 10,
   h: 10,
-  style: { borderRadius: "50%" },
+  radius: "xl",
 });
 
 export function StatusIndicator({
