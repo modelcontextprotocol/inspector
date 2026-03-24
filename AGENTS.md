@@ -66,7 +66,7 @@ inspector/
   - NEVER use inline code; instead extract to functions in the same file, exported or located in a shared location if immediately reusable.
   - In a component's file, for sub-components:
     - ALWAYS use Mantine components for layout and content, configured with props for styling and behavior.
-    - ALWAYS declare a subcomponent as a named constant using `.withProps()` if it has two or more props.
+    - ALWAYS declare a meaningfully named subcomponent as a constant using `.withProps()` if a component has two or more props.
     - NEVER use `Box` for subcomponent constants — `Box` does not support `.withProps()`. Use `Group`, `Stack`, `Flex`, `Text`, `Paper`, `UnstyledButton`, or `Image` instead. Pick the component that best matches the purpose: `Paper` for bordered/surfaced containers, `Text` for any text or content wrapper, `Stack`/`Group`/`Flex` for layout.
     - NEVER use a CSS class on a subcomponent constant when the styles can be expressed as a Mantine theme variant instead. Define variants in `src/theme/<Component>.ts` using `Component.extend({ styles: (_theme, props) => { ... } })` and reference them with `variant="variantName"` on the component or in `.withProps()`.
     - CSS classes are ONLY acceptable on subcomponents for styles that cannot be expressed as flat CSS-in-JS properties in the theme — specifically: pseudo-selectors (`:hover`, `:focus`), cross-component hover relationships (`.parent:hover .child`), nested child-element selectors (`.wrapper p`, `.wrapper code`), `@keyframes` definitions, and native HTML elements (`img`, `iframe`) that are not Mantine components.
