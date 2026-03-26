@@ -14,6 +14,9 @@ function formatError(error: unknown): string {
 
 export function handleError(error: unknown): never {
   const errorMessage = formatError(error);
+  if (process.env.DEBUG) {
+    console.error("Full Error:", error);
+  }
   console.error(errorMessage);
 
   process.exit(1);

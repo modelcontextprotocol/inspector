@@ -1,32 +1,34 @@
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo } from "react";
 
 type ListPaneProps<T> = {
   items: T[];
   listItems: () => void;
   clearItems?: () => void;
+  selectedItem?: T | null;
   setSelectedItem: (item: T) => void;
   renderItem: (item: T) => React.ReactNode;
   title: string;
   buttonText: string;
   isButtonDisabled?: boolean;
+  searchRef?: React.RefObject<HTMLInputElement | null>;
 };
 
 const ListPane = <T extends object>({
   items,
   listItems,
   clearItems,
+  selectedItem,
   setSelectedItem,
   renderItem,
   title,
   buttonText,
   isButtonDisabled,
+  searchRef,
 }: ListPaneProps<T>) => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return items;
@@ -42,80 +44,69 @@ const ListPane = <T extends object>({
     });
   }, [items, searchQuery]);
 
-  const handleSearchClick = () => {
-    setIsSearchExpanded(true);
-    setTimeout(() => {
-      searchInputRef.current?.focus();
-    }, 100);
-  };
-
-  const handleSearchBlur = () => {
-    if (!searchQuery.trim()) {
-      setIsSearchExpanded(false);
-    }
-  };
-
   return (
-    <div className="bg-card border border-border rounded-lg shadow">
-      <div className="p-4 border-b border-gray-200 dark:border-border">
-        <div className="flex items-center justify-between gap-4">
-          <h3 className="font-semibold dark:text-white flex-shrink-0">
-            {title}
-          </h3>
-          <div className="flex items-center justify-end min-w-0 flex-1">
-            {!isSearchExpanded ? (
-              <button
-                name="search"
-                aria-label="Search"
-                onClick={handleSearchClick}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all duration-300 ease-in-out"
-              >
-                <Search className="w-4 h-4 text-muted-foreground" />
-              </button>
-            ) : (
-              <div className="flex items-center w-full max-w-xs">
-                <div className="relative w-full">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none z-10" />
-                  <Input
-                    ref={searchInputRef}
-                    name="search"
-                    type="text"
-                    placeholder="Search..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onBlur={handleSearchBlur}
-                    className="pl-10 w-full transition-all duration-300 ease-in-out"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+    <div className="bg-card border border-border rounded-lg shadow overflow-hidden flex flex-col h-full">
+      <div className="p-4 border-b border-gray-200 dark:border-border h-16 flex items-center flex-shrink-0">
+        <h3 className="font-semibold dark:text-white flex-shrink-0">{title}</h3>
       </div>
-      <div className="p-4">
-        <Button
-          variant="outline"
-          className="w-full mb-4"
-          onClick={listItems}
-          disabled={isButtonDisabled}
+      <div className="p-4 flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div
+          className={`grid ${clearItems ? "grid-cols-2" : "grid-cols-1"} gap-2 mb-4 flex-shrink-0`}
         >
-          {buttonText}
-        </Button>
-        {clearItems && (
           <Button
             variant="outline"
-            className="w-full mb-4"
-            onClick={clearItems}
-            disabled={items.length === 0}
+            className="w-full"
+            onClick={listItems}
+            disabled={isButtonDisabled}
           >
-            Clear
+            {buttonText}
           </Button>
+          {clearItems && (
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={clearItems}
+              disabled={items.length === 0}
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+        {items.length > 3 && (
+          <div className="relative mb-4 flex-shrink-0">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none z-10" />
+            <Input
+              ref={searchRef}
+              name="search"
+              type="text"
+              placeholder="Search..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-10 w-full"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => {
+                  setSearchQuery("");
+                  searchRef?.current?.focus();
+                }}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors z-10"
+                aria-label="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         )}
-        <div className="space-y-2 overflow-y-auto max-h-96">
+        <div className="space-y-2 overflow-y-auto flex-1 min-h-0">
           {filteredItems.map((item, index) => (
             <div
               key={index}
-              className="flex items-center py-2 px-4 rounded hover:bg-gray-50 dark:hover:bg-secondary cursor-pointer"
+              className={`flex items-center py-2 px-2 rounded cursor-pointer transition-colors ${
+                selectedItem === item
+                  ? "bg-accent text-accent-foreground shadow-sm"
+                  : "hover:bg-primary/90 hover:text-primary-foreground dark:hover:bg-gray-700 dark:hover:text-white"
+              }`}
               onClick={() => setSelectedItem(item)}
             >
               {renderItem(item)}
