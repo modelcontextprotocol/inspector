@@ -76,14 +76,16 @@ export function createTransport(options: TransportOptions): Transport {
     }
 
     if (transportType === "http") {
-      const transportOptions = options.headers
-        ? {
-            requestInit: {
-              headers: options.headers,
-            },
-          }
-        : undefined;
-      return new StreamableHTTPClientTransport(url, transportOptions);
+      const headers = {
+        Accept: "application/json, text/event-stream",
+        "Content-Type": "application/json",
+        ...options.headers,
+      };
+      return new StreamableHTTPClientTransport(url, {
+        requestInit: {
+          headers,
+        },
+      });
     }
 
     throw new Error(`Unsupported transport type: ${transportType}`);

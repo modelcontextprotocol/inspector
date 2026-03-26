@@ -6,9 +6,30 @@ import {
   getToolOutputValidator,
   validateToolOutput,
   hasOutputSchema,
+  getAjvForSchema,
 } from "../schemaUtils";
 import type { JsonSchemaType } from "../jsonUtils";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+
+describe("getAjvForSchema", () => {
+  test("returns instance with schemaId 'id' for draft-07 schema", () => {
+    const schema = { $schema: "http://json-schema.org/draft-07/schema#" };
+    const ajv = getAjvForSchema(schema);
+    expect((ajv as any).opts.schemaId).toBe("id");
+  });
+
+  test("returns instance with schemaId '$id' for default schema", () => {
+    const schema = { type: "object" };
+    const ajv = getAjvForSchema(schema);
+    expect((ajv as any).opts.schemaId).toBe("$id");
+  });
+
+  test("returns instance with schemaId '$id' for 2020-12 schema", () => {
+    const schema = { $schema: "https://json-schema.org/draft/2020-12/schema" };
+    const ajv = getAjvForSchema(schema);
+    expect((ajv as any).opts.schemaId).toBe("$id");
+  });
+});
 
 describe("generateDefaultValue", () => {
   test("generates default string", () => {
@@ -483,6 +504,33 @@ describe("Output Schema Validation", () => {
       ).not.toThrow();
       expect(hasOutputSchema("invalidSchemaTool")).toBe(false);
     });
+
+    test("compiles Draft 07 schemas with 'id' keyword", () => {
+      const draft7Tool: Tool = {
+        name: "draft7Tool",
+        description: "Tool with Draft 07 schema",
+        inputSchema: { type: "object", properties: {} },
+        outputSchema: {
+          $schema: "http://json-schema.org/draft-07/schema#",
+          type: "object",
+          definitions: {
+            item: {
+              id: "item",
+              type: "string",
+            },
+          },
+          properties: {
+            res: { $ref: "item" },
+          },
+        } as any,
+      };
+
+      cacheToolOutputSchemas([draft7Tool]);
+      expect(hasOutputSchema("draft7Tool")).toBe(true);
+
+      const result = validateToolOutput("draft7Tool", { res: "test" });
+      expect(result.isValid).toBe(true);
+    });
   });
 
   describe("validateToolOutput", () => {
@@ -507,7 +555,7 @@ describe("Output Schema Validation", () => {
       });
 
       expect(result.isValid).toBe(false);
-      expect(result.error).toContain("should be number");
+      expect(result.error).toContain("must be number");
     });
 
     test("rejects missing required fields", () => {

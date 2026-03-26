@@ -198,5 +198,45 @@ describe("ElicitationRequest", () => {
         expect.objectContaining({ action: "accept" }),
       );
     });
+
+    it("should compile and submit successfully with Draft 07 schema using 'id'", async () => {
+      const draft7Schema = {
+        $schema: "http://json-schema.org/draft-07/schema#",
+        type: "object",
+        definitions: {
+          item: { id: "item", type: "string" },
+        },
+        properties: {
+          name: { $ref: "item" },
+        },
+        required: ["name"],
+      };
+
+      renderElicitationRequest(
+        createMockRequest({
+          request: {
+            id: 1,
+            message: "Test",
+            requestedSchema: draft7Schema as any,
+          },
+        }),
+      );
+
+      const input = screen.getByTestId("form-input");
+      await act(async () => {
+        fireEvent.change(input, {
+          target: { value: '{"name": "John"}' },
+        });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /submit/i }));
+      });
+
+      expect(mockOnResolve).toHaveBeenCalledWith(1, {
+        action: "accept",
+        content: { name: "John" },
+      });
+    });
   });
 });
