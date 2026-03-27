@@ -19,7 +19,8 @@
     "build": "tsc && shx cp -R static build",
     "start": "node build/index.js",
     "dev": "tsx watch --clear-screen=false src/index.ts",
-    "dev:windows": "tsx watch --clear-screen=false src/index.ts < NUL"
+    "dev:windows": "tsx watch --clear-screen=false src/index.ts < NUL",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
@@ -27,7 +28,8 @@
     "@types/shell-quote": "^1.7.5",
     "@types/ws": "^8.5.12",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.2"
+    "typescript": "^5.6.2",
+    "vitest": "^3.0.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
