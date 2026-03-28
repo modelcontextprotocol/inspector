@@ -1,5 +1,5 @@
 export { ManagedToolsState } from "./managedToolsState.js";
-export type { ManagedToolsStateEventMap } from "./managedToolsState.js";
+export type { ManagedToolsReadOnlyStore } from "./managedToolsState.js";
 export { MessageLogState } from "./messageLogState.js";
 export type {
   MessageLogStateEventMap,
