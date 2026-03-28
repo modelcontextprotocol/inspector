@@ -39,7 +39,7 @@ Each story appears in a sidebar, and you click through them to visually verify t
 
 The typical cycle is: define the component's prop interface (the "model" in your framing), write the component to render based on those props, write stories that exercise various prop combinations (empty states, error states, loading, overflowing content, etc.), and then visually verify in the Storybook UI. You do all of this before the component ever touches real data or lives inside the actual app.
 
-This naturally pushes you toward building bottom-up — atoms first (buttons, inputs, badges), then molecules (form groups, cards), then organisms (full panels, modals). You can't easily skip ahead and build a page-level component first because it would need too many dependencies you haven't isolated yet.
+This naturally pushes you toward building bottom-up — elements first (buttons, inputs, badges), then groups (form groups, cards), then screens (full panels, modals). You can't easily skip ahead and build a page-level component first because it would need too many dependencies you haven't isolated yet.
 
 ## Disciplines That Keep Logic Out of Components
 

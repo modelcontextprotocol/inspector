@@ -5,14 +5,14 @@
 
 ---
 
-This document defines every presentational component to be built in Storybook using Mantine. Components are organized bottom-up: atoms first, then molecules, then organisms. Each component receives all data and callbacks via props — no store access.
+This document defines every presentational component to be built in Storybook using Mantine. Components are organized bottom-up: elements first, then groups, then screens. Each component receives all data and callbacks via props — no store access.
 
 ## Table of Contents
   * [Conventions](#conventions)
-  * [Tier 1 - Atoms](#tier-1---atoms)
-  * [Tier 2 - Molecules](#tier-2---molecules)
-  * [Tier 3 - Organisms](#tier-3---organisms)
-  * [Tier 4 - Page Layouts](#tier-4---page-layouts)
+  * [Tier 1 - Elements](#tier-1---elements)
+  * [Tier 2 - Groups](#tier-2---groups)
+  * [Tier 3 - Screens](#tier-3---screens)
+  * [Tier 4 - Page Views](#tier-4---page-views)
   * [Build Order](#build-order)
   * [Storybook Configuration](#storybook-configuration)
 
@@ -23,22 +23,22 @@ This document defines every presentational component to be built in Storybook us
 ### File Structure
 ```
 src/components/
-  atoms/
+  elements/
     StatusIndicator/
       StatusIndicator.tsx
       StatusIndicator.stories.tsx
     ...
-  molecules/
+  groups/
     ServerCard/
       ServerCard.tsx
       ServerCard.stories.tsx
     ...
-  organisms/
+  screens/
     ToolsScreen/
       ToolsScreen.tsx
       ToolsScreen.stories.tsx
     ...
-  layouts/
+  views/
     AppShell/
       AppShell.tsx
       AppShell.stories.tsx
@@ -72,7 +72,7 @@ export const Failed: Story = { args: { status: 'failed', retryCount: 3 } };
 
 ---
 
-## Tier 1 - Atoms
+## Tier 1 - Elements
 
 Small, single-purpose components. Most map directly to a Mantine component with specific props/styling.
 
@@ -270,9 +270,9 @@ Single chat message with role label and content (text, image, or audio).
 
 ---
 
-## Tier 2 - Molecules
+## Tier 2 - Groups
 
-Composed from atoms. Represent distinct functional units within a screen.
+Composed from elements. Represent distinct functional units within a screen.
 
 ### 2.1 ServerCard
 
@@ -301,7 +301,7 @@ Server connection card with status, transport, command, and action buttons.
 | `onTestElicitationUrl` | `() => void` | Test elicitation (URL) |
 | `onConfigureRoots` | `() => void` | Configure roots |
 
-**Mantine:** `Card` with `Card.Section` dividers. Uses StatusIndicator, TransportBadge, ConnectionToggle, CopyButton, InlineError atoms. `Menu` for "Test Client Features" dropdown.
+**Mantine:** `Card` with `Card.Section` dividers. Uses StatusIndicator, TransportBadge, ConnectionToggle, CopyButton, InlineError elements. `Menu` for "Test Client Features" dropdown.
 
 **Stories:** Connected, Disconnected, Connecting, Failed, FailedWithError, WithClientFeatures, HttpDirect, LongCommand
 
@@ -465,7 +465,7 @@ Rendered prompt result showing role-labeled messages.
 | `messages` | `Array<{ role: string; content: string; imageContent?: object; audioContent?: object }>` | Prompt messages |
 | `onCopy` | `() => void` | Copy messages |
 
-**Mantine:** `Stack` of MessageBubble atoms, `Button` for copy.
+**Mantine:** `Stack` of MessageBubble elements, `Button` for copy.
 
 **Stories:** SingleMessage, Conversation, WithImage, WithAudio, LongConversation
 
@@ -819,9 +819,9 @@ Container for inline sampling/elicitation requests during tool execution.
 
 ---
 
-## Tier 3 - Organisms
+## Tier 3 - Screens
 
-Full screen sections composed of molecules. These are the main content areas.
+Full screen sections composed of groups. These are the main content areas.
 
 ### 3.1 ServerListScreen
 
@@ -963,7 +963,7 @@ Request history list with search, filter, pinned section.
 
 ---
 
-## Tier 4 - Page Layouts
+## Tier 4 - Page Views
 
 ### 4.1 HomeLayout
 
@@ -1008,8 +1008,8 @@ Layout for connected state with navigation bar.
 
 Components should be built bottom-up. Within each tier, components can be built in parallel. Dependencies are listed to show what must exist before a component can be composed.
 
-### Phase 1: Foundation (Atoms)
-All Tier 1 atoms can be built in parallel. No dependencies on each other.
+### Phase 1: Foundation (Elements)
+All Tier 1 elements can be built in parallel. No dependencies on each other.
 
 1. StatusIndicator
 2. AnnotationBadge
@@ -1024,10 +1024,10 @@ All Tier 1 atoms can be built in parallel. No dependencies on each other.
 11. InlineError
 12. MessageBubble
 
-### Phase 2: Core Molecules
-Depends on Phase 1 atoms being complete.
+### Phase 2: Core Groups
+Depends on Phase 1 elements being complete.
 
-1. **SchemaForm** (2.12) - Critical path, used by many other molecules
+1. **SchemaForm** (2.12) - Critical path, used by many other groups
 2. **ServerCard** (2.1) - Uses StatusIndicator, TransportBadge, ConnectionToggle, CopyButton, InlineError
 3. **AddServerMenu** (2.2)
 4. **ToolListItem** (2.3) - Uses AnnotationBadge
@@ -1038,7 +1038,7 @@ Depends on Phase 1 atoms being complete.
 9. **RootsTable** (2.18)
 10. **ServerInfoContent** (2.19) - Uses CapabilityItem
 
-### Phase 3: Dependent Molecules
+### Phase 3: Dependent Groups
 Depends on SchemaForm and Phase 2.
 
 1. **ToolDetailPanel** (2.4) - Uses SchemaForm, AnnotationBadge, ProgressDisplay
@@ -1061,8 +1061,8 @@ Depends on Phase 3 panels.
 2. **InlineElicitationRequest** (2.24) - Uses SchemaForm
 3. **PendingClientRequests** (2.25) - Contains inline requests
 
-### Phase 5: Organisms (Screens)
-Depends on all molecules.
+### Phase 5: Screens (Screens)
+Depends on all groups.
 
 1. **ServerListScreen** (3.1)
 2. **ToolsScreen** (3.2)
@@ -1072,8 +1072,8 @@ Depends on all molecules.
 6. **TasksScreen** (3.6)
 7. **HistoryScreen** (3.7)
 
-### Phase 6: Layouts
-Depends on organisms.
+### Phase 6: Views
+Depends on screens.
 
 1. **HomeLayout** (4.1)
 2. **ConnectedLayout** (4.2)
@@ -1099,8 +1099,8 @@ export const decorators = [
 ];
 
 export const parameters = {
-  layout: 'centered',       // atoms/molecules
-  // layout: 'fullscreen',  // organisms/layouts
+  layout: 'centered',       // elements/groups
+  // layout: 'fullscreen',  // screens/views
 };
 ```
 
