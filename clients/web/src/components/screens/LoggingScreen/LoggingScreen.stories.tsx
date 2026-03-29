@@ -117,8 +117,7 @@ const logMessages: { level: LogLevel; message: string; logger?: string }[] = [
   },
   {
     level: "info",
-    message:
-      "Session initialized with capabilities: tools, resources, prompts",
+    message: "Session initialized with capabilities: tools, resources, prompts",
   },
   {
     level: "debug",

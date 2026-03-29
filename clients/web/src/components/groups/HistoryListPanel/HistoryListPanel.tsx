@@ -1,12 +1,5 @@
 import { useMemo, useState } from "react";
-import {
-  Group,
-  Paper,
-  ScrollArea,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Group, Paper, ScrollArea, Stack, Text, Title } from "@mantine/core";
 import { HistoryEntry } from "../HistoryEntry/HistoryEntry";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import type { HistoryEntryProps } from "../HistoryEntry/HistoryEntry";
