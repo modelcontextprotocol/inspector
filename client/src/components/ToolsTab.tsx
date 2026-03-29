@@ -541,11 +541,13 @@ const ToolsTab = ({
                                   [key]: value,
                                 }));
                                 if (value === "") {
+                                  // Field cleared - set to undefined
                                   setParams({
                                     ...params,
                                     [key]: undefined,
                                   });
                                 } else {
+                                  // Field has value - try to convert to number
                                   const num = Number(value);
                                   if (!isNaN(num)) {
                                     setParams({
@@ -553,6 +555,7 @@ const ToolsTab = ({
                                       [key]: num,
                                     });
                                   } else {
+                                    // Store invalid input as string - let server validate
                                     setParams({
                                       ...params,
                                       [key]: value,
@@ -571,7 +574,10 @@ const ToolsTab = ({
                                   return;
                                 }
                                 const num = Number(val);
-                                if (val === String(num)) {
+                                if (
+                                  prop.type === "integer" ||
+                                  val === String(num)
+                                ) {
                                   setNumericDrafts((prev) => {
                                     const next = { ...prev };
                                     delete next[key];

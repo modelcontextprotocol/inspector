@@ -463,9 +463,9 @@ describe("DynamicJsonForm Number Fields", () => {
       render(<WrappedForm />);
       const input = screen.getByRole("spinbutton") as HTMLInputElement;
 
-      fireEvent.change(input, { target: { value: "5" } });
+      fireEvent.change(input, { target: { value: "1.0" } });
       fireEvent.blur(input);
-      expect(input.value).toBe("5");
+      expect(input.value).toBe("1");
     });
   });
 });
