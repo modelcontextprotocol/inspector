@@ -25,6 +25,7 @@ export interface ServerCardProps {
   onTestElicitationForm?: () => void;
   onTestElicitationUrl?: () => void;
   onConfigureRoots?: () => void;
+  compact?: boolean;
 }
 
 const HeaderLeft = Group.withProps({
@@ -80,6 +81,7 @@ export function ServerCard({
   onTestElicitationForm,
   onTestElicitationUrl,
   onConfigureRoots,
+  compact = false,
 }: ServerCardProps) {
   const isConnected = status === "connected";
   const isConnecting = status === "connecting";
@@ -103,53 +105,57 @@ export function ServerCard({
           </HeaderRight>
         </Group>
 
-        <Group gap="sm">
-          <TransportBadge transport={transport} />
-          <ModeText>{connectionMode}</ModeText>
-        </Group>
+        {!compact && (
+          <>
+            <Group gap="sm">
+              <TransportBadge transport={transport} />
+              <ModeText>{connectionMode}</ModeText>
+            </Group>
 
-        <ContentViewer type="text" content={command} copyable />
+            <ContentViewer type="text" content={command} copyable />
 
-        {error && (
-          <InlineError
-            message={error.message}
-            details={error.details}
-            retryCount={retryCount}
-          />
-        )}
-
-        <Group justify="space-between">
-          <ActionsRow>
-            <SubtleButton onClick={onClone}>Clone</SubtleButton>
-            <SubtleButton onClick={onEdit}>Edit</SubtleButton>
-            <RemoveButton onClick={onRemove}>Remove</RemoveButton>
-          </ActionsRow>
-          <ActionsRow>
-            <SubtleButton onClick={onServerInfo}>Server Info</SubtleButton>
-            <SubtleButton onClick={onSettings}>Settings</SubtleButton>
-            {canTestClientFeatures && (
-              <Menu>
-                <Menu.Target>
-                  <SubtleButton>Test Client Features &#x25BE;</SubtleButton>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  <Menu.Item onClick={onTestSampling}>
-                    Simulate Sampling Request
-                  </Menu.Item>
-                  <Menu.Item onClick={onTestElicitationForm}>
-                    Simulate Elicitation (Form)
-                  </Menu.Item>
-                  <Menu.Item onClick={onTestElicitationUrl}>
-                    Simulate Elicitation (URL)
-                  </Menu.Item>
-                  <Menu.Item onClick={onConfigureRoots}>
-                    Configure Roots
-                  </Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
+            {error && (
+              <InlineError
+                message={error.message}
+                details={error.details}
+                retryCount={retryCount}
+              />
             )}
-          </ActionsRow>
-        </Group>
+
+            <Group justify="space-between">
+              <ActionsRow>
+                <SubtleButton onClick={onClone}>Clone</SubtleButton>
+                <SubtleButton onClick={onEdit}>Edit</SubtleButton>
+                <RemoveButton onClick={onRemove}>Remove</RemoveButton>
+              </ActionsRow>
+              <ActionsRow>
+                <SubtleButton onClick={onServerInfo}>Server Info</SubtleButton>
+                <SubtleButton onClick={onSettings}>Settings</SubtleButton>
+                {canTestClientFeatures && (
+                  <Menu>
+                    <Menu.Target>
+                      <SubtleButton>Test Client Features &#x25BE;</SubtleButton>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item onClick={onTestSampling}>
+                        Simulate Sampling Request
+                      </Menu.Item>
+                      <Menu.Item onClick={onTestElicitationForm}>
+                        Simulate Elicitation (Form)
+                      </Menu.Item>
+                      <Menu.Item onClick={onTestElicitationUrl}>
+                        Simulate Elicitation (URL)
+                      </Menu.Item>
+                      <Menu.Item onClick={onConfigureRoots}>
+                        Configure Roots
+                      </Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
+                )}
+              </ActionsRow>
+            </Group>
+          </>
+        )}
       </Stack>
     </Card>
   );

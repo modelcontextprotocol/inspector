@@ -1,4 +1,5 @@
-import { Badge, Group, Text } from "@mantine/core";
+import { Group, Text } from "@mantine/core";
+import { LogLevelBadge } from "../LogLevelBadge/LogLevelBadge";
 
 export type LogLevel =
   | "debug"
@@ -17,28 +18,6 @@ export interface LogEntryProps {
   logger?: string;
 }
 
-const levelBadgeColor: Record<LogLevel, string> = {
-  debug: "gray",
-  info: "blue",
-  notice: "teal",
-  warning: "yellow",
-  error: "red",
-  critical: "red",
-  alert: "red",
-  emergency: "red",
-};
-
-const levelBadgeVariant: Record<LogLevel, string> = {
-  debug: "light",
-  info: "light",
-  notice: "light",
-  warning: "light",
-  error: "light",
-  critical: "filled",
-  alert: "filled",
-  emergency: "filled",
-};
-
 const levelMessageColor: Record<LogLevel, string | undefined> = {
   debug: "dimmed",
   info: "blue",
@@ -49,14 +28,6 @@ const levelMessageColor: Record<LogLevel, string | undefined> = {
   alert: "red",
   emergency: "red",
 };
-
-function isBoldLevel(level: LogLevel): boolean {
-  return level === "alert" || level === "emergency";
-}
-
-function getBoldWeight(level: LogLevel): number | undefined {
-  return isBoldLevel(level) ? 700 : undefined;
-}
 
 function formatLogger(logger: string): string {
   return `[${logger}]`;
@@ -70,6 +41,7 @@ const TimestampText = Text.withProps({
 
 const LoggerText = Text.withProps({
   size: "xs",
+  ff: "monospace",
   c: "dimmed",
 });
 
@@ -77,15 +49,9 @@ export function LogEntry({ timestamp, level, message, logger }: LogEntryProps) {
   return (
     <Group gap="sm" wrap="nowrap">
       <TimestampText>{timestamp}</TimestampText>
-      <Badge
-        color={levelBadgeColor[level]}
-        variant={levelBadgeVariant[level]}
-        fw={getBoldWeight(level)}
-      >
-        {level}
-      </Badge>
+      <LogLevelBadge level={level} />
       {logger && <LoggerText>{formatLogger(logger)}</LoggerText>}
-      <Text size="sm" c={levelMessageColor[level]}>
+      <Text size="sm" ff="monospace" c={levelMessageColor[level]}>
         {message}
       </Text>
     </Group>

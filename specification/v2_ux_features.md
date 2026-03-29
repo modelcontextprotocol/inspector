@@ -431,8 +431,6 @@ A unified history of all MCP requests with **hierarchical request trace** capabi
 | | * "Get config"     resources/read  config.json   14:34:15      [Replay] [Unpin]  | |
 | +---------------------------------------------------------------------------------+ |
 |                                                                                     |
-|                                                          Showing 50 of 127 entries |
-|                                                               [Load More]          |
 +-------------------------------------------------------------------------------------+
 ```
 
@@ -478,7 +476,6 @@ A unified history of all MCP requests with **hierarchical request trace** capabi
   - Show/hide child requests (flatten view)
 
 - **Search** across method names, parameters, and responses
-- **Pagination** - Load more for large histories
 - **Clear** - Clear history (with confirmation)
 - **Export** - Export history as JSON for sharing/debugging
 

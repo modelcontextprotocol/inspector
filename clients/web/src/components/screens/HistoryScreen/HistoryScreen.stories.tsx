@@ -8,10 +8,6 @@ const meta: Meta<typeof HistoryScreen> = {
   component: HistoryScreen,
   parameters: { layout: "fullscreen" },
   args: {
-    searchText: "",
-    onSearchChange: fn(),
-    onMethodFilterChange: fn(),
-    onLoadMore: fn(),
     onClearAll: fn(),
     onExport: fn(),
   },
@@ -29,8 +25,7 @@ const entry1: HistoryEntryProps = {
   parameters: { message: "Hello, world!" },
   response: { result: "Message sent successfully" },
   isPinned: false,
-  isExpanded: false,
-  onToggleExpand: fn(),
+  isListExpanded: false,
   onReplay: fn(),
   onTogglePin: fn(),
 };
@@ -44,8 +39,7 @@ const entry2: HistoryEntryProps = {
   parameters: { uri: "file:///config.json" },
   response: { contents: [{ uri: "file:///config.json", text: "{}" }] },
   isPinned: false,
-  isExpanded: false,
-  onToggleExpand: fn(),
+  isListExpanded: false,
   onReplay: fn(),
   onTogglePin: fn(),
 };
@@ -59,8 +53,7 @@ const entry3: HistoryEntryProps = {
   parameters: { ids: [1, 2, 3] },
   response: { error: "Permission denied" },
   isPinned: false,
-  isExpanded: true,
-  onToggleExpand: fn(),
+  isListExpanded: true,
   onReplay: fn(),
   onTogglePin: fn(),
 };
@@ -72,9 +65,7 @@ const pinnedEntry1: HistoryEntryProps = {
   durationMs: 80,
   response: { tools: ["send_message", "list_users"] },
   isPinned: true,
-  pinLabel: "Tool discovery",
-  isExpanded: false,
-  onToggleExpand: fn(),
+  isListExpanded: false,
   onReplay: fn(),
   onTogglePin: fn(),
 };
@@ -90,9 +81,7 @@ const pinnedEntry2: HistoryEntryProps = {
     messages: [{ role: "user", content: { type: "text", text: "Hello!" } }],
   },
   isPinned: true,
-  pinLabel: "Greeting prompt",
-  isExpanded: false,
-  onToggleExpand: fn(),
+  isListExpanded: false,
   onReplay: fn(),
   onTogglePin: fn(),
 };
@@ -101,8 +90,6 @@ export const WithEntries: Story = {
   args: {
     entries: [entry1, entry2, entry3],
     pinnedEntries: [pinnedEntry1, pinnedEntry2],
-    totalCount: 25,
-    displayedCount: 3,
   },
 };
 
@@ -110,17 +97,5 @@ export const Empty: Story = {
   args: {
     entries: [],
     pinnedEntries: [],
-    totalCount: 0,
-    displayedCount: 0,
-  },
-};
-
-export const WithFilter: Story = {
-  args: {
-    entries: [entry1, entry3],
-    pinnedEntries: [],
-    methodFilter: "tools/call",
-    totalCount: 10,
-    displayedCount: 2,
   },
 };

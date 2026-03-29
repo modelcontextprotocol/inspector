@@ -25,6 +25,16 @@ export const ThemePaper = Paper.extend({
         },
       };
     }
+    if (props.variant === "panel") {
+      return {
+        root: {
+          display: "flex",
+          flexDirection: "column" as const,
+          overflow: "hidden",
+          minHeight: 0,
+        },
+      };
+    }
     return { root: {} };
   },
 });

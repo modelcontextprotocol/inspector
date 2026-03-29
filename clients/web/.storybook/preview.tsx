@@ -43,14 +43,23 @@ const preview: Preview = {
     colorScheme: 'light',
   },
   decorators: [
-    (Story, context) => (
-      <MantineProvider theme={theme} defaultColorScheme="light">
-        <ColorSchemeWrapper colorScheme={context.globals.colorScheme ?? 'light'}>
-          <Notifications position="top-right" />
-          <Story />
-        </ColorSchemeWrapper>
-      </MantineProvider>
-    ),
+    (Story, context) => {
+      const isFullscreen = context.parameters?.layout === 'fullscreen'
+      return (
+        <MantineProvider theme={theme} defaultColorScheme="light">
+          <ColorSchemeWrapper colorScheme={context.globals.colorScheme ?? 'light'}>
+            <Notifications position="top-right" />
+            {isFullscreen ? (
+              <div style={{ height: '100vh', overflow: 'hidden' }}>
+                <Story />
+              </div>
+            ) : (
+              <Story />
+            )}
+          </ColorSchemeWrapper>
+        </MantineProvider>
+      )
+    },
   ],
   parameters: {
     controls: {

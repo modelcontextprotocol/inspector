@@ -551,7 +551,6 @@ Single request history entry with expand/collapse, replay, and pin.
 | `response` | `object?` | Response data |
 | `children` | `HistoryEntry[]?` | Nested child requests (sampling/elicitation) |
 | `isPinned` | `boolean` | Pin state |
-| `pinLabel` | `string?` | Custom pin label |
 | `isExpanded` | `boolean` | Expanded state |
 | `onToggleExpand` | `() => void` | Expand/collapse |
 | `onReplay` | `() => void` | Replay request |
@@ -952,12 +951,11 @@ Request history list with search, filter, pinned section.
 | `displayedCount` | `number` | Currently shown |
 | `onSearchChange` | `(text: string) => void` | Search change |
 | `onMethodFilterChange` | `(method: string) => void` | Filter change |
-| `onLoadMore` | `() => void` | Load more |
 | `onClearAll` | `() => void` | Clear history |
 | `onExport` | `() => void` | Export JSON |
 | (entry callbacks forwarded) | | |
 
-**Mantine:** `Paper` with header `Group` (Title + `TextInput` search + `Select` filter + Export `Button` + Clear `Button`), `Stack` of HistoryEntry, "Pinned Requests" `Divider` + pinned entries, pagination text + Load More `Button`.
+**Mantine:** `Paper` with header `Group` (Title + `TextInput` search + `Select` filter + Export `Button` + Clear `Button`), `Stack` of HistoryEntry, "Pinned Requests" `Divider` + pinned entries.
 
 **Stories:** WithEntries, WithPinned, WithNestedChildren, Filtered, Empty, ManyEntries
 

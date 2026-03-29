@@ -1,39 +1,20 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { LoggingScreen } from "./LoggingScreen";
-import type { LogControlsProps } from "../../groups/LogControls/LogControls";
 import type { LogEntryProps, LogLevel } from "../../elements/LogEntry/LogEntry";
-
-function makeControls(): LogControlsProps {
-  return {
-    currentLevel: "info",
-    filterText: "",
-    visibleLevels: {
-      debug: true,
-      info: true,
-      notice: true,
-      warning: true,
-      error: true,
-      critical: true,
-      alert: true,
-      emergency: true,
-    },
-    onSetLevel: fn(),
-    onFilterChange: fn(),
-    onToggleLevel: fn(),
-    onClear: fn(),
-    onExport: fn(),
-  };
-}
 
 const meta: Meta<typeof LoggingScreen> = {
   title: "Screens/LoggingScreen",
   component: LoggingScreen,
   parameters: { layout: "fullscreen" },
   args: {
+    currentLevel: "info",
+    onSetLevel: fn(),
+    onClear: fn(),
+    onExport: fn(),
+    autoScroll: true,
     onToggleAutoScroll: fn(),
     onCopyAll: fn(),
-    autoScroll: true,
   },
 };
 
@@ -42,7 +23,6 @@ type Story = StoryObj<typeof LoggingScreen>;
 
 export const Empty: Story = {
   args: {
-    controls: makeControls(),
     entries: [],
   },
 };
@@ -137,7 +117,8 @@ const logMessages: { level: LogLevel; message: string; logger?: string }[] = [
   },
   {
     level: "info",
-    message: "Session initialized with capabilities: tools, resources, prompts",
+    message:
+      "Session initialized with capabilities: tools, resources, prompts",
   },
   {
     level: "debug",
@@ -183,7 +164,6 @@ const mixedEntries: LogEntryProps[] = Array.from({ length: 50 }, (_, i) => {
 
 export const WithEntries: Story = {
   args: {
-    controls: makeControls(),
     entries: mixedEntries,
   },
 };
@@ -240,7 +220,6 @@ const allLevelEntries: LogEntryProps[] = [
 
 export const MixedLevels: Story = {
   args: {
-    controls: makeControls(),
     entries: allLevelEntries,
   },
 };

@@ -36,6 +36,11 @@ const ToolbarButton = Button.withProps({
   size: "sm",
 });
 
+const SubtleButton = Button.withProps({
+  variant: "subtle",
+  size: "xs",
+});
+
 export interface LogControlsProps {
   currentLevel: string;
   filterText: string;
@@ -43,6 +48,7 @@ export interface LogControlsProps {
   onSetLevel: (level: string) => void;
   onFilterChange: (text: string) => void;
   onToggleLevel: (level: string, visible: boolean) => void;
+  onToggleAllLevels: () => void;
   onClear: () => void;
   onExport: () => void;
 }
@@ -54,13 +60,16 @@ export function LogControls({
   onSetLevel,
   onFilterChange,
   onToggleLevel,
+  onToggleAllLevels,
   onClear,
   onExport,
 }: LogControlsProps) {
   return (
     <Stack gap="md">
-      <Title order={5}>Log Level</Title>
-      <Group>
+      <Title order={4}>Logging</Title>
+
+      <Title order={5}>Active Level</Title>
+      <Group wrap="nowrap">
         <Select
           data={LOG_LEVELS.map((level) => ({ value: level, label: level }))}
           value={currentLevel}
@@ -69,18 +78,25 @@ export function LogControls({
           }}
         />
         <Button size="sm" onClick={() => onSetLevel(currentLevel)}>
-          Set Level
+          Set
         </Button>
       </Group>
 
-      <Title order={5}>Filter</Title>
+      <Title order={5}>Search</Title>
       <TextInput
         placeholder="Search logs..."
         value={filterText}
         onChange={(e) => onFilterChange(e.currentTarget.value)}
       />
 
-      <Title order={5}>Show Levels</Title>
+      <Group justify="space-between">
+        <Title order={5}>Filter by Level</Title>
+        <SubtleButton onClick={onToggleAllLevels}>
+          {Object.values(visibleLevels).every(Boolean)
+            ? "Deselect All"
+            : "Select All"}
+        </SubtleButton>
+      </Group>
       {LOG_LEVELS.map((level) => {
         const style = LEVEL_COLORS[level];
         return (

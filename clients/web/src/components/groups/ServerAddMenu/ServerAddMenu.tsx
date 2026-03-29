@@ -1,4 +1,5 @@
 import { Button, Menu } from "@mantine/core";
+import { RiArrowDownSLine } from "react-icons/ri";
 
 export interface AddServerMenuProps {
   onAddManually: () => void;
@@ -6,15 +7,16 @@ export interface AddServerMenuProps {
   onImportServerJson: () => void;
 }
 
-export function AddServerMenu({
+export function ServerAddMenu({
   onAddManually,
   onImportConfig,
   onImportServerJson,
 }: AddServerMenuProps) {
+  const Icon = RiArrowDownSLine;
   return (
     <Menu>
       <Menu.Target>
-        <Button rightSection="&#x25BE;">+ Add Server</Button>
+        <Button rightSection={<Icon size={20} />}>Add Servers</Button>
       </Menu.Target>
       <Menu.Dropdown>
         <Menu.Item onClick={onAddManually}>+ Add manually</Menu.Item>

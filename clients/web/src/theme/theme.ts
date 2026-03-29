@@ -7,6 +7,7 @@ import {
   ThemeButton,
   ThemeCard,
   ThemeCode,
+  ThemeFlex,
   ThemePaper,
   ThemeSelect,
   ThemeSwitch,
@@ -25,11 +26,10 @@ export const theme = createTheme({
   cursorType: "pointer",
 
   /* ── Typography ─────────────────────────────────────────── */
-  fontFamily:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-  fontFamilyMonospace:
-    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+  fontFamily: '"Fredoka", sans-serif',
+  fontFamilyMonospace: '"Roboto Mono", monospace',
   headings: {
+    fontFamily: '"Fredoka", sans-serif',
     fontWeight: "600",
   },
 
@@ -42,6 +42,7 @@ export const theme = createTheme({
     Button: ThemeButton,
     Card: ThemeCard,
     Code: ThemeCode,
+    Flex: ThemeFlex,
     Paper: ThemePaper,
     Select: ThemeSelect,
     Switch: ThemeSwitch,

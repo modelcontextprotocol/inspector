@@ -1,8 +1,10 @@
+import { useEffect, useState } from "react";
 import {
   Badge,
   Button,
   Card,
   Collapse,
+  Divider,
   Group,
   Stack,
   Text,
@@ -27,9 +29,7 @@ export interface HistoryEntryProps {
   response?: Record<string, unknown>;
   childEntries?: HistoryChildEntry[];
   isPinned: boolean;
-  pinLabel?: string;
-  isExpanded: boolean;
-  onToggleExpand: () => void;
+  isListExpanded: boolean;
   onReplay: () => void;
   onTogglePin: () => void;
 }
@@ -82,9 +82,8 @@ function statusColor(status: "success" | "error"): string {
   return status === "success" ? "green" : "red";
 }
 
-function formatPinLabel(isPinned: boolean, pinLabel?: string): string {
-  const base = isPinned ? "Unpin" : "Pin";
-  return isPinned && pinLabel ? `${base} (${pinLabel})` : base;
+function formatPinLabel(isPinned: boolean): string {
+  return isPinned ? "Unpin" : "Pin";
 }
 
 function serializeJson(value: Record<string, unknown>): string {
@@ -101,12 +100,15 @@ export function HistoryEntry({
   response,
   childEntries,
   isPinned,
-  pinLabel,
-  isExpanded,
-  onToggleExpand,
+  isListExpanded,
   onReplay,
   onTogglePin,
 }: HistoryEntryProps) {
+  const [isExpanded, setIsExpanded] = useState(isListExpanded);
+
+  useEffect(() => {
+    setIsExpanded(isListExpanded);
+  }, [isListExpanded]);
   return (
     <EntryContainer>
       <Stack gap="sm">
@@ -127,55 +129,60 @@ export function HistoryEntry({
         <Group gap="xs">
           <SubtleButton onClick={onReplay}>Replay</SubtleButton>
           <SubtleButton onClick={onTogglePin}>
-            {formatPinLabel(isPinned, pinLabel)}
+            {formatPinLabel(isPinned)}
           </SubtleButton>
-          <SubtleButton onClick={onToggleExpand} ml="auto">
+          <SubtleButton onClick={() => setIsExpanded((v) => !v)} ml="auto">
             {isExpanded ? "Collapse" : "Expand"}
           </SubtleButton>
         </Group>
 
-        <Collapse in={isExpanded}>
-          <Stack gap="sm">
-            {parameters && (
-              <Stack gap="xs">
-                <Text size="sm">Parameters:</Text>
-                <ContentViewer
-                  type="json"
-                  content={serializeJson(parameters)}
-                  copyable
-                />
-              </Stack>
-            )}
-            {response && (
-              <Stack gap="xs">
-                <Text size="sm">Response:</Text>
-                <ContentViewer
-                  type="json"
-                  content={serializeJson(response)}
-                  copyable
-                />
-              </Stack>
-            )}
-            {childEntries && childEntries.length > 0 && (
-              <Stack gap="xs">
-                {childEntries.map((child, index) => (
-                  <Group key={index} pl="lg" gap="sm">
-                    <TimestampText>+-- </TimestampText>
-                    <TimestampText>{child.timestamp}</TimestampText>
-                    <ChildMethodBadge>{child.method}</ChildMethodBadge>
-                    {child.target && <Text size="sm">{child.target}</Text>}
-                    <Badge color={statusColor(child.status)} size="sm">
-                      {formatStatusLabel(child.status)}
-                    </Badge>
-                    <DurationText>
-                      {formatDuration(child.durationMs)}
-                    </DurationText>
-                  </Group>
-                ))}
-              </Stack>
-            )}
-          </Stack>
-        </Collapse>
+        {isExpanded && (
+          <Collapse in={isExpanded}>
+            <Stack gap="sm">
+              {parameters && (
+                <>
+                  <Divider />
+                  <Stack gap="xs">
+                    <Text size="sm">Parameters:</Text>
+                    <ContentViewer
+                      type="json"
+                      content={serializeJson(parameters)}
+                      copyable
+                    />
+                  </Stack>
+                </>
+              )}
+              {response && (
+                <Stack gap="xs">
+                  <Text size="sm">Response:</Text>
+                  <ContentViewer
+                    type="json"
+                    content={serializeJson(response)}
+                    copyable
+                  />
+                </Stack>
+              )}
+              {childEntries && childEntries.length > 0 && (
+                <Stack gap="xs">
+                  {childEntries.map((child, index) => (
+                    <Group key={index} pl="lg" gap="sm">
+                      <TimestampText>+-- </TimestampText>
+                      <TimestampText>{child.timestamp}</TimestampText>
+                      <ChildMethodBadge>{child.method}</ChildMethodBadge>
+                      {child.target && <Text size="sm">{child.target}</Text>}
+                      <Badge color={statusColor(child.status)} size="sm">
+                        {formatStatusLabel(child.status)}
+                      </Badge>
+                      <DurationText>
+                        {formatDuration(child.durationMs)}
+                      </DurationText>
+                    </Group>
+                  ))}
+                </Stack>
+              )}
+            </Stack>
+          </Collapse>
+        )}
       </Stack>
     </EntryContainer>
   );

@@ -1,31 +1,41 @@
-import {
-  Button,
-  Card,
-  Checkbox,
-  Container,
-  Grid,
-  Group,
-  ScrollArea,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { useState } from "react";
+import { Card, Flex, Stack } from "@mantine/core";
 import { LogControls } from "../../groups/LogControls/LogControls";
-import { LogEntry } from "../../elements/LogEntry/LogEntry";
-import type { LogControlsProps } from "../../groups/LogControls/LogControls";
+import { LogStreamPanel } from "../../groups/LogStreamPanel/LogStreamPanel";
 import type { LogEntryProps } from "../../elements/LogEntry/LogEntry";
 
 export interface LoggingScreenProps {
-  controls: LogControlsProps;
   entries: LogEntryProps[];
+  currentLevel: string;
+  onSetLevel: (level: string) => void;
+  onClear: () => void;
+  onExport: () => void;
   autoScroll: boolean;
   onToggleAutoScroll: () => void;
   onCopyAll: () => void;
 }
 
-const PageContainer = Container.withProps({
-  size: "xl",
-  py: "xl",
+const ALL_LEVELS_VISIBLE: Record<string, boolean> = {
+  debug: true,
+  info: true,
+  notice: true,
+  warning: true,
+  error: true,
+  critical: true,
+  alert: true,
+  emergency: true,
+};
+
+const ScreenLayout = Flex.withProps({
+  variant: "screen",
+  h: "calc(100vh - var(--app-shell-header-height, 0px))",
+  gap: "xl",
+  p: "xl",
+});
+
+const Sidebar = Stack.withProps({
+  w: 280,
+  flex: "0 0 auto",
 });
 
 const SidebarCard = Card.withProps({
@@ -33,74 +43,58 @@ const SidebarCard = Card.withProps({
   padding: "lg",
 });
 
-const FullHeightCard = Card.withProps({
-  withBorder: true,
-  padding: "lg",
-  h: "100%",
-});
-
-const FullHeightStack = Stack.withProps({
-  gap: "sm",
-  h: "100%",
-});
-
-const ToolbarButton = Button.withProps({
-  variant: "light",
-  size: "sm",
-});
-
-const EmptyCenter = Stack.withProps({
-  flex: 1,
-  align: "center",
-  justify: "center",
-});
-
 export function LoggingScreen({
-  controls,
   entries,
+  currentLevel,
+  onSetLevel,
+  onClear,
+  onExport,
   autoScroll,
   onToggleAutoScroll,
   onCopyAll,
 }: LoggingScreenProps) {
+  const [filterText, setFilterText] = useState("");
+  const [visibleLevels, setVisibleLevels] =
+    useState<Record<string, boolean>>(ALL_LEVELS_VISIBLE);
+
+  function handleToggleLevel(level: string, visible: boolean) {
+    setVisibleLevels((prev) => ({ ...prev, [level]: visible }));
+  }
+
+  const NO_LEVELS_VISIBLE: Record<string, boolean> = Object.fromEntries(
+    Object.keys(ALL_LEVELS_VISIBLE).map((k) => [k, false]),
+  );
+
+  function handleToggleAllLevels() {
+    const allSelected = Object.values(visibleLevels).every(Boolean);
+    setVisibleLevels(allSelected ? NO_LEVELS_VISIBLE : ALL_LEVELS_VISIBLE);
+  }
+
   return (
-    <PageContainer>
-      <Grid align="stretch">
-        <Grid.Col span={3}>
-          <SidebarCard>
-            <LogControls {...controls} />
-          </SidebarCard>
-        </Grid.Col>
-        <Grid.Col span={9}>
-          <FullHeightCard>
-            <FullHeightStack>
-              <Group justify="space-between">
-                <Title order={4}>Log Stream</Title>
-                <Group>
-                  <Checkbox
-                    label="Auto-scroll"
-                    checked={autoScroll}
-                    onChange={onToggleAutoScroll}
-                  />
-                  <ToolbarButton onClick={onCopyAll}>Copy All</ToolbarButton>
-                </Group>
-              </Group>
-              {entries.length > 0 ? (
-                <ScrollArea flex={1}>
-                  <Stack gap="xs">
-                    {entries.map((entry, index) => (
-                      <LogEntry key={index} {...entry} />
-                    ))}
-                  </Stack>
-                </ScrollArea>
-              ) : (
-                <EmptyCenter>
-                  <Text c="dimmed">No log entries</Text>
-                </EmptyCenter>
-              )}
-            </FullHeightStack>
-          </FullHeightCard>
-        </Grid.Col>
-      </Grid>
-    </PageContainer>
+    <ScreenLayout>
+      <Sidebar>
+        <SidebarCard>
+          <LogControls
+            currentLevel={currentLevel}
+            filterText={filterText}
+            visibleLevels={visibleLevels}
+            onSetLevel={onSetLevel}
+            onFilterChange={setFilterText}
+            onToggleLevel={handleToggleLevel}
+            onToggleAllLevels={handleToggleAllLevels}
+            onClear={onClear}
+            onExport={onExport}
+          />
+        </SidebarCard>
+      </Sidebar>
+      <LogStreamPanel
+        entries={entries}
+        filterText={filterText}
+        visibleLevels={visibleLevels}
+        autoScroll={autoScroll}
+        onToggleAutoScroll={onToggleAutoScroll}
+        onCopyAll={onCopyAll}
+      />
+    </ScreenLayout>
   );
 }

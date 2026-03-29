@@ -13,16 +13,13 @@ export interface AnnotationBadgeProps {
   variant?: AnnotationVariant;
 }
 
-const variantMap: Record<
-  AnnotationVariant,
-  { color: string; variant: string }
-> = {
-  audience: { color: "blue", variant: "outline" },
-  readOnly: { color: "green", variant: "filled" },
-  destructive: { color: "red", variant: "filled" },
-  longRun: { color: "yellow", variant: "filled" },
-  priority: { color: "orange", variant: "filled" },
-  default: { color: "gray", variant: "light" },
+const colorMap: Record<AnnotationVariant, string> = {
+  audience: "blue",
+  readOnly: "green",
+  destructive: "red",
+  longRun: "yellow",
+  priority: "orange",
+  default: "gray",
 };
 
 export function AnnotationBadge({
@@ -30,15 +27,10 @@ export function AnnotationBadge({
   variant = "default",
 }: AnnotationBadgeProps) {
   const colorScheme = useComputedColorScheme();
-  const { color, variant: badgeVariant } = variantMap[variant];
-  const textColor =
-    (variant === "priority" || variant === "destructive") &&
-    colorScheme === "dark"
-      ? "black"
-      : undefined;
-
+  const color = colorMap[variant];
+  const textColor = colorScheme === "dark" ? "black" : "white";
   return (
-    <Badge color={color} variant={badgeVariant} c={textColor}>
+    <Badge color={color} variant="filled" fw={500} c={textColor}>
       {label}
     </Badge>
   );

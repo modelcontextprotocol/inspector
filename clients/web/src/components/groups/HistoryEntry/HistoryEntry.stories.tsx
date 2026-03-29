@@ -6,7 +6,6 @@ const meta: Meta<typeof HistoryEntry> = {
   title: "Groups/HistoryEntry",
   component: HistoryEntry,
   args: {
-    onToggleExpand: fn(),
     onReplay: fn(),
     onTogglePin: fn(),
   },
@@ -23,7 +22,7 @@ export const SuccessCollapsed: Story = {
     status: "success",
     durationMs: 142,
     isPinned: false,
-    isExpanded: false,
+    isListExpanded: false,
   },
 };
 
@@ -35,7 +34,7 @@ export const SuccessExpanded: Story = {
     status: "success",
     durationMs: 142,
     isPinned: false,
-    isExpanded: true,
+    isListExpanded: true,
     parameters: {
       city: "San Francisco",
       units: "celsius",
@@ -56,7 +55,7 @@ export const Error: Story = {
     status: "error",
     durationMs: 3200,
     isPinned: false,
-    isExpanded: false,
+    isListExpanded: false,
   },
 };
 
@@ -68,7 +67,7 @@ export const WithChildren: Story = {
     status: "success",
     durationMs: 1250,
     isPinned: false,
-    isExpanded: true,
+    isListExpanded: true,
     parameters: {
       action: "process",
     },
@@ -102,7 +101,6 @@ export const Pinned: Story = {
     status: "success",
     durationMs: 45,
     isPinned: true,
-    pinLabel: "Baseline",
-    isExpanded: false,
+    isListExpanded: false,
   },
 };

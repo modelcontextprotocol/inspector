@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
-import { AddServerMenu } from "./AddServerMenu";
+import { ServerAddMenu } from "./ServerAddMenu.js";
 
-const meta: Meta<typeof AddServerMenu> = {
-  title: "Groups/AddServerMenu",
-  component: AddServerMenu,
+const meta: Meta<typeof ServerAddMenu> = {
+  title: "Groups/ServerAddMenu",
+  component: ServerAddMenu,
   args: {
     onAddManually: fn(),
     onImportConfig: fn(),
@@ -13,6 +13,6 @@ const meta: Meta<typeof AddServerMenu> = {
 };
 
 export default meta;
-type Story = StoryObj<typeof AddServerMenu>;
+type Story = StoryObj<typeof ServerAddMenu>;
 
 export const Default: Story = {};

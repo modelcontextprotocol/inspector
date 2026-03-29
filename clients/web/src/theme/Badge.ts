@@ -4,5 +4,6 @@ export const ThemeBadge = Badge.extend({
   defaultProps: {
     size: "sm",
     radius: "sm",
+    fw: 600,
   },
 });

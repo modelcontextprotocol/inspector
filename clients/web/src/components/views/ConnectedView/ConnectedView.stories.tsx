@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { Text } from "@mantine/core";
-import { ConnectedLayout } from "./ConnectedLayout";
+import { ConnectedView } from "./ConnectedView.js";
 import { ToolsScreen } from "../../screens/ToolsScreen/ToolsScreen";
 import { ResourcesScreen } from "../../screens/ResourcesScreen/ResourcesScreen";
 import { PromptsScreen } from "../../screens/PromptsScreen/PromptsScreen";
@@ -147,9 +147,9 @@ const sampleLogEntries: LogEntryProps[] = Array.from({ length: 50 }, (_, i) => {
   };
 });
 
-const meta: Meta<typeof ConnectedLayout> = {
+const meta: Meta<typeof ConnectedView> = {
   title: "Views/ConnectedView",
-  component: ConnectedLayout,
+  component: ConnectedView,
   parameters: { layout: "fullscreen" },
   args: {
     serverName: "my-mcp-server",
@@ -164,7 +164,7 @@ const meta: Meta<typeof ConnectedLayout> = {
 };
 
 export default meta;
-type Story = StoryObj<typeof ConnectedLayout>;
+type Story = StoryObj<typeof ConnectedView>;
 
 export const ToolsActive: Story = {
   args: {
@@ -363,25 +363,10 @@ export const LoggingActive: Story = {
     activeTab: "Logs",
     children: (
       <LoggingScreen
-        controls={{
-          currentLevel: "info",
-          filterText: "",
-          visibleLevels: {
-            debug: true,
-            info: true,
-            notice: true,
-            warning: true,
-            error: true,
-            critical: true,
-            alert: true,
-            emergency: true,
-          },
-          onSetLevel: fn(),
-          onFilterChange: fn(),
-          onToggleLevel: fn(),
-          onClear: fn(),
-          onExport: fn(),
-        }}
+        currentLevel="info"
+        onSetLevel={fn()}
+        onClear={fn()}
+        onExport={fn()}
         entries={sampleLogEntries}
         autoScroll={true}
         onToggleAutoScroll={fn()}
@@ -465,85 +450,77 @@ export const HistoryActive: Story = {
       <HistoryScreen
         entries={[
           {
-            timestamp: "2026-03-17T10:32:00Z",
+            timestamp: "2026-03-17T10:00:00Z",
             method: "tools/call",
-            target: "complex_operation",
+            target: "send_message",
             status: "success",
-            durationMs: 1250,
+            durationMs: 120,
+            parameters: { message: "Hello, world!" },
+            response: { result: "Message sent successfully" },
             isPinned: false,
-            isExpanded: true,
-            parameters: {
-              action: "process",
-            },
+            isListExpanded: false,
+            onReplay: fn(),
+            onTogglePin: fn(),
+          },
+          {
+            timestamp: "2026-03-17T10:01:00Z",
+            method: "resources/read",
+            target: "config.json",
+            status: "success",
+            durationMs: 45,
+            parameters: { uri: "file:///config.json" },
             response: {
-              result: "completed",
+              contents: [{ uri: "file:///config.json", text: "{}" }],
             },
-            childEntries: [
-              {
-                timestamp: "+120ms",
-                method: "sampling/createMessage",
-                target: "gpt-4",
-                status: "success",
-                durationMs: 800,
-              },
-              {
-                timestamp: "+950ms",
-                method: "elicitation/create",
-                target: "confirm_action",
-                status: "success",
-                durationMs: 200,
-              },
-            ],
-            onToggleExpand: fn(),
+            isPinned: false,
+            isListExpanded: false,
             onReplay: fn(),
             onTogglePin: fn(),
           },
           {
-            timestamp: "2026-03-17T10:31:15Z",
+            timestamp: "2026-03-17T10:02:00Z",
             method: "tools/call",
-            target: "query_database",
+            target: "delete_records",
             status: "error",
-            durationMs: 3200,
+            durationMs: 350,
+            parameters: { ids: [1, 2, 3] },
+            response: { error: "Permission denied" },
             isPinned: false,
-            isExpanded: false,
-            onToggleExpand: fn(),
-            onReplay: fn(),
-            onTogglePin: fn(),
-          },
-          {
-            timestamp: "2026-03-17T10:30:00Z",
-            method: "tools/call",
-            target: "get_weather",
-            status: "success",
-            durationMs: 142,
-            isPinned: false,
-            isExpanded: false,
-            onToggleExpand: fn(),
+            isListExpanded: true,
             onReplay: fn(),
             onTogglePin: fn(),
           },
         ]}
         pinnedEntries={[
           {
-            timestamp: "2026-03-17T10:33:00Z",
-            method: "resources/read",
-            target: "config.json",
+            timestamp: "2026-03-17T09:30:00Z",
+            method: "tools/list",
             status: "success",
-            durationMs: 45,
+            durationMs: 80,
+            response: { tools: ["send_message", "list_users"] },
             isPinned: true,
-            pinLabel: "Baseline",
-            isExpanded: false,
-            onToggleExpand: fn(),
+            isListExpanded: false,
+            onReplay: fn(),
+            onTogglePin: fn(),
+          },
+          {
+            timestamp: "2026-03-17T09:35:00Z",
+            method: "prompts/get",
+            target: "greeting",
+            status: "success",
+            durationMs: 60,
+            parameters: { name: "greeting" },
+            response: {
+              messages: [
+                { role: "user", content: { type: "text", text: "Hello!" } },
+              ],
+            },
+            isPinned: true,
+            isListExpanded: false,
             onReplay: fn(),
             onTogglePin: fn(),
           },
         ]}
-        searchText=""
-        totalCount={4}
-        displayedCount={4}
-        onSearchChange={fn()}
-        onMethodFilterChange={fn()}
-        onLoadMore={fn()}
         onClearAll={fn()}
         onExport={fn()}
       />

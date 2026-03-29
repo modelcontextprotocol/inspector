@@ -112,3 +112,29 @@ export const HttpDirect: Story = {
     canTestClientFeatures: false,
   },
 };
+
+export const CompactConnected: Story = {
+  args: {
+    name: "My MCP Server",
+    version: "1.2.0",
+    transport: "stdio",
+    connectionMode: "Subprocess",
+    command: "npx -y @modelcontextprotocol/server-everything",
+    status: "connected",
+    canTestClientFeatures: false,
+    compact: true,
+  },
+};
+
+export const CompactDisconnected: Story = {
+  args: {
+    name: "My MCP Server",
+    version: "1.2.0",
+    transport: "stdio",
+    connectionMode: "Subprocess",
+    command: "npx -y @modelcontextprotocol/server-everything",
+    status: "disconnected",
+    canTestClientFeatures: false,
+    compact: true,
+  },
+};
