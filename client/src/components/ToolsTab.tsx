@@ -199,6 +199,9 @@ const ToolsTab = ({
   serverSupportsTaskRequests: boolean;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
+  const [numericDrafts, setNumericDrafts] = useState<Record<string, string>>(
+    {},
+  );
   const [runAsTask, setRunAsTask] = useState(false);
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
@@ -241,6 +244,7 @@ const ToolsTab = ({
       ];
     });
     setParams(Object.fromEntries(params));
+    setNumericDrafts({});
     const toolTaskSupport = serverSupportsTaskRequests
       ? getTaskSupport(selectedTool)
       : "forbidden";
@@ -521,20 +525,27 @@ const ToolsTab = ({
                               name={key}
                               placeholder={prop.description}
                               value={
-                                params[key] === undefined
-                                  ? ""
-                                  : String(params[key])
+                                Object.prototype.hasOwnProperty.call(
+                                  numericDrafts,
+                                  key,
+                                )
+                                  ? numericDrafts[key]
+                                  : params[key] === undefined
+                                    ? ""
+                                    : String(params[key])
                               }
                               onChange={(e) => {
                                 const value = e.target.value;
+                                setNumericDrafts((prev) => ({
+                                  ...prev,
+                                  [key]: value,
+                                }));
                                 if (value === "") {
-                                  // Field cleared - set to undefined
                                   setParams({
                                     ...params,
                                     [key]: undefined,
                                   });
                                 } else {
-                                  // Field has value - try to convert to number, but store input either way
                                   const num = Number(value);
                                   if (!isNaN(num)) {
                                     setParams({
@@ -542,12 +553,30 @@ const ToolsTab = ({
                                       [key]: num,
                                     });
                                   } else {
-                                    // Store invalid input as string - let server validate
                                     setParams({
                                       ...params,
                                       [key]: value,
                                     });
                                   }
+                                }
+                              }}
+                              onBlur={(e) => {
+                                const val = e.target.value;
+                                if (!val) {
+                                  setNumericDrafts((prev) => {
+                                    const next = { ...prev };
+                                    delete next[key];
+                                    return next;
+                                  });
+                                  return;
+                                }
+                                const num = Number(val);
+                                if (val === String(num)) {
+                                  setNumericDrafts((prev) => {
+                                    const next = { ...prev };
+                                    delete next[key];
+                                    return next;
+                                  });
                                 }
                               }}
                               className="mt-1"

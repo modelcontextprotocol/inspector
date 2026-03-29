@@ -425,6 +425,48 @@ describe("DynamicJsonForm Number Fields", () => {
       fireEvent.change(input, { target: { value: "-74.01" } });
       expect(input.value).toBe("-74.01");
     });
+
+    it("should preserve decimal zero after blur", () => {
+      const schema: JsonSchemaType = {
+        type: "number",
+        description: "Coordinate",
+      };
+
+      const WrappedForm = () => {
+        const [value, setValue] = useState<number>(0);
+        return (
+          <DynamicJsonForm schema={schema} value={value} onChange={setValue} />
+        );
+      };
+
+      render(<WrappedForm />);
+      const input = screen.getByRole("spinbutton") as HTMLInputElement;
+
+      fireEvent.change(input, { target: { value: "1.0" } });
+      fireEvent.blur(input);
+      expect(input.value).toBe("1.0");
+    });
+
+    it("should not preserve decimal zero for integer fields after blur", () => {
+      const schema: JsonSchemaType = {
+        type: "integer",
+        description: "Count",
+      };
+
+      const WrappedForm = () => {
+        const [value, setValue] = useState<number>(0);
+        return (
+          <DynamicJsonForm schema={schema} value={value} onChange={setValue} />
+        );
+      };
+
+      render(<WrappedForm />);
+      const input = screen.getByRole("spinbutton") as HTMLInputElement;
+
+      fireEvent.change(input, { target: { value: "5" } });
+      fireEvent.blur(input);
+      expect(input.value).toBe("5");
+    });
   });
 });
 
