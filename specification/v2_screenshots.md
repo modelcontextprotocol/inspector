@@ -1,13 +1,13 @@
 # Inspector V2 UX - Visual Reference
 
-### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_tech_stack.md)
-### UX: [Overview](v2_ux.md) | [Features](v2_ux_features.md) | [Handlers](v2_ux_handlers.md) | Screenshots
+### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_web_client.md) | V2 UX
+#### [Overview](v2_ux.md) | [Features](v2_ux_features.md) | [Handlers](v2_ux_handlers.md) | Screenshots | [Components](v2_ux_components.md)
 
 ---
 
 This document provides visual screenshots from the **Shadcn UI prototype** (`v2/prototype/shadcn`). These complement the ASCII wireframes in the UX specification documents.
 
-**Note:** The V2 implementation will use **Mantine** (see [V2 Tech Stack](v2_tech_stack.md#mantine-rationale)). These Shadcn screenshots remain as historical reference showing how the UX spec translates to a working UI. The Mantine implementation will have the same screens and functionality with slightly different visual styling.
+**Note:** The V2 implementation will use **Mantine** (see [V2 Tech Stack](v2_web_client.md#mantine-rationale)). These Shadcn screenshots remain as historical reference showing how the UX spec translates to a working UI. The Mantine implementation will have the same screens and functionality with slightly different visual styling.
 
 ## Table of Contents
   * [Server List](#server-list)
