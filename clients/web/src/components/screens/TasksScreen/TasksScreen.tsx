@@ -1,88 +1,61 @@
-import {
-  Button,
-  Container,
-  Group,
-  Paper,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
-import { TaskCard } from "../../groups/TaskCard/TaskCard";
+import { useState } from "react";
+import { Card, Flex, Stack } from "@mantine/core";
+import { TaskControls } from "../../groups/TaskControls/TaskControls";
+import { TaskListPanel } from "../../groups/TaskListPanel/TaskListPanel";
 import type { TaskCardProps } from "../../groups/TaskCard/TaskCard";
 
 export interface TasksScreenProps {
-  activeTasks: TaskCardProps[];
-  completedTasks: TaskCardProps[];
+  tasks: TaskCardProps[];
   onRefresh: () => void;
   onClearHistory: () => void;
 }
 
-const PageContainer = Container.withProps({
-  size: "xl",
-  py: "xl",
+const ScreenLayout = Flex.withProps({
+  variant: "screen",
+  h: "calc(100vh - var(--app-shell-header-height, 0px))",
+  gap: "xl",
+  p: "xl",
 });
 
-const ContentPanel = Paper.withProps({
+const Sidebar = Stack.withProps({
+  w: 280,
+  flex: "0 0 auto",
+});
+
+const SidebarCard = Card.withProps({
   withBorder: true,
-  p: "md",
+  padding: "lg",
 });
-
-const CompactButton = Button.withProps({
-  variant: "light",
-  size: "xs",
-});
-
-function formatSectionTitle(label: string, count: number): string {
-  return `${label} (${count})`;
-}
 
 export function TasksScreen({
-  activeTasks,
-  completedTasks,
+  tasks,
   onRefresh,
   onClearHistory,
 }: TasksScreenProps) {
-  return (
-    <PageContainer>
-      <ContentPanel>
-        <Stack gap="lg">
-          <Group justify="space-between">
-            <Title order={4}>
-              {formatSectionTitle("Active Tasks", activeTasks.length)}
-            </Title>
-            <CompactButton onClick={onRefresh}>Refresh Tasks</CompactButton>
-          </Group>
-          {activeTasks.length === 0 ? (
-            <Text c="dimmed">No active tasks</Text>
-          ) : (
-            <Stack gap="md">
-              {activeTasks.map((task) => (
-                <TaskCard key={task.taskId} {...task} />
-              ))}
-            </Stack>
-          )}
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string | undefined>();
 
-          <Group justify="space-between">
-            <Title order={4}>
-              {formatSectionTitle("Completed Tasks", completedTasks.length)}
-            </Title>
-            {completedTasks.length > 0 && (
-              <CompactButton onClick={onClearHistory}>
-                Clear History
-              </CompactButton>
-            )}
-          </Group>
-          {completedTasks.length === 0 ? (
-            <Text c="dimmed">No completed tasks</Text>
-          ) : (
-            <Stack gap="md">
-              {completedTasks.map((task) => (
-                <TaskCard key={task.taskId} {...task} />
-              ))}
-            </Stack>
-          )}
-        </Stack>
-      </ContentPanel>
-    </PageContainer>
+  return (
+    <ScreenLayout>
+      <Sidebar>
+        <SidebarCard>
+          <TaskControls
+            searchText={searchText}
+            statusFilter={statusFilter}
+            onSearchChange={setSearchText}
+            onStatusFilterChange={(value) =>
+              setStatusFilter(value || undefined)
+            }
+            onRefresh={onRefresh}
+            onClearHistory={onClearHistory}
+          />
+        </SidebarCard>
+      </Sidebar>
+      <TaskListPanel
+        tasks={tasks}
+        searchText={searchText}
+        statusFilter={statusFilter}
+      />
+    </ScreenLayout>
   );
 }

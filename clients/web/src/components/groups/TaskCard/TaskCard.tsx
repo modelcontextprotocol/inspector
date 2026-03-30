@@ -1,4 +1,15 @@
-import { Badge, Button, Card, Group, Stack, Text } from "@mantine/core";
+import { useEffect, useState } from "react";
+import {
+  Badge,
+  Button,
+  Card,
+  Collapse,
+  Divider,
+  Group,
+  Stack,
+  Text,
+} from "@mantine/core";
+import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 
 export type TaskStatus =
@@ -17,12 +28,12 @@ export interface TaskCardProps {
   progressDescription?: string;
   startedAt?: string;
   completedAt?: string;
+  lastUpdated?: string;
   elapsed?: string;
+  ttl?: number;
   error?: string;
-  onViewDetails: () => void;
-  onViewResult: () => void;
+  isListExpanded: boolean;
   onCancel: () => void;
-  onDismiss: () => void;
 }
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
@@ -38,25 +49,35 @@ const TaskContainer = Card.withProps({
   padding: "md",
 });
 
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+});
+
 const TaskIdText = Text.withProps({
   size: "sm",
   ff: "monospace",
+  c: "dimmed",
 });
 
-const DetailText = Text.withProps({
+const DetailLabel = Text.withProps({
   size: "sm",
   c: "dimmed",
 });
 
-const ValueSpan = Text.withProps({
-  component: "span",
-  fw: 600,
+const DetailValue = Text.withProps({
+  size: "sm",
+  fw: 500,
 });
 
-const ProgressNote = Text.withProps({
+const StatusMessageText = Text.withProps({
   size: "sm",
-  c: "dimmed",
   fs: "italic",
+});
+
+const ErrorText = Text.withProps({
+  size: "sm",
+  c: "red",
 });
 
 const SubtleButton = Button.withProps({
@@ -70,89 +91,152 @@ const CancelButton = Button.withProps({
   size: "xs",
 });
 
+const DetailRow = Group.withProps({
+  gap: "xl",
+  wrap: "wrap",
+});
+
+const SummaryRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+});
+
+const HeaderLeftGroup = Group.withProps({
+  gap: "sm",
+});
+
+const HeaderRightGroup = Group.withProps({
+  gap: "xs",
+});
+
+const SectionTitle = Text.withProps({
+  size: "sm",
+  fw: 600,
+});
+
 function formatTaskId(taskId: string): string {
-  return `Task: ${taskId}`;
+  return `ID: ${taskId}`;
 }
 
-function formatTimeline(
-  startedAt: string,
-  completedAt?: string,
-  elapsed?: string,
-): string {
-  let result = `Started: ${startedAt}`;
-  if (completedAt) result += ` | Completed: ${completedAt}`;
-  if (elapsed) result += ` | Elapsed: ${elapsed}`;
-  return result;
+function formatTtl(ttl: number): string {
+  return `${ttl}ms`;
 }
 
-export function TaskCard({
-  taskId,
-  status,
-  method,
-  target,
-  progress,
-  progressDescription,
-  startedAt,
-  completedAt,
-  elapsed,
-  error,
-  onViewDetails,
-  onViewResult,
-  onCancel,
-  onDismiss,
-}: TaskCardProps) {
+function buildTaskObject(props: TaskCardProps): string {
+  const obj: Record<string, unknown> = {
+    taskId: props.taskId,
+    status: props.status,
+    method: props.method,
+  };
+  if (props.target) obj.target = props.target;
+  if (props.ttl !== undefined) obj.ttl = props.ttl;
+  if (props.startedAt) obj.createdAt = props.startedAt;
+  if (props.lastUpdated) obj.lastUpdatedAt = props.lastUpdated;
+  if (props.completedAt) obj.completedAt = props.completedAt;
+  if (props.progress !== undefined) obj.progress = props.progress;
+  if (props.progressDescription) obj.statusMessage = props.progressDescription;
+  if (props.error) obj.error = props.error;
+  return JSON.stringify(obj);
+}
+
+export function TaskCard(props: TaskCardProps) {
+  const {
+    taskId,
+    status,
+    progress,
+    progressDescription,
+    startedAt,
+    lastUpdated,
+    ttl,
+    error,
+    isListExpanded,
+    onCancel,
+  } = props;
+
+  const [isExpanded, setIsExpanded] = useState(isListExpanded);
   const isActive = status === "waiting" || status === "running";
+
+  useEffect(() => {
+    setIsExpanded(isListExpanded);
+  }, [isListExpanded]);
 
   return (
     <TaskContainer>
-      <Stack gap="xs">
-        <Group justify="space-between">
-          <Group>
+      <Stack gap="sm">
+        <HeaderRow>
+          <HeaderLeftGroup>
+            <SectionTitle>Task Details</SectionTitle>
             <TaskIdText>{formatTaskId(taskId)}</TaskIdText>
+          </HeaderLeftGroup>
+          <HeaderRightGroup>
+            {isActive && (
+              <CancelButton onClick={onCancel}>Cancel Task</CancelButton>
+            )}
             <Badge color={STATUS_COLORS[status]}>{status}</Badge>
-          </Group>
-          {progress !== undefined && <ProgressDisplay progress={progress} />}
-        </Group>
+          </HeaderRightGroup>
+        </HeaderRow>
 
-        <DetailText>
-          Method: <ValueSpan>{method}</ValueSpan>
-        </DetailText>
+        <SummaryRow>
+          <DetailRow>
+            <Stack gap={2}>
+              <DetailLabel>Status</DetailLabel>
+              <DetailValue>{status}</DetailValue>
+            </Stack>
+            {lastUpdated && (
+              <Stack gap={2}>
+                <DetailLabel>Last Updated</DetailLabel>
+                <DetailValue>{lastUpdated}</DetailValue>
+              </Stack>
+            )}
+            {startedAt && (
+              <Stack gap={2}>
+                <DetailLabel>Created At</DetailLabel>
+                <DetailValue>{startedAt}</DetailValue>
+              </Stack>
+            )}
+            {ttl !== undefined && (
+              <Stack gap={2}>
+                <DetailLabel>TTL</DetailLabel>
+                <DetailValue>{formatTtl(ttl)}</DetailValue>
+              </Stack>
+            )}
+          </DetailRow>
+          <SubtleButton onClick={() => setIsExpanded((v) => !v)}>
+            {isExpanded ? "Collapse" : "Expand"}
+          </SubtleButton>
+        </SummaryRow>
 
-        {target && (
-          <DetailText>
-            Tool/Resource: <ValueSpan>{target}</ValueSpan>
-          </DetailText>
+        {isExpanded && (
+          <Collapse in={isExpanded}>
+            <Stack gap="sm">
+              {progressDescription && (
+                <Stack gap={2}>
+                  <DetailLabel>Status Message</DetailLabel>
+                  <StatusMessageText>{progressDescription}</StatusMessageText>
+                </Stack>
+              )}
+
+              {progress !== undefined && (
+                <ProgressDisplay progress={progress} />
+              )}
+
+              {error && (
+                <Stack gap={2}>
+                  <DetailLabel>Error</DetailLabel>
+                  <ErrorText>{error}</ErrorText>
+                </Stack>
+              )}
+
+              <Divider />
+              <SectionTitle>Full Task Object</SectionTitle>
+              <ContentViewer
+                type="json"
+                content={buildTaskObject(props)}
+                copyable
+              />
+            </Stack>
+          </Collapse>
         )}
-
-        {startedAt && (
-          <DetailText>
-            {formatTimeline(startedAt, completedAt, elapsed)}
-          </DetailText>
-        )}
-
-        {progressDescription && (
-          <ProgressNote>{progressDescription}</ProgressNote>
-        )}
-
-        {error && (
-          <Text size="sm" c="red">
-            {error}
-          </Text>
-        )}
-
-        <Group justify="flex-end">
-          {isActive ? (
-            <>
-              <SubtleButton onClick={onViewDetails}>View Details</SubtleButton>
-              <CancelButton onClick={onCancel}>Cancel</CancelButton>
-            </>
-          ) : (
-            <>
-              <SubtleButton onClick={onViewResult}>View Result</SubtleButton>
-              <SubtleButton onClick={onDismiss}>Dismiss</SubtleButton>
-            </>
-          )}
-        </Group>
       </Stack>
     </TaskContainer>
   );
