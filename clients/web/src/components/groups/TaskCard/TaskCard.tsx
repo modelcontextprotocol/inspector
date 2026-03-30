@@ -198,18 +198,21 @@ export function TaskCard(props: TaskCardProps) {
           </SubtleButton>
         </SummaryRow>
 
+        {progress !== undefined && isActive && (
+          <ProgressDisplay
+            progress={progress}
+            description={progressDescription}
+          />
+        )}
+
         {isExpanded && (
           <Collapse in={isExpanded}>
             <Stack gap="sm">
-              {progressDescription && (
+              {progressDescription && !isActive && (
                 <Stack gap={2}>
                   <DetailLabel>Status Message</DetailLabel>
                   <StatusMessageText>{progressDescription}</StatusMessageText>
                 </Stack>
-              )}
-
-              {progress !== undefined && (
-                <ProgressDisplay progress={progress} />
               )}
 
               {error && (
