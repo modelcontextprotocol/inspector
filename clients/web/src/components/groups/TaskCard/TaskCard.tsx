@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  Badge,
   Button,
   Card,
   Collapse,
@@ -11,6 +10,7 @@ import {
 } from "@mantine/core";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
+import { TaskStatusBadge } from "../../elements/TaskStatusBadge/TaskStatusBadge";
 
 export type TaskStatus =
   | "waiting"
@@ -35,14 +35,6 @@ export interface TaskCardProps {
   isListExpanded: boolean;
   onCancel: () => void;
 }
-
-const STATUS_COLORS: Record<TaskStatus, string> = {
-  waiting: "gray",
-  running: "blue",
-  completed: "green",
-  failed: "red",
-  cancelled: "yellow",
-};
 
 const TaskContainer = Card.withProps({
   withBorder: true,
@@ -172,7 +164,7 @@ export function TaskCard(props: TaskCardProps) {
             {isActive && (
               <CancelButton onClick={onCancel}>Cancel Task</CancelButton>
             )}
-            <Badge color={STATUS_COLORS[status]}>{status}</Badge>
+            <TaskStatusBadge status={status} />
           </HeaderRightGroup>
         </HeaderRow>
 
