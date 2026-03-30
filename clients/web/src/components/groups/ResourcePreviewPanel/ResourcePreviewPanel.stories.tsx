@@ -6,6 +6,7 @@ const meta: Meta<typeof ResourcePreviewPanel> = {
   title: "Groups/ResourcePreviewPanel",
   component: ResourcePreviewPanel,
   args: {
+    onRefresh: fn(),
     onSubscribe: fn(),
     onUnsubscribe: fn(),
   },

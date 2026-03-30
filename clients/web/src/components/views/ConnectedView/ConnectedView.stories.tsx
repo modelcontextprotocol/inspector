@@ -249,57 +249,66 @@ export const ResourcesActive: Story = {
             name: "config.json",
             uri: "file:///config.json",
             annotations: { audience: "developer", priority: 0.8 },
-            selected: true,
-            onClick: fn(),
+            selected: false,
           },
           {
             name: "README.md",
             uri: "file:///README.md",
             selected: false,
-            onClick: fn(),
           },
           {
             name: "schema.sql",
             uri: "file:///schema.sql",
             annotations: { priority: 0.5 },
             selected: false,
-            onClick: fn(),
           },
         ]}
         templates={[
           {
-            template: "file:///users/{userId}/profile",
-            variables: { userId: "" },
-            onVariableChange: fn(),
-            onSubmit: fn(),
+            name: "User Profile",
+            uriTemplate: "file:///users/{userId}/profile",
+            selected: true,
+          },
+          {
+            name: "Table Row",
+            title: "Database Table Row",
+            uriTemplate: "db://tables/{tableName}/rows/{rowId}",
+            selected: false,
           },
         ]}
         subscriptions={[
-          { name: "config.json", lastUpdated: "2026-03-17T10:30:00Z" },
+          {
+            name: "config.json",
+            uri: "file:///config.json",
+            lastUpdated: "2026-03-17T10:30:00Z",
+          },
         ]}
+        selectedTemplate={{
+          name: "User Profile",
+          uriTemplate: "file:///users/{userId}/profile",
+          description: "Fetch a user profile by their unique identifier.",
+        }}
         selectedResource={{
-          uri: "file:///config.json",
+          uri: "file:///users/42/profile",
           mimeType: "application/json",
           annotations: { audience: "developer", priority: 0.8 },
           content: JSON.stringify(
-            {
-              name: "my-project",
-              version: "1.0.0",
-              settings: { debug: true, logLevel: "info" },
-            },
+            { id: 42, name: "Alice", email: "alice@example.com" },
             null,
             2,
           ),
-          lastUpdated: "2026-03-17T10:30:00Z",
-          isSubscribed: true,
-          onSubscribe: fn(),
-          onUnsubscribe: fn(),
+          lastUpdated: "2026-03-17T11:15:00Z",
+          isSubscribed: false,
         }}
         listChanged={false}
         searchText=""
         onSearchChange={fn()}
         onRefreshList={fn()}
-        onSelectResource={fn()}
+        onSelectUri={fn()}
+        onSelectTemplate={fn()}
+        onReadResource={fn()}
+        onSubscribeResource={fn()}
+        onUnsubscribeResource={fn()}
       />
     ),
   },

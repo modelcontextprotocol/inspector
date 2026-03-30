@@ -1,4 +1,4 @@
-import { Flex, Group, Stack, Text, Title } from "@mantine/core";
+import { Button, Flex, Group, Stack, Text, Title } from "@mantine/core";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
@@ -11,6 +11,7 @@ export interface ResourcePreviewPanelProps {
   content: string;
   lastUpdated?: string;
   isSubscribed: boolean;
+  onRefresh: () => void;
   onSubscribe: () => void;
   onUnsubscribe: () => void;
 }
@@ -62,6 +63,20 @@ const MimeText = Text.withProps({
   c: "dimmed",
 });
 
+const FooterRow = Group.withProps({
+  justify: "space-between",
+});
+
+const AnnotationGroup = Group.withProps({
+  gap: "xs",
+});
+
+const ActionGroup = Group.withProps({
+  gap: "xs",
+});
+
+const Spacer = Flex.withProps({});
+
 export function ResourcePreviewPanel({
   uri,
   mimeType,
@@ -69,6 +84,7 @@ export function ResourcePreviewPanel({
   content,
   lastUpdated,
   isSubscribed,
+  onRefresh,
   onSubscribe,
   onUnsubscribe,
 }: ResourcePreviewPanelProps) {
@@ -91,12 +107,12 @@ export function ResourcePreviewPanel({
         {lastUpdated ? (
           <TimestampText>{formatLastUpdated(lastUpdated)}</TimestampText>
         ) : (
-          <Flex />
+          <Spacer />
         )}
         <MimeText>{mimeType}</MimeText>
       </MetaRow>
-      <Group justify="space-between">
-        <Group gap="xs">
+      <FooterRow>
+        <AnnotationGroup>
           {annotations?.audience && (
             <AnnotationBadge label={annotations.audience} variant="audience" />
           )}
@@ -106,12 +122,17 @@ export function ResourcePreviewPanel({
               variant="priority"
             />
           )}
-        </Group>
-        <SubscribeButton
-          subscribed={isSubscribed}
-          onToggle={isSubscribed ? onUnsubscribe : onSubscribe}
-        />
-      </Group>
+        </AnnotationGroup>
+        <ActionGroup>
+          <Button variant="subtle" size="sm" onClick={onRefresh}>
+            Refresh
+          </Button>
+          <SubscribeButton
+            subscribed={isSubscribed}
+            onToggle={isSubscribed ? onUnsubscribe : onSubscribe}
+          />
+        </ActionGroup>
+      </FooterRow>
     </Stack>
   );
 }

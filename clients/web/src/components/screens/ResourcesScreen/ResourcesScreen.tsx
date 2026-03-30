@@ -11,26 +11,61 @@ import {
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { ResourceListItem } from "../../groups/ResourceListItem/ResourceListItem";
 import { ResourcePreviewPanel } from "../../groups/ResourcePreviewPanel/ResourcePreviewPanel";
-import { ResourceTemplateInput } from "../../groups/ResourceTemplateInput/ResourceTemplateInput";
-import type { ResourceListItemProps } from "../../groups/ResourceListItem/ResourceListItem";
-import type { ResourcePreviewPanelProps } from "../../groups/ResourcePreviewPanel/ResourcePreviewPanel";
-import type { ResourceTemplateInputProps } from "../../groups/ResourceTemplateInput/ResourceTemplateInput";
+import { ResourceSubscribedItem } from "../../groups/ResourceSubscribedItem/ResourceSubscribedItem";
+import { ResourceTemplatePanel } from "../../groups/ResourceTemplatePanel/ResourceTemplatePanel";
 
-export interface SubscriptionInfo {
+export interface ResourceItem {
   name: string;
+  uri: string;
+  annotations?: { audience?: string; priority?: number };
+  selected: boolean;
+}
+
+export interface TemplateListItem {
+  name: string;
+  title?: string;
+  uriTemplate: string;
+  selected: boolean;
+}
+
+export interface SubscriptionItem {
+  name: string;
+  uri: string;
   lastUpdated?: string;
 }
 
+export interface SelectedResource {
+  uri: string;
+  mimeType: string;
+  annotations?: { audience?: string; priority?: number };
+  content: string;
+  lastUpdated?: string;
+  isSubscribed: boolean;
+}
+
+export interface SelectedTemplate {
+  name: string;
+  title?: string;
+  uriTemplate: string;
+  description?: string;
+  annotations?: { audience?: string; priority?: number };
+}
+
 export interface ResourcesScreenProps {
-  resources: ResourceListItemProps[];
-  templates: ResourceTemplateInputProps[];
-  subscriptions: SubscriptionInfo[];
-  selectedResource?: ResourcePreviewPanelProps;
+  resources: ResourceItem[];
+  templates: TemplateListItem[];
+  subscriptions: SubscriptionItem[];
+  selectedResource?: SelectedResource;
+  selectedTemplate?: SelectedTemplate;
   listChanged: boolean;
   searchText: string;
   onSearchChange: (text: string) => void;
   onRefreshList: () => void;
-  onSelectResource: (uri: string) => void;
+  onSelectUri: (uri: string) => void;
+  onSelectTemplate: (uriTemplate: string) => void;
+  onReadResource: (uri: string) => void;
+  onSubscribeResource: (uri: string) => void;
+  onUnsubscribeResource: (uri: string) => void;
 }
 
 const PageContainer = Container.withProps({
@@ -55,18 +90,12 @@ const EmptyState = Text.withProps({
   py: "xl",
 });
 
-const SubscriptionMeta = Text.withProps({
-  span: true,
-  c: "dimmed",
-  size: "xs",
-});
-
 function formatSectionCount(label: string, count: number): string {
   return `${label} (${count})`;
 }
 
-function formatLastUpdated(lastUpdated: string): string {
-  return ` — ${lastUpdated}`;
+function templateDisplayName(item: TemplateListItem): string {
+  return item.title ?? item.name;
 }
 
 export function ResourcesScreen({
@@ -74,10 +103,16 @@ export function ResourcesScreen({
   templates,
   subscriptions,
   selectedResource,
+  selectedTemplate,
   listChanged,
   searchText,
   onSearchChange,
   onRefreshList,
+  onSelectUri,
+  onSelectTemplate,
+  onReadResource,
+  onSubscribeResource,
+  onUnsubscribeResource,
 }: ResourcesScreenProps) {
   const filteredResources = resources.filter((r) =>
     r.name.toLowerCase().includes(searchText.toLowerCase()),
@@ -113,7 +148,14 @@ export function ResourcesScreen({
                   <Accordion.Panel>
                     <Stack gap="xs">
                       {filteredResources.map((resource) => (
-                        <ResourceListItem key={resource.uri} {...resource} />
+                        <ResourceListItem
+                          key={resource.uri}
+                          name={resource.name}
+                          uri={resource.uri}
+                          annotations={resource.annotations}
+                          selected={resource.selected}
+                          onClick={() => onSelectUri(resource.uri)}
+                        />
                       ))}
                     </Stack>
                   </Accordion.Panel>
@@ -126,9 +168,12 @@ export function ResourcesScreen({
                   <Accordion.Panel>
                     <Stack gap="xs">
                       {templates.map((template) => (
-                        <ResourceTemplateInput
-                          key={template.template}
-                          {...template}
+                        <ResourceListItem
+                          key={template.uriTemplate}
+                          name={templateDisplayName(template)}
+                          uri={template.uriTemplate}
+                          selected={template.selected}
+                          onClick={() => onSelectTemplate(template.uriTemplate)}
                         />
                       ))}
                     </Stack>
@@ -142,14 +187,12 @@ export function ResourcesScreen({
                   <Accordion.Panel>
                     <Stack gap="xs">
                       {subscriptions.map((sub) => (
-                        <Text key={sub.name} size="sm">
-                          {sub.name}
-                          {sub.lastUpdated && (
-                            <SubscriptionMeta>
-                              {formatLastUpdated(sub.lastUpdated)}
-                            </SubscriptionMeta>
-                          )}
-                        </Text>
+                        <ResourceSubscribedItem
+                          key={sub.name}
+                          name={sub.name}
+                          lastUpdated={sub.lastUpdated}
+                          onUnsubscribe={() => onUnsubscribeResource(sub.uri)}
+                        />
                       ))}
                     </Stack>
                   </Accordion.Panel>
@@ -160,13 +203,47 @@ export function ResourcesScreen({
         </Grid.Col>
 
         <Grid.Col span={8}>
-          <DetailCard>
-            {selectedResource ? (
-              <ResourcePreviewPanel {...selectedResource} />
+          <Stack gap="md">
+            {selectedTemplate ? (
+              <>
+                <DetailCard>
+                  <ResourceTemplatePanel
+                    {...selectedTemplate}
+                    onReadResource={onReadResource}
+                  />
+                </DetailCard>
+                {selectedResource && (
+                  <DetailCard>
+                    <ResourcePreviewPanel
+                      {...selectedResource}
+                      onRefresh={() => onReadResource(selectedResource.uri)}
+                      onSubscribe={() =>
+                        onSubscribeResource(selectedResource.uri)
+                      }
+                      onUnsubscribe={() =>
+                        onUnsubscribeResource(selectedResource.uri)
+                      }
+                    />
+                  </DetailCard>
+                )}
+              </>
+            ) : selectedResource ? (
+              <DetailCard>
+                <ResourcePreviewPanel
+                  {...selectedResource}
+                  onRefresh={() => onReadResource(selectedResource.uri)}
+                  onSubscribe={() => onSubscribeResource(selectedResource.uri)}
+                  onUnsubscribe={() =>
+                    onUnsubscribeResource(selectedResource.uri)
+                  }
+                />
+              </DetailCard>
             ) : (
-              <EmptyState>Select a resource to preview</EmptyState>
+              <DetailCard>
+                <EmptyState>Select a resource to preview</EmptyState>
+              </DetailCard>
             )}
-          </DetailCard>
+          </Stack>
         </Grid.Col>
       </Grid>
     </PageContainer>

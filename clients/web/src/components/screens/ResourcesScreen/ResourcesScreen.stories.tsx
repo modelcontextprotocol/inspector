@@ -1,9 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { ResourcesScreen } from "./ResourcesScreen";
-import type { ResourceListItemProps } from "../../groups/ResourceListItem/ResourceListItem";
-import type { ResourceTemplateInputProps } from "../../groups/ResourceTemplateInput/ResourceTemplateInput";
-import type { ResourcePreviewPanelProps } from "../../groups/ResourcePreviewPanel/ResourcePreviewPanel";
+import type {
+  ResourceItem,
+  TemplateListItem,
+  SelectedResource,
+  SelectedTemplate,
+} from "./ResourcesScreen";
 
 const meta: Meta<typeof ResourcesScreen> = {
   title: "Screens/ResourcesScreen",
@@ -13,7 +16,11 @@ const meta: Meta<typeof ResourcesScreen> = {
     searchText: "",
     onSearchChange: fn(),
     onRefreshList: fn(),
-    onSelectResource: fn(),
+    onSelectUri: fn(),
+    onSelectTemplate: fn(),
+    onReadResource: fn(),
+    onSubscribeResource: fn(),
+    onUnsubscribeResource: fn(),
     listChanged: false,
     subscriptions: [],
     templates: [],
@@ -23,45 +30,41 @@ const meta: Meta<typeof ResourcesScreen> = {
 export default meta;
 type Story = StoryObj<typeof ResourcesScreen>;
 
-const sampleResources: ResourceListItemProps[] = [
+const sampleResources: ResourceItem[] = [
   {
     name: "config.json",
     uri: "file:///config.json",
     annotations: { audience: "developer", priority: 0.8 },
     selected: false,
-    onClick: fn(),
   },
   {
     name: "README.md",
     uri: "file:///README.md",
     selected: false,
-    onClick: fn(),
   },
   {
     name: "schema.sql",
     uri: "file:///schema.sql",
     annotations: { priority: 0.5 },
     selected: false,
-    onClick: fn(),
   },
 ];
 
-const sampleTemplates: ResourceTemplateInputProps[] = [
+const sampleTemplates: TemplateListItem[] = [
   {
-    template: "file:///users/{userId}/profile",
-    variables: { userId: "" },
-    onVariableChange: fn(),
-    onSubmit: fn(),
+    name: "User Profile",
+    uriTemplate: "file:///users/{userId}/profile",
+    selected: false,
   },
   {
-    template: "db://tables/{tableName}/rows/{rowId}",
-    variables: { tableName: "", rowId: "" },
-    onVariableChange: fn(),
-    onSubmit: fn(),
+    name: "Table Row",
+    title: "Database Table Row",
+    uriTemplate: "db://tables/{tableName}/rows/{rowId}",
+    selected: false,
   },
 ];
 
-const selectedResourceProps: ResourcePreviewPanelProps = {
+const selectedResourceData: SelectedResource = {
   uri: "file:///config.json",
   mimeType: "application/json",
   annotations: { audience: "developer", priority: 0.8 },
@@ -76,8 +79,12 @@ const selectedResourceProps: ResourcePreviewPanelProps = {
   ),
   lastUpdated: "2026-03-17T10:30:00Z",
   isSubscribed: true,
-  onSubscribe: fn(),
-  onUnsubscribe: fn(),
+};
+
+const selectedTemplateData: SelectedTemplate = {
+  name: "User Profile",
+  uriTemplate: "file:///users/{userId}/profile",
+  description: "Fetch a user profile by their unique identifier.",
 };
 
 export const WithResources: Story = {
@@ -91,9 +98,13 @@ export const ResourceSelected: Story = {
     resources: sampleResources.map((r) =>
       r.uri === "file:///config.json" ? { ...r, selected: true } : r,
     ),
-    selectedResource: selectedResourceProps,
+    selectedResource: selectedResourceData,
     subscriptions: [
-      { name: "config.json", lastUpdated: "2026-03-17T10:30:00Z" },
+      {
+        name: "config.json",
+        uri: "file:///config.json",
+        lastUpdated: "2026-03-17T10:30:00Z",
+      },
     ],
   },
 };
@@ -102,6 +113,42 @@ export const WithTemplates: Story = {
   args: {
     resources: sampleResources,
     templates: sampleTemplates,
+  },
+};
+
+export const TemplateSelected: Story = {
+  args: {
+    resources: sampleResources,
+    templates: sampleTemplates.map((t) =>
+      t.uriTemplate === "file:///users/{userId}/profile"
+        ? { ...t, selected: true }
+        : t,
+    ),
+    selectedTemplate: selectedTemplateData,
+  },
+};
+
+export const TemplateWithResource: Story = {
+  args: {
+    resources: sampleResources,
+    templates: sampleTemplates.map((t) =>
+      t.uriTemplate === "file:///users/{userId}/profile"
+        ? { ...t, selected: true }
+        : t,
+    ),
+    selectedTemplate: selectedTemplateData,
+    selectedResource: {
+      uri: "file:///users/42/profile",
+      mimeType: "application/json",
+      annotations: { audience: "developer", priority: 0.8 },
+      content: JSON.stringify(
+        { id: 42, name: "Alice", email: "alice@example.com" },
+        null,
+        2,
+      ),
+      lastUpdated: "2026-03-17T11:15:00Z",
+      isSubscribed: false,
+    },
   },
 };
 

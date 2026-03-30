@@ -105,6 +105,16 @@
   animation: inspector-spin 1s linear infinite;
 }
 
+/* ── List item hover ────────────────────────────────────── */
+
+.list-item:hover {
+  background-color: var(--mantine-color-gray-1);
+}
+
+[data-mantine-color-scheme="dark"] .list-item:hover {
+  background-color: var(--mantine-color-dark-5);
+}
+
 /* ── Grid alignment ─────────────────────────────────────── */
 
 .grid-align-start {
