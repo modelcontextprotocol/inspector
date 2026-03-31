@@ -1,26 +1,56 @@
-import { Card, Container, Grid, Stack, Text } from "@mantine/core";
+import { Card, Flex, ScrollArea, Stack, Text } from "@mantine/core";
+import { PromptControls } from "../../groups/PromptControls/PromptControls";
 import { PromptArgumentsForm } from "../../groups/PromptArgumentsForm/PromptArgumentsForm";
 import { PromptMessagesDisplay } from "../../groups/PromptMessagesDisplay/PromptMessagesDisplay";
-import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
-import type { PromptArgumentsFormProps } from "../../groups/PromptArgumentsForm/PromptArgumentsForm";
+import type { PromptArgument } from "../../groups/PromptArgumentsForm/PromptArgumentsForm";
 import type { PromptMessagesDisplayProps } from "../../groups/PromptMessagesDisplay/PromptMessagesDisplay";
 
-export interface PromptsScreenProps {
-  promptForm: PromptArgumentsFormProps;
-  messages?: PromptMessagesDisplayProps;
-  listChanged: boolean;
-  onRefreshList: () => void;
+export interface PromptItem {
+  name: string;
+  description?: string;
+  selected: boolean;
 }
 
-const PageContainer = Container.withProps({
-  size: "xl",
-  py: "xl",
+export interface SelectedPrompt {
+  name: string;
+  description?: string;
+  arguments: PromptArgument[];
+  argumentValues: Record<string, string>;
+}
+
+export interface PromptsScreenProps {
+  prompts: PromptItem[];
+  selectedPrompt?: SelectedPrompt;
+  messages?: PromptMessagesDisplayProps;
+  listChanged: boolean;
+  searchText: string;
+  onSearchChange: (text: string) => void;
+  onRefreshList: () => void;
+  onSelectPrompt: (name: string) => void;
+  onArgumentChange: (name: string, value: string) => void;
+  onGetPrompt: () => void;
+}
+
+const ScreenLayout = Flex.withProps({
+  variant: "screen",
+  h: "calc(100vh - var(--app-shell-header-height, 0px))",
+  gap: "xl",
+  p: "xl",
 });
 
-const FullHeightCard = Card.withProps({
+const Sidebar = Stack.withProps({
+  w: 340,
+  flex: "0 0 auto",
+});
+
+const SidebarCard = Card.withProps({
   withBorder: true,
   padding: "lg",
-  h: "100%",
+});
+
+const DetailCard = Card.withProps({
+  withBorder: true,
+  padding: "lg",
 });
 
 const EmptyState = Text.withProps({
@@ -30,37 +60,62 @@ const EmptyState = Text.withProps({
 });
 
 export function PromptsScreen({
-  promptForm,
+  prompts,
+  selectedPrompt,
   messages,
   listChanged,
+  searchText,
+  onSearchChange,
   onRefreshList,
+  onSelectPrompt,
+  onArgumentChange,
+  onGetPrompt,
 }: PromptsScreenProps) {
   return (
-    <PageContainer>
-      <Grid align="stretch">
-        <Grid.Col span={5}>
-          <FullHeightCard>
-            <Stack gap="md">
-              <ListChangedIndicator
-                visible={listChanged}
-                onRefresh={onRefreshList}
-              />
-              <PromptArgumentsForm {...promptForm} />
-            </Stack>
-          </FullHeightCard>
-        </Grid.Col>
-        <Grid.Col span={7}>
-          <FullHeightCard>
-            {messages ? (
-              <PromptMessagesDisplay {...messages} />
-            ) : (
-              <EmptyState>
-                Select a prompt and click Get Prompt to see messages
-              </EmptyState>
-            )}
-          </FullHeightCard>
-        </Grid.Col>
-      </Grid>
-    </PageContainer>
+    <ScreenLayout>
+      <Sidebar>
+        <SidebarCard>
+          <PromptControls
+            prompts={prompts}
+            listChanged={listChanged}
+            searchText={searchText}
+            onSearchChange={onSearchChange}
+            onRefreshList={onRefreshList}
+            onSelectPrompt={onSelectPrompt}
+          />
+        </SidebarCard>
+      </Sidebar>
+
+      <ScrollArea.Autosize
+        flex={1}
+        mah="calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)"
+      >
+        <Stack gap="md">
+          {selectedPrompt ? (
+            <>
+              <DetailCard>
+                <PromptArgumentsForm
+                  name={selectedPrompt.name}
+                  description={selectedPrompt.description}
+                  arguments={selectedPrompt.arguments}
+                  argumentValues={selectedPrompt.argumentValues}
+                  onArgumentChange={onArgumentChange}
+                  onGetPrompt={onGetPrompt}
+                />
+              </DetailCard>
+              {messages && (
+                <DetailCard>
+                  <PromptMessagesDisplay {...messages} />
+                </DetailCard>
+              )}
+            </>
+          ) : (
+            <DetailCard>
+              <EmptyState>Select a prompt to view details</EmptyState>
+            </DetailCard>
+          )}
+        </Stack>
+      </ScrollArea.Autosize>
+    </ScreenLayout>
   );
 }

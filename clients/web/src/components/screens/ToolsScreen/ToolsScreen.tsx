@@ -1,14 +1,5 @@
-import {
-  Card,
-  Container,
-  Grid,
-  Stack,
-  Text,
-  TextInput,
-  Title,
-} from "@mantine/core";
-import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
-import { ToolListItem } from "../../groups/ToolListItem/ToolListItem";
+import { Card, Flex, Grid, Stack, Text } from "@mantine/core";
+import { ToolControls } from "../../groups/ToolControls/ToolControls";
 import { ToolDetailPanel } from "../../groups/ToolDetailPanel/ToolDetailPanel";
 import { ResultPanel } from "../../groups/ResultPanel/ResultPanel";
 import type { ToolListItemProps } from "../../groups/ToolListItem/ToolListItem";
@@ -26,9 +17,21 @@ export interface ToolsScreenProps {
   onSelectTool: (name: string) => void;
 }
 
-const PageContainer = Container.withProps({
-  size: "xl",
-  py: "xl",
+const ScreenLayout = Flex.withProps({
+  variant: "screen",
+  h: "calc(100vh - var(--app-shell-header-height, 0px))",
+  gap: "xl",
+  p: "xl",
+});
+
+const Sidebar = Stack.withProps({
+  w: 340,
+  flex: "0 0 auto",
+});
+
+const SidebarCard = Card.withProps({
+  withBorder: true,
+  padding: "lg",
 });
 
 const FullHeightCard = Card.withProps({
@@ -53,40 +56,23 @@ export function ToolsScreen({
   onRefreshList,
   onSelectTool,
 }: ToolsScreenProps) {
-  const filteredTools = searchText
-    ? tools.filter((tool) =>
-        tool.name.toLowerCase().includes(searchText.toLowerCase()),
-      )
-    : tools;
-
   return (
-    <PageContainer>
-      <Grid align="stretch">
-        <Grid.Col span={3}>
-          <FullHeightCard>
-            <Stack gap="sm">
-              <Title order={4}>Tools</Title>
-              <ListChangedIndicator
-                visible={listChanged}
-                onRefresh={onRefreshList}
-              />
-              <TextInput
-                placeholder="Search tools..."
-                value={searchText}
-                onChange={(event) => onSearchChange(event.currentTarget.value)}
-              />
-              {filteredTools.map((tool) => (
-                <ToolListItem
-                  key={tool.name}
-                  {...tool}
-                  onClick={() => onSelectTool(tool.name)}
-                />
-              ))}
-            </Stack>
-          </FullHeightCard>
-        </Grid.Col>
+    <ScreenLayout>
+      <Sidebar>
+        <SidebarCard>
+          <ToolControls
+            tools={tools}
+            listChanged={listChanged}
+            searchText={searchText}
+            onSearchChange={onSearchChange}
+            onRefreshList={onRefreshList}
+            onSelectTool={onSelectTool}
+          />
+        </SidebarCard>
+      </Sidebar>
 
-        <Grid.Col span={5}>
+      <Grid align="stretch" flex={1}>
+        <Grid.Col span={7}>
           <FullHeightCard>
             {selectedTool ? (
               <ToolDetailPanel {...selectedTool} />
@@ -96,7 +82,7 @@ export function ToolsScreen({
           </FullHeightCard>
         </Grid.Col>
 
-        <Grid.Col span={4}>
+        <Grid.Col span={5}>
           <FullHeightCard>
             {result ? (
               <ResultPanel {...result} />
@@ -106,6 +92,6 @@ export function ToolsScreen({
           </FullHeightCard>
         </Grid.Col>
       </Grid>
-    </PageContainer>
+    </ScreenLayout>
   );
 }

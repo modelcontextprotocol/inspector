@@ -1,4 +1,4 @@
-import { Button, Select, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Button, Group, Stack, Text, TextInput, Title } from "@mantine/core";
 
 export interface PromptArgument {
   name: string;
@@ -6,17 +6,11 @@ export interface PromptArgument {
   description?: string;
 }
 
-export interface PromptInfo {
+export interface PromptArgumentsFormProps {
   name: string;
   description?: string;
-}
-
-export interface PromptArgumentsFormProps {
-  prompts: PromptInfo[];
-  selectedPrompt?: string;
   arguments: PromptArgument[];
   argumentValues: Record<string, string>;
-  onSelectPrompt: (name: string) => void;
   onArgumentChange: (name: string, value: string) => void;
   onGetPrompt: () => void;
 }
@@ -31,34 +25,19 @@ function formatPlaceholder(name: string): string {
 }
 
 export function PromptArgumentsForm({
-  prompts,
-  selectedPrompt,
+  name,
+  description,
   arguments: promptArguments,
   argumentValues,
-  onSelectPrompt,
   onArgumentChange,
   onGetPrompt,
 }: PromptArgumentsFormProps) {
-  const selectedPromptInfo = prompts.find((p) => p.name === selectedPrompt);
-
   return (
     <Stack gap="md">
-      <Title order={4}>Prompts</Title>
-      <Select
-        data={prompts.map((p) => ({ value: p.name, label: p.name }))}
-        value={selectedPrompt ?? null}
-        onChange={(value) => {
-          if (value) {
-            onSelectPrompt(value);
-          }
-        }}
-        placeholder="Choose a prompt..."
-      />
-      {selectedPrompt && selectedPromptInfo?.description && (
-        <DescriptionText>{selectedPromptInfo.description}</DescriptionText>
-      )}
+      <Title order={4}>{name}</Title>
+      {description && <DescriptionText>{description}</DescriptionText>}
       {promptArguments.length > 0 && (
-        <>
+        <Stack gap="sm">
           {promptArguments.map((arg) => (
             <TextInput
               key={arg.name}
@@ -72,11 +51,13 @@ export function PromptArgumentsForm({
               }
             />
           ))}
-        </>
+        </Stack>
       )}
-      <Button fullWidth onClick={onGetPrompt} disabled={!selectedPrompt}>
-        Get Prompt
-      </Button>
+      <Group justify="flex-end">
+        <Button size="sm" onClick={onGetPrompt}>
+          Get Prompt
+        </Button>
+      </Group>
     </Stack>
   );
 }

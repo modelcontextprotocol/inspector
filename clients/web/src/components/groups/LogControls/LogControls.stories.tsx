@@ -20,8 +20,7 @@ const meta: Meta<typeof LogControls> = {
     onSetLevel: fn(),
     onFilterChange: fn(),
     onToggleLevel: fn(),
-    onClear: fn(),
-    onExport: fn(),
+    onToggleAllLevels: fn(),
   },
 };
 

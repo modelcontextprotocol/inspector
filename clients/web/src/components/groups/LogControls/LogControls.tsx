@@ -1,12 +1,12 @@
 import {
   Button,
-  Checkbox,
   Group,
   Select,
   Stack,
   Text,
   TextInput,
   Title,
+  UnstyledButton,
 } from "@mantine/core";
 
 const LOG_LEVELS = [
@@ -20,21 +20,16 @@ const LOG_LEVELS = [
   "emergency",
 ] as const;
 
-const LEVEL_COLORS: Record<string, { c: string; fw?: number }> = {
+const LEVEL_COLORS: Record<string, { c: string }> = {
   debug: { c: "dimmed" },
   info: { c: "blue" },
   notice: { c: "teal" },
   warning: { c: "yellow" },
   error: { c: "red" },
-  critical: { c: "red", fw: 700 },
-  alert: { c: "red", fw: 700 },
-  emergency: { c: "red", fw: 900 },
+  critical: { c: "red" },
+  alert: { c: "red" },
+  emergency: { c: "red" },
 };
-
-const ToolbarButton = Button.withProps({
-  variant: "light",
-  size: "sm",
-});
 
 const SubtleButton = Button.withProps({
   variant: "subtle",
@@ -49,8 +44,6 @@ export interface LogControlsProps {
   onFilterChange: (text: string) => void;
   onToggleLevel: (level: string, visible: boolean) => void;
   onToggleAllLevels: () => void;
-  onClear: () => void;
-  onExport: () => void;
 }
 
 export function LogControls({
@@ -61,8 +54,6 @@ export function LogControls({
   onFilterChange,
   onToggleLevel,
   onToggleAllLevels,
-  onClear,
-  onExport,
 }: LogControlsProps) {
   return (
     <Stack gap="md">
@@ -71,6 +62,7 @@ export function LogControls({
       <Title order={5}>Active Level</Title>
       <Group wrap="nowrap">
         <Select
+          flex={1}
           data={LOG_LEVELS.map((level) => ({ value: level, label: level }))}
           value={currentLevel}
           onChange={(value) => {
@@ -97,26 +89,24 @@ export function LogControls({
             : "Select All"}
         </SubtleButton>
       </Group>
-      {LOG_LEVELS.map((level) => {
-        const style = LEVEL_COLORS[level];
-        return (
-          <Checkbox
-            key={level}
-            checked={!!visibleLevels[level]}
-            onChange={(e) => onToggleLevel(level, e.currentTarget.checked)}
-            label={
-              <Text c={style.c} fw={style.fw}>
-                {level}
-              </Text>
-            }
-          />
-        );
-      })}
-
-      <Group>
-        <ToolbarButton onClick={onClear}>Clear</ToolbarButton>
-        <ToolbarButton onClick={onExport}>Export</ToolbarButton>
-      </Group>
+      <Stack gap="xs">
+        {LOG_LEVELS.map((level) => {
+          const style = LEVEL_COLORS[level];
+          const active = !!visibleLevels[level];
+          return (
+            <UnstyledButton
+              key={level}
+              w="100%"
+              p="sm"
+              variant="listItem"
+              bg={active ? "var(--mantine-primary-color-light)" : undefined}
+              onClick={() => onToggleLevel(level, !active)}
+            >
+              <Text c={style.c} ta="center" fw={500}>{level}</Text>
+            </UnstyledButton>
+          );
+        })}
+      </Stack>
     </Stack>
   );
 }

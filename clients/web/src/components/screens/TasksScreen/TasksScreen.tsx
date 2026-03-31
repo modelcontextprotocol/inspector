@@ -18,7 +18,7 @@ const ScreenLayout = Flex.withProps({
 });
 
 const Sidebar = Stack.withProps({
-  w: 280,
+  w: 340,
   flex: "0 0 auto",
 });
 

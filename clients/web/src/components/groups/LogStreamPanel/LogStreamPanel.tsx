@@ -19,6 +19,8 @@ export interface LogStreamPanelProps {
   autoScroll: boolean;
   onToggleAutoScroll: () => void;
   onCopyAll: () => void;
+  onClear: () => void;
+  onExport: () => void;
 }
 
 const PanelContainer = Paper.withProps({
@@ -61,6 +63,8 @@ export function LogStreamPanel({
   autoScroll,
   onToggleAutoScroll,
   onCopyAll,
+  onClear,
+  onExport,
 }: LogStreamPanelProps) {
   const filteredEntries = useMemo(
     () => entries.filter((e) => matchesFilters(e, filterText, visibleLevels)),
@@ -77,6 +81,8 @@ export function LogStreamPanel({
             checked={autoScroll}
             onChange={onToggleAutoScroll}
           />
+          <ToolbarButton onClick={onClear}>Clear</ToolbarButton>
+          <ToolbarButton onClick={onExport}>Export</ToolbarButton>
           <ToolbarButton onClick={onCopyAll}>Copy All</ToolbarButton>
         </Group>
       </Group>

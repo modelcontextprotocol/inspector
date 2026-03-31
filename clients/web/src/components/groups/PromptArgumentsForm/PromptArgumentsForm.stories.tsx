@@ -6,7 +6,6 @@ const meta: Meta<typeof PromptArgumentsForm> = {
   title: "Groups/PromptArgumentsForm",
   component: PromptArgumentsForm,
   args: {
-    onSelectPrompt: fn(),
     onArgumentChange: fn(),
     onGetPrompt: fn(),
   },
@@ -15,31 +14,19 @@ const meta: Meta<typeof PromptArgumentsForm> = {
 export default meta;
 type Story = StoryObj<typeof PromptArgumentsForm>;
 
-const samplePrompts = [
-  {
+export const NoArguments: Story = {
+  args: {
     name: "summarize",
     description: "Summarize the given text into key points",
-  },
-  {
-    name: "translate",
-    description: "Translate text from one language to another",
-  },
-  { name: "analyze", description: "Analyze sentiment and tone of the text" },
-];
-
-export const NoSelection: Story = {
-  args: {
-    prompts: samplePrompts,
-    selectedPrompt: undefined,
     arguments: [],
     argumentValues: {},
   },
 };
 
-export const Selected: Story = {
+export const WithArguments: Story = {
   args: {
-    prompts: samplePrompts,
-    selectedPrompt: "translate",
+    name: "translate",
+    description: "Translate text from one language to another",
     arguments: [
       { name: "text", required: true, description: "The text to translate" },
       {
@@ -52,10 +39,10 @@ export const Selected: Story = {
   },
 };
 
-export const WithRequiredArgs: Story = {
+export const WithRequiredAndOptional: Story = {
   args: {
-    prompts: samplePrompts,
-    selectedPrompt: "summarize",
+    name: "summarize",
+    description: "Summarize the given text into key points",
     arguments: [
       { name: "text", required: true, description: "The text to summarize" },
       {
@@ -75,8 +62,8 @@ export const WithRequiredArgs: Story = {
 
 export const AllFilled: Story = {
   args: {
-    prompts: samplePrompts,
-    selectedPrompt: "translate",
+    name: "translate",
+    description: "Translate text from one language to another",
     arguments: [
       { name: "text", required: true, description: "The text to translate" },
       {
@@ -89,5 +76,15 @@ export const AllFilled: Story = {
       text: "Hello, how are you?",
       targetLanguage: "Spanish",
     },
+  },
+};
+
+export const NoDescription: Story = {
+  args: {
+    name: "code-review",
+    arguments: [
+      { name: "code", required: true, description: "The code to review" },
+    ],
+    argumentValues: {},
   },
 };

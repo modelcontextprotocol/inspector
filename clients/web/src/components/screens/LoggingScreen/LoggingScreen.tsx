@@ -34,7 +34,7 @@ const ScreenLayout = Flex.withProps({
 });
 
 const Sidebar = Stack.withProps({
-  w: 280,
+  w: 340,
   flex: "0 0 auto",
 });
 
@@ -82,8 +82,6 @@ export function LoggingScreen({
             onFilterChange={setFilterText}
             onToggleLevel={handleToggleLevel}
             onToggleAllLevels={handleToggleAllLevels}
-            onClear={onClear}
-            onExport={onExport}
           />
         </SidebarCard>
       </Sidebar>
@@ -94,6 +92,8 @@ export function LoggingScreen({
         autoScroll={autoScroll}
         onToggleAutoScroll={onToggleAutoScroll}
         onCopyAll={onCopyAll}
+        onClear={onClear}
+        onExport={onExport}
       />
     </ScreenLayout>
   );

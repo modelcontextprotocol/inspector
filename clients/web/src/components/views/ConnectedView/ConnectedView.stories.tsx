@@ -465,16 +465,26 @@ export const PromptsActive: Story = {
     activeTab: "Prompts",
     children: (
       <PromptsScreen
-        promptForm={{
-          prompts: [
-            { name: "summarize", description: "Summarize a document" },
-            {
-              name: "translate",
-              description: "Translate text to another language",
-            },
-            { name: "code-review", description: "Review code for issues" },
-          ],
-          selectedPrompt: "translate",
+        prompts={[
+          {
+            name: "summarize",
+            description: "Summarize a document",
+            selected: false,
+          },
+          {
+            name: "translate",
+            description: "Translate text to another language",
+            selected: true,
+          },
+          {
+            name: "code-review",
+            description: "Review code for issues",
+            selected: false,
+          },
+        ]}
+        selectedPrompt={{
+          name: "translate",
+          description: "Translate text to another language",
           arguments: [
             {
               name: "text",
@@ -491,9 +501,6 @@ export const PromptsActive: Story = {
             text: "Hello, how are you?",
             targetLanguage: "es",
           },
-          onSelectPrompt: fn(),
-          onArgumentChange: fn(),
-          onGetPrompt: fn(),
         }}
         messages={{
           onCopyAll: fn(),
@@ -507,7 +514,12 @@ export const PromptsActive: Story = {
           ],
         }}
         listChanged={false}
+        searchText=""
+        onSearchChange={fn()}
         onRefreshList={fn()}
+        onSelectPrompt={fn()}
+        onArgumentChange={fn()}
+        onGetPrompt={fn()}
       />
     ),
   },
