@@ -1,17 +1,6 @@
-import {
-  Accordion,
-  Card,
-  Container,
-  Grid,
-  Stack,
-  Text,
-  TextInput,
-  Title,
-} from "@mantine/core";
-import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
-import { ResourceListItem } from "../../groups/ResourceListItem/ResourceListItem";
+import { Card, Flex, ScrollArea, Stack, Text } from "@mantine/core";
+import { ResourceControls } from "../../groups/ResourceControls/ResourceControls";
 import { ResourcePreviewPanel } from "../../groups/ResourcePreviewPanel/ResourcePreviewPanel";
-import { ResourceSubscribedItem } from "../../groups/ResourceSubscribedItem/ResourceSubscribedItem";
 import { ResourceTemplatePanel } from "../../groups/ResourceTemplatePanel/ResourceTemplatePanel";
 
 export interface ResourceItem {
@@ -68,15 +57,21 @@ export interface ResourcesScreenProps {
   onUnsubscribeResource: (uri: string) => void;
 }
 
-const PageContainer = Container.withProps({
-  size: "xl",
-  py: "xl",
+const ScreenLayout = Flex.withProps({
+  variant: "screen",
+  h: "calc(100vh - var(--app-shell-header-height, 0px))",
+  gap: "xl",
+  p: "xl",
 });
 
-const FullHeightCard = Card.withProps({
+const Sidebar = Stack.withProps({
+  w: 340,
+  flex: "0 0 auto",
+});
+
+const SidebarCard = Card.withProps({
   withBorder: true,
   padding: "lg",
-  h: "100%",
 });
 
 const DetailCard = Card.withProps({
@@ -89,14 +84,6 @@ const EmptyState = Text.withProps({
   ta: "center",
   py: "xl",
 });
-
-function formatSectionCount(label: string, count: number): string {
-  return `${label} (${count})`;
-}
-
-function templateDisplayName(item: TemplateListItem): string {
-  return item.title ?? item.name;
-}
 
 export function ResourcesScreen({
   resources,
@@ -114,138 +101,71 @@ export function ResourcesScreen({
   onSubscribeResource,
   onUnsubscribeResource,
 }: ResourcesScreenProps) {
-  const filteredResources = resources.filter((r) =>
-    r.name.toLowerCase().includes(searchText.toLowerCase()),
-  );
-
-  const openSections = [
-    ...(filteredResources.length > 0 ? ["resources"] : []),
-    ...(templates.length > 0 ? ["templates"] : []),
-    ...(subscriptions.length > 0 ? ["subscriptions"] : []),
-  ];
-
   return (
-    <PageContainer>
-      <Grid align="stretch">
-        <Grid.Col span={4}>
-          <FullHeightCard>
-            <Stack gap="sm">
-              <Title order={4}>Resources</Title>
-              <ListChangedIndicator
-                visible={listChanged}
-                onRefresh={onRefreshList}
-              />
-              <TextInput
-                placeholder="Search..."
-                value={searchText}
-                onChange={(e) => onSearchChange(e.currentTarget.value)}
-              />
-              <Accordion multiple defaultValue={openSections}>
-                <Accordion.Item value="resources">
-                  <Accordion.Control disabled={filteredResources.length === 0}>
-                    {formatSectionCount("URIs", filteredResources.length)}
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <Stack gap="xs">
-                      {filteredResources.map((resource) => (
-                        <ResourceListItem
-                          key={resource.uri}
-                          name={resource.name}
-                          uri={resource.uri}
-                          annotations={resource.annotations}
-                          selected={resource.selected}
-                          onClick={() => onSelectUri(resource.uri)}
-                        />
-                      ))}
-                    </Stack>
-                  </Accordion.Panel>
-                </Accordion.Item>
+    <ScreenLayout>
+      <Sidebar>
+        <SidebarCard>
+          <ResourceControls
+            resources={resources}
+            templates={templates}
+            subscriptions={subscriptions}
+            listChanged={listChanged}
+            searchText={searchText}
+            onSearchChange={onSearchChange}
+            onRefreshList={onRefreshList}
+            onSelectUri={onSelectUri}
+            onSelectTemplate={onSelectTemplate}
+            onUnsubscribeResource={onUnsubscribeResource}
+          />
+        </SidebarCard>
+      </Sidebar>
 
-                <Accordion.Item value="templates">
-                  <Accordion.Control disabled={templates.length === 0}>
-                    {formatSectionCount("Templates", templates.length)}
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <Stack gap="xs">
-                      {templates.map((template) => (
-                        <ResourceListItem
-                          key={template.uriTemplate}
-                          name={templateDisplayName(template)}
-                          uri={template.uriTemplate}
-                          selected={template.selected}
-                          onClick={() => onSelectTemplate(template.uriTemplate)}
-                        />
-                      ))}
-                    </Stack>
-                  </Accordion.Panel>
-                </Accordion.Item>
-
-                <Accordion.Item value="subscriptions">
-                  <Accordion.Control disabled={subscriptions.length === 0}>
-                    {formatSectionCount("Subscriptions", subscriptions.length)}
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <Stack gap="xs">
-                      {subscriptions.map((sub) => (
-                        <ResourceSubscribedItem
-                          key={sub.name}
-                          name={sub.name}
-                          lastUpdated={sub.lastUpdated}
-                          onUnsubscribe={() => onUnsubscribeResource(sub.uri)}
-                        />
-                      ))}
-                    </Stack>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              </Accordion>
-            </Stack>
-          </FullHeightCard>
-        </Grid.Col>
-
-        <Grid.Col span={8}>
-          <Stack gap="md">
-            {selectedTemplate ? (
-              <>
-                <DetailCard>
-                  <ResourceTemplatePanel
-                    {...selectedTemplate}
-                    onReadResource={onReadResource}
-                  />
-                </DetailCard>
-                {selectedResource && (
-                  <DetailCard>
-                    <ResourcePreviewPanel
-                      {...selectedResource}
-                      onRefresh={() => onReadResource(selectedResource.uri)}
-                      onSubscribe={() =>
-                        onSubscribeResource(selectedResource.uri)
-                      }
-                      onUnsubscribe={() =>
-                        onUnsubscribeResource(selectedResource.uri)
-                      }
-                    />
-                  </DetailCard>
-                )}
-              </>
-            ) : selectedResource ? (
+      <ScrollArea.Autosize
+        flex={1}
+        mah="calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)"
+      >
+        <Stack gap="md">
+          {selectedTemplate ? (
+            <>
               <DetailCard>
-                <ResourcePreviewPanel
-                  {...selectedResource}
-                  onRefresh={() => onReadResource(selectedResource.uri)}
-                  onSubscribe={() => onSubscribeResource(selectedResource.uri)}
-                  onUnsubscribe={() =>
-                    onUnsubscribeResource(selectedResource.uri)
-                  }
+                <ResourceTemplatePanel
+                  {...selectedTemplate}
+                  onReadResource={onReadResource}
                 />
               </DetailCard>
-            ) : (
-              <DetailCard>
-                <EmptyState>Select a resource to preview</EmptyState>
-              </DetailCard>
-            )}
-          </Stack>
-        </Grid.Col>
-      </Grid>
-    </PageContainer>
+              {selectedResource && (
+                <DetailCard>
+                  <ResourcePreviewPanel
+                    {...selectedResource}
+                    onRefresh={() => onReadResource(selectedResource.uri)}
+                    onSubscribe={() =>
+                      onSubscribeResource(selectedResource.uri)
+                    }
+                    onUnsubscribe={() =>
+                      onUnsubscribeResource(selectedResource.uri)
+                    }
+                  />
+                </DetailCard>
+              )}
+            </>
+          ) : selectedResource ? (
+            <DetailCard>
+              <ResourcePreviewPanel
+                {...selectedResource}
+                onRefresh={() => onReadResource(selectedResource.uri)}
+                onSubscribe={() => onSubscribeResource(selectedResource.uri)}
+                onUnsubscribe={() =>
+                  onUnsubscribeResource(selectedResource.uri)
+                }
+              />
+            </DetailCard>
+          ) : (
+            <DetailCard>
+              <EmptyState>Select a resource to preview</EmptyState>
+            </DetailCard>
+          )}
+        </Stack>
+      </ScrollArea.Autosize>
+    </ScreenLayout>
   );
 }

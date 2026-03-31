@@ -262,6 +262,91 @@ export const ResourcesActive: Story = {
             annotations: { priority: 0.5 },
             selected: false,
           },
+          {
+            name: "package.json",
+            uri: "file:///package.json",
+            annotations: { audience: "developer" },
+            selected: false,
+          },
+          {
+            name: "tsconfig.json",
+            uri: "file:///tsconfig.json",
+            annotations: { audience: "developer", priority: 0.3 },
+            selected: false,
+          },
+          {
+            name: ".env.example",
+            uri: "file:///.env.example",
+            selected: false,
+          },
+          {
+            name: "docker-compose.yml",
+            uri: "file:///docker-compose.yml",
+            annotations: { priority: 0.6 },
+            selected: false,
+          },
+          {
+            name: "migrations/001_init.sql",
+            uri: "file:///migrations/001_init.sql",
+            annotations: { audience: "developer", priority: 0.4 },
+            selected: false,
+          },
+          {
+            name: "migrations/002_add_users.sql",
+            uri: "file:///migrations/002_add_users.sql",
+            annotations: { audience: "developer", priority: 0.4 },
+            selected: false,
+          },
+          {
+            name: "seeds/users.json",
+            uri: "file:///seeds/users.json",
+            selected: false,
+          },
+          {
+            name: "seeds/products.json",
+            uri: "file:///seeds/products.json",
+            selected: false,
+          },
+          {
+            name: "certs/server.pem",
+            uri: "file:///certs/server.pem",
+            annotations: { priority: 0.9 },
+            selected: false,
+          },
+          {
+            name: "logs/access.log",
+            uri: "file:///logs/access.log",
+            annotations: { audience: "application", priority: 0.2 },
+            selected: false,
+          },
+          {
+            name: "logs/error.log",
+            uri: "file:///logs/error.log",
+            annotations: { audience: "application", priority: 0.7 },
+            selected: false,
+          },
+          {
+            name: "api-spec.yaml",
+            uri: "file:///api-spec.yaml",
+            annotations: { audience: "developer" },
+            selected: false,
+          },
+          {
+            name: "CHANGELOG.md",
+            uri: "file:///CHANGELOG.md",
+            selected: false,
+          },
+          {
+            name: "LICENSE",
+            uri: "file:///LICENSE",
+            selected: false,
+          },
+          {
+            name: "Makefile",
+            uri: "file:///Makefile",
+            annotations: { audience: "developer", priority: 0.3 },
+            selected: false,
+          },
         ]}
         templates={[
           {
@@ -275,12 +360,73 @@ export const ResourcesActive: Story = {
             uriTemplate: "db://tables/{tableName}/rows/{rowId}",
             selected: false,
           },
+          {
+            name: "Log File",
+            title: "Application Log",
+            uriTemplate: "file:///logs/{service}/{date}.log",
+            selected: false,
+          },
+          {
+            name: "Migration",
+            uriTemplate: "file:///migrations/{version}_{name}.sql",
+            selected: false,
+          },
+          {
+            name: "Config by Environment",
+            title: "Environment Config",
+            uriTemplate: "file:///config/{environment}.json",
+            selected: false,
+          },
+          {
+            name: "API Endpoint",
+            uriTemplate: "https://api.example.com/{version}/{resource}",
+            selected: false,
+          },
+          {
+            name: "Report",
+            title: "Generated Report",
+            uriTemplate: "reports://{reportType}/{year}/{month}",
+            selected: false,
+          },
         ]}
         subscriptions={[
           {
             name: "config.json",
             uri: "file:///config.json",
             lastUpdated: "2026-03-17T10:30:00Z",
+          },
+          {
+            name: "schema.sql",
+            uri: "file:///schema.sql",
+            lastUpdated: "2026-03-17T10:28:00Z",
+          },
+          {
+            name: "docker-compose.yml",
+            uri: "file:///docker-compose.yml",
+            lastUpdated: "2026-03-17T09:45:00Z",
+          },
+          {
+            name: "logs/error.log",
+            uri: "file:///logs/error.log",
+            lastUpdated: "2026-03-17T10:31:12Z",
+          },
+          {
+            name: "certs/server.pem",
+            uri: "file:///certs/server.pem",
+          },
+          {
+            name: "api-spec.yaml",
+            uri: "file:///api-spec.yaml",
+            lastUpdated: "2026-03-17T08:15:00Z",
+          },
+          {
+            name: "package.json",
+            uri: "file:///package.json",
+            lastUpdated: "2026-03-17T10:22:00Z",
+          },
+          {
+            name: "seeds/users.json",
+            uri: "file:///seeds/users.json",
           },
         ]}
         selectedTemplate={{
