@@ -102,7 +102,9 @@ export function LogControls({
               bg={active ? "var(--mantine-primary-color-light)" : undefined}
               onClick={() => onToggleLevel(level, !active)}
             >
-              <Text c={style.c} ta="center" fw={500}>{level}</Text>
+              <Text c={style.c} ta="center" fw={500}>
+                {level}
+              </Text>
             </UnstyledButton>
           );
         })}
