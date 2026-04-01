@@ -48,6 +48,16 @@ describe("Sidebar", () => {
     setOauthClientSecret: jest.fn(),
     oauthScope: "",
     setOauthScope: jest.fn(),
+    oauthAuthMethod: "secret" as const,
+    setOauthAuthMethod: jest.fn(),
+    oauthCertPath: "",
+    setOauthCertPath: jest.fn(),
+    oauthKeyPath: "",
+    setOauthKeyPath: jest.fn(),
+    oauthTokenEndpoint: "",
+    setOauthTokenEndpoint: jest.fn(),
+    oauthAuthEndpoint: "",
+    setOauthAuthEndpoint: jest.fn(),
     env: {},
     setEnv: jest.fn(),
     customHeaders: [],
@@ -1044,6 +1054,173 @@ describe("Sidebar", () => {
           },
         }),
       );
+    });
+  });
+
+  describe("Certificate Authentication", () => {
+    const openAuthSection = () => {
+      const button = screen.getByTestId("auth-button");
+      fireEvent.click(button);
+    };
+
+    it("should show auth method selector when OAuth section is visible", () => {
+      renderSidebar({ transportType: "sse" });
+      openAuthSection();
+
+      const authMethodSelect = screen.getByTestId("oauth-auth-method-select");
+      expect(authMethodSelect).toBeInTheDocument();
+    });
+
+    it("should show client secret field when secret method is selected", () => {
+      renderSidebar({
+        transportType: "sse",
+        oauthAuthMethod: "secret",
+      });
+      openAuthSection();
+
+      expect(
+        screen.getByTestId("oauth-client-secret-input"),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("oauth-cert-path-input"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should show certificate fields when certificate method is selected", () => {
+      renderSidebar({
+        transportType: "sse",
+        oauthAuthMethod: "certificate",
+      });
+      openAuthSection();
+
+      expect(screen.getByTestId("oauth-cert-path-input")).toBeInTheDocument();
+      expect(screen.getByTestId("oauth-key-path-input")).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("oauth-client-secret-input"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should show endpoint source selector for certificate auth", () => {
+      renderSidebar({
+        transportType: "sse",
+        oauthAuthMethod: "certificate",
+      });
+      openAuthSection();
+
+      expect(
+        screen.getByTestId("oauth-endpoint-source-select"),
+      ).toBeInTheDocument();
+    });
+
+    it("should hide manual endpoint fields when auto-discover is selected", () => {
+      renderSidebar({
+        transportType: "sse",
+        oauthAuthMethod: "certificate",
+        oauthAuthEndpoint: "",
+        oauthTokenEndpoint: "",
+      });
+      openAuthSection();
+
+      expect(
+        screen.queryByTestId("oauth-auth-endpoint-input"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("oauth-token-endpoint-input"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should show manual endpoint fields when endpoints are provided", () => {
+      renderSidebar({
+        transportType: "sse",
+        oauthAuthMethod: "certificate",
+        oauthAuthEndpoint: "https://auth.example.com/authorize",
+        oauthTokenEndpoint: "https://auth.example.com/token",
+      });
+      openAuthSection();
+
+      const authEndpointInput = screen.getByTestId("oauth-auth-endpoint-input");
+      const tokenEndpointInput = screen.getByTestId(
+        "oauth-token-endpoint-input",
+      );
+      expect(authEndpointInput).toHaveValue(
+        "https://auth.example.com/authorize",
+      );
+      expect(tokenEndpointInput).toHaveValue("https://auth.example.com/token");
+    });
+
+    it("should call setOauthCertPath when cert path input changes", () => {
+      const setOauthCertPath = jest.fn();
+      renderSidebar({
+        transportType: "sse",
+        oauthAuthMethod: "certificate",
+        setOauthCertPath,
+      });
+      openAuthSection();
+
+      const certInput = screen.getByTestId("oauth-cert-path-input");
+      fireEvent.change(certInput, {
+        target: { value: "/path/to/cert.pem" },
+      });
+      expect(setOauthCertPath).toHaveBeenCalledWith("/path/to/cert.pem");
+    });
+
+    it("should call setOauthKeyPath when key path input changes", () => {
+      const setOauthKeyPath = jest.fn();
+      renderSidebar({
+        transportType: "sse",
+        oauthAuthMethod: "certificate",
+        setOauthKeyPath,
+      });
+      openAuthSection();
+
+      const keyInput = screen.getByTestId("oauth-key-path-input");
+      fireEvent.change(keyInput, {
+        target: { value: "/path/to/key.pem" },
+      });
+      expect(setOauthKeyPath).toHaveBeenCalledWith("/path/to/key.pem");
+    });
+
+    it("should call setOauthAuthMethod when auth method changes", () => {
+      const setOauthAuthMethod = jest.fn();
+      renderSidebar({
+        transportType: "sse",
+        oauthAuthMethod: "secret",
+        setOauthAuthMethod,
+      });
+      openAuthSection();
+
+      const authMethodSelect = screen.getByTestId("oauth-auth-method-select");
+      fireEvent.click(authMethodSelect);
+
+      const certOption = screen.getByText("Client Certificate");
+      fireEvent.click(certOption);
+
+      expect(setOauthAuthMethod).toHaveBeenCalledWith("certificate");
+    });
+
+    it("should clear endpoints when switching to auto-discover", () => {
+      const setOauthAuthEndpoint = jest.fn();
+      const setOauthTokenEndpoint = jest.fn();
+      renderSidebar({
+        transportType: "sse",
+        oauthAuthMethod: "certificate",
+        oauthAuthEndpoint: "https://auth.example.com/authorize",
+        oauthTokenEndpoint: "https://auth.example.com/token",
+        setOauthAuthEndpoint,
+        setOauthTokenEndpoint,
+      });
+      openAuthSection();
+
+      const endpointSourceSelect = screen.getByTestId(
+        "oauth-endpoint-source-select",
+      );
+      fireEvent.click(endpointSourceSelect);
+
+      const autoOption = screen.getByText("Auto-discover from metadata");
+      fireEvent.click(autoOption);
+
+      expect(setOauthAuthEndpoint).toHaveBeenCalledWith("");
+      expect(setOauthTokenEndpoint).toHaveBeenCalledWith("");
     });
   });
 });

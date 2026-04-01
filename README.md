@@ -168,7 +168,33 @@ You can paste the Server Entry into your existing `mcp.json` file under your cho
 
 ### Authentication
 
-The inspector supports bearer token authentication for SSE connections. Enter your token in the UI when connecting to an MCP server, and it will be sent in the Authorization header. You can override the header name using the input field in the sidebar.
+The inspector supports multiple authentication methods for SSE and Streamable HTTP connections:
+
+#### Bearer Token
+
+Enter your token in the UI when connecting to an MCP server, and it will be sent in the Authorization header. You can override the header name using the input field in the sidebar.
+
+#### OAuth 2.0 with Client Secret
+
+Select **Client Secret** as the authentication method in the OAuth section. Provide your Client ID, optional Client Secret, and Scope. The inspector handles the full OAuth 2.0 Authorization Code flow including PKCE.
+
+#### OAuth 2.0 with Client Certificate
+
+Select **Client Certificate** as the authentication method for certificate-based OAuth (`private_key_jwt`). This uses a signed JWT assertion backed by an X.509 certificate instead of a client secret.
+
+**Required fields:**
+
+- **Client ID** — Your OAuth application's client ID
+- **Certificate File Path** — Path to the X.509 certificate PEM file on the server
+- **Private Key File Path** — Path to the RSA private key PEM file on the server
+- **Scope** — OAuth scopes (space-separated)
+
+**OAuth endpoint discovery:**
+
+- **Auto-discover from metadata** (default) — The inspector fetches the MCP server's protected resource metadata (`.well-known/oauth-protected-resource`) and resolves authorization/token endpoints via OIDC discovery (`.well-known/openid-configuration`). This works with any OAuth provider that publishes standard metadata.
+- **Enter manually** — Provide the Authorization Endpoint URL and Token Endpoint URL directly.
+
+Certificate auth works with any OAuth 2.0 provider supporting `private_key_jwt` client authentication (RFC 7523), including Azure AD/Entra ID, Okta, Auth0, and Keycloak. The JWT assertion includes both `x5t` (thumbprint) and `x5c` (certificate chain) claims for broad compatibility.
 
 ### Security Considerations
 

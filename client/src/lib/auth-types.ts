@@ -6,6 +6,9 @@ import {
   OAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 
+// OAuth client authentication method at the token endpoint
+export type OAuthClientAuthMethod = "secret" | "certificate";
+
 // OAuth flow steps
 export type OAuthStep =
   | "metadata_discovery"

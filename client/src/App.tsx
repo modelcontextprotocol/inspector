@@ -31,8 +31,12 @@ import {
   isReservedMetaKey,
 } from "@/utils/metaUtils";
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
-import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
-import { OAuthStateMachine } from "./lib/oauth-state-machine";
+import {
+  AuthDebuggerState,
+  EMPTY_DEBUGGER_STATE,
+  OAuthClientAuthMethod,
+} from "./lib/auth-types";
+import { OAuthStateMachine, CertAuthConfig } from "./lib/oauth-state-machine";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
 import { cleanParams } from "./utils/paramUtils";
 import type { JsonSchemaType } from "./utils/jsonUtils";
@@ -208,6 +212,32 @@ const App = () => {
 
   const [oauthClientSecret, setOauthClientSecret] = useState<string>(() => {
     return localStorage.getItem("lastOauthClientSecret") || "";
+  });
+
+  const [oauthAuthMethod, setOauthAuthMethod] = useState<OAuthClientAuthMethod>(
+    () => {
+      return (
+        (localStorage.getItem(
+          "lastOauthAuthMethod",
+        ) as OAuthClientAuthMethod) || "secret"
+      );
+    },
+  );
+
+  const [oauthCertPath, setOauthCertPath] = useState<string>(() => {
+    return localStorage.getItem("lastOauthCertPath") || "";
+  });
+
+  const [oauthKeyPath, setOauthKeyPath] = useState<string>(() => {
+    return localStorage.getItem("lastOauthKeyPath") || "";
+  });
+
+  const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState<string>(() => {
+    return localStorage.getItem("lastOauthTokenEndpoint") || "";
+  });
+
+  const [oauthAuthEndpoint, setOauthAuthEndpoint] = useState<string>(() => {
+    return localStorage.getItem("lastOauthAuthEndpoint") || "";
   });
 
   // Custom headers state with migration from legacy auth
@@ -395,6 +425,11 @@ const App = () => {
     oauthClientId,
     oauthClientSecret,
     oauthScope,
+    oauthAuthMethod,
+    oauthCertPath,
+    oauthKeyPath,
+    oauthTokenEndpoint,
+    oauthAuthEndpoint,
     config,
     connectionType,
     onNotification: (notification) => {
@@ -580,6 +615,26 @@ const App = () => {
   }, [oauthClientSecret]);
 
   useEffect(() => {
+    localStorage.setItem("lastOauthAuthMethod", oauthAuthMethod);
+  }, [oauthAuthMethod]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthCertPath", oauthCertPath);
+  }, [oauthCertPath]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthKeyPath", oauthKeyPath);
+  }, [oauthKeyPath]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthTokenEndpoint", oauthTokenEndpoint);
+  }, [oauthTokenEndpoint]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthAuthEndpoint", oauthAuthEndpoint);
+  }, [oauthAuthEndpoint]);
+
+  useEffect(() => {
     saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
   }, [config]);
 
@@ -622,9 +677,30 @@ const App = () => {
         };
 
         try {
-          const stateMachine = new OAuthStateMachine(sseUrl, (updates) => {
-            currentState = { ...currentState, ...updates };
-          });
+          const certConfig: CertAuthConfig | undefined =
+            oauthAuthMethod === "certificate"
+              ? {
+                  authMethod: oauthAuthMethod,
+                  certPath: oauthCertPath,
+                  keyPath: oauthKeyPath,
+                  tokenEndpointUrl: oauthTokenEndpoint,
+                  authEndpointUrl: oauthAuthEndpoint,
+                }
+              : undefined;
+          const proxyAddress = getMCPProxyAddress(config);
+          const { token: proxyToken, header: proxyHeader } =
+            getMCPProxyAuthToken(config);
+
+          const stateMachine = new OAuthStateMachine(
+            sseUrl,
+            (updates) => {
+              currentState = { ...currentState, ...updates };
+            },
+            certConfig,
+            proxyAddress,
+            proxyToken,
+            proxyHeader,
+          );
 
           while (
             currentState.oauthStep !== "complete" &&
@@ -662,7 +738,15 @@ const App = () => {
         });
       }
     },
-    [sseUrl],
+    [
+      sseUrl,
+      config,
+      oauthAuthMethod,
+      oauthCertPath,
+      oauthKeyPath,
+      oauthTokenEndpoint,
+      oauthAuthEndpoint,
+    ],
   );
 
   useEffect(() => {
@@ -1264,6 +1348,14 @@ const App = () => {
         onBack={() => setIsAuthDebuggerVisible(false)}
         authState={authState}
         updateAuthState={updateAuthState}
+        oauthAuthMethod={oauthAuthMethod}
+        oauthCertPath={oauthCertPath}
+        oauthKeyPath={oauthKeyPath}
+        oauthTokenEndpoint={oauthTokenEndpoint}
+        oauthAuthEndpoint={oauthAuthEndpoint}
+        proxyAddress={getMCPProxyAddress(config)}
+        proxyAuthToken={getMCPProxyAuthToken(config).token}
+        proxyAuthHeader={getMCPProxyAuthToken(config).header}
       />
     </TabsContent>
   );
@@ -1323,6 +1415,16 @@ const App = () => {
           setOauthClientSecret={setOauthClientSecret}
           oauthScope={oauthScope}
           setOauthScope={setOauthScope}
+          oauthAuthMethod={oauthAuthMethod}
+          setOauthAuthMethod={setOauthAuthMethod}
+          oauthCertPath={oauthCertPath}
+          setOauthCertPath={setOauthCertPath}
+          oauthKeyPath={oauthKeyPath}
+          setOauthKeyPath={setOauthKeyPath}
+          oauthTokenEndpoint={oauthTokenEndpoint}
+          setOauthTokenEndpoint={setOauthTokenEndpoint}
+          oauthAuthEndpoint={oauthAuthEndpoint}
+          setOauthAuthEndpoint={setOauthAuthEndpoint}
           onConnect={connectMcpServer}
           onDisconnect={disconnectMcpServer}
           logLevel={logLevel}

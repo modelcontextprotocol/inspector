@@ -18,6 +18,10 @@ export const SESSION_KEYS = {
   SERVER_METADATA: "mcp_server_metadata",
   AUTH_DEBUGGER_STATE: "mcp_auth_debugger_state",
   SCOPE: "mcp_scope",
+  OAUTH_AUTH_METHOD: "mcp_oauth_auth_method",
+  OAUTH_CERT_PATH: "mcp_oauth_cert_path",
+  OAUTH_KEY_PATH: "mcp_oauth_key_path",
+  OAUTH_TOKEN_ENDPOINT: "mcp_oauth_token_endpoint",
 } as const;
 
 // Generate server-specific session storage keys
