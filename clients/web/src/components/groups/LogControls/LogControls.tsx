@@ -65,7 +65,7 @@ export function LogControls({
         onChange={(e) => onFilterChange(e.currentTarget.value)}
       />
 
-      <Title order={5}>Active Level</Title>
+      <Title order={5}>Set Active Level</Title>
       <Group wrap="nowrap">
         <Select
           flex={1}
