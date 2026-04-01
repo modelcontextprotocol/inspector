@@ -13,8 +13,6 @@ const meta: Meta<typeof ResourcesScreen> = {
   component: ResourcesScreen,
   parameters: { layout: "fullscreen" },
   args: {
-    searchText: "",
-    onSearchChange: fn(),
     onRefreshList: fn(),
     onSelectUri: fn(),
     onSelectTemplate: fn(),

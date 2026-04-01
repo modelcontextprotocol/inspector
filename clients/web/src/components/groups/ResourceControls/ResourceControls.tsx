@@ -8,6 +8,7 @@ import {
   Title,
 } from "@mantine/core";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
+import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { ResourceListItem } from "../ResourceListItem/ResourceListItem";
 import { ResourceSubscribedItem } from "../ResourceSubscribedItem/ResourceSubscribedItem";
 import type {
@@ -21,8 +22,6 @@ export interface ResourceControlsProps {
   templates: TemplateListItem[];
   subscriptions: SubscriptionItem[];
   listChanged: boolean;
-  searchText: string;
-  onSearchChange: (text: string) => void;
   onRefreshList: () => void;
   onSelectUri: (uri: string) => void;
   onSelectTemplate: (uriTemplate: string) => void;
@@ -53,24 +52,38 @@ export function ResourceControls({
   templates,
   subscriptions,
   listChanged,
-  searchText,
-  onSearchChange,
   onRefreshList,
   onSelectUri,
   onSelectTemplate,
   onUnsubscribeResource,
 }: ResourceControlsProps) {
-  const filteredResources = resources.filter((r) =>
-    r.name.toLowerCase().includes(searchText.toLowerCase()),
+  const [searchText, setSearchText] = useState("");
+  const query = searchText.toLowerCase();
+  const filteredResources = resources.filter(
+    (r) =>
+      r.name.toLowerCase().includes(query) ||
+      r.uri.toLowerCase().includes(query),
+  );
+  const filteredTemplates = templates.filter(
+    (t) =>
+      templateDisplayName(t).toLowerCase().includes(query) ||
+      t.uriTemplate.toLowerCase().includes(query),
+  );
+  const filteredSubscriptions = subscriptions.filter(
+    (s) =>
+      s.name.toLowerCase().includes(query) ||
+      s.uri.toLowerCase().includes(query),
   );
 
   const defaultOpen = [
     ...(filteredResources.length > 0 ? ["resources"] : []),
-    ...(templates.length > 0 ? ["templates"] : []),
-    ...(subscriptions.length > 0 ? ["subscriptions"] : []),
+    ...(filteredTemplates.length > 0 ? ["templates"] : []),
+    ...(filteredSubscriptions.length > 0 ? ["subscriptions"] : []),
   ];
 
+  const allSections = ["resources", "templates", "subscriptions"];
   const [openSections, setOpenSections] = useState<string[]>(defaultOpen);
+  const allExpanded = openSections.length === allSections.length;
   const maxHeight = panelMaxHeight(openSections.length);
 
   return (
@@ -79,11 +92,20 @@ export function ResourceControls({
         <Title order={4}>Resources</Title>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
-      <TextInput
-        placeholder="Search..."
-        value={searchText}
-        onChange={(e) => onSearchChange(e.currentTarget.value)}
-      />
+      <Group gap="xs" wrap="nowrap">
+        <ListToggle
+          compact={!allExpanded}
+          onToggle={() =>
+            setOpenSections(allExpanded ? [] : [...allSections])
+          }
+        />
+        <TextInput
+          flex={1}
+          placeholder="Search..."
+          value={searchText}
+          onChange={(e) => setSearchText(e.currentTarget.value)}
+        />
+      </Group>
       <Accordion multiple value={openSections} onChange={setOpenSections}>
         <Accordion.Item value="resources">
           <Accordion.Control disabled={filteredResources.length === 0}>
@@ -108,13 +130,13 @@ export function ResourceControls({
         </Accordion.Item>
 
         <Accordion.Item value="templates">
-          <Accordion.Control disabled={templates.length === 0}>
-            {formatSectionCount("Templates", templates.length)}
+          <Accordion.Control disabled={filteredTemplates.length === 0}>
+            {formatSectionCount("Templates", filteredTemplates.length)}
           </Accordion.Control>
           <Accordion.Panel>
             <ScrollArea.Autosize mah={maxHeight}>
               <Stack gap="xs">
-                {templates.map((template) => (
+                {filteredTemplates.map((template) => (
                   <ResourceListItem
                     key={template.uriTemplate}
                     name={templateDisplayName(template)}
@@ -129,13 +151,13 @@ export function ResourceControls({
         </Accordion.Item>
 
         <Accordion.Item value="subscriptions">
-          <Accordion.Control disabled={subscriptions.length === 0}>
-            {formatSectionCount("Subscriptions", subscriptions.length)}
+          <Accordion.Control disabled={filteredSubscriptions.length === 0}>
+            {formatSectionCount("Subscriptions", filteredSubscriptions.length)}
           </Accordion.Control>
           <Accordion.Panel>
             <ScrollArea.Autosize mah={maxHeight}>
               <Stack gap="xs">
-                {subscriptions.map((sub) => (
+                {filteredSubscriptions.map((sub) => (
                   <ResourceSubscribedItem
                     key={sub.name}
                     name={sub.name}

@@ -47,8 +47,6 @@ export interface ResourcesScreenProps {
   selectedResource?: SelectedResource;
   selectedTemplate?: SelectedTemplate;
   listChanged: boolean;
-  searchText: string;
-  onSearchChange: (text: string) => void;
   onRefreshList: () => void;
   onSelectUri: (uri: string) => void;
   onSelectTemplate: (uriTemplate: string) => void;
@@ -92,8 +90,6 @@ export function ResourcesScreen({
   selectedResource,
   selectedTemplate,
   listChanged,
-  searchText,
-  onSearchChange,
   onRefreshList,
   onSelectUri,
   onSelectTemplate,
@@ -110,8 +106,6 @@ export function ResourcesScreen({
             templates={templates}
             subscriptions={subscriptions}
             listChanged={listChanged}
-            searchText={searchText}
-            onSearchChange={onSearchChange}
             onRefreshList={onRefreshList}
             onSelectUri={onSelectUri}
             onSelectTemplate={onSelectTemplate}

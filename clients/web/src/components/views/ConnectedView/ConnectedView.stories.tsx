@@ -447,8 +447,6 @@ export const ResourcesActive: Story = {
           isSubscribed: false,
         }}
         listChanged={true}
-        searchText=""
-        onSearchChange={fn()}
         onRefreshList={fn()}
         onSelectUri={fn()}
         onSelectTemplate={fn()}

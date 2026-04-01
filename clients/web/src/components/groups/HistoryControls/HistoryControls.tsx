@@ -1,4 +1,4 @@
-import { Button, Group, Select, Stack, TextInput, Title } from "@mantine/core";
+import { Select, Stack, TextInput, Title } from "@mantine/core";
 
 const METHOD_OPTIONS = [
   "tools/call",
@@ -11,18 +11,11 @@ const METHOD_OPTIONS = [
   "elicitation/create",
 ];
 
-const ToolbarButton = Button.withProps({
-  variant: "light",
-  size: "sm",
-});
-
 export interface HistoryControlsProps {
   searchText: string;
   methodFilter?: string;
   onSearchChange: (text: string) => void;
   onMethodFilterChange: (method: string) => void;
-  onClearAll: () => void;
-  onExport: () => void;
 }
 
 export function HistoryControls({
@@ -30,14 +23,10 @@ export function HistoryControls({
   methodFilter,
   onSearchChange,
   onMethodFilterChange,
-  onClearAll,
-  onExport,
 }: HistoryControlsProps) {
   return (
     <Stack gap="md">
       <Title order={4}>History</Title>
-
-      <Title order={5}>Search</Title>
       <TextInput
         placeholder="Search..."
         value={searchText}
@@ -52,11 +41,6 @@ export function HistoryControls({
         onChange={(value) => onMethodFilterChange(value ?? "")}
         clearable
       />
-
-      <Group>
-        <ToolbarButton onClick={onExport}>Export JSON</ToolbarButton>
-        <ToolbarButton onClick={onClearAll}>Clear All</ToolbarButton>
-      </Group>
     </Stack>
   );
 }

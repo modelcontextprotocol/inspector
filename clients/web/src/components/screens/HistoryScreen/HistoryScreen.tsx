@@ -48,8 +48,6 @@ export function HistoryScreen({
             onMethodFilterChange={(value) =>
               setMethodFilter(value || undefined)
             }
-            onClearAll={onClearAll}
-            onExport={onExport}
           />
         </SidebarCard>
       </Sidebar>
@@ -58,6 +56,8 @@ export function HistoryScreen({
         pinnedEntries={pinnedEntries}
         searchText={searchText}
         methodFilter={methodFilter}
+        onClearAll={onClearAll}
+        onExport={onExport}
       />
     </ScreenLayout>
   );

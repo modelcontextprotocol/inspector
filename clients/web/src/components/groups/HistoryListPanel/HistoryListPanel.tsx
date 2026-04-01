@@ -1,5 +1,13 @@
 import { useMemo, useState } from "react";
-import { Group, Paper, ScrollArea, Stack, Text, Title } from "@mantine/core";
+import {
+  Button,
+  Group,
+  Paper,
+  ScrollArea,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
 import { HistoryEntry } from "../HistoryEntry/HistoryEntry";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import type { HistoryEntryProps } from "../HistoryEntry/HistoryEntry";
@@ -9,7 +17,14 @@ export interface HistoryRequestsPanelProps {
   pinnedEntries: HistoryEntryProps[];
   searchText: string;
   methodFilter?: string;
+  onClearAll: () => void;
+  onExport: () => void;
 }
+
+const ToolbarButton = Button.withProps({
+  variant: "light",
+  size: "sm",
+});
 
 const PanelContainer = Paper.withProps({
   withBorder: true,
@@ -56,6 +71,8 @@ export function HistoryListPanel({
   pinnedEntries,
   searchText,
   methodFilter,
+  onClearAll,
+  onExport,
 }: HistoryRequestsPanelProps) {
   const [compact, setCompact] = useState(false);
 
@@ -76,12 +93,16 @@ export function HistoryListPanel({
     <PanelContainer>
       <Group justify="space-between" mb="sm">
         <Title order={4}>Requests</Title>
-        {hasResults && (
-          <ListToggle
-            compact={compact}
-            onToggle={() => setCompact((c) => !c)}
-          />
-        )}
+        <Group gap="xs">
+          <ToolbarButton onClick={onExport}>Export JSON</ToolbarButton>
+          <ToolbarButton onClick={onClearAll}>Clear All</ToolbarButton>
+          {hasResults && (
+            <ListToggle
+              compact={compact}
+              onToggle={() => setCompact((c) => !c)}
+            />
+          )}
+        </Group>
       </Group>
 
       {!hasResults ? (

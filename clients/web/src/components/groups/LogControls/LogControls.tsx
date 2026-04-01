@@ -59,6 +59,12 @@ export function LogControls({
     <Stack gap="md">
       <Title order={4}>Logging</Title>
 
+      <TextInput
+        placeholder="Search..."
+        value={filterText}
+        onChange={(e) => onFilterChange(e.currentTarget.value)}
+      />
+
       <Title order={5}>Active Level</Title>
       <Group wrap="nowrap">
         <Select
@@ -73,13 +79,6 @@ export function LogControls({
           Set
         </Button>
       </Group>
-
-      <Title order={5}>Search</Title>
-      <TextInput
-        placeholder="Search logs..."
-        value={filterText}
-        onChange={(e) => onFilterChange(e.currentTarget.value)}
-      />
 
       <Group justify="space-between">
         <Title order={5}>Filter by Level</Title>

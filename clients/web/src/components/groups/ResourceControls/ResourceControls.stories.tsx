@@ -6,8 +6,6 @@ const meta: Meta<typeof ResourceControls> = {
   title: "Groups/ResourceControls",
   component: ResourceControls,
   args: {
-    searchText: "",
-    onSearchChange: fn(),
     onRefreshList: fn(),
     onSelectUri: fn(),
     onSelectTemplate: fn(),
@@ -59,7 +57,6 @@ export const Default: Story = {
 export const WithSearch: Story = {
   args: {
     ...Default.args,
-    searchText: "config",
   },
 };
 

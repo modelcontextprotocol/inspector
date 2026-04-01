@@ -15,8 +15,6 @@ export const Default: Story = {
     searchText: "",
     onSearchChange: fn(),
     onMethodFilterChange: fn(),
-    onClearAll: fn(),
-    onExport: fn(),
   },
 };
 
@@ -26,7 +24,5 @@ export const WithFilters: Story = {
     methodFilter: "tools/call",
     onSearchChange: fn(),
     onMethodFilterChange: fn(),
-    onClearAll: fn(),
-    onExport: fn(),
   },
 };

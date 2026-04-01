@@ -8,6 +8,8 @@ const meta: Meta<typeof HistoryListPanel> = {
   component: HistoryListPanel,
   args: {
     searchText: "",
+    onClearAll: fn(),
+    onExport: fn(),
   },
 };
 
