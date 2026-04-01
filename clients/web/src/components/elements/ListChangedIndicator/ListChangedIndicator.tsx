@@ -32,7 +32,7 @@ export function ListChangedIndicator({
     <Group gap="xs">
       <Dot />
       <UpdateLabel>List updated</UpdateLabel>
-      <RefreshButton onClick={onRefresh}>↻ Refresh</RefreshButton>
+      <RefreshButton onClick={onRefresh}>Refresh</RefreshButton>
     </Group>
   );
 }

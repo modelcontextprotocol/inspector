@@ -230,7 +230,7 @@ export const ToolsActive: Story = {
           onClear: fn(),
         }}
         searchText=""
-        listChanged={false}
+        listChanged={true}
         onSearchChange={fn()}
         onRefreshList={fn()}
         onSelectTool={fn()}
@@ -446,7 +446,7 @@ export const ResourcesActive: Story = {
           lastUpdated: "2026-03-17T11:15:00Z",
           isSubscribed: false,
         }}
-        listChanged={false}
+        listChanged={true}
         searchText=""
         onSearchChange={fn()}
         onRefreshList={fn()}
@@ -513,7 +513,7 @@ export const PromptsActive: Story = {
             { role: "assistant", content: "Hola, como estas?" },
           ],
         }}
-        listChanged={false}
+        listChanged={true}
         searchText=""
         onSearchChange={fn()}
         onRefreshList={fn()}

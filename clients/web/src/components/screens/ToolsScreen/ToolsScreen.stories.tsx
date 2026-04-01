@@ -3,7 +3,7 @@ import { fn } from "storybook/test";
 import { ToolsScreen } from "./ToolsScreen";
 import type { ToolListItemProps } from "../../groups/ToolListItem/ToolListItem";
 import type { ToolDetailPanelProps } from "../../groups/ToolDetailPanel/ToolDetailPanel";
-import type { ResultPanelProps } from "../../groups/ResultPanel/ResultPanel";
+import type { ToolResultPanelProps } from "../../groups/ToolResultPanel/ToolResultPanel";
 
 const meta: Meta<typeof ToolsScreen> = {
   title: "Screens/ToolsScreen",
@@ -67,7 +67,7 @@ const selectedToolData: ToolDetailPanelProps = {
   onCancel: fn(),
 };
 
-const resultData: ResultPanelProps = {
+const resultData: ToolResultPanelProps = {
   content: [
     {
       type: "text",

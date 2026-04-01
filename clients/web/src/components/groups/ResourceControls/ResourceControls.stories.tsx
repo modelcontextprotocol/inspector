@@ -63,6 +63,13 @@ export const WithSearch: Story = {
   },
 };
 
+export const ListChanged: Story = {
+  args: {
+    ...Default.args,
+    listChanged: true,
+  },
+};
+
 export const Empty: Story = {
   args: {
     resources: [],

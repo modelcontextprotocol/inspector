@@ -1,17 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
-import { ResultPanel } from "./ResultPanel";
+import { ToolResultPanel } from "./ToolResultPanel";
 
-const meta: Meta<typeof ResultPanel> = {
-  title: "Groups/ResultPanel",
-  component: ResultPanel,
+const meta: Meta<typeof ToolResultPanel> = {
+  title: "Groups/ToolResultPanel",
+  component: ToolResultPanel,
   args: {
     onClear: fn(),
   },
 };
 
 export default meta;
-type Story = StoryObj<typeof ResultPanel>;
+type Story = StoryObj<typeof ToolResultPanel>;
 
 export const Empty: Story = {
   args: {

@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { Accordion, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
+import {
+  Accordion,
+  Group,
+  ScrollArea,
+  Stack,
+  TextInput,
+  Title,
+} from "@mantine/core";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { ResourceListItem } from "../ResourceListItem/ResourceListItem";
 import { ResourceSubscribedItem } from "../ResourceSubscribedItem/ResourceSubscribedItem";
@@ -68,8 +75,10 @@ export function ResourceControls({
 
   return (
     <Stack gap="sm">
-      <Title order={4}>Resources</Title>
-      <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
+      <Group justify="space-between">
+        <Title order={4}>Resources</Title>
+        <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
+      </Group>
       <TextInput
         placeholder="Search..."
         value={searchText}

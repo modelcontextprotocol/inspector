@@ -25,7 +25,6 @@ function formatPlaceholder(name: string): string {
 }
 
 export function PromptArgumentsForm({
-  name,
   description,
   arguments: promptArguments,
   argumentValues,
@@ -34,7 +33,7 @@ export function PromptArgumentsForm({
 }: PromptArgumentsFormProps) {
   return (
     <Stack gap="md">
-      <Title order={4}>{name}</Title>
+      <Title order={4}>Prompt Arguments</Title>
       {description && <DescriptionText>{description}</DescriptionText>}
       {promptArguments.length > 0 && (
         <Stack gap="sm">

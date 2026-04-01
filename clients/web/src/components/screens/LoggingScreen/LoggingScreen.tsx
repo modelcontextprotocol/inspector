@@ -29,7 +29,7 @@ const ALL_LEVELS_VISIBLE: Record<string, boolean> = {
 const ScreenLayout = Flex.withProps({
   variant: "screen",
   h: "calc(100vh - var(--app-shell-header-height, 0px))",
-  gap: "xl",
+  gap: "md",
   p: "xl",
 });
 

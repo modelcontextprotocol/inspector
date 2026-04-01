@@ -8,7 +8,7 @@ export interface ResultContentItem {
   mimeType?: string;
 }
 
-export interface ResultPanelProps {
+export interface ToolResultPanelProps {
   content: ResultContentItem[];
   onClear: () => void;
 }
@@ -26,7 +26,7 @@ function resolveMediaType(mimeType?: string): "image" | "audio" {
   return mimeType?.startsWith("image") ? "image" : "audio";
 }
 
-export function ResultPanel({ content, onClear }: ResultPanelProps) {
+export function ToolResultPanel({ content, onClear }: ToolResultPanelProps) {
   return (
     <Stack>
       <Title order={4}>Results</Title>

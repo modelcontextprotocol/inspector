@@ -1,15 +1,15 @@
-import { Card, Flex, Grid, Stack, Text } from "@mantine/core";
+import { Card, Flex, Stack, Text } from "@mantine/core";
 import { ToolControls } from "../../groups/ToolControls/ToolControls";
 import { ToolDetailPanel } from "../../groups/ToolDetailPanel/ToolDetailPanel";
-import { ResultPanel } from "../../groups/ResultPanel/ResultPanel";
+import { ToolResultPanel } from "../../groups/ToolResultPanel/ToolResultPanel";
 import type { ToolListItemProps } from "../../groups/ToolListItem/ToolListItem";
 import type { ToolDetailPanelProps } from "../../groups/ToolDetailPanel/ToolDetailPanel";
-import type { ResultPanelProps } from "../../groups/ResultPanel/ResultPanel";
+import type { ToolResultPanelProps } from "../../groups/ToolResultPanel/ToolResultPanel";
 
 export interface ToolsScreenProps {
   tools: ToolListItemProps[];
   selectedTool?: ToolDetailPanelProps;
-  result?: ResultPanelProps;
+  result?: ToolResultPanelProps;
   listChanged: boolean;
   searchText: string;
   onSearchChange: (text: string) => void;
@@ -20,8 +20,9 @@ export interface ToolsScreenProps {
 const ScreenLayout = Flex.withProps({
   variant: "screen",
   h: "calc(100vh - var(--app-shell-header-height, 0px))",
-  gap: "xl",
+  gap: "md",
   p: "xl",
+  align: "flex-start",
 });
 
 const Sidebar = Stack.withProps({
@@ -34,10 +35,9 @@ const SidebarCard = Card.withProps({
   padding: "lg",
 });
 
-const FullHeightCard = Card.withProps({
+const ContentCard = Card.withProps({
   withBorder: true,
   padding: "lg",
-  h: "100%",
 });
 
 const EmptyState = Text.withProps({
@@ -71,27 +71,21 @@ export function ToolsScreen({
         </SidebarCard>
       </Sidebar>
 
-      <Grid align="stretch" flex={1}>
-        <Grid.Col span={7}>
-          <FullHeightCard>
-            {selectedTool ? (
-              <ToolDetailPanel {...selectedTool} />
-            ) : (
-              <EmptyState>Select a tool to view details</EmptyState>
-            )}
-          </FullHeightCard>
-        </Grid.Col>
+      <ContentCard flex={1}>
+        {selectedTool ? (
+          <ToolDetailPanel {...selectedTool} />
+        ) : (
+          <EmptyState>Select a tool to view details</EmptyState>
+        )}
+      </ContentCard>
 
-        <Grid.Col span={5}>
-          <FullHeightCard>
-            {result ? (
-              <ResultPanel {...result} />
-            ) : (
-              <EmptyState>Results will appear here</EmptyState>
-            )}
-          </FullHeightCard>
-        </Grid.Col>
-      </Grid>
+      <ContentCard flex={1}>
+        {result ? (
+          <ToolResultPanel {...result} />
+        ) : (
+          <EmptyState>Results will appear here</EmptyState>
+        )}
+      </ContentCard>
     </ScreenLayout>
   );
 }

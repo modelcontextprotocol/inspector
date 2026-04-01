@@ -1,4 +1,4 @@
-import { ScrollArea, Stack, TextInput, Title } from "@mantine/core";
+import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { PromptListItem } from "../PromptListItem/PromptListItem";
 import type { PromptItem } from "../../screens/PromptsScreen/PromptsScreen";
@@ -30,8 +30,10 @@ export function PromptControls({
 
   return (
     <Stack gap="sm">
-      <Title order={4}>Prompts</Title>
-      <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
+      <Group justify="space-between">
+        <Title order={4}>Prompts</Title>
+        <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
+      </Group>
       <TextInput
         placeholder="Search prompts..."
         value={searchText}

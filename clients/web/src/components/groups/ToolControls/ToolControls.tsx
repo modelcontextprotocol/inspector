@@ -1,4 +1,4 @@
-import { ScrollArea, Stack, TextInput, Title } from "@mantine/core";
+import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { ToolListItem } from "../ToolListItem/ToolListItem";
 import type { ToolListItemProps } from "../ToolListItem/ToolListItem";
@@ -32,8 +32,10 @@ export function ToolControls({
 
   return (
     <Stack gap="sm">
-      <Title order={4}>Tools</Title>
-      <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
+      <Group justify="space-between">
+        <Title order={4}>Tools</Title>
+        <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
+      </Group>
       <TextInput
         placeholder="Search tools..."
         value={searchText}
