@@ -95,9 +95,7 @@ export function ResourceControls({
       <Group gap="xs" wrap="nowrap">
         <ListToggle
           compact={!allExpanded}
-          onToggle={() =>
-            setOpenSections(allExpanded ? [] : [...allSections])
-          }
+          onToggle={() => setOpenSections(allExpanded ? [] : [...allSections])}
         />
         <TextInput
           flex={1}
