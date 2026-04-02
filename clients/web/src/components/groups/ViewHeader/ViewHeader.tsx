@@ -133,7 +133,10 @@ export function ViewHeader(props: ViewHeaderProps) {
       </CenterSection>
 
       <RightSection>
-        <ServerStatusIndicator status={props.status} latencyMs={props.latencyMs} />
+        <ServerStatusIndicator
+          status={props.status}
+          latencyMs={props.latencyMs}
+        />
         <DisconnectButton onClick={props.onDisconnect}>
           Disconnect
         </DisconnectButton>

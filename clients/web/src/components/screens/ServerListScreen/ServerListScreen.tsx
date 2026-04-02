@@ -28,9 +28,7 @@ export function ServerListScreen({
   onImportServerJson,
 }: ServerListScreenProps) {
   const [compact, setCompact] = useState<boolean>(false);
-  const [activeServer, setActiveServer] = useState<
-    string | undefined
-  >();
+  const [activeServer, setActiveServer] = useState<string | undefined>();
 
   function handleToggleList() {
     setCompact((prev) => (prev === true ? false : true));

@@ -115,7 +115,7 @@ export function ServerCard({
       padding="lg"
       opacity={isDimmed ? 0.4 : 1}
       style={isDimmed ? { pointerEvents: "none" } : undefined}
-      {...(isDimmed ? { "aria-disabled": true, inert: "" } : {})}
+      {...(isDimmed ? { "aria-disabled": true, inert: true } : {})}
     >
       <Stack gap="sm">
         <Group justify="space-between" wrap="wrap">
