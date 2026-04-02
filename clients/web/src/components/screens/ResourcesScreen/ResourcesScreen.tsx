@@ -1,4 +1,4 @@
-import { Card, Flex, ScrollArea, Stack, Text } from "@mantine/core";
+import { Card, Flex, Group, ScrollArea, Stack, Text } from "@mantine/core";
 import { ResourceControls } from "../../groups/ResourceControls/ResourceControls";
 import { ResourcePreviewPanel } from "../../groups/ResourcePreviewPanel/ResourcePreviewPanel";
 import { ResourceTemplatePanel } from "../../groups/ResourceTemplatePanel/ResourceTemplatePanel";
@@ -114,52 +114,66 @@ export function ResourcesScreen({
         </SidebarCard>
       </Sidebar>
 
-      <ScrollArea.Autosize
-        flex={1}
-        mah="calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)"
-      >
-        <Stack gap="md">
-          {selectedTemplate ? (
-            <>
-              <DetailCard>
-                <ResourceTemplatePanel
-                  {...selectedTemplate}
-                  onReadResource={onReadResource}
-                />
-              </DetailCard>
-              {selectedResource && (
-                <DetailCard>
-                  <ResourcePreviewPanel
-                    {...selectedResource}
-                    onRefresh={() => onReadResource(selectedResource.uri)}
-                    onSubscribe={() =>
-                      onSubscribeResource(selectedResource.uri)
-                    }
-                    onUnsubscribe={() =>
-                      onUnsubscribeResource(selectedResource.uri)
-                    }
-                  />
-                </DetailCard>
-              )}
-            </>
-          ) : selectedResource ? (
+      {selectedTemplate ? (
+        <Group flex={1} gap="md" align="flex-start" wrap="nowrap">
+          <ScrollArea.Autosize
+            flex={1}
+            mah="calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)"
+          >
             <DetailCard>
-              <ResourcePreviewPanel
-                {...selectedResource}
-                onRefresh={() => onReadResource(selectedResource.uri)}
-                onSubscribe={() => onSubscribeResource(selectedResource.uri)}
-                onUnsubscribe={() =>
-                  onUnsubscribeResource(selectedResource.uri)
-                }
+              <ResourceTemplatePanel
+                {...selectedTemplate}
+                onReadResource={onReadResource}
               />
             </DetailCard>
-          ) : (
-            <DetailCard>
-              <EmptyState>Select a resource to preview</EmptyState>
-            </DetailCard>
-          )}
-        </Stack>
-      </ScrollArea.Autosize>
+          </ScrollArea.Autosize>
+          <ScrollArea.Autosize
+            flex={1}
+            mah="calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)"
+          >
+            {selectedResource ? (
+              <DetailCard>
+                <ResourcePreviewPanel
+                  {...selectedResource}
+                  onRefresh={() => onReadResource(selectedResource.uri)}
+                  onSubscribe={() =>
+                    onSubscribeResource(selectedResource.uri)
+                  }
+                  onUnsubscribe={() =>
+                    onUnsubscribeResource(selectedResource.uri)
+                  }
+                />
+              </DetailCard>
+            ) : (
+              <DetailCard>
+                <EmptyState>
+                  Enter a URI and click Read to preview
+                </EmptyState>
+              </DetailCard>
+            )}
+          </ScrollArea.Autosize>
+        </Group>
+      ) : selectedResource ? (
+        <ScrollArea.Autosize
+          flex={1}
+          mah="calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)"
+        >
+          <DetailCard>
+            <ResourcePreviewPanel
+              {...selectedResource}
+              onRefresh={() => onReadResource(selectedResource.uri)}
+              onSubscribe={() => onSubscribeResource(selectedResource.uri)}
+              onUnsubscribe={() =>
+                onUnsubscribeResource(selectedResource.uri)
+              }
+            />
+          </DetailCard>
+        </ScrollArea.Autosize>
+      ) : (
+        <DetailCard flex={1}>
+          <EmptyState>Select a resource to preview</EmptyState>
+        </DetailCard>
+      )}
     </ScreenLayout>
   );
 }
