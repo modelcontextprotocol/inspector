@@ -1,5 +1,6 @@
+import { useEffect } from "react";
 import { Badge, Button, Card, Group, Menu, Stack, Text } from "@mantine/core";
-import { StatusIndicator } from "../../elements/StatusIndicator/StatusIndicator";
+import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
 import { TransportBadge } from "../../elements/TransportBadge/TransportBadge";
 import { ConnectionToggle } from "../../elements/ConnectionToggle/ConnectionToggle";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
@@ -15,6 +16,8 @@ export interface ServerCardProps {
   retryCount?: number;
   error?: { message: string; details?: string };
   canTestClientFeatures: boolean;
+  activeServer?: string;
+  onSetActiveServer?: (name: string | undefined) => void;
   onToggleConnection: (connect: boolean) => void;
   onServerInfo: () => void;
   onSettings: () => void;
@@ -71,6 +74,8 @@ export function ServerCard({
   retryCount,
   error,
   canTestClientFeatures,
+  activeServer,
+  onSetActiveServer,
   onToggleConnection,
   onServerInfo,
   onSettings,
@@ -83,11 +88,35 @@ export function ServerCard({
   onConfigureRoots,
   compact = false,
 }: ServerCardProps) {
+  const isThisConnecting = activeServer === name;
+  const isDimmed = activeServer !== undefined && activeServer !== name;
   const isConnected = status === "connected";
-  const isConnecting = status === "connecting";
+  const isConnecting = status === "connecting" || isThisConnecting;
+  const displayStatus = isThisConnecting ? "connecting" : status;
+
+  useEffect(() => {
+    if (isThisConnecting) {
+      onToggleConnection(true);
+    }
+  }, [isThisConnecting, onToggleConnection]);
+
+  function handleToggle(connect: boolean) {
+    if (connect && !activeServer) {
+      onSetActiveServer?.(name);
+    } else if (!connect && activeServer && activeServer === name) {
+      onSetActiveServer?.(undefined);
+      onToggleConnection(false);
+    }
+  }
 
   return (
-    <Card withBorder padding="lg">
+    <Card
+      withBorder
+      padding="lg"
+      opacity={isDimmed ? 0.4 : 1}
+      style={isDimmed ? { pointerEvents: "none" } : undefined}
+      {...(isDimmed ? { "aria-disabled": true, inert: "" } : {})}
+    >
       <Stack gap="sm">
         <Group justify="space-between" wrap="wrap">
           <HeaderLeft>
@@ -95,21 +124,47 @@ export function ServerCard({
             {version && <Badge variant="outline">{version}</Badge>}
           </HeaderLeft>
           <HeaderRight>
-            <StatusIndicator status={status} retryCount={retryCount} />
+            <ServerStatusIndicator
+              status={displayStatus}
+              retryCount={retryCount}
+            />
             <ConnectionToggle
               checked={isConnected}
               loading={isConnecting}
-              disabled={false}
-              onChange={onToggleConnection}
+              disabled={isDimmed}
+              onChange={handleToggle}
             />
           </HeaderRight>
         </Group>
 
         {!compact && (
           <>
-            <Group gap="sm">
-              <TransportBadge transport={transport} />
-              <ModeText>{connectionMode}</ModeText>
+            <Group justify="space-between" mih={30}>
+              <Group gap="sm">
+                <TransportBadge transport={transport} />
+                <ModeText>{connectionMode}</ModeText>
+              </Group>
+              {canTestClientFeatures && (
+                <Menu>
+                  <Menu.Target>
+                    <SubtleButton>Test Client Features &#x25BE;</SubtleButton>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Item onClick={onTestSampling}>
+                      Simulate Sampling Request
+                    </Menu.Item>
+                    <Menu.Item onClick={onTestElicitationForm}>
+                      Simulate Elicitation (Form)
+                    </Menu.Item>
+                    <Menu.Item onClick={onTestElicitationUrl}>
+                      Simulate Elicitation (URL)
+                    </Menu.Item>
+                    <Menu.Item onClick={onConfigureRoots}>
+                      Configure Roots
+                    </Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+              )}
             </Group>
 
             <ContentViewer type="text" content={command} copyable />
@@ -131,27 +186,6 @@ export function ServerCard({
               <ActionsRow>
                 <SubtleButton onClick={onServerInfo}>Server Info</SubtleButton>
                 <SubtleButton onClick={onSettings}>Settings</SubtleButton>
-                {canTestClientFeatures && (
-                  <Menu>
-                    <Menu.Target>
-                      <SubtleButton>Test Client Features &#x25BE;</SubtleButton>
-                    </Menu.Target>
-                    <Menu.Dropdown>
-                      <Menu.Item onClick={onTestSampling}>
-                        Simulate Sampling Request
-                      </Menu.Item>
-                      <Menu.Item onClick={onTestElicitationForm}>
-                        Simulate Elicitation (Form)
-                      </Menu.Item>
-                      <Menu.Item onClick={onTestElicitationUrl}>
-                        Simulate Elicitation (URL)
-                      </Menu.Item>
-                      <Menu.Item onClick={onConfigureRoots}>
-                        Configure Roots
-                      </Menu.Item>
-                    </Menu.Dropdown>
-                  </Menu>
-                )}
               </ActionsRow>
             </Group>
           </>

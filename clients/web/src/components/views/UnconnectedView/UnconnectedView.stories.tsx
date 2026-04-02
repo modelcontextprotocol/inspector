@@ -59,8 +59,8 @@ export const WithServers: Story = {
             transport: "stdio",
             connectionMode: "Via Proxy",
             command: "npx -y @modelcontextprotocol/server-everything",
-            status: "connected",
-            canTestClientFeatures: true,
+            status: "disconnected",
+            canTestClientFeatures: false,
             ...makeServerCallbacks(),
           },
           {
@@ -80,9 +80,7 @@ export const WithServers: Story = {
             transport: "http",
             connectionMode: "Direct",
             command: "https://api.example.com/mcp",
-            status: "failed",
-            retryCount: 3,
-            error: { message: "Connection timeout after 20s" },
+            status: "disconnected",
             canTestClientFeatures: false,
             ...makeServerCallbacks(),
           },
@@ -106,8 +104,8 @@ export const ManyServers: Story = {
             transport: "stdio",
             connectionMode: "Via Proxy",
             command: "npx -y @modelcontextprotocol/server-everything",
-            status: "connected",
-            canTestClientFeatures: true,
+            status: "disconnected",
+            canTestClientFeatures: false,
             ...makeServerCallbacks(),
           },
           {
@@ -127,8 +125,8 @@ export const ManyServers: Story = {
             transport: "http",
             connectionMode: "Direct",
             command: "https://api.example.com/mcp",
-            status: "connected",
-            canTestClientFeatures: true,
+            status: "disconnected",
+            canTestClientFeatures: false,
             ...makeServerCallbacks(),
           },
           {
@@ -137,7 +135,7 @@ export const ManyServers: Story = {
             transport: "stdio",
             connectionMode: "Via Proxy",
             command: "npx -y @modelcontextprotocol/server-postgres",
-            status: "connecting",
+            status: "disconnected",
             canTestClientFeatures: false,
             ...makeServerCallbacks(),
           },
@@ -147,8 +145,8 @@ export const ManyServers: Story = {
             transport: "stdio",
             connectionMode: "Via Proxy",
             command: "npx -y @modelcontextprotocol/server-github",
-            status: "connected",
-            canTestClientFeatures: true,
+            status: "disconnected",
+            canTestClientFeatures: false,
             ...makeServerCallbacks(),
           },
           {
@@ -157,9 +155,7 @@ export const ManyServers: Story = {
             transport: "http",
             connectionMode: "Direct",
             command: "https://slack-mcp.example.com/mcp",
-            status: "failed",
-            retryCount: 5,
-            error: { message: "Authentication failed" },
+            status: "disconnected",
             canTestClientFeatures: false,
             ...makeServerCallbacks(),
           },
@@ -169,7 +165,7 @@ export const ManyServers: Story = {
             transport: "stdio",
             connectionMode: "Via Proxy",
             command: "npx -y @modelcontextprotocol/server-memory",
-            status: "connected",
+            status: "disconnected",
             canTestClientFeatures: false,
             ...makeServerCallbacks(),
           },
@@ -189,8 +185,8 @@ export const ManyServers: Story = {
             transport: "stdio",
             connectionMode: "Via Proxy",
             command: "npx -y @modelcontextprotocol/server-sqlite ./data.db",
-            status: "connected",
-            canTestClientFeatures: true,
+            status: "disconnected",
+            canTestClientFeatures: false,
             ...makeServerCallbacks(),
           },
           {
@@ -199,9 +195,7 @@ export const ManyServers: Story = {
             transport: "stdio",
             connectionMode: "Via Proxy",
             command: "npx -y @modelcontextprotocol/server-brave-search",
-            status: "failed",
-            retryCount: 2,
-            error: { message: "API key expired" },
+            status: "disconnected",
             canTestClientFeatures: false,
             ...makeServerCallbacks(),
           },
@@ -221,31 +215,7 @@ export const ManyServers: Story = {
             transport: "stdio",
             connectionMode: "Via Proxy",
             command: "npx -y @modelcontextprotocol/server-sequential-thinking",
-            status: "connecting",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-        ]}
-        onAddManually={fn()}
-        onImportConfig={fn()}
-        onImportServerJson={fn()}
-      />
-    ),
-  },
-};
-
-export const Connecting: Story = {
-  args: {
-    children: (
-      <ServerListScreen
-        servers={[
-          {
-            name: "everything-server",
-            version: "1.0.0",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command: "npx -y @modelcontextprotocol/server-everything",
-            status: "connecting",
+            status: "disconnected",
             canTestClientFeatures: false,
             ...makeServerCallbacks(),
           },

@@ -115,16 +115,16 @@ export function ToolDetailPanel({
         />
       )}
 
-      <Group>
+      <Group justify="flex-end">
+        {isExecuting && <CancelButton onClick={onCancel}>Cancel</CancelButton>}
         <Button
-          fullWidth
+          size="md"
           onClick={onExecute}
           disabled={isExecuting}
           loading={isExecuting}
         >
           Execute Tool
         </Button>
-        {isExecuting && <CancelButton onClick={onCancel}>Cancel</CancelButton>}
       </Group>
     </Stack>
   );

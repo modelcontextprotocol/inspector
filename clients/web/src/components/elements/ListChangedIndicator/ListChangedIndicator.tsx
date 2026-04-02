@@ -18,7 +18,7 @@ const UpdateLabel = Text.withProps({
 });
 
 const RefreshButton = Button.withProps({
-  size: "xs",
+  size: "sm",
   variant: "light",
 });
 

@@ -10,7 +10,7 @@ import {
 } from "@mantine/core";
 import { useComputedColorScheme } from "@mantine/core";
 import { MdLightMode, MdDarkMode } from "react-icons/md";
-import { StatusIndicator } from "../../elements/StatusIndicator/StatusIndicator";
+import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
 import mcpLogo from "../../../theme/assets/MCP.svg";
 import mcpLogoDark from "../../../theme/assets/MCP-dark.svg";
 
@@ -133,7 +133,7 @@ export function ViewHeader(props: ViewHeaderProps) {
       </CenterSection>
 
       <RightSection>
-        <StatusIndicator status={props.status} latencyMs={props.latencyMs} />
+        <ServerStatusIndicator status={props.status} latencyMs={props.latencyMs} />
         <DisconnectButton onClick={props.onDisconnect}>
           Disconnect
         </DisconnectButton>

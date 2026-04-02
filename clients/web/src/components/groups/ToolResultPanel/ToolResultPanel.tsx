@@ -29,7 +29,10 @@ function resolveMediaType(mimeType?: string): "image" | "audio" {
 export function ToolResultPanel({ content, onClear }: ToolResultPanelProps) {
   return (
     <Stack>
-      <Title order={4}>Results</Title>
+      <Group justify="space-between">
+        <Title order={4}>Results</Title>
+        <ClearButton onClick={onClear}>Clear</ClearButton>
+      </Group>
       {content.length === 0 ? (
         <Text c="dimmed">No results yet</Text>
       ) : (
@@ -59,9 +62,6 @@ export function ToolResultPanel({ content, onClear }: ToolResultPanelProps) {
           })}
         </>
       )}
-      <Group>
-        <ClearButton onClick={onClear}>Clear</ClearButton>
-      </Group>
     </Stack>
   );
 }

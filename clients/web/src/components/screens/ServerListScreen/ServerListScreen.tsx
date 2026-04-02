@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Container, SimpleGrid, Stack, Text } from "@mantine/core";
+import { ScrollArea, SimpleGrid, Stack, Text } from "@mantine/core";
 import { ServerCard } from "../../groups/ServerCard/ServerCard";
 import { ServerListControls } from "../../groups/ServerListControls/ServerListControls";
 import type { ServerCardProps } from "../../groups/ServerCard/ServerCard";
@@ -11,9 +11,8 @@ export interface ServerListScreenProps {
   onImportServerJson: () => void;
 }
 
-const PageContainer = Container.withProps({
-  size: "xl",
-  py: "xl",
+const PageContainer = Stack.withProps({
+  p: "xl",
 });
 
 const EmptyState = Text.withProps({
@@ -29,6 +28,9 @@ export function ServerListScreen({
   onImportServerJson,
 }: ServerListScreenProps) {
   const [compact, setCompact] = useState<boolean>(false);
+  const [activeServer, setActiveServer] = useState<
+    string | undefined
+  >();
 
   function handleToggleList() {
     setCompact((prev) => (prev === true ? false : true));
@@ -36,32 +38,38 @@ export function ServerListScreen({
 
   return (
     <PageContainer>
-      <Stack gap="lg">
-        <ServerListControls
-          serverCount={servers.length}
-          compact={compact}
-          onToggleList={handleToggleList}
-          onAddManually={onAddManually}
-          onImportConfig={onImportConfig}
-          onImportServerJson={onImportServerJson}
-        />
+      <ServerListControls
+        serverCount={servers.length}
+        compact={compact}
+        onToggleList={handleToggleList}
+        onAddManually={onAddManually}
+        onImportConfig={onImportConfig}
+        onImportServerJson={onImportServerJson}
+      />
 
+      <ScrollArea.Autosize mah="calc(100vh - var(--app-shell-header-height, 60px) - var(--mantine-spacing-xl) * 2 - 60px)">
         {servers.length === 0 ? (
           <EmptyState>
             No servers configured. Add a server to get started.
           </EmptyState>
         ) : (
           <SimpleGrid
-            cols={{ base: 1, md: 2 }}
+            cols={{ base: 1, sm: 2, lg: 3 }}
             spacing="lg"
             className="grid-align-start"
           >
             {servers.map((server) => (
-              <ServerCard key={server.name} compact={compact} {...server} />
+              <ServerCard
+                key={server.name}
+                compact={compact}
+                activeServer={activeServer}
+                onSetActiveServer={setActiveServer}
+                {...server}
+              />
             ))}
           </SimpleGrid>
         )}
-      </Stack>
+      </ScrollArea.Autosize>
     </PageContainer>
   );
 }

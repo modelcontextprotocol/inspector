@@ -16,7 +16,7 @@ export function ConnectionToggle({
   return (
     <Switch
       size="lg"
-      checked={checked}
+      checked={checked || loading}
       disabled={disabled || loading}
       onChange={(event) => onChange(event.currentTarget.checked)}
     />

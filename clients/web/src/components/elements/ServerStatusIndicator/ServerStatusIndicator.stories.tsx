@@ -1,13 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { StatusIndicator } from "./StatusIndicator";
+import { ServerStatusIndicator } from "./ServerStatusIndicator";
 
-const meta: Meta<typeof StatusIndicator> = {
-  title: "Elements/StatusIndicator",
-  component: StatusIndicator,
+const meta: Meta<typeof ServerStatusIndicator> = {
+  title: "Elements/ServerStatusIndicator",
+  component: ServerStatusIndicator,
 };
 
 export default meta;
-type Story = StoryObj<typeof StatusIndicator>;
+type Story = StoryObj<typeof ServerStatusIndicator>;
 
 export const Connected: Story = {
   args: {

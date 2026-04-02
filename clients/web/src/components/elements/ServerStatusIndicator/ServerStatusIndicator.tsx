@@ -1,12 +1,12 @@
 import { Group, Paper, Text } from "@mantine/core";
 
-export interface StatusIndicatorProps {
+export interface ServerStatusIndicatorProps {
   status: "connected" | "connecting" | "disconnected" | "failed";
   latencyMs?: number;
   retryCount?: number;
 }
 
-const statusColorVar: Record<StatusIndicatorProps["status"], string> = {
+const statusColorVar: Record<ServerStatusIndicatorProps["status"], string> = {
   connected: "var(--inspector-status-connected)",
   connecting: "var(--inspector-status-connecting)",
   disconnected: "var(--inspector-status-disconnected)",
@@ -14,7 +14,7 @@ const statusColorVar: Record<StatusIndicatorProps["status"], string> = {
 };
 
 function getLabel(
-  status: StatusIndicatorProps["status"],
+  status: ServerStatusIndicatorProps["status"],
   latencyMs?: number,
   retryCount?: number,
 ): string {
@@ -36,11 +36,11 @@ const Dot = Paper.withProps({
   radius: "xl",
 });
 
-export function StatusIndicator({
+export function ServerStatusIndicator({
   status,
   latencyMs,
   retryCount,
-}: StatusIndicatorProps) {
+}: ServerStatusIndicatorProps) {
   return (
     <Group gap="xs">
       <Dot
