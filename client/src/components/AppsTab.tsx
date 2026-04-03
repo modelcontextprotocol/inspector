@@ -6,11 +6,16 @@ import {
   AlertCircle,
   X,
   Play,
+  Loader2,
   ChevronRight,
   Maximize2,
   Minimize2,
 } from "lucide-react";
-import { Tool, ServerNotification } from "@modelcontextprotocol/sdk/types.js";
+import {
+  Tool,
+  ServerNotification,
+  CompatibilityCallToolResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
 import AppRenderer from "./AppRenderer";
@@ -40,6 +45,19 @@ interface AppsTabProps {
   sandboxPath: string;
   tools: Tool[];
   listTools: () => void;
+  callTool: (
+    name: string,
+    params: Record<string, unknown>,
+    metadata?: Record<string, unknown>,
+    runAsTask?: boolean,
+  ) => Promise<CompatibilityCallToolResult>;
+  prefilledToolCall?: {
+    id: number;
+    toolName: string;
+    params: Record<string, unknown>;
+    result: CompatibilityCallToolResult;
+  } | null;
+  onPrefilledToolCallConsumed?: (callId: number) => void;
   error: string | null;
   mcpClient: Client | null;
   onNotification?: (notification: ServerNotification) => void;
@@ -50,10 +68,23 @@ const hasUIMetadata = (tool: Tool): boolean => {
   return !!getToolUiResourceUri(tool);
 };
 
+const cloneToolParams = (
+  source: Record<string, unknown>,
+): Record<string, unknown> => {
+  try {
+    return structuredClone(source);
+  } catch {
+    return { ...source };
+  }
+};
+
 const AppsTab = ({
   sandboxPath,
   tools,
   listTools,
+  callTool,
+  prefilledToolCall,
+  onPrefilledToolCallConsumed,
   error,
   mcpClient,
   onNotification,
@@ -62,9 +93,38 @@ const AppsTab = ({
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [isAppOpen, setIsAppOpen] = useState(false);
+  const [isOpeningApp, setIsOpeningApp] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [hasValidationErrors, setHasValidationErrors] = useState(false);
+  const [submittedParams, setSubmittedParams] = useState<
+    Record<string, unknown> | undefined
+  >(undefined);
+  const [submittedToolResult, setSubmittedToolResult] =
+    useState<CompatibilityCallToolResult | null>(null);
   const formRefs = useRef<Record<string, DynamicJsonFormRef | null>>({});
+  const openAppRunIdRef = useRef(0);
+  const prefillingParamsRef = useRef<Record<string, unknown> | null>(null);
+  const consumedPrefilledCallIdRef = useRef<number | null>(null);
+
+  const buildInitialParams = useCallback((tool: Tool) => {
+    const initialParams = Object.entries(tool.inputSchema.properties ?? []).map(
+      ([key, value]) => {
+        const resolvedValue = resolveRef(
+          value as JsonSchemaType,
+          tool.inputSchema as JsonSchemaType,
+        );
+        return [
+          key,
+          generateDefaultValue(
+            resolvedValue,
+            key,
+            tool.inputSchema as JsonSchemaType,
+          ),
+        ];
+      },
+    );
+    return Object.fromEntries(initialParams);
+  }, []);
 
   // Function to check if any form has validation errors
   const checkValidationErrors = useCallback(() => {
@@ -89,63 +149,145 @@ const AppsTab = ({
     if (selectedTool && !filtered.find((t) => t.name === selectedTool.name)) {
       setSelectedTool(null);
       setIsAppOpen(false);
+      setSubmittedParams(undefined);
+      setSubmittedToolResult(null);
     }
   }, [tools, selectedTool]);
 
   useEffect(() => {
     if (selectedTool) {
-      const initialParams = Object.entries(
-        selectedTool.inputSchema.properties ?? [],
-      ).map(([key, value]) => {
-        // First resolve any $ref references
-        const resolvedValue = resolveRef(
-          value as JsonSchemaType,
-          selectedTool.inputSchema as JsonSchemaType,
-        );
-        return [
-          key,
-          generateDefaultValue(
-            resolvedValue,
-            key,
-            selectedTool.inputSchema as JsonSchemaType,
-          ),
-        ];
-      });
-      setParams(Object.fromEntries(initialParams));
+      const prefillingParams = prefillingParamsRef.current;
+      if (prefillingParams) {
+        setParams(prefillingParams);
+        prefillingParamsRef.current = null;
+      } else {
+        setParams(buildInitialParams(selectedTool));
+      }
       setHasValidationErrors(false);
       formRefs.current = {};
     } else {
       setParams({});
       setIsAppOpen(false);
+      setSubmittedParams(undefined);
+      setSubmittedToolResult(null);
     }
-  }, [selectedTool]);
+  }, [buildInitialParams, selectedTool]);
+
+  useEffect(() => {
+    if (!prefilledToolCall) {
+      return;
+    }
+
+    if (consumedPrefilledCallIdRef.current === prefilledToolCall.id) {
+      return;
+    }
+
+    const matchingTool = appTools.find(
+      (tool) => tool.name === prefilledToolCall.toolName,
+    );
+    if (!matchingTool) {
+      return;
+    }
+
+    const hydratedParams = cloneToolParams(prefilledToolCall.params);
+
+    openAppRunIdRef.current += 1;
+    setIsOpeningApp(false);
+    prefillingParamsRef.current = hydratedParams;
+    setSelectedTool(matchingTool);
+    setSubmittedParams(hydratedParams);
+    setSubmittedToolResult(prefilledToolCall.result);
+    setIsAppOpen(true);
+    setIsMaximized(false);
+    consumedPrefilledCallIdRef.current = prefilledToolCall.id;
+    onPrefilledToolCallConsumed?.(prefilledToolCall.id);
+  }, [appTools, onPrefilledToolCallConsumed, prefilledToolCall]);
 
   const handleRefresh = useCallback(() => {
     listTools();
   }, [listTools]);
 
+  const executeToolAndOpenApp = useCallback(
+    async (tool: Tool, toolParams: Record<string, unknown>) => {
+      const runId = ++openAppRunIdRef.current;
+      const runParams = cloneToolParams(toolParams);
+      prefillingParamsRef.current = null;
+      setIsOpeningApp(true);
+      setSubmittedParams(runParams);
+      setSubmittedToolResult(null);
+      try {
+        const result = await callTool(tool.name, runParams);
+
+        if (runId !== openAppRunIdRef.current) {
+          return;
+        }
+
+        setSubmittedParams(runParams);
+        setSubmittedToolResult(result);
+        setIsAppOpen(true);
+      } catch {
+        if (runId !== openAppRunIdRef.current) {
+          return;
+        }
+
+        setSubmittedToolResult(null);
+        setIsAppOpen(false);
+      } finally {
+        if (runId === openAppRunIdRef.current) {
+          setIsOpeningApp(false);
+        }
+      }
+    },
+    [callTool],
+  );
+
   const handleCloseApp = useCallback(() => {
+    openAppRunIdRef.current += 1;
+    setIsOpeningApp(false);
     setIsAppOpen(false);
+    setSubmittedToolResult(null);
   }, []);
 
-  const handleOpenApp = useCallback(() => {
-    if (!checkValidationErrors()) {
-      setIsAppOpen(true);
+  const handleOpenApp = useCallback(async () => {
+    if (!selectedTool || checkValidationErrors()) {
+      return;
     }
-  }, [checkValidationErrors]);
 
-  const handleSelectTool = useCallback((tool: Tool) => {
-    setSelectedTool(tool);
-    const hasFields =
-      tool.inputSchema.properties &&
-      Object.keys(tool.inputSchema.properties).length > 0;
-    setIsAppOpen(!hasFields);
-  }, []);
+    await executeToolAndOpenApp(selectedTool, params);
+  }, [checkValidationErrors, executeToolAndOpenApp, params, selectedTool]);
+
+  const handleSelectTool = useCallback(
+    (tool: Tool) => {
+      openAppRunIdRef.current += 1;
+      setIsOpeningApp(false);
+      prefillingParamsRef.current = null;
+      setSelectedTool(tool);
+      setSubmittedParams(undefined);
+      setSubmittedToolResult(null);
+      const hasFields =
+        tool.inputSchema.properties &&
+        Object.keys(tool.inputSchema.properties).length > 0;
+
+      if (hasFields) {
+        setIsAppOpen(false);
+        return;
+      }
+
+      const initialParams = buildInitialParams(tool);
+      void executeToolAndOpenApp(tool, initialParams);
+    },
+    [buildInitialParams, executeToolAndOpenApp],
+  );
 
   const handleDeselectTool = useCallback(() => {
+    openAppRunIdRef.current += 1;
+    setIsOpeningApp(false);
+    prefillingParamsRef.current = null;
     setSelectedTool(null);
     setIsAppOpen(false);
     setIsMaximized(false);
+    setSubmittedParams(undefined);
+    setSubmittedToolResult(null);
   }, []);
 
   return (
@@ -470,12 +612,16 @@ const AppsTab = ({
                           })}
 
                           <Button
-                            onClick={handleOpenApp}
+                            onClick={() => void handleOpenApp()}
                             className="w-full"
-                            disabled={hasValidationErrors}
+                            disabled={hasValidationErrors || isOpeningApp}
                           >
-                            <Play className="w-4 h-4 mr-2" />
-                            Open App
+                            {isOpeningApp ? (
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                              <Play className="w-4 h-4 mr-2" />
+                            )}
+                            {isOpeningApp ? "Opening App..." : "Open App"}
                           </Button>
                         </div>
                       </div>
@@ -497,7 +643,8 @@ const AppsTab = ({
                             sandboxPath={sandboxPath}
                             tool={selectedTool}
                             mcpClient={mcpClient}
-                            toolInput={params}
+                            toolInput={submittedParams}
+                            toolResult={submittedToolResult}
                             onNotification={onNotification}
                           />
                         </div>

@@ -146,10 +146,15 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   get redirect_uris() {
-    // Normally register both redirect URIs to support both normal and debug flows
-    // In debug subclass, redirectUrl may be the same as debugRedirectUrl, so remove duplicates
+    // Always register both redirect URIs to support both normal and debug flows.
+    // Use the base URLs directly (not this.redirectUrl) to avoid the debug subclass
+    // override collapsing both URIs into one, which causes the normal flow's
+    // /authorize request to use an unregistered redirect_uri.
     // See: https://github.com/modelcontextprotocol/inspector/issues/825
-    return [...new Set([this.redirectUrl, this.debugRedirectUrl])];
+    // See: https://github.com/modelcontextprotocol/inspector/issues/930
+    const callbackUrl = window.location.origin + "/oauth/callback";
+    const debugCallbackUrl = window.location.origin + "/oauth/callback/debug";
+    return [callbackUrl, debugCallbackUrl];
   }
 
   get clientMetadata(): OAuthClientMetadata {

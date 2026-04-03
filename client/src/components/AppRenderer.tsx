@@ -3,6 +3,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   Tool,
   ContentBlock,
+  CompatibilityCallToolResult,
+  CallToolResult,
+  CallToolResultSchema,
   ServerNotification,
   LoggingMessageNotificationParams,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -24,6 +27,7 @@ interface AppRendererProps {
   tool: Tool;
   mcpClient: Client | null;
   toolInput?: Record<string, unknown>;
+  toolResult?: CompatibilityCallToolResult | null;
   onNotification?: (notification: ServerNotification) => void;
 }
 
@@ -32,10 +36,31 @@ const AppRenderer = ({
   tool,
   mcpClient,
   toolInput,
+  toolResult,
   onNotification,
 }: AppRendererProps) => {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+
+  const normalizedToolResult = useMemo<CallToolResult | undefined>(() => {
+    if (!toolResult) {
+      return undefined;
+    }
+
+    if ("content" in toolResult) {
+      const parsedResult = CallToolResultSchema.safeParse(toolResult);
+      return parsedResult.success ? parsedResult.data : undefined;
+    }
+
+    if ("toolResult" in toolResult) {
+      const parsedResult = CallToolResultSchema.safeParse(
+        toolResult.toolResult,
+      );
+      return parsedResult.success ? parsedResult.data : undefined;
+    }
+
+    return undefined;
+  }, [toolResult]);
 
   const hostContext: McpUiHostContext = useMemo(
     () => ({
@@ -115,6 +140,7 @@ const AppRenderer = ({
           toolName={tool.name}
           hostContext={hostContext}
           toolInput={toolInput}
+          toolResult={normalizedToolResult}
           sandbox={{
             url: new URL(sandboxPath, window.location.origin),
           }}
