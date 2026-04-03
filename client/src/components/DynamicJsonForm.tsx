@@ -487,7 +487,12 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
                 if (!isNaN(num)) {
                   handleFieldChange(path, num);
                 }
-                clearNumericDraft(path);
+                // Keep the draft if the raw text differs from the
+                // stringified number (e.g. "1.0" vs "1") so the
+                // display preserves the user's decimal notation.
+                if (val === String(num)) {
+                  clearNumericDraft(path);
+                }
               }}
               placeholder={propSchema.description}
               required={isRequired}
