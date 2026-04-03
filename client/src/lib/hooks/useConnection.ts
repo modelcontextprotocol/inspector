@@ -64,6 +64,7 @@ import {
   clearScopeFromSessionStorage,
   discoverScopes,
 } from "../auth";
+import { createProxyFetch } from "../proxyFetch";
 import {
   getMCPProxyAddress,
   getMCPTaskTtl,
@@ -400,17 +401,22 @@ export function useConnection({
   const handleAuthError = async (error: unknown) => {
     if (is401Error(error)) {
       let scope = oauthScope?.trim();
+      const fetchFn =
+        connectionType === "proxy" ? createProxyFetch(config) : undefined;
+
       if (!scope) {
         // Only discover resource metadata when we need to discover scopes
         let resourceMetadata;
         try {
           resourceMetadata = await discoverOAuthProtectedResourceMetadata(
             new URL("/", sseUrl),
+            {},
+            fetchFn,
           );
         } catch {
           // Resource metadata is optional, continue without it
         }
-        scope = await discoverScopes(sseUrl, resourceMetadata);
+        scope = await discoverScopes(sseUrl, resourceMetadata, fetchFn);
       }
 
       saveScopeToSessionStorage(sseUrl, scope);
@@ -420,6 +426,7 @@ export function useConnection({
         const result = await auth(serverAuthProvider, {
           serverUrl: sseUrl,
           scope,
+          ...(fetchFn && { fetchFn }),
         });
         return result === "AUTHORIZED";
       } catch (authError) {
