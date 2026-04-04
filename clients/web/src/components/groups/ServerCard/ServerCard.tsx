@@ -113,8 +113,7 @@ export function ServerCard({
     <Card
       withBorder
       padding="lg"
-      opacity={isDimmed ? 0.4 : 1}
-      style={isDimmed ? { pointerEvents: "none" } : undefined}
+      variant={isDimmed ? "disabled" : undefined}
       {...(isDimmed ? { "aria-disabled": true, inert: true } : {})}
     >
       <Stack gap="sm">

@@ -136,9 +136,7 @@ export function ResourcesScreen({
                 <ResourcePreviewPanel
                   {...selectedResource}
                   onRefresh={() => onReadResource(selectedResource.uri)}
-                  onSubscribe={() =>
-                    onSubscribeResource(selectedResource.uri)
-                  }
+                  onSubscribe={() => onSubscribeResource(selectedResource.uri)}
                   onUnsubscribe={() =>
                     onUnsubscribeResource(selectedResource.uri)
                   }
@@ -146,9 +144,7 @@ export function ResourcesScreen({
               </DetailCard>
             ) : (
               <DetailCard>
-                <EmptyState>
-                  Enter a URI and click Read to preview
-                </EmptyState>
+                <EmptyState>Enter a URI and click Read to preview</EmptyState>
               </DetailCard>
             )}
           </ScrollArea.Autosize>
@@ -163,9 +159,7 @@ export function ResourcesScreen({
               {...selectedResource}
               onRefresh={() => onReadResource(selectedResource.uri)}
               onSubscribe={() => onSubscribeResource(selectedResource.uri)}
-              onUnsubscribe={() =>
-                onUnsubscribeResource(selectedResource.uri)
-              }
+              onUnsubscribe={() => onUnsubscribeResource(selectedResource.uri)}
             />
           </DetailCard>
         </ScrollArea.Autosize>

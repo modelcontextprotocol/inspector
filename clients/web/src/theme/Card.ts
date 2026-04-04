@@ -10,7 +10,18 @@ export const ThemeCard = Card.extend({
     if (props.variant === "responsive") return { root: "card-responsive" };
     return {};
   },
-  styles: () => ({
-    root: { backgroundColor: "var(--inspector-surface-card)" },
-  }),
+  styles: (_theme, props) => {
+    if (props.variant === "disabled") {
+      return {
+        root: {
+          backgroundColor: "var(--inspector-surface-card)",
+          opacity: 0.4,
+          pointerEvents: "none",
+        },
+      };
+    }
+    return {
+      root: { backgroundColor: "var(--inspector-surface-card)" },
+    };
+  },
 });
