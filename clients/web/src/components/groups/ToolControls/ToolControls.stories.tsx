@@ -6,8 +6,6 @@ const meta: Meta<typeof ToolControls> = {
   title: "Groups/ToolControls",
   component: ToolControls,
   args: {
-    searchText: "",
-    onSearchChange: fn(),
     onRefreshList: fn(),
     onSelectTool: fn(),
     listChanged: false,
@@ -52,7 +50,6 @@ export const WithSelection: Story = {
 export const WithSearch: Story = {
   args: {
     tools: sampleTools,
-    searchText: "send",
   },
 };
 

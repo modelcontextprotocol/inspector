@@ -394,9 +394,7 @@ export const ToolsActive: Story = {
           ],
           onClear: fn(),
         }}
-        searchText=""
         listChanged={true}
-        onSearchChange={fn()}
         onRefreshList={fn()}
         onSelectTool={fn()}
       />
@@ -677,8 +675,6 @@ export const PromptsActive: Story = {
           ],
         }}
         listChanged={true}
-        searchText=""
-        onSearchChange={fn()}
         onRefreshList={fn()}
         onSelectPrompt={fn()}
         onArgumentChange={fn()}

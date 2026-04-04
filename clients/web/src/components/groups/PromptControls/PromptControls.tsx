@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { PromptListItem } from "../PromptListItem/PromptListItem";
@@ -6,8 +7,6 @@ import type { PromptItem } from "../../screens/PromptsScreen/PromptsScreen";
 export interface PromptControlsProps {
   prompts: PromptItem[];
   listChanged: boolean;
-  searchText: string;
-  onSearchChange: (text: string) => void;
   onRefreshList: () => void;
   onSelectPrompt: (name: string) => void;
 }
@@ -19,13 +18,15 @@ function listMaxHeight(): string {
 export function PromptControls({
   prompts,
   listChanged,
-  searchText,
-  onSearchChange,
   onRefreshList,
   onSelectPrompt,
 }: PromptControlsProps) {
-  const filteredPrompts = prompts.filter((p) =>
-    p.name.toLowerCase().includes(searchText.toLowerCase()),
+  const [searchText, setSearchText] = useState("");
+  const query = searchText.toLowerCase();
+  const filteredPrompts = prompts.filter(
+    (p) =>
+      p.name.toLowerCase().includes(query) ||
+      (p.description?.toLowerCase().includes(query) ?? false),
   );
 
   return (
@@ -37,7 +38,7 @@ export function PromptControls({
       <TextInput
         placeholder="Search prompts..."
         value={searchText}
-        onChange={(e) => onSearchChange(e.currentTarget.value)}
+        onChange={(e) => setSearchText(e.currentTarget.value)}
       />
       <ScrollArea.Autosize mah={listMaxHeight()}>
         <Stack gap="xs">

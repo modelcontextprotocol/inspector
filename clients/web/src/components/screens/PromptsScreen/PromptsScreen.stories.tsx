@@ -8,8 +8,6 @@ const meta: Meta<typeof PromptsScreen> = {
   component: PromptsScreen,
   parameters: { layout: "fullscreen" },
   args: {
-    searchText: "",
-    onSearchChange: fn(),
     onRefreshList: fn(),
     onSelectPrompt: fn(),
     onArgumentChange: fn(),

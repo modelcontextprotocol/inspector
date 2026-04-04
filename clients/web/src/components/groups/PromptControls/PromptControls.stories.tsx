@@ -6,8 +6,6 @@ const meta: Meta<typeof PromptControls> = {
   title: "Groups/PromptControls",
   component: PromptControls,
   args: {
-    searchText: "",
-    onSearchChange: fn(),
     onRefreshList: fn(),
     onSelectPrompt: fn(),
     listChanged: false,
@@ -58,7 +56,6 @@ export const WithSelection: Story = {
 export const WithSearch: Story = {
   args: {
     prompts: samplePrompts,
-    searchText: "sum",
   },
 };
 

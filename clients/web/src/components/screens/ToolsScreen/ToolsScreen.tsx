@@ -11,8 +11,6 @@ export interface ToolsScreenProps {
   selectedTool?: ToolDetailPanelProps;
   result?: ToolResultPanelProps;
   listChanged: boolean;
-  searchText: string;
-  onSearchChange: (text: string) => void;
   onRefreshList: () => void;
   onSelectTool: (name: string) => void;
 }
@@ -51,8 +49,6 @@ export function ToolsScreen({
   selectedTool,
   result,
   listChanged,
-  searchText,
-  onSearchChange,
   onRefreshList,
   onSelectTool,
 }: ToolsScreenProps) {
@@ -63,8 +59,6 @@ export function ToolsScreen({
           <ToolControls
             tools={tools}
             listChanged={listChanged}
-            searchText={searchText}
-            onSearchChange={onSearchChange}
             onRefreshList={onRefreshList}
             onSelectTool={onSelectTool}
           />

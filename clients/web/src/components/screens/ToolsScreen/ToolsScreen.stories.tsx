@@ -10,9 +10,7 @@ const meta: Meta<typeof ToolsScreen> = {
   component: ToolsScreen,
   parameters: { layout: "fullscreen" },
   args: {
-    searchText: "",
     listChanged: false,
-    onSearchChange: fn(),
     onRefreshList: fn(),
     onSelectTool: fn(),
   },

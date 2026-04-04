@@ -23,8 +23,6 @@ export interface PromptsScreenProps {
   selectedPrompt?: SelectedPrompt;
   messages?: PromptMessagesDisplayProps;
   listChanged: boolean;
-  searchText: string;
-  onSearchChange: (text: string) => void;
   onRefreshList: () => void;
   onSelectPrompt: (name: string) => void;
   onArgumentChange: (name: string, value: string) => void;
@@ -64,8 +62,6 @@ export function PromptsScreen({
   selectedPrompt,
   messages,
   listChanged,
-  searchText,
-  onSearchChange,
   onRefreshList,
   onSelectPrompt,
   onArgumentChange,
@@ -78,8 +74,6 @@ export function PromptsScreen({
           <PromptControls
             prompts={prompts}
             listChanged={listChanged}
-            searchText={searchText}
-            onSearchChange={onSearchChange}
             onRefreshList={onRefreshList}
             onSelectPrompt={onSelectPrompt}
           />

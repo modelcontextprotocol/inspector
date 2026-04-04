@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { ToolListItem } from "../ToolListItem/ToolListItem";
@@ -6,8 +7,6 @@ import type { ToolListItemProps } from "../ToolListItem/ToolListItem";
 export interface ToolControlsProps {
   tools: ToolListItemProps[];
   listChanged: boolean;
-  searchText: string;
-  onSearchChange: (text: string) => void;
   onRefreshList: () => void;
   onSelectTool: (name: string) => void;
 }
@@ -19,14 +18,16 @@ function listMaxHeight(): string {
 export function ToolControls({
   tools,
   listChanged,
-  searchText,
-  onSearchChange,
   onRefreshList,
   onSelectTool,
 }: ToolControlsProps) {
+  const [searchText, setSearchText] = useState("");
+  const query = searchText.toLowerCase();
   const filteredTools = searchText
-    ? tools.filter((tool) =>
-        tool.name.toLowerCase().includes(searchText.toLowerCase()),
+    ? tools.filter(
+        (tool) =>
+          tool.name.toLowerCase().includes(query) ||
+          (tool.title?.toLowerCase().includes(query) ?? false),
       )
     : tools;
 
@@ -39,7 +40,7 @@ export function ToolControls({
       <TextInput
         placeholder="Search tools..."
         value={searchText}
-        onChange={(e) => onSearchChange(e.currentTarget.value)}
+        onChange={(e) => setSearchText(e.currentTarget.value)}
       />
       <ScrollArea.Autosize mah={listMaxHeight()}>
         <Stack gap="xs">

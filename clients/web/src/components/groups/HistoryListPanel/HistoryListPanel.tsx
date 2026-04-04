@@ -59,8 +59,9 @@ function matchesFilters(
   if (methodFilter && entry.method !== methodFilter) return false;
   if (searchText) {
     const term = searchText.toLowerCase();
+    const responseText = entry.response ? JSON.stringify(entry.response) : "";
     const searchable =
-      `${entry.method} ${entry.target ?? ""} ${entry.timestamp}`.toLowerCase();
+      `${entry.method} ${entry.target ?? ""} ${entry.timestamp} ${responseText}`.toLowerCase();
     if (!searchable.includes(term)) return false;
   }
   return true;
