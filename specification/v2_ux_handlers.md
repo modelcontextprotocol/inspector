@@ -1,7 +1,7 @@
 # Inspector V2 UX - Handlers & Patterns
 
 ### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_web_client.md) | V2 UX
-#### [Overview](v2_ux.md) | [Features](v2_ux_features.md) | Handlers | [Screenshots](v2_screenshots.md) | [Components](v2_ux_components.md)
+#### [Overview](v2_ux.md) | [Features](v2_ux_features.md) | Handlers | [Screenshots](v2_screenshots.md) | [Components](v2_ux_components.md) | [Interfaces](v2_ux_interfaces.md)
 
 ---
 
