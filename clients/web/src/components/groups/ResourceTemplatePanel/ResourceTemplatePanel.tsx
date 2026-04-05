@@ -1,0 +1,146 @@
+import { useState, useMemo } from "react";
+import { Button, Group, Stack, Text, TextInput, Title } from "@mantine/core";
+import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
+import { CopyButton } from "../../elements/CopyButton/CopyButton";
+
+export interface ResourceTemplatePanelProps {
+  name: string;
+  title?: string;
+  uriTemplate: string;
+  description?: string;
+  annotations?: { audience?: string; priority?: number };
+  onReadResource: (uri: string) => void;
+}
+
+function parseVariableNames(uriTemplate: string): string[] {
+  const names: string[] = [];
+  const regex = /\{(\w+)\}/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(uriTemplate)) !== null) {
+    names.push(match[1]);
+  }
+
+  return names;
+}
+
+function resolveUri(
+  uriTemplate: string,
+  variables: Record<string, string>,
+): string {
+  return uriTemplate.replace(/\{(\w+)\}/g, (_, key: string) => variables[key]);
+}
+
+function previewUri(
+  uriTemplate: string,
+  variables: Record<string, string>,
+): string {
+  return uriTemplate.replace(/\{(\w+)\}/g, (match, key: string) =>
+    variables[key]?.length > 0 ? variables[key] : match,
+  );
+}
+
+function priorityLabel(priority: number): string {
+  if (priority >= 0.7) return "priority: high";
+  if (priority >= 0.4) return "priority: medium";
+  return "priority: low";
+}
+
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+});
+
+const UriGroup = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
+});
+
+const UriText = Text.withProps({
+  size: "sm",
+  c: "blue",
+  truncate: "end",
+});
+
+const DescriptionText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const FooterRow = Group.withProps({
+  justify: "space-between",
+});
+
+const AnnotationGroup = Group.withProps({
+  gap: "xs",
+});
+
+export function ResourceTemplatePanel({
+  name,
+  title,
+  uriTemplate,
+  description,
+  annotations,
+  onReadResource,
+}: ResourceTemplatePanelProps) {
+  const variableNames = useMemo(
+    () => parseVariableNames(uriTemplate),
+    [uriTemplate],
+  );
+
+  const [variables, setVariables] = useState<Record<string, string>>(() =>
+    Object.fromEntries(variableNames.map((n) => [n, ""])),
+  );
+
+  function handleVariableChange(varName: string, value: string) {
+    setVariables((prev) => ({ ...prev, [varName]: value }));
+  }
+
+  const canSubmit = variableNames.every((n) => variables[n]?.length > 0);
+
+  function handleSubmit() {
+    onReadResource(resolveUri(uriTemplate, variables));
+  }
+
+  return (
+    <Stack gap="md">
+      <HeaderRow>
+        <Title order={4}>{title ?? name} Template</Title>
+        <UriGroup>
+          <UriText>{previewUri(uriTemplate, variables)}</UriText>
+          <CopyButton value={previewUri(uriTemplate, variables)} />
+        </UriGroup>
+      </HeaderRow>
+      {description && <DescriptionText>{description}</DescriptionText>}
+      <Stack gap="sm">
+        {variableNames.map((varName) => (
+          <TextInput
+            key={varName}
+            label={varName}
+            placeholder={`Enter ${varName}`}
+            value={variables[varName] ?? ""}
+            onChange={(e) =>
+              handleVariableChange(varName, e.currentTarget.value)
+            }
+          />
+        ))}
+      </Stack>
+      <FooterRow>
+        <AnnotationGroup>
+          {annotations?.audience && (
+            <AnnotationBadge label={annotations.audience} variant="audience" />
+          )}
+          {annotations?.priority !== undefined && (
+            <AnnotationBadge
+              label={priorityLabel(annotations.priority)}
+              variant="priority"
+            />
+          )}
+        </AnnotationGroup>
+        <Button size="sm" disabled={!canSubmit} onClick={handleSubmit}>
+          Read Resource
+        </Button>
+      </FooterRow>
+    </Stack>
+  );
+}
