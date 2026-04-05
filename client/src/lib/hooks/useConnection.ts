@@ -54,8 +54,10 @@ import { ConnectionStatus, CLIENT_IDENTITY } from "../constants";
 import { Notification } from "../notificationTypes";
 import {
   auth,
+  startAuthorization,
   discoverOAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/client/auth.js";
+import { OAuthMetadataSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import {
   clearClientInformationFromSessionStorage,
   InspectorOAuthClientProvider,
@@ -75,6 +77,7 @@ import { getMCPServerRequestTimeout } from "@/utils/configUtils";
 import { InspectorConfig } from "../configurationTypes";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CustomHeaders } from "../types/customHeaders";
+import { OAuthClientAuthMethod } from "../auth-types";
 import { resolveRefsInMessage } from "@/utils/schemaUtils";
 
 interface UseConnectionOptions {
@@ -88,6 +91,11 @@ interface UseConnectionOptions {
   oauthClientId?: string;
   oauthClientSecret?: string;
   oauthScope?: string;
+  oauthAuthMethod?: OAuthClientAuthMethod;
+  oauthCertPath?: string;
+  oauthKeyPath?: string;
+  oauthTokenEndpoint?: string;
+  oauthAuthEndpoint?: string;
   config: InspectorConfig;
   connectionType?: "direct" | "proxy";
   onNotification?: (notification: Notification) => void;
@@ -113,6 +121,11 @@ export function useConnection({
   oauthClientId,
   oauthClientSecret,
   oauthScope,
+  oauthAuthMethod,
+  oauthCertPath,
+  oauthKeyPath,
+  oauthTokenEndpoint,
+  oauthAuthEndpoint,
   config,
   connectionType = "proxy",
   onNotification,
@@ -404,9 +417,8 @@ export function useConnection({
         // Only discover resource metadata when we need to discover scopes
         let resourceMetadata;
         try {
-          resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-            new URL("/", sseUrl),
-          );
+          resourceMetadata =
+            await discoverOAuthProtectedResourceMetadata(sseUrl);
         } catch {
           // Resource metadata is optional, continue without it
         }
@@ -416,6 +428,144 @@ export function useConnection({
       saveScopeToSessionStorage(sseUrl, scope);
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
+      // Certificate auth: build authorization URL manually, skipping SDK discovery
+      if (oauthAuthMethod === "certificate") {
+        try {
+          let authEndpoint = oauthAuthEndpoint;
+          let tokenEndpoint = oauthTokenEndpoint;
+
+          // Auto-discover endpoints if not manually provided
+          if (!authEndpoint || !tokenEndpoint) {
+            try {
+              // Use proxy server for discovery to avoid CORS issues with remote servers
+              const proxyAddress = getMCPProxyAddress(config);
+              const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
+                getMCPProxyAuthToken(config);
+              const discoveryHeaders: Record<string, string> = {};
+              if (proxyAuthToken) {
+                discoveryHeaders[proxyAuthTokenHeader] =
+                  `Bearer ${proxyAuthToken}`;
+              }
+              const discoveryUrl = new URL(`${proxyAddress}/oauth/discover`);
+              discoveryUrl.searchParams.set("url", sseUrl);
+              const discoveryResponse = await fetch(discoveryUrl.href, {
+                headers: discoveryHeaders,
+              });
+
+              if (discoveryResponse.ok) {
+                const metadata = await discoveryResponse.json();
+                // Use pre-discovered OIDC endpoints if available
+                if (metadata._discovered_endpoints) {
+                  if (
+                    !authEndpoint &&
+                    metadata._discovered_endpoints.authorization_endpoint
+                  ) {
+                    authEndpoint =
+                      metadata._discovered_endpoints.authorization_endpoint;
+                  }
+                  if (
+                    !tokenEndpoint &&
+                    metadata._discovered_endpoints.token_endpoint
+                  ) {
+                    tokenEndpoint =
+                      metadata._discovered_endpoints.token_endpoint;
+                  }
+                } else if (metadata.authorization_servers?.length) {
+                  // Fallback: fetch OIDC config directly (works for same-origin)
+                  const authServerUrl =
+                    metadata.authorization_servers[0].replace(/\/+$/, "");
+                  const oidcResponse = await fetch(
+                    `${authServerUrl}/.well-known/openid-configuration`,
+                  );
+                  if (oidcResponse.ok) {
+                    const oidcConfig = await oidcResponse.json();
+                    if (!authEndpoint && oidcConfig.authorization_endpoint) {
+                      authEndpoint = oidcConfig.authorization_endpoint;
+                    }
+                    if (!tokenEndpoint && oidcConfig.token_endpoint) {
+                      tokenEndpoint = oidcConfig.token_endpoint;
+                    }
+                  }
+                }
+              }
+            } catch {
+              // Discovery failed, fall through to check if we have endpoints
+            }
+          }
+
+          if (!authEndpoint) {
+            toast({
+              title: "Certificate Auth Configuration Required",
+              description:
+                "Could not discover OAuth endpoints. Please provide the Authorization Endpoint URL.",
+              variant: "destructive",
+            });
+            return false;
+          }
+
+          // Build metadata for startAuthorization
+          const metadata = await OAuthMetadataSchema.parseAsync({
+            issuer: tokenEndpoint || authEndpoint,
+            authorization_endpoint: authEndpoint,
+            token_endpoint: tokenEndpoint || authEndpoint,
+            response_types_supported: ["code"],
+          });
+
+          const clientInformation =
+            await serverAuthProvider.clientInformation();
+          if (!clientInformation) {
+            toast({
+              title: "Client ID Required",
+              description:
+                "Please provide a Client ID for certificate authentication.",
+              variant: "destructive",
+            });
+            return false;
+          }
+
+          // Use SDK's startAuthorization but WITHOUT the resource parameter
+          const { authorizationUrl, codeVerifier } = await startAuthorization(
+            authEndpoint,
+            {
+              metadata,
+              clientInformation,
+              redirectUrl: serverAuthProvider.redirectUrl,
+              scope,
+              state: await serverAuthProvider.state(),
+              resource: undefined, // Explicitly omit resource for Azure AD
+            },
+          );
+
+          serverAuthProvider.saveCodeVerifier(codeVerifier);
+
+          // Explicitly save cert config to localStorage before redirect
+          // so OAuthCallback can read them on the return trip.
+          // Use discovered endpoints (tokenEndpoint/authEndpoint) not the
+          // original props, since they may have been auto-discovered via OIDC.
+          localStorage.setItem("lastOauthAuthMethod", "certificate");
+          localStorage.setItem("lastOauthClientId", oauthClientId || "");
+          localStorage.setItem("lastOauthCertPath", oauthCertPath || "");
+          localStorage.setItem("lastOauthKeyPath", oauthKeyPath || "");
+          localStorage.setItem("lastOauthTokenEndpoint", tokenEndpoint || "");
+          localStorage.setItem("lastOauthAuthEndpoint", authEndpoint || "");
+          if (scope) localStorage.setItem("lastOauthScope", scope);
+
+          window.location.href = authorizationUrl.href;
+          return false;
+        } catch (authError) {
+          toast({
+            title: "Certificate OAuth Failed",
+            description:
+              authError instanceof Error
+                ? authError.message
+                : String(authError),
+            variant: "destructive",
+          });
+          return false;
+        }
+      }
+
+      // Standard auth flow using SDK
       try {
         const result = await auth(serverAuthProvider, {
           serverUrl: sseUrl,
@@ -498,6 +648,13 @@ export function useConnection({
 
       // Create an auth provider with the current server URL
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
+
+      // For certificate auth, don't pass authProvider to the transport.
+      // This prevents the SDK from running its own discovery/auth flow
+      // (which fails with CORS on remote servers and adds the 'resource' param
+      // that Azure AD rejects). Instead, let the 401 bubble up to handleAuthError.
+      const transportAuthProvider =
+        oauthAuthMethod === "certificate" ? undefined : serverAuthProvider;
 
       // Use custom headers (migration is handled in App.tsx)
       let finalHeaders: CustomHeaders = customHeaders || [];
@@ -584,7 +741,7 @@ export function useConnection({
             requestHeaders["Accept"] = "text/event-stream";
             requestHeaders["content-type"] = "application/json";
             transportOptions = {
-              authProvider: serverAuthProvider,
+              authProvider: transportAuthProvider,
               fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
@@ -606,7 +763,7 @@ export function useConnection({
 
           case "streamable-http":
             transportOptions = {
-              authProvider: serverAuthProvider,
+              authProvider: transportAuthProvider,
               fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
@@ -664,7 +821,7 @@ export function useConnection({
               );
             }
             transportOptions = {
-              authProvider: serverAuthProvider,
+              authProvider: transportAuthProvider,
               eventSourceInit: {
                 fetch: (
                   url: string | URL | globalThis.Request,
@@ -695,7 +852,7 @@ export function useConnection({
               );
             }
             transportOptions = {
-              authProvider: serverAuthProvider,
+              authProvider: transportAuthProvider,
               eventSourceInit: {
                 fetch: (
                   url: string | URL | globalThis.Request,
@@ -717,7 +874,7 @@ export function useConnection({
             mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
             mcpProxyServerUrl.searchParams.append("url", sseUrl);
             transportOptions = {
-              authProvider: serverAuthProvider,
+              authProvider: transportAuthProvider,
               eventSourceInit: {
                 fetch: (
                   url: string | URL | globalThis.Request,

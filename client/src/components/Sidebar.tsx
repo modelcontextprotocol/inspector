@@ -31,6 +31,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorConfig } from "@/lib/configurationTypes";
 import { ConnectionStatus } from "@/lib/constants";
+import { OAuthClientAuthMethod } from "@/lib/auth-types";
 import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
 import {
@@ -64,6 +65,16 @@ interface SidebarProps {
   setOauthClientSecret: (secret: string) => void;
   oauthScope: string;
   setOauthScope: (scope: string) => void;
+  oauthAuthMethod: OAuthClientAuthMethod;
+  setOauthAuthMethod: (method: OAuthClientAuthMethod) => void;
+  oauthCertPath: string;
+  setOauthCertPath: (path: string) => void;
+  oauthKeyPath: string;
+  setOauthKeyPath: (path: string) => void;
+  oauthTokenEndpoint: string;
+  setOauthTokenEndpoint: (url: string) => void;
+  oauthAuthEndpoint: string;
+  setOauthAuthEndpoint: (url: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
   logLevel: LoggingLevel;
@@ -98,6 +109,16 @@ const Sidebar = ({
   setOauthClientSecret,
   oauthScope,
   setOauthScope,
+  oauthAuthMethod,
+  setOauthAuthMethod,
+  oauthCertPath,
+  setOauthCertPath,
+  oauthKeyPath,
+  setOauthKeyPath,
+  oauthTokenEndpoint,
+  setOauthTokenEndpoint,
+  oauthAuthEndpoint,
+  setOauthAuthEndpoint,
   onConnect,
   onDisconnect,
   logLevel,
@@ -117,6 +138,9 @@ const Sidebar = ({
   const [showClientSecret, setShowClientSecret] = useState(false);
   const [copiedServerEntry, setCopiedServerEntry] = useState(false);
   const [copiedServerFile, setCopiedServerFile] = useState(false);
+  const [endpointSource, setEndpointSource] = useState<"auto" | "manual">(
+    oauthAuthEndpoint || oauthTokenEndpoint ? "manual" : "auto",
+  );
   const { toast } = useToast();
 
   const connectionTypeTip =
@@ -567,37 +591,143 @@ const Sidebar = ({
                         className="font-mono"
                       />
                       <label className="text-sm font-medium">
-                        Client Secret
+                        Authentication Method
                       </label>
-                      <div className="flex gap-2">
-                        <Input
-                          type={showClientSecret ? "text" : "password"}
-                          placeholder="Client Secret (optional)"
-                          onChange={(e) => setOauthClientSecret(e.target.value)}
-                          value={oauthClientSecret}
-                          data-testid="oauth-client-secret-input"
-                          className="font-mono"
-                        />
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-9 w-9 p-0 shrink-0"
-                          onClick={() => setShowClientSecret(!showClientSecret)}
-                          aria-label={
-                            showClientSecret ? "Hide secret" : "Show secret"
-                          }
-                          aria-pressed={showClientSecret}
-                          title={
-                            showClientSecret ? "Hide secret" : "Show secret"
-                          }
-                        >
-                          {showClientSecret ? (
-                            <Eye className="h-4 w-4" aria-hidden="true" />
-                          ) : (
-                            <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      <Select
+                        value={oauthAuthMethod}
+                        onValueChange={(value) =>
+                          setOauthAuthMethod(value as OAuthClientAuthMethod)
+                        }
+                      >
+                        <SelectTrigger data-testid="oauth-auth-method-select">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="secret">Client Secret</SelectItem>
+                          <SelectItem value="certificate">
+                            Client Certificate
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {oauthAuthMethod === "secret" ? (
+                        <>
+                          <label className="text-sm font-medium">
+                            Client Secret
+                          </label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={showClientSecret ? "text" : "password"}
+                              placeholder="Client Secret (optional)"
+                              onChange={(e) =>
+                                setOauthClientSecret(e.target.value)
+                              }
+                              value={oauthClientSecret}
+                              data-testid="oauth-client-secret-input"
+                              className="font-mono"
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-9 w-9 p-0 shrink-0"
+                              onClick={() =>
+                                setShowClientSecret(!showClientSecret)
+                              }
+                              aria-label={
+                                showClientSecret ? "Hide secret" : "Show secret"
+                              }
+                              aria-pressed={showClientSecret}
+                              title={
+                                showClientSecret ? "Hide secret" : "Show secret"
+                              }
+                            >
+                              {showClientSecret ? (
+                                <Eye className="h-4 w-4" aria-hidden="true" />
+                              ) : (
+                                <EyeOff
+                                  className="h-4 w-4"
+                                  aria-hidden="true"
+                                />
+                              )}
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <label className="text-sm font-medium">
+                            OAuth Endpoints
+                          </label>
+                          <Select
+                            value={endpointSource}
+                            onValueChange={(value: "auto" | "manual") => {
+                              setEndpointSource(value);
+                              if (value === "auto") {
+                                setOauthAuthEndpoint("");
+                                setOauthTokenEndpoint("");
+                              }
+                            }}
+                          >
+                            <SelectTrigger data-testid="oauth-endpoint-source-select">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="auto">
+                                Auto-discover from metadata
+                              </SelectItem>
+                              <SelectItem value="manual">
+                                Enter manually
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {endpointSource === "manual" && (
+                            <>
+                              <label className="text-sm font-medium">
+                                Authorization Endpoint URL
+                              </label>
+                              <Input
+                                placeholder="https://auth.example.com/authorize"
+                                onChange={(e) =>
+                                  setOauthAuthEndpoint(e.target.value)
+                                }
+                                value={oauthAuthEndpoint}
+                                data-testid="oauth-auth-endpoint-input"
+                                className="font-mono"
+                              />
+                              <label className="text-sm font-medium">
+                                Token Endpoint URL
+                              </label>
+                              <Input
+                                placeholder="https://auth.example.com/token"
+                                onChange={(e) =>
+                                  setOauthTokenEndpoint(e.target.value)
+                                }
+                                value={oauthTokenEndpoint}
+                                data-testid="oauth-token-endpoint-input"
+                                className="font-mono"
+                              />
+                            </>
                           )}
-                        </Button>
-                      </div>
+                          <label className="text-sm font-medium">
+                            Certificate File Path
+                          </label>
+                          <Input
+                            placeholder="/path/to/certificate.pem"
+                            onChange={(e) => setOauthCertPath(e.target.value)}
+                            value={oauthCertPath}
+                            data-testid="oauth-cert-path-input"
+                            className="font-mono"
+                          />
+                          <label className="text-sm font-medium">
+                            Private Key File Path
+                          </label>
+                          <Input
+                            placeholder="/path/to/private-key.pem"
+                            onChange={(e) => setOauthKeyPath(e.target.value)}
+                            value={oauthKeyPath}
+                            data-testid="oauth-key-path-input"
+                            className="font-mono"
+                          />
+                        </>
+                      )}
                       <label className="text-sm font-medium">
                         Redirect URL
                       </label>
