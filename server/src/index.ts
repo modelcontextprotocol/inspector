@@ -174,6 +174,7 @@ const updateHeadersInPlace = (
 
 const app = express();
 app.use(cors());
+app.use(express.json()); // Enable JSON body parsing globally
 app.use((req, res, next) => {
   res.header("Access-Control-Expose-Headers", "mcp-session-id");
   next();
@@ -457,7 +458,7 @@ app.get(
         res.status(404).end("Session not found");
         return;
       } else {
-        await transport.handleRequest(req, res);
+        await transport.handleRequest(req, res, req.body);
       }
     } catch (error) {
       console.error("Error in /mcp route:", error);
@@ -472,6 +473,16 @@ app.post(
   authMiddleware,
   async (req, res) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+    // Diagnostic logging for debugging "Parse error: Invalid JSON" issues
+    // See: https://github.com/modelcontextprotocol/inspector/pull/996
+    console.log(
+      `[/mcp POST] sessionId=${sessionId ?? "(none)"} ` +
+        `content-type=${req.headers["content-type"] ?? "(missing)"} ` +
+        `body-type=${typeof req.body} ` +
+        `body-defined=${req.body !== undefined} ` +
+        `body=${typeof req.body === "object" ? JSON.stringify(req.body) : String(req.body)}`,
+    );
 
     if (sessionId) {
       console.log(`Received POST message for sessionId ${sessionId}`);
@@ -493,6 +504,7 @@ app.post(
           await (transport as StreamableHTTPServerTransport).handleRequest(
             req,
             res,
+            req.body,
           );
         }
       } catch (error) {
@@ -813,6 +825,194 @@ app.get(
 
     res.set("Cache-Control", "no-cache, no-store, max-age=0");
     res.send(sandboxHtml);
+  },
+);
+
+// OAuth Proxy Endpoints - for routing OAuth requests through the proxy to avoid CORS issues
+
+/**
+ * Proxy endpoint for OAuth Authorization Server Metadata Discovery
+ * GET /oauth/metadata?url=<well-known-url>
+ */
+app.get(
+  "/oauth/metadata",
+  originValidationMiddleware,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const metadataUrl = req.query.url as string;
+      if (!metadataUrl) {
+        res.status(400).json({ error: "url query parameter is required" });
+        return;
+      }
+
+      console.log(`OAuth metadata discovery: ${metadataUrl}`);
+
+      const response = await fetch(metadataUrl);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        res.status(response.status).json({
+          error: `Failed to fetch OAuth metadata: ${response.statusText}`,
+          details: errorText,
+        });
+        return;
+      }
+
+      const metadata = await response.json();
+      res.json(metadata);
+    } catch (error) {
+      console.error("Error in /oauth/metadata route:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+/**
+ * Proxy endpoint for OAuth Protected Resource Metadata Discovery
+ * GET /oauth/resource-metadata?url=<well-known-url>
+ */
+app.get(
+  "/oauth/resource-metadata",
+  originValidationMiddleware,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const metadataUrl = req.query.url as string;
+      if (!metadataUrl) {
+        res.status(400).json({ error: "url query parameter is required" });
+        return;
+      }
+
+      console.log(`OAuth resource metadata discovery: ${metadataUrl}`);
+
+      const response = await fetch(metadataUrl);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        res.status(response.status).json({
+          error: `Failed to fetch resource metadata: ${response.statusText}`,
+          details: errorText,
+        });
+        return;
+      }
+
+      const metadata = await response.json();
+      res.json(metadata);
+    } catch (error) {
+      console.error("Error in /oauth/resource-metadata route:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+/**
+ * Proxy endpoint for OAuth Dynamic Client Registration (DCR)
+ * POST /oauth/register
+ * Body: { registrationEndpoint: string, clientMetadata: object }
+ */
+app.post(
+  "/oauth/register",
+  originValidationMiddleware,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { registrationEndpoint, clientMetadata } = req.body;
+
+      if (!registrationEndpoint || !clientMetadata) {
+        res.status(400).json({
+          error:
+            "registrationEndpoint and clientMetadata are required in request body",
+        });
+        return;
+      }
+
+      console.log(`OAuth client registration at: ${registrationEndpoint}`);
+
+      const response = await fetch(registrationEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(clientMetadata),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        res.status(response.status).json({
+          error: `Failed to register client: ${response.statusText}`,
+          details: errorText,
+        });
+        return;
+      }
+
+      const clientInformation = await response.json();
+      res.json(clientInformation);
+    } catch (error) {
+      console.error("Error in /oauth/register route:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+/**
+ * Proxy endpoint for OAuth Token Exchange
+ * POST /oauth/token
+ * Body: { tokenEndpoint: string, params: object }
+ */
+app.post(
+  "/oauth/token",
+  originValidationMiddleware,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { tokenEndpoint, params } = req.body;
+
+      if (!tokenEndpoint || !params) {
+        res.status(400).json({
+          error: "tokenEndpoint and params are required in request body",
+        });
+        return;
+      }
+
+      console.log(`OAuth token exchange at: ${tokenEndpoint}`);
+
+      // Convert params object to URLSearchParams for form encoding
+      const formBody = new URLSearchParams(params as Record<string, string>);
+
+      const response = await fetch(tokenEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+        },
+        body: formBody.toString(),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        res.status(response.status).json({
+          error: `Failed to exchange token: ${response.statusText}`,
+          details: errorText,
+        });
+        return;
+      }
+
+      const tokens = await response.json();
+      res.json(tokens);
+    } catch (error) {
+      console.error("Error in /oauth/token route:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   },
 );
 
