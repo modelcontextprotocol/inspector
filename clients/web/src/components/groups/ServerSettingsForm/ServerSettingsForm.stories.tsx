@@ -6,6 +6,8 @@ const meta: Meta<typeof ServerSettingsForm> = {
   title: "Groups/ServerSettingsForm",
   component: ServerSettingsForm,
   args: {
+    expandedSections: ["connectionMode"],
+    onExpandedSectionsChange: fn(),
     onConnectionModeChange: fn(),
     onAddHeader: fn(),
     onRemoveHeader: fn(),

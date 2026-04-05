@@ -23,3 +23,19 @@ export const Collapsed: Story = {
     onToggle: fn(),
   },
 };
+
+export const SubtleExpanded: Story = {
+  args: {
+    compact: false,
+    variant: "subtle",
+    onToggle: fn(),
+  },
+};
+
+export const SubtleCollapsed: Story = {
+  args: {
+    compact: true,
+    variant: "subtle",
+    onToggle: fn(),
+  },
+};

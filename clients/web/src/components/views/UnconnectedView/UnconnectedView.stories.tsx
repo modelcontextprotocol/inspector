@@ -1,7 +1,22 @@
+import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Box, CloseButton, Group, Modal, Title } from "@mantine/core";
 import { fn } from "storybook/test";
 import { UnconnectedView } from "./UnconnectedView.js";
 import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
+import {
+  ServerSettingsForm,
+  type ServerSettingsSection,
+} from "../../groups/ServerSettingsForm/ServerSettingsForm";
+
+const ALL_SETTINGS_SECTIONS: ServerSettingsSection[] = [
+  "connectionMode",
+  "headers",
+  "metadata",
+  "timeouts",
+  "oauth",
+];
+import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import type { ServerCardProps } from "../../groups/ServerCard/ServerCard";
 
 const meta: Meta<typeof UnconnectedView> = {
@@ -91,6 +106,88 @@ export const WithServers: Story = {
       />
     ),
   },
+};
+
+function SettingsModalStory() {
+  const [expandedSections, setExpandedSections] = useState<
+    ServerSettingsSection[]
+  >(["connectionMode"]);
+  const allExpanded = expandedSections.length === ALL_SETTINGS_SECTIONS.length;
+  return (
+    <UnconnectedView onToggleTheme={fn()}>
+      <ServerListScreen
+        servers={[
+          {
+            name: "everything-server",
+            version: "1.0.0",
+            transport: "stdio",
+            connectionMode: "Via Proxy",
+            command: "npx -y @modelcontextprotocol/server-everything",
+            status: "disconnected",
+            canTestClientFeatures: false,
+            ...makeServerCallbacks(),
+          },
+        ]}
+        onAddManually={fn()}
+        onImportConfig={fn()}
+        onImportServerJson={fn()}
+      />
+      <Modal
+        opened
+        onClose={fn()}
+        withCloseButton={false}
+        title={
+          <Group justify="space-between" wrap="nowrap" w="100%">
+            <ListToggle
+              compact={allExpanded}
+              variant="subtle"
+              onToggle={() =>
+                setExpandedSections(allExpanded ? [] : ALL_SETTINGS_SECTIONS)
+              }
+            />
+            <Title order={4} ta="center" style={{ flex: 1 }}>
+              Server Settings
+            </Title>
+            <Box>
+              <CloseButton onClick={fn()} />
+            </Box>
+          </Group>
+        }
+        size="lg"
+        centered
+        styles={{ title: { flex: 1 } }}
+      >
+        <ServerSettingsForm
+          connectionMode="proxy"
+          headers={[
+            { key: "Authorization", value: "Bearer token-abc-123" },
+            { key: "X-Request-Id", value: "req-456" },
+          ]}
+          metadata={[{ key: "userId", value: "user-789" }]}
+          connectionTimeout={30000}
+          requestTimeout={60000}
+          oauthClientId="my-client-id"
+          oauthClientSecret="super-secret-value"
+          oauthScopes="read write"
+          expandedSections={expandedSections}
+          onExpandedSectionsChange={setExpandedSections}
+          onConnectionModeChange={fn()}
+          onAddHeader={fn()}
+          onRemoveHeader={fn()}
+          onHeaderChange={fn()}
+          onAddMetadata={fn()}
+          onRemoveMetadata={fn()}
+          onMetadataChange={fn()}
+          onTimeoutChange={fn()}
+          onOAuthChange={fn()}
+        />
+      </Modal>
+    </UnconnectedView>
+  );
+}
+
+export const WithSettingsModal: Story = {
+  render: () => <SettingsModalStory />,
 };
 
 export const ManyServers: Story = {
