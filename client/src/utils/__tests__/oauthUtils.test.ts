@@ -3,6 +3,7 @@ import {
   parseOAuthCallbackParams,
   generateOAuthState,
   getAuthorizationServerMetadataDiscoveryUrl,
+  getResourceMetadataDiscoveryUrl,
 } from "@/utils/oauthUtils.ts";
 
 describe("parseOAuthCallbackParams", () => {
@@ -83,6 +84,54 @@ describe("generateOAuthErrorDescription", () => {
       expect(generateOAuthState()).toBeDefined();
       expect(generateOAuthState()).toHaveLength(64);
     });
+  });
+});
+
+describe("getResourceMetadataDiscoveryUrl", () => {
+  it("appends single-segment resource path after well-known prefix", () => {
+    expect(
+      getResourceMetadataDiscoveryUrl("https://example.com/resource"),
+    ).toBe("https://example.com/.well-known/oauth-protected-resource/resource");
+  });
+
+  it("appends full subpath resource path after well-known prefix", () => {
+    expect(
+      getResourceMetadataDiscoveryUrl("https://example.com/public/mcp"),
+    ).toBe(
+      "https://example.com/.well-known/oauth-protected-resource/public/mcp",
+    );
+  });
+
+  it("appends deeply nested resource path after well-known prefix", () => {
+    expect(
+      getResourceMetadataDiscoveryUrl("https://example.com/foo/bar/resource"),
+    ).toBe(
+      "https://example.com/.well-known/oauth-protected-resource/foo/bar/resource",
+    );
+  });
+
+  it("strips trailing slash before appending resource path", () => {
+    expect(
+      getResourceMetadataDiscoveryUrl("https://example.com/public/mcp/"),
+    ).toBe(
+      "https://example.com/.well-known/oauth-protected-resource/public/mcp",
+    );
+  });
+
+  it("returns bare well-known URL when resource URL has no path", () => {
+    expect(getResourceMetadataDiscoveryUrl("https://example.com")).toBe(
+      "https://example.com/.well-known/oauth-protected-resource",
+    );
+  });
+
+  it("accepts a URL object as input", () => {
+    expect(
+      getResourceMetadataDiscoveryUrl(
+        new URL("https://example.com/public/mcp"),
+      ),
+    ).toBe(
+      "https://example.com/.well-known/oauth-protected-resource/public/mcp",
+    );
   });
 });
 
