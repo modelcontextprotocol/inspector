@@ -1148,21 +1148,50 @@ const App = () => {
                   ? ((response as { _meta?: Record<string, unknown> })._meta ??
                     {})
                   : undefined;
-              latestToolResult = {
-                content: [
-                  {
-                    type: "text",
-                    text: `Task status: ${taskStatus.status}${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Polling...`,
+
+              if (taskStatus.status === "input_required") {
+                // Per MCP spec: when input_required, call tasks/result to give
+                // the server a chance to deliver queued elicitation/sampling
+                // requests. After elicitation is handled, the task transitions
+                // back to "working" — do NOT set taskCompleted here.
+                latestToolResult = {
+                  content: [
+                    {
+                      type: "text",
+                      text: `Task status: input_required${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Awaiting input...`,
+                    },
+                  ],
+                  _meta: {
+                    ...(pollingResponseMeta || {}),
+                    "io.modelcontextprotocol/related-task": { taskId },
                   },
-                ],
-                _meta: {
-                  ...(pollingResponseMeta || {}),
-                  "io.modelcontextprotocol/related-task": { taskId },
-                },
-              };
-              setToolResult(latestToolResult);
-              // Refresh tasks list to show progress
-              void listTasks();
+                };
+                setToolResult(latestToolResult);
+                await sendMCPRequest(
+                  {
+                    method: "tasks/result",
+                    params: { taskId },
+                  },
+                  CompatibilityCallToolResultSchema,
+                );
+                void listTasks();
+              } else {
+                latestToolResult = {
+                  content: [
+                    {
+                      type: "text",
+                      text: `Task status: ${taskStatus.status}${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Polling...`,
+                    },
+                  ],
+                  _meta: {
+                    ...(pollingResponseMeta || {}),
+                    "io.modelcontextprotocol/related-task": { taskId },
+                  },
+                };
+                setToolResult(latestToolResult);
+                // Refresh tasks list to show progress
+                void listTasks();
+              }
             }
           } catch (pollingError) {
             console.error("Error polling task status:", pollingError);
