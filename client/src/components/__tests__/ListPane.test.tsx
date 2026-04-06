@@ -53,6 +53,18 @@ describe("ListPane", () => {
       expect(screen.getByText("Another Tool")).toBeInTheDocument();
     });
 
+    it("should show item count when items are present", () => {
+      renderListPane();
+
+      expect(screen.getByText("(3)")).toBeInTheDocument();
+    });
+
+    it("should not show item count when no items", () => {
+      renderListPane({ items: [] });
+
+      expect(screen.queryByText("(0)")).not.toBeInTheDocument();
+    });
+
     it("should render empty state when no items", () => {
       renderListPane({ items: [] });
 

@@ -61,6 +61,11 @@ const ListPane = <T extends object>({
         <div className="flex items-center justify-between gap-4">
           <h3 className="font-semibold dark:text-white flex-shrink-0">
             {title}
+            {items.length > 0 && (
+              <span className="ml-2 text-xs font-medium text-muted-foreground">
+                ({items.length})
+              </span>
+            )}
           </h3>
           <div className="flex items-center justify-end min-w-0 flex-1">
             {!isSearchExpanded ? (
