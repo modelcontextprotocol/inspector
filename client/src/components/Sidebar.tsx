@@ -238,7 +238,7 @@ const Sidebar = ({
     <div className="bg-card border-r border-border flex flex-col h-full">
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-border">
         <div className="flex items-center">
-          <h1 className="ml-2 text-lg font-semibold">
+          <h1 className="ml-2 text-lg font-semibold whitespace-nowrap">
             MCP Inspector v{version}
           </h1>
         </div>

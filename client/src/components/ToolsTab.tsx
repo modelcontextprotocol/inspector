@@ -35,11 +35,20 @@ import {
   AlertCircle,
   Copy,
   CheckCheck,
+  Plus,
+  Type,
 } from "lucide-react";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
+import {
+  HorizontalHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+  useDefaultLayout,
+} from "@/components/ui/resizable";
+import { usePanelToggle } from "@/hooks/use-panel-toggle";
 import { useToast } from "@/lib/hooks/useToast";
 import useCopy from "@/lib/hooks/useCopy";
 import IconDisplay, { WithIcons } from "./IconDisplay";
@@ -52,6 +61,8 @@ import {
   hasValidMetaPrefix,
   isReservedMetaKey,
 } from "@/utils/metaUtils";
+
+import { InspectorConfig } from "@/lib/configurationTypes";
 
 /**
  * Extended Tool type that includes optional fields used by the inspector.
@@ -177,6 +188,7 @@ const ToolsTab = ({
   error,
   resourceContent,
   onReadResource,
+  config,
   serverSupportsTaskRequests,
 }: {
   tools: Tool[];
@@ -196,6 +208,7 @@ const ToolsTab = ({
   error: string | null;
   resourceContent: Record<string, string>;
   onReadResource?: (uri: string) => void;
+  config: InspectorConfig;
   serverSupportsTaskRequests: boolean;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
@@ -203,40 +216,136 @@ const ToolsTab = ({
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
   const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
+  const [isSticky, setIsSticky] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [metadataEntries, setMetadataEntries] = useState<
     { id: string; key: string; value: string }[]
   >([]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsSticky(!entry.isIntersecting);
+      },
+      { threshold: 0 },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.unobserve(sentinel);
+  }, [selectedTool]);
   const [hasValidationErrors, setHasValidationErrors] = useState(false);
+  const [multilineFields, setMultilineFields] = useState<Set<string>>(
+    new Set(),
+  );
   const formRefs = useRef<Record<string, DynamicJsonFormRef | null>>({});
+  const searchRef = useRef<HTMLInputElement>(null);
+  const { panelRef: toolsRef, toggle: toggleTools } = usePanelToggle();
   const { toast } = useToast();
   const { copied, setCopied } = useCopy();
 
+  useEffect(() => {
+    if (tools.length > 0) {
+      searchRef.current?.focus();
+    }
+  }, [tools.length]);
+
+  const toggleMultiline = useCallback((key: string) => {
+    setMultilineFields((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
+  const enableHistory = config.MCP_ENABLE_BROWSER_HISTORY?.value !== false;
+
   // Function to check if any form has validation errors
-  const checkValidationErrors = (validateChildren: boolean = false) => {
+  const checkValidationErrors = () => {
     const errors = Object.values(formRefs.current).some(
-      (ref) =>
-        ref &&
-        (validateChildren ? !ref.validateJson().isValid : ref.hasJsonError()),
+      (ref) => ref && !ref.validateJson().isValid,
     );
     setHasValidationErrors(errors);
     return errors;
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    const enableHistory = config.MCP_ENABLE_BROWSER_HISTORY?.value !== false;
+
+    // Note: If history is enabled, we do NOT preventDefault here to allow the
+    // browser to see a successful submission to the hidden iframe.
+    if (!enableHistory) {
+      e.preventDefault();
+    }
+
+    // Validate JSON inputs before calling tool
+    if (checkValidationErrors()) {
+      e.preventDefault(); // Always stop submission if there are validation errors
+      return;
+    }
+
+    try {
+      const scrollPos = scrollContainerRef.current?.scrollTop;
+      setIsToolRunning(true);
+      const metadata = metadataEntries.reduce<Record<string, unknown>>(
+        (acc, { key, value }) => {
+          const trimmedKey = key.trim();
+          if (
+            trimmedKey !== "" &&
+            hasValidMetaPrefix(trimmedKey) &&
+            !isReservedMetaKey(trimmedKey) &&
+            hasValidMetaName(trimmedKey)
+          ) {
+            acc[trimmedKey] = value;
+          }
+          return acc;
+        },
+        {},
+      );
+      await callTool(
+        selectedTool!.name,
+        params,
+        Object.keys(metadata).length ? metadata : undefined,
+        runAsTask,
+      );
+
+      // Restore scroll position after results might have expanded the container
+      if (scrollPos !== undefined && scrollContainerRef.current) {
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollPos;
+          }
+        });
+      }
+    } finally {
+      setIsToolRunning(false);
+    }
+  };
+
   useEffect(() => {
+    if (!selectedTool) return;
+
     const params = Object.entries(
-      selectedTool?.inputSchema.properties ?? [],
+      selectedTool.inputSchema.properties ?? [],
     ).map(([key, value]) => {
       // First resolve any $ref references
       const resolvedValue = resolveRef(
         value as JsonSchemaType,
-        selectedTool?.inputSchema as JsonSchemaType,
+        selectedTool.inputSchema as JsonSchemaType,
       );
       return [
         key,
         generateDefaultValue(
           resolvedValue,
           key,
-          selectedTool?.inputSchema as JsonSchemaType,
+          selectedTool.inputSchema as JsonSchemaType,
         ),
       ];
     });
@@ -268,500 +377,655 @@ const ToolsTab = ({
     return trimmedKey !== "" && !hasValidMetaName(trimmedKey);
   });
 
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: "persistence-tools-tab",
+  });
+
   const taskSupport = serverSupportsTaskRequests
     ? getTaskSupport(selectedTool)
     : "forbidden";
 
   return (
-    <TabsContent value="tools">
-      <div className="grid grid-cols-2 gap-4">
-        <ListPane
-          items={tools}
-          listItems={listTools}
-          clearItems={() => {
-            clearTools();
-            setSelectedTool(null);
-            setRunAsTask(false);
-          }}
-          setSelectedItem={setSelectedTool}
-          renderItem={(tool) => (
-            <div className="flex items-start w-full gap-2">
-              <div className="flex-shrink-0 mt-1">
-                <IconDisplay icons={(tool as ExtendedTool).icons} size="sm" />
-              </div>
-              <div className="flex flex-col flex-1 min-w-0">
-                <span className="truncate">{tool.title || tool.name}</span>
-                <span className="text-sm text-gray-500 text-left line-clamp-2">
-                  {tool.description}
-                </span>
-              </div>
-              <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 mt-1" />
-            </div>
-          )}
-          title="Tools"
-          buttonText={nextCursor ? "List More Tools" : "List Tools"}
-          isButtonDisabled={!nextCursor && tools.length > 0}
-        />
-
-        <div className="bg-card border border-border rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200 dark:border-border">
-            <div className="flex items-center gap-2">
-              {selectedTool && (
-                <IconDisplay
-                  icons={(selectedTool as ExtendedTool).icons}
-                  size="md"
-                />
+    <TabsContent value="tools" className="h-full mt-0 focus-visible:ring-0">
+      <ResizablePanelGroup
+        defaultLayout={defaultLayout}
+        onLayoutChanged={onLayoutChanged}
+        orientation="horizontal"
+        className="h-full"
+      >
+        <ResizablePanel
+          panelRef={toolsRef}
+          defaultSize="25%"
+          minSize="0%"
+          maxSize="50%"
+          collapsible
+        >
+          <div className="h-full pr-2">
+            <ListPane
+              items={tools}
+              listItems={listTools}
+              clearItems={() => {
+                clearTools();
+                setSelectedTool(null);
+                setRunAsTask(false);
+              }}
+              selectedItem={selectedTool}
+              setSelectedItem={setSelectedTool}
+              renderItem={(tool) => (
+                <div className="flex items-start w-full gap-2">
+                  <div className="flex-shrink-0 mt-1">
+                    <IconDisplay
+                      icons={(tool as ExtendedTool).icons}
+                      size="sm"
+                    />
+                  </div>
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <span className="truncate">{tool.title || tool.name}</span>
+                    <span className="text-sm text-gray-500 text-left line-clamp-2">
+                      {tool.description}
+                    </span>
+                  </div>
+                  <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 mt-1" />
+                </div>
               )}
-              <h3 className="font-semibold">
-                {selectedTool
-                  ? selectedTool.title || selectedTool.name
-                  : "Select a tool"}
-              </h3>
-            </div>
+              title="Tools"
+              buttonText={nextCursor ? "List More Tools" : "List Tools"}
+              isButtonDisabled={!nextCursor && tools.length > 0}
+              searchRef={searchRef}
+            />
           </div>
-          <div className="p-4">
-            {selectedTool ? (
-              <div className="space-y-4">
-                {error && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Error</AlertTitle>
-                    <AlertDescription className="break-all">
-                      {error}
-                    </AlertDescription>
-                  </Alert>
+        </ResizablePanel>
+        <HorizontalHandle withHandle onDoubleClick={toggleTools} />
+        <ResizablePanel defaultSize="75%">
+          <div
+            ref={scrollContainerRef}
+            className="h-full ml-2 bg-card border border-border rounded-lg shadow overflow-y-auto min-w-0 relative"
+          >
+            <div className="p-4 border-b border-gray-200 dark:border-border h-16 flex items-center sticky top-0 bg-card z-20">
+              <div className="flex items-center gap-2">
+                {selectedTool && (
+                  <IconDisplay
+                    icons={(selectedTool as ExtendedTool).icons}
+                    size="md"
+                  />
                 )}
-                <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap max-h-48 overflow-y-auto">
-                  {selectedTool.description}
-                </p>
-                <AnnotationBadges
-                  annotations={
-                    hasAnnotations(selectedTool)
-                      ? selectedTool.annotations
-                      : undefined
-                  }
-                />
-                {Object.entries(selectedTool.inputSchema.properties ?? []).map(
-                  ([key, value]) => {
-                    // First resolve any $ref references
-                    const resolvedValue = resolveRef(
-                      value as JsonSchemaType,
-                      selectedTool.inputSchema as JsonSchemaType,
-                    );
-                    const prop = normalizeUnionType(resolvedValue);
-                    const inputSchema =
-                      selectedTool.inputSchema as JsonSchemaType;
-                    const required = isPropertyRequired(key, inputSchema);
-                    return (
-                      <div key={key}>
-                        <div className="flex justify-between">
-                          <Label
-                            htmlFor={key}
-                            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                          >
-                            {key}
-                            {required && (
-                              <span className="text-red-500 ml-1">*</span>
-                            )}
-                          </Label>
-                          {prop.nullable ? (
-                            <div className="flex items-center space-x-2">
-                              <Checkbox
-                                id={key}
-                                name={key}
-                                checked={params[key] === null}
-                                onCheckedChange={(checked: boolean) =>
-                                  setParams({
-                                    ...params,
-                                    [key]: checked
-                                      ? null
-                                      : prop.type === "array"
-                                        ? undefined
-                                        : prop.default !== null
-                                          ? prop.default
-                                          : prop.type === "boolean"
-                                            ? false
-                                            : prop.type === "string"
-                                              ? ""
-                                              : prop.type === "number" ||
-                                                  prop.type === "integer"
-                                                ? undefined
-                                                : undefined,
-                                  })
-                                }
-                              />
-                              <label
-                                htmlFor={key}
-                                className="text-sm font-medium text-gray-700 dark:text-gray-300"
-                              >
-                                null
-                              </label>
-                            </div>
-                          ) : null}
-                        </div>
-
-                        <div
-                          role="toolinputwrapper"
-                          className={`${prop.nullable && params[key] === null ? "pointer-events-none opacity-50" : ""}`}
-                        >
-                          {prop.type === "boolean" ? (
-                            <div className="flex items-center space-x-2 mt-2">
-                              <Checkbox
-                                id={key}
-                                name={key}
-                                checked={!!params[key]}
-                                onCheckedChange={(checked: boolean) =>
-                                  setParams({
-                                    ...params,
-                                    [key]: checked,
-                                  })
-                                }
-                              />
-                              <label
-                                htmlFor={key}
-                                className="text-sm font-medium text-gray-700 dark:text-gray-300"
-                              >
-                                {prop.description || "Toggle this option"}
-                              </label>
-                            </div>
-                          ) : prop.type === "string" && prop.enum ? (
-                            <Select
-                              value={
-                                params[key] === undefined
-                                  ? ""
-                                  : String(params[key])
-                              }
-                              onValueChange={(value) => {
-                                if (value === "") {
-                                  setParams({
-                                    ...params,
-                                    [key]: undefined,
-                                  });
-                                } else {
-                                  setParams({
-                                    ...params,
-                                    [key]: value,
-                                  });
-                                }
-                              }}
+                <h3 className="font-semibold">
+                  {selectedTool
+                    ? selectedTool.title || selectedTool.name
+                    : "Select a tool"}
+                </h3>
+              </div>
+            </div>
+            <div className="p-4">
+              {selectedTool ? (
+                <div className="space-y-4">
+                  {error && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Error</AlertTitle>
+                      <AlertDescription className="break-all">
+                        {error}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                    {selectedTool.description}
+                  </p>
+                  <AnnotationBadges
+                    annotations={
+                      hasAnnotations(selectedTool)
+                        ? selectedTool.annotations
+                        : undefined
+                    }
+                  />
+                  {enableHistory && (
+                    /*
+                     * Hidden iframe hack: Browsers only save autocomplete history for standard form
+                     * submissions. By targeting a hidden iframe and allowing the event to bubble,
+                     * we trick the browser into recording the input values without a page reload.
+                     */
+                    <>
+                      <iframe
+                        name="ghost-frame"
+                        id="ghost-frame"
+                        style={{ display: "none" }}
+                        title="ghost-frame"
+                      />
+                    </>
+                  )}
+                  <form
+                    id="tool-form"
+                    onSubmit={handleSubmit}
+                    target={enableHistory ? "ghost-frame" : undefined}
+                    method={enableHistory ? "POST" : undefined}
+                    action={enableHistory ? "about:blank" : undefined}
+                    autoComplete={enableHistory ? "on" : "off"}
+                    className="space-y-4"
+                  >
+                    {Object.entries(
+                      selectedTool.inputSchema.properties ?? [],
+                    ).map(([key, value]) => {
+                      // First resolve any $ref references
+                      const resolvedValue = resolveRef(
+                        value as JsonSchemaType,
+                        selectedTool.inputSchema as JsonSchemaType,
+                      );
+                      const prop = normalizeUnionType(resolvedValue);
+                      const inputSchema =
+                        selectedTool.inputSchema as JsonSchemaType;
+                      const required = isPropertyRequired(key, inputSchema);
+                      return (
+                        <div key={key}>
+                          <div className="flex justify-between">
+                            <Label
+                              htmlFor={key}
+                              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
                             >
-                              <SelectTrigger id={key} className="mt-1">
-                                <SelectValue
-                                  placeholder={
-                                    prop.description || "Select an option"
-                                  }
-                                />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {prop.enum.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {option}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : prop.type === "string" ? (
-                            <Textarea
-                              id={key}
-                              name={key}
-                              placeholder={prop.description}
-                              value={
-                                params[key] === undefined
-                                  ? ""
-                                  : String(params[key])
-                              }
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                if (value === "") {
-                                  // Field cleared - set to undefined
-                                  setParams({
-                                    ...params,
-                                    [key]: undefined,
-                                  });
-                                } else {
-                                  // Field has value - keep as string
-                                  setParams({
-                                    ...params,
-                                    [key]: value,
-                                  });
-                                }
-                              }}
-                              className="mt-1"
-                            />
-                          ) : prop.type === "object" ||
-                            prop.type === "array" ? (
-                            <div className="mt-1">
-                              <DynamicJsonForm
-                                ref={(ref) => (formRefs.current[key] = ref)}
-                                schema={{
-                                  type: prop.type,
-                                  properties: prop.properties,
-                                  description: prop.description,
-                                  items: prop.items,
-                                }}
-                                value={
-                                  (params[key] as JsonValue) ??
-                                  generateDefaultValue(prop)
-                                }
-                                onChange={(newValue: JsonValue) => {
-                                  setParams({
-                                    ...params,
-                                    [key]: newValue,
-                                  });
-                                  // Check validation after a short delay to allow form to update
-                                  setTimeout(checkValidationErrors, 100);
-                                }}
-                              />
-                            </div>
-                          ) : prop.type === "number" ||
-                            prop.type === "integer" ? (
-                            <Input
-                              type="number"
-                              id={key}
-                              name={key}
-                              placeholder={prop.description}
-                              value={
-                                params[key] === undefined
-                                  ? ""
-                                  : String(params[key])
-                              }
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                if (value === "") {
-                                  // Field cleared - set to undefined
-                                  setParams({
-                                    ...params,
-                                    [key]: undefined,
-                                  });
-                                } else {
-                                  // Field has value - try to convert to number, but store input either way
-                                  const num = Number(value);
-                                  if (!isNaN(num)) {
+                              {key}
+                              {required && (
+                                <span className="text-red-500 ml-1">*</span>
+                              )}
+                            </Label>
+                            {prop.nullable ? (
+                              <div className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={key}
+                                  name={key}
+                                  checked={params[key] === null}
+                                  onCheckedChange={(checked: boolean) =>
                                     setParams({
                                       ...params,
-                                      [key]: num,
+                                      [key]: checked
+                                        ? null
+                                        : prop.type === "array"
+                                          ? undefined
+                                          : prop.default !== null
+                                            ? prop.default
+                                            : prop.type === "boolean"
+                                              ? false
+                                              : prop.type === "string"
+                                                ? ""
+                                                : prop.type === "number" ||
+                                                    prop.type === "integer"
+                                                  ? undefined
+                                                  : undefined,
+                                    })
+                                  }
+                                />
+                                <label
+                                  htmlFor={key}
+                                  className="text-sm font-medium text-gray-700 dark:text-gray-300"
+                                >
+                                  null
+                                </label>
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div
+                            role="toolinputwrapper"
+                            className={`${prop.nullable && params[key] === null ? "pointer-events-none opacity-50" : ""}`}
+                          >
+                            {prop.type === "boolean" ? (
+                              <div className="flex items-center space-x-2 mt-2">
+                                <Checkbox
+                                  id={key}
+                                  name={key}
+                                  checked={!!params[key]}
+                                  onCheckedChange={(checked: boolean) =>
+                                    setParams({
+                                      ...params,
+                                      [key]: checked,
+                                    })
+                                  }
+                                />
+                                <label
+                                  htmlFor={key}
+                                  className="text-sm font-medium text-gray-700 dark:text-gray-300"
+                                >
+                                  {prop.description || "Toggle this option"}
+                                </label>
+                              </div>
+                            ) : prop.type === "string" && prop.enum ? (
+                              <Select
+                                value={
+                                  params[key] === undefined
+                                    ? ""
+                                    : String(params[key])
+                                }
+                                onValueChange={(value) => {
+                                  if (value === "") {
+                                    setParams({
+                                      ...params,
+                                      [key]: undefined,
                                     });
                                   } else {
-                                    // Store invalid input as string - let server validate
                                     setParams({
                                       ...params,
                                       [key]: value,
                                     });
                                   }
-                                }
-                              }}
-                              className="mt-1"
-                            />
-                          ) : (
-                            <div className="mt-1">
-                              <DynamicJsonForm
-                                ref={(ref) => (formRefs.current[key] = ref)}
-                                schema={{
-                                  type: prop.type,
-                                  properties: prop.properties,
-                                  description: prop.description,
-                                  items: prop.items,
                                 }}
-                                value={params[key] as JsonValue}
-                                onChange={(newValue: JsonValue) => {
-                                  setParams({
-                                    ...params,
-                                    [key]: newValue,
-                                  });
-                                  // Check validation after a short delay to allow form to update
-                                  setTimeout(checkValidationErrors, 100);
-                                }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  },
-                )}
-                <div className="pb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-sm font-semibold">
-                      Tool-specific Metadata:
-                    </h4>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-6 px-2"
-                      onClick={() =>
-                        setMetadataEntries((prev) => [
-                          ...prev,
-                          {
-                            id:
-                              (
-                                globalThis as unknown as {
-                                  crypto?: { randomUUID?: () => string };
-                                }
-                              ).crypto?.randomUUID?.() ||
-                              Math.random().toString(36).slice(2),
-                            key: "",
-                            value: "",
-                          },
-                        ])
-                      }
-                    >
-                      Add Pair
-                    </Button>
-                  </div>
-                  {metadataEntries.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      No metadata pairs.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {metadataEntries.map((entry, index) => {
-                        const trimmedKey = entry.key.trim();
-                        const hasInvalidPrefix =
-                          trimmedKey !== "" && !hasValidMetaPrefix(trimmedKey);
-                        const isReservedKey =
-                          trimmedKey !== "" && isReservedMetaKey(trimmedKey);
-                        const hasInvalidName =
-                          trimmedKey !== "" && !hasValidMetaName(trimmedKey);
-                        const validationMessage = hasInvalidPrefix
-                          ? META_PREFIX_RULES_MESSAGE
-                          : isReservedKey
-                            ? RESERVED_NAMESPACE_MESSAGE
-                            : hasInvalidName
-                              ? META_NAME_RULES_MESSAGE
-                              : null;
-                        return (
-                          <div key={entry.id} className="space-y-1">
-                            <div className="flex items-center gap-2 w-full">
-                              <Label
-                                htmlFor={`metadata-key-${entry.id}`}
-                                className="text-xs shrink-0"
                               >
-                                Key
-                              </Label>
+                                <SelectTrigger id={key} className="mt-1">
+                                  <SelectValue
+                                    placeholder={
+                                      prop.description || "Select an option"
+                                    }
+                                  />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {prop.enum.map((option) => (
+                                    <SelectItem key={option} value={option}>
+                                      {option}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : prop.type === "string" ? (
+                              <div className="flex gap-1 mt-1">
+                                <div className="flex-1 min-w-0">
+                                  {multilineFields.has(key) ? (
+                                    <Textarea
+                                      id={key}
+                                      name={key}
+                                      autoComplete={
+                                        enableHistory ? "on" : "off"
+                                      }
+                                      placeholder={prop.description}
+                                      value={
+                                        params[key] === undefined
+                                          ? ""
+                                          : String(params[key])
+                                      }
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        if (value === "") {
+                                          setParams({
+                                            ...params,
+                                            [key]: undefined,
+                                          });
+                                        } else {
+                                          setParams({
+                                            ...params,
+                                            [key]: value,
+                                          });
+                                        }
+                                      }}
+                                      className="w-full"
+                                    />
+                                  ) : (
+                                    <Input
+                                      id={key}
+                                      name={key}
+                                      autoComplete={
+                                        enableHistory ? "on" : "off"
+                                      }
+                                      placeholder={prop.description}
+                                      value={
+                                        params[key] === undefined
+                                          ? ""
+                                          : String(params[key])
+                                      }
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        if (value === "") {
+                                          setParams({
+                                            ...params,
+                                            [key]: undefined,
+                                          });
+                                        } else {
+                                          setParams({
+                                            ...params,
+                                            [key]: value,
+                                          });
+                                        }
+                                      }}
+                                      className="w-full"
+                                    />
+                                  )}
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                                  onClick={() => toggleMultiline(key)}
+                                  title={
+                                    multilineFields.has(key)
+                                      ? "Switch to single line"
+                                      : "Switch to multi-line"
+                                  }
+                                >
+                                  {multilineFields.has(key) ? (
+                                    <Type className="h-4 w-4" />
+                                  ) : (
+                                    <Plus className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </div>
+                            ) : prop.type === "object" ||
+                              prop.type === "array" ? (
+                              <div className="mt-1">
+                                <DynamicJsonForm
+                                  ref={(ref) => {
+                                    formRefs.current[key] = ref;
+                                  }}
+                                  schema={{
+                                    type: prop.type,
+                                    properties: prop.properties,
+                                    description: prop.description,
+                                    items: prop.items,
+                                  }}
+                                  value={
+                                    (params[key] as JsonValue) ??
+                                    generateDefaultValue(prop)
+                                  }
+                                  onChange={(newValue: JsonValue) => {
+                                    setParams({
+                                      ...params,
+                                      [key]: newValue,
+                                    });
+                                    // Check validation after a short delay to allow form to update
+                                    setTimeout(checkValidationErrors, 100);
+                                  }}
+                                />
+                              </div>
+                            ) : prop.type === "number" ||
+                              prop.type === "integer" ? (
                               <Input
-                                id={`metadata-key-${entry.id}`}
-                                value={entry.key}
-                                placeholder="e.g. requestId"
+                                type="text"
+                                id={key}
+                                name={key}
+                                autoComplete={enableHistory ? "on" : "off"}
+                                placeholder={prop.description}
+                                value={
+                                  params[key] === undefined
+                                    ? ""
+                                    : String(params[key])
+                                }
                                 onChange={(e) => {
                                   const value = e.target.value;
-                                  setMetadataEntries((prev) =>
-                                    prev.map((m, i) =>
-                                      i === index ? { ...m, key: value } : m,
-                                    ),
-                                  );
+                                  if (value === "") {
+                                    // Field cleared - set to undefined
+                                    setParams({
+                                      ...params,
+                                      [key]: undefined,
+                                    });
+                                  } else {
+                                    // Field has value - try to convert to number, but store input either way
+                                    const num = Number(value);
+                                    if (!isNaN(num)) {
+                                      setParams({
+                                        ...params,
+                                        [key]: num,
+                                      });
+                                    } else {
+                                      // Store invalid input as string - let server validate
+                                      setParams({
+                                        ...params,
+                                        [key]: value,
+                                      });
+                                    }
+                                  }
                                 }}
-                                className={cn(
-                                  "h-8 flex-1",
-                                  validationMessage &&
-                                    "border-red-500 focus-visible:ring-red-500 focus-visible:ring-1",
-                                )}
-                                aria-invalid={Boolean(validationMessage)}
+                                className="mt-1"
                               />
-                              <Label
-                                htmlFor={`metadata-value-${entry.id}`}
-                                className="text-xs shrink-0"
-                              >
-                                Value
-                              </Label>
-                              <Input
-                                id={`metadata-value-${entry.id}`}
-                                value={entry.value}
-                                placeholder="e.g. 12345"
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  setMetadataEntries((prev) =>
-                                    prev.map((m, i) =>
-                                      i === index ? { ...m, value } : m,
-                                    ),
-                                  );
-                                }}
-                                className="h-8 flex-1"
-                                disabled={Boolean(validationMessage)}
-                              />
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 w-8 p-0 ml-auto shrink-0"
-                                onClick={() =>
-                                  setMetadataEntries((prev) =>
-                                    prev.filter((_, i) => i !== index),
-                                  )
-                                }
-                                aria-label={`Remove meta pair ${index + 1}`}
-                              >
-                                -
-                              </Button>
-                            </div>
-                            {validationMessage && (
-                              <p className="text-xs text-red-600 dark:text-red-400">
-                                {validationMessage}
-                              </p>
+                            ) : (
+                              <div className="mt-1">
+                                <DynamicJsonForm
+                                  ref={(ref) => {
+                                    formRefs.current[key] = ref;
+                                  }}
+                                  schema={{
+                                    type: prop.type,
+                                    properties: prop.properties,
+                                    description: prop.description,
+                                    items: prop.items,
+                                  }}
+                                  value={params[key] as JsonValue}
+                                  onChange={(newValue: JsonValue) => {
+                                    setParams({
+                                      ...params,
+                                      [key]: newValue,
+                                    });
+                                    // Check validation after a short delay to allow form to update
+                                    setTimeout(checkValidationErrors, 100);
+                                  }}
+                                />
+                              </div>
                             )}
                           </div>
-                        );
-                      })}
+                        </div>
+                      );
+                    })}
+                    <div className="h-6 -mt-6" />
+                    <div ref={sentinelRef} />
+                    <div
+                      className={cn(
+                        "space-y-4",
+                        isSticky &&
+                          "fixed top-16 translate-x-[-17px] translate-y-[-4px] z-50 bg-card p-4 rounded-lg border shadow-lg max-w-sm",
+                      )}
+                    >
+                      {taskSupport !== "forbidden" && (
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="run-as-task"
+                            checked={runAsTask}
+                            onCheckedChange={(checked: boolean) =>
+                              setRunAsTask(checked)
+                            }
+                            disabled={taskSupport === "required"}
+                          />
+                          <Label
+                            htmlFor="run-as-task"
+                            className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
+                          >
+                            Run as task
+                          </Label>
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <Button
+                          type="submit"
+                          disabled={
+                            isToolRunning ||
+                            isPollingTask ||
+                            hasValidationErrors ||
+                            hasReservedMetadataEntry ||
+                            hasInvalidMetaPrefixEntry ||
+                            hasInvalidMetaNameEntry
+                          }
+                        >
+                          {isToolRunning || isPollingTask ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              {isPollingTask ? "Polling Task..." : "Running..."}
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-4 h-4 mr-2" />
+                              Run Tool
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              navigator.clipboard.writeText(
+                                JSON.stringify(params, null, 2),
+                              );
+                              setCopied(true);
+                            } catch (error) {
+                              toast({
+                                title: "Error",
+                                description: `There was an error copying input to the clipboard: ${error instanceof Error ? error.message : String(error)}`,
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                        >
+                          {copied ? (
+                            <CheckCheck className="h-4 w-4 mr-2 dark:text-green-700 text-green-600" />
+                          ) : (
+                            <Copy className="h-4 w-4 mr-2" />
+                          )}
+                          Copy Input
+                        </Button>
+                      </div>
                     </div>
-                  )}
-                  {(hasReservedMetadataEntry ||
-                    hasInvalidMetaPrefixEntry ||
-                    hasInvalidMetaNameEntry) && (
-                    <p className="text-xs text-red-600 dark:text-red-400">
-                      Remove reserved or invalid metadata keys (prefix/name)
-                      before running the tool.
-                    </p>
-                  )}
-                </div>
-                {selectedTool.outputSchema && (
-                  <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
+                  </form>
+                  <div className="pb-4">
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-sm font-semibold">Output Schema:</h4>
+                      <h4 className="text-sm font-semibold">
+                        Tool-specific Metadata:
+                      </h4>
                       <Button
                         size="sm"
-                        variant="ghost"
-                        onClick={() =>
-                          setIsOutputSchemaExpanded(!isOutputSchemaExpanded)
-                        }
+                        variant="outline"
                         className="h-6 px-2"
+                        onClick={() =>
+                          setMetadataEntries((prev) => [
+                            ...prev,
+                            {
+                              id:
+                                (
+                                  globalThis as unknown as {
+                                    crypto?: { randomUUID?: () => string };
+                                  }
+                                ).crypto?.randomUUID?.() ||
+                                Math.random().toString(36).slice(2),
+                              key: "",
+                              value: "",
+                            },
+                          ])
+                        }
                       >
-                        {isOutputSchemaExpanded ? (
-                          <>
-                            <ChevronUp className="h-3 w-3 mr-1" />
-                            Collapse
-                          </>
-                        ) : (
-                          <>
-                            <ChevronDown className="h-3 w-3 mr-1" />
-                            Expand
-                          </>
-                        )}
+                        Add Pair
                       </Button>
                     </div>
-                    <div
-                      className={`transition-all ${
-                        isOutputSchemaExpanded
-                          ? ""
-                          : "max-h-[8rem] overflow-y-auto"
-                      }`}
-                    >
-                      <JsonView data={selectedTool.outputSchema} />
-                    </div>
+                    {metadataEntries.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        No metadata pairs.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {metadataEntries.map((entry, index) => {
+                          const trimmedKey = entry.key.trim();
+                          const hasInvalidPrefix =
+                            trimmedKey !== "" &&
+                            !hasValidMetaPrefix(trimmedKey);
+                          const isReservedKey =
+                            trimmedKey !== "" && isReservedMetaKey(trimmedKey);
+                          const hasInvalidName =
+                            trimmedKey !== "" && !hasValidMetaName(trimmedKey);
+                          const validationMessage = hasInvalidPrefix
+                            ? META_PREFIX_RULES_MESSAGE
+                            : isReservedKey
+                              ? RESERVED_NAMESPACE_MESSAGE
+                              : hasInvalidName
+                                ? META_NAME_RULES_MESSAGE
+                                : null;
+                          return (
+                            <div key={entry.id} className="space-y-1">
+                              <div className="flex items-center gap-2 w-full">
+                                <Label
+                                  htmlFor={`metadata-key-${entry.id}`}
+                                  className="text-xs shrink-0"
+                                >
+                                  Key
+                                </Label>
+                                <Input
+                                  id={`metadata-key-${entry.id}`}
+                                  value={entry.key}
+                                  placeholder="e.g. requestId"
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    setMetadataEntries((prev) =>
+                                      prev.map((m, i) =>
+                                        i === index ? { ...m, key: value } : m,
+                                      ),
+                                    );
+                                  }}
+                                  className={cn(
+                                    "h-8 flex-1",
+                                    validationMessage &&
+                                      "border-red-500 focus-visible:ring-red-500 focus-visible:ring-1",
+                                  )}
+                                  aria-invalid={Boolean(validationMessage)}
+                                />
+                                <Label
+                                  htmlFor={`metadata-value-${entry.id}`}
+                                  className="text-xs shrink-0"
+                                >
+                                  Value
+                                </Label>
+                                <Input
+                                  id={`metadata-value-${entry.id}`}
+                                  value={entry.value}
+                                  placeholder="e.g. 12345"
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    setMetadataEntries((prev) =>
+                                      prev.map((m, i) =>
+                                        i === index ? { ...m, value } : m,
+                                      ),
+                                    );
+                                  }}
+                                  className="h-8 flex-1"
+                                  disabled={Boolean(validationMessage)}
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 w-8 p-0 ml-auto shrink-0"
+                                  onClick={() =>
+                                    setMetadataEntries((prev) =>
+                                      prev.filter((_, i) => i !== index),
+                                    )
+                                  }
+                                  aria-label={`Remove meta pair ${index + 1}`}
+                                >
+                                  -
+                                </Button>
+                              </div>
+                              {validationMessage && (
+                                <p className="text-xs text-red-600 dark:text-red-400">
+                                  {validationMessage}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {(hasReservedMetadataEntry ||
+                      hasInvalidMetaPrefixEntry ||
+                      hasInvalidMetaNameEntry) && (
+                      <p className="text-xs text-red-600 dark:text-red-400">
+                        Remove reserved or invalid metadata keys (prefix/name)
+                        before running the tool.
+                      </p>
+                    )}
                   </div>
-                )}
-                {selectedTool &&
-                  hasMeta(selectedTool) &&
-                  selectedTool._meta && (
+                  {selectedTool.outputSchema && (
                     <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
                       <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-semibold">Meta:</h4>
+                        <h4 className="text-sm font-semibold">
+                          Output Schema:
+                        </h4>
                         <Button
                           size="sm"
                           variant="ghost"
                           onClick={() =>
-                            setIsMetadataExpanded(!isMetadataExpanded)
+                            setIsOutputSchemaExpanded(!isOutputSchemaExpanded)
                           }
                           className="h-6 px-2"
                         >
-                          {isMetadataExpanded ? (
+                          {isOutputSchemaExpanded ? (
                             <>
                               <ChevronUp className="h-3 w-3 mr-1" />
                               Collapse
@@ -776,128 +1040,72 @@ const ToolsTab = ({
                       </div>
                       <div
                         className={`transition-all ${
-                          isMetadataExpanded
+                          isOutputSchemaExpanded
                             ? ""
                             : "max-h-[8rem] overflow-y-auto"
                         }`}
                       >
-                        <JsonView data={selectedTool._meta} />
+                        <JsonView data={selectedTool.outputSchema} />
                       </div>
                     </div>
                   )}
-                {taskSupport !== "forbidden" && (
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="run-as-task"
-                      checked={runAsTask}
-                      onCheckedChange={(checked: boolean) =>
-                        setRunAsTask(checked)
-                      }
-                      disabled={taskSupport === "required"}
-                    />
-                    <Label
-                      htmlFor="run-as-task"
-                      className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
-                    >
-                      Run as task
-                    </Label>
-                  </div>
-                )}
-                <Button
-                  onClick={async () => {
-                    // Validate JSON inputs before calling tool
-                    if (checkValidationErrors(true)) return;
-
-                    try {
-                      setIsToolRunning(true);
-                      const metadata = metadataEntries.reduce<
-                        Record<string, unknown>
-                      >((acc, { key, value }) => {
-                        const trimmedKey = key.trim();
-                        if (
-                          trimmedKey !== "" &&
-                          hasValidMetaPrefix(trimmedKey) &&
-                          !isReservedMetaKey(trimmedKey) &&
-                          hasValidMetaName(trimmedKey)
-                        ) {
-                          acc[trimmedKey] = value;
-                        }
-                        return acc;
-                      }, {});
-                      await callTool(
-                        selectedTool.name,
-                        params,
-                        Object.keys(metadata).length ? metadata : undefined,
-                        runAsTask,
-                      );
-                    } finally {
-                      setIsToolRunning(false);
-                    }
-                  }}
-                  disabled={
-                    isToolRunning ||
-                    isPollingTask ||
-                    hasValidationErrors ||
-                    hasReservedMetadataEntry ||
-                    hasInvalidMetaPrefixEntry ||
-                    hasInvalidMetaNameEntry
-                  }
-                >
-                  {isToolRunning || isPollingTask ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      {isPollingTask ? "Polling Task..." : "Running..."}
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4 mr-2" />
-                      Run Tool
-                    </>
-                  )}
-                </Button>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={async () => {
-                      try {
-                        navigator.clipboard.writeText(
-                          JSON.stringify(params, null, 2),
-                        );
-                        setCopied(true);
-                      } catch (error) {
-                        toast({
-                          title: "Error",
-                          description: `There was an error copying input to the clipboard: ${error instanceof Error ? error.message : String(error)}`,
-                          variant: "destructive",
-                        });
-                      }
-                    }}
-                  >
-                    {copied ? (
-                      <CheckCheck className="h-4 w-4 mr-2 dark:text-green-700 text-green-600" />
-                    ) : (
-                      <Copy className="h-4 w-4 mr-2" />
+                  {selectedTool &&
+                    hasMeta(selectedTool) &&
+                    selectedTool._meta && (
+                      <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-semibold">Meta:</h4>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              setIsMetadataExpanded(!isMetadataExpanded)
+                            }
+                            className="h-6 px-2"
+                          >
+                            {isMetadataExpanded ? (
+                              <>
+                                <ChevronUp className="h-3 w-3 mr-1" />
+                                Collapse
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="h-3 w-3 mr-1" />
+                                Expand
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                        <div
+                          className={`transition-all ${
+                            isMetadataExpanded
+                              ? ""
+                              : "max-h-[8rem] overflow-y-auto"
+                          }`}
+                        >
+                          <JsonView data={selectedTool._meta} />
+                        </div>
+                      </div>
                     )}
-                    Copy Input
-                  </Button>
+                  <ToolResults
+                    toolResult={toolResult}
+                    selectedTool={selectedTool}
+                    resourceContent={resourceContent}
+                    onReadResource={onReadResource}
+                    isPollingTask={isPollingTask}
+                  />
                 </div>
-                <ToolResults
-                  toolResult={toolResult}
-                  selectedTool={selectedTool}
-                  resourceContent={resourceContent}
-                  onReadResource={onReadResource}
-                  isPollingTask={isPollingTask}
-                />
-              </div>
-            ) : (
-              <Alert>
-                <AlertDescription>
-                  Select a tool from the list to view its details and run it
-                </AlertDescription>
-              </Alert>
-            )}
+              ) : (
+                <Alert>
+                  <AlertDescription>
+                    Select a tool from the list to view its details and run it
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
           </div>
-        </div>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </TabsContent>
   );
 };

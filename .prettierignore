@@ -4,3 +4,11 @@ CODE_OF_CONDUCT.md
 SECURITY.md
 mcp.json
 .claude/settings.local.json
+
+# Logs and transient data
+mcp-logs/
+*.log
+server/*.log
+server/*.yaml
+server/mcp-logs/
+react-resizable-panels-src/jest-source/

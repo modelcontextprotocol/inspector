@@ -1,3 +1,7 @@
+.scrollable-resizable-panel {
+  overflow-y: auto !important;
+}
+
 .logo {
   height: 6em;
   padding: 1.5em;
@@ -8,7 +12,7 @@
   filter: drop-shadow(0 0 2em #646cffaa);
 }
 .logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+  filter: drop_shadow(0 0 2em #61dafbaa);
 }
 
 @keyframes logo-spin {
@@ -21,7 +25,7 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
+  a:nth-of_type(2) .logo {
     animation: logo-spin infinite 20s linear;
   }
 }

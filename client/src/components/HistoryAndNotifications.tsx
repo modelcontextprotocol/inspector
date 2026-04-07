@@ -2,6 +2,13 @@ import { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 import JsonView from "./JsonView";
 import { Button } from "@/components/ui/button";
+import {
+  HorizontalHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+  useDefaultLayout,
+} from "@/components/ui/resizable";
+import { usePanelToggle } from "@/hooks/use-panel-toggle";
 
 const HistoryAndNotifications = ({
   requestHistory,
@@ -20,6 +27,8 @@ const HistoryAndNotifications = ({
   const [expandedNotifications, setExpandedNotifications] = useState<{
     [key: number]: boolean;
   }>({});
+  const { panelRef: historySubRef, toggle: toggleHistorySub } =
+    usePanelToggle();
 
   const toggleRequestExpansion = (index: number) => {
     setExpandedRequests((prev) => ({ ...prev, [index]: !prev[index] }));
@@ -29,9 +38,24 @@ const HistoryAndNotifications = ({
     setExpandedNotifications((prev) => ({ ...prev, [index]: !prev[index] }));
   };
 
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: "persistence-history-notifications",
+  });
+
   return (
-    <div className="bg-card overflow-hidden flex h-full">
-      <div className="flex-1 overflow-y-auto p-4 border-r">
+    <ResizablePanelGroup
+      defaultLayout={defaultLayout}
+      onLayoutChanged={onLayoutChanged}
+      orientation="horizontal"
+      className="h-full"
+    >
+      <ResizablePanel
+        panelRef={historySubRef}
+        defaultSize="50%"
+        minSize="0%"
+        collapsible
+        className="overflow-y-auto p-4 border-r border-border scrollable-resizable-panel"
+      >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">History</h2>
           <Button
@@ -106,8 +130,15 @@ const HistoryAndNotifications = ({
               ))}
           </ul>
         )}
-      </div>
-      <div className="flex-1 overflow-y-auto p-4">
+      </ResizablePanel>
+
+      <HorizontalHandle withHandle onDoubleClick={toggleHistorySub} />
+
+      <ResizablePanel
+        defaultSize="50%"
+        minSize="20%"
+        className="overflow-y-auto p-4 h-full scrollable-resizable-panel"
+      >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Server Notifications</h2>
           <Button
@@ -172,8 +203,8 @@ const HistoryAndNotifications = ({
               ))}
           </ul>
         )}
-      </div>
-    </div>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   );
 };
 

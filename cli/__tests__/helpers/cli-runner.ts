@@ -31,7 +31,7 @@ export async function runCli(
     const child = spawn("node", [CLI_PATH, ...args], {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: options.cwd,
-      env: { ...process.env, ...options.env },
+      env: { DEBUG: "true", ...process.env, ...options.env },
       signal: options.signal,
       // Kill child process tree on exit
       detached: false,
