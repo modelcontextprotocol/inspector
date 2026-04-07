@@ -1,6 +1,6 @@
 import type { OAuthStep, AuthGuidedState } from "./types.js";
 import type { BaseOAuthClientProvider } from "./providers.js";
-import { discoverScopes } from "./discovery.js";
+import { discoverScopes, getAuthorizationServerUrl } from "./discovery.js";
 import {
   discoverAuthorizationServerMetadata,
   registerClient,
@@ -32,20 +32,12 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
   metadata_discovery: {
     canTransition: async () => true,
     execute: async (context) => {
-      // Default to discovering from the server's URL
-      let authServerUrl: URL = new URL("/", context.serverUrl);
       let resourceMetadata: OAuthProtectedResourceMetadata | null = null;
       let resourceMetadataError: Error | null = null;
       try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(
           context.serverUrl as string | URL,
         );
-        if (resourceMetadata?.authorization_servers?.length) {
-          const firstServer = resourceMetadata.authorization_servers[0];
-          if (firstServer) {
-            authServerUrl = new URL(firstServer);
-          }
-        }
       } catch (e) {
         if (e instanceof Error) {
           resourceMetadataError = e;
@@ -53,6 +45,11 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
           resourceMetadataError = new Error(String(e));
         }
       }
+
+      const authServerUrl = getAuthorizationServerUrl(
+        context.serverUrl,
+        resourceMetadata,
+      );
 
       const resource: URL | undefined = resourceMetadata
         ? await selectResourceURL(
