@@ -250,10 +250,6 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   clear() {
-    clearClientInformationFromSessionStorage({
-      serverUrl: this.serverUrl,
-      isPreregistered: false,
-    });
     sessionStorage.removeItem(
       getServerSpecificKey(SESSION_KEYS.TOKENS, this.serverUrl),
     );
