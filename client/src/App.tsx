@@ -124,9 +124,9 @@ const cloneToolParams = (
 };
 
 const filterReservedMetadata = (
-  metadata: Record<string, string>,
-): Record<string, string> => {
-  return Object.entries(metadata).reduce<Record<string, string>>(
+  metadata: Record<string, unknown>,
+): Record<string, unknown> => {
+  return Object.entries(metadata).reduce<Record<string, unknown>>(
     (acc, [key, value]) => {
       if (
         !isReservedMetaKey(key) &&
@@ -265,7 +265,7 @@ const App = () => {
     useState<AuthDebuggerState>(EMPTY_DEBUGGER_STATE);
 
   // Metadata state - persisted in localStorage
-  const [metadata, setMetadata] = useState<Record<string, string>>(() => {
+  const [metadata, setMetadata] = useState<Record<string, unknown>>(() => {
     const savedMetadata = localStorage.getItem("lastMetadata");
     if (savedMetadata) {
       try {
@@ -284,7 +284,7 @@ const App = () => {
     setAuthState((prev) => ({ ...prev, ...updates }));
   };
 
-  const handleMetadataChange = (newMetadata: Record<string, string>) => {
+  const handleMetadataChange = (newMetadata: Record<string, unknown>) => {
     const sanitizedMetadata = filterReservedMetadata(newMetadata);
     setMetadata(sanitizedMetadata);
     localStorage.setItem("lastMetadata", JSON.stringify(sanitizedMetadata));
