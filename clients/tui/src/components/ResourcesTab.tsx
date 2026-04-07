@@ -69,7 +69,7 @@ export function ResourcesTab({
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(
     totalCount,
     visibleCount,
-    { resetWhen: [resources] },
+    { resetWhen: resources },
   );
   const selectedItem = useMemo(
     () => allItems[selectedIndex] || null,

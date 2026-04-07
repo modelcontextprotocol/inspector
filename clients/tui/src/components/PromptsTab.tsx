@@ -35,7 +35,7 @@ export function PromptsTab({
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(
     prompts.length,
     visibleCount,
-    { resetWhen: [prompts] },
+    { resetWhen: prompts },
   );
   const [error, setError] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollViewRef>(null);
