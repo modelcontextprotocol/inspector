@@ -1,50 +1,35 @@
-import { useState, useEffect, useCallback } from "react";
-import type { InspectorClient } from "../mcp/inspectorClient.js";
-import type { ManagedToolsState } from "../mcp/state/managedToolsState.js";
+import { useCallback, useSyncExternalStore } from "react";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
-import type { ManagedToolsStateEventMap } from "../mcp/state/managedToolsState.js";
+import type { ManagedToolsState } from "../mcp/state/managedToolsState.js";
 
 export interface UseManagedToolsResult {
   tools: Tool[];
-  refresh: () => Promise<Tool[]>;
+  refresh: (metadata?: Record<string, string>) => Promise<Tool[]>;
 }
 
+const EMPTY_TOOLS: Tool[] = []; // Stable empty array reference to avoid re-renders
+const NOOP_SUBSCRIBE = () => () => {};
+
 /**
- * React hook that subscribes to ManagedToolsState and returns tools + refresh.
- * Pass the same InspectorClient and ManagedToolsState (or create manager inside hook via ref).
+ * Subscribes to the manager's store and returns tools + refresh.
+ * When manager is null/undefined, returns empty tools and a no-op refresh.
  */
 export function useManagedTools(
-  client: InspectorClient | null,
-  managedToolsState: ManagedToolsState | null,
+  managedToolsState: ManagedToolsState | null | undefined,
 ): UseManagedToolsResult {
-  const [tools, setTools] = useState<Tool[]>(
-    managedToolsState?.getTools() ?? [],
+  const store = managedToolsState?.getStore() ?? null;
+  const tools = useSyncExternalStore(
+    store?.subscribe ?? NOOP_SUBSCRIBE,
+    store ? () => store.getState().tools : () => EMPTY_TOOLS,
   );
 
-  useEffect(() => {
-    if (!managedToolsState) {
-      setTools([]);
-      return;
-    }
-    setTools(managedToolsState.getTools());
-    const onToolsChange = (
-      event: TypedEventGeneric<ManagedToolsStateEventMap, "toolsChange">,
-    ) => {
-      setTools(event.detail);
-    };
-    managedToolsState.addEventListener("toolsChange", onToolsChange);
-    return () => {
-      managedToolsState.removeEventListener("toolsChange", onToolsChange);
-    };
-  }, [managedToolsState]);
-
-  const refresh = useCallback(async (): Promise<Tool[]> => {
-    if (!managedToolsState || !client) return [];
-    const next = await managedToolsState.refresh();
-    setTools(next);
-    return next;
-  }, [client, managedToolsState]);
+  const refresh = useCallback(
+    async (metadata?: Record<string, string>): Promise<Tool[]> => {
+      if (!managedToolsState) return EMPTY_TOOLS;
+      return managedToolsState.refresh(metadata);
+    },
+    [managedToolsState],
+  );
 
   return { tools, refresh };
 }
