@@ -1,23 +1,30 @@
-import path from "node:path";
-import pino from "pino";
-
-const logDir =
-  process.env.MCP_INSPECTOR_LOG_DIR ??
-  path.join(
-    process.env.HOME || process.env.USERPROFILE || ".",
-    ".mcp-inspector",
-  );
-const logPath = path.join(logDir, "auth.log");
+import type { Logger } from "pino";
+import {
+  silentLogger,
+  createFileLogger,
+} from "@modelcontextprotocol/inspector-core/logging/node";
 
 /**
- * TUI file logger for auth and InspectorClient events.
- * Writes to ~/.mcp-inspector/auth.log so TUI console output is not corrupted.
- * The app controls logger creation and configuration.
+ * TUI logger (InspectorClient events, auth, etc.).
+ * File logger when MCP_LOG_FILE is set, else silentLogger.
  */
-export const tuiLogger = pino(
-  {
-    name: "mcp-inspector-tui",
-    level: process.env.LOG_LEVEL ?? "info",
-  },
-  pino.destination({ dest: logPath, append: true, mkdir: true }),
-);
+export let tuiLogger: Logger = silentLogger;
+
+/**
+ * If MCP_LOG_FILE is set, creates a file logger (awaits destination ready);
+ * otherwise uses silentLogger. Call at the start of runTui() before any work
+ * that might call process.exit().
+ */
+export async function initTuiLogger(): Promise<void> {
+  if (process.env.MCP_LOG_FILE) {
+    tuiLogger = await createFileLogger({
+      dest: process.env.MCP_LOG_FILE,
+      append: true,
+      mkdir: true,
+      level: "info",
+      name: "mcp-inspector-tui",
+    });
+  } else {
+    tuiLogger = silentLogger;
+  }
+}

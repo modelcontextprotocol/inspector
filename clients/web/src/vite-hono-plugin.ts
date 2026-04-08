@@ -15,15 +15,20 @@ import {
 } from "./web-server-config.js";
 
 /**
- * Plugin factory. Caller must pass a WebServerConfig (runner builds it from argv; vite.config builds it from env via buildWebServerConfigFromEnv).
+ * Plugin factory. Caller must pass a WebServerConfig or Promise<WebServerConfig>
+ * (runner builds from argv; vite.config passes buildWebServerConfigFromEnv() which is async).
  */
-export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
+export function honoMiddlewarePlugin(
+  config: WebServerConfig | Promise<WebServerConfig>,
+): Plugin {
   return {
     name: "hono-api-middleware",
     async configureServer(server) {
+      const resolvedConfig = await Promise.resolve(config);
+      resolvedConfig.logger.info("Web server starting (dev)");
       const sandboxController = createSandboxController({
-        port: config.sandboxPort,
-        host: config.sandboxHost,
+        port: resolvedConfig.sandboxPort,
+        host: resolvedConfig.sandboxHost,
       });
       await sandboxController.start();
 
@@ -40,13 +45,15 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
       };
 
       const { app: honoApp, authToken: resolvedToken } = createRemoteApp({
-        authToken: config.dangerouslyOmitAuth ? undefined : config.authToken,
-        dangerouslyOmitAuth: config.dangerouslyOmitAuth,
-        storageDir: config.storageDir,
-        allowedOrigins: config.allowedOrigins,
+        authToken: resolvedConfig.dangerouslyOmitAuth
+          ? undefined
+          : resolvedConfig.authToken,
+        dangerouslyOmitAuth: resolvedConfig.dangerouslyOmitAuth,
+        storageDir: resolvedConfig.storageDir,
+        allowedOrigins: resolvedConfig.allowedOrigins,
         sandboxUrl: sandboxController.getUrl() ?? undefined,
-        logger: config.logger,
-        initialConfig: webServerConfigToInitialPayload(config),
+        logger: resolvedConfig.logger,
+        initialConfig: webServerConfigToInitialPayload(resolvedConfig),
       });
 
       const sandboxUrl = sandboxController.getUrl();
@@ -56,16 +63,16 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
         const actualPort =
           typeof address === "object" && address !== null
             ? address.port
-            : config.port;
+            : resolvedConfig.port;
 
         const url = printServerBanner(
-          config,
+          resolvedConfig,
           actualPort,
           resolvedToken,
           sandboxUrl ?? undefined,
         );
 
-        if (config.autoOpen) {
+        if (resolvedConfig.autoOpen) {
           open(url);
         }
       };

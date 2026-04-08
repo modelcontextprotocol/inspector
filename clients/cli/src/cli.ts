@@ -18,6 +18,10 @@ import {
   parseKeyValuePair as parseEnvPair,
   parseHeaderPair,
 } from "@modelcontextprotocol/inspector-core/mcp/node/index.js";
+import {
+  createFileLogger,
+  silentLogger,
+} from "@modelcontextprotocol/inspector-core/logging/node";
 import type { JsonValue } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import {
   LoggingLevelSchema,
@@ -58,9 +62,21 @@ async function callMethod(
   const version = packageJson.version;
   const clientIdentity = { name, version };
 
+  const logger = process.env.MCP_LOG_FILE
+    ? await createFileLogger({
+        dest: process.env.MCP_LOG_FILE,
+        append: true,
+        mkdir: true,
+        level: "info",
+        name: "mcp-inspector-cli",
+      })
+    : silentLogger;
+  logger.info("CLI starting");
+
   const inspectorClient = new InspectorClient(serverConfig, {
     environment: {
       transport: createTransportNode,
+      logger,
     },
     clientIdentity,
     initialLoggingLevel: "debug",
@@ -413,8 +429,12 @@ function parseArgs(argv?: string[]): {
 }
 
 export async function runCli(argv?: string[]): Promise<void> {
-  const { serverConfig, methodArgs } = parseArgs(argv ?? process.argv);
-  await callMethod(serverConfig, methodArgs);
+  try {
+    const { serverConfig, methodArgs } = parseArgs(argv ?? process.argv);
+    await callMethod(serverConfig, methodArgs);
+  } catch (error) {
+    handleError(error);
+  }
 }
 
 export async function main(): Promise<void> {

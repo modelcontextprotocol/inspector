@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { InspectorClient } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 import type { WebEnvironmentResult } from "@/lib/adapters/environmentFactory";
 import { parseOAuthState } from "@modelcontextprotocol/inspector-core/auth/index.js";
-import { silentLogger } from "@modelcontextprotocol/inspector-core/logging";
+import { silentLogger } from "@modelcontextprotocol/inspector-core/logging/browser";
 import useTheme from "@/lib/hooks/useTheme";
 import { useToast } from "@/lib/hooks/useToast";
 import {

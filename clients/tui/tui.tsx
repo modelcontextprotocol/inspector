@@ -9,9 +9,13 @@ import {
   parseKeyValuePair,
   parseHeaderPair,
 } from "@modelcontextprotocol/inspector-core/mcp/node/index.js";
+import { initTuiLogger, tuiLogger } from "./src/logger.js";
 import App from "./src/App.js";
 
 export async function runTui(args?: string[]): Promise<void> {
+  await initTuiLogger();
+  tuiLogger.info("TUI starting");
+
   const program = new Command();
 
   program
