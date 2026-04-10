@@ -338,6 +338,28 @@ const createCustomFetch = (headerHolder: { headers: HeadersInit }) => {
     const acceptHeader = finalHeaders.get("Accept");
     const isSSE = acceptHeader?.includes("text/event-stream");
 
+    // Null body statuses (204, 205, 304) must not have a body per the
+    // Fetch spec. node-fetch may still provide a non-null body stream,
+    // but the Web Response constructor rejects a body for these statuses.
+    // Return a proper Web Response with null body so the SDK's
+    // response.body?.cancel() call works correctly.
+    const isNullBodyStatus =
+      response.status === 204 ||
+      response.status === 205 ||
+      response.status === 304;
+
+    if (isNullBodyStatus) {
+      const responseHeaders: Record<string, string> = {};
+      response.headers.forEach((value: string, key: string) => {
+        responseHeaders[key] = value;
+      });
+      return new Response(null, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+      });
+    }
+
     if (isSSE && response.body) {
       // For SSE requests, we need to convert the Node.js stream to a web ReadableStream
       // because the EventSource polyfill expects web-compatible streams
