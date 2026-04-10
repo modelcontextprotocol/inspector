@@ -28,10 +28,16 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
-import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  randomUUID,
+  randomBytes,
+  timingSafeEqual,
+  createSign,
+  X509Certificate,
+} from "node:crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { readFileSync } from "fs";
+import { readFileSync, accessSync, constants as fsConstants } from "fs";
 
 const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 
@@ -780,6 +786,297 @@ app.get("/health", (req, res) => {
     status: "ok",
   });
 });
+
+/**
+ * Builds a JWT client assertion for OAuth 2.0 certificate-based authentication.
+ * Uses the private_key_jwt method (RFC 7523) with RS256 signing.
+ */
+const buildClientAssertion = (
+  clientId: string,
+  tokenEndpointUrl: string,
+  certPem: string,
+  keyPem: string,
+): string => {
+  // Parse certificate and compute SHA-1 thumbprint
+  const cert = new X509Certificate(certPem);
+  const thumbprintHex = cert.fingerprint.replace(/:/g, "");
+  const thumbprintBuffer = Buffer.from(thumbprintHex, "hex");
+  const x5t = thumbprintBuffer
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  // Extract DER-encoded certificate for x5c claim (standard base64, not base64url)
+  // This enables SNI (Subject Name/Issuer) validation required by some providers like Azure AD
+  const certDer = cert.raw;
+  const x5c = certDer.toString("base64");
+
+  // Build JWT header and payload
+  const header = {
+    alg: "RS256" as const,
+    typ: "JWT" as const,
+    x5t,
+    x5c: [x5c],
+  };
+
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: clientId,
+    sub: clientId,
+    aud: tokenEndpointUrl,
+    jti: randomUUID(),
+    iat: now,
+    nbf: now,
+    exp: now + 300, // 5 minute expiry
+  };
+
+  // Encode and sign
+  const encodePart = (obj: object) =>
+    Buffer.from(JSON.stringify(obj))
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
+  const headerB64 = encodePart(header);
+  const payloadB64 = encodePart(payload);
+  const signingInput = `${headerB64}.${payloadB64}`;
+
+  const sign = createSign("RSA-SHA256");
+  sign.update(signingInput);
+  const signature = sign
+    .sign(keyPem, "base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  return `${signingInput}.${signature}`;
+};
+
+/**
+ * Proxy endpoint for OAuth endpoint discovery.
+ * Fetches protected resource metadata and OIDC config server-side to avoid CORS issues.
+ */
+app.get(
+  "/oauth/discover",
+  originValidationMiddleware,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const serverUrl = req.query.url as string;
+      if (!serverUrl) {
+        res.status(400).json({ error: "Missing 'url' query parameter" });
+        return;
+      }
+
+      const parsedUrl = new URL(serverUrl);
+      const pathSegment = parsedUrl.pathname.replace(/\/+$/, "");
+
+      // Try multiple well-known URL patterns for protected resource metadata:
+      // 1. Path-prepended: /v1/.well-known/oauth-protected-resource (MCP style)
+      // 2. Path-appended: /.well-known/oauth-protected-resource/v1 (RFC 8414 style)
+      // 3. Root fallback: /.well-known/oauth-protected-resource
+      const candidateUrls = [];
+      if (pathSegment) {
+        candidateUrls.push(
+          new URL(
+            `${pathSegment}/.well-known/oauth-protected-resource`,
+            parsedUrl.origin,
+          ).href,
+        );
+        candidateUrls.push(
+          new URL(
+            `/.well-known/oauth-protected-resource${pathSegment}`,
+            parsedUrl.origin,
+          ).href,
+        );
+      }
+      candidateUrls.push(
+        new URL("/.well-known/oauth-protected-resource", parsedUrl.origin).href,
+      );
+
+      let metadata = null;
+      for (const url of candidateUrls) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            metadata = await response.json();
+            break;
+          }
+        } catch {
+          // Try next URL
+        }
+      }
+
+      if (!metadata) {
+        res
+          .status(404)
+          .json({ error: "Protected resource metadata not found" });
+        return;
+      }
+
+      // If authorization_servers found, also fetch OIDC config
+      if (metadata.authorization_servers?.length) {
+        const authServerUrl = metadata.authorization_servers[0].replace(
+          /\/+$/,
+          "",
+        );
+        try {
+          const oidcResponse = await fetch(
+            `${authServerUrl}/.well-known/openid-configuration`,
+          );
+          if (oidcResponse.ok) {
+            const oidcConfig = await oidcResponse.json();
+            metadata._discovered_endpoints = {
+              authorization_endpoint: oidcConfig.authorization_endpoint,
+              token_endpoint: oidcConfig.token_endpoint,
+            };
+          }
+        } catch {
+          // OIDC discovery optional
+        }
+      }
+
+      res.json(metadata);
+    } catch (error) {
+      res.status(500).json({
+        error: "Discovery failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+/**
+ * Certificate-based OAuth token exchange endpoint.
+ * Accepts authorization code + certificate info, builds a JWT client assertion,
+ * and exchanges the code for tokens at the specified token endpoint.
+ */
+app.post(
+  "/oauth/token/certificate",
+  originValidationMiddleware,
+  authMiddleware,
+  express.json(),
+  async (req, res) => {
+    try {
+      const {
+        clientId,
+        tokenEndpointUrl,
+        certPath,
+        keyPath,
+        authorizationCode,
+        redirectUri,
+        codeVerifier,
+        scope,
+      } = req.body;
+
+      // Validate required fields
+      if (!clientId || !tokenEndpointUrl || !certPath || !keyPath) {
+        res.status(400).json({
+          error: "Missing required fields",
+          message:
+            "clientId, tokenEndpointUrl, certPath, and keyPath are required",
+        });
+        return;
+      }
+
+      if (!authorizationCode) {
+        res.status(400).json({
+          error: "Missing authorization code",
+          message: "authorizationCode is required for token exchange",
+        });
+        return;
+      }
+
+      // Validate file paths are accessible
+      try {
+        accessSync(certPath, fsConstants.R_OK);
+      } catch {
+        res.status(400).json({
+          error: "Certificate file not readable",
+          message: `Cannot read certificate file at: ${certPath}`,
+        });
+        return;
+      }
+
+      try {
+        accessSync(keyPath, fsConstants.R_OK);
+      } catch {
+        res.status(400).json({
+          error: "Private key file not readable",
+          message: `Cannot read private key file at: ${keyPath}`,
+        });
+        return;
+      }
+
+      // Read certificate and key
+      const certPem = readFileSync(certPath, "utf-8");
+      const keyPem = readFileSync(keyPath, "utf-8");
+
+      // Build the JWT client assertion
+      const clientAssertion = buildClientAssertion(
+        clientId,
+        tokenEndpointUrl,
+        certPem,
+        keyPem,
+      );
+
+      // Build token request body
+      const tokenParams = new URLSearchParams({
+        grant_type: "authorization_code",
+        code: authorizationCode,
+        client_id: clientId,
+        client_assertion_type:
+          "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        client_assertion: clientAssertion,
+      });
+
+      if (redirectUri) {
+        tokenParams.set("redirect_uri", redirectUri);
+      }
+      if (codeVerifier) {
+        tokenParams.set("code_verifier", codeVerifier);
+      }
+      // Note: scope is intentionally omitted from the token exchange.
+      // The authorization code already encodes the granted scopes, and
+      // providers like Azure AD reject mismatched scope parameters.
+
+      console.log(
+        `Certificate auth token exchange: clientId=${clientId}, tokenEndpoint=${tokenEndpointUrl}`,
+      );
+
+      // Exchange the authorization code for tokens
+      const tokenResponse = await fetch(tokenEndpointUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: tokenParams.toString(),
+      } as any);
+
+      const tokenData = await (tokenResponse as any).json();
+
+      if (!tokenResponse.ok) {
+        console.error("Token exchange failed:", tokenData);
+        res.status(tokenResponse.status).json({
+          error: "Token exchange failed",
+          details: tokenData,
+        });
+        return;
+      }
+
+      console.log("Certificate auth token exchange successful");
+      res.json(tokenData);
+    } catch (error) {
+      console.error("Error in certificate token exchange:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
 
 app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
   try {

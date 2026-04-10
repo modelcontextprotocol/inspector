@@ -2,9 +2,13 @@ import { useCallback, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { DebugInspectorOAuthClientProvider } from "../lib/auth";
 import { AlertCircle } from "lucide-react";
-import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "../lib/auth-types";
+import {
+  AuthDebuggerState,
+  EMPTY_DEBUGGER_STATE,
+  OAuthClientAuthMethod,
+} from "../lib/auth-types";
 import { OAuthFlowProgress } from "./OAuthFlowProgress";
-import { OAuthStateMachine } from "../lib/oauth-state-machine";
+import { OAuthStateMachine, CertAuthConfig } from "../lib/oauth-state-machine";
 import { SESSION_KEYS } from "../lib/constants";
 import { validateRedirectUrl } from "@/utils/urlValidation";
 
@@ -13,6 +17,14 @@ export interface AuthDebuggerProps {
   onBack: () => void;
   authState: AuthDebuggerState;
   updateAuthState: (updates: Partial<AuthDebuggerState>) => void;
+  oauthAuthMethod?: OAuthClientAuthMethod;
+  oauthCertPath?: string;
+  oauthKeyPath?: string;
+  oauthTokenEndpoint?: string;
+  oauthAuthEndpoint?: string;
+  proxyAddress?: string;
+  proxyAuthToken?: string;
+  proxyAuthHeader?: string;
 }
 
 interface StatusMessageProps {
@@ -60,6 +72,14 @@ const AuthDebugger = ({
   onBack,
   authState,
   updateAuthState,
+  oauthAuthMethod,
+  oauthCertPath,
+  oauthKeyPath,
+  oauthTokenEndpoint,
+  oauthAuthEndpoint,
+  proxyAddress,
+  proxyAuthToken,
+  proxyAuthHeader,
 }: AuthDebuggerProps) => {
   // Check for existing tokens on mount
   useEffect(() => {
@@ -102,9 +122,44 @@ const AuthDebugger = ({
     });
   }, [serverUrl, updateAuthState]);
 
+  const certConfig: CertAuthConfig | undefined = useMemo(
+    () =>
+      oauthAuthMethod === "certificate"
+        ? {
+            authMethod: oauthAuthMethod,
+            certPath: oauthCertPath || "",
+            keyPath: oauthKeyPath || "",
+            tokenEndpointUrl: oauthTokenEndpoint || "",
+            authEndpointUrl: oauthAuthEndpoint || "",
+          }
+        : undefined,
+    [
+      oauthAuthMethod,
+      oauthCertPath,
+      oauthKeyPath,
+      oauthTokenEndpoint,
+      oauthAuthEndpoint,
+    ],
+  );
+
   const stateMachine = useMemo(
-    () => new OAuthStateMachine(serverUrl, updateAuthState),
-    [serverUrl, updateAuthState],
+    () =>
+      new OAuthStateMachine(
+        serverUrl,
+        updateAuthState,
+        certConfig,
+        proxyAddress,
+        proxyAuthToken,
+        proxyAuthHeader,
+      ),
+    [
+      serverUrl,
+      updateAuthState,
+      certConfig,
+      proxyAddress,
+      proxyAuthToken,
+      proxyAuthHeader,
+    ],
   );
 
   const proceedToNextStep = useCallback(async () => {
@@ -150,11 +205,18 @@ const AuthDebugger = ({
         latestError: null,
       };
 
-      const oauthMachine = new OAuthStateMachine(serverUrl, (updates) => {
-        // Update our temporary state during the process
-        currentState = { ...currentState, ...updates };
-        // But don't call updateAuthState yet
-      });
+      const oauthMachine = new OAuthStateMachine(
+        serverUrl,
+        (updates) => {
+          // Update our temporary state during the process
+          currentState = { ...currentState, ...updates };
+          // But don't call updateAuthState yet
+        },
+        certConfig,
+        proxyAddress,
+        proxyAuthToken,
+        proxyAuthHeader,
+      );
 
       // Manually step through each stage of the OAuth flow
       while (currentState.oauthStep !== "complete") {
@@ -214,7 +276,15 @@ const AuthDebugger = ({
     } finally {
       updateAuthState({ isInitiatingAuth: false });
     }
-  }, [serverUrl, updateAuthState, authState]);
+  }, [
+    serverUrl,
+    updateAuthState,
+    authState,
+    certConfig,
+    proxyAddress,
+    proxyAuthToken,
+    proxyAuthHeader,
+  ]);
 
   const handleClearOAuth = useCallback(() => {
     if (serverUrl) {
