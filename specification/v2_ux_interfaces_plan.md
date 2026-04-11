@@ -198,7 +198,109 @@ request/result types from v1.5 `core/mcp/elicitationCreateMessage.ts` into
 the new `core/mcp/types.ts` (or a peer file). The interfaces doc's
 `InspectorUrlElicitRequest` placeholder maps to whatever v1.5 calls them.
 
-### 0.3 Inventory current local re-declarations to delete
+### 0.3 Vet every "likely" hedge in `v2_ux_interfaces.md`
+
+`v2_ux_interfaces.md` was produced by parallel research subagents that I
+instructed to prefix uncertain hook names with `(likely)` rather than fail
+to fill in a section. The result: **52 instances of "likely"** survived to
+the doc, almost all of them attached to hook names or hook-name-to-callback
+mappings that were never cross-checked against v1.5. Several are actively
+wrong. Before any component is touched, walk through every `likely` and
+either resolve it against v1.5 / the SDK or strike it.
+
+Use these source-of-truth lookups, not guessing:
+
+- **v1.5 React hooks** — `git show origin/v1.5/main:core/react/<hook>.ts`.
+  The complete v1.5 hook surface is:
+  - `useInspectorClient.ts` — `status`, `capabilities`, `serverInfo`,
+    `instructions`, `appRendererClient`, `connect`, `disconnect`.
+  - `useManagedTools.ts` — `{ tools: Tool[]; refresh }`
+  - `useManagedPrompts.ts` — `{ prompts: Prompt[]; refresh }`
+  - `useManagedResources.ts` — `{ resources: Resource[]; refresh }`
+  - `useManagedResourceTemplates.ts` — `{ resourceTemplates: ResourceTemplate[]; refresh }`
+  - `useManagedRequestorTasks.ts` — `{ tasks: Task[]; refresh }`
+  - `useMessageLog.ts` — JSON-RPC message buffer (`MessageEntry[]`)
+  - `useStderrLog.ts` — stdio stderr buffer (`StderrLogEntry[]`)
+  - `useFetchRequestLog.ts` — auth/transport HTTP fetch buffer (`FetchRequestEntry[]`)
+  - `usePagedTools.ts`, `usePagedPrompts.ts`, `usePagedResources.ts`,
+    `usePagedResourceTemplates.ts`, `usePagedRequestorTasks.ts` — paged
+    siblings of the managed hooks above.
+- **MCP SDK types** — `import type { ... } from "@modelcontextprotocol/sdk/types.js"`.
+- **v1.5 core types** — `git show origin/v1.5/main:core/mcp/types.ts`.
+
+#### Confirmed hook-name corrections
+
+| `v2_ux_interfaces.md` `(likely)` claim | Actual v1.5 surface |
+| --- | --- |
+| `useTools` | **`useManagedTools`** (`core/react/useManagedTools.ts`) |
+| `usePrompts` | **`useManagedPrompts`** |
+| `useResources` | **`useManagedResources`** |
+| `useResourceTemplates` (implied) | **`useManagedResourceTemplates`** |
+| `useTasks` | **`useManagedRequestorTasks`** |
+| `useMcpClient` | **`useInspectorClient`** |
+| `useServerCapabilities` | Not a separate hook — `capabilities: ServerCapabilities` is a field on `useInspectorClient`'s result. Strike. |
+| `useLogs` | **Three** v1.5 hooks: `useMessageLog`, `useStderrLog`, `useFetchRequestLog`. The interfaces doc conflates them. Split per use site: log stream → `useMessageLog`; stdio stderr → `useStderrLog`; HTTP fetch (auth/transport) → `useFetchRequestLog`. |
+| `useHistory` | **`useMessageLog`** — v1.5's message log IS the history; `MessageEntry` is the wrapper type. Strike `useHistory`. |
+| `useElicitation` | **No discrete hook in v1.5.** Elicitation is handled inside `InspectorClient` (`core/mcp/elicitationCreateMessage.ts`) via SDK request handlers. UI state for pending elicitations lives wherever the consuming screen puts it. Strike `useElicitation` and replace with "handled inside `InspectorClient` request handlers; v2 will need a small UI-state hook for the pending queue but it doesn't exist yet". |
+| `useSampling` | **No discrete hook in v1.5.** Same shape as elicitation: `core/mcp/samplingCreateMessage.ts` plus SDK request handlers. Strike. |
+| `useRoots` | **No discrete hook in v1.5.** Roots are configured via `InspectorClientOptions.roots: Root[]` at construction time and answered by an SDK request handler inside `InspectorClient`. There is no React hook. Strike or mark as "v2 to introduce". |
+| `useServers` | **Not in v1.5.** v2-only — keep, but mark explicitly as "v2 to introduce, no v1.5 analog". |
+| `useServerRegistry` | **Not in v1.5.** v2-only — same treatment. |
+| `useClientCapabilities` | **Not in v1.5.** v2-only — same treatment. |
+| `useInspectorNavigation` | **Not in v1.5.** Pure speculation in the interfaces doc. v2 may not need a hook at all (tab state can be `useState` in the wiring layer). Strike or mark "may not exist". |
+
+#### Confirmed wrapper / type corrections
+
+These are also `(likely)`-flavored claims that slipped past the spec:
+
+- The interfaces doc says **"MCP 2025-11-25 base schema does not define a
+  first-class task primitive"**. This is **wrong** — the MCP TS SDK 1.x
+  exports `Task` from `@modelcontextprotocol/sdk/types.js`, and v1.5's
+  `useManagedRequestorTasks` already returns `Task[]`. Update every entry
+  in the interfaces doc that proposes an `InspectorTask` wrapper to use
+  `Task` directly. The list-changed signal **is** an Inspector extension
+  (no SDK schema for `notifications/tasks/list_changed`); v1.5 defines it
+  in `core/mcp/taskNotificationSchemas.ts`. Cite that file rather than
+  inventing.
+- **Appendix A line 854** asserts: "v1.5 monorepo bundles most
+  primitive-specific logic inside `client/src/App.tsx`; hooks marked
+  'likely' will be extracted cleanly in v2 core". This is **wrong about
+  v1.5/main of THIS repo**. It's true of the upstream
+  `modelcontextprotocol/inspector` v1.x mainline, which an earlier subagent
+  conflated with v1.5. v1.5 in this repo already has the full
+  `core/react/*` hook split-out. Rewrite Appendix A to cite the actual
+  v1.5 file paths under `core/react/` and remove the "will be extracted
+  cleanly" framing.
+- **Appendix A's pointer to `client/src/lib/hooks`** in v1.5 is also
+  wrong-source: that path is the upstream repo, not this repo. The path in
+  this repo's v1.5 branch is `core/react/`. Update the link.
+- Anywhere the doc references a `LogEntry` shape that mixes in a `string`
+  timestamp: v1.5's `MessageEntry` and `StderrLogEntry` use `Date`, not
+  `string`. Reconcile.
+
+#### Procedure
+
+1. Open `v2_ux_interfaces.md` and walk every `likely` instance in document
+   order (`grep -n "likely" specification/v2_ux_interfaces.md`).
+2. For each, look up the claim against v1.5 (`git show origin/v1.5/main:...`)
+   or the SDK (`grep` in `node_modules/@modelcontextprotocol/sdk/dist/types.d.ts`
+   once 0.1 lands).
+3. Either replace `likely useFoo` with the verified name or, if there is
+   no v1.5 analog, replace it with an explicit `v2 to introduce — no v1.5
+   analog` annotation. **Do not leave `(likely)` in the doc.**
+4. While doing this, fix Appendix A's structural errors above.
+5. Land the corrected `v2_ux_interfaces.md` as the **second commit** of
+   Phase 0, immediately after the `core/mcp/types.ts` setup commit. The
+   commit message should call out the rename table from this section so
+   reviewers can audit it.
+6. After 0.3 ships, **`grep "likely" specification/v2_ux_interfaces.md`
+   must return zero results**. This is the definition-of-done for Phase 0.3.
+
+(See Risks #11 below for the underlying root cause and the
+"vet weasel words" rule that should now apply to every planning doc in
+this repo.)
+
+### 0.4 Inventory current local re-declarations to delete
 
 Run a single pass to find every local type that will be replaced by an MCP
 schema type or a wrapper. Add a checklist to the PR description so reviewers
@@ -529,6 +631,21 @@ After the whole effort:
     that subscribe to them via `EventTarget`. None of that is in scope for
     this plan — only the *types* are. The hook layer build-out is the
     follow-up effort that will consume the contracts produced here.
+11. **`v2_ux_interfaces.md` was produced with unverified hedges.** The doc
+    contains 52 instances of `(likely)` because the parallel research
+    subagents that filled in each section were instructed to prefix
+    uncertain hook names with the hedge rather than fail to fill in a
+    section. Several of those hedges turned out to be wrong (see Phase 0.3
+    rename table). The **rule going forward** for any planning / spec doc
+    in this repo: hedging words like `likely`, `probably`, `presumably`,
+    `should be` next to a type name, hook name, or file path are an
+    unverified claim. Either resolve them against the source of truth
+    (v1.5 branch of this repo for Inspector-owned types/hooks/wrappers;
+    `@modelcontextprotocol/sdk/types.js` for protocol schema types) before
+    the doc ships, or mark them explicitly as `not present in v1.5 — needs
+    design`. Do not leave a hedge in a planning doc and treat it as
+    research. The Phase 0.3 step is the immediate cleanup; the rule is the
+    durable preference.
 
 ## Out of this plan, but adjacent
 
@@ -547,6 +664,7 @@ After the whole effort:
   will reuse the wrapper types from `core/mcp/types.ts` once that file exists
   in v2.
 - **Updating `v2_ux_interfaces.md`** to use v1.5's actual wrapper-type names
-  (`MCPServerConfig`, `MessageEntry`, `Task`, etc.) instead of the
-  `Inspector*` placeholders. Should be a small follow-up commit on this
-  branch immediately after Phase 0 lands so the spec and the code agree.
+  (`MCPServerConfig`, `MessageEntry`, `Task`, etc.) and v1.5's actual hook
+  names (`useManagedTools`, `useInspectorClient`, `useMessageLog`, etc.)
+  instead of the `Inspector*` and `(likely)` placeholders. **Done as part
+  of Phase 0.3 in this plan**, not a follow-up.
