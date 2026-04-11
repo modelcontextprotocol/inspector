@@ -31,6 +31,8 @@ interface AppRendererProps {
   onNotification?: (notification: ServerNotification) => void;
 }
 
+const OAUTH_STATE_SESSION_KEY = "oauth_state";
+
 const AppRenderer = ({
   sandboxPath,
   tool,
@@ -74,8 +76,22 @@ const AppRenderer = ({
   const handleOpenLink = async ({ url }: { url: string }) => {
     let isError = true;
     if (url.startsWith("https://") || url.startsWith("http://")) {
-      window.open(url, "_blank");
-      isError = false;
+      try {
+        const nextUrl = new URL(url);
+        if (nextUrl.searchParams.get("response_type") === "code") {
+          const stateBytes = new Uint8Array(16);
+          window.crypto.getRandomValues(stateBytes);
+          const state = Array.from(stateBytes, (byte) =>
+            byte.toString(16).padStart(2, "0"),
+          ).join("");
+          sessionStorage.setItem(OAUTH_STATE_SESSION_KEY, state);
+          nextUrl.searchParams.set("state", state);
+        }
+        window.open(nextUrl.toString(), "_blank");
+        isError = false;
+      } catch {
+        isError = true;
+      }
     }
     return { isError };
   };
