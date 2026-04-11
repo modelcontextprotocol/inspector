@@ -1,0 +1,122 @@
+/*
+ * App.css — Global styles that CANNOT be expressed in the Mantine theme.
+ *
+ * Only the following belong here:
+ *   - :root CSS custom properties (--inspector-* design tokens)
+ *   - @keyframes animations
+ *   - Pseudo-selectors (:hover, :focus) that cross component boundaries
+ *   - Nested child-element selectors for third-party HTML output
+ *   - Styles for native HTML elements (img, iframe, etc.)
+ *
+ * Everything else (margin, padding, background, border, color, font-size)
+ * belongs in the Mantine theme via Component.extend() or .withProps().
+ */
+
+:root {
+  /* ── Brand ─────────────────────────────────────────────── */
+  --inspector-brand-primary: var(--mantine-primary-color-filled);
+
+  /* ── Text ──────────────────────────────────────────────── */
+  --inspector-text-primary: var(--mantine-color-text);
+  --inspector-text-secondary: var(--mantine-color-dimmed);
+  --inspector-text-inverse: var(--mantine-color-white);
+
+  /* ── Surfaces ──────────────────────────────────────────── */
+  --inspector-surface-body: var(--mantine-color-dark-9);
+  --inspector-surface-card: var(--mantine-color-gray-0);
+  --inspector-surface-code: var(--mantine-color-white);
+
+  /* ── Borders ───────────────────────────────────────────── */
+  --inspector-border-default: var(--mantine-color-default-border);
+  --inspector-border-subtle: var(--mantine-color-gray-3);
+
+  /* ── Connection status ─────────────────────────────────── */
+  --inspector-status-connected: var(--mantine-color-green-6);
+  --inspector-status-connecting: var(--mantine-color-yellow-6);
+  --inspector-status-disconnected: var(--mantine-color-gray-5);
+  --inspector-status-failed: var(--mantine-color-red-6);
+
+  /* ── Log levels (RFC 5424) ─────────────────────────────── */
+  --inspector-log-debug: var(--mantine-color-gray-6);
+  --inspector-log-info: var(--mantine-color-blue-6);
+  --inspector-log-notice: var(--mantine-color-teal-6);
+  --inspector-log-warning: var(--mantine-color-yellow-6);
+  --inspector-log-error: var(--mantine-color-red-6);
+  --inspector-log-critical: var(--mantine-color-red-8);
+  --inspector-log-alert: var(--mantine-color-red-9);
+  --inspector-log-emergency: var(--mantine-color-red-9);
+
+  /* ── Annotations ───────────────────────────────────────── */
+  --inspector-annotation-destructive: var(--mantine-color-red-6);
+  --inspector-annotation-long-run: var(--mantine-color-yellow-6);
+  --inspector-annotation-read-only: var(--mantine-color-dark-6);
+  --inspector-annotation-audience: var(--mantine-color-gray-6);
+  --inspector-annotation-priority-high: var(--mantine-color-orange-6);
+  --inspector-annotation-priority-medium: var(--mantine-color-yellow-6);
+  --inspector-annotation-priority-low: var(--mantine-color-green-6);
+
+  /* ── Task status ───────────────────────────────────────── */
+  --inspector-task-waiting: var(--mantine-color-gray-5);
+  --inspector-task-running: var(--mantine-color-blue-6);
+  --inspector-task-completed: var(--mantine-color-green-6);
+  --inspector-task-failed: var(--mantine-color-red-6);
+  --inspector-task-cancelled: var(--mantine-color-yellow-6);
+
+  /* ── History ───────────────────────────────────────────── */
+  --inspector-history-success: var(--mantine-color-green-6);
+  --inspector-history-error: var(--mantine-color-red-6);
+}
+
+/* Dark mode overrides — tokens that need adjustment in dark scheme */
+[data-mantine-color-scheme="dark"] {
+  --inspector-surface-card: var(--mantine-color-gray-9);
+  --inspector-surface-code: var(--mantine-color-dark-9);
+  --inspector-border-subtle: var(--mantine-color-dark-4);
+}
+
+/* ── Animations ──────────────────────────────────────────── */
+
+@keyframes inspector-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes inspector-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Status dot animations ───────────────────────────────── */
+
+.inspector-pulse {
+  animation: inspector-pulse 1.5s ease-in-out infinite;
+}
+
+.inspector-spin {
+  animation: inspector-spin 1s linear infinite;
+}
+
+/* ── List item hover ────────────────────────────────────── */
+
+.list-item:hover {
+  background-color: var(--mantine-color-gray-1);
+}
+
+[data-mantine-color-scheme="dark"] .list-item:hover {
+  background-color: var(--mantine-color-dark-5);
+}
+
+/* ── Grid alignment ─────────────────────────────────────── */
+
+.grid-align-start {
+  align-items: start;
+}

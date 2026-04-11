@@ -1,8 +1,8 @@
-# V2 Storage Specification
+# Inspector V2 Tech Stack - Storage Specification
 
-**Status:** Draft
-**Issue:** [#983](https://github.com/modelcontextprotocol/inspector/issues/983)
-**Last Updated:** 2026-02-01
+### Brief | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | V2 Tech Stack | [V2 UX](v2_ux.md)
+
+#### [Web Client](v2_web_client.md) | [Server](v2_server.md)  | Storage
 
 ## Overview
 
@@ -44,7 +44,7 @@ The Pino logger on the proxy writes MCP request/response records to NDJSON forma
 - Caching fetched history for UI performance
 - User preferences that don't belong on the server
 
-See [v2_tech_stack.md](./v2_tech_stack.md#pino-rationale) for Pino configuration details.
+See [v2_server.md](./v2_server.md#pino-rationale) for Pino configuration details.
 
 ---
 

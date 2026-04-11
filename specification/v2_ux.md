@@ -1,6 +1,7 @@
-# Inspector V2 UX Specification
+# Inspector V2 UX - Specification
 
-### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_tech_stack.md) | V2 UX
+### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_web_client.md) | V2 UX
+#### Overview | [Features](v2_ux_features.md) | [Handlers](v2_ux_handlers.md) | [Screenshots](v2_screenshots.md) | [Components](v2_ux_components.md) | [Interfaces](v2_ux_interfaces.md)
 
 ## Table of Contents
   * [Design Principles](#design-principles)
@@ -660,8 +661,6 @@ A unified history of all MCP requests with **hierarchical request trace** capabi
 │ │ * "Get config"     resources/read  config.json   14:34:15      [Replay] [Unpin]  │ │
 │ └─────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                     │
-│                                                          Showing 50 of 127 entries │
-│                                                               [Load More]          │
 └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -707,7 +706,6 @@ A unified history of all MCP requests with **hierarchical request trace** capabi
   - Show/hide child requests (flatten view)
 
 - **Search** across method names, parameters, and responses
-- **Pagination** - Load more for large histories
 - **Clear** - Clear history (with confirmation)
 - **Export** - Export history as JSON for sharing/debugging
 
