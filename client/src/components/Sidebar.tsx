@@ -784,75 +784,72 @@ const Sidebar = ({
               </span>
             </div>
 
-            {connectionStatus === "connected" && serverImplementation && (
-              <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg mb-4">
-                <div className="flex items-center gap-2 mb-1">
-                  {(serverImplementation as WithIcons).icons &&
-                  (serverImplementation as WithIcons).icons!.length > 0 ? (
-                    <IconDisplay
-                      icons={(serverImplementation as WithIcons).icons}
-                      size="sm"
-                    />
-                  ) : (
-                    <Server className="w-4 h-4 text-gray-500" />
-                  )}
-                  {(() => {
-                    const websiteUrl = (
-                      serverImplementation as { websiteUrl?: string }
-                    ).websiteUrl;
-                    if (!websiteUrl) {
-                      return (
+            {connectionStatus === "connected" &&
+              serverImplementation &&
+              (() => {
+                const websiteUrl = (
+                  serverImplementation as { websiteUrl?: string }
+                ).websiteUrl;
+                let isValidWebsiteUrl = false;
+                if (websiteUrl) {
+                  try {
+                    validateRedirectUrl(websiteUrl);
+                    isValidWebsiteUrl = true;
+                  } catch {
+                    isValidWebsiteUrl = false;
+                  }
+                }
+                const serverName = serverImplementation.name || "MCP Server";
+                return (
+                  <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg mb-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      {(serverImplementation as WithIcons).icons &&
+                      (serverImplementation as WithIcons).icons!.length > 0 ? (
+                        <IconDisplay
+                          icons={(serverImplementation as WithIcons).icons}
+                          size="sm"
+                        />
+                      ) : (
+                        <Server className="w-4 h-4 text-gray-500" />
+                      )}
+                      {websiteUrl && isValidWebsiteUrl ? (
+                        <a
+                          href={websiteUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
+                        >
+                          {serverName}
+                        </a>
+                      ) : (
                         <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                          {serverImplementation.name || "MCP Server"}
+                          {serverName}
                         </span>
-                      );
-                    }
-                    let isValidWebsiteUrl = false;
-                    try {
-                      validateRedirectUrl(websiteUrl);
-                      isValidWebsiteUrl = true;
-                    } catch {
-                      isValidWebsiteUrl = false;
-                    }
-                    if (!isValidWebsiteUrl) {
-                      return (
-                        <span className="text-sm font-medium text-gray-800 dark:text-gray-200 flex items-center gap-1">
-                          {serverImplementation.name || "MCP Server"}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="inline-flex items-center gap-1 text-yellow-600 dark:text-yellow-500">
-                                <AlertTriangle className="w-3.5 h-3.5" />
-                                <span className="text-xs font-normal">
-                                  Potentially malicious websiteURL field
-                                </span>
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="max-w-xs break-all">{websiteUrl}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </span>
-                      );
-                    }
-                    return (
-                      <a
-                        href={websiteUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
-                      >
-                        {serverImplementation.name || "MCP Server"}
-                      </a>
-                    );
-                  })()}
-                </div>
-                {serverImplementation.version && (
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    Version: {serverImplementation.version}
+                      )}
+                    </div>
+                    {websiteUrl && !isValidWebsiteUrl && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center gap-1 text-yellow-600 dark:text-yellow-500 mb-1">
+                            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="text-xs font-normal">
+                              Potentially malicious websiteURL field
+                            </span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="max-w-xs break-all">{websiteUrl}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                    {serverImplementation.version && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        Version: {serverImplementation.version}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            )}
+                );
+              })()}
 
             {loggingSupported && connectionStatus === "connected" && (
               <div className="space-y-2">
