@@ -2,7 +2,7 @@
 
 import cors from "cors";
 import { parseArgs } from "node:util";
-import { parse as shellParseArgs } from "shell-quote";
+import { parse as shellParseArgs, quote as shellQuoteArgs } from "shell-quote";
 import nodeFetch, { Headers as NodeHeaders } from "node-fetch";
 
 // Type-compatible wrappers for node-fetch to work with browser-style types
@@ -423,7 +423,16 @@ const createTransport = async (
 
   if (transportType === "stdio") {
     const command = (query.command as string).trim();
-    const origArgs = shellParseArgs(query.args as string) as string[];
+    const rawArgs = query.args as string;
+    let origArgs: string[];
+    try {
+      const parsed = JSON.parse(rawArgs);
+      origArgs = Array.isArray(parsed)
+        ? (parsed as string[])
+        : (shellParseArgs(rawArgs) as string[]);
+    } catch {
+      origArgs = shellParseArgs(rawArgs) as string[];
+    }
     const queryEnv = query.env ? JSON.parse(query.env as string) : {};
     const env = { ...defaultEnvironment, ...process.env, ...queryEnv };
 
@@ -894,7 +903,18 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
     res.json({
       defaultEnvironment,
       defaultCommand: values.command,
-      defaultArgs: values.args,
+      defaultArgs: (() => {
+        if (!values.args) return values.args;
+        try {
+          const parsed = JSON.parse(values.args);
+          if (Array.isArray(parsed)) {
+            return shellQuoteArgs(parsed);
+          }
+        } catch {
+          // Not JSON — legacy shell string, pass through unchanged
+        }
+        return values.args;
+      })(),
       defaultTransport: values.transport,
       defaultServerUrl: values["server-url"],
     });
