@@ -893,12 +893,15 @@ const App = () => {
     setPromptContent(JSON.stringify(response, null, 2));
   };
 
-  const readResource = async (uri: string, force: boolean = false) => {
+  const readResource = async (
+    uri: string,
+    { bypassCache = false }: { bypassCache?: boolean } = {},
+  ) => {
     if (fetchingResources.has(uri)) {
       return;
     }
 
-    if (!force && resourceContentMap[uri]) {
+    if (!bypassCache && resourceContentMap[uri]) {
       setResourceContent(resourceContentMap[uri]);
       return;
     }
@@ -930,10 +933,7 @@ const App = () => {
     } catch (error) {
       console.error(`[App] Failed to read resource ${uri}:`, error);
       const errorString = (error as Error).message ?? String(error);
-      setResourceContentMap((prev) => ({
-        ...prev,
-        [uri]: JSON.stringify({ error: errorString }),
-      }));
+      setResourceContent(JSON.stringify({ error: errorString }));
     } finally {
       setFetchingResources((prev) => {
         const next = new Set(prev);
@@ -1476,9 +1476,9 @@ const App = () => {
                         setResourceTemplates([]);
                         setNextResourceTemplateCursor(undefined);
                       }}
-                      readResource={(uri, force) => {
+                      readResource={(uri, opts) => {
                         clearError("resources");
-                        readResource(uri, force);
+                        readResource(uri, opts);
                       }}
                       selectedResource={selectedResource}
                       setSelectedResource={(resource) => {
