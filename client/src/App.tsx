@@ -304,6 +304,7 @@ const App = () => {
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isPollingTask, setIsPollingTask] = useState(false);
+  const pollingAbortControllerRef = useRef<AbortController | null>(null);
   const [nextResourceCursor, setNextResourceCursor] = useState<
     string | undefined
   >();
@@ -1070,6 +1071,8 @@ const App = () => {
       if (runAsTask && isTaskResult(response)) {
         const taskId = response.task.taskId;
         const pollInterval = response.task.pollInterval;
+        const abortController = new AbortController();
+        pollingAbortControllerRef.current = abortController;
         // Set polling state BEFORE setting tool result for proper UI update
         setIsPollingTask(true);
         // Safely extract any _meta from the original response (if present)
@@ -1095,10 +1098,23 @@ const App = () => {
 
         // Polling loop
         let taskCompleted = false;
-        while (!taskCompleted) {
+        while (!taskCompleted && !abortController.signal.aborted) {
           try {
-            // Wait for 1 second before polling
-            await new Promise((resolve) => setTimeout(resolve, pollInterval));
+            // Wait before polling (cancellable)
+            await new Promise<void>((resolve, reject) => {
+              if (abortController.signal.aborted) {
+                reject(new DOMException("Polling cancelled", "AbortError"));
+                return;
+              }
+              const timer = setTimeout(resolve, pollInterval);
+              const onAbort = () => {
+                clearTimeout(timer);
+                reject(new DOMException("Polling cancelled", "AbortError"));
+              };
+              abortController.signal.addEventListener("abort", onAbort, {
+                once: true,
+              });
+            });
 
             const taskStatus = await sendMCPRequest(
               {
@@ -1174,6 +1190,22 @@ const App = () => {
               void listTasks();
             }
           } catch (pollingError) {
+            if (
+              pollingError instanceof DOMException &&
+              pollingError.name === "AbortError"
+            ) {
+              latestToolResult = {
+                content: [
+                  {
+                    type: "text",
+                    text: `Polling cancelled for task ${taskId}. The task may still be running on the server.`,
+                  },
+                ],
+              };
+              setToolResult(latestToolResult);
+              taskCompleted = true;
+              break;
+            }
             console.error("Error polling task status:", pollingError);
             latestToolResult = {
               content: [
@@ -1189,6 +1221,7 @@ const App = () => {
           }
         }
         setIsPollingTask(false);
+        pollingAbortControllerRef.current = null;
         // Clear any validation errors since tool execution completed
         setErrors((prev) => ({ ...prev, tools: null }));
         return latestToolResult;
@@ -1587,6 +1620,9 @@ const App = () => {
                       }}
                       toolResult={toolResult}
                       isPollingTask={isPollingTask}
+                      cancelPolling={() => {
+                        pollingAbortControllerRef.current?.abort();
+                      }}
                       nextCursor={nextToolCursor}
                       error={errors.tools}
                       resourceContent={resourceContentMap}
