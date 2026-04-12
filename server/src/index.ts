@@ -806,7 +806,11 @@ app.get(
           "MCP server returned 404. Does it support SSE?",
         );
         return;
-      } else if (JSON.stringify(error).includes("ECONNREFUSED")) {
+      } else if (
+        error instanceof Error &&
+        (error.message.includes("ECONNREFUSED") ||
+          (error.cause && String(error.cause).includes("ECONNREFUSED")))
+      ) {
         console.error("Connection refused. Is the MCP server running?");
         sendErrorResponse(
           res,
@@ -904,9 +908,8 @@ app.post(
         body: responseBody,
       });
     } catch (error) {
-      res.status(500).json({
-        error: error instanceof Error ? error.message : String(error),
-      });
+      console.error("Error in /fetch route:", error);
+      sendErrorResponse(res, 500, "Internal server error");
     }
   },
 );
