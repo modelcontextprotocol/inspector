@@ -73,12 +73,25 @@ const is401Error = (error: unknown): boolean => {
 };
 
 /**
+ * Sends a sanitized JSON error response to the client without exposing
+ * stack traces or internal error details. The full error is expected to
+ * have already been logged server-side via console.error.
+ */
+const sendErrorResponse = (
+  res: express.Response,
+  status: number,
+  message: string,
+) => {
+  res.status(status).json({ error: message });
+};
+
+/**
  * Prefer forwarding the upstream MCP 401 (WWW-Authenticate + body) so the browser
- * matches direct-mode OAuth behavior. Falls back to JSON-encoding `error` if unknown.
+ * matches direct-mode OAuth behavior. Falls back to a generic 401 JSON response
+ * when no upstream details were captured, to avoid leaking stack traces.
  */
 const sendProxiedUnauthorized = (
   res: express.Response,
-  error: unknown,
   headerHolder?: ProxyHeaderHolder,
 ) => {
   const captured = headerHolder?.lastUpstream401;
@@ -92,7 +105,7 @@ const sendProxiedUnauthorized = (
     delete headerHolder.lastUpstream401;
     return;
   }
-  res.status(401).json(error);
+  sendErrorResponse(res, 401, "Unauthorized");
 };
 
 // Function to get HTTP headers.
@@ -509,7 +522,7 @@ app.get(
       }
     } catch (error) {
       console.error("Error in /mcp route:", error);
-      res.status(500).json(error);
+      sendErrorResponse(res, 500, "Internal server error");
     }
   },
 );
@@ -545,7 +558,7 @@ app.post(
         }
       } catch (error) {
         console.error("Error in /mcp route:", error);
-        res.status(500).json(error);
+        sendErrorResponse(res, 500, "Internal server error");
       }
     } else {
       console.log("New StreamableHttp connection request");
@@ -592,11 +605,11 @@ app.post(
             "Received 401 Unauthorized from MCP server:",
             error instanceof Error ? error.message : error,
           );
-          sendProxiedUnauthorized(res, error, streamableHeaderHolder);
+          sendProxiedUnauthorized(res, streamableHeaderHolder);
           return;
         }
         console.error("Error in /mcp POST route:", error);
-        res.status(500).json(error);
+        sendErrorResponse(res, 500, "Internal server error");
       }
     }
   },
@@ -627,7 +640,7 @@ app.delete(
         res.status(200).end();
       } catch (error) {
         console.error("Error in /mcp route:", error);
-        res.status(500).json(error);
+        sendErrorResponse(res, 500, "Internal server error");
       }
     }
   },
@@ -732,11 +745,11 @@ app.get(
         console.error(
           "Received 401 Unauthorized from MCP server. Authentication failure.",
         );
-        sendProxiedUnauthorized(res, error, undefined);
+        sendProxiedUnauthorized(res, undefined);
         return;
       }
       console.error("Error in /stdio route:", error);
-      res.status(500).json(error);
+      sendErrorResponse(res, 500, "Internal server error");
     }
   },
 );
@@ -781,20 +794,33 @@ app.get(
         console.error(
           "Received 401 Unauthorized from MCP server. Authentication failure.",
         );
-        sendProxiedUnauthorized(res, error, sseHeaderHolder);
+        sendProxiedUnauthorized(res, sseHeaderHolder);
         return;
       } else if (error instanceof SseError && error.code === 404) {
         console.error(
           "Received 404 not found from MCP server. Does the MCP server support SSE?",
         );
-        res.status(404).json(error);
+        sendErrorResponse(
+          res,
+          404,
+          "MCP server returned 404. Does it support SSE?",
+        );
         return;
-      } else if (JSON.stringify(error).includes("ECONNREFUSED")) {
+      } else if (
+        error instanceof Error &&
+        (error.message.includes("ECONNREFUSED") ||
+          (error.cause && String(error.cause).includes("ECONNREFUSED")))
+      ) {
         console.error("Connection refused. Is the MCP server running?");
-        res.status(500).json(error);
+        sendErrorResponse(
+          res,
+          500,
+          "Connection refused. Is the MCP server running?",
+        );
+        return;
       }
       console.error("Error in /sse route:", error);
-      res.status(500).json(error);
+      sendErrorResponse(res, 500, "Internal server error");
     }
   },
 );
@@ -824,7 +850,7 @@ app.post(
       await transport.handlePostMessage(req, res);
     } catch (error) {
       console.error("Error in /message route:", error);
-      res.status(500).json(error);
+      sendErrorResponse(res, 500, "Internal server error");
     }
   },
 );
@@ -882,9 +908,8 @@ app.post(
         body: responseBody,
       });
     } catch (error) {
-      res.status(500).json({
-        error: error instanceof Error ? error.message : String(error),
-      });
+      console.error("Error in /fetch route:", error);
+      sendErrorResponse(res, 500, "Internal server error");
     }
   },
 );
@@ -900,7 +925,7 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
     });
   } catch (error) {
     console.error("Error in /config route:", error);
-    res.status(500).json(error);
+    sendErrorResponse(res, 500, "Internal server error");
   }
 });
 
