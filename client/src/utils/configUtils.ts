@@ -92,6 +92,22 @@ export const getInitialArgs = (): string => {
   return localStorage.getItem("lastArgs") || "";
 };
 
+export const getAutoConnect = (): boolean => {
+  return getSearchParam("autoConnect") === "true";
+};
+
+export const stripAutoConnectParam = (): void => {
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("autoConnect")) {
+      url.searchParams.delete("autoConnect");
+      window.history.replaceState({}, "", url.toString());
+    }
+  } catch {
+    // Ignore URL parsing errors
+  }
+};
+
 // Returns a map of config key -> value from query params if present
 export const getConfigOverridesFromQueryParams = (
   defaultConfig: InspectorConfig,
