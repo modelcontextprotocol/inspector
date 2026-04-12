@@ -90,6 +90,8 @@ import {
   initializeInspectorConfig,
   saveInspectorConfig,
   getMCPTaskTtl,
+  getAutoConnect,
+  stripAutoConnectParam,
 } from "./utils/configUtils";
 import ElicitationTab, {
   PendingElicitationRequest,
@@ -583,6 +585,19 @@ const App = () => {
   useEffect(() => {
     saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
   }, [config]);
+
+  // Auto-connect when ?autoConnect=true is present in the URL.
+  // One-shot: the param is stripped after consumption so refreshes
+  // and disconnect/reconnect cycles don't re-trigger it.
+  useEffect(() => {
+    if (getAutoConnect()) {
+      stripAutoConnectParam();
+      void connectMcpServer();
+    }
+    // Only run once on mount — intentionally omitting connectMcpServer
+    // from deps so this doesn't re-fire on reconnects.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onOAuthConnect = useCallback(
     (serverUrl: string) => {
