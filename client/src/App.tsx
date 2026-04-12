@@ -367,6 +367,11 @@ const App = () => {
   } = useDraggableSidebar(320);
 
   const selectedTaskRef = useRef<Task | null>(null);
+  // Signal used to wake up the task polling loop when a task status notification arrives
+  const taskNotificationResolverRef = useRef<{
+    taskId: string;
+    resolve: () => void;
+  } | null>(null);
   useEffect(() => {
     selectedTaskRef.current = selectedTask;
   }, [selectedTask]);
@@ -417,6 +422,15 @@ const App = () => {
         });
         if (selectedTaskRef.current?.taskId === task.taskId) {
           setSelectedTask(task);
+        }
+        // Wake up the polling loop if this task reached a terminal status
+        const terminalStatuses = ["completed", "failed", "cancelled"];
+        if (
+          terminalStatuses.includes(task.status) &&
+          taskNotificationResolverRef.current?.taskId === task.taskId
+        ) {
+          taskNotificationResolverRef.current.resolve();
+          taskNotificationResolverRef.current = null;
         }
       }
     },
@@ -1097,8 +1111,17 @@ const App = () => {
         let taskCompleted = false;
         while (!taskCompleted) {
           try {
-            // Wait for 1 second before polling
-            await new Promise((resolve) => setTimeout(resolve, pollInterval));
+            // Wait for poll interval OR a task status notification, whichever comes first
+            await Promise.race([
+              new Promise((resolve) => setTimeout(resolve, pollInterval)),
+              new Promise<void>((resolve) => {
+                taskNotificationResolverRef.current = { taskId, resolve };
+              }),
+            ]);
+            // Clear the resolver ref if it was not consumed by a notification
+            if (taskNotificationResolverRef.current?.taskId === taskId) {
+              taskNotificationResolverRef.current = null;
+            }
 
             const taskStatus = await sendMCPRequest(
               {
