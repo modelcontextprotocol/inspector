@@ -212,14 +212,30 @@ const ToolsTab = ({
   const { copied, setCopied } = useCopy();
 
   // Function to check if any form has validation errors
+  // When validateChildren is true, also collects fresh parsed values from JSON editors
   const checkValidationErrors = (validateChildren: boolean = false) => {
-    const errors = Object.values(formRefs.current).some(
-      (ref) =>
-        ref &&
-        (validateChildren ? !ref.validateJson().isValid : ref.hasJsonError()),
-    );
-    setHasValidationErrors(errors);
-    return errors;
+    const freshValues: Record<string, JsonValue> = {};
+    let hasErrors = false;
+
+    for (const [key, ref] of Object.entries(formRefs.current)) {
+      if (!ref) continue;
+      if (validateChildren) {
+        const result = ref.validateJson();
+        if (!result.isValid) {
+          hasErrors = true;
+        }
+        if (result.value !== undefined) {
+          freshValues[key] = result.value;
+        }
+      } else {
+        if (ref.hasJsonError()) {
+          hasErrors = true;
+        }
+      }
+    }
+
+    setHasValidationErrors(hasErrors);
+    return { hasErrors, freshValues };
   };
 
   useEffect(() => {
@@ -371,8 +387,8 @@ const ToolsTab = ({
                                 name={key}
                                 checked={params[key] === null}
                                 onCheckedChange={(checked: boolean) =>
-                                  setParams({
-                                    ...params,
+                                  setParams((prev) => ({
+                                    ...prev,
                                     [key]: checked
                                       ? null
                                       : prop.type === "array"
@@ -387,7 +403,7 @@ const ToolsTab = ({
                                                   prop.type === "integer"
                                                 ? undefined
                                                 : undefined,
-                                  })
+                                  }))
                                 }
                               />
                               <label
@@ -411,10 +427,10 @@ const ToolsTab = ({
                                 name={key}
                                 checked={!!params[key]}
                                 onCheckedChange={(checked: boolean) =>
-                                  setParams({
-                                    ...params,
+                                  setParams((prev) => ({
+                                    ...prev,
                                     [key]: checked,
-                                  })
+                                  }))
                                 }
                               />
                               <label
@@ -433,15 +449,15 @@ const ToolsTab = ({
                               }
                               onValueChange={(value) => {
                                 if (value === "") {
-                                  setParams({
-                                    ...params,
+                                  setParams((prev) => ({
+                                    ...prev,
                                     [key]: undefined,
-                                  });
+                                  }));
                                 } else {
-                                  setParams({
-                                    ...params,
+                                  setParams((prev) => ({
+                                    ...prev,
                                     [key]: value,
-                                  });
+                                  }));
                                 }
                               }}
                             >
@@ -474,16 +490,16 @@ const ToolsTab = ({
                                 const value = e.target.value;
                                 if (value === "") {
                                   // Field cleared - set to undefined
-                                  setParams({
-                                    ...params,
+                                  setParams((prev) => ({
+                                    ...prev,
                                     [key]: undefined,
-                                  });
+                                  }));
                                 } else {
                                   // Field has value - keep as string
-                                  setParams({
-                                    ...params,
+                                  setParams((prev) => ({
+                                    ...prev,
                                     [key]: value,
-                                  });
+                                  }));
                                 }
                               }}
                               className="mt-1"
@@ -504,10 +520,10 @@ const ToolsTab = ({
                                   generateDefaultValue(prop)
                                 }
                                 onChange={(newValue: JsonValue) => {
-                                  setParams({
-                                    ...params,
+                                  setParams((prev) => ({
+                                    ...prev,
                                     [key]: newValue,
-                                  });
+                                  }));
                                   // Check validation after a short delay to allow form to update
                                   setTimeout(checkValidationErrors, 100);
                                 }}
@@ -529,24 +545,24 @@ const ToolsTab = ({
                                 const value = e.target.value;
                                 if (value === "") {
                                   // Field cleared - set to undefined
-                                  setParams({
-                                    ...params,
+                                  setParams((prev) => ({
+                                    ...prev,
                                     [key]: undefined,
-                                  });
+                                  }));
                                 } else {
                                   // Field has value - try to convert to number, but store input either way
                                   const num = Number(value);
                                   if (!isNaN(num)) {
-                                    setParams({
-                                      ...params,
+                                    setParams((prev) => ({
+                                      ...prev,
                                       [key]: num,
-                                    });
+                                    }));
                                   } else {
                                     // Store invalid input as string - let server validate
-                                    setParams({
-                                      ...params,
+                                    setParams((prev) => ({
+                                      ...prev,
                                       [key]: value,
-                                    });
+                                    }));
                                   }
                                 }
                               }}
@@ -564,10 +580,10 @@ const ToolsTab = ({
                                 }}
                                 value={params[key] as JsonValue}
                                 onChange={(newValue: JsonValue) => {
-                                  setParams({
-                                    ...params,
+                                  setParams((prev) => ({
+                                    ...prev,
                                     [key]: newValue,
-                                  });
+                                  }));
                                   // Check validation after a short delay to allow form to update
                                   setTimeout(checkValidationErrors, 100);
                                 }}
@@ -805,8 +821,14 @@ const ToolsTab = ({
                 )}
                 <Button
                   onClick={async () => {
-                    // Validate JSON inputs before calling tool
-                    if (checkValidationErrors(true)) return;
+                    // Validate JSON inputs and collect fresh values before calling tool
+                    const { hasErrors, freshValues } =
+                      checkValidationErrors(true);
+                    if (hasErrors) return;
+
+                    // Merge fresh values from JSON editors into current params
+                    // to bypass React's async setState
+                    const currentParams = { ...params, ...freshValues };
 
                     try {
                       setIsToolRunning(true);
@@ -826,7 +848,7 @@ const ToolsTab = ({
                       }, {});
                       await callTool(
                         selectedTool.name,
-                        params,
+                        currentParams,
                         Object.keys(metadata).length ? metadata : undefined,
                         runAsTask,
                       );
