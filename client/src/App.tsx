@@ -943,6 +943,13 @@ const App = () => {
       console.error(`[App] Failed to read resource ${uri}:`, error);
       const errorString = (error as Error).message ?? String(error);
       setResourceContent(JSON.stringify({ error: errorString }));
+      if (bypassCache) {
+        setResourceContentMap((prev) => {
+          const next = { ...prev };
+          delete next[uri];
+          return next;
+        });
+      }
     } finally {
       setFetchingResources((prev) => {
         const next = new Set(prev);
@@ -1487,9 +1494,9 @@ const App = () => {
                         setResourceTemplates([]);
                         setNextResourceTemplateCursor(undefined);
                       }}
-                      readResource={(uri, opts) => {
+                      readResource={(uri, options) => {
                         clearError("resources");
-                        readResource(uri, opts);
+                        readResource(uri, options);
                       }}
                       selectedResource={selectedResource}
                       setSelectedResource={(resource) => {
