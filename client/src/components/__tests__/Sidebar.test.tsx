@@ -1046,4 +1046,68 @@ describe("Sidebar", () => {
       );
     });
   });
+
+  describe("Server Implementation websiteUrl", () => {
+    it("should render a warning instead of a link when websiteUrl uses an unsafe protocol", () => {
+      renderSidebar({
+        connectionStatus: "connected",
+        serverImplementation: {
+          name: "Evil Server",
+          version: "1.0.0",
+          websiteUrl: "javascript:alert('xss')",
+        },
+      });
+
+      // The warning message should be displayed
+      expect(
+        screen.getByText("Potentially malicious websiteURL field"),
+      ).toBeInTheDocument();
+
+      // The server name should still be shown
+      expect(screen.getByText("Evil Server")).toBeInTheDocument();
+
+      // No link should have been rendered for the malicious URL
+      expect(
+        screen.queryByRole("link", { name: "Evil Server" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should render a link when websiteUrl is a valid https URL", () => {
+      renderSidebar({
+        connectionStatus: "connected",
+        serverImplementation: {
+          name: "Good Server",
+          version: "1.0.0",
+          websiteUrl: "https://example.com",
+        },
+      });
+
+      const link = screen.getByRole("link", { name: "Good Server" });
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute("href", "https://example.com");
+
+      expect(
+        screen.queryByText("Potentially malicious websiteURL field"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should render a link when websiteUrl is a valid http URL", () => {
+      renderSidebar({
+        connectionStatus: "connected",
+        serverImplementation: {
+          name: "Local Server",
+          version: "1.0.0",
+          websiteUrl: "http://localhost:3000",
+        },
+      });
+
+      const link = screen.getByRole("link", { name: "Local Server" });
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute("href", "http://localhost:3000");
+
+      expect(
+        screen.queryByText("Potentially malicious websiteURL field"),
+      ).not.toBeInTheDocument();
+    });
+  });
 });

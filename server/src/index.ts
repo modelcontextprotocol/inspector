@@ -27,7 +27,7 @@ import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import { findActualExecutable } from "spawn-rx";
-import mcpProxy from "./mcpProxy.js";
+import mcpProxy, { type ProxyHeaderHolder } from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -70,6 +70,42 @@ const is401Error = (error: unknown): boolean => {
   )
     return true;
   return false;
+};
+
+/**
+ * Sends a sanitized JSON error response to the client without exposing
+ * stack traces or internal error details. The full error is expected to
+ * have already been logged server-side via console.error.
+ */
+const sendErrorResponse = (
+  res: express.Response,
+  status: number,
+  message: string,
+) => {
+  res.status(status).json({ error: message });
+};
+
+/**
+ * Prefer forwarding the upstream MCP 401 (WWW-Authenticate + body) so the browser
+ * matches direct-mode OAuth behavior. Falls back to a generic 401 JSON response
+ * when no upstream details were captured, to avoid leaking stack traces.
+ */
+const sendProxiedUnauthorized = (
+  res: express.Response,
+  headerHolder?: ProxyHeaderHolder,
+) => {
+  const captured = headerHolder?.lastUpstream401;
+  if (captured && headerHolder) {
+    if (captured.wwwAuthenticate) {
+      res.setHeader("WWW-Authenticate", captured.wwwAuthenticate);
+    }
+    res.status(401);
+    res.setHeader("Content-Type", captured.contentType);
+    res.send(captured.body);
+    delete headerHolder.lastUpstream401;
+    return;
+  }
+  sendErrorResponse(res, 401, "Unauthorized");
 };
 
 // Function to get HTTP headers.
@@ -175,13 +211,16 @@ const updateHeadersInPlace = (
 const app = express();
 app.use(cors());
 app.use((req, res, next) => {
-  res.header("Access-Control-Expose-Headers", "mcp-session-id");
+  res.header(
+    "Access-Control-Expose-Headers",
+    "mcp-session-id, WWW-Authenticate",
+  );
   next();
 });
 
 const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Web app transports by web app sessionId
 const serverTransports: Map<string, Transport> = new Map<string, Transport>(); // Server Transports by web app sessionId
-const sessionHeaderHolders: Map<string, { headers: HeadersInit }> = new Map(); // For dynamic header updates
+const sessionHeaderHolders: Map<string, ProxyHeaderHolder> = new Map(); // For dynamic header updates
 
 // Use provided token from environment or generate a new one
 const sessionToken =
@@ -303,7 +342,7 @@ const createWebReadableStream = (nodeStream: any): ReadableStream => {
  * `Content-Type` are preserved. For SSE requests, it also converts Node.js
  * streams to web-compatible streams.
  */
-const createCustomFetch = (headerHolder: { headers: HeadersInit }) => {
+const createCustomFetch = (headerHolder: ProxyHeaderHolder) => {
   return async (
     input: RequestInfo | URL,
     init?: RequestInit,
@@ -333,6 +372,28 @@ const createCustomFetch = (headerHolder: { headers: HeadersInit }) => {
       input as any,
       { ...init, headers: headersObject } as any,
     );
+
+    if (response.status === 401) {
+      const wwwAuthenticate =
+        response.headers.get("www-authenticate") ?? undefined;
+      const contentType =
+        response.headers.get("content-type") ?? "application/json";
+      const body = await response.text();
+      headerHolder.lastUpstream401 = {
+        wwwAuthenticate,
+        body,
+        contentType,
+      };
+      const responseHeaders: Record<string, string> = {};
+      response.headers.forEach((value: string, key: string) => {
+        responseHeaders[key] = value;
+      });
+      return new Response(body, {
+        status: 401,
+        statusText: response.statusText,
+        headers: responseHeaders,
+      }) as Response;
+    }
 
     // Check if this is an SSE request by looking at the Accept header
     const acceptHeader = finalHeaders.get("Accept");
@@ -366,7 +427,7 @@ const createTransport = async (
   req: express.Request,
 ): Promise<{
   transport: Transport;
-  headerHolder?: { headers: HeadersInit };
+  headerHolder?: ProxyHeaderHolder;
 }> => {
   const query = req.query;
   console.log("Query parameters:", JSON.stringify(query));
@@ -397,7 +458,7 @@ const createTransport = async (
 
     const headers = getHttpHeaders(req);
     headers["Accept"] = "text/event-stream";
-    const headerHolder = { headers };
+    const headerHolder: ProxyHeaderHolder = { headers };
 
     console.log(
       `SSE transport: url=${url}, headers=${JSON.stringify(headers)}`,
@@ -416,7 +477,7 @@ const createTransport = async (
   } else if (transportType === "streamable-http") {
     const headers = getHttpHeaders(req);
     headers["Accept"] = "text/event-stream, application/json";
-    const headerHolder = { headers };
+    const headerHolder: ProxyHeaderHolder = { headers };
 
     const transport = new StreamableHTTPClientTransport(
       new URL(query.url as string),
@@ -461,7 +522,7 @@ app.get(
       }
     } catch (error) {
       console.error("Error in /mcp route:", error);
-      res.status(500).json(error);
+      sendErrorResponse(res, 500, "Internal server error");
     }
   },
 );
@@ -497,13 +558,15 @@ app.post(
         }
       } catch (error) {
         console.error("Error in /mcp route:", error);
-        res.status(500).json(error);
+        sendErrorResponse(res, 500, "Internal server error");
       }
     } else {
       console.log("New StreamableHttp connection request");
+      let streamableHeaderHolder: ProxyHeaderHolder | undefined;
       try {
         const { transport: serverTransport, headerHolder } =
           await createTransport(req);
+        streamableHeaderHolder = headerHolder;
 
         const webAppTransport = new StreamableHTTPServerTransport({
           sessionIdGenerator: randomUUID,
@@ -528,6 +591,7 @@ app.post(
         mcpProxy({
           transportToClient: webAppTransport,
           transportToServer: serverTransport,
+          headerHolder,
         });
 
         await (webAppTransport as StreamableHTTPServerTransport).handleRequest(
@@ -541,11 +605,11 @@ app.post(
             "Received 401 Unauthorized from MCP server:",
             error instanceof Error ? error.message : error,
           );
-          res.status(401).json(error);
+          sendProxiedUnauthorized(res, streamableHeaderHolder);
           return;
         }
         console.error("Error in /mcp POST route:", error);
-        res.status(500).json(error);
+        sendErrorResponse(res, 500, "Internal server error");
       }
     }
   },
@@ -576,7 +640,7 @@ app.delete(
         res.status(200).end();
       } catch (error) {
         console.error("Error in /mcp route:", error);
-        res.status(500).json(error);
+        sendErrorResponse(res, 500, "Internal server error");
       }
     }
   },
@@ -681,11 +745,11 @@ app.get(
         console.error(
           "Received 401 Unauthorized from MCP server. Authentication failure.",
         );
-        res.status(401).json(error);
+        sendProxiedUnauthorized(res, undefined);
         return;
       }
       console.error("Error in /stdio route:", error);
-      res.status(500).json(error);
+      sendErrorResponse(res, 500, "Internal server error");
     }
   },
 );
@@ -695,12 +759,14 @@ app.get(
   originValidationMiddleware,
   authMiddleware,
   async (req, res) => {
+    let sseHeaderHolder: ProxyHeaderHolder | undefined;
     try {
       console.log(
         "New SSE connection request. NOTE: The SSE transport is deprecated and has been replaced by StreamableHttp",
       );
       const { transport: serverTransport, headerHolder } =
         await createTransport(req);
+      sseHeaderHolder = headerHolder;
 
       const proxyFullAddress = (req.query.proxyFullAddress as string) || "";
       const prefix = proxyFullAddress || "";
@@ -721,26 +787,40 @@ app.get(
       mcpProxy({
         transportToClient: webAppTransport,
         transportToServer: serverTransport,
+        headerHolder,
       });
     } catch (error) {
       if (is401Error(error)) {
         console.error(
           "Received 401 Unauthorized from MCP server. Authentication failure.",
         );
-        res.status(401).json(error);
+        sendProxiedUnauthorized(res, sseHeaderHolder);
         return;
       } else if (error instanceof SseError && error.code === 404) {
         console.error(
           "Received 404 not found from MCP server. Does the MCP server support SSE?",
         );
-        res.status(404).json(error);
+        sendErrorResponse(
+          res,
+          404,
+          "MCP server returned 404. Does it support SSE?",
+        );
         return;
-      } else if (JSON.stringify(error).includes("ECONNREFUSED")) {
+      } else if (
+        error instanceof Error &&
+        (error.message.includes("ECONNREFUSED") ||
+          (error.cause && String(error.cause).includes("ECONNREFUSED")))
+      ) {
         console.error("Connection refused. Is the MCP server running?");
-        res.status(500).json(error);
+        sendErrorResponse(
+          res,
+          500,
+          "Connection refused. Is the MCP server running?",
+        );
+        return;
       }
       console.error("Error in /sse route:", error);
-      res.status(500).json(error);
+      sendErrorResponse(res, 500, "Internal server error");
     }
   },
 );
@@ -770,7 +850,7 @@ app.post(
       await transport.handlePostMessage(req, res);
     } catch (error) {
       console.error("Error in /message route:", error);
-      res.status(500).json(error);
+      sendErrorResponse(res, 500, "Internal server error");
     }
   },
 );
@@ -780,6 +860,59 @@ app.get("/health", (req, res) => {
     status: "ok",
   });
 });
+
+app.post(
+  "/fetch",
+  express.json(),
+  originValidationMiddleware,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { url, init } = req.body as { url: string; init?: RequestInit };
+
+      if (typeof url !== "string" || url.length === 0) {
+        res.status(400).json({ error: "Missing or invalid url" });
+        return;
+      }
+
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(url);
+      } catch {
+        res.status(400).json({ error: "Invalid URL" });
+        return;
+      }
+
+      if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+        res.status(400).json({ error: "Only http/https URLs are allowed" });
+        return;
+      }
+
+      const response = await fetch(url, {
+        method: init?.method ?? "GET",
+        headers: (init?.headers as Record<string, string>) ?? {},
+        body: init?.body as string | undefined,
+      });
+
+      const responseBody = await response.text();
+      const headers: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+
+      res.status(response.status).json({
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+        body: responseBody,
+      });
+    } catch (error) {
+      console.error("Error in /fetch route:", error);
+      sendErrorResponse(res, 500, "Internal server error");
+    }
+  },
+);
 
 app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
   try {
@@ -792,7 +925,7 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
     });
   } catch (error) {
     console.error("Error in /config route:", error);
-    res.status(500).json(error);
+    sendErrorResponse(res, 500, "Internal server error");
   }
 });
 
