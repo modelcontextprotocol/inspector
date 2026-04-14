@@ -10,6 +10,9 @@
   "bin": {
     "mcp-inspector": "cli/build/cli.js"
   },
+  "repository": {
+    "url": "https://github.com/modelcontextprotocol/inspector"
+  },
   "files": [
     "client/bin",
     "client/dist",
