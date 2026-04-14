@@ -151,6 +151,9 @@ const App = () => {
   const [resourceContentMap, setResourceContentMap] = useState<
     Record<string, string>
   >({});
+  const [resourceErrorMap, setResourceErrorMap] = useState<
+    Record<string, string>
+  >({});
   const [fetchingResources, setFetchingResources] = useState<Set<string>>(
     new Set(),
   );
@@ -939,10 +942,20 @@ const App = () => {
         ...prev,
         [uri]: content,
       }));
+      setResourceErrorMap((prev) => {
+        if (!(uri in prev)) return prev;
+        const next = { ...prev };
+        delete next[uri];
+        return next;
+      });
     } catch (error) {
       console.error(`[App] Failed to read resource ${uri}:`, error);
       const errorString = (error as Error).message ?? String(error);
       setResourceContent(JSON.stringify({ error: errorString }));
+      setResourceErrorMap((prev) => ({
+        ...prev,
+        [uri]: errorString,
+      }));
       if (bypassCache) {
         setResourceContentMap((prev) => {
           const next = { ...prev };
@@ -1602,6 +1615,7 @@ const App = () => {
                       nextCursor={nextToolCursor}
                       error={errors.tools}
                       resourceContent={resourceContentMap}
+                      resourceError={resourceErrorMap}
                       onReadResource={(uri: string) => {
                         clearError("resources");
                         readResource(uri);

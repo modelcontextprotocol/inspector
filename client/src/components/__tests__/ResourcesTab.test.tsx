@@ -305,4 +305,32 @@ describe("ResourcesTab - Template Query Parameters", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("should call readResource with bypassCache: true when Refresh is clicked", () => {
+    renderResourcesTab({
+      selectedResource: mockResource,
+      resourceContent: '{"users": []}',
+    });
+
+    const refreshButton = screen.getByText("Refresh");
+    fireEvent.click(refreshButton);
+
+    expect(mockReadResource).toHaveBeenCalledWith(mockResource.uri, {
+      bypassCache: true,
+    });
+  });
+
+  it("should call readResource without bypassCache when selecting a resource from the list", () => {
+    renderResourcesTab({
+      resources: [mockResource],
+    });
+
+    fireEvent.click(screen.getByText("Users Resource"));
+
+    expect(mockReadResource).toHaveBeenCalledWith(mockResource.uri);
+    expect(mockReadResource).not.toHaveBeenCalledWith(
+      mockResource.uri,
+      expect.objectContaining({ bypassCache: true }),
+    );
+  });
 });

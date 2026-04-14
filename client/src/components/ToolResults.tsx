@@ -11,6 +11,7 @@ interface ToolResultsProps {
   toolResult: CompatibilityCallToolResult | null;
   selectedTool: Tool | null;
   resourceContent: Record<string, string>;
+  resourceError?: Record<string, string>;
   onReadResource?: (uri: string) => void;
   isPollingTask?: boolean;
 }
@@ -63,6 +64,7 @@ const ToolResults = ({
   toolResult,
   selectedTool,
   resourceContent,
+  resourceError,
   onReadResource,
   isPollingTask,
 }: ToolResultsProps) => {
@@ -228,6 +230,7 @@ const ToolResults = ({
                     description={item.description}
                     mimeType={item.mimeType}
                     resourceContent={resourceContent[item.uri] || ""}
+                    resourceError={resourceError?.[item.uri] || ""}
                     onReadResource={onReadResource}
                   />
                 )}
