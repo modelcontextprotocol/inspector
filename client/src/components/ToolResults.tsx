@@ -230,7 +230,7 @@ const ToolResults = ({
                     description={item.description}
                     mimeType={item.mimeType}
                     resourceContent={resourceContent[item.uri] || ""}
-                    resourceError={resourceError?.[item.uri] || ""}
+                    resourceError={resourceError?.[item.uri]}
                     onReadResource={onReadResource}
                   />
                 )}

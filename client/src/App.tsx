@@ -913,7 +913,11 @@ const App = () => {
       return;
     }
 
-    if (!bypassCache && resourceContentMap[uri] && !resourceErrorMap[uri]) {
+    if (
+      !bypassCache &&
+      uri in resourceContentMap &&
+      !(uri in resourceErrorMap)
+    ) {
       setResourceContent(resourceContentMap[uri]);
       return;
     }

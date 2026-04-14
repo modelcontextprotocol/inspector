@@ -28,7 +28,7 @@ const ResourceLinkView = memo(
 
     const expandedContent = useMemo(() => {
       if (!expanded) return null;
-      if (resourceError) {
+      if (resourceError !== undefined) {
         return (
           <div className="mt-2">
             <div className="flex justify-between items-center mb-1">
