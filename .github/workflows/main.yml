@@ -61,10 +61,13 @@ jobs:
       # - run: npm ci
       - run: npm install --no-package-lock
 
-      # TODO: Add --provenance once the repo is public
+      # OIDC trusted publishing requires npm >=11.5.1; Node 22's bundled npm is 10.x.
+      - name: Ensure npm CLI supports OIDC trusted publishing
+        run: npm install -g npm@^11.5.1
+
       - run: npm run publish-all
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
 
   publish-github-container-registry:
     runs-on: ubuntu-latest
