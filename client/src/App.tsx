@@ -913,10 +913,11 @@ const App = () => {
       return;
     }
 
+    const hasOwn = Object.prototype.hasOwnProperty;
     if (
       !bypassCache &&
-      uri in resourceContentMap &&
-      !(uri in resourceErrorMap)
+      hasOwn.call(resourceContentMap, uri) &&
+      !hasOwn.call(resourceErrorMap, uri)
     ) {
       setResourceContent(resourceContentMap[uri]);
       return;
@@ -947,7 +948,7 @@ const App = () => {
         [uri]: content,
       }));
       setResourceErrorMap((prev) => {
-        if (!(uri in prev)) return prev;
+        if (!hasOwn.call(prev, uri)) return prev;
         const next = { ...prev };
         delete next[uri];
         return next;
