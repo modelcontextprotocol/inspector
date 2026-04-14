@@ -913,7 +913,7 @@ const App = () => {
       return;
     }
 
-    if (!bypassCache && resourceContentMap[uri]) {
+    if (!bypassCache && resourceContentMap[uri] && !resourceErrorMap[uri]) {
       setResourceContent(resourceContentMap[uri]);
       return;
     }
@@ -951,18 +951,10 @@ const App = () => {
     } catch (error) {
       console.error(`[App] Failed to read resource ${uri}:`, error);
       const errorString = (error as Error).message ?? String(error);
-      setResourceContent(JSON.stringify({ error: errorString }));
       setResourceErrorMap((prev) => ({
         ...prev,
         [uri]: errorString,
       }));
-      if (bypassCache) {
-        setResourceContentMap((prev) => {
-          const next = { ...prev };
-          delete next[uri];
-          return next;
-        });
-      }
     } finally {
       setFetchingResources((prev) => {
         const next = new Set(prev);
