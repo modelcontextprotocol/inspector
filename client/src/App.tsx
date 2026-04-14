@@ -925,6 +925,12 @@ const App = () => {
 
     console.log("[App] Reading resource:", uri);
     setFetchingResources((prev) => new Set(prev).add(uri));
+    setResourceErrorMap((prev) => {
+      if (!hasOwn.call(prev, uri)) return prev;
+      const next = { ...prev };
+      delete next[uri];
+      return next;
+    });
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
     try {
@@ -947,12 +953,6 @@ const App = () => {
         ...prev,
         [uri]: content,
       }));
-      setResourceErrorMap((prev) => {
-        if (!hasOwn.call(prev, uri)) return prev;
-        const next = { ...prev };
-        delete next[uri];
-        return next;
-      });
     } catch (error) {
       console.error(`[App] Failed to read resource ${uri}:`, error);
       const errorString = (error as Error).message ?? String(error);
