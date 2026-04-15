@@ -35,6 +35,7 @@ import {
   AlertCircle,
   Copy,
   CheckCheck,
+  XCircle,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import ListPane from "./ListPane";
@@ -173,6 +174,7 @@ const ToolsTab = ({
   setSelectedTool,
   toolResult,
   isPollingTask,
+  cancelPolling,
   nextCursor,
   error,
   resourceContent,
@@ -192,6 +194,7 @@ const ToolsTab = ({
   setSelectedTool: (tool: Tool | null) => void;
   toolResult: CompatibilityCallToolResult | null;
   isPollingTask?: boolean;
+  cancelPolling?: () => void;
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
   resourceContent: Record<string, string>;
@@ -855,6 +858,16 @@ const ToolsTab = ({
                     </>
                   )}
                 </Button>
+                {isPollingTask && cancelPolling && (
+                  <Button
+                    variant="destructive"
+                    size="default"
+                    onClick={cancelPolling}
+                  >
+                    <XCircle className="w-4 h-4 mr-2" />
+                    Cancel Polling
+                  </Button>
+                )}
                 <div className="flex gap-2">
                   <Button
                     onClick={async () => {
