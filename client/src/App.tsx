@@ -1360,7 +1360,7 @@ const App = () => {
         />
       </div>
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto min-h-0">
           {mcpClient ? (
             <Tabs
               value={activeTab}
@@ -1706,7 +1706,7 @@ const App = () => {
           )}
         </div>
         <div
-          className="relative border-t border-border"
+          className="relative border-t border-border shrink-0"
           style={{
             height: `${historyPaneHeight}px`,
           }}
