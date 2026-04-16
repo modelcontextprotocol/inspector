@@ -100,7 +100,7 @@ interface UseConnectionOptions {
   getRoots?: () => any[];
   defaultLoggingLevel?: LoggingLevel;
   serverImplementation?: Implementation;
-  metadata?: Record<string, string>;
+  metadata?: Record<string, unknown>;
 }
 
 export function useConnection({
