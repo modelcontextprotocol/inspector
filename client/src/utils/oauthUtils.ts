@@ -89,6 +89,32 @@ export const generateOAuthErrorDescription = (
 };
 
 /**
+ * Returns the OAuth Protected Resource metadata discovery URL
+ * for a given server URL, per RFC 9728.
+ *
+ * For a server at `https://example.com/mcp`, the discovery URL is
+ * `https://example.com/.well-known/oauth-protected-resource/mcp`.
+ */
+export const getResourceMetadataDiscoveryUrl = (
+  serverUrl: string | URL,
+): string => {
+  const url = typeof serverUrl === "string" ? new URL(serverUrl) : serverUrl;
+  const hasPath = url.pathname !== "/";
+
+  if (!hasPath) {
+    return new URL("/.well-known/oauth-protected-resource", url.origin).href;
+  }
+
+  // Strip trailing slash to avoid double slashes in discovery URLs.
+  const pathname = url.pathname.endsWith("/")
+    ? url.pathname.slice(0, -1)
+    : url.pathname;
+
+  return new URL(`/.well-known/oauth-protected-resource${pathname}`, url.origin)
+    .href;
+};
+
+/**
  * Returns the primary OAuth authorization server metadata discovery URL
  * for a given authorization server URL, including tenant path handling.
  */
