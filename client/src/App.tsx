@@ -919,7 +919,9 @@ const App = () => {
       hasOwn.call(resourceContentMap, uri) &&
       !hasOwn.call(resourceErrorMap, uri)
     ) {
-      setResourceContent(resourceContentMap[uri]);
+      if (currentTabRef.current === "resources") {
+        setResourceContent(resourceContentMap[uri]);
+      }
       return;
     }
 
