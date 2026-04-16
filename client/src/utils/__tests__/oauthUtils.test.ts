@@ -3,6 +3,7 @@ import {
   parseOAuthCallbackParams,
   generateOAuthState,
   getAuthorizationServerMetadataDiscoveryUrl,
+  getResourceMetadataDiscoveryUrl,
 } from "@/utils/oauthUtils.ts";
 
 describe("parseOAuthCallbackParams", () => {
@@ -108,6 +109,34 @@ describe("getAuthorizationServerMetadataDiscoveryUrl", () => {
       ),
     ).toBe(
       "https://example.com/.well-known/oauth-authorization-server/tenant1",
+    );
+  });
+});
+
+describe("getResourceMetadataDiscoveryUrl", () => {
+  it("uses root discovery URL for root server URL", () => {
+    expect(getResourceMetadataDiscoveryUrl("https://example.com")).toBe(
+      "https://example.com/.well-known/oauth-protected-resource",
+    );
+  });
+
+  it("appends server path for non-root server URL", () => {
+    expect(getResourceMetadataDiscoveryUrl("https://example.com/mcp")).toBe(
+      "https://example.com/.well-known/oauth-protected-resource/mcp",
+    );
+  });
+
+  it("strips trailing slash before appending path", () => {
+    expect(getResourceMetadataDiscoveryUrl("https://example.com/mcp/")).toBe(
+      "https://example.com/.well-known/oauth-protected-resource/mcp",
+    );
+  });
+
+  it("handles deeper paths", () => {
+    expect(
+      getResourceMetadataDiscoveryUrl("https://example.com/api/v1/mcp"),
+    ).toBe(
+      "https://example.com/.well-known/oauth-protected-resource/api/v1/mcp",
     );
   });
 });
