@@ -92,25 +92,45 @@ export function createProxyFetch(config: InspectorConfig): typeof fetch {
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> => {
+    const requestInput = input instanceof Request ? input : undefined;
     const url =
       typeof input === "string"
         ? input
-        : input instanceof Request
-          ? input.url
+        : requestInput
+          ? requestInput.url
           : input.toString();
 
     // Serialize body for JSON transport. URLSearchParams and similar don't
     // JSON-serialize (they become {}), so we must convert to string first.
     let serializedBody: string | undefined;
-    if (init?.body != null) {
-      if (typeof init.body === "string") {
-        serializedBody = init.body;
-      } else if (init.body instanceof URLSearchParams) {
-        serializedBody = init.body.toString();
+    const requestBody =
+      requestInput &&
+      !requestInput.bodyUsed &&
+      !["GET", "HEAD"].includes(requestInput.method)
+        ? await requestInput.clone().text()
+        : undefined;
+    const effectiveBody = init?.body ?? requestBody;
+    if (effectiveBody != null) {
+      if (typeof effectiveBody === "string") {
+        serializedBody = effectiveBody;
+      } else if (effectiveBody instanceof URLSearchParams) {
+        serializedBody = effectiveBody.toString();
       } else {
-        serializedBody = String(init.body);
+        serializedBody = String(effectiveBody);
       }
     }
+
+    const forwardedHeaders = new Headers(requestInput?.headers);
+    if (init?.headers) {
+      new Headers(init.headers).forEach((value, key) => {
+        forwardedHeaders.set(key, value);
+      });
+    }
+    const serializedHeadersObject = Object.fromEntries(forwardedHeaders.entries());
+    const serializedHeaders =
+      Object.keys(serializedHeadersObject).length > 0
+        ? serializedHeadersObject
+        : undefined;
 
     const proxyResponse = await fetch(`${proxyAddress}/fetch`, {
       method: "POST",
@@ -121,10 +141,8 @@ export function createProxyFetch(config: InspectorConfig): typeof fetch {
       body: JSON.stringify({
         url,
         init: {
-          method: init?.method,
-          headers: init?.headers
-            ? Object.fromEntries(new Headers(init.headers))
-            : undefined,
+          method: init?.method ?? requestInput?.method,
+          headers: serializedHeaders,
           body: serializedBody,
         },
       }),
