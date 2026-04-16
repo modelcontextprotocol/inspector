@@ -868,4 +868,31 @@ describe("CLI Tests", () => {
       expectCliFailure(result);
     });
   });
+
+  describe("Args With Spaces", () => {
+    it("passes an arg containing spaces to the child process as a single argv element", async () => {
+      const { command, args } = getTestMcpServerCommand();
+      const result = await runCli([
+        command,
+        ...args,
+        // Extra arg passed to the test MCP server — contains a space
+        "--description",
+        "get todays date",
+        "--cli",
+        "--method",
+        "resources/read",
+        "--uri",
+        "test://argv",
+      ]);
+
+      expectCliSuccess(result);
+      const json = expectValidJson(result);
+      const argv: string[] = JSON.parse(json.contents[0].text);
+
+      // "get todays date" must appear as one element, not split into three
+      expect(argv).toContain("get todays date");
+      expect(argv).not.toContain("get");
+      expect(argv).not.toContain("todays");
+    });
+  });
 });
