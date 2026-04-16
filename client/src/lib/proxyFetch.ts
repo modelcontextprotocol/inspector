@@ -126,7 +126,9 @@ export function createProxyFetch(config: InspectorConfig): typeof fetch {
         forwardedHeaders.set(key, value);
       });
     }
-    const serializedHeadersObject = Object.fromEntries(forwardedHeaders.entries());
+    const serializedHeadersObject = Object.fromEntries(
+      forwardedHeaders.entries(),
+    );
     const serializedHeaders =
       Object.keys(serializedHeadersObject).length > 0
         ? serializedHeadersObject

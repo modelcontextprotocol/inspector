@@ -280,4 +280,52 @@ describe("createProxyFetch", () => {
       },
     });
   });
+
+  it("lets an explicit init override method, headers, and body from a Request input", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          body: "",
+        }),
+    });
+
+    const fetchFn = createProxyFetch(configWithProxy);
+    await fetchFn(
+      new Request("https://example.com/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-Test": "1",
+        },
+        body: "grant_type=authorization_code&code=abc",
+      }),
+      {
+        method: "PUT",
+        headers: {
+          "X-Test": "override",
+          "X-Extra": "2",
+        },
+        body: "override-body",
+      },
+    );
+
+    const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(callBody).toEqual({
+      url: "https://example.com/token",
+      init: {
+        method: "PUT",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "x-test": "override",
+          "x-extra": "2",
+        },
+        body: "override-body",
+      },
+    });
+  });
 });
