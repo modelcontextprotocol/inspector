@@ -955,7 +955,7 @@ const App = () => {
       }));
     } catch (error) {
       console.error(`[App] Failed to read resource ${uri}:`, error);
-      const errorString = (error as Error).message ?? String(error);
+      const errorString = (error as Error).message || String(error);
       setResourceErrorMap((prev) => ({
         ...prev,
         [uri]: errorString,
