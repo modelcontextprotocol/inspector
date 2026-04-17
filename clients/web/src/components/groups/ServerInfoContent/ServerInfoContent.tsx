@@ -7,21 +7,18 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { CapabilityItem } from "../../elements/CapabilityItem/CapabilityItem";
-
-export interface CapabilityInfo {
-  name: string;
-  supported: boolean;
-  count?: number;
-}
+import {
+  CapabilityItem,
+  type CapabilityItemProps,
+} from "../../elements/CapabilityItem/CapabilityItem";
 
 export interface ServerInfoContentProps {
   name: string;
   version: string;
   protocolVersion: string;
   transport: string;
-  serverCapabilities: CapabilityInfo[];
-  clientCapabilities: CapabilityInfo[];
+  serverCapabilities: CapabilityItemProps[];
+  clientCapabilities: CapabilityItemProps[];
   instructions?: string;
   oauthDetails?: { authUrl?: string; scopes?: string[]; accessToken?: string };
 }
@@ -68,8 +65,8 @@ export function ServerInfoContent({
           <Title order={5}>Server Capabilities</Title>
           {serverCapabilities.map((cap) => (
             <CapabilityItem
-              key={cap.name}
-              name={cap.name}
+              key={cap.capability}
+              capability={cap.capability}
               supported={cap.supported}
               count={cap.count}
             />
@@ -79,8 +76,8 @@ export function ServerInfoContent({
           <Title order={5}>Client Capabilities</Title>
           {clientCapabilities.map((cap) => (
             <CapabilityItem
-              key={cap.name}
-              name={cap.name}
+              key={cap.capability}
+              capability={cap.capability}
               supported={cap.supported}
               count={cap.count}
             />

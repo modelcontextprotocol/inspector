@@ -1,12 +1,13 @@
 import { Group, Image, Paper, Stack, Text } from "@mantine/core";
+import type {
+  PromptMessage,
+  SamplingMessage,
+} from "@modelcontextprotocol/sdk/types.js";
 import { CopyButton } from "../CopyButton/CopyButton";
 
 export interface MessageBubbleProps {
   index: number;
-  role: "user" | "assistant";
-  content: string;
-  imageContent?: { data: string; mimeType: string };
-  audioContent?: { data: string; mimeType: string };
+  message: SamplingMessage | PromptMessage;
 }
 
 function buildDataUri(mimeType: string, data: string): string {
@@ -19,6 +20,41 @@ function formatRoleLabel(index: number, role: string): string {
 
 function formatQuotedContent(content: string): string {
   return `"${content}"`;
+}
+
+interface ContentBlockRendered {
+  text: string;
+  imageUri?: string;
+  audioUri?: string;
+  audioMime?: string;
+}
+
+function extractContent(
+  message: SamplingMessage | PromptMessage,
+): ContentBlockRendered {
+  const content = message.content;
+  const blocks = Array.isArray(content) ? content : [content];
+  let text = "";
+  let imageUri: string | undefined;
+  let audioUri: string | undefined;
+  let audioMime: string | undefined;
+
+  for (const block of blocks) {
+    switch (block.type) {
+      case "text":
+        text += block.text;
+        break;
+      case "image":
+        imageUri = buildDataUri(block.mimeType, block.data);
+        break;
+      case "audio":
+        audioUri = buildDataUri(block.mimeType, block.data);
+        audioMime = block.mimeType;
+        break;
+    }
+  }
+
+  return { text, imageUri, audioUri, audioMime };
 }
 
 const BubbleContainer = Paper.withProps({
@@ -38,32 +74,21 @@ const PreviewImage = Image.withProps({
   mt: "xs",
 });
 
-export function MessageBubble({
-  index,
-  role,
-  content,
-  imageContent,
-  audioContent,
-}: MessageBubbleProps) {
+export function MessageBubble({ index, message }: MessageBubbleProps) {
+  const { text, imageUri, audioUri, audioMime } = extractContent(message);
+
   return (
     <BubbleContainer>
       <Stack gap="xs">
         <Group justify="space-between">
-          <RoleLabel>{formatRoleLabel(index, role)}</RoleLabel>
-          <CopyButton value={content} />
+          <RoleLabel>{formatRoleLabel(index, message.role)}</RoleLabel>
+          {text && <CopyButton value={text} />}
         </Group>
-        <Text size="sm">{formatQuotedContent(content)}</Text>
-        {imageContent && (
-          <PreviewImage
-            src={buildDataUri(imageContent.mimeType, imageContent.data)}
-          />
-        )}
-        {audioContent && (
+        {text && <Text size="sm">{formatQuotedContent(text)}</Text>}
+        {imageUri && <PreviewImage src={imageUri} />}
+        {audioUri && (
           <audio controls>
-            <source
-              src={buildDataUri(audioContent.mimeType, audioContent.data)}
-              type={audioContent.mimeType}
-            />
+            <source src={audioUri} type={audioMime} />
           </audio>
         )}
       </Stack>

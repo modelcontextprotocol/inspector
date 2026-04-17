@@ -66,7 +66,7 @@ export const Failed: Story = {
     transport: "stdio",
     connectionMode: "Subprocess",
     command: "npx -y @modelcontextprotocol/server-everything",
-    status: "failed",
+    status: "error",
     retryCount: 3,
     error: {
       message: "Connection refused",
@@ -106,7 +106,7 @@ export const HttpDirect: Story = {
   args: {
     name: "Remote API Server",
     version: "2.0.0",
-    transport: "http",
+    transport: "streamable-http",
     connectionMode: "Direct",
     command: "https://api.example.com/mcp",
     status: "connected",

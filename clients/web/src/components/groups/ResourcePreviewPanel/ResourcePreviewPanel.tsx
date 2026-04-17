@@ -16,16 +16,13 @@ export interface ResourcePreviewPanelProps {
   onUnsubscribe: () => void;
 }
 
-function priorityLabel(priority: number): string {
-  if (priority >= 0.7) return "priority: high";
-  if (priority >= 0.4) return "priority: medium";
-  return "priority: low";
-}
+import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 
-function resolveContentType(mimeType: string): "json" | "image" | "text" {
-  if (mimeType === "application/json") return "json";
-  if (mimeType.startsWith("image/")) return "image";
-  return "text";
+function toContentBlock(content: string, mimeType: string): ContentBlock {
+  if (mimeType.startsWith("image/")) {
+    return { type: "image", data: content, mimeType };
+  }
+  return { type: "text", text: content };
 }
 
 function formatLastUpdated(lastUpdated: string): string {
@@ -97,12 +94,7 @@ export function ResourcePreviewPanel({
           <CopyButton value={uri} />
         </UriGroup>
       </HeaderRow>
-      <ContentViewer
-        type={resolveContentType(mimeType)}
-        content={content}
-        mimeType={mimeType}
-        copyable
-      />
+      <ContentViewer block={toContentBlock(content, mimeType)} copyable />
       <MetaRow>
         {lastUpdated ? (
           <TimestampText>{formatLastUpdated(lastUpdated)}</TimestampText>
@@ -114,13 +106,15 @@ export function ResourcePreviewPanel({
       <FooterRow>
         <AnnotationGroup>
           {annotations?.audience && (
-            <AnnotationBadge label={annotations.audience} variant="audience" />
+            <AnnotationBadge
+              facet="audience"
+              value={
+                annotations.audience.split(", ") as ("user" | "assistant")[]
+              }
+            />
           )}
           {annotations?.priority !== undefined && (
-            <AnnotationBadge
-              label={priorityLabel(annotations.priority)}
-              variant="priority"
-            />
+            <AnnotationBadge facet="priority" value={annotations.priority} />
           )}
         </AnnotationGroup>
         <ActionGroup>

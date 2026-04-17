@@ -14,10 +14,10 @@ const meta: Meta<typeof TaskCard> = {
 export default meta;
 type Story = StoryObj<typeof TaskCard>;
 
-export const Running: Story = {
+export const Working: Story = {
   args: {
     taskId: "d0b22eba71fa36229ce5c4dfadeaa7de",
-    status: "running",
+    status: "working",
     method: "tools/call",
     target: "generate_report",
     progress: 80,
@@ -28,10 +28,10 @@ export const Running: Story = {
   },
 };
 
-export const Waiting: Story = {
+export const InputRequired: Story = {
   args: {
     taskId: "4100b5e0b0ed9cd0023330342d1bf647",
-    status: "waiting",
+    status: "input_required",
     method: "resources/read",
     target: "file:///data/report.csv",
     startedAt: "3/29/2026, 8:17:55 PM",
@@ -84,7 +84,7 @@ export const Cancelled: Story = {
 export const Collapsed: Story = {
   args: {
     taskId: "d0b22eba71fa36229ce5c4dfadeaa7de",
-    status: "running",
+    status: "working",
     method: "tools/call",
     target: "generate_report",
     progress: 80,

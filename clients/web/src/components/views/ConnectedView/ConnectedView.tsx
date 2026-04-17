@@ -4,7 +4,7 @@ import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 
 export interface ConnectedLayoutProps {
   serverName: string;
-  status: "connected" | "connecting" | "failed";
+  status: "connected" | "connecting" | "error";
   latencyMs?: number;
   activeTab: string;
   availableTabs: string[];

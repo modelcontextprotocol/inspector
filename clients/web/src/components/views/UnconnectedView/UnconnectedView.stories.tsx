@@ -92,7 +92,7 @@ export const WithServers: Story = {
           {
             name: "remote-server",
             version: "2.1.0",
-            transport: "http",
+            transport: "streamable-http",
             connectionMode: "Direct",
             command: "https://api.example.com/mcp",
             status: "disconnected",
@@ -219,7 +219,7 @@ export const ManyServers: Story = {
           {
             name: "remote-api-server",
             version: "2.1.0",
-            transport: "http",
+            transport: "streamable-http",
             connectionMode: "Direct",
             command: "https://api.example.com/mcp",
             status: "disconnected",
@@ -249,7 +249,7 @@ export const ManyServers: Story = {
           {
             name: "slack-server",
             version: "1.1.0",
-            transport: "http",
+            transport: "streamable-http",
             connectionMode: "Direct",
             command: "https://slack-mcp.example.com/mcp",
             status: "disconnected",
@@ -299,7 +299,7 @@ export const ManyServers: Story = {
           {
             name: "google-maps-server",
             version: "0.8.0",
-            transport: "http",
+            transport: "streamable-http",
             connectionMode: "Direct",
             command: "https://maps-mcp.example.com/mcp",
             status: "disconnected",

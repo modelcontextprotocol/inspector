@@ -10,10 +10,10 @@ import {
   Title,
 } from "@mantine/core";
 import { LogEntry } from "../../elements/LogEntry/LogEntry";
-import type { LogEntryProps } from "../../elements/LogEntry/LogEntry";
+import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 
 export interface LogStreamPanelProps {
-  entries: LogEntryProps[];
+  entries: LogEntryData[];
   filterText: string;
   visibleLevels: Record<string, boolean>;
   autoScroll: boolean;
@@ -41,16 +41,22 @@ const EmptyCenter = Stack.withProps({
   justify: "center",
 });
 
+function formatData(data: unknown): string {
+  if (data === undefined || data === null) return "";
+  if (typeof data === "string") return data;
+  return JSON.stringify(data);
+}
+
 function matchesFilters(
-  entry: LogEntryProps,
+  entry: LogEntryData,
   filterText: string,
   visibleLevels: Record<string, boolean>,
 ): boolean {
-  if (!visibleLevels[entry.level]) return false;
+  if (!visibleLevels[entry.params.level]) return false;
   if (filterText) {
     const term = filterText.toLowerCase();
     const searchable =
-      `${entry.message} ${entry.logger ?? ""} ${entry.level}`.toLowerCase();
+      `${formatData(entry.params.data)} ${entry.params.logger ?? ""} ${entry.params.level}`.toLowerCase();
     if (!searchable.includes(term)) return false;
   }
   return true;
@@ -90,7 +96,7 @@ export function LogStreamPanel({
         <ScrollArea.Autosize mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)">
           <Stack gap="xs">
             {filteredEntries.map((entry, index) => (
-              <LogEntry key={index} {...entry} />
+              <LogEntry key={index} entry={entry} />
             ))}
           </Stack>
         </ScrollArea.Autosize>

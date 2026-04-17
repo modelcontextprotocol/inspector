@@ -2,8 +2,7 @@ import { Alert, Button, Collapse, Group, Stack, Text } from "@mantine/core";
 import { useState } from "react";
 
 export interface InlineErrorProps {
-  message: string;
-  details?: string;
+  error: { message: string; data?: unknown };
   retryCount?: number;
   maxRetries?: number;
   docLink?: string;
@@ -49,14 +48,20 @@ function formatRetryLabel(retryCount: number, maxRetries?: number): string {
     : `Retry attempt ${retryCount}`;
 }
 
+function formatDetails(data: unknown): string {
+  if (typeof data === "string") return data;
+  return JSON.stringify(data, null, 2);
+}
+
 export function InlineError({
-  message,
-  details,
+  error,
   retryCount,
   maxRetries,
   docLink,
 }: InlineErrorProps) {
   const [expanded, setExpanded] = useState(false);
+  const details =
+    error.data !== undefined ? formatDetails(error.data) : undefined;
   const hasExpandable = details !== undefined || docLink !== undefined;
 
   return (
@@ -64,7 +69,7 @@ export function InlineError({
       <Stack gap="xs">
         <HeaderRow>
           <MessageGroup>
-            <ErrorMessage>{message}</ErrorMessage>
+            <ErrorMessage>{error.message}</ErrorMessage>
             {retryCount !== undefined && (
               <RetryText>{formatRetryLabel(retryCount, maxRetries)}</RetryText>
             )}

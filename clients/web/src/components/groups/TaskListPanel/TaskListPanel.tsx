@@ -36,7 +36,7 @@ function formatCompletedTitle(count: number): string {
 }
 
 function isActiveStatus(status: string): boolean {
-  return status === "waiting" || status === "running";
+  return status === "working" || status === "input_required";
 }
 
 function matchesFilters(

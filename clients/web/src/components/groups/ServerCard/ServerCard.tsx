@@ -9,10 +9,10 @@ import { InlineError } from "../../elements/InlineError/InlineError";
 export interface ServerCardProps {
   name: string;
   version?: string;
-  transport: "stdio" | "http";
+  transport: "stdio" | "sse" | "streamable-http";
   connectionMode: string;
   command: string;
-  status: "connected" | "connecting" | "disconnected" | "failed";
+  status: "connected" | "connecting" | "disconnected" | "error";
   retryCount?: number;
   error?: { message: string; details?: string };
   canTestClientFeatures: boolean;
@@ -90,8 +90,6 @@ export function ServerCard({
 }: ServerCardProps) {
   const isThisConnecting = activeServer === name;
   const isDimmed = activeServer !== undefined && activeServer !== name;
-  const isConnected = status === "connected";
-  const isConnecting = status === "connecting" || isThisConnecting;
   const displayStatus = isThisConnecting ? "connecting" : status;
 
   useEffect(() => {
@@ -128,10 +126,10 @@ export function ServerCard({
               retryCount={retryCount}
             />
             <ConnectionToggle
-              checked={isConnected}
-              loading={isConnecting}
+              status={displayStatus}
               disabled={isDimmed}
-              onChange={handleToggle}
+              onConnect={() => handleToggle(true)}
+              onDisconnect={() => handleToggle(false)}
             />
           </HeaderRight>
         </Group>
@@ -166,12 +164,14 @@ export function ServerCard({
               )}
             </Group>
 
-            <ContentViewer type="text" content={command} copyable />
+            <ContentViewer block={{ type: "text", text: command }} copyable />
 
             {error && (
               <InlineError
-                message={error.message}
-                details={error.details}
+                error={{
+                  message: error.message,
+                  data: error.details,
+                }}
                 retryCount={retryCount}
               />
             )}

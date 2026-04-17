@@ -34,7 +34,7 @@
   --inspector-status-connected: var(--mantine-color-green-6);
   --inspector-status-connecting: var(--mantine-color-yellow-6);
   --inspector-status-disconnected: var(--mantine-color-gray-5);
-  --inspector-status-failed: var(--mantine-color-red-6);
+  --inspector-status-error: var(--mantine-color-red-6);
 
   /* ── Log levels (RFC 5424) ─────────────────────────────── */
   --inspector-log-debug: var(--mantine-color-gray-6);

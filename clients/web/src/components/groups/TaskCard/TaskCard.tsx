@@ -12,12 +12,8 @@ import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { TaskStatusBadge } from "../../elements/TaskStatusBadge/TaskStatusBadge";
 
-export type TaskStatus =
-  | "waiting"
-  | "running"
-  | "completed"
-  | "failed"
-  | "cancelled";
+import type { TaskStatus } from "@modelcontextprotocol/sdk/types.js";
+export type { TaskStatus };
 
 export interface TaskCardProps {
   taskId: string;
@@ -146,7 +142,7 @@ export function TaskCard(props: TaskCardProps) {
   } = props;
 
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
-  const isActive = status === "waiting" || status === "running";
+  const isActive = status === "working" || status === "input_required";
 
   useEffect(() => {
     setIsExpanded(isListExpanded);
@@ -200,8 +196,11 @@ export function TaskCard(props: TaskCardProps) {
 
         {progress !== undefined && isActive && (
           <ProgressDisplay
-            progress={progress}
-            description={progressDescription}
+            params={{
+              progressToken: taskId,
+              progress,
+              message: progressDescription,
+            }}
           />
         )}
 
@@ -225,8 +224,7 @@ export function TaskCard(props: TaskCardProps) {
               <Divider />
               <SectionTitle>Full Task Object</SectionTitle>
               <ContentViewer
-                type="json"
-                content={buildTaskObject(props)}
+                block={{ type: "text", text: buildTaskObject(props) }}
                 copyable
               />
             </Stack>

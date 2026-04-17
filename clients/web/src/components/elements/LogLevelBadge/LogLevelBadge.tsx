@@ -1,11 +1,11 @@
 import { Badge, useComputedColorScheme } from "@mantine/core";
-import type { LogLevel } from "../LogEntry/LogEntry";
+import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 
 export interface LogLevelBadgeProps {
-  level: LogLevel;
+  level: LoggingLevel;
 }
 
-const levelColor: Record<LogLevel, string> = {
+const levelColor: Record<LoggingLevel, string> = {
   debug: "gray",
   info: "blue",
   notice: "teal",
@@ -16,7 +16,7 @@ const levelColor: Record<LogLevel, string> = {
   emergency: "red",
 };
 
-const boldLevels: Set<LogLevel> = new Set(["alert", "emergency"]);
+const boldLevels: Set<LoggingLevel> = new Set(["alert", "emergency"]);
 
 export function LogLevelBadge({ level }: LogLevelBadgeProps) {
   const colorScheme = useComputedColorScheme();
