@@ -16,6 +16,9 @@ import type { JsonValue } from "../json/jsonUtils.js";
 
 // Stdio transport config
 export interface StdioServerConfig {
+  // Optional: stdio is the implicit default when `type` is absent. A
+  // narrowing `switch (config.type)` must therefore cover the `undefined`
+  // branch as `StdioServerConfig`.
   type?: "stdio";
   command: string;
   args?: string[];
