@@ -762,7 +762,7 @@ export const TasksActive: Story = {
           },
         ]}
         onRefresh={fn()}
-        onClearHistory={fn()}
+        onClearCompleted={fn()}
       />
     ),
   },

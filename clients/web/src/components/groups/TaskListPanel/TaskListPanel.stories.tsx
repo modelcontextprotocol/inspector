@@ -61,6 +61,7 @@ const meta: Meta<typeof TaskListPanel> = {
   args: {
     tasks: sampleTasks,
     searchText: "",
+    onClearCompleted: fn(),
   },
 };
 

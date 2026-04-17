@@ -15,7 +15,7 @@ export interface ToolResultPanelProps {
 }
 
 const ClearButton = Button.withProps({
-  variant: "light",
+  variant: "subtle",
   size: "sm",
 });
 

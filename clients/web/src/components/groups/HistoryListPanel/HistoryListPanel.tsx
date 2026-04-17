@@ -22,7 +22,7 @@ export interface HistoryRequestsPanelProps {
 }
 
 const ToolbarButton = Button.withProps({
-  variant: "light",
+  variant: "subtle",
   size: "sm",
 });
 
@@ -96,7 +96,6 @@ export function HistoryListPanel({
         <Title order={4}>Requests</Title>
         <Group gap="xs">
           <ToolbarButton onClick={onExport}>Export JSON</ToolbarButton>
-          <ToolbarButton onClick={onClearAll}>Clear All</ToolbarButton>
           {hasResults && (
             <ListToggle
               compact={compact}
@@ -128,9 +127,12 @@ export function HistoryListPanel({
 
             {filteredEntries.length > 0 && (
               <>
-                <Title order={5}>
-                  {formatHistoryTitle(filteredEntries.length)}
-                </Title>
+                <Group justify="space-between">
+                  <Title order={5}>
+                    {formatHistoryTitle(filteredEntries.length)}
+                  </Title>
+                  <ToolbarButton onClick={onClearAll}>Clear</ToolbarButton>
+                </Group>
                 {filteredEntries.map((entry) => (
                   <HistoryEntry
                     key={entryKey(entry)}

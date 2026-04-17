@@ -79,13 +79,13 @@ const RightSection = Group.withProps({
 });
 
 const DisconnectButton = Button.withProps({
-  variant: "outline",
+  variant: "subtle",
   c: "red",
   size: "sm",
 });
 
 const ThemeToggle = ActionIcon.withProps({
-  variant: "outline",
+  variant: "subtle",
   size: 36,
   "aria-label": "Toggle color scheme",
 });

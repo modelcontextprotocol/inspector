@@ -1,5 +1,5 @@
 import type { Preview } from '@storybook/react-vite'
-import { MantineProvider, useMantineColorScheme } from '@mantine/core'
+import { MantineProvider, useMantineColorScheme, type CSSVariablesResolver } from '@mantine/core'
 import { Notifications } from '@mantine/notifications'
 import '@mantine/core/styles.css'
 import '@mantine/notifications/styles.css'
@@ -24,6 +24,14 @@ function ColorSchemeWrapper({
   return <>{children}</>
 }
 
+const resolver: CSSVariablesResolver = () => ({
+  variables: {},
+  light: {},
+  dark: {
+    '--mantine-color-body': 'var(--mantine-color-dark-9)',
+  },
+})
+
 const preview: Preview = {
   globalTypes: {
     colorScheme: {
@@ -46,7 +54,7 @@ const preview: Preview = {
     (Story, context) => {
       const isFullscreen = context.parameters?.layout === 'fullscreen'
       return (
-        <MantineProvider theme={theme} defaultColorScheme="light">
+        <MantineProvider theme={theme} defaultColorScheme="light" cssVariablesResolver={resolver}>
           <ColorSchemeWrapper colorScheme={context.globals.colorScheme ?? 'light'}>
             <Notifications position="top-right" />
             {isFullscreen ? (

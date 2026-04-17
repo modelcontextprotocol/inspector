@@ -9,7 +9,7 @@ const meta: Meta<typeof TasksScreen> = {
   parameters: { layout: "fullscreen" },
   args: {
     onRefresh: fn(),
-    onClearHistory: fn(),
+    onClearCompleted: fn(),
   },
 };
 

@@ -31,7 +31,7 @@ const PanelContainer = Paper.withProps({
 });
 
 const ToolbarButton = Button.withProps({
-  variant: "light",
+  variant: "subtle",
   size: "sm",
 });
 

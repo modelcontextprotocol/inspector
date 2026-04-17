@@ -19,7 +19,7 @@ const UpdateLabel = Text.withProps({
 
 const RefreshButton = Button.withProps({
   size: "sm",
-  variant: "light",
+  variant: "subtle",
 });
 
 export function ListChangedIndicator({

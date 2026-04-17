@@ -10,7 +10,6 @@ const meta: Meta<typeof TaskControls> = {
     onSearchChange: fn(),
     onStatusFilterChange: fn(),
     onRefresh: fn(),
-    onClearHistory: fn(),
   },
 };
 

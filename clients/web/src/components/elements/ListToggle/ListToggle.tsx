@@ -23,7 +23,7 @@ export function ListToggle({
   }
 
   return (
-    <Button size="sm" onClick={onToggle}>
+    <Button size="sm" variant="subtle" onClick={onToggle}>
       <Icon size={20} />
     </Button>
   );

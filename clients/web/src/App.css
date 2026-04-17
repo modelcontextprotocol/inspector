@@ -26,6 +26,9 @@
   --inspector-surface-card: var(--mantine-color-gray-0);
   --inspector-surface-code: var(--mantine-color-white);
 
+  /* ── Inputs ────────────────────────────────────────────── */
+  --inspector-input-background: var(--mantine-color-white);
+
   /* ── Borders ───────────────────────────────────────────── */
   --inspector-border-default: var(--mantine-color-default-border);
   --inspector-border-subtle: var(--mantine-color-gray-3);
@@ -71,7 +74,8 @@
 [data-mantine-color-scheme="dark"] {
   --inspector-surface-card: var(--mantine-color-gray-9);
   --inspector-surface-code: var(--mantine-color-dark-9);
-  --inspector-border-subtle: var(--mantine-color-dark-4);
+  --inspector-border-subtle: var(--mantine-color-gray-4);
+  --inspector-input-background: var(--mantine-color-dark-9);
 }
 
 /* ── Animations ──────────────────────────────────────────── */
@@ -112,7 +116,33 @@
 }
 
 [data-mantine-color-scheme="dark"] .list-item:hover {
-  background-color: var(--mantine-color-dark-5);
+  background-color: var(--mantine-primary-color-light);
+}
+
+/* ── Select dropdown / option (dark mode) ──────────────────────── */
+
+[data-mantine-color-scheme="dark"] .mantine-Select-dropdown {
+  background-color: var(--mantine-color-gray-8);
+}
+
+[data-mantine-color-scheme="dark"] .mantine-Select-option:hover {
+  background-color: var(--mantine-primary-color-light);
+}
+
+[data-mantine-color-scheme="dark"] .mantine-Select-option:hover {
+  background-color: var(--mantine-primary-color-light);
+}
+
+/* ── Segmented control label (dark mode) ──────────────────────── */
+
+[data-mantine-color-scheme="dark"] .mantine-SegmentedControl-indicator {
+  background-color: var(--mantine-primary-color-light);
+}
+
+/* ── Accordion button hover ─────────────────────────────── */
+
+[data-mantine-color-scheme="dark"] .mantine-Accordion-control:hover {
+  background-color: var(--mantine-primary-color-filled-hover);
 }
 
 /* ── Grid alignment ─────────────────────────────────────── */

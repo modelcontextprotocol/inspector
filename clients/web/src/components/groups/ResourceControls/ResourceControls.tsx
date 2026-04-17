@@ -93,15 +93,15 @@ export function ResourceControls({
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
       <Group gap="xs" wrap="nowrap">
-        <ListToggle
-          compact={!allExpanded}
-          onToggle={() => setOpenSections(allExpanded ? [] : [...allSections])}
-        />
         <TextInput
           flex={1}
           placeholder="Search..."
           value={searchText}
           onChange={(e) => setSearchText(e.currentTarget.value)}
+        />
+        <ListToggle
+          compact={!allExpanded}
+          onToggle={() => setOpenSections(allExpanded ? [] : [...allSections])}
         />
       </Group>
       <Accordion multiple value={openSections} onChange={setOpenSections}>

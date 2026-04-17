@@ -6,7 +6,7 @@ import type {
 import { MessageBubble } from "../../elements/MessageBubble/MessageBubble";
 
 const CopyAllButton = Button.withProps({
-  variant: "light",
+  variant: "subtle",
   size: "sm",
 });
 
