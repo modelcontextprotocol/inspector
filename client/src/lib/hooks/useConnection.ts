@@ -1,13 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   SSEClientTransport,
-  SseError,
   SSEClientTransportOptions,
 } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
   StreamableHTTPClientTransport,
   StreamableHTTPClientTransportOptions,
-  StreamableHTTPError,
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   ClientNotification,
@@ -51,6 +49,7 @@ import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/lib/hooks/useToast";
 import { ConnectionStatus, CLIENT_IDENTITY } from "../constants";
+import { isConnectionAuthError } from "../connectionAuthErrors";
 import { Notification } from "../notificationTypes";
 import {
   auth,
@@ -64,6 +63,7 @@ import {
   clearScopeFromSessionStorage,
   discoverScopes,
 } from "../auth";
+import { createProxyFetch } from "../proxyFetch";
 import {
   getMCPProxyAddress,
   getMCPTaskTtl,
@@ -379,17 +379,6 @@ export function useConnection({
     }
   };
 
-  const is401Error = (error: unknown): boolean => {
-    return (
-      (error instanceof SseError && error.code === 401) ||
-      (error instanceof StreamableHTTPError && error.code === 401) ||
-      (error instanceof Error && error.message.includes("401")) ||
-      (error instanceof Error && error.message.includes("Unauthorized")) ||
-      (error instanceof Error &&
-        error.message.includes("Missing Authorization header"))
-    );
-  };
-
   const isProxyAuthError = (error: unknown): boolean => {
     return (
       error instanceof Error &&
@@ -398,19 +387,24 @@ export function useConnection({
   };
 
   const handleAuthError = async (error: unknown) => {
-    if (is401Error(error)) {
+    if (isConnectionAuthError(error)) {
       let scope = oauthScope?.trim();
+      const fetchFn =
+        connectionType === "proxy" ? createProxyFetch(config) : undefined;
+
       if (!scope) {
         // Only discover resource metadata when we need to discover scopes
         let resourceMetadata;
         try {
           resourceMetadata = await discoverOAuthProtectedResourceMetadata(
             new URL("/", sseUrl),
+            {},
+            fetchFn,
           );
         } catch {
           // Resource metadata is optional, continue without it
         }
-        scope = await discoverScopes(sseUrl, resourceMetadata);
+        scope = await discoverScopes(sseUrl, resourceMetadata, fetchFn);
       }
 
       saveScopeToSessionStorage(sseUrl, scope);
@@ -420,6 +414,7 @@ export function useConnection({
         const result = await auth(serverAuthProvider, {
           serverUrl: sseUrl,
           scope,
+          ...(fetchFn && { fetchFn }),
         });
         return result === "AUTHORIZED";
       } catch (authError) {
@@ -823,7 +818,7 @@ export function useConnection({
         if (shouldRetry) {
           return connect(undefined, retryCount + 1);
         }
-        if (is401Error(error)) {
+        if (isConnectionAuthError(error)) {
           // Don't set error state if we're about to redirect for auth
 
           return;

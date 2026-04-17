@@ -1,3 +1,4 @@
+import React from "react";
 import {
   render,
   screen,
@@ -9,7 +10,7 @@ import "@testing-library/jest-dom";
 import { describe, it, beforeEach, jest } from "@jest/globals";
 import AuthDebugger, { AuthDebuggerProps } from "../AuthDebugger";
 import { TooltipProvider } from "../ui/tooltip";
-import { SESSION_KEYS } from "../../lib/constants";
+import { SESSION_KEYS, DEFAULT_INSPECTOR_CONFIG } from "../../lib/constants";
 
 const mockOAuthTokens = {
   access_token: "test_access_token",
@@ -58,7 +59,7 @@ import { OAuthMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { EMPTY_DEBUGGER_STATE } from "../../lib/auth-types";
 
 // Mock local auth module
-jest.mock("@/lib/auth", () => ({
+jest.mock("../../lib/auth", () => ({
   DebugInspectorOAuthClientProvider: jest.fn().mockImplementation(() => ({
     tokens: jest.fn().mockImplementation(() => Promise.resolve(undefined)),
     clear: jest.fn().mockImplementation(() => {
@@ -269,6 +270,7 @@ describe("AuthDebugger", () => {
       // Should first discover and save OAuth metadata
       expect(mockDiscoverAuthorizationServerMetadata).toHaveBeenCalledWith(
         new URL("https://example.com/"),
+        { fetchFn: undefined },
       );
 
       // Check that updateAuthState was called with the right info message
@@ -404,6 +406,65 @@ describe("AuthDebugger", () => {
     });
   });
 
+  describe("Proxy Fetch integration", () => {
+    it("passes fetchFn to SDK when connectionType is proxy", async () => {
+      const configWithProxy = {
+        ...DEFAULT_INSPECTOR_CONFIG,
+        MCP_PROXY_FULL_ADDRESS: {
+          ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_FULL_ADDRESS,
+          value: "http://localhost:6277",
+        },
+        MCP_PROXY_AUTH_TOKEN: {
+          ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
+          value: "test-proxy-token",
+        },
+      };
+
+      await act(async () => {
+        renderAuthDebugger({
+          config: configWithProxy,
+          connectionType: "proxy",
+          authState: {
+            ...defaultAuthState,
+            isInitiatingAuth: false,
+            oauthStep: "metadata_discovery",
+          },
+        });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Continue"));
+      });
+
+      expect(mockDiscoverAuthorizationServerMetadata).toHaveBeenCalledWith(
+        new URL("https://example.com/"),
+        { fetchFn: expect.any(Function) },
+      );
+    });
+
+    it("passes undefined fetchFn when connectionType is direct", async () => {
+      await act(async () => {
+        renderAuthDebugger({
+          connectionType: "direct",
+          authState: {
+            ...defaultAuthState,
+            isInitiatingAuth: false,
+            oauthStep: "metadata_discovery",
+          },
+        });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Continue"));
+      });
+
+      expect(mockDiscoverAuthorizationServerMetadata).toHaveBeenCalledWith(
+        new URL("https://example.com/"),
+        { fetchFn: undefined },
+      );
+    });
+  });
+
   describe("OAuth Flow Steps", () => {
     it("should handle OAuth flow step progression", async () => {
       const updateAuthState = jest.fn();
@@ -428,6 +489,7 @@ describe("AuthDebugger", () => {
 
       expect(mockDiscoverAuthorizationServerMetadata).toHaveBeenCalledWith(
         new URL("https://example.com/"),
+        { fetchFn: undefined },
       );
     });
 
@@ -725,6 +787,8 @@ describe("AuthDebugger", () => {
       await waitFor(() => {
         expect(mockDiscoverOAuthProtectedResourceMetadata).toHaveBeenCalledWith(
           "https://example.com/mcp",
+          {},
+          undefined,
         );
       });
 
@@ -743,6 +807,7 @@ describe("AuthDebugger", () => {
 
       expect(mockDiscoverAuthorizationServerMetadata).toHaveBeenCalledWith(
         new URL("https://custom-auth.example.com/mcp/tenant"),
+        { fetchFn: undefined },
       );
     });
 
@@ -779,6 +844,8 @@ describe("AuthDebugger", () => {
       await waitFor(() => {
         expect(mockDiscoverOAuthProtectedResourceMetadata).toHaveBeenCalledWith(
           "https://example.com/mcp",
+          {},
+          undefined,
         );
       });
 
@@ -797,6 +864,7 @@ describe("AuthDebugger", () => {
       // Verify that regular OAuth metadata discovery was still called
       expect(mockDiscoverAuthorizationServerMetadata).toHaveBeenCalledWith(
         new URL("https://example.com/"),
+        { fetchFn: undefined },
       );
     });
   });

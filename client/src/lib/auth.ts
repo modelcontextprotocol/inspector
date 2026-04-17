@@ -22,10 +22,12 @@ import { validateRedirectUrl } from "@/utils/urlValidation";
 export const discoverScopes = async (
   serverUrl: string,
   resourceMetadata?: OAuthProtectedResourceMetadata,
+  fetchFn?: typeof fetch,
 ): Promise<string | undefined> => {
   try {
     const metadata = await discoverAuthorizationServerMetadata(
       new URL("/", serverUrl),
+      { fetchFn },
     );
 
     // Prefer resource metadata scopes, but fall back to OAuth metadata if empty
