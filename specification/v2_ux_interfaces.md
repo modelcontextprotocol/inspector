@@ -56,7 +56,7 @@ persistence is owned by the **Inspector core system**. The core lives in this
 repo under `core/` and is modeled after the v1.5 architecture — specifically the
 React hooks published on the
 [v1.5/main branch of modelcontextprotocol/inspector](https://github.com/modelcontextprotocol/inspector/tree/v1.5/main).
-Those hooks (`useConnection`, `useMcpClient`, `useServerCapabilities`, etc.)
+Those hooks (`useConnection`, `useInspectorClient`, `useServerCapabilities`, etc.)
 produce the exact data and callbacks that the upper-layer screen/view
 components will destructure and pass down into the component tree as props.
 
@@ -119,7 +119,7 @@ For each component, the plan records:
 - **Current props** — `name: string`; `supported: boolean`; `count?: number`.
 - **MCP schema touch points** — `ServerCapabilities` (keys `tools`, `resources`, `prompts`, `logging`, `completions`, `experimental`) plus the paginated `ListToolsResult` / `ListResourcesResult` / `ListPromptsResult` for the count.
 - **Target props** — Shape stays similar, but semantics pin `name` to a `keyof ServerCapabilities` and `count` to the length of the corresponding list result. Proposed: `capability: keyof ServerCapabilities`; `supported: boolean`; `count?: number`.
-- **Callbacks → core hook** — None. `supported` is derived from `useServerCapabilities` in the wiring layer; `count` from `useMcpClient` list results.
+- **Callbacks → core hook** — None. `supported` is derived from `useServerCapabilities` in the wiring layer; `count` from `useInspectorClient` list results.
 - **Internal refactors** — Map `capability` key to its display label inside the component (`tools → "Tools"`, etc.).
 
 ### ConnectionToggle
@@ -169,7 +169,7 @@ For each component, the plan records:
 - **Current props** — `visible: boolean`; `onRefresh: () => void`.
 - **MCP schema touch points** — `ToolListChangedNotification`, `ResourceListChangedNotification`, `PromptListChangedNotification`, `RootsListChangedNotification` — all parameterless notifications; the component only needs a boolean "one or more are pending" signal.
 - **Target props** — Unchanged: `visible: boolean`; `onRefresh: () => void`.
-- **Callbacks → core hook** — `onRefresh` → `useMcpClient` (re-invokes `listTools` / `listResources` / `listPrompts` / `listRoots` depending on the screen). `visible` comes from core notification-tracking state.
+- **Callbacks → core hook** — `onRefresh` → `useInspectorClient` (re-invokes `listTools` / `listResources` / `listPrompts` / `listRoots` depending on the screen). `visible` comes from core notification-tracking state.
 - **Internal refactors** — None.
 
 ### ListToggle
@@ -188,7 +188,7 @@ For each component, the plan records:
 - **Purpose** — Single row in the log stream: timestamp, level badge, optional logger name, message.
 - **Current props** — `timestamp: string`; `level: LogLevel`; `message: string`; `logger?: string`.
 - **MCP schema touch points** — `LoggingMessageNotification.params` (`level: LoggingLevel`, `logger?: string`, `data: unknown`). Timestamp is not part of the MCP notification — it is recorded by core when the notification arrives.
-- **Target props** — `entry: { receivedAt: string; params: LoggingMessageNotification["params"] }` — a core-owned wrapper type that embeds the MCP params verbatim and adds the client-side receive time.
+- **Target props** — `entry: { receivedAt: Date; params: LoggingMessageNotification["params"] }` — a core-owned wrapper type that embeds the MCP params verbatim and adds the client-side receive time (`Date`, matching v1.5's `MessageEntry`/`StderrLogEntry` convention).
 - **Callbacks → core hook** — None. Log buffer is owned by core (`useLoggingNotifications` or equivalent) and entries are passed down as props.
 - **Internal refactors** — Accept `params.data` (`unknown`) and render it via a string coercion / JSON stringify instead of a pre-formatted `message`. Pull `level` and `logger` off `params`. Remove the local `LogLevel` alias in favor of the schema's `LoggingLevel`.
 
@@ -219,7 +219,7 @@ For each component, the plan records:
 - **Current props** — `progress: number` (0–100); `description?: string`; `elapsed?: string`.
 - **MCP schema touch points** — `ProgressNotification.params` (`progressToken`, `progress: number`, `total?: number`, `message?: string`).
 - **Target props** — `params: ProgressNotification["params"]`; `elapsed?: string` (client-computed from the time the request was issued).
-- **Callbacks → core hook** — None. Progress state is aggregated by core (`useMcpClient` / request tracker) keyed by `progressToken`.
+- **Callbacks → core hook** — None. Progress state is aggregated by core (`useInspectorClient` / request tracker) keyed by `progressToken`.
 - **Internal refactors** — Compute the displayed percentage from `progress`/`total` (fall back to raw `progress` if `total` is missing). Read caption text from `message` instead of `description`.
 
 ### ServerStatusIndicator
@@ -239,7 +239,7 @@ For each component, the plan records:
 - **Current props** — `subscribed: boolean`; `onToggle: () => void`.
 - **MCP schema touch points** — `SubscribeRequest.params.uri` and `UnsubscribeRequest.params.uri` — but the URI is held by the parent row; the button itself only needs the current subscription boolean.
 - **Target props** — `subscribed: boolean`; `onSubscribe: () => void`; `onUnsubscribe: () => void` (split for parity with `ConnectionToggle`). Alternatively keep a single `onToggle` if the wiring layer prefers that.
-- **Callbacks → core hook** — `onSubscribe` / `onUnsubscribe` → `useMcpClient` (wraps `client.subscribeResource` / `client.unsubscribeResource`); `subscribed` derived from a core-owned subscription set.
+- **Callbacks → core hook** — `onSubscribe` / `onUnsubscribe` → `useInspectorClient` (wraps `client.subscribeResource` / `client.unsubscribeResource`); `subscribed` derived from a core-owned subscription set.
 - **Internal refactors** — Optional split of `onToggle` into the two explicit callbacks; otherwise none.
 
 ### TaskStatusBadge
@@ -281,7 +281,7 @@ For each component, the plan records:
 - **Current props**: `message`, `schema: JsonSchema`, `values`, `serverName`, `onChange`, `onSubmit`, `onCancel`.
 - **MCP schema touch points**: `ElicitRequest.params` (`message`, `requestedSchema`), `PrimitiveSchemaDefinition`, `ElicitResult` (`action`, `content`).
 - **Target props**: `request: ElicitRequest` (or `{ message; requestedSchema }`), `serverName: string`, `values: Record<string, PrimitiveValue>`, `onChange`, `onSubmit(result: ElicitResult)`, `onCancel()`.
-- **Callbacks → core hook**: `onSubmit`/`onCancel` from likely `useElicitation` (pending `ElicitRequest` queue).
+- **Callbacks → core hook**: `onSubmit`/`onCancel` from the pending-elicitation queue (handled inside `InspectorClient`; v2 pending-queue hook TBD) (pending `ElicitRequest` queue).
 - **Internal refactors**: Constrain to `PrimitiveSchemaDefinition` record instead of freeform `JsonSchema`; emit `{action:'accept'|'decline'|'cancel', content}`.
 
 ### ElicitationUrlPanel
@@ -291,7 +291,7 @@ For each component, the plan records:
 - **Current props**: `message`, `url`, `elicitationId`, `isWaiting`, `onCopyUrl`, `onOpenInBrowser`, `onCancel`.
 - **MCP schema touch points**: URL-mode elicitation is NOT in MCP 2025-11-25 — Inspector-owned extension of `ElicitRequest`.
 - **Target props**: `request: InspectorUrlElicitRequest` (`requestId`, `message`, `url`), `isWaiting`, `onCopyUrl`, `onOpenInBrowser`, `onCancel`.
-- **Callbacks → core hook**: likely `useElicitation` (URL variant).
+- **Callbacks → core hook**: the pending-elicitation queue (handled inside `InspectorClient`; v2 pending-queue hook TBD) (URL variant).
 - **Internal refactors**: Replace scalar props with wrapper object.
 
 ### ExperimentalFeaturesPanel
@@ -301,7 +301,7 @@ For each component, the plan records:
 - **Current props**: `serverCapabilities`, `clientCapabilities`, `requestJson`, `responseJson`, `customHeaders`, `requestHistory`, many handlers.
 - **MCP schema touch points**: `ServerCapabilities.experimental`, `ClientCapabilities.experimental` (freeform `{[k]: object}`); `JSONRPCRequest`/`JSONRPCResponse`/`JSONRPCError`. `RequestHistoryItem` is Inspector-owned.
 - **Target props**: `serverExperimental: ServerCapabilities['experimental']`, `clientExperimental: ClientCapabilities['experimental']`, `requestDraft: string`, `response?: JSONRPCResponse | JSONRPCError`, `customHeaders: HeaderPair[]`, `history: InspectorRequestHistoryItem[]`, handlers unchanged.
-- **Callbacks → core hook**: `onSendRequest`/`onTestCapability` from likely `useMcpClient`; `onToggleClientCapability` from likely `useClientCapabilities`; history from `useHistory`.
+- **Callbacks → core hook**: `onSendRequest`/`onTestCapability` from `useInspectorClient`; `onToggleClientCapability` from `useClientCapabilities` (v2-only — no v1.5 analog); history from `useHistory`.
 - **Internal refactors**: Iterate over the freeform capability record rather than an inferred `{name,description,methods}` list.
 
 ### HistoryControls
@@ -311,7 +311,7 @@ For each component, the plan records:
 - **Current props**: `searchText`, `methodFilter`, `onSearchChange`, `onMethodFilterChange`.
 - **MCP schema touch points**: Method filter values are MCP `Request.method` literals.
 - **Target props**: `searchText`, `methodFilter?: RequestMethod`, `availableMethods: RequestMethod[]`, `onSearchChange`, `onMethodFilterChange`.
-- **Callbacks → core hook**: likely `useHistory`.
+- **Callbacks → core hook**: `useMessageLog`.
 - **Internal refactors**: Type the method filter as a union of MCP method strings.
 
 ### HistoryEntry
@@ -321,7 +321,7 @@ For each component, the plan records:
 - **Current props**: `timestamp`, `method`, `target?`, `status`, `durationMs`, `parameters`, `response`, `childEntries`, `isPinned`, `isListExpanded`, `onReplay`, `onTogglePin`.
 - **MCP schema touch points**: Wraps an MCP `Request`/`Result` pair; parameters → `Request.params`, response → `Result | JSONRPCError`. Child entries are nested server→client calls (sampling/elicitation/roots).
 - **Target props**: `entry: InspectorHistoryEntry` (embeds `request: JSONRPCRequest`, `response?: JSONRPCResponse | JSONRPCError`, `startedAt`, `durationMs`, `childEntries`, `isPinned`), `isListExpanded`, `onReplay`, `onTogglePin`.
-- **Callbacks → core hook**: likely `useHistory`.
+- **Callbacks → core hook**: `useMessageLog`.
 - **Internal refactors**: Derive `method`/`target`/`status` from the embedded JSON-RPC objects rather than flat scalars.
 
 ### HistoryListPanel
@@ -331,7 +331,7 @@ For each component, the plan records:
 - **Current props**: `entries`, `pinnedEntries`, `searchText`, `methodFilter?`, `onClearAll`, `onExport`.
 - **MCP schema touch points**: Same `InspectorHistoryEntry` wrapper as above.
 - **Target props**: `entries: InspectorHistoryEntry[]`, `pinnedEntries: InspectorHistoryEntry[]`, `searchText`, `methodFilter?`, `onClearAll`, `onExport`, `onReplay(entryId)`, `onTogglePin(entryId)`.
-- **Callbacks → core hook**: likely `useHistory`.
+- **Callbacks → core hook**: `useMessageLog`.
 - **Internal refactors**: Pass entry id + handlers down instead of pre-bound callbacks on each entry.
 
 ### ImportServerJsonPanel
@@ -341,7 +341,7 @@ For each component, the plan records:
 - **Current props**: `jsonContent`, `validationResults`, `packages?`, `selectedPackageIndex`, `envVars`, `serverName`, handlers.
 - **MCP schema touch points**: `server.json` is MCP **registry** spec, not the runtime schema — Inspector/registry-owned.
 - **Target props**: `draft: InspectorServerJsonDraft` (raw text + parsed `RegistryServerJson` + `selectedPackageIndex` + env overrides + name override), `validation: ValidationResult[]`, handlers unchanged.
-- **Callbacks → core hook**: likely `useServerRegistry` / `useServers`.
+- **Callbacks → core hook**: `useServerRegistry` (v2-only — no v1.5 analog) / `useServers`.
 - **Internal refactors**: Collapse scattered scalar props into a single draft object.
 
 ### InlineElicitationRequest
@@ -351,7 +351,7 @@ For each component, the plan records:
 - **Current props**: `mode`, `message`, `queuePosition`, `schema?`, `values?`, `url?`, `isWaiting?`, handlers.
 - **MCP schema touch points**: `ElicitRequest` (form); URL variant is Inspector-owned.
 - **Target props**: `request: ElicitRequest | InspectorUrlElicitRequest`, `queuePosition`, `values?`, `isWaiting?`, handlers.
-- **Callbacks → core hook**: likely `useElicitation`.
+- **Callbacks → core hook**: the pending-elicitation queue (handled inside `InspectorClient`; v2 pending-queue hook TBD).
 - **Internal refactors**: Discriminate on `request` shape rather than a separate `mode` prop.
 
 ### InlineSamplingRequest
@@ -361,7 +361,7 @@ For each component, the plan records:
 - **Current props**: `queuePosition`, `modelHints?`, `messagePreview`, `responseText`, `onAutoRespond`, `onEditAndSend`, `onReject`, `onViewDetails`.
 - **MCP schema touch points**: `CreateMessageRequest` (`messages`, `modelPreferences.hints[].name`, etc.), `CreateMessageResult`.
 - **Target props**: `request: CreateMessageRequest`, `queuePosition`, `draftResult?: CreateMessageResult`, handlers.
-- **Callbacks → core hook**: likely `useSampling`.
+- **Callbacks → core hook**: the pending-sampling queue (handled inside `InspectorClient`; v2 pending-queue hook TBD).
 - **Internal refactors**: Derive `modelHints` and `messagePreview` from the embedded request.
 
 ### LogControls
@@ -371,7 +371,7 @@ For each component, the plan records:
 - **Current props**: `currentLevel`, `filterText`, `visibleLevels`, `onSetLevel`, `onFilterChange`, `onToggleLevel`, `onToggleAllLevels`.
 - **MCP schema touch points**: `LoggingLevel` union, `SetLevelRequest.params.level`.
 - **Target props**: `currentLevel: LoggingLevel`, `filterText`, `visibleLevels: Record<LoggingLevel, boolean>`, handlers typed with `LoggingLevel`.
-- **Callbacks → core hook**: `onSetLevel` from likely `useLogs` (issues `logging/setLevel`); visibility is client state from `useLogs` or screen.
+- **Callbacks → core hook**: `onSetLevel` from `useMessageLog` (issues `logging/setLevel`); visibility is client state from `useLogs` or screen.
 - **Internal refactors**: Replace string-typed levels with `LoggingLevel` throughout.
 
 ### LogStreamPanel
@@ -381,7 +381,7 @@ For each component, the plan records:
 - **Current props**: `entries: LogEntryProps[]`, `filterText`, `visibleLevels`, `autoScroll`, handlers.
 - **MCP schema touch points**: `LoggingMessageNotification.params` (`level`, `logger?`, `data`).
 - **Target props**: `entries: InspectorLogEntry[]` (wraps `LoggingMessageNotification['params']` + timestamp), `filterText`, `visibleLevels: Record<LoggingLevel, boolean>`, `autoScroll`, handlers.
-- **Callbacks → core hook**: likely `useLogs` (buffers `notifications/message`).
+- **Callbacks → core hook**: `useMessageLog` (buffers `notifications/message`).
 - **Internal refactors**: Adapt `LogEntry` to render `LoggingMessageNotification.params` directly.
 
 ### PendingClientRequests
@@ -401,7 +401,7 @@ For each component, the plan records:
 - **Current props**: `name`, `description?`, `arguments`, `argumentValues`, `onArgumentChange`, `onGetPrompt`.
 - **MCP schema touch points**: `Prompt`, `PromptArgument` (`name`, `description`, `required`), `GetPromptRequest.params`.
 - **Target props**: `prompt: Prompt`, `argumentValues: Record<string, string>`, `onArgumentChange`, `onGetPrompt(args: GetPromptRequest['params']['arguments'])`.
-- **Callbacks → core hook**: `onGetPrompt` from likely `usePrompts`.
+- **Callbacks → core hook**: `onGetPrompt` from `useManagedPrompts`.
 - **Internal refactors**: Read `prompt.arguments` directly; display `prompt.title ?? prompt.name`.
 
 ### PromptControls
@@ -411,7 +411,7 @@ For each component, the plan records:
 - **Current props**: `prompts: PromptItem[]`, `listChanged`, `onRefreshList`, `onSelectPrompt`.
 - **MCP schema touch points**: `Prompt`, `ListPromptsResult`, `PromptListChangedNotification`.
 - **Target props**: `prompts: Prompt[]`, `selectedName?: string`, `listChanged`, `onRefreshList()`, `onSelectPrompt(name)`.
-- **Callbacks → core hook**: likely `usePrompts`.
+- **Callbacks → core hook**: `useManagedPrompts`.
 - **Internal refactors**: Replace local `PromptItem` with schema `Prompt`; lift `selected` out of item.
 
 ### PromptListItem
@@ -441,7 +441,7 @@ For each component, the plan records:
 - **Current props**: `resources`, `templates`, `subscriptions`, `listChanged`, `onRefreshList`, `onSelectUri`, `onSelectTemplate`, `onUnsubscribeResource`.
 - **MCP schema touch points**: `Resource`, `ResourceTemplate`, `ListResourcesResult`, `ListResourceTemplatesResult`, `ResourceListChangedNotification`, `ResourceUpdatedNotification`.
 - **Target props**: `resources: Resource[]`, `templates: ResourceTemplate[]`, `subscriptions: InspectorResourceSubscription[]`, `selectedUri?`, `selectedTemplate?`, `listChanged`, handlers.
-- **Callbacks → core hook**: likely `useResources`.
+- **Callbacks → core hook**: `useManagedResources`.
 - **Internal refactors**: Replace inferred item types with schema types; lift `selected` out.
 
 ### ResourceListItem
@@ -461,7 +461,7 @@ For each component, the plan records:
 - **Current props**: `uri`, `mimeType`, `annotations?`, `content: string`, `lastUpdated?`, `isSubscribed`, `onRefresh`, `onSubscribe`, `onUnsubscribe`.
 - **MCP schema touch points**: `ReadResourceResult.contents[]` (`TextResourceContents | BlobResourceContents`), parent `Resource`.
 - **Target props**: `resource: Resource`, `contents: (TextResourceContents | BlobResourceContents)[]`, `lastUpdated?`, `isSubscribed`, handlers.
-- **Callbacks → core hook**: likely `useResources`.
+- **Callbacks → core hook**: `useManagedResources`.
 - **Internal refactors**: Handle blob vs text and iterate over `contents[]` instead of a single string.
 
 ### ResourceSubscribedItem
@@ -471,7 +471,7 @@ For each component, the plan records:
 - **Current props**: `name`, `lastUpdated?`, `onUnsubscribe`.
 - **MCP schema touch points**: `Resource` + Inspector subscription state (`lastUpdated` from `notifications/resources/updated`).
 - **Target props**: `subscription: InspectorResourceSubscription` (`{ resource: Resource; lastUpdated? }`), `onUnsubscribe(uri)`.
-- **Callbacks → core hook**: likely `useResources`.
+- **Callbacks → core hook**: `useManagedResources`.
 - **Internal refactors**: Take the wrapper, not flat scalars.
 
 ### ResourceTemplatePanel
@@ -481,7 +481,7 @@ For each component, the plan records:
 - **Current props**: `name`, `title?`, `uriTemplate`, `description?`, `annotations?`, `onReadResource`.
 - **MCP schema touch points**: `ResourceTemplate` (`uriTemplate`, `name`, `title`, `description`, `mimeType`, `annotations`).
 - **Target props**: `template: ResourceTemplate`, `onReadResource(uri)`.
-- **Callbacks → core hook**: likely `useResources`.
+- **Callbacks → core hook**: `useManagedResources`.
 - **Internal refactors**: Destructure a single schema object; keep local variable-values state.
 
 ### RootsTable
@@ -491,7 +491,7 @@ For each component, the plan records:
 - **Current props**: `roots: RootEntry[]`, `newRootName`, `newRootPath`, handlers.
 - **MCP schema touch points**: `Root` (`uri: string (file://...)`, `name?`), `ListRootsResult`, `RootsListChangedNotification`.
 - **Target props**: `roots: Root[]`, `newRootDraft: { name: string; uri: string }`, handlers.
-- **Callbacks → core hook**: likely `useRoots`.
+- **Callbacks → core hook**: `useRoots` (v2-only — no v1.5 analog).
 - **Internal refactors**: Use schema `Root`; replace `path` field with `uri`.
 
 ### SamplingRequestPanel
@@ -501,7 +501,7 @@ For each component, the plan records:
 - **Current props**: `messages`, `modelHints?`, `cost/speed/intelligencePriority?`, `maxTokens?`, `stopSequences?`, `temperature?`, `includeContext?`, `tools?`, `toolChoice?`, `responseText`, `modelUsed`, `stopReason`, handlers.
 - **MCP schema touch points**: `CreateMessageRequest.params` (`messages: SamplingMessage[]`, `modelPreferences: ModelPreferences`, `systemPrompt`, `includeContext`, `temperature`, `maxTokens`, `stopSequences`, `metadata`), `CreateMessageResult` (`role`, `content`, `model`, `stopReason`). `tools`/`toolChoice` are NOT in 2025-11-25 `CreateMessageRequest` — Inspector extension or drop.
 - **Target props**: `request: CreateMessageRequest`, `draftResult: CreateMessageResult`, `onResultChange`, `onAutoRespond`, `onSend`, `onReject`.
-- **Callbacks → core hook**: likely `useSampling`.
+- **Callbacks → core hook**: the pending-sampling queue (handled inside `InspectorClient`; v2 pending-queue hook TBD).
 - **Internal refactors**: Destructure all preferences/parameters from the embedded request; drop or fence off non-schema `tools`/`toolChoice`.
 
 ### SchemaForm
@@ -521,7 +521,7 @@ For each component, the plan records:
 - **Current props**: `onAddManually`, `onImportConfig`, `onImportServerJson`.
 - **MCP schema touch points**: None — Inspector-core-owned.
 - **Target props**: Unchanged.
-- **Callbacks → core hook**: likely `useServers` (and `useServerRegistry` for import).
+- **Callbacks → core hook**: `useServers` (v2-only — no v1.5 analog) (and `useServerRegistry` for import).
 - **Internal refactors**: None.
 
 ### ServerCard
@@ -531,7 +531,7 @@ For each component, the plan records:
 - **Current props**: `name`, `version?`, `transport`, `connectionMode`, `command`, `status`, `retryCount?`, `error?`, `canTestClientFeatures`, `activeServer?`, many handlers.
 - **MCP schema touch points**: `Implementation` (server `name`, `version`) from `InitializeResult.serverInfo`. Transport/command/mode/status are Inspector-core-owned (connection lifecycle).
 - **Target props**: `config: InspectorServerConfig`, `info?: Implementation`, `connection: InspectorConnectionState` (`status`, `retryCount`, `error`), `canTestClientFeatures`, `activeServer?`, handlers unchanged.
-- **Callbacks → core hook**: `onToggleConnection`/`onSetActiveServer` from likely `useConnection`; `onEdit`/`onClone`/`onRemove` from `useServers`; test handlers from `useSampling`/`useElicitation`/`useRoots`.
+- **Callbacks → core hook**: `onToggleConnection`/`onSetActiveServer` from `useConnection`; `onEdit`/`onClone`/`onRemove` from `useServers`; test handlers from `useSampling`/`useElicitation`/`useRoots`.
 - **Internal refactors**: Replace flat scalar props with grouped objects; **move the auto-connect `useEffect` out** — dumb components must not self-dispatch side effects.
 
 ### ServerInfoContent
@@ -541,7 +541,7 @@ For each component, the plan records:
 - **Current props**: `name`, `version`, `protocolVersion`, `transport`, `serverCapabilities`, `clientCapabilities`, `instructions?`, `oauthDetails?`.
 - **MCP schema touch points**: `InitializeResult` (`serverInfo: Implementation`, `protocolVersion`, `capabilities: ServerCapabilities`, `instructions?`), `ClientCapabilities`.
 - **Target props**: `initializeResult: InitializeResult`, `clientCapabilities: ClientCapabilities`, `transport: InspectorTransportType`, `oauth?: InspectorOAuthDetails`.
-- **Callbacks → core hook**: read-only; data from likely `useConnection` / `useServerCapabilities`.
+- **Callbacks → core hook**: read-only; data from `useConnection` / `useServerCapabilities`.
 - **Internal refactors**: Derive capability list by iterating the `ServerCapabilities` record rather than a pre-built `CapabilityInfo[]`.
 
 ### ServerListControls
@@ -551,7 +551,7 @@ For each component, the plan records:
 - **Current props**: `compact`, `serverCount`, `onToggleList`, plus `AddServerMenuProps`.
 - **MCP schema touch points**: None (Inspector-core-owned).
 - **Target props**: Unchanged.
-- **Callbacks → core hook**: likely `useServers` (+ `useServerRegistry`).
+- **Callbacks → core hook**: `useServers` (v2-only — no v1.5 analog) (+ `useServerRegistry`).
 - **Internal refactors**: None.
 
 ### ServerSettingsForm
@@ -561,7 +561,7 @@ For each component, the plan records:
 - **Current props**: `connectionMode`, `headers`, `metadata`, `connectionTimeout`, `requestTimeout`, `oauthClient*`, many handlers.
 - **MCP schema touch points**: `Request._meta` passthrough is the only schema-level tie-in; the rest is Inspector-core-owned.
 - **Target props**: `settings: InspectorServerSettings`, `onSettingsChange(settings)` (or keep granular setters).
-- **Callbacks → core hook**: likely `useServers`.
+- **Callbacks → core hook**: `useServers` (v2-only — no v1.5 analog).
 - **Internal refactors**: Collapse props into a settings object; keep internal `KeyValueRows`.
 
 ### TaskCard
@@ -569,9 +569,9 @@ For each component, the plan records:
 - **Location**: `groups/TaskCard/`
 - **Purpose**: Expandable card for a long-running task with progress and cancel.
 - **Current props**: `taskId`, `status`, `method`, `target?`, `progress?`, `progressDescription?`, `startedAt?`, `completedAt?`, `lastUpdated?`, `elapsed?`, `ttl?`, `error?`, `isListExpanded`, `onCancel`.
-- **MCP schema touch points**: `ProgressNotification.params` (`progressToken`, `progress`, `total`, `message`); formal `tasks/*` types are NOT in MCP 2025-11-25 base schema — treat the task envelope as Inspector-owned wrapping a `progressToken`-tracked MCP request.
-- **Target props**: `task: InspectorTask` (embeds originating `Request`, latest `ProgressNotification`, `status`, timestamps, `ttl`), `isListExpanded`, `onCancel(taskId)`.
-- **Callbacks → core hook**: likely `useTasks` (issues `notifications/cancelled`).
+- **MCP schema touch points**: `Task` (from `@modelcontextprotocol/sdk/types.js`) plus `ProgressNotification.params` (`progressToken`, `progress`, `total`, `message`) and `CancelledNotification.params`. The `notifications/tasks/list_changed` signal is an Inspector extension (no SDK schema) — see `core/mcp/taskNotificationSchemas.ts`.
+- **Target props**: `task: Task` (SDK type), `isListExpanded`, `onCancel(taskId)`.
+- **Callbacks → core hook**: `useManagedRequestorTasks` (issues `notifications/cancelled`).
 - **Internal refactors**: Replace flat scalars with the wrapper; derive display fields.
 
 ### TaskControls
@@ -579,9 +579,9 @@ For each component, the plan records:
 - **Location**: `groups/TaskControls/`
 - **Purpose**: Sidebar search + status filter + refresh/clear for tasks.
 - **Current props**: `searchText`, `statusFilter?`, handlers.
-- **MCP schema touch points**: Statuses Inspector-owned.
-- **Target props**: Unchanged; statuses typed as `InspectorTaskStatus`.
-- **Callbacks → core hook**: likely `useTasks`.
+- **MCP schema touch points**: `Task` (from `@modelcontextprotocol/sdk/types.js`) — the `status` field lives on the SDK `Task` type.
+- **Target props**: Unchanged; status filter typed as `Task["status"]`.
+- **Callbacks → core hook**: `useManagedRequestorTasks`.
 - **Internal refactors**: None beyond typing.
 
 ### TaskListPanel
@@ -589,9 +589,9 @@ For each component, the plan records:
 - **Location**: `groups/TaskListPanel/`
 - **Purpose**: List of active and completed tasks.
 - **Current props**: `tasks: TaskCardProps[]`, `searchText`, `statusFilter?`.
-- **MCP schema touch points**: Same `InspectorTask` wrapper as TaskCard.
-- **Target props**: `tasks: InspectorTask[]`, `searchText`, `statusFilter?`, `onCancel(taskId)`.
-- **Callbacks → core hook**: likely `useTasks`.
+- **MCP schema touch points**: Same SDK `Task` type as TaskCard.
+- **Target props**: `tasks: Task[]`, `searchText`, `statusFilter?`, `onCancel(taskId)`.
+- **Callbacks → core hook**: `useManagedRequestorTasks`.
 - **Internal refactors**: Pass `onCancel` through to each `TaskCard`; stop spreading prop objects.
 
 ### ToolControls
@@ -601,7 +601,7 @@ For each component, the plan records:
 - **Current props**: `tools: ToolListItemProps[]`, `listChanged`, `onRefreshList`, `onSelectTool`.
 - **MCP schema touch points**: `Tool`, `ListToolsResult`, `ToolListChangedNotification`.
 - **Target props**: `tools: Tool[]`, `selectedName?`, `listChanged`, `onRefreshList`, `onSelectTool`.
-- **Callbacks → core hook**: likely `useTools`.
+- **Callbacks → core hook**: `useManagedTools`.
 - **Internal refactors**: Consume schema `Tool[]` directly.
 
 ### ToolDetailPanel
@@ -611,7 +611,7 @@ For each component, the plan records:
 - **Current props**: `name`, `title?`, `description?`, `annotations?`, `schema: JsonSchema`, `formValues`, `isExecuting`, `progress?`, handlers.
 - **MCP schema touch points**: `Tool` (`name`, `title`, `description`, `inputSchema`, `annotations: ToolAnnotations`), `ToolAnnotations` (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), `CallToolRequest`, `ProgressNotification`.
 - **Target props**: `tool: Tool`, `formValues: Record<string, unknown>`, `isExecuting`, `progress?: ProgressNotification['params']`, `onFormChange`, `onExecute(args)`, `onCancel()`.
-- **Callbacks → core hook**: likely `useTools` (wraps `tools/call` with progress token).
+- **Callbacks → core hook**: `useManagedTools` (wraps `tools/call` with progress token).
 - **Internal refactors**: Rename local annotation flags to schema `*Hint` names; read `inputSchema` from `tool`.
 
 ### ToolListItem
@@ -641,7 +641,7 @@ For each component, the plan records:
 - **Current props**: discriminated union on `connected`: `serverName`, `status`, `latencyMs`, tabs, handlers.
 - **MCP schema touch points**: `Implementation.name` for `serverName`; status/latency are Inspector connection state.
 - **Target props**: Connected: `serverInfo: Implementation`, `connection: InspectorConnectionState`, `activeTab`, `availableTabs`, `onTabChange`, `onDisconnect`, `onToggleTheme`. Unconnected: unchanged.
-- **Callbacks → core hook**: `onDisconnect` from likely `useConnection`; `onTabChange` from screen/view router; `onToggleTheme` from UI theme store.
+- **Callbacks → core hook**: `onDisconnect` from `useConnection`; `onTabChange` from screen/view router; `onToggleTheme` from UI theme store.
 - **Internal refactors**: Replace flat header scalars with grouped objects.
 
 <!-- /AGENT:GROUPS -->
@@ -674,7 +674,7 @@ themselves — every callback passed down must originate in a core hook.
   - `callState?: { status: 'idle' | 'pending' | 'ok' | 'error'; request?: CallToolRequest['params']; result?: CallToolResult; error?: string }`.
   - `listChanged: boolean` — driven by `notifications/tools/list_changed`.
   - `onRefreshList: () => void`, `onSelectTool: (name: string) => void`, `onCallTool: (name: string, args: Record<string, unknown>) => void`.
-- **Callbacks → core hook**: `useTools` (likely) provides `tools`, `listChanged`, `refreshTools`, `callTool`, `lastCallResult`; backed by `useMcpClient` for the underlying `client.request`.
+- **Callbacks → core hook**: `useManagedTools` provides `tools`, `listChanged`, `refreshTools`, `callTool`, `lastCallResult`; backed by `useInspectorClient` for the underlying `client.request`.
 - **Internal refactors**:
   - Stop flattening `Tool` into `ToolListItemProps` at the screen boundary — pass `Tool` down and let `ToolListItem` project fields.
   - Derive the selected tool from `tools.find(t => t.name === selectedToolName)` instead of receiving a pre-built `ToolDetailPanelProps`.
@@ -693,7 +693,7 @@ themselves — every callback passed down must originate in a core hook.
   - `getPromptState?: { status: 'idle' | 'pending' | 'ok' | 'error'; result?: GetPromptResult; error?: string }` — replaces the bare `messages` prop.
   - `listChanged: boolean`.
   - `onRefreshList`, `onSelectPrompt(name)`, `onArgumentChange(name, value)`, `onGetPrompt()`.
-- **Callbacks → core hook**: `usePrompts` (likely) provides `prompts`, `listChanged`, `refreshPrompts`, `getPrompt`, `lastGetPromptResult`; backed by `useMcpClient`.
+- **Callbacks → core hook**: `useManagedPrompts` provides `prompts`, `listChanged`, `refreshPrompts`, `getPrompt`, `lastGetPromptResult`; backed by `useInspectorClient`.
 - **Internal refactors**:
   - Drop `PromptItem`/`SelectedPrompt` wrapper types; consume `Prompt` directly.
   - `PromptMessage[]` flows into `PromptMessagesDisplay` from `GetPromptResult.messages` verbatim.
@@ -711,7 +711,7 @@ themselves — every callback passed down must originate in a core hook.
   - `readState?: { status; uri: string; result?: ReadResourceResult; error?: string }`.
   - `listChanged: boolean`.
   - `onRefreshList`, `onSelectUri(uri)`, `onSelectTemplate(uriTemplate)`, `onReadResource(uri)`, `onSubscribeResource(uri)`, `onUnsubscribeResource(uri)`.
-- **Callbacks → core hook**: `useResources` (likely) owns `resources`, `resourceTemplates`, `readResource`, `subscribe`/`unsubscribe`, `subscriptions`, and forwards `notifications/resources/updated` + `list_changed`.
+- **Callbacks → core hook**: `useManagedResources` owns `resources`, `resourceTemplates`, `readResource`, `subscribe`/`unsubscribe`, `subscriptions`, and forwards `notifications/resources/updated` + `list_changed`.
 - **Internal refactors**:
   - Replace the ad-hoc `SelectedResource` (with inlined `content: string`) with `ReadResourceResult` whose `contents` is a union of `TextResourceContents | BlobResourceContents` — preview panel must branch on type.
   - Pass `Annotations` through unmodified rather than the reduced `{ audience?: string; priority?: number }`.
@@ -723,10 +723,10 @@ themselves — every callback passed down must originate in a core hook.
 - **Current props**: `entries: HistoryEntryProps[]`, `pinnedEntries: HistoryEntryProps[]`, `onClearAll`, `onExport`.
 - **MCP schema touch points**: `JSONRPCRequest`, `JSONRPCResponse`, `JSONRPCNotification`, `JSONRPCError`, `RequestId` — entries wrap these, not transform them.
 - **Target props**:
-  - `entries: HistoryEntry[]` where `HistoryEntry = { id: string; timestamp: string; direction: 'outgoing' | 'incoming'; message: JSONRPCRequest | JSONRPCResponse | JSONRPCNotification | JSONRPCError; pinned: boolean; durationMs?: number }`.
+  - `entries: MessageEntry[]` from `core/mcp/types.ts` (v1.5's `MessageEntry` with `timestamp: Date`, plus a local `pinned: boolean` overlay held in screen state).
   - `onClearAll`, `onExport`, `onTogglePin(id)`, `onCopy(id)`.
   - Local state `searchText` / `methodFilter` stays in screen.
-- **Callbacks → core hook**: `useHistory` (likely) — buffers every message seen by `useMcpClient`'s transport and exposes `entries`, `clear`, `export`, `togglePin`.
+- **Callbacks → core hook**: `useMessageLog` — buffers every message seen by `useInspectorClient`'s transport and exposes `entries`, `clear`, `export`, `togglePin`.
 - **Internal refactors**: collapse `entries` + `pinnedEntries` into one list with a `pinned` flag; `HistoryListPanel` handles grouping.
 
 ### LoggingScreen
@@ -736,11 +736,11 @@ themselves — every callback passed down must originate in a core hook.
 - **Current props**: `entries: LogEntryProps[]`, `currentLevel: string`, `onSetLevel`, `onClear`, `onExport`, `autoScroll`, `onToggleAutoScroll`, `onCopyAll`.
 - **MCP schema touch points**: `LoggingMessageNotification.params` (`LoggingLevel`, `logger?`, `data: unknown`), `SetLevelRequest.params.level`.
 - **Target props**:
-  - `entries: Array<LoggingMessageNotification['params'] & { id: string; timestamp: string }>`.
+  - `entries: Array<{ receivedAt: Date; params: LoggingMessageNotification['params'] }>` (the core-owned wrapper from `LogEntry`'s target shape; `receivedAt: Date` matches v1.5's convention).
   - `currentLevel: LoggingLevel`.
   - `onSetLevel(level: LoggingLevel)`, `onClear`, `onExport`, `onCopyAll`, `autoScroll`, `onToggleAutoScroll`.
   - `filterText` and `visibleLevels` stay screen-local.
-- **Callbacks → core hook**: `useLogs` (likely) — subscribes to `notifications/message`, buffers entries, exposes `entries`, `currentLevel`, `setLevel` (wraps `logging/setLevel`).
+- **Callbacks → core hook**: `useMessageLog` — subscribes to `notifications/message`, buffers entries, exposes `entries`, `currentLevel`, `setLevel` (wraps `logging/setLevel`).
 
 ### TasksScreen
 
@@ -752,7 +752,7 @@ themselves — every callback passed down must originate in a core hook.
   - `tasks: Task[]` where `Task = { id: RequestId; progressToken?: ProgressToken; method: string; params: unknown; status: 'pending' | 'progress' | 'done' | 'error' | 'cancelled'; progress?: ProgressNotification['params']; result?: unknown; error?: JSONRPCError['error']; startedAt: string; endedAt?: string }`.
   - `onRefresh`, `onClearHistory`, `onCancel(id: RequestId)`.
   - Local state `searchText` / `statusFilter` stays in screen.
-- **Callbacks → core hook**: `useTasks` (likely, new in v2) — correlates outbound requests with `notifications/progress`, `notifications/cancelled`, and terminal responses via the transport owned by `useMcpClient`.
+- **Callbacks → core hook**: `useManagedRequestorTasks` — correlates outbound requests with `notifications/progress`, `notifications/cancelled`, and terminal responses via the transport owned by `useInspectorClient`.
 
 ### ServerListScreen
 
@@ -764,7 +764,7 @@ themselves — every callback passed down must originate in a core hook.
   - `servers: ServerEntry[]` where `ServerEntry = { id: string; config: ServerTransportConfig; connection: { status: 'disconnected' | 'connecting' | 'connected' | 'error'; error?: string; initializeResult?: InitializeResult } }`.
   - `activeServerId?: string` — may be lifted to core if it drives routing; currently screen-local.
   - `onAddManually`, `onImportConfig`, `onImportServerJson`, `onConnect(id)`, `onDisconnect(id)`, `onSetActiveServer(id)`, `onEditServer(id)`, `onRemoveServer(id)`.
-- **Callbacks → core hook**: `useServers` (likely) owns the persisted config list; `useConnection` (v1.5, `client/src/lib/hooks/useConnection.ts`) owns per-server transport lifecycle and exposes `connectionStatus`, `serverCapabilities`, `connect`, `disconnect`. `ServerListScreen` composes both via a parent view.
+- **Callbacks → core hook**: `useServers` (v2-only — no v1.5 analog) owns the persisted config list; `useConnection` (v1.5, `core/react/useConnection.ts`) owns per-server transport lifecycle and exposes `connectionStatus`, `serverCapabilities`, `connect`, `disconnect`. `ServerListScreen` composes both via a parent view.
 - **Internal refactors**:
   - Stop flattening each server into a loose `ServerCardProps`; pass `ServerEntry` and let `ServerCard` read `config` / `connection` fields.
   - `activeServer` state may migrate to `useServers` once it gates which screen renders; until then, keep `useState` local.
@@ -811,9 +811,9 @@ themselves — every callback passed down must originate in a core hook.
   - `children: ReactNode`
 - **Callbacks → core hook**:
   - `onDisconnect` → `useConnection` (disconnect action).
-  - `onTabChange` → local UI state in the wiring layer (not an MCP call); likely `useInspectorNavigation` or screen-level state.
+  - `onTabChange` → local UI state in the wiring layer (not an MCP call); wiring-layer `useState` (no dedicated hook yet) or screen-level state.
   - `onToggleTheme` → app-level theme store, not a core hook.
-  - `connectionStatus`, `latencyMs`, `serverInfo`, `capabilities` → likely `useConnection` / `useMcpClient` / `useServerCapabilities`.
+  - `connectionStatus`, `latencyMs`, `serverInfo`, `capabilities` → `useConnection` / `useInspectorClient` / `useServerCapabilities`.
 - **Internal refactors**:
   - Replace flat `serverName` with `serverInfo.name` lookup; forward full `serverInfo` to `ViewHeader` once that group is updated.
   - Compute/validate `availableTabs` against `capabilities` rather than accepting an arbitrary string list; narrow `activeTab`/`availableTabs` to an `InspectorTab` union.
@@ -851,22 +851,35 @@ components that consume hook output directly.
 
 <!-- AGENT:HOOKS -->
 
-Authoritative source: [`modelcontextprotocol/inspector` v1.5/main, `client/src/lib/hooks`](https://github.com/modelcontextprotocol/inspector/tree/main/client/src/lib/hooks) (v1.5 monorepo bundles most primitive-specific logic inside `client/src/App.tsx`; hooks marked "likely" will be extracted cleanly in v2 core).
+Authoritative source: [`modelcontextprotocol/inspector` v1.5/main, `core/react/`](https://github.com/modelcontextprotocol/inspector/tree/v1.5/main/core/react). v1.5 already has the full core hook surface extracted under `core/react/*.ts`; the v2 wiring layer adopts each hook by name and adapts only where v2 introduces new application state (servers list, registry, client capabilities, navigation).
 
-- **`useConnection`** — confirmed in v1.5 at `client/src/lib/hooks/useConnection.ts`. Owns MCP transport lifecycle (stdio / SSE / streamable HTTP), performs `initialize`, tracks `connectionStatus`, exposes `makeRequest`, `handleCompletion`, `sendNotification`, and surfaces `serverCapabilities`. Produces: `InitializeResult`, `ServerCapabilities`, `Implementation`, `JSONRPCRequest`/`JSONRPCResponse` flow.
-- **`useMcpClient`** (likely) — thin wrapper over the MCP SDK `Client` that returns the underlying client, `request`, and `notification` handles. Produces: every `ClientRequest` / `ServerRequest` / `ServerNotification` union member.
-- **`useServerCapabilities`** (likely) — memoized accessor over `InitializeResult.capabilities`; drives which tabs/screens render. Produces: `ServerCapabilities`.
-- **`useTools`** (likely) — lists tools, listens for `notifications/tools/list_changed`, calls tools. Produces: `Tool[]`, `ListToolsResult`, `CallToolResult`.
-- **`usePrompts`** (likely) — lists prompts, listens for `notifications/prompts/list_changed`, gets prompts. Produces: `Prompt[]`, `ListPromptsResult`, `GetPromptResult`, `PromptMessage[]`.
-- **`useResources`** (likely) — lists resources + templates, reads resources, manages subscriptions, listens for `notifications/resources/updated` and `list_changed`. Produces: `Resource[]`, `ResourceTemplate[]`, `ReadResourceResult`, `TextResourceContents | BlobResourceContents`, subscription set.
-- **`useLogs`** (likely) — subscribes to `notifications/message`, buffers entries, wraps `logging/setLevel`. Produces: `LoggingMessageNotification['params'][]`, `LoggingLevel`.
-- **`useHistory`** (likely) — transport-level buffer of every inbound/outbound JSON-RPC frame. Produces: `JSONRPCRequest | JSONRPCResponse | JSONRPCNotification | JSONRPCError` entries with direction and timestamp.
-- **`useTasks`** (likely, new in v2) — correlates outbound requests with `notifications/progress` and `notifications/cancelled` to model long-running operations. Produces: task records keyed by `RequestId` / `ProgressToken`, wrapping `ProgressNotification.params` and terminal result/error.
-- **`useServers`** (likely, v2-only) — persisted list of configured server entries (transport config + last-known identity) independent of any live connection. Produces: `ServerEntry[]` (app state; not MCP schema).
-- **`useCompletionState`** — confirmed in v1.5 at `client/src/lib/hooks/useCompletionState.ts`. Manages argument-completion dropdown state against `completion/complete`. Produces: `CompleteResult` fragments.
-- **`useElicitation`** (likely) — handles incoming `elicitation/create` server→client requests and exposes pending prompts + `respond` callback. Produces: `ElicitRequest.params`, `ElicitResult`.
-- **`useSampling`** (likely) — handles incoming `sampling/createMessage` server→client requests and exposes pending prompts + `approve`/`reject`. Produces: `CreateMessageRequest.params`, `CreateMessageResult`.
-- **`useRoots`** (likely) — client-side roots registry answering `roots/list` requests from the server. Produces: `Root[]`.
+v1.5 core hooks (confirmed in `core/react/`):
+
+- **`useInspectorClient`** — `core/react/useInspectorClient.ts`. Central hook returning `{ status, capabilities, serverInfo, instructions, appRendererClient, connect, disconnect }`. `capabilities: ServerCapabilities` is a field on this hook — there is no separate `useServerCapabilities`.
+- **`useManagedTools`** — `core/react/useManagedTools.ts`. Produces `{ tools: Tool[]; refresh }` and subscribes to `notifications/tools/list_changed`.
+- **`useManagedPrompts`** — `core/react/useManagedPrompts.ts`. Produces `{ prompts: Prompt[]; refresh }` and subscribes to `notifications/prompts/list_changed`.
+- **`useManagedResources`** — `core/react/useManagedResources.ts`. Produces `{ resources: Resource[]; refresh }` and subscribes to `notifications/resources/list_changed` + `notifications/resources/updated`.
+- **`useManagedResourceTemplates`** — `core/react/useManagedResourceTemplates.ts`. Produces `{ resourceTemplates: ResourceTemplate[]; refresh }`.
+- **`useManagedRequestorTasks`** — `core/react/useManagedRequestorTasks.ts`. Produces `{ tasks: Task[]; refresh }` where `Task` is the SDK type from `@modelcontextprotocol/sdk/types.js`. Correlates outbound requests with `notifications/progress`, `notifications/cancelled`, and `notifications/tasks/list_changed` (an Inspector-owned extension defined in `core/mcp/taskNotificationSchemas.ts`).
+- **`useMessageLog`** — `core/react/useMessageLog.ts`. JSON-RPC message buffer (`MessageEntry[]`). Serves *both* the History screen (replaces the speculative `useHistory`) *and* the Logging screen's wire view.
+- **`useStderrLog`** — `core/react/useStderrLog.ts`. Stdio stderr buffer (`StderrLogEntry[]`). Used by server-detail panels showing stderr output.
+- **`useFetchRequestLog`** — `core/react/useFetchRequestLog.ts`. Auth/transport HTTP fetch buffer (`FetchRequestEntry[]`). Used by OAuth/debug panels.
+- **`usePagedTools`, `usePagedPrompts`, `usePagedResources`, `usePagedResourceTemplates`, `usePagedRequestorTasks`** — `core/react/usePaged*.ts`. Paged siblings of the managed hooks above; use when the caller needs explicit cursor control.
+- **`useCompletionState`** — `core/react/useCompletionState.ts`. Manages argument-completion dropdown state against `completion/complete`. Produces `CompleteResult` fragments.
+- **`useConnection`** — legacy name retained in some call sites. v2 routes per-server connection lifecycle through `useInspectorClient`'s `connect` / `disconnect` plus its `status` field. Where `useConnection` is referenced in this document for per-server actions, read it as "the connection slice of `useInspectorClient`".
+
+Server→client request handling (elicitation, sampling, roots) — no discrete v1.5 hook:
+
+- **Elicitation** (`elicitation/create`) — handled inside `InspectorClient` (`core/mcp/elicitationCreateMessage.ts`) via SDK request handlers; see `core/mcp/inspectorClient.ts`. v2 will need a small UI-state hook for the pending-elicitation queue, but it doesn't exist yet — for now, screens hold the pending queue in local state lifted to the wiring layer.
+- **Sampling** (`sampling/createMessage`) — handled inside `InspectorClient` (`core/mcp/samplingCreateMessage.ts`) via SDK request handlers. Same treatment as elicitation: v2 wiring layer holds the pending queue.
+- **Roots** (`roots/list`) — configured via `InspectorClientOptions.roots: Root[]` at construction time and answered by an SDK request handler inside `InspectorClient`. No React hook exists. v2 may introduce one; until then, roots flow through client options.
+
+v2-only hooks (no v1.5 analog — to be introduced alongside the wiring layer):
+
+- **`useServers`** — persisted list of configured server entries (transport config + last-known identity) independent of any live connection. v2-only.
+- **`useServerRegistry`** — registry browser / import-from-`server.json` flow. v2-only.
+- **`useClientCapabilities`** — advertises/toggles client-side capabilities (sampling, elicitation form/URL, roots, receiver-tasks) that `InspectorClient` reports during `initialize`. v2-only.
+- **`useInspectorNavigation`** — tab/screen routing state. v2 may not introduce a dedicated hook; tab state can be `useState` in the wiring layer if screen count stays small.
 
 Non-MCP utility hooks present in v1.5 (`useToast`, `useCopy`, `useTheme`, `useDraggablePane`) are orthogonal to the schema contract and will be adopted as-is or replaced by Mantine equivalents.
 

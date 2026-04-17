@@ -22,8 +22,14 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+
+    /* Path aliases */
+    "baseUrl": ".",
+    "paths": {
+      "@inspector/core/*": ["../../core/*"]
+    }
   },
-  "include": ["src"],
+  "include": ["src", "../../core/**/*.ts"],
   "exclude": ["src/**/*.stories.tsx", "src/**/*.stories.ts"]
 }
