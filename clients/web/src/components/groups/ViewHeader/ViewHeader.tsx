@@ -17,7 +17,7 @@ import mcpLogoDark from "../../../theme/assets/MCP-dark.svg";
 interface ConnectedProps {
   connected: true;
   serverName: string;
-  status: "connected" | "connecting" | "failed";
+  status: "connected" | "connecting" | "error";
   latencyMs?: number;
   activeTab: string;
   availableTabs: string[];

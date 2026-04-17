@@ -27,6 +27,6 @@ export const WithSearch: Story = {
 
 export const WithFilter: Story = {
   args: {
-    statusFilter: "running",
+    statusFilter: "working",
   },
 };

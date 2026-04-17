@@ -1,24 +1,20 @@
 import { Group, Text } from "@mantine/core";
+import type {
+  LoggingLevel,
+  LoggingMessageNotification,
+} from "@modelcontextprotocol/sdk/types.js";
 import { LogLevelBadge } from "../LogLevelBadge/LogLevelBadge";
 
-export type LogLevel =
-  | "debug"
-  | "info"
-  | "notice"
-  | "warning"
-  | "error"
-  | "critical"
-  | "alert"
-  | "emergency";
-
-export interface LogEntryProps {
-  timestamp: string;
-  level: LogLevel;
-  message: string;
-  logger?: string;
+export interface LogEntryData {
+  receivedAt: Date;
+  params: LoggingMessageNotification["params"];
 }
 
-const levelMessageColor: Record<LogLevel, string | undefined> = {
+export interface LogEntryProps {
+  entry: LogEntryData;
+}
+
+const levelMessageColor: Record<LoggingLevel, string | undefined> = {
   debug: "dimmed",
   info: "blue",
   notice: undefined,
@@ -29,8 +25,18 @@ const levelMessageColor: Record<LogLevel, string | undefined> = {
   emergency: "red",
 };
 
+function formatTimestamp(date: Date): string {
+  return date.toLocaleTimeString();
+}
+
 function formatLogger(logger: string): string {
   return `[${logger}]`;
+}
+
+function formatData(data: unknown): string {
+  if (data === undefined || data === null) return "";
+  if (typeof data === "string") return data;
+  return JSON.stringify(data);
 }
 
 const TimestampText = Text.withProps({
@@ -45,13 +51,16 @@ const LoggerText = Text.withProps({
   c: "dimmed",
 });
 
-export function LogEntry({ timestamp, level, message, logger }: LogEntryProps) {
+export function LogEntry({ entry }: LogEntryProps) {
+  const { receivedAt, params } = entry;
+  const message = formatData(params.data);
+
   return (
     <Group gap="sm" wrap="nowrap">
-      <TimestampText>{timestamp}</TimestampText>
-      <LogLevelBadge level={level} />
-      {logger && <LoggerText>{formatLogger(logger)}</LoggerText>}
-      <Text size="sm" ff="monospace" c={levelMessageColor[level]}>
+      <TimestampText>{formatTimestamp(receivedAt)}</TimestampText>
+      <LogLevelBadge level={params.level} />
+      {params.logger && <LoggerText>{formatLogger(params.logger)}</LoggerText>}
+      <Text size="sm" ff="monospace" c={levelMessageColor[params.level]}>
         {message}
       </Text>
     </Group>

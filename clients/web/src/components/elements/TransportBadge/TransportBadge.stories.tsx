@@ -15,8 +15,14 @@ export const Stdio: Story = {
   },
 };
 
-export const Http: Story = {
+export const Sse: Story = {
   args: {
-    transport: "http",
+    transport: "sse",
+  },
+};
+
+export const StreamableHttp: Story = {
+  args: {
+    transport: "streamable-http",
   },
 };

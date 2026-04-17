@@ -89,12 +89,17 @@ export const WithResult: Story = {
       messages: [
         {
           role: "user",
-          content:
-            'Translate the following text to Spanish: "Hello, how are you?"',
+          content: {
+            type: "text",
+            text: 'Translate the following text to Spanish: "Hello, how are you?"',
+          },
         },
         {
           role: "assistant",
-          content: "Hola, como estas?",
+          content: {
+            type: "text",
+            text: "Hola, como estas?",
+          },
         },
       ],
     },

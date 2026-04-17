@@ -23,20 +23,38 @@ type Story = StoryObj<typeof SamplingRequestPanel>;
 
 export const SimpleRequest: Story = {
   args: {
-    messages: [{ role: "user", content: "What is the capital of France?" }],
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: "What is the capital of France?",
+        },
+      },
+    ],
   },
 };
 
 export const WithModelHints: Story = {
   args: {
-    messages: [{ role: "user", content: "Summarize this document for me." }],
+    messages: [
+      {
+        role: "user",
+        content: { type: "text", text: "Summarize this document for me." },
+      },
+    ],
     modelHints: ["claude-3-sonnet", "gpt-4"],
   },
 };
 
 export const WithPriorities: Story = {
   args: {
-    messages: [{ role: "user", content: "Translate this text to Spanish." }],
+    messages: [
+      {
+        role: "user",
+        content: { type: "text", text: "Translate this text to Spanish." },
+      },
+    ],
     modelHints: ["claude-3-sonnet"],
     costPriority: 0.3,
     speedPriority: 0.5,
@@ -47,8 +65,14 @@ export const WithPriorities: Story = {
 export const WithAllParams: Story = {
   args: {
     messages: [
-      { role: "user", content: "Write a haiku about programming." },
-      { role: "assistant", content: "Here is a haiku:" },
+      {
+        role: "user",
+        content: { type: "text", text: "Write a haiku about programming." },
+      },
+      {
+        role: "assistant",
+        content: { type: "text", text: "Here is a haiku:" },
+      },
     ],
     maxTokens: 1024,
     stopSequences: ["\n\n", "END"],
@@ -60,7 +84,13 @@ export const WithAllParams: Story = {
 export const WithTools: Story = {
   args: {
     messages: [
-      { role: "user", content: "Look up the weather in San Francisco." },
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: "Look up the weather in San Francisco.",
+        },
+      },
     ],
     tools: [
       {
@@ -92,7 +122,12 @@ export const WithTools: Story = {
 
 export const PrefilledResponse: Story = {
   args: {
-    messages: [{ role: "user", content: "What is 2 + 2?" }],
+    messages: [
+      {
+        role: "user",
+        content: { type: "text", text: "What is 2 + 2?" },
+      },
+    ],
     responseText: "The answer is 4.",
     modelUsed: "claude-3-haiku",
     stopReason: "end_turn",

@@ -1,16 +1,36 @@
 import { Group, Text } from "@mantine/core";
+import type {
+  ClientCapabilities,
+  ServerCapabilities,
+} from "@modelcontextprotocol/sdk/types.js";
+
+export type CapabilityKey = keyof ServerCapabilities | keyof ClientCapabilities;
 
 export interface CapabilityItemProps {
-  name: string;
+  capability: CapabilityKey;
   supported: boolean;
   count?: number;
 }
 
+const displayLabel: Record<string, string> = {
+  tools: "Tools",
+  resources: "Resources",
+  prompts: "Prompts",
+  logging: "Logging",
+  completions: "Completions",
+  tasks: "Tasks",
+  experimental: "Experimental",
+  roots: "Roots",
+  sampling: "Sampling",
+  elicitation: "Elicitation",
+};
+
 export function CapabilityItem({
-  name,
+  capability,
   supported,
   count,
 }: CapabilityItemProps) {
+  const name = displayLabel[capability] ?? String(capability);
   const label = count != null ? `${name} (${count})` : name;
 
   return (

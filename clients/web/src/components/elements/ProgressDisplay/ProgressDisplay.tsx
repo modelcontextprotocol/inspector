@@ -1,13 +1,20 @@
 import { Group, Progress, Stack, Text } from "@mantine/core";
+import type { ProgressNotification } from "@modelcontextprotocol/sdk/types.js";
 
 export interface ProgressDisplayProps {
-  progress: number;
-  description?: string;
+  params: ProgressNotification["params"];
   elapsed?: string;
 }
 
-function formatPercent(progress: number): string {
-  return `${progress}%`;
+function computePercent(progress: number, total?: number): number {
+  if (total != null && total > 0) {
+    return Math.round((progress / total) * 100);
+  }
+  return progress;
+}
+
+function formatPercent(percent: number): string {
+  return `${percent}%`;
 }
 
 const ProgressLabel = Text.withProps({
@@ -20,18 +27,16 @@ const ElapsedText = Text.withProps({
   c: "dimmed",
 });
 
-export function ProgressDisplay({
-  progress,
-  description,
-  elapsed,
-}: ProgressDisplayProps) {
+export function ProgressDisplay({ params, elapsed }: ProgressDisplayProps) {
+  const percent = computePercent(params.progress, params.total);
+
   return (
     <Stack gap="xs">
       <Group justify="space-between">
-        {description && <ProgressLabel>{description}</ProgressLabel>}
-        <ProgressLabel>{formatPercent(progress)}</ProgressLabel>
+        {params.message && <ProgressLabel>{params.message}</ProgressLabel>}
+        <ProgressLabel>{formatPercent(percent)}</ProgressLabel>
       </Group>
-      <Progress value={progress} size="sm" />
+      <Progress value={percent} size="sm" />
       {elapsed && <ElapsedText>{elapsed}</ElapsedText>}
     </Stack>
   );

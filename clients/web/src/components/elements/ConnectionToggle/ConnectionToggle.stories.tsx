@@ -6,7 +6,8 @@ const meta: Meta<typeof ConnectionToggle> = {
   title: "Elements/ConnectionToggle",
   component: ConnectionToggle,
   args: {
-    onChange: fn(),
+    onConnect: fn(),
+    onDisconnect: fn(),
   },
 };
 
@@ -15,32 +16,31 @@ type Story = StoryObj<typeof ConnectionToggle>;
 
 export const Connected: Story = {
   args: {
-    checked: true,
-    loading: false,
-    disabled: false,
+    status: "connected",
   },
 };
 
 export const Disconnected: Story = {
   args: {
-    checked: false,
-    loading: false,
-    disabled: false,
+    status: "disconnected",
   },
 };
 
-export const Loading: Story = {
+export const Connecting: Story = {
   args: {
-    checked: false,
-    loading: true,
-    disabled: false,
+    status: "connecting",
   },
 };
 
 export const Disabled: Story = {
   args: {
-    checked: false,
-    loading: false,
+    status: "disconnected",
     disabled: true,
+  },
+};
+
+export const Error: Story = {
+  args: {
+    status: "error",
   },
 };

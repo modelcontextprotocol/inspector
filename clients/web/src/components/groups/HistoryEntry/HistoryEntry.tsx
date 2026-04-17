@@ -145,8 +145,10 @@ export function HistoryEntry({
                   <Stack gap="xs">
                     <Text size="sm">Parameters:</Text>
                     <ContentViewer
-                      type="json"
-                      content={serializeJson(parameters)}
+                      block={{
+                        type: "text",
+                        text: serializeJson(parameters),
+                      }}
                       copyable
                     />
                   </Stack>
@@ -156,8 +158,10 @@ export function HistoryEntry({
                 <Stack gap="xs">
                   <Text size="sm">Response:</Text>
                   <ContentViewer
-                    type="json"
-                    content={serializeJson(response)}
+                    block={{
+                      type: "text",
+                      text: serializeJson(response),
+                    }}
                     copyable
                   />
                 </Stack>

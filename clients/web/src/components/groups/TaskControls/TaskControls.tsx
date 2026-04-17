@@ -2,8 +2,8 @@ import { Button, Group, Select, Stack, TextInput, Title } from "@mantine/core";
 import type { TaskStatus } from "../TaskCard/TaskCard";
 
 const STATUS_OPTIONS: TaskStatus[] = [
-  "waiting",
-  "running",
+  "working",
+  "input_required",
   "completed",
   "failed",
   "cancelled",

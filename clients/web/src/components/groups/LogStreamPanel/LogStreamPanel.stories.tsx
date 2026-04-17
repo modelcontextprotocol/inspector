@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { LogStreamPanel } from "./LogStreamPanel";
-import type { LogEntryProps, LogLevel } from "../../elements/LogEntry/LogEntry";
+import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 
 const meta: Meta<typeof LogStreamPanel> = {
   title: "Groups/LogStreamPanel",
@@ -35,40 +36,38 @@ export const Empty: Story = {
   },
 };
 
-const logMessages: { level: LogLevel; message: string; logger?: string }[] = [
-  { level: "info", message: "Server started on port 3000" },
-  { level: "debug", message: "Loading configuration", logger: "config" },
+const logMessages: {
+  level: LoggingLevel;
+  data: string;
+  logger?: string;
+}[] = [
+  { level: "info", data: "Server started on port 3000" },
+  { level: "debug", data: "Loading configuration", logger: "config" },
   {
     level: "warning",
-    message: "Deprecated API endpoint called",
+    data: "Deprecated API endpoint called",
     logger: "http",
   },
-  { level: "error", message: "Failed to read resource", logger: "resources" },
+  { level: "error", data: "Failed to read resource", logger: "resources" },
   {
     level: "info",
-    message: "Tool execution completed (245ms)",
+    data: "Tool execution completed (245ms)",
     logger: "tools",
   },
   {
     level: "critical",
-    message: "Database connection pool exhausted",
+    data: "Database connection pool exhausted",
     logger: "db",
   },
-  { level: "alert", message: "Memory usage exceeds 95%", logger: "system" },
-  { level: "emergency", message: "System unresponsive", logger: "system" },
+  { level: "alert", data: "Memory usage exceeds 95%", logger: "system" },
+  { level: "emergency", data: "System unresponsive", logger: "system" },
 ];
 
-function pad(n: number): string {
-  return n.toString().padStart(2, "0");
-}
-
-const entries: LogEntryProps[] = Array.from({ length: 30 }, (_, i) => {
+const entries: LogEntryData[] = Array.from({ length: 30 }, (_, i) => {
   const src = logMessages[i % logMessages.length];
   return {
-    timestamp: `2026-03-17T10:00:${pad(i + 1)}Z`,
-    level: src.level,
-    message: src.message,
-    logger: src.logger,
+    receivedAt: new Date(`2026-03-17T10:00:${String(i + 1).padStart(2, "0")}Z`),
+    params: { level: src.level, data: src.data, logger: src.logger },
   };
 });
 

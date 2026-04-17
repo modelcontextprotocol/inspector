@@ -11,13 +11,8 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
+import type { SamplingMessage } from "@modelcontextprotocol/sdk/types.js";
 import { MessageBubble } from "../../elements/MessageBubble/MessageBubble";
-
-export interface SamplingMessage {
-  role: string;
-  content: string;
-  imageContent?: { data: string; mimeType: string };
-}
 
 export interface SamplingTool {
   name: string;
@@ -115,13 +110,7 @@ export function SamplingRequestPanel({
 
       <Title order={5}>Messages:</Title>
       {messages.map((message, index) => (
-        <MessageBubble
-          key={index}
-          index={index}
-          role={message.role as "user" | "assistant"}
-          content={message.content}
-          imageContent={message.imageContent}
-        />
+        <MessageBubble key={index} index={index} message={message} />
       ))}
 
       {modelHints && modelHints.length > 0 && (

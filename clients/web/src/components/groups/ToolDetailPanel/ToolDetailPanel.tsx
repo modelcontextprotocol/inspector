@@ -82,16 +82,21 @@ export function ToolDetailPanel({
       {hasAnyAnnotation(annotations) && annotations && (
         <Group gap="xs">
           {annotations.audience && (
-            <AnnotationBadge label={annotations.audience} variant="audience" />
+            <AnnotationBadge
+              facet="audience"
+              value={
+                annotations.audience.split(", ") as ("user" | "assistant")[]
+              }
+            />
           )}
           {annotations.readOnly && (
-            <AnnotationBadge label="read-only" variant="readOnly" />
+            <AnnotationBadge facet="readOnlyHint" value={true} />
           )}
           {annotations.destructive && (
-            <AnnotationBadge label="destructive" variant="destructive" />
+            <AnnotationBadge facet="destructiveHint" value={true} />
           )}
           {annotations.longRunning && (
-            <AnnotationBadge label="long-run" variant="longRun" />
+            <AnnotationBadge facet="longRunHint" value={true} />
           )}
           {annotations.hints && <HintsText>{annotations.hints}</HintsText>}
         </Group>
@@ -110,8 +115,11 @@ export function ToolDetailPanel({
 
       {progress && (
         <ProgressDisplay
-          progress={progress.percent}
-          description={progress.description}
+          params={{
+            progressToken: name,
+            progress: progress.percent,
+            message: progress.description,
+          }}
         />
       )}
 

@@ -9,126 +9,126 @@ import { LoggingScreen } from "../../screens/LoggingScreen/LoggingScreen";
 import { TasksScreen } from "../../screens/TasksScreen/TasksScreen";
 import { HistoryScreen } from "../../screens/HistoryScreen/HistoryScreen";
 
-import type { LogEntryProps } from "../../elements/LogEntry/LogEntry";
-import type { LogLevel } from "../../elements/LogEntry/LogEntry";
+import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
+import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 
 const allTabs = ["Tools", "Resources", "Prompts", "Logs", "Tasks", "History"];
 
-const logMessages: { level: LogLevel; message: string; logger?: string }[] = [
-  { level: "info", message: "Server started on port 3000" },
+const logMessages: { level: LoggingLevel; data: string; logger?: string }[] = [
+  { level: "info", data: "Server started on port 3000" },
   {
     level: "debug",
-    message: "Loading configuration from /etc/mcp/config.json",
+    data: "Loading configuration from /etc/mcp/config.json",
     logger: "config",
   },
   {
     level: "warning",
-    message: "Deprecated API endpoint called: /v1/tools",
+    data: "Deprecated API endpoint called: /v1/tools",
     logger: "http",
   },
-  { level: "info", message: "Client connected: inspector-web-ui" },
+  { level: "info", data: "Client connected: inspector-web-ui" },
   {
     level: "error",
-    message: "Failed to read resource: file not found at /data/missing.txt",
+    data: "Failed to read resource: file not found at /data/missing.txt",
     logger: "resources",
   },
   {
     level: "info",
-    message: "Tool execution completed: search_files (245ms)",
+    data: "Tool execution completed: search_files (245ms)",
     logger: "tools",
   },
   {
     level: "debug",
-    message: "Parsing JSON-RPC request body",
+    data: "Parsing JSON-RPC request body",
     logger: "transport",
   },
   {
     level: "info",
-    message: "Listing available tools for client session",
+    data: "Listing available tools for client session",
     logger: "tools",
   },
   {
     level: "warning",
-    message: "Slow query detected: 1200ms for resource lookup",
+    data: "Slow query detected: 1200ms for resource lookup",
     logger: "db",
   },
   {
     level: "info",
-    message: "Resource subscription added: file:///config.json",
+    data: "Resource subscription added: file:///config.json",
     logger: "resources",
   },
   {
     level: "debug",
-    message: "Heartbeat ping received from client",
+    data: "Heartbeat ping received from client",
     logger: "session",
   },
   {
     level: "error",
-    message: "Permission denied reading /etc/secrets.env",
+    data: "Permission denied reading /etc/secrets.env",
     logger: "resources",
   },
   {
     level: "info",
-    message: "Prompt 'summarize' resolved with 2 messages",
+    data: "Prompt 'summarize' resolved with 2 messages",
     logger: "prompts",
   },
   {
     level: "debug",
-    message: "Cache hit for resource: db://users/42",
+    data: "Cache hit for resource: db://users/42",
     logger: "cache",
   },
   {
     level: "info",
-    message: "Tool 'create_record' executed successfully in 89ms",
+    data: "Tool 'create_record' executed successfully in 89ms",
     logger: "tools",
   },
   {
     level: "warning",
-    message: "Client reconnection attempt #3",
+    data: "Client reconnection attempt #3",
     logger: "session",
   },
   {
     level: "info",
-    message: "New resource detected: file:///data/output.csv",
+    data: "New resource detected: file:///data/output.csv",
     logger: "resources",
   },
   {
     level: "debug",
-    message: "Serializing response payload (2.4KB)",
+    data: "Serializing response payload (2.4KB)",
     logger: "transport",
   },
   {
     level: "error",
-    message: "Timeout waiting for tool response after 30s",
+    data: "Timeout waiting for tool response after 30s",
     logger: "tools",
   },
   {
     level: "info",
-    message: "Session initialized with capabilities: tools, resources, prompts",
+    data: "Session initialized with capabilities: tools, resources, prompts",
   },
   {
     level: "debug",
-    message: "Validating input schema for tool 'batch_process'",
+    data: "Validating input schema for tool 'batch_process'",
     logger: "tools",
   },
   {
     level: "info",
-    message: "Resource template resolved: db://tables/users/rows/15",
+    data: "Resource template resolved: db://tables/users/rows/15",
     logger: "resources",
   },
   {
     level: "warning",
-    message: "Memory usage at 78% — consider increasing limits",
+    data: "Memory usage at 78% — consider increasing limits",
     logger: "system",
   },
   {
     level: "info",
-    message: "Client disconnected gracefully",
+    data: "Client disconnected gracefully",
     logger: "session",
   },
   {
     level: "debug",
-    message: "Flushing log buffer to disk (128 entries)",
+    data: "Flushing log buffer to disk (128 entries)",
     logger: "logging",
   },
 ];
@@ -137,13 +137,11 @@ function pad(n: number): string {
   return n.toString().padStart(2, "0");
 }
 
-const sampleLogEntries: LogEntryProps[] = Array.from({ length: 50 }, (_, i) => {
+const sampleLogEntries: LogEntryData[] = Array.from({ length: 50 }, (_, i) => {
   const src = logMessages[i % logMessages.length];
   return {
-    timestamp: `2026-03-17T10:00:${pad(i + 1)}Z`,
-    level: src.level,
-    message: src.message,
-    logger: src.logger,
+    receivedAt: new Date(`2026-03-17T10:00:${pad(i + 1)}Z`),
+    params: { level: src.level, data: src.data, logger: src.logger },
   };
 });
 
@@ -668,10 +666,15 @@ export const PromptsActive: Story = {
           messages: [
             {
               role: "user",
-              content:
-                'Translate the following text to Spanish: "Hello, how are you?"',
+              content: {
+                type: "text",
+                text: 'Translate the following text to Spanish: "Hello, how are you?"',
+              },
             },
-            { role: "assistant", content: "Hola, como estas?" },
+            {
+              role: "assistant",
+              content: { type: "text", text: "Hola, como estas?" },
+            },
           ],
         }}
         listChanged={true}
@@ -710,7 +713,7 @@ export const TasksActive: Story = {
         tasks={[
           {
             taskId: "d0b22eba71fa36229ce5c4dfadeaa7de",
-            status: "running",
+            status: "working",
             method: "tools/call",
             target: "batch_process",
             progress: 65,
@@ -723,7 +726,7 @@ export const TasksActive: Story = {
           },
           {
             taskId: "4100b5e0b0ed9cd0023330342d1bf647",
-            status: "waiting",
+            status: "input_required",
             method: "resources/read",
             target: "file:///data/large-dataset.csv",
             startedAt: "3/29/2026, 8:17:55 PM",
