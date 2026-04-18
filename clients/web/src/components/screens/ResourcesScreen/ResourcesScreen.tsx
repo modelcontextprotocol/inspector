@@ -1,51 +1,39 @@
-import { Card, Flex, Group, ScrollArea, Stack, Text } from "@mantine/core";
+import {
+  Alert,
+  Card,
+  Flex,
+  Group,
+  Loader,
+  ScrollArea,
+  Stack,
+  Text,
+} from "@mantine/core";
+import type {
+  ReadResourceResult,
+  Resource,
+  ResourceTemplate,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
 import { ResourceControls } from "../../groups/ResourceControls/ResourceControls";
 import { ResourcePreviewPanel } from "../../groups/ResourcePreviewPanel/ResourcePreviewPanel";
 import { ResourceTemplatePanel } from "../../groups/ResourceTemplatePanel/ResourceTemplatePanel";
 
-export interface ResourceItem {
-  name: string;
-  uri: string;
-  annotations?: { audience?: string; priority?: number };
-  selected: boolean;
-}
-
-export interface TemplateListItem {
-  name: string;
-  title?: string;
-  uriTemplate: string;
-  selected: boolean;
-}
-
-export interface SubscriptionItem {
-  name: string;
-  uri: string;
-  lastUpdated?: string;
-}
-
-export interface SelectedResource {
-  uri: string;
-  mimeType: string;
-  annotations?: { audience?: string; priority?: number };
-  content: string;
-  lastUpdated?: string;
-  isSubscribed: boolean;
-}
-
-export interface SelectedTemplate {
-  name: string;
-  title?: string;
-  uriTemplate: string;
-  description?: string;
-  annotations?: { audience?: string; priority?: number };
+export interface ReadResourceState {
+  status: "idle" | "pending" | "ok" | "error";
+  uri?: string;
+  result?: ReadResourceResult;
+  error?: string;
+  lastUpdated?: Date;
+  isSubscribed?: boolean;
 }
 
 export interface ResourcesScreenProps {
-  resources: ResourceItem[];
-  templates: TemplateListItem[];
-  subscriptions: SubscriptionItem[];
-  selectedResource?: SelectedResource;
-  selectedTemplate?: SelectedTemplate;
+  resources: Resource[];
+  templates: ResourceTemplate[];
+  subscriptions: InspectorResourceSubscription[];
+  selectedResourceUri?: string;
+  selectedTemplateUri?: string;
+  readState?: ReadResourceState;
   listChanged: boolean;
   onRefreshList: () => void;
   onSelectUri: (uri: string) => void;
@@ -83,12 +71,16 @@ const EmptyState = Text.withProps({
   py: "xl",
 });
 
+const SCROLL_MAX_HEIGHT =
+  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)";
+
 export function ResourcesScreen({
   resources,
   templates,
   subscriptions,
-  selectedResource,
-  selectedTemplate,
+  selectedResourceUri,
+  selectedTemplateUri,
+  readState,
   listChanged,
   onRefreshList,
   onSelectUri,
@@ -97,6 +89,56 @@ export function ResourcesScreen({
   onSubscribeResource,
   onUnsubscribeResource,
 }: ResourcesScreenProps) {
+  const selectedResource = selectedResourceUri
+    ? resources.find((r) => r.uri === selectedResourceUri)
+    : undefined;
+  const selectedTemplate = selectedTemplateUri
+    ? templates.find((t) => t.uriTemplate === selectedTemplateUri)
+    : undefined;
+
+  function renderReadState() {
+    if (!readState) return null;
+
+    if (readState.status === "pending") {
+      return (
+        <DetailCard>
+          <Stack align="center" py="xl">
+            <Loader size="sm" />
+            <Text c="dimmed">Reading resource...</Text>
+          </Stack>
+        </DetailCard>
+      );
+    }
+
+    if (readState.status === "error") {
+      return (
+        <DetailCard>
+          <Alert color="red" variant="light" title="Read Error">
+            {readState.error ?? "Failed to read resource"}
+          </Alert>
+        </DetailCard>
+      );
+    }
+
+    if (readState.result && selectedResource) {
+      return (
+        <DetailCard>
+          <ResourcePreviewPanel
+            resource={selectedResource}
+            contents={readState.result.contents}
+            lastUpdated={readState.lastUpdated}
+            isSubscribed={readState.isSubscribed ?? false}
+            onRefresh={() => onReadResource(selectedResource.uri)}
+            onSubscribe={() => onSubscribeResource(selectedResource.uri)}
+            onUnsubscribe={() => onUnsubscribeResource(selectedResource.uri)}
+          />
+        </DetailCard>
+      );
+    }
+
+    return null;
+  }
+
   return (
     <ScreenLayout>
       <Sidebar>
@@ -105,6 +147,8 @@ export function ResourcesScreen({
             resources={resources}
             templates={templates}
             subscriptions={subscriptions}
+            selectedUri={selectedResourceUri}
+            selectedTemplate={selectedTemplateUri}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
             onSelectUri={onSelectUri}
@@ -116,33 +160,16 @@ export function ResourcesScreen({
 
       {selectedTemplate ? (
         <Group flex={1} gap="md" align="flex-start" wrap="nowrap">
-          <ScrollArea.Autosize
-            flex={1}
-            mah="calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)"
-          >
+          <ScrollArea.Autosize flex={1} mah={SCROLL_MAX_HEIGHT}>
             <DetailCard>
               <ResourceTemplatePanel
-                {...selectedTemplate}
+                template={selectedTemplate}
                 onReadResource={onReadResource}
               />
             </DetailCard>
           </ScrollArea.Autosize>
-          <ScrollArea.Autosize
-            flex={1}
-            mah="calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)"
-          >
-            {selectedResource ? (
-              <DetailCard>
-                <ResourcePreviewPanel
-                  {...selectedResource}
-                  onRefresh={() => onReadResource(selectedResource.uri)}
-                  onSubscribe={() => onSubscribeResource(selectedResource.uri)}
-                  onUnsubscribe={() =>
-                    onUnsubscribeResource(selectedResource.uri)
-                  }
-                />
-              </DetailCard>
-            ) : (
+          <ScrollArea.Autosize flex={1} mah={SCROLL_MAX_HEIGHT}>
+            {renderReadState() ?? (
               <DetailCard>
                 <EmptyState>Enter a URI and click Read to preview</EmptyState>
               </DetailCard>
@@ -150,18 +177,12 @@ export function ResourcesScreen({
           </ScrollArea.Autosize>
         </Group>
       ) : selectedResource ? (
-        <ScrollArea.Autosize
-          flex={1}
-          mah="calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)"
-        >
-          <DetailCard>
-            <ResourcePreviewPanel
-              {...selectedResource}
-              onRefresh={() => onReadResource(selectedResource.uri)}
-              onSubscribe={() => onSubscribeResource(selectedResource.uri)}
-              onUnsubscribe={() => onUnsubscribeResource(selectedResource.uri)}
-            />
-          </DetailCard>
+        <ScrollArea.Autosize flex={1} mah={SCROLL_MAX_HEIGHT}>
+          {renderReadState() ?? (
+            <DetailCard>
+              <EmptyState>Click to read this resource</EmptyState>
+            </DetailCard>
+          )}
         </ScrollArea.Autosize>
       ) : (
         <DetailCard flex={1}>

@@ -15,16 +15,41 @@ type Story = StoryObj<typeof ResourceListItem>;
 
 export const Default: Story = {
   args: {
-    name: "config.json",
-    uri: "file:///config.json",
+    resource: {
+      name: "config.json",
+      uri: "file:///config.json",
+    },
     selected: false,
   },
 };
 
 export const Selected: Story = {
   args: {
-    name: "config.json",
-    uri: "file:///config.json",
+    resource: {
+      name: "config.json",
+      uri: "file:///config.json",
+    },
     selected: true,
+  },
+};
+
+export const WithTitle: Story = {
+  args: {
+    resource: {
+      name: "config.json",
+      title: "Configuration File",
+      uri: "file:///config.json",
+    },
+    selected: false,
+  },
+};
+
+export const Template: Story = {
+  args: {
+    resource: {
+      name: "User Profile",
+      uriTemplate: "file:///users/{userId}/profile",
+    },
+    selected: false,
   },
 };

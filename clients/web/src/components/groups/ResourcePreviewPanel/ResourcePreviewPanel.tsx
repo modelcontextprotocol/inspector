@@ -1,31 +1,40 @@
 import { Button, Flex, Group, Stack, Text, Title } from "@mantine/core";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  BlobResourceContents,
+  ContentBlock,
+  Resource,
+  TextResourceContents,
+} from "@modelcontextprotocol/sdk/types.js";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { SubscribeButton } from "../../elements/SubscribeButton/SubscribeButton";
 
 export interface ResourcePreviewPanelProps {
-  uri: string;
-  mimeType: string;
-  annotations?: { audience?: string; priority?: number };
-  content: string;
-  lastUpdated?: string;
+  resource: Resource;
+  contents: (TextResourceContents | BlobResourceContents)[];
+  lastUpdated?: Date;
   isSubscribed: boolean;
   onRefresh: () => void;
   onSubscribe: () => void;
   onUnsubscribe: () => void;
 }
 
-function toContentBlock(content: string, mimeType: string): ContentBlock {
-  if (mimeType.startsWith("image/")) {
-    return { type: "image", data: content, mimeType };
+function toContentBlock(
+  item: TextResourceContents | BlobResourceContents,
+): ContentBlock {
+  if ("text" in item) {
+    return { type: "text", text: item.text };
   }
-  return { type: "text", text: content };
+  const mimeType = item.mimeType ?? "application/octet-stream";
+  if (mimeType.startsWith("image/")) {
+    return { type: "image", data: item.blob, mimeType };
+  }
+  return { type: "text", text: item.blob };
 }
 
-function formatLastUpdated(lastUpdated: string): string {
-  return `Last updated: ${lastUpdated}`;
+function formatLastUpdated(date: Date): string {
+  return `Last updated: ${date.toLocaleString()}`;
 }
 
 const HeaderRow = Group.withProps({
@@ -74,16 +83,18 @@ const ActionGroup = Group.withProps({
 const Spacer = Flex.withProps({});
 
 export function ResourcePreviewPanel({
-  uri,
-  mimeType,
-  annotations,
-  content,
+  resource,
+  contents,
   lastUpdated,
   isSubscribed,
   onRefresh,
   onSubscribe,
   onUnsubscribe,
 }: ResourcePreviewPanelProps) {
+  const { uri, annotations } = resource;
+  const mimeType =
+    contents[0]?.mimeType ?? resource.mimeType ?? "application/octet-stream";
+
   return (
     <Stack gap="md">
       <HeaderRow>
@@ -93,7 +104,9 @@ export function ResourcePreviewPanel({
           <CopyButton value={uri} />
         </UriGroup>
       </HeaderRow>
-      <ContentViewer block={toContentBlock(content, mimeType)} copyable />
+      {contents.map((item, index) => (
+        <ContentViewer key={index} block={toContentBlock(item)} copyable />
+      ))}
       <MetaRow>
         {lastUpdated ? (
           <TimestampText>{formatLastUpdated(lastUpdated)}</TimestampText>
@@ -105,12 +118,7 @@ export function ResourcePreviewPanel({
       <FooterRow>
         <AnnotationGroup>
           {annotations?.audience && (
-            <AnnotationBadge
-              facet="audience"
-              value={
-                annotations.audience.split(", ") as ("user" | "assistant")[]
-              }
-            />
+            <AnnotationBadge facet="audience" value={annotations.audience} />
           )}
           {annotations?.priority !== undefined && (
             <AnnotationBadge facet="priority" value={annotations.priority} />

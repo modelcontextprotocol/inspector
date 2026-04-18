@@ -1,8 +1,8 @@
 import { Button, Group, Stack, Text } from "@mantine/core";
+import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
 
 export interface ResourceSubscribedItemProps {
-  name: string;
-  lastUpdated?: string;
+  subscription: InspectorResourceSubscription;
   onUnsubscribe: () => void;
 }
 
@@ -26,16 +26,22 @@ const ItemRow = Group.withProps({
   wrap: "nowrap",
 });
 
+function formatLastUpdated(date: Date): string {
+  return date.toLocaleString();
+}
+
 export function ResourceSubscribedItem({
-  name,
-  lastUpdated,
+  subscription,
   onUnsubscribe,
 }: ResourceSubscribedItemProps) {
+  const { resource, lastUpdated } = subscription;
   return (
     <ItemRow>
       <Stack gap={2}>
-        <NameText>{name}</NameText>
-        {lastUpdated && <TimestampText>{lastUpdated}</TimestampText>}
+        <NameText>{resource.title ?? resource.name}</NameText>
+        {lastUpdated && (
+          <TimestampText>{formatLastUpdated(lastUpdated)}</TimestampText>
+        )}
       </Stack>
       <SubtleButton onClick={onUnsubscribe}>Unsubscribe</SubtleButton>
     </ItemRow>

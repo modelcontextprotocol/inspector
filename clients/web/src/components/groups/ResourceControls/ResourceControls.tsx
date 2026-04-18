@@ -7,20 +7,22 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
+import type {
+  Resource,
+  ResourceTemplate,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { ResourceListItem } from "../ResourceListItem/ResourceListItem";
 import { ResourceSubscribedItem } from "../ResourceSubscribedItem/ResourceSubscribedItem";
-import type {
-  ResourceItem,
-  TemplateListItem,
-  SubscriptionItem,
-} from "../../screens/ResourcesScreen/ResourcesScreen";
 
 export interface ResourceControlsProps {
-  resources: ResourceItem[];
-  templates: TemplateListItem[];
-  subscriptions: SubscriptionItem[];
+  resources: Resource[];
+  templates: ResourceTemplate[];
+  subscriptions: InspectorResourceSubscription[];
+  selectedUri?: string;
+  selectedTemplate?: string;
   listChanged: boolean;
   onRefreshList: () => void;
   onSelectUri: (uri: string) => void;
@@ -28,10 +30,6 @@ export interface ResourceControlsProps {
   onUnsubscribeResource: (uri: string) => void;
 }
 
-// Available height for each accordion panel's scroll area.
-// Subtracts: AppShell extra padding (md*2), screen padding (xl*2, already in calc),
-// card padding (2*lg=40), title+search+gaps (~84), 3 accordion controls (~144),
-// and per-panel accordion padding (~20px each).
 function panelMaxHeight(openCount: number): string {
   const n = Math.max(openCount, 1);
   const fixedChrome = 300;
@@ -43,14 +41,12 @@ function formatSectionCount(label: string, count: number): string {
   return `${label} (${count})`;
 }
 
-function templateDisplayName(item: TemplateListItem): string {
-  return item.title ?? item.name;
-}
-
 export function ResourceControls({
   resources,
   templates,
   subscriptions,
+  selectedUri,
+  selectedTemplate,
   listChanged,
   onRefreshList,
   onSelectUri,
@@ -62,17 +58,19 @@ export function ResourceControls({
   const filteredResources = resources.filter(
     (r) =>
       r.name.toLowerCase().includes(query) ||
+      (r.title?.toLowerCase().includes(query) ?? false) ||
       r.uri.toLowerCase().includes(query),
   );
   const filteredTemplates = templates.filter(
     (t) =>
-      templateDisplayName(t).toLowerCase().includes(query) ||
+      t.name.toLowerCase().includes(query) ||
+      (t.title?.toLowerCase().includes(query) ?? false) ||
       t.uriTemplate.toLowerCase().includes(query),
   );
   const filteredSubscriptions = subscriptions.filter(
     (s) =>
-      s.name.toLowerCase().includes(query) ||
-      s.uri.toLowerCase().includes(query),
+      s.resource.name.toLowerCase().includes(query) ||
+      s.resource.uri.toLowerCase().includes(query),
   );
 
   const defaultOpen = [
@@ -115,11 +113,12 @@ export function ResourceControls({
                 {filteredResources.map((resource) => (
                   <ResourceListItem
                     key={resource.uri}
-                    name={resource.name}
-                    uri={resource.uri}
-                    annotations={resource.annotations}
-                    selected={resource.selected}
-                    onClick={() => onSelectUri(resource.uri)}
+                    resource={resource}
+                    selected={resource.uri === selectedUri}
+                    onClick={() => {
+                      if (resource.uri !== selectedUri)
+                        onSelectUri(resource.uri);
+                    }}
                   />
                 ))}
               </Stack>
@@ -137,10 +136,12 @@ export function ResourceControls({
                 {filteredTemplates.map((template) => (
                   <ResourceListItem
                     key={template.uriTemplate}
-                    name={templateDisplayName(template)}
-                    uri={template.uriTemplate}
-                    selected={template.selected}
-                    onClick={() => onSelectTemplate(template.uriTemplate)}
+                    resource={template}
+                    selected={template.uriTemplate === selectedTemplate}
+                    onClick={() => {
+                      if (template.uriTemplate !== selectedTemplate)
+                        onSelectTemplate(template.uriTemplate);
+                    }}
                   />
                 ))}
               </Stack>
@@ -157,10 +158,11 @@ export function ResourceControls({
               <Stack gap="xs">
                 {filteredSubscriptions.map((sub) => (
                   <ResourceSubscribedItem
-                    key={sub.name}
-                    name={sub.name}
-                    lastUpdated={sub.lastUpdated}
-                    onUnsubscribe={() => onUnsubscribeResource(sub.uri)}
+                    key={sub.resource.uri}
+                    subscription={sub}
+                    onUnsubscribe={() =>
+                      onUnsubscribeResource(sub.resource.uri)
+                    }
                   />
                 ))}
               </Stack>

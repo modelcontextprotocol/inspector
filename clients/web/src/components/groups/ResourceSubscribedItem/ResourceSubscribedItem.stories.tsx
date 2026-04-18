@@ -15,13 +15,23 @@ type Story = StoryObj<typeof ResourceSubscribedItem>;
 
 export const WithTimestamp: Story = {
   args: {
-    name: "config.json",
-    lastUpdated: "2026-03-17T10:30:00Z",
+    subscription: {
+      resource: {
+        name: "config.json",
+        uri: "file:///config.json",
+      },
+      lastUpdated: new Date("2026-03-17T10:30:00Z"),
+    },
   },
 };
 
 export const WithoutTimestamp: Story = {
   args: {
-    name: "schema.sql",
+    subscription: {
+      resource: {
+        name: "schema.sql",
+        uri: "file:///schema.sql",
+      },
+    },
   },
 };
