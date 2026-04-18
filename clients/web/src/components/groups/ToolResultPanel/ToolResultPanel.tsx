@@ -19,12 +19,14 @@ export function ToolResultPanel({ result, onClear }: ToolResultPanelProps) {
         <Title order={4}>Results</Title>
         <ClearButton onClick={onClear}>Clear</ClearButton>
       </Group>
-      {result.isError && (
-        <Alert color="red" variant="light">
-          Tool execution returned an error
+      {result.isError ? (
+        <Alert color="red" variant="light" title="Tool Error">
+          {result.content
+            .filter((b) => b.type === "text")
+            .map((b) => b.text)
+            .join("\n")}
         </Alert>
-      )}
-      {result.content.length === 0 ? (
+      ) : result.content.length === 0 ? (
         <Text c="dimmed">No results yet</Text>
       ) : (
         <>
