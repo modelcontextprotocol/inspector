@@ -1,22 +1,23 @@
 import { useState } from "react";
 import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
+import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { PromptListItem } from "../PromptListItem/PromptListItem";
-import type { PromptItem } from "../../screens/PromptsScreen/PromptsScreen";
 
 export interface PromptControlsProps {
-  prompts: PromptItem[];
+  prompts: Prompt[];
+  selectedName?: string;
   listChanged: boolean;
   onRefreshList: () => void;
   onSelectPrompt: (name: string) => void;
 }
 
-function listMaxHeight(): string {
-  return "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - 160px)";
-}
+const LIST_MAX_HEIGHT =
+  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - 160px)";
 
 export function PromptControls({
   prompts,
+  selectedName,
   listChanged,
   onRefreshList,
   onSelectPrompt,
@@ -26,6 +27,7 @@ export function PromptControls({
   const filteredPrompts = prompts.filter(
     (p) =>
       p.name.toLowerCase().includes(query) ||
+      (p.title?.toLowerCase().includes(query) ?? false) ||
       (p.description?.toLowerCase().includes(query) ?? false),
   );
 
@@ -40,15 +42,16 @@ export function PromptControls({
         value={searchText}
         onChange={(e) => setSearchText(e.currentTarget.value)}
       />
-      <ScrollArea.Autosize mah={listMaxHeight()}>
+      <ScrollArea.Autosize mah={LIST_MAX_HEIGHT}>
         <Stack gap="xs">
           {filteredPrompts.map((prompt) => (
             <PromptListItem
               key={prompt.name}
-              name={prompt.name}
-              description={prompt.description}
-              selected={prompt.selected}
-              onClick={() => onSelectPrompt(prompt.name)}
+              prompt={prompt}
+              selected={prompt.name === selectedName}
+              onClick={() => {
+                if (prompt.name !== selectedName) onSelectPrompt(prompt.name);
+              }}
             />
           ))}
         </Stack>

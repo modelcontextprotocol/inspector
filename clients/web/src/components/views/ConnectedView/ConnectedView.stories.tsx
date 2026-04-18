@@ -594,60 +594,52 @@ export const PromptsActive: Story = {
           {
             name: "summarize",
             description: "Summarize a document",
-            selected: false,
           },
           {
             name: "translate",
             description: "Translate text to another language",
-            selected: true,
+            arguments: [
+              {
+                name: "text",
+                required: true,
+                description: "The text to translate",
+              },
+              {
+                name: "targetLanguage",
+                required: true,
+                description: "Target language code",
+              },
+            ],
           },
           {
             name: "code-review",
             description: "Review code for issues",
-            selected: false,
           },
         ]}
-        selectedPrompt={{
-          name: "translate",
-          description: "Translate text to another language",
-          arguments: [
-            {
-              name: "text",
-              required: true,
-              description: "The text to translate",
-            },
-            {
-              name: "targetLanguage",
-              required: true,
-              description: "Target language code",
-            },
-          ],
-          argumentValues: {
-            text: "Hello, how are you?",
-            targetLanguage: "es",
-          },
-        }}
-        messages={{
-          onCopyAll: fn(),
-          messages: [
-            {
-              role: "user",
-              content: {
-                type: "text",
-                text: 'Translate the following text to Spanish: "Hello, how are you?"',
+        selectedPromptName="translate"
+        getPromptState={{
+          status: "ok",
+          result: {
+            messages: [
+              {
+                role: "user",
+                content: {
+                  type: "text",
+                  text: 'Translate the following text to Spanish: "Hello, how are you?"',
+                },
               },
-            },
-            {
-              role: "assistant",
-              content: { type: "text", text: "Hola, como estas?" },
-            },
-          ],
+              {
+                role: "assistant",
+                content: { type: "text", text: "Hola, como estas?" },
+              },
+            ],
+          },
         }}
         listChanged={true}
         onRefreshList={fn()}
         onSelectPrompt={fn()}
-        onArgumentChange={fn()}
         onGetPrompt={fn()}
+        onCopyMessages={fn()}
       />
     ),
   },

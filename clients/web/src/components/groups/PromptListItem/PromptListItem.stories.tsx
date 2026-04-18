@@ -15,23 +15,40 @@ type Story = StoryObj<typeof PromptListItem>;
 
 export const Default: Story = {
   args: {
-    name: "summarize",
-    description: "Summarize the given text into key points",
+    prompt: {
+      name: "summarize",
+      description: "Summarize the given text into key points",
+    },
     selected: false,
   },
 };
 
 export const Selected: Story = {
   args: {
-    name: "translate",
-    description: "Translate text from one language to another",
+    prompt: {
+      name: "translate",
+      description: "Translate text from one language to another",
+    },
     selected: true,
+  },
+};
+
+export const WithTitle: Story = {
+  args: {
+    prompt: {
+      name: "code-review",
+      title: "Code Review",
+      description: "Review code for issues and best practices",
+    },
+    selected: false,
   },
 };
 
 export const NoDescription: Story = {
   args: {
-    name: "code-review",
+    prompt: {
+      name: "code-review",
+    },
     selected: false,
   },
 };

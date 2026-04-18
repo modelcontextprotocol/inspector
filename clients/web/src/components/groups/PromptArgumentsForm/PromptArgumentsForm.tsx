@@ -1,19 +1,18 @@
 import { Button, Group, Stack, Text, TextInput, Title } from "@mantine/core";
-
-export interface PromptArgument {
-  name: string;
-  required: boolean;
-  description?: string;
-}
+import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 
 export interface PromptArgumentsFormProps {
-  name: string;
-  description?: string;
-  arguments: PromptArgument[];
+  prompt: Prompt;
   argumentValues: Record<string, string>;
   onArgumentChange: (name: string, value: string) => void;
   onGetPrompt: () => void;
 }
+
+const PromptTitle = Text.withProps({
+  fw: 700,
+  size: "lg",
+  truncate: "end",
+});
 
 const DescriptionText = Text.withProps({
   size: "sm",
@@ -25,32 +24,36 @@ function formatPlaceholder(name: string): string {
 }
 
 export function PromptArgumentsForm({
-  description,
-  arguments: promptArguments,
+  prompt,
   argumentValues,
   onArgumentChange,
   onGetPrompt,
 }: PromptArgumentsFormProps) {
+  const { name, title, description, arguments: promptArguments } = prompt;
+
   return (
     <Stack gap="md">
-      <Title order={4}>Prompt Arguments</Title>
+      <PromptTitle>{title ?? name}</PromptTitle>
       {description && <DescriptionText>{description}</DescriptionText>}
-      {promptArguments.length > 0 && (
-        <Stack gap="sm">
-          {promptArguments.map((arg) => (
-            <TextInput
-              key={arg.name}
-              label={arg.name}
-              withAsterisk={arg.required}
-              description={arg.description}
-              placeholder={formatPlaceholder(arg.name)}
-              value={argumentValues[arg.name] || ""}
-              onChange={(event) =>
-                onArgumentChange(arg.name, event.currentTarget.value)
-              }
-            />
-          ))}
-        </Stack>
+      {promptArguments && promptArguments.length > 0 && (
+        <>
+          <Title order={4}>Arguments</Title>
+          <Stack gap="sm">
+            {promptArguments.map((arg) => (
+              <TextInput
+                key={arg.name}
+                label={arg.name}
+                withAsterisk={arg.required === true}
+                description={arg.description}
+                placeholder={formatPlaceholder(arg.name)}
+                value={argumentValues[arg.name] || ""}
+                onChange={(event) =>
+                  onArgumentChange(arg.name, event.currentTarget.value)
+                }
+              />
+            ))}
+          </Stack>
+        </>
       )}
       <Group justify="flex-end">
         <Button size="sm" onClick={onGetPrompt}>

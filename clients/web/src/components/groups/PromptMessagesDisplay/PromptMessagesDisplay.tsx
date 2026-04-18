@@ -1,19 +1,16 @@
 import { Button, Group, Stack, Text, Title } from "@mantine/core";
-import type {
-  PromptMessage,
-  SamplingMessage,
-} from "@modelcontextprotocol/sdk/types.js";
+import type { PromptMessage } from "@modelcontextprotocol/sdk/types.js";
 import { MessageBubble } from "../../elements/MessageBubble/MessageBubble";
+
+export interface PromptMessagesDisplayProps {
+  messages: PromptMessage[];
+  onCopyAll?: () => void;
+}
 
 const CopyAllButton = Button.withProps({
   variant: "subtle",
   size: "sm",
 });
-
-export interface PromptMessagesDisplayProps {
-  messages: (PromptMessage | SamplingMessage)[];
-  onCopyAll?: () => void;
-}
 
 export function PromptMessagesDisplay({
   messages,
