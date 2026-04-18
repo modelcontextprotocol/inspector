@@ -103,7 +103,7 @@
 /* ── List item hover ────────────────────────────────────── */
 
 .list-item:hover {
-  background-color: var(--mantine-color-gray-1);
+  background-color: var(--mantine-primary-color-light);
 }
 
 [data-mantine-color-scheme="dark"] .list-item:hover {
@@ -119,7 +119,6 @@
 [data-mantine-color-scheme="dark"] .mantine-Select-option:hover {
   background-color: var(--mantine-primary-color-light);
 }
-
 
 /* ── Menu dropdown / option (dark mode) ──────────────────────── */
 
@@ -139,8 +138,8 @@
 
 /* ── Accordion button hover ─────────────────────────────── */
 
-[data-mantine-color-scheme="dark"] .mantine-Accordion-control:hover {
-  background-color: var(--mantine-primary-color-filled-hover);
+.mantine-Accordion-control:hover {
+  background-color: var(--mantine-primary-color-light-hover);
 }
 
 /* ── Grid alignment ─────────────────────────────────────── */
