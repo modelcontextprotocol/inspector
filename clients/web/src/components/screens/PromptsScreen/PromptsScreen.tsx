@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { Card, Flex, Group, ScrollArea, Stack, Text } from "@mantine/core";
+import {
+  Alert,
+  Card,
+  Flex,
+  Group,
+  Loader,
+  ScrollArea,
+  Stack,
+  Text,
+} from "@mantine/core";
 import type {
   GetPromptResult,
   Prompt,
@@ -107,6 +116,21 @@ export function PromptsScreen({
                   }
                 />
               </DetailCard>
+              {getPromptState?.status === "pending" && (
+                <DetailCard>
+                  <Stack align="center" py="xl">
+                    <Loader size="sm" />
+                    <Text c="dimmed">Loading prompt...</Text>
+                  </Stack>
+                </DetailCard>
+              )}
+              {getPromptState?.status === "error" && (
+                <DetailCard>
+                  <Alert color="red" variant="light" title="Prompt Error">
+                    {getPromptState.error ?? "Failed to get prompt"}
+                  </Alert>
+                </DetailCard>
+              )}
               {getPromptState?.result && (
                 <DetailCard>
                   <PromptMessagesDisplay

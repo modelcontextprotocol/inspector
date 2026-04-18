@@ -91,6 +91,26 @@ export const WithResult: Story = {
   },
 };
 
+export const Loading: Story = {
+  args: {
+    prompts: samplePrompts,
+    selectedPromptName: "translate",
+    getPromptState: { status: "pending" },
+  },
+};
+
+export const WithError: Story = {
+  args: {
+    prompts: samplePrompts,
+    selectedPromptName: "translate",
+    getPromptState: {
+      status: "error",
+      error:
+        'Prompt "translate" requires argument "text" but none was provided. Please fill in all required arguments before submitting.',
+    },
+  },
+};
+
 export const ListChanged: Story = {
   args: {
     prompts: samplePrompts,
