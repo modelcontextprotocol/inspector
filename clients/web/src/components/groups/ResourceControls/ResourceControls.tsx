@@ -70,6 +70,7 @@ export function ResourceControls({
   const filteredSubscriptions = subscriptions.filter(
     (s) =>
       s.resource.name.toLowerCase().includes(query) ||
+      (s.resource.title?.toLowerCase().includes(query) ?? false) ||
       s.resource.uri.toLowerCase().includes(query),
   );
 

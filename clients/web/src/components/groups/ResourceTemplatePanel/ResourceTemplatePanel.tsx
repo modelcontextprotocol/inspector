@@ -91,13 +91,15 @@ export function ResourceTemplatePanel({
     onReadResource(resolveUri(uriTemplate, variables));
   }
 
+  const preview = previewUri(uriTemplate, variables);
+
   return (
     <Stack gap="md">
       <HeaderRow>
         <Title order={4}>{title ?? name} Template</Title>
         <UriGroup>
-          <UriText>{previewUri(uriTemplate, variables)}</UriText>
-          <CopyButton value={previewUri(uriTemplate, variables)} />
+          <UriText>{preview}</UriText>
+          <CopyButton value={preview} />
         </UriGroup>
       </HeaderRow>
       {description && <DescriptionText>{description}</DescriptionText>}
