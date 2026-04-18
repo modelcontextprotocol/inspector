@@ -120,7 +120,14 @@
   background-color: var(--mantine-primary-color-light);
 }
 
-[data-mantine-color-scheme="dark"] .mantine-Select-option:hover {
+
+/* ── Menu dropdown / option (dark mode) ──────────────────────── */
+
+[data-mantine-color-scheme="dark"] .mantine-Menu-dropdown {
+  background-color: var(--mantine-color-gray-8);
+}
+
+[data-mantine-color-scheme="dark"] .mantine-Menu-item:hover {
   background-color: var(--mantine-primary-color-light);
 }
 
