@@ -1,14 +1,11 @@
 import { useState, useMemo } from "react";
 import { Button, Group, Stack, Text, TextInput, Title } from "@mantine/core";
+import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
 
 export interface ResourceTemplatePanelProps {
-  name: string;
-  title?: string;
-  uriTemplate: string;
-  description?: string;
-  annotations?: { audience?: string; priority?: number };
+  template: ResourceTemplate;
   onReadResource: (uri: string) => void;
 }
 
@@ -70,13 +67,11 @@ const AnnotationGroup = Group.withProps({
 });
 
 export function ResourceTemplatePanel({
-  name,
-  title,
-  uriTemplate,
-  description,
-  annotations,
+  template,
   onReadResource,
 }: ResourceTemplatePanelProps) {
+  const { name, title, uriTemplate, description, annotations } = template;
+
   const variableNames = useMemo(
     () => parseVariableNames(uriTemplate),
     [uriTemplate],
@@ -96,13 +91,15 @@ export function ResourceTemplatePanel({
     onReadResource(resolveUri(uriTemplate, variables));
   }
 
+  const preview = previewUri(uriTemplate, variables);
+
   return (
     <Stack gap="md">
       <HeaderRow>
         <Title order={4}>{title ?? name} Template</Title>
         <UriGroup>
-          <UriText>{previewUri(uriTemplate, variables)}</UriText>
-          <CopyButton value={previewUri(uriTemplate, variables)} />
+          <UriText>{preview}</UriText>
+          <CopyButton value={preview} />
         </UriGroup>
       </HeaderRow>
       {description && <DescriptionText>{description}</DescriptionText>}
@@ -122,12 +119,7 @@ export function ResourceTemplatePanel({
       <FooterRow>
         <AnnotationGroup>
           {annotations?.audience && (
-            <AnnotationBadge
-              facet="audience"
-              value={
-                annotations.audience.split(", ") as ("user" | "assistant")[]
-              }
-            />
+            <AnnotationBadge facet="audience" value={annotations.audience} />
           )}
           {annotations?.priority !== undefined && (
             <AnnotationBadge facet="priority" value={annotations.priority} />

@@ -1,20 +1,17 @@
 import { Text, UnstyledButton } from "@mantine/core";
-
-export interface ResourceAnnotations {
-  audience?: string;
-  priority?: number;
-}
+import type {
+  Resource,
+  ResourceTemplate,
+} from "@modelcontextprotocol/sdk/types.js";
 
 export interface ResourceListItemProps {
-  name: string;
-  uri: string;
-  annotations?: ResourceAnnotations;
+  resource: Resource | ResourceTemplate;
   selected: boolean;
   onClick: () => void;
 }
 
 export function ResourceListItem({
-  name,
+  resource,
   selected,
   onClick,
 }: ResourceListItemProps) {
@@ -26,7 +23,7 @@ export function ResourceListItem({
       bg={selected ? "var(--mantine-primary-color-light)" : undefined}
       onClick={onClick}
     >
-      <Text fw={500}>{name}</Text>
+      <Text fw={500}>{resource.title ?? resource.name}</Text>
     </UnstyledButton>
   );
 }

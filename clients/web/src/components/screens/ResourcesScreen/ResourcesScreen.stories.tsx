@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type {
+  Resource,
+  ResourceTemplate,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
 import { fn } from "storybook/test";
 import { ResourcesScreen } from "./ResourcesScreen";
-import type {
-  ResourceItem,
-  TemplateListItem,
-  SelectedResource,
-  SelectedTemplate,
-} from "./ResourcesScreen";
+import type { ReadResourceState } from "./ResourcesScreen";
 
 const meta: Meta<typeof ResourcesScreen> = {
   title: "Screens/ResourcesScreen",
@@ -28,225 +28,81 @@ const meta: Meta<typeof ResourcesScreen> = {
 export default meta;
 type Story = StoryObj<typeof ResourcesScreen>;
 
-const sampleResources: ResourceItem[] = [
+const sampleResources: Resource[] = [
   {
     name: "config.json",
     uri: "file:///config.json",
-    annotations: { audience: "developer", priority: 0.8 },
-    selected: false,
+    annotations: { audience: ["user"], priority: 0.8 },
   },
-  {
-    name: "README.md",
-    uri: "file:///README.md",
-    selected: false,
-  },
+  { name: "README.md", uri: "file:///README.md" },
   {
     name: "schema.sql",
     uri: "file:///schema.sql",
     annotations: { priority: 0.5 },
-    selected: false,
   },
   {
     name: "package.json",
     uri: "file:///package.json",
-    annotations: { audience: "developer" },
-    selected: false,
+    annotations: { audience: ["user"] },
   },
-  {
-    name: "tsconfig.json",
-    uri: "file:///tsconfig.json",
-    annotations: { audience: "developer", priority: 0.3 },
-    selected: false,
-  },
-  {
-    name: ".env.example",
-    uri: "file:///.env.example",
-    selected: false,
-  },
+  { name: ".env.example", uri: "file:///.env.example" },
   {
     name: "docker-compose.yml",
     uri: "file:///docker-compose.yml",
     annotations: { priority: 0.6 },
-    selected: false,
-  },
-  {
-    name: "migrations/001_init.sql",
-    uri: "file:///migrations/001_init.sql",
-    annotations: { audience: "developer", priority: 0.4 },
-    selected: false,
-  },
-  {
-    name: "migrations/002_add_users.sql",
-    uri: "file:///migrations/002_add_users.sql",
-    annotations: { audience: "developer", priority: 0.4 },
-    selected: false,
-  },
-  {
-    name: "seeds/users.json",
-    uri: "file:///seeds/users.json",
-    selected: false,
-  },
-  {
-    name: "seeds/products.json",
-    uri: "file:///seeds/products.json",
-    selected: false,
-  },
-  {
-    name: "certs/server.pem",
-    uri: "file:///certs/server.pem",
-    annotations: { priority: 0.9 },
-    selected: false,
-  },
-  {
-    name: "logs/access.log",
-    uri: "file:///logs/access.log",
-    annotations: { audience: "application", priority: 0.2 },
-    selected: false,
-  },
-  {
-    name: "logs/error.log",
-    uri: "file:///logs/error.log",
-    annotations: { audience: "application", priority: 0.7 },
-    selected: false,
-  },
-  {
-    name: "api-spec.yaml",
-    uri: "file:///api-spec.yaml",
-    annotations: { audience: "developer" },
-    selected: false,
-  },
-  {
-    name: "CHANGELOG.md",
-    uri: "file:///CHANGELOG.md",
-    selected: false,
-  },
-  {
-    name: "LICENSE",
-    uri: "file:///LICENSE",
-    selected: false,
-  },
-  {
-    name: ".gitignore",
-    uri: "file:///.gitignore",
-    selected: false,
-  },
-  {
-    name: "Makefile",
-    uri: "file:///Makefile",
-    annotations: { audience: "developer", priority: 0.3 },
-    selected: false,
-  },
-  {
-    name: "fixtures/test-data.json",
-    uri: "file:///fixtures/test-data.json",
-    selected: false,
   },
 ];
 
-const sampleTemplates: TemplateListItem[] = [
+const sampleTemplates: ResourceTemplate[] = [
   {
     name: "User Profile",
     uriTemplate: "file:///users/{userId}/profile",
-    selected: false,
   },
   {
     name: "Table Row",
     title: "Database Table Row",
     uriTemplate: "db://tables/{tableName}/rows/{rowId}",
-    selected: false,
   },
   {
     name: "Log File",
     title: "Application Log",
     uriTemplate: "file:///logs/{service}/{date}.log",
-    selected: false,
-  },
-  {
-    name: "Migration",
-    uriTemplate: "file:///migrations/{version}_{name}.sql",
-    selected: false,
-  },
-  {
-    name: "Config by Environment",
-    title: "Environment Config",
-    uriTemplate: "file:///config/{environment}.json",
-    selected: false,
-  },
-  {
-    name: "API Endpoint",
-    uriTemplate: "https://api.example.com/{version}/{resource}",
-    selected: false,
-  },
-  {
-    name: "Report",
-    title: "Generated Report",
-    uriTemplate: "reports://{reportType}/{year}/{month}",
-    selected: false,
   },
 ];
 
-const sampleSubscriptions = [
+const sampleSubscriptions: InspectorResourceSubscription[] = [
   {
-    name: "config.json",
-    uri: "file:///config.json",
-    lastUpdated: "2026-03-17T10:30:00Z",
+    resource: { name: "config.json", uri: "file:///config.json" },
+    lastUpdated: new Date("2026-03-17T10:30:00Z"),
   },
   {
-    name: "schema.sql",
-    uri: "file:///schema.sql",
-    lastUpdated: "2026-03-17T10:28:00Z",
-  },
-  {
-    name: "docker-compose.yml",
-    uri: "file:///docker-compose.yml",
-    lastUpdated: "2026-03-17T09:45:00Z",
-  },
-  {
-    name: "logs/error.log",
-    uri: "file:///logs/error.log",
-    lastUpdated: "2026-03-17T10:31:12Z",
-  },
-  {
-    name: "certs/server.pem",
-    uri: "file:///certs/server.pem",
-  },
-  {
-    name: "api-spec.yaml",
-    uri: "file:///api-spec.yaml",
-    lastUpdated: "2026-03-17T08:15:00Z",
-  },
-  {
-    name: "package.json",
-    uri: "file:///package.json",
-    lastUpdated: "2026-03-17T10:22:00Z",
-  },
-  {
-    name: "seeds/users.json",
-    uri: "file:///seeds/users.json",
+    resource: { name: "schema.sql", uri: "file:///schema.sql" },
+    lastUpdated: new Date("2026-03-17T10:28:00Z"),
   },
 ];
 
-const selectedResourceData: SelectedResource = {
+const readConfigState: ReadResourceState = {
+  status: "ok",
   uri: "file:///config.json",
-  mimeType: "application/json",
-  annotations: { audience: "developer", priority: 0.8 },
-  content: JSON.stringify(
-    {
-      name: "my-project",
-      version: "1.0.0",
-      settings: { debug: true, logLevel: "info" },
-    },
-    null,
-    2,
-  ),
-  lastUpdated: "2026-03-17T10:30:00Z",
+  result: {
+    contents: [
+      {
+        uri: "file:///config.json",
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            name: "my-project",
+            version: "1.0.0",
+            settings: { debug: true, logLevel: "info" },
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  },
+  lastUpdated: new Date("2026-03-17T10:30:00Z"),
   isSubscribed: true,
-};
-
-const selectedTemplateData: SelectedTemplate = {
-  name: "User Profile",
-  uriTemplate: "file:///users/{userId}/profile",
-  description: "Fetch a user profile by their unique identifier.",
 };
 
 export const WithResources: Story = {
@@ -257,11 +113,10 @@ export const WithResources: Story = {
 
 export const ResourceSelected: Story = {
   args: {
-    resources: sampleResources.map((r) =>
-      r.uri === "file:///config.json" ? { ...r, selected: true } : r,
-    ),
-    selectedResource: selectedResourceData,
+    resources: sampleResources,
     subscriptions: sampleSubscriptions,
+    selectedResourceUri: "file:///config.json",
+    readState: readConfigState,
   },
 };
 
@@ -275,61 +130,63 @@ export const WithTemplates: Story = {
 export const TemplateSelected: Story = {
   args: {
     resources: sampleResources,
-    templates: sampleTemplates.map((t) =>
-      t.uriTemplate === "file:///users/{userId}/profile"
-        ? { ...t, selected: true }
-        : t,
-    ),
-    selectedTemplate: selectedTemplateData,
+    templates: sampleTemplates,
+    selectedTemplateUri: "file:///users/{userId}/profile",
   },
 };
 
 export const TemplateWithResource: Story = {
   args: {
     resources: sampleResources,
-    templates: sampleTemplates.map((t) =>
-      t.uriTemplate === "file:///users/{userId}/profile"
-        ? { ...t, selected: true }
-        : t,
-    ),
-    selectedTemplate: selectedTemplateData,
-    selectedResource: {
+    templates: sampleTemplates,
+    selectedTemplateUri: "file:///users/{userId}/profile",
+    readState: {
+      status: "ok",
       uri: "file:///users/42/profile",
-      mimeType: "application/json",
-      annotations: { audience: "developer", priority: 0.8 },
-      content: JSON.stringify(
-        { id: 42, name: "Alice", email: "alice@example.com" },
-        null,
-        2,
-      ),
-      lastUpdated: "2026-03-17T11:15:00Z",
+      result: {
+        contents: [
+          {
+            uri: "file:///users/42/profile",
+            mimeType: "application/json",
+            text: JSON.stringify(
+              { id: 42, name: "Alice", email: "alice@example.com" },
+              null,
+              2,
+            ),
+          },
+        ],
+      },
       isSubscribed: false,
     },
+    selectedResourceUri: "file:///users/42/profile",
   },
 };
 
 export const AllSections: Story = {
   args: {
     resources: sampleResources,
-    templates: sampleTemplates.map((t) =>
-      t.uriTemplate === "file:///users/{userId}/profile"
-        ? { ...t, selected: true }
-        : t,
-    ),
+    templates: sampleTemplates,
     subscriptions: sampleSubscriptions,
-    selectedTemplate: selectedTemplateData,
-    selectedResource: {
+    selectedTemplateUri: "file:///users/{userId}/profile",
+    readState: {
+      status: "ok",
       uri: "file:///users/42/profile",
-      mimeType: "application/json",
-      annotations: { audience: "developer", priority: 0.8 },
-      content: JSON.stringify(
-        { id: 42, name: "Alice", email: "alice@example.com" },
-        null,
-        2,
-      ),
-      lastUpdated: "2026-03-17T11:15:00Z",
+      result: {
+        contents: [
+          {
+            uri: "file:///users/42/profile",
+            mimeType: "application/json",
+            text: JSON.stringify(
+              { id: 42, name: "Alice", email: "alice@example.com" },
+              null,
+              2,
+            ),
+          },
+        ],
+      },
       isSubscribed: false,
     },
+    selectedResourceUri: "file:///users/42/profile",
   },
 };
 
