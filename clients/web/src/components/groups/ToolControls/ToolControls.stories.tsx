@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { ToolControls } from "./ToolControls";
 
@@ -15,22 +16,20 @@ const meta: Meta<typeof ToolControls> = {
 export default meta;
 type Story = StoryObj<typeof ToolControls>;
 
-const sampleTools = [
+const sampleTools: Tool[] = [
   {
     name: "send_message",
     title: "Send Message",
-    selected: false,
-    onClick: fn(),
+    inputSchema: { type: "object" },
   },
   {
     name: "create_record",
     title: "Create Record",
-    selected: false,
-    onClick: fn(),
+    inputSchema: { type: "object" },
   },
-  { name: "delete_records", selected: false, onClick: fn() },
-  { name: "list_users", selected: false, onClick: fn() },
-  { name: "batch_process", selected: false, onClick: fn() },
+  { name: "delete_records", inputSchema: { type: "object" } },
+  { name: "list_users", inputSchema: { type: "object" } },
+  { name: "batch_process", inputSchema: { type: "object" } },
 ];
 
 export const Default: Story = {
@@ -41,9 +40,8 @@ export const Default: Story = {
 
 export const WithSelection: Story = {
   args: {
-    tools: sampleTools.map((t) =>
-      t.name === "create_record" ? { ...t, selected: true } : t,
-    ),
+    tools: sampleTools,
+    selectedName: "create_record",
   },
 };
 

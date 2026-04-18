@@ -1,9 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { ToolsScreen } from "./ToolsScreen";
-import type { ToolListItemProps } from "../../groups/ToolListItem/ToolListItem";
-import type { ToolDetailPanelProps } from "../../groups/ToolDetailPanel/ToolDetailPanel";
-import type { ToolResultPanelProps } from "../../groups/ToolResultPanel/ToolResultPanel";
+import type { ToolCallState } from "./ToolsScreen";
 
 const meta: Meta<typeof ToolsScreen> = {
   title: "Screens/ToolsScreen",
@@ -13,84 +12,64 @@ const meta: Meta<typeof ToolsScreen> = {
     listChanged: false,
     onRefreshList: fn(),
     onSelectTool: fn(),
+    onCallTool: fn(),
+    onCancelCall: fn(),
+    onClearResult: fn(),
   },
 };
 
 export default meta;
 type Story = StoryObj<typeof ToolsScreen>;
 
-const sampleTools: ToolListItemProps[] = [
+const sampleTools: Tool[] = [
   {
     name: "send_message",
     title: "Send Message",
-    selected: false,
-    onClick: fn(),
+    inputSchema: { type: "object" },
   },
   {
     name: "create_record",
     title: "Create Record",
-    selected: false,
-    onClick: fn(),
+    description: "Creates a new record with the given parameters",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Record title" },
+        count: { type: "number", description: "Number of items" },
+        enabled: {
+          type: "boolean",
+          description: "Whether the record is active",
+        },
+      },
+      required: ["title"],
+    },
   },
-  {
-    name: "delete_records",
-    selected: false,
-    onClick: fn(),
-  },
-  { name: "list_users", selected: false, onClick: fn() },
-  {
-    name: "batch_process",
-    selected: false,
-    onClick: fn(),
-  },
+  { name: "delete_records", inputSchema: { type: "object" } },
+  { name: "list_users", inputSchema: { type: "object" } },
+  { name: "batch_process", inputSchema: { type: "object" } },
 ];
 
-const selectedToolData: ToolDetailPanelProps = {
-  name: "create_record",
-  title: "Create Record",
-  description: "Creates a new record with the given parameters",
-  schema: {
-    type: "object",
-    properties: {
-      title: { type: "string", description: "Record title" },
-      count: { type: "number", description: "Number of items" },
-      enabled: { type: "boolean", description: "Whether the record is active" },
-    },
-    required: ["title"],
+const resultState: ToolCallState = {
+  status: "ok",
+  result: {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(
+          {
+            id: 42,
+            title: "New Record",
+            count: 5,
+            enabled: true,
+            createdAt: "2026-03-17T12:00:00Z",
+          },
+          null,
+          2,
+        ),
+      },
+    ],
   },
-  formValues: {},
-  isExecuting: false,
-  onFormChange: fn(),
-  onExecute: fn(),
-  onCancel: fn(),
 };
-
-const resultData: ToolResultPanelProps = {
-  content: [
-    {
-      type: "text",
-      text: JSON.stringify(
-        {
-          id: 42,
-          title: "New Record",
-          count: 5,
-          enabled: true,
-          createdAt: "2026-03-17T12:00:00Z",
-        },
-        null,
-        2,
-      ),
-    },
-  ],
-  onClear: fn(),
-};
-
-function toolsWithSelected(selectedName: string): ToolListItemProps[] {
-  return sampleTools.map((tool) => ({
-    ...tool,
-    selected: tool.name === selectedName,
-  }));
-}
 
 export const NoSelection: Story = {
   args: {
@@ -100,16 +79,16 @@ export const NoSelection: Story = {
 
 export const ToolSelected: Story = {
   args: {
-    tools: toolsWithSelected("create_record"),
-    selectedTool: selectedToolData,
+    tools: sampleTools,
+    selectedToolName: "create_record",
   },
 };
 
 export const WithResult: Story = {
   args: {
-    tools: toolsWithSelected("create_record"),
-    selectedTool: selectedToolData,
-    result: resultData,
+    tools: sampleTools,
+    selectedToolName: "create_record",
+    callState: resultState,
   },
 };
 
@@ -119,43 +98,34 @@ export const LongToolName: Story = {
       ...sampleTools,
       {
         name: "organization_internal_database_complex_multi_table_join_query_with_aggregation_and_filtering",
-        selected: true,
-        onClick: fn(),
+        description:
+          "Executes a complex multi-table join query across the organization's internal database with support for aggregation functions, nested filtering, and pagination of large result sets.",
+        annotations: {
+          readOnlyHint: true,
+        },
+        inputSchema: {
+          type: "object",
+          properties: {
+            primary_table_name: {
+              type: "string",
+              description: "The main table to query from",
+            },
+            join_configuration: {
+              type: "string",
+              description: "JSON configuration for table joins",
+            },
+            aggregation_functions: {
+              type: "string",
+              description:
+                "Comma-separated list of aggregation functions to apply",
+            },
+          },
+          required: ["primary_table_name"],
+        },
       },
     ],
-    selectedTool: {
-      name: "organization_internal_database_complex_multi_table_join_query_with_aggregation_and_filtering",
-      annotations: {
-        readOnly: true,
-        longRunning: true,
-      },
-      description:
-        "Executes a complex multi-table join query across the organization's internal database with support for aggregation functions, nested filtering, and pagination of large result sets.",
-      schema: {
-        type: "object",
-        properties: {
-          primary_table_name: {
-            type: "string",
-            description: "The main table to query from",
-          },
-          join_configuration: {
-            type: "string",
-            description: "JSON configuration for table joins",
-          },
-          aggregation_functions: {
-            type: "string",
-            description:
-              "Comma-separated list of aggregation functions to apply",
-          },
-        },
-        required: ["primary_table_name"],
-      },
-      formValues: {},
-      isExecuting: false,
-      onFormChange: fn(),
-      onExecute: fn(),
-      onCancel: fn(),
-    },
+    selectedToolName:
+      "organization_internal_database_complex_multi_table_join_query_with_aggregation_and_filtering",
   },
 };
 

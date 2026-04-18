@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { ToolListItem } from "../ToolListItem/ToolListItem";
-import type { ToolListItemProps } from "../ToolListItem/ToolListItem";
 
 export interface ToolControlsProps {
-  tools: ToolListItemProps[];
+  tools: Tool[];
+  selectedName?: string;
   listChanged: boolean;
   onRefreshList: () => void;
   onSelectTool: (name: string) => void;
@@ -17,6 +18,7 @@ function listMaxHeight(): string {
 
 export function ToolControls({
   tools,
+  selectedName,
   listChanged,
   onRefreshList,
   onSelectTool,
@@ -47,8 +49,11 @@ export function ToolControls({
           {filteredTools.map((tool) => (
             <ToolListItem
               key={tool.name}
-              {...tool}
-              onClick={() => onSelectTool(tool.name)}
+              tool={tool}
+              selected={tool.name === selectedName}
+              onClick={() => {
+                if (tool.name !== selectedName) onSelectTool(tool.name);
+              }}
             />
           ))}
         </Stack>
