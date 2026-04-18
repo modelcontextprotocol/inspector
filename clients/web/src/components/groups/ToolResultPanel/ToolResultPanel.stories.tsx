@@ -89,3 +89,17 @@ export const MixedContent: Story = {
     result: mixedResult,
   },
 };
+
+export const ErrorResult: Story = {
+  args: {
+    result: {
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "ENOENT: no such file or directory, open '/data/missing.txt'",
+        },
+      ],
+    },
+  },
+};
