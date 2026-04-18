@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { LogControls } from "./LogControls";
 
-const allLevelsVisible: Record<string, boolean> = {
+const allLevelsVisible: Record<LoggingLevel, boolean> = {
   debug: true,
   info: true,
   notice: true,
