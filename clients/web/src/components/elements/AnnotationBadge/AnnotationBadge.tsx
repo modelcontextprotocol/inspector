@@ -1,37 +1,63 @@
 import { Badge, useComputedColorScheme } from "@mantine/core";
+import type { Role } from "@modelcontextprotocol/sdk/types.js";
 
-export type AnnotationVariant =
+export type AnnotationFacet =
   | "audience"
-  | "readOnly"
-  | "destructive"
-  | "longRun"
   | "priority"
-  | "default";
+  | "readOnlyHint"
+  | "destructiveHint"
+  | "idempotentHint"
+  | "openWorldHint"
+  | "longRunHint";
 
 export interface AnnotationBadgeProps {
-  label: string;
-  variant?: AnnotationVariant;
+  facet: AnnotationFacet;
+  value: Role[] | number | boolean;
 }
 
-const colorMap: Record<AnnotationVariant, string> = {
+const colorMap: Record<AnnotationFacet, string> = {
   audience: "blue",
-  readOnly: "green",
-  destructive: "red",
-  longRun: "yellow",
   priority: "orange",
-  default: "gray",
+  readOnlyHint: "green",
+  destructiveHint: "red",
+  idempotentHint: "teal",
+  openWorldHint: "grape",
+  longRunHint: "yellow",
 };
 
-export function AnnotationBadge({
-  label,
-  variant = "default",
-}: AnnotationBadgeProps) {
+function formatLabel(
+  facet: AnnotationFacet,
+  value: Role[] | number | boolean,
+): string {
+  switch (facet) {
+    case "audience":
+      return `audience: ${(value as Role[]).join(", ")}`;
+    case "priority": {
+      const n = value as number;
+      if (n >= 0.7) return "priority: high";
+      if (n >= 0.4) return "priority: medium";
+      return "priority: low";
+    }
+    case "readOnlyHint":
+      return "read-only";
+    case "destructiveHint":
+      return "destructive";
+    case "idempotentHint":
+      return "idempotent";
+    case "openWorldHint":
+      return "open-world";
+    case "longRunHint":
+      return "long-running";
+  }
+}
+
+export function AnnotationBadge({ facet, value }: AnnotationBadgeProps) {
   const colorScheme = useComputedColorScheme();
-  const color = colorMap[variant];
+  const color = colorMap[facet];
   const textColor = colorScheme === "dark" ? "black" : "white";
   return (
     <Badge color={color} variant="filled" fw={500} c={textColor}>
-      {label}
+      {formatLabel(facet, value)}
     </Badge>
   );
 }

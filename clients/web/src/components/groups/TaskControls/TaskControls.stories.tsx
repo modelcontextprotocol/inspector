@@ -10,7 +10,6 @@ const meta: Meta<typeof TaskControls> = {
     onSearchChange: fn(),
     onStatusFilterChange: fn(),
     onRefresh: fn(),
-    onClearHistory: fn(),
   },
 };
 
@@ -27,6 +26,6 @@ export const WithSearch: Story = {
 
 export const WithFilter: Story = {
   args: {
-    statusFilter: "running",
+    statusFilter: "working",
   },
 };

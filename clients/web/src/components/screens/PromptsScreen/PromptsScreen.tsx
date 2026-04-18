@@ -1,4 +1,4 @@
-import { Card, Flex, ScrollArea, Stack, Text } from "@mantine/core";
+import { Card, Flex, Group, ScrollArea, Stack, Text } from "@mantine/core";
 import { PromptControls } from "../../groups/PromptControls/PromptControls";
 import { PromptArgumentsForm } from "../../groups/PromptArgumentsForm/PromptArgumentsForm";
 import { PromptMessagesDisplay } from "../../groups/PromptMessagesDisplay/PromptMessagesDisplay";
@@ -47,6 +47,7 @@ const SidebarCard = Card.withProps({
 });
 
 const DetailCard = Card.withProps({
+  flex: 1,
   withBorder: true,
   padding: "lg",
 });
@@ -84,7 +85,7 @@ export function PromptsScreen({
         flex={1}
         mah="calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)"
       >
-        <Stack gap="md">
+        <Group flex={1} gap="md" align="flex-start" wrap="nowrap">
           {selectedPrompt ? (
             <>
               <DetailCard>
@@ -108,7 +109,7 @@ export function PromptsScreen({
               <EmptyState>Select a prompt to view details</EmptyState>
             </DetailCard>
           )}
-        </Stack>
+        </Group>
       </ScrollArea.Autosize>
     </ScreenLayout>
   );

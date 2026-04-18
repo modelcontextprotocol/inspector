@@ -1,4 +1,4 @@
-import { createTheme } from "@mantine/core";
+import { createTheme, type MantineColorsTuple } from "@mantine/core";
 import {
   ThemeActionIcon,
   ThemeAlert,
@@ -8,6 +8,7 @@ import {
   ThemeCard,
   ThemeCode,
   ThemeFlex,
+  ThemeInput,
   ThemePaper,
   ThemeSelect,
   ThemeSwitch,
@@ -15,10 +16,26 @@ import {
   ThemeUnstyledButton,
 } from "./index";
 
+const inspector: MantineColorsTuple = [
+  "#f0f3fa",
+  "#dee3ee",
+  "#b9c5de",
+  "#91a5cf",
+  "#7089c3",
+  "#5b78bb",
+  "#4f70b9",
+  "#405fa3",
+  "#375493",
+  "#121e36",
+];
+
 export const theme = createTheme({
+  colors: {
+    inspector,
+  },
   /* ── Color ──────────────────────────────────────────────── */
-  primaryColor: "dark",
-  primaryShade: { light: 7, dark: 4 },
+  primaryColor: "inspector",
+  primaryShade: { light: 7, dark: 8 },
   autoContrast: true,
 
   /* ── Shape ──────────────────────────────────────────────── */
@@ -43,6 +60,7 @@ export const theme = createTheme({
     Card: ThemeCard,
     Code: ThemeCode,
     Flex: ThemeFlex,
+    Input: ThemeInput,
     Paper: ThemePaper,
     Select: ThemeSelect,
     Switch: ThemeSwitch,

@@ -28,15 +28,15 @@ export const Disconnected: Story = {
   },
 };
 
-export const Failed: Story = {
+export const Error: Story = {
   args: {
-    status: "failed",
+    status: "error",
   },
 };
 
-export const FailedWithRetries: Story = {
+export const ErrorWithRetries: Story = {
   args: {
-    status: "failed",
+    status: "error",
     retryCount: 3,
   },
 };

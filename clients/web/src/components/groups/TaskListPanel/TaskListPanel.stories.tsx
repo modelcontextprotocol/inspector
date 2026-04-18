@@ -6,7 +6,7 @@ import type { TaskCardProps } from "../TaskCard/TaskCard";
 const sampleTasks: TaskCardProps[] = [
   {
     taskId: "d0b22eba71fa36229ce5c4dfadeaa7de",
-    status: "running",
+    status: "working",
     method: "tools/call",
     target: "generate_report",
     progress: 80,
@@ -19,7 +19,7 @@ const sampleTasks: TaskCardProps[] = [
   },
   {
     taskId: "4100b5e0b0ed9cd0023330342d1bf647",
-    status: "waiting",
+    status: "input_required",
     method: "resources/read",
     target: "file:///data/report.csv",
     startedAt: "3/29/2026, 8:17:55 PM",
@@ -61,6 +61,7 @@ const meta: Meta<typeof TaskListPanel> = {
   args: {
     tasks: sampleTasks,
     searchText: "",
+    onClearCompleted: fn(),
   },
 };
 

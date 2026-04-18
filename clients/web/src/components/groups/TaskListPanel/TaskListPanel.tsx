@@ -1,5 +1,13 @@
 import { useMemo, useState } from "react";
-import { Group, Paper, ScrollArea, Stack, Text, Title } from "@mantine/core";
+import {
+  Button,
+  Group,
+  Paper,
+  ScrollArea,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
 import { TaskCard } from "../TaskCard/TaskCard";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import type { TaskCardProps } from "../TaskCard/TaskCard";
@@ -8,6 +16,7 @@ export interface TaskListPanelProps {
   tasks: TaskCardProps[];
   searchText: string;
   statusFilter?: string;
+  onClearCompleted: () => void;
 }
 
 const PanelContainer = Paper.withProps({
@@ -15,6 +24,11 @@ const PanelContainer = Paper.withProps({
   p: "lg",
   flex: 1,
   variant: "panel",
+});
+
+const ClearHistoryButton = Button.withProps({
+  variant: "subtle",
+  size: "sm",
 });
 
 const EmptyState = Text.withProps({
@@ -36,7 +50,7 @@ function formatCompletedTitle(count: number): string {
 }
 
 function isActiveStatus(status: string): boolean {
-  return status === "waiting" || status === "running";
+  return status === "working" || status === "input_required";
 }
 
 function matchesFilters(
@@ -58,6 +72,7 @@ export function TaskListPanel({
   tasks,
   searchText,
   statusFilter,
+  onClearCompleted,
 }: TaskListPanelProps) {
   const [compact, setCompact] = useState(false);
 
@@ -110,9 +125,14 @@ export function TaskListPanel({
 
             {completedTasks.length > 0 && (
               <>
-                <Title order={5}>
-                  {formatCompletedTitle(completedTasks.length)}
-                </Title>
+                <Group justify="space-between">
+                  <Title order={5}>
+                    {formatCompletedTitle(completedTasks.length)}
+                  </Title>
+                  <ClearHistoryButton onClick={onClearCompleted}>
+                    Clear
+                  </ClearHistoryButton>
+                </Group>
                 {completedTasks.map((task) => (
                   <TaskCard
                     key={taskKey(task)}

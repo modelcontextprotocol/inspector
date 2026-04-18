@@ -1,5 +1,9 @@
 import { useEffect } from "react";
 import { Badge, Button, Card, Group, Menu, Stack, Text } from "@mantine/core";
+import type {
+  ConnectionStatus,
+  ServerType,
+} from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
 import { TransportBadge } from "../../elements/TransportBadge/TransportBadge";
 import { ConnectionToggle } from "../../elements/ConnectionToggle/ConnectionToggle";
@@ -9,10 +13,10 @@ import { InlineError } from "../../elements/InlineError/InlineError";
 export interface ServerCardProps {
   name: string;
   version?: string;
-  transport: "stdio" | "http";
+  transport: ServerType;
   connectionMode: string;
   command: string;
-  status: "connected" | "connecting" | "disconnected" | "failed";
+  status: ConnectionStatus;
   retryCount?: number;
   error?: { message: string; details?: string };
   canTestClientFeatures: boolean;
@@ -90,8 +94,6 @@ export function ServerCard({
 }: ServerCardProps) {
   const isThisConnecting = activeServer === name;
   const isDimmed = activeServer !== undefined && activeServer !== name;
-  const isConnected = status === "connected";
-  const isConnecting = status === "connecting" || isThisConnecting;
   const displayStatus = isThisConnecting ? "connecting" : status;
 
   useEffect(() => {
@@ -128,10 +130,10 @@ export function ServerCard({
               retryCount={retryCount}
             />
             <ConnectionToggle
-              checked={isConnected}
-              loading={isConnecting}
+              status={displayStatus}
               disabled={isDimmed}
-              onChange={handleToggle}
+              onConnect={() => handleToggle(true)}
+              onDisconnect={() => handleToggle(false)}
             />
           </HeaderRight>
         </Group>
@@ -166,12 +168,14 @@ export function ServerCard({
               )}
             </Group>
 
-            <ContentViewer type="text" content={command} copyable />
+            <ContentViewer block={{ type: "text", text: command }} copyable />
 
             {error && (
               <InlineError
-                message={error.message}
-                details={error.details}
+                error={{
+                  message: error.message,
+                  data: error.details,
+                }}
                 retryCount={retryCount}
               />
             )}

@@ -15,8 +15,9 @@ export function CopyButton({ value }: CopyButtonProps) {
         <Tooltip label={copied ? "Copied" : "Copy"}>
           <ActionIcon
             variant="subtle"
-            color={copied ? "green" : "gray"}
+            color={copied ? "green" : "var(--inspector-text-primary)"}
             onClick={copy}
+            fz={24}
           >
             {copied ? "\u2713" : "\u2398"}
           </ActionIcon>

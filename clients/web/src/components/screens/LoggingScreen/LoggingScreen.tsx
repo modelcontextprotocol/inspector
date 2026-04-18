@@ -2,10 +2,10 @@ import { useState } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
 import { LogControls } from "../../groups/LogControls/LogControls";
 import { LogStreamPanel } from "../../groups/LogStreamPanel/LogStreamPanel";
-import type { LogEntryProps } from "../../elements/LogEntry/LogEntry";
+import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 
 export interface LoggingScreenProps {
-  entries: LogEntryProps[];
+  entries: LogEntryData[];
   currentLevel: string;
   onSetLevel: (level: string) => void;
   onClear: () => void;

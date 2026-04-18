@@ -91,7 +91,7 @@ export function LogControls({
       <Stack gap="xs">
         {LOG_LEVELS.map((level) => {
           const style = LEVEL_COLORS[level];
-          const active = !!visibleLevels[level];
+          const active = visibleLevels[level];
           return (
             <UnstyledButton
               key={level}

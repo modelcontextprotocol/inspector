@@ -11,42 +11,63 @@ type Story = StoryObj<typeof AnnotationBadge>;
 
 export const Audience: Story = {
   args: {
-    label: "user",
-    variant: "audience",
+    facet: "audience",
+    value: ["user"],
+  },
+};
+
+export const AudienceMultiple: Story = {
+  args: {
+    facet: "audience",
+    value: ["user", "assistant"],
   },
 };
 
 export const ReadOnly: Story = {
   args: {
-    label: "read-only",
-    variant: "readOnly",
+    facet: "readOnlyHint",
+    value: true,
   },
 };
 
 export const Destructive: Story = {
   args: {
-    label: "destructive",
-    variant: "destructive",
+    facet: "destructiveHint",
+    value: true,
   },
 };
 
-export const LongRun: Story = {
+export const Idempotent: Story = {
   args: {
-    label: "long-run",
-    variant: "longRun",
+    facet: "idempotentHint",
+    value: true,
+  },
+};
+
+export const OpenWorld: Story = {
+  args: {
+    facet: "openWorldHint",
+    value: true,
+  },
+};
+
+export const LongRunning: Story = {
+  args: {
+    facet: "longRunHint",
+    value: true,
   },
 };
 
 export const PriorityHigh: Story = {
   args: {
-    label: "priority: high",
-    variant: "priority",
+    facet: "priority",
+    value: 0.9,
   },
 };
 
-export const Default: Story = {
+export const PriorityLow: Story = {
   args: {
-    label: "custom",
-    variant: "default",
+    facet: "priority",
+    value: 0.2,
   },
 };

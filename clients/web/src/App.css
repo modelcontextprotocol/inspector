@@ -26,6 +26,9 @@
   --inspector-surface-card: var(--mantine-color-gray-0);
   --inspector-surface-code: var(--mantine-color-white);
 
+  /* ── Inputs ────────────────────────────────────────────── */
+  --inspector-input-background: var(--mantine-color-white);
+
   /* ── Borders ───────────────────────────────────────────── */
   --inspector-border-default: var(--mantine-color-default-border);
   --inspector-border-subtle: var(--mantine-color-gray-3);
@@ -34,7 +37,7 @@
   --inspector-status-connected: var(--mantine-color-green-6);
   --inspector-status-connecting: var(--mantine-color-yellow-6);
   --inspector-status-disconnected: var(--mantine-color-gray-5);
-  --inspector-status-failed: var(--mantine-color-red-6);
+  --inspector-status-error: var(--mantine-color-red-6);
 
   /* ── Log levels (RFC 5424) ─────────────────────────────── */
   --inspector-log-debug: var(--mantine-color-gray-6);
@@ -45,15 +48,6 @@
   --inspector-log-critical: var(--mantine-color-red-8);
   --inspector-log-alert: var(--mantine-color-red-9);
   --inspector-log-emergency: var(--mantine-color-red-9);
-
-  /* ── Annotations ───────────────────────────────────────── */
-  --inspector-annotation-destructive: var(--mantine-color-red-6);
-  --inspector-annotation-long-run: var(--mantine-color-yellow-6);
-  --inspector-annotation-read-only: var(--mantine-color-dark-6);
-  --inspector-annotation-audience: var(--mantine-color-gray-6);
-  --inspector-annotation-priority-high: var(--mantine-color-orange-6);
-  --inspector-annotation-priority-medium: var(--mantine-color-yellow-6);
-  --inspector-annotation-priority-low: var(--mantine-color-green-6);
 
   /* ── Task status ───────────────────────────────────────── */
   --inspector-task-waiting: var(--mantine-color-gray-5);
@@ -71,7 +65,8 @@
 [data-mantine-color-scheme="dark"] {
   --inspector-surface-card: var(--mantine-color-gray-9);
   --inspector-surface-code: var(--mantine-color-dark-9);
-  --inspector-border-subtle: var(--mantine-color-dark-4);
+  --inspector-border-subtle: var(--mantine-color-gray-4);
+  --inspector-input-background: var(--mantine-color-dark-9);
 }
 
 /* ── Animations ──────────────────────────────────────────── */
@@ -108,11 +103,43 @@
 /* ── List item hover ────────────────────────────────────── */
 
 .list-item:hover {
-  background-color: var(--mantine-color-gray-1);
+  background-color: var(--mantine-primary-color-light);
 }
 
 [data-mantine-color-scheme="dark"] .list-item:hover {
-  background-color: var(--mantine-color-dark-5);
+  background-color: var(--mantine-primary-color-light);
+}
+
+/* ── Select dropdown / option (dark mode) ──────────────────────── */
+
+[data-mantine-color-scheme="dark"] .mantine-Select-dropdown {
+  background-color: var(--mantine-color-gray-8);
+}
+
+[data-mantine-color-scheme="dark"] .mantine-Select-option:hover {
+  background-color: var(--mantine-primary-color-light);
+}
+
+/* ── Menu dropdown / option (dark mode) ──────────────────────── */
+
+[data-mantine-color-scheme="dark"] .mantine-Menu-dropdown {
+  background-color: var(--mantine-color-gray-8);
+}
+
+[data-mantine-color-scheme="dark"] .mantine-Menu-item:hover {
+  background-color: var(--mantine-primary-color-light);
+}
+
+/* ── Segmented control label (dark mode) ──────────────────────── */
+
+[data-mantine-color-scheme="dark"] .mantine-SegmentedControl-indicator {
+  background-color: var(--mantine-primary-color-light);
+}
+
+/* ── Accordion button hover ─────────────────────────────── */
+
+.mantine-Accordion-control:hover {
+  background-color: var(--mantine-primary-color-light-hover);
 }
 
 /* ── Grid alignment ─────────────────────────────────────── */

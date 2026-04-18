@@ -1,20 +1,17 @@
 import { Button, Group, Stack, Text, Title } from "@mantine/core";
+import type {
+  PromptMessage,
+  SamplingMessage,
+} from "@modelcontextprotocol/sdk/types.js";
 import { MessageBubble } from "../../elements/MessageBubble/MessageBubble";
 
-export interface PromptMessage {
-  role: string;
-  content: string;
-  imageContent?: { data: string; mimeType: string };
-  audioContent?: { data: string; mimeType: string };
-}
-
 const CopyAllButton = Button.withProps({
-  variant: "light",
+  variant: "subtle",
   size: "sm",
 });
 
 export interface PromptMessagesDisplayProps {
-  messages: PromptMessage[];
+  messages: (PromptMessage | SamplingMessage)[];
   onCopyAll?: () => void;
 }
 
@@ -34,14 +31,7 @@ export function PromptMessagesDisplay({
         <Text c="dimmed">No messages to display</Text>
       ) : (
         messages.map((message, index) => (
-          <MessageBubble
-            key={index}
-            index={index}
-            role={message.role as "user" | "assistant"}
-            content={message.content}
-            imageContent={message.imageContent}
-            audioContent={message.audioContent}
-          />
+          <MessageBubble key={index} index={index} message={message} />
         ))
       )}
     </Stack>

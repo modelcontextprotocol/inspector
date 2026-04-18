@@ -69,10 +69,10 @@ const disconnectedStdioServer: ServerCardProps = {
 const failedHttpServer: ServerCardProps = {
   name: "Remote API Server",
   version: "2.0.0",
-  transport: "http",
+  transport: "streamable-http",
   connectionMode: "Streamable HTTP",
   command: "https://api.example.com/mcp",
-  status: "failed",
+  status: "error",
   retryCount: 3,
   error: {
     message: "Connection refused",
@@ -84,7 +84,7 @@ const failedHttpServer: ServerCardProps = {
 
 const connectingHttpServer: ServerCardProps = {
   name: "Staging Server",
-  transport: "http",
+  transport: "streamable-http",
   connectionMode: "Streamable HTTP",
   command: "https://staging.example.com/mcp",
   status: "connecting",

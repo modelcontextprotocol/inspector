@@ -7,7 +7,7 @@ import type { TaskCardProps } from "../../groups/TaskCard/TaskCard";
 export interface TasksScreenProps {
   tasks: TaskCardProps[];
   onRefresh: () => void;
-  onClearHistory: () => void;
+  onClearCompleted: () => void;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -30,7 +30,7 @@ const SidebarCard = Card.withProps({
 export function TasksScreen({
   tasks,
   onRefresh,
-  onClearHistory,
+  onClearCompleted,
 }: TasksScreenProps) {
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
@@ -47,7 +47,6 @@ export function TasksScreen({
               setStatusFilter(value || undefined)
             }
             onRefresh={onRefresh}
-            onClearHistory={onClearHistory}
           />
         </SidebarCard>
       </Sidebar>
@@ -55,6 +54,7 @@ export function TasksScreen({
         tasks={tasks}
         searchText={searchText}
         statusFilter={statusFilter}
+        onClearCompleted={onClearCompleted}
       />
     </ScreenLayout>
   );

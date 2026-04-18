@@ -9,7 +9,7 @@ const meta: Meta<typeof TasksScreen> = {
   parameters: { layout: "fullscreen" },
   args: {
     onRefresh: fn(),
-    onClearHistory: fn(),
+    onClearCompleted: fn(),
   },
 };
 
@@ -19,7 +19,7 @@ type Story = StoryObj<typeof TasksScreen>;
 const sampleTasks: TaskCardProps[] = [
   {
     taskId: "d0b22eba71fa36229ce5c4dfadeaa7de",
-    status: "running",
+    status: "working",
     method: "tools/call",
     target: "batch_process",
     progress: 65,
@@ -32,7 +32,7 @@ const sampleTasks: TaskCardProps[] = [
   },
   {
     taskId: "4100b5e0b0ed9cd0023330342d1bf647",
-    status: "waiting",
+    status: "input_required",
     method: "resources/read",
     target: "file:///data/large-dataset.csv",
     startedAt: "3/29/2026, 8:17:55 PM",
@@ -77,7 +77,7 @@ export const Mixed: Story = {
 export const ActiveOnly: Story = {
   args: {
     tasks: sampleTasks.filter(
-      (t) => t.status === "running" || t.status === "waiting",
+      (t) => t.status === "working" || t.status === "input_required",
     ),
   },
 };
@@ -85,7 +85,7 @@ export const ActiveOnly: Story = {
 export const CompletedOnly: Story = {
   args: {
     tasks: sampleTasks.filter(
-      (t) => t.status !== "running" && t.status !== "waiting",
+      (t) => t.status !== "working" && t.status !== "input_required",
     ),
   },
 };

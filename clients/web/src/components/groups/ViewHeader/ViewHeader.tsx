@@ -17,7 +17,7 @@ import mcpLogoDark from "../../../theme/assets/MCP-dark.svg";
 interface ConnectedProps {
   connected: true;
   serverName: string;
-  status: "connected" | "connecting" | "failed";
+  status: "connected" | "connecting" | "error";
   latencyMs?: number;
   activeTab: string;
   availableTabs: string[];
@@ -79,13 +79,13 @@ const RightSection = Group.withProps({
 });
 
 const DisconnectButton = Button.withProps({
-  variant: "outline",
+  variant: "subtle",
   c: "red",
   size: "sm",
 });
 
 const ThemeToggle = ActionIcon.withProps({
-  variant: "outline",
+  variant: "subtle",
   size: 36,
   "aria-label": "Toggle color scheme",
 });

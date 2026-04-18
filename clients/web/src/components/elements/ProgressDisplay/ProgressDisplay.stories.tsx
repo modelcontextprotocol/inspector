@@ -11,29 +11,47 @@ type Story = StoryObj<typeof ProgressDisplay>;
 
 export const ZeroPercent: Story = {
   args: {
-    progress: 0,
+    params: { progress: 0, total: 100 },
   },
 };
 
 export const HalfComplete: Story = {
   args: {
-    progress: 50,
-    description: "Processing...",
+    params: {
+      progress: 50,
+      total: 100,
+      message: "Processing...",
+    },
   },
 };
 
 export const NearComplete: Story = {
   args: {
-    progress: 95,
-    description: "Almost done",
+    params: {
+      progress: 95,
+      total: 100,
+      message: "Almost done",
+    },
     elapsed: "1m 30s",
   },
 };
 
 export const Complete: Story = {
   args: {
-    progress: 100,
-    description: "Done",
+    params: {
+      progress: 100,
+      total: 100,
+      message: "Done",
+    },
     elapsed: "2m 15s",
+  },
+};
+
+export const WithoutTotal: Story = {
+  args: {
+    params: {
+      progress: 42,
+      message: "Working...",
+    },
   },
 };

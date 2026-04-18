@@ -40,12 +40,6 @@ function previewUri(
   );
 }
 
-function priorityLabel(priority: number): string {
-  if (priority >= 0.7) return "priority: high";
-  if (priority >= 0.4) return "priority: medium";
-  return "priority: low";
-}
-
 const HeaderRow = Group.withProps({
   justify: "space-between",
   wrap: "nowrap",
@@ -128,13 +122,15 @@ export function ResourceTemplatePanel({
       <FooterRow>
         <AnnotationGroup>
           {annotations?.audience && (
-            <AnnotationBadge label={annotations.audience} variant="audience" />
+            <AnnotationBadge
+              facet="audience"
+              value={
+                annotations.audience.split(", ") as ("user" | "assistant")[]
+              }
+            />
           )}
           {annotations?.priority !== undefined && (
-            <AnnotationBadge
-              label={priorityLabel(annotations.priority)}
-              variant="priority"
-            />
+            <AnnotationBadge facet="priority" value={annotations.priority} />
           )}
         </AnnotationGroup>
         <Button size="sm" disabled={!canSubmit} onClick={handleSubmit}>

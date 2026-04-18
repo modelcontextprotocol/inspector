@@ -1,20 +1,21 @@
 import { Group, Paper, Text } from "@mantine/core";
+import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 
 export interface ServerStatusIndicatorProps {
-  status: "connected" | "connecting" | "disconnected" | "failed";
+  status: ConnectionStatus;
   latencyMs?: number;
   retryCount?: number;
 }
 
-const statusColorVar: Record<ServerStatusIndicatorProps["status"], string> = {
+const statusColorVar: Record<ConnectionStatus, string> = {
   connected: "var(--inspector-status-connected)",
   connecting: "var(--inspector-status-connecting)",
   disconnected: "var(--inspector-status-disconnected)",
-  failed: "var(--inspector-status-failed)",
+  error: "var(--inspector-status-error)",
 };
 
 function getLabel(
-  status: ServerStatusIndicatorProps["status"],
+  status: ConnectionStatus,
   latencyMs?: number,
   retryCount?: number,
 ): string {
@@ -25,8 +26,8 @@ function getLabel(
       return "Connecting...";
     case "disconnected":
       return "Disconnected";
-    case "failed":
-      return retryCount != null ? `Failed (${retryCount})` : "Failed";
+    case "error":
+      return retryCount != null ? `Error (${retryCount})` : "Error";
   }
 }
 
