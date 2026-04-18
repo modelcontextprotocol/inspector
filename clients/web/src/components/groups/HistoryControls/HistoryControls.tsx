@@ -37,7 +37,7 @@ export function HistoryControls({
       <Select
         placeholder="All methods"
         data={METHOD_OPTIONS}
-        value={methodFilter}
+        value={methodFilter ?? null}
         onChange={(value) => onMethodFilterChange(value ?? "")}
         clearable
       />
