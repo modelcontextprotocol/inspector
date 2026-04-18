@@ -35,23 +35,25 @@ export function PromptArgumentsForm({
     <Stack gap="md">
       <PromptTitle>{title ?? name}</PromptTitle>
       {description && <DescriptionText>{description}</DescriptionText>}
-      <Title order={4}>Arguments</Title>
       {promptArguments && promptArguments.length > 0 && (
-        <Stack gap="sm">
-          {promptArguments.map((arg) => (
-            <TextInput
-              key={arg.name}
-              label={arg.name}
-              withAsterisk={arg.required === true}
-              description={arg.description}
-              placeholder={formatPlaceholder(arg.name)}
-              value={argumentValues[arg.name] || ""}
-              onChange={(event) =>
-                onArgumentChange(arg.name, event.currentTarget.value)
-              }
-            />
-          ))}
-        </Stack>
+        <>
+          <Title order={4}>Arguments</Title>
+          <Stack gap="sm">
+            {promptArguments.map((arg) => (
+              <TextInput
+                key={arg.name}
+                label={arg.name}
+                withAsterisk={arg.required === true}
+                description={arg.description}
+                placeholder={formatPlaceholder(arg.name)}
+                value={argumentValues[arg.name] || ""}
+                onChange={(event) =>
+                  onArgumentChange(arg.name, event.currentTarget.value)
+                }
+              />
+            ))}
+          </Stack>
+        </>
       )}
       <Group justify="flex-end">
         <Button size="sm" onClick={onGetPrompt}>
