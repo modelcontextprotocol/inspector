@@ -12,9 +12,8 @@ export interface ToolControlsProps {
   onSelectTool: (name: string) => void;
 }
 
-function listMaxHeight(): string {
-  return "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - 160px)";
-}
+const LIST_MAX_HEIGHT =
+  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - 160px)";
 
 export function ToolControls({
   tools,
@@ -44,7 +43,7 @@ export function ToolControls({
         value={searchText}
         onChange={(e) => setSearchText(e.currentTarget.value)}
       />
-      <ScrollArea.Autosize mah={listMaxHeight()}>
+      <ScrollArea.Autosize mah={LIST_MAX_HEIGHT}>
         <Stack gap="xs">
           {filteredTools.map((tool) => (
             <ToolListItem

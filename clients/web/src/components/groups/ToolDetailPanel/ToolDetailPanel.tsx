@@ -8,14 +8,16 @@ import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge"
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 
+export type ToolProgress = Pick<
+  ProgressNotification["params"],
+  "progress" | "total" | "message"
+>;
+
 export interface ToolDetailPanelProps {
   tool: Tool;
   formValues: Record<string, unknown>;
   isExecuting: boolean;
-  progress?: Pick<
-    ProgressNotification["params"],
-    "progress" | "total" | "message"
-  >;
+  progress?: ToolProgress;
   onFormChange: (values: Record<string, unknown>) => void;
   onExecute: () => void;
   onCancel: () => void;
@@ -44,8 +46,7 @@ function resolveTitle(name: string, title?: string): string {
 function hasAnyAnnotation(annotations?: ToolAnnotations): boolean {
   return !!(
     annotations &&
-    (annotations.title ||
-      annotations.readOnlyHint ||
+    (annotations.readOnlyHint ||
       annotations.destructiveHint ||
       annotations.idempotentHint ||
       annotations.openWorldHint)

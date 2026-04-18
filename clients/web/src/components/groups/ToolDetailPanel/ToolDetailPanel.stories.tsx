@@ -50,7 +50,6 @@ const deleteRecordsTool: Tool = {
   name: "delete_records",
   description: "Deletes records matching the given criteria",
   annotations: {
-    readOnlyHint: true,
     destructiveHint: true,
   },
   inputSchema: {

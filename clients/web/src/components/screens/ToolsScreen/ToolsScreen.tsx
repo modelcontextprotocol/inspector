@@ -1,22 +1,18 @@
 import { useState } from "react";
 import { Card, Flex, Stack, Text } from "@mantine/core";
-import type {
-  CallToolResult,
-  ProgressNotification,
-  Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ToolControls } from "../../groups/ToolControls/ToolControls";
-import { ToolDetailPanel } from "../../groups/ToolDetailPanel/ToolDetailPanel";
+import {
+  ToolDetailPanel,
+  type ToolProgress,
+} from "../../groups/ToolDetailPanel/ToolDetailPanel";
 import { ToolResultPanel } from "../../groups/ToolResultPanel/ToolResultPanel";
 
 export interface ToolCallState {
   status: "idle" | "pending" | "ok" | "error";
   result?: CallToolResult;
   error?: string;
-  progress?: Pick<
-    ProgressNotification["params"],
-    "progress" | "total" | "message"
-  >;
+  progress?: ToolProgress;
 }
 
 export interface ToolsScreenProps {
@@ -86,7 +82,10 @@ export function ToolsScreen({
             selectedName={selectedToolName}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
-            onSelectTool={onSelectTool}
+            onSelectTool={(name) => {
+              setFormValues({});
+              onSelectTool(name);
+            }}
           />
         </SidebarCard>
       </Sidebar>
