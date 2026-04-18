@@ -129,6 +129,25 @@ export const LongToolName: Story = {
   },
 };
 
+export const WithError: Story = {
+  args: {
+    tools: sampleTools,
+    selectedToolName: "create_record",
+    callState: {
+      status: "error",
+      result: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: 'Error executing tool "create_record": ECONNREFUSED 127.0.0.1:5432 — could not connect to the database server. The server may not be running or may be unreachable at the configured host and port. Please verify that PostgreSQL is started, the connection string is correct, and any firewall rules allow traffic on port 5432. If this is a transient issue, retrying after a short delay may resolve it.',
+          },
+        ],
+      },
+    },
+  },
+};
+
 export const WithListChanged: Story = {
   args: {
     tools: sampleTools,
