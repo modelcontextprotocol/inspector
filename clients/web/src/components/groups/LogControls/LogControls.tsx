@@ -73,7 +73,9 @@ export function LogControls({
           data={LOG_LEVELS.map((level) => ({ value: level, label: level }))}
           value={currentLevel}
           onChange={(value) => {
-            if (value) onSetLevel(value as LoggingLevel);
+            if (value && LOG_LEVELS.includes(value as LoggingLevel)) {
+              onSetLevel(value as LoggingLevel);
+            }
           }}
         />
         <Button size="sm" onClick={() => onSetLevel(currentLevel)}>
