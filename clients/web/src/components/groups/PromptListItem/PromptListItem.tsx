@@ -1,8 +1,8 @@
 import { Stack, Text, UnstyledButton } from "@mantine/core";
+import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 
 export interface PromptListItemProps {
-  name: string;
-  description?: string;
+  prompt: Prompt;
   selected: boolean;
   onClick: () => void;
 }
@@ -18,11 +18,11 @@ const DescriptionText = Text.withProps({
 });
 
 export function PromptListItem({
-  name,
-  description,
+  prompt,
   selected,
   onClick,
 }: PromptListItemProps) {
+  const { name, title, description } = prompt;
   return (
     <UnstyledButton
       w="100%"
@@ -32,7 +32,7 @@ export function PromptListItem({
       onClick={onClick}
     >
       <Stack gap={2}>
-        <NameText>{name}</NameText>
+        <NameText>{title ?? name}</NameText>
         {description && <DescriptionText>{description}</DescriptionText>}
       </Stack>
     </UnstyledButton>

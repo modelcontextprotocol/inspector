@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { PromptControls } from "./PromptControls";
 
@@ -15,28 +16,24 @@ const meta: Meta<typeof PromptControls> = {
 export default meta;
 type Story = StoryObj<typeof PromptControls>;
 
-const samplePrompts = [
+const samplePrompts: Prompt[] = [
   {
     name: "summarize",
     description: "Summarize the given text into key points",
-    selected: false,
   },
   {
     name: "translate",
     description: "Translate text from one language to another",
-    selected: false,
   },
   {
     name: "analyze",
     description: "Analyze sentiment and tone of the text",
-    selected: false,
   },
   {
     name: "code-review",
     description: "Review code for issues",
-    selected: false,
   },
-  { name: "refactor", selected: false },
+  { name: "refactor" },
 ];
 
 export const Default: Story = {
@@ -47,9 +44,8 @@ export const Default: Story = {
 
 export const WithSelection: Story = {
   args: {
-    prompts: samplePrompts.map((p) =>
-      p.name === "translate" ? { ...p, selected: true } : p,
-    ),
+    prompts: samplePrompts,
+    selectedName: "translate",
   },
 };
 

@@ -1,32 +1,28 @@
+import { useState } from "react";
 import { Card, Flex, Group, ScrollArea, Stack, Text } from "@mantine/core";
+import type {
+  GetPromptResult,
+  Prompt,
+} from "@modelcontextprotocol/sdk/types.js";
 import { PromptControls } from "../../groups/PromptControls/PromptControls";
 import { PromptArgumentsForm } from "../../groups/PromptArgumentsForm/PromptArgumentsForm";
 import { PromptMessagesDisplay } from "../../groups/PromptMessagesDisplay/PromptMessagesDisplay";
-import type { PromptArgument } from "../../groups/PromptArgumentsForm/PromptArgumentsForm";
-import type { PromptMessagesDisplayProps } from "../../groups/PromptMessagesDisplay/PromptMessagesDisplay";
 
-export interface PromptItem {
-  name: string;
-  description?: string;
-  selected: boolean;
-}
-
-export interface SelectedPrompt {
-  name: string;
-  description?: string;
-  arguments: PromptArgument[];
-  argumentValues: Record<string, string>;
+export interface GetPromptState {
+  status: "idle" | "pending" | "ok" | "error";
+  result?: GetPromptResult;
+  error?: string;
 }
 
 export interface PromptsScreenProps {
-  prompts: PromptItem[];
-  selectedPrompt?: SelectedPrompt;
-  messages?: PromptMessagesDisplayProps;
+  prompts: Prompt[];
+  selectedPromptName?: string;
+  getPromptState?: GetPromptState;
   listChanged: boolean;
   onRefreshList: () => void;
   onSelectPrompt: (name: string) => void;
-  onArgumentChange: (name: string, value: string) => void;
-  onGetPrompt: () => void;
+  onGetPrompt: (name: string, args: Record<string, string>) => void;
+  onCopyMessages?: () => void;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -60,23 +56,34 @@ const EmptyState = Text.withProps({
 
 export function PromptsScreen({
   prompts,
-  selectedPrompt,
-  messages,
+  selectedPromptName,
+  getPromptState,
   listChanged,
   onRefreshList,
   onSelectPrompt,
-  onArgumentChange,
   onGetPrompt,
+  onCopyMessages,
 }: PromptsScreenProps) {
+  const [argumentValues, setArgumentValues] = useState<Record<string, string>>(
+    {},
+  );
+  const selectedPrompt = selectedPromptName
+    ? prompts.find((p) => p.name === selectedPromptName)
+    : undefined;
+
   return (
     <ScreenLayout>
       <Sidebar>
         <SidebarCard>
           <PromptControls
             prompts={prompts}
+            selectedName={selectedPromptName}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
-            onSelectPrompt={onSelectPrompt}
+            onSelectPrompt={(name) => {
+              setArgumentValues({});
+              onSelectPrompt(name);
+            }}
           />
         </SidebarCard>
       </Sidebar>
@@ -90,17 +97,22 @@ export function PromptsScreen({
             <>
               <DetailCard>
                 <PromptArgumentsForm
-                  name={selectedPrompt.name}
-                  description={selectedPrompt.description}
-                  arguments={selectedPrompt.arguments}
-                  argumentValues={selectedPrompt.argumentValues}
-                  onArgumentChange={onArgumentChange}
-                  onGetPrompt={onGetPrompt}
+                  prompt={selectedPrompt}
+                  argumentValues={argumentValues}
+                  onArgumentChange={(name, value) =>
+                    setArgumentValues((prev) => ({ ...prev, [name]: value }))
+                  }
+                  onGetPrompt={() =>
+                    onGetPrompt(selectedPrompt.name, argumentValues)
+                  }
                 />
               </DetailCard>
-              {messages && (
+              {getPromptState?.result && (
                 <DetailCard>
-                  <PromptMessagesDisplay {...messages} />
+                  <PromptMessagesDisplay
+                    messages={getPromptState.result.messages}
+                    onCopyAll={onCopyMessages}
+                  />
                 </DetailCard>
               )}
             </>

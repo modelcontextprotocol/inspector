@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { PromptsScreen } from "./PromptsScreen";
-import type { PromptItem, SelectedPrompt } from "./PromptsScreen";
+import type { GetPromptState } from "./PromptsScreen";
 
 const meta: Meta<typeof PromptsScreen> = {
   title: "Screens/PromptsScreen",
@@ -10,8 +11,8 @@ const meta: Meta<typeof PromptsScreen> = {
   args: {
     onRefreshList: fn(),
     onSelectPrompt: fn(),
-    onArgumentChange: fn(),
     onGetPrompt: fn(),
+    onCopyMessages: fn(),
     listChanged: false,
   },
 };
@@ -19,42 +20,54 @@ const meta: Meta<typeof PromptsScreen> = {
 export default meta;
 type Story = StoryObj<typeof PromptsScreen>;
 
-const samplePrompts: PromptItem[] = [
+const samplePrompts: Prompt[] = [
   {
     name: "summarize",
     description: "Summarize the given text into key points",
-    selected: false,
   },
   {
     name: "translate",
     description: "Translate text from one language to another",
-    selected: false,
+    arguments: [
+      { name: "text", required: true, description: "The text to translate" },
+      {
+        name: "targetLanguage",
+        required: true,
+        description: "Target language code",
+      },
+    ],
   },
   {
     name: "code-review",
     description: "Review code for issues",
-    selected: false,
   },
   {
     name: "analyze",
     description: "Analyze sentiment and tone of the text",
-    selected: false,
   },
-  { name: "refactor", selected: false },
+  { name: "refactor" },
 ];
 
-const selectedTranslate: SelectedPrompt = {
-  name: "translate",
-  description: "Translate text from one language to another",
-  arguments: [
-    { name: "text", required: true, description: "The text to translate" },
-    {
-      name: "targetLanguage",
-      required: true,
-      description: "Target language code",
-    },
-  ],
-  argumentValues: {},
+const translateResult: GetPromptState = {
+  status: "ok",
+  result: {
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: 'Translate the following text to Spanish: "Hello, how are you?"',
+        },
+      },
+      {
+        role: "assistant",
+        content: {
+          type: "text",
+          text: "Hola, como estas?",
+        },
+      },
+    ],
+  },
 };
 
 export const NoSelection: Story = {
@@ -65,44 +78,16 @@ export const NoSelection: Story = {
 
 export const PromptSelected: Story = {
   args: {
-    prompts: samplePrompts.map((p) =>
-      p.name === "translate" ? { ...p, selected: true } : p,
-    ),
-    selectedPrompt: selectedTranslate,
+    prompts: samplePrompts,
+    selectedPromptName: "translate",
   },
 };
 
 export const WithResult: Story = {
   args: {
-    prompts: samplePrompts.map((p) =>
-      p.name === "translate" ? { ...p, selected: true } : p,
-    ),
-    selectedPrompt: {
-      ...selectedTranslate,
-      argumentValues: {
-        text: "Hello, how are you?",
-        targetLanguage: "es",
-      },
-    },
-    messages: {
-      onCopyAll: fn(),
-      messages: [
-        {
-          role: "user",
-          content: {
-            type: "text",
-            text: 'Translate the following text to Spanish: "Hello, how are you?"',
-          },
-        },
-        {
-          role: "assistant",
-          content: {
-            type: "text",
-            text: "Hola, como estas?",
-          },
-        },
-      ],
-    },
+    prompts: samplePrompts,
+    selectedPromptName: "translate",
+    getPromptState: translateResult,
   },
 };
 

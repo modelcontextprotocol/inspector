@@ -52,17 +52,11 @@ export const WithImage: Story = {
     messages: [
       {
         role: "user",
-        content: [
-          {
-            type: "text",
-            text: "Here is a photo for you to analyze.",
-          },
-          {
-            type: "image",
-            data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-            mimeType: "image/png",
-          },
-        ],
+        content: {
+          type: "image",
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+          mimeType: "image/png",
+        },
       },
     ],
   },
