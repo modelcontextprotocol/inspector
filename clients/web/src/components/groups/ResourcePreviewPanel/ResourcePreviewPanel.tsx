@@ -30,7 +30,13 @@ function toContentBlock(
   if (mimeType.startsWith("image/")) {
     return { type: "image", data: item.blob, mimeType };
   }
-  return { type: "text", text: item.blob };
+  if (mimeType.startsWith("audio/")) {
+    return { type: "audio", data: item.blob, mimeType };
+  }
+  return {
+    type: "text",
+    text: `[Binary content (${mimeType}) — preview not supported]`,
+  };
 }
 
 function formatLastUpdated(date: Date): string {
@@ -113,7 +119,7 @@ export function ResourcePreviewPanel({
         ) : (
           <Spacer />
         )}
-        <MimeText>{mimeType}</MimeText>
+        {contents.length <= 1 && <MimeText>{mimeType}</MimeText>}
       </MetaRow>
       <FooterRow>
         <AnnotationGroup>

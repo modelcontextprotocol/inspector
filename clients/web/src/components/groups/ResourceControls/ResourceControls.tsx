@@ -22,7 +22,7 @@ export interface ResourceControlsProps {
   templates: ResourceTemplate[];
   subscriptions: InspectorResourceSubscription[];
   selectedUri?: string;
-  selectedTemplate?: string;
+  selectedTemplateUri?: string;
   listChanged: boolean;
   onRefreshList: () => void;
   onSelectUri: (uri: string) => void;
@@ -46,7 +46,7 @@ export function ResourceControls({
   templates,
   subscriptions,
   selectedUri,
-  selectedTemplate,
+  selectedTemplateUri,
   listChanged,
   onRefreshList,
   onSelectUri,
@@ -137,9 +137,9 @@ export function ResourceControls({
                   <ResourceListItem
                     key={template.uriTemplate}
                     resource={template}
-                    selected={template.uriTemplate === selectedTemplate}
+                    selected={template.uriTemplate === selectedTemplateUri}
                     onClick={() => {
-                      if (template.uriTemplate !== selectedTemplate)
+                      if (template.uriTemplate !== selectedTemplateUri)
                         onSelectTemplate(template.uriTemplate);
                     }}
                   />

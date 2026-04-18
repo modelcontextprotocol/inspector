@@ -96,6 +96,14 @@ export function ResourcesScreen({
     ? templates.find((t) => t.uriTemplate === selectedTemplateUri)
     : undefined;
 
+  // For template-expanded URIs that don't appear in the resources list,
+  // construct a synthetic Resource so the preview panel can render.
+  const readResource: Resource | undefined =
+    selectedResource ??
+    (readState?.uri && readState.uri === selectedResourceUri
+      ? { name: readState.uri, uri: readState.uri }
+      : undefined);
+
   function renderReadState() {
     if (!readState) return null;
 
@@ -120,17 +128,17 @@ export function ResourcesScreen({
       );
     }
 
-    if (readState.result && selectedResource) {
+    if (readState.result && readResource) {
       return (
         <DetailCard>
           <ResourcePreviewPanel
-            resource={selectedResource}
+            resource={readResource}
             contents={readState.result.contents}
             lastUpdated={readState.lastUpdated}
             isSubscribed={readState.isSubscribed ?? false}
-            onRefresh={() => onReadResource(selectedResource.uri)}
-            onSubscribe={() => onSubscribeResource(selectedResource.uri)}
-            onUnsubscribe={() => onUnsubscribeResource(selectedResource.uri)}
+            onRefresh={() => onReadResource(readResource.uri)}
+            onSubscribe={() => onSubscribeResource(readResource.uri)}
+            onUnsubscribe={() => onUnsubscribeResource(readResource.uri)}
           />
         </DetailCard>
       );
@@ -148,7 +156,7 @@ export function ResourcesScreen({
             templates={templates}
             subscriptions={subscriptions}
             selectedUri={selectedResourceUri}
-            selectedTemplate={selectedTemplateUri}
+            selectedTemplateUri={selectedTemplateUri}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
             onSelectUri={onSelectUri}
