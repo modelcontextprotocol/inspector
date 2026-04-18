@@ -78,6 +78,7 @@ const BubbleContainer = Paper.withProps({
 const RoleLabel = Text.withProps({
   size: "xs",
   c: "dimmed",
+  ff: "monospace",
 });
 
 const PreviewImage = Image.withProps({
