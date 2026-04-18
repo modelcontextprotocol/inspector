@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { ToolDetailPanel } from "./ToolDetailPanel";
 
@@ -17,83 +18,101 @@ const meta: Meta<typeof ToolDetailPanel> = {
 export default meta;
 type Story = StoryObj<typeof ToolDetailPanel>;
 
+const sendMessageTool: Tool = {
+  name: "send_message",
+  inputSchema: {
+    type: "object",
+    properties: {
+      message: { type: "string", description: "The message to send" },
+    },
+    required: ["message"],
+  },
+};
+
+const createRecordTool: Tool = {
+  name: "create_record",
+  description: "Creates a new record with the given parameters",
+  inputSchema: {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "Record title" },
+      count: { type: "number", description: "Number of items" },
+      enabled: {
+        type: "boolean",
+        description: "Whether the record is active",
+      },
+    },
+    required: ["title"],
+  },
+};
+
+const deleteRecordsTool: Tool = {
+  name: "delete_records",
+  description: "Deletes records matching the given criteria",
+  annotations: {
+    destructiveHint: true,
+  },
+  inputSchema: {
+    type: "object",
+    properties: {
+      pattern: { type: "string", description: "Pattern to match records" },
+    },
+  },
+};
+
+const longQueryTool: Tool = {
+  name: "long_query",
+  description: "Runs a long database query",
+  inputSchema: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "SQL query to execute" },
+    },
+  },
+};
+
+const batchProcessTool: Tool = {
+  name: "batch_process",
+  description: "Processes items in batch",
+  inputSchema: {
+    type: "object",
+    properties: {
+      batchSize: { type: "number", description: "Number of items per batch" },
+    },
+  },
+};
+
 export const SimpleStringParam: Story = {
   args: {
-    name: "send_message",
-    schema: {
-      type: "object",
-      properties: {
-        message: { type: "string", description: "The message to send" },
-      },
-      required: ["message"],
-    },
+    tool: sendMessageTool,
   },
 };
 
 export const MultipleParams: Story = {
   args: {
-    name: "create_record",
-    description: "Creates a new record with the given parameters",
-    schema: {
-      type: "object",
-      properties: {
-        title: { type: "string", description: "Record title" },
-        count: { type: "number", description: "Number of items" },
-        enabled: {
-          type: "boolean",
-          description: "Whether the record is active",
-        },
-      },
-      required: ["title"],
-    },
+    tool: createRecordTool,
   },
 };
 
 export const WithAnnotations: Story = {
   args: {
-    name: "delete_records",
-    description: "Deletes records matching the given criteria",
-    annotations: {
-      audience: "admin",
-      readOnly: true,
-      destructive: true,
-    },
-    schema: {
-      type: "object",
-      properties: {
-        pattern: { type: "string", description: "Pattern to match records" },
-      },
-    },
+    tool: deleteRecordsTool,
   },
 };
 
 export const Executing: Story = {
   args: {
-    name: "long_query",
-    description: "Runs a long database query",
+    tool: longQueryTool,
     isExecuting: true,
-    schema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "SQL query to execute" },
-      },
-    },
     formValues: { query: "SELECT * FROM users" },
   },
 };
 
 export const WithProgress: Story = {
   args: {
-    name: "batch_process",
-    description: "Processes items in batch",
+    tool: batchProcessTool,
     isExecuting: true,
-    progress: { percent: 60, description: "Processing step 3 of 5" },
-    schema: {
-      type: "object",
-      properties: {
-        batchSize: { type: "number", description: "Number of items per batch" },
-      },
-    },
+    progress: { progress: 3, total: 5, message: "Processing step 3 of 5" },
     formValues: { batchSize: 100 },
   },
 };

@@ -173,228 +173,194 @@ export const ToolsActive: Story = {
           {
             name: "send_message",
             title: "Send Message",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "create_record",
             title: "Create Record",
-            selected: true,
-            onClick: fn(),
+            description: "Creates a new record with the given parameters",
+            inputSchema: {
+              type: "object",
+              properties: {
+                title: { type: "string", description: "Record title" },
+                count: { type: "number", description: "Number of items" },
+                enabled: {
+                  type: "boolean",
+                  description: "Whether the record is active",
+                },
+              },
+              required: ["title"],
+            },
           },
           {
             name: "delete_records",
             title: "Delete Records",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "list_users",
             title: "List Users",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "batch_process",
             title: "Batch Process",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "search_files",
             title: "Search Files",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "read_file",
             title: "Read File",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "write_file",
             title: "Write File",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "get_schema",
             title: "Get Schema",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "run_query",
             title: "Run Query",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "create_migration",
             title: "Create Migration",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "validate_config",
             title: "Validate Config",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "deploy_service",
             title: "Deploy Service",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "rollback_deploy",
             title: "Rollback Deploy",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "check_health",
             title: "Check Health",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "generate_report",
             title: "Generate Report",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "export_csv",
             title: "Export CSV",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "import_data",
             title: "Import Data",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "send_notification",
             title: "Send Notification",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "schedule_task",
             title: "Schedule Task",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "cancel_task",
             title: "Cancel Task",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "list_connections",
             title: "List Connections",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "refresh_cache",
             title: "Refresh Cache",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "purge_logs",
             title: "Purge Logs",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "encrypt_secret",
             title: "Encrypt Secret",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "rotate_keys",
             title: "Rotate Keys",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "sync_resources",
             title: "Sync Resources",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "compile_template",
             title: "Compile Template",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "analyze_performance",
             title: "Analyze Performance",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
           {
             name: "resize_image",
             title: "Resize Image",
-            selected: false,
-            onClick: fn(),
+            inputSchema: { type: "object" },
           },
         ]}
-        selectedTool={{
-          name: "create_record",
-          title: "Create Record",
-          description: "Creates a new record with the given parameters",
-          schema: {
-            type: "object",
-            properties: {
-              title: { type: "string", description: "Record title" },
-              count: { type: "number", description: "Number of items" },
-              enabled: {
-                type: "boolean",
-                description: "Whether the record is active",
+        selectedToolName="create_record"
+        callState={{
+          status: "ok",
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    id: 42,
+                    title: "New Record",
+                    count: 5,
+                    enabled: true,
+                    createdAt: "2026-03-17T12:00:00Z",
+                  },
+                  null,
+                  2,
+                ),
               },
-            },
-            required: ["title"],
+            ],
           },
-          formValues: {},
-          isExecuting: false,
-          onFormChange: fn(),
-          onExecute: fn(),
-          onCancel: fn(),
-        }}
-        result={{
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  id: 42,
-                  title: "New Record",
-                  count: 5,
-                  enabled: true,
-                  createdAt: "2026-03-17T12:00:00Z",
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-          onClear: fn(),
         }}
         listChanged={true}
         onRefreshList={fn()}
         onSelectTool={fn()}
+        onCallTool={fn()}
+        onCancelCall={fn()}
+        onClearResult={fn()}
       />
     ),
   },

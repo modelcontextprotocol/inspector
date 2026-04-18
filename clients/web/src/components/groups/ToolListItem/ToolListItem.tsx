@@ -1,8 +1,8 @@
 import { Stack, Text, UnstyledButton } from "@mantine/core";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 export interface ToolListItemProps {
-  name: string;
-  title?: string;
+  tool: Tool;
   selected: boolean;
   onClick: () => void;
 }
@@ -22,12 +22,8 @@ function resolveLabel(name: string, title?: string): string {
   return title ?? name;
 }
 
-export function ToolListItem({
-  name,
-  title,
-  selected,
-  onClick,
-}: ToolListItemProps) {
+export function ToolListItem({ tool, selected, onClick }: ToolListItemProps) {
+  const { name, title } = tool;
   return (
     <UnstyledButton
       w="100%"

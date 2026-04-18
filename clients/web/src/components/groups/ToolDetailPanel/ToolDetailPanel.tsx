@@ -1,26 +1,23 @@
 import { Button, Divider, Group, Stack, Text } from "@mantine/core";
+import type {
+  ProgressNotification,
+  Tool,
+  ToolAnnotations,
+} from "@modelcontextprotocol/sdk/types.js";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
-import type { JsonSchema } from "../SchemaForm/SchemaForm";
 
-export interface ToolAnnotations {
-  audience?: string;
-  readOnly?: boolean;
-  destructive?: boolean;
-  longRunning?: boolean;
-  hints?: string;
-}
+export type ToolProgress = Pick<
+  ProgressNotification["params"],
+  "progress" | "total" | "message"
+>;
 
 export interface ToolDetailPanelProps {
-  name: string;
-  title?: string;
-  description?: string;
-  annotations?: ToolAnnotations;
-  schema: JsonSchema;
+  tool: Tool;
   formValues: Record<string, unknown>;
   isExecuting: boolean;
-  progress?: { percent: number; description?: string };
+  progress?: ToolProgress;
   onFormChange: (values: Record<string, unknown>) => void;
   onExecute: () => void;
   onCancel: () => void;
@@ -32,19 +29,13 @@ const ToolTitle = Text.withProps({
   truncate: "end",
 });
 
-const HintsText = Text.withProps({
-  size: "xs",
-  c: "dimmed",
-  fs: "italic",
-});
-
 const DescriptionText = Text.withProps({
   size: "sm",
   c: "dimmed",
 });
 
 const CancelButton = Button.withProps({
-  variant: "light",
+  variant: "subtle",
   color: "red",
 });
 
@@ -55,20 +46,15 @@ function resolveTitle(name: string, title?: string): string {
 function hasAnyAnnotation(annotations?: ToolAnnotations): boolean {
   return !!(
     annotations &&
-    (annotations.audience ||
-      annotations.readOnly ||
-      annotations.destructive ||
-      annotations.longRunning ||
-      annotations.hints)
+    (annotations.readOnlyHint ||
+      annotations.destructiveHint ||
+      annotations.idempotentHint ||
+      annotations.openWorldHint)
   );
 }
 
 export function ToolDetailPanel({
-  name,
-  title,
-  description,
-  annotations,
-  schema,
+  tool,
   formValues,
   isExecuting,
   progress,
@@ -76,29 +62,25 @@ export function ToolDetailPanel({
   onExecute,
   onCancel,
 }: ToolDetailPanelProps) {
+  const { name, title, description, annotations, inputSchema } = tool;
+
   return (
     <Stack gap="md" miw={0}>
       <ToolTitle>{resolveTitle(name, title)}</ToolTitle>
       {hasAnyAnnotation(annotations) && annotations && (
         <Group gap="xs">
-          {annotations.audience && (
-            <AnnotationBadge
-              facet="audience"
-              value={
-                annotations.audience.split(", ") as ("user" | "assistant")[]
-              }
-            />
-          )}
-          {annotations.readOnly && (
+          {annotations.readOnlyHint && (
             <AnnotationBadge facet="readOnlyHint" value={true} />
           )}
-          {annotations.destructive && (
+          {annotations.destructiveHint && (
             <AnnotationBadge facet="destructiveHint" value={true} />
           )}
-          {annotations.longRunning && (
-            <AnnotationBadge facet="longRunHint" value={true} />
+          {annotations.idempotentHint && (
+            <AnnotationBadge facet="idempotentHint" value={true} />
           )}
-          {annotations.hints && <HintsText>{annotations.hints}</HintsText>}
+          {annotations.openWorldHint && (
+            <AnnotationBadge facet="openWorldHint" value={true} />
+          )}
         </Group>
       )}
 
@@ -107,20 +89,13 @@ export function ToolDetailPanel({
       <Divider />
 
       <SchemaForm
-        schema={schema}
+        schema={inputSchema}
         values={formValues}
         onChange={onFormChange}
         disabled={isExecuting}
       />
 
-      {progress && (
-        <ProgressDisplay
-          params={{
-            progress: progress.percent,
-            message: progress.description,
-          }}
-        />
-      )}
+      {progress && <ProgressDisplay params={progress} />}
 
       <Group justify="flex-end">
         {isExecuting && <CancelButton onClick={onCancel}>Cancel</CancelButton>}

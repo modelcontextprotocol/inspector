@@ -1,22 +1,23 @@
 import { useState } from "react";
 import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { ToolListItem } from "../ToolListItem/ToolListItem";
-import type { ToolListItemProps } from "../ToolListItem/ToolListItem";
 
 export interface ToolControlsProps {
-  tools: ToolListItemProps[];
+  tools: Tool[];
+  selectedName?: string;
   listChanged: boolean;
   onRefreshList: () => void;
   onSelectTool: (name: string) => void;
 }
 
-function listMaxHeight(): string {
-  return "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - 160px)";
-}
+const LIST_MAX_HEIGHT =
+  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - 160px)";
 
 export function ToolControls({
   tools,
+  selectedName,
   listChanged,
   onRefreshList,
   onSelectTool,
@@ -42,13 +43,16 @@ export function ToolControls({
         value={searchText}
         onChange={(e) => setSearchText(e.currentTarget.value)}
       />
-      <ScrollArea.Autosize mah={listMaxHeight()}>
+      <ScrollArea.Autosize mah={LIST_MAX_HEIGHT}>
         <Stack gap="xs">
           {filteredTools.map((tool) => (
             <ToolListItem
               key={tool.name}
-              {...tool}
-              onClick={() => onSelectTool(tool.name)}
+              tool={tool}
+              selected={tool.name === selectedName}
+              onClick={() => {
+                if (tool.name !== selectedName) onSelectTool(tool.name);
+              }}
             />
           ))}
         </Stack>
