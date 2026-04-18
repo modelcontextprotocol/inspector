@@ -197,7 +197,6 @@ export function TaskCard(props: TaskCardProps) {
         {progress !== undefined && isActive && (
           <ProgressDisplay
             params={{
-              progressToken: taskId,
               progress,
               message: progressDescription,
             }}

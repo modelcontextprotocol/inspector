@@ -1,4 +1,5 @@
 import { Button, Flex, Group, Stack, Text, Title } from "@mantine/core";
+import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
@@ -15,8 +16,6 @@ export interface ResourcePreviewPanelProps {
   onSubscribe: () => void;
   onUnsubscribe: () => void;
 }
-
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 
 function toContentBlock(content: string, mimeType: string): ContentBlock {
   if (mimeType.startsWith("image/")) {

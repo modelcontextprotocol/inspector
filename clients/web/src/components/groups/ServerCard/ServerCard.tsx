@@ -1,5 +1,9 @@
 import { useEffect } from "react";
 import { Badge, Button, Card, Group, Menu, Stack, Text } from "@mantine/core";
+import type {
+  ConnectionStatus,
+  ServerType,
+} from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
 import { TransportBadge } from "../../elements/TransportBadge/TransportBadge";
 import { ConnectionToggle } from "../../elements/ConnectionToggle/ConnectionToggle";
@@ -9,10 +13,10 @@ import { InlineError } from "../../elements/InlineError/InlineError";
 export interface ServerCardProps {
   name: string;
   version?: string;
-  transport: "stdio" | "sse" | "streamable-http";
+  transport: ServerType;
   connectionMode: string;
   command: string;
-  status: "connected" | "connecting" | "disconnected" | "error";
+  status: ConnectionStatus;
   retryCount?: number;
   error?: { message: string; details?: string };
   canTestClientFeatures: boolean;

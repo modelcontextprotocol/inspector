@@ -17,16 +17,6 @@ function formatJson(content: string): string {
 
 function isJsonText(block: ContentBlock): boolean {
   if (block.type !== "text") return false;
-  if (
-    "annotations" in block &&
-    block.annotations &&
-    "mimeType" in block.annotations
-  ) {
-    return (
-      (block.annotations as Record<string, unknown>).mimeType ===
-      "application/json"
-    );
-  }
   const trimmed = block.text.trimStart();
   return trimmed.startsWith("{") || trimmed.startsWith("[");
 }

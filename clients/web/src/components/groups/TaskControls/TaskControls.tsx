@@ -1,5 +1,5 @@
 import { Button, Group, Select, Stack, TextInput, Title } from "@mantine/core";
-import type { TaskStatus } from "../TaskCard/TaskCard";
+import type { TaskStatus } from "@modelcontextprotocol/sdk/types.js";
 
 const STATUS_OPTIONS: TaskStatus[] = [
   "working",

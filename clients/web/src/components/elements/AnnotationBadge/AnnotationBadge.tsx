@@ -32,8 +32,12 @@ function formatLabel(
   switch (facet) {
     case "audience":
       return `audience: ${(value as Role[]).join(", ")}`;
-    case "priority":
-      return `priority: ${value}`;
+    case "priority": {
+      const n = value as number;
+      if (n >= 0.7) return "priority: high";
+      if (n >= 0.4) return "priority: medium";
+      return "priority: low";
+    }
     case "readOnlyHint":
       return "read-only";
     case "destructiveHint":

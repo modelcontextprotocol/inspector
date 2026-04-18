@@ -49,15 +49,6 @@
   --inspector-log-alert: var(--mantine-color-red-9);
   --inspector-log-emergency: var(--mantine-color-red-9);
 
-  /* ── Annotations ───────────────────────────────────────── */
-  --inspector-annotation-destructive: var(--mantine-color-red-6);
-  --inspector-annotation-long-run: var(--mantine-color-yellow-6);
-  --inspector-annotation-read-only: var(--mantine-color-dark-6);
-  --inspector-annotation-audience: var(--mantine-color-gray-6);
-  --inspector-annotation-priority-high: var(--mantine-color-orange-6);
-  --inspector-annotation-priority-medium: var(--mantine-color-yellow-6);
-  --inspector-annotation-priority-low: var(--mantine-color-green-6);
-
   /* ── Task status ───────────────────────────────────────── */
   --inspector-task-waiting: var(--mantine-color-gray-5);
   --inspector-task-running: var(--mantine-color-blue-6);

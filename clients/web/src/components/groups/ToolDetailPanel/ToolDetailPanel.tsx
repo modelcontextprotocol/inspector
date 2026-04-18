@@ -116,7 +116,6 @@ export function ToolDetailPanel({
       {progress && (
         <ProgressDisplay
           params={{
-            progressToken: name,
             progress: progress.percent,
             message: progress.description,
           }}

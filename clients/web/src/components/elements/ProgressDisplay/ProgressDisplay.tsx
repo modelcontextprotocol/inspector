@@ -2,7 +2,10 @@ import { Group, Progress, Stack, Text } from "@mantine/core";
 import type { ProgressNotification } from "@modelcontextprotocol/sdk/types.js";
 
 export interface ProgressDisplayProps {
-  params: ProgressNotification["params"];
+  params: Pick<
+    ProgressNotification["params"],
+    "progress" | "total" | "message"
+  >;
   elapsed?: string;
 }
 

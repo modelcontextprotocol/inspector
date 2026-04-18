@@ -51,6 +51,18 @@ function extractContent(
         audioUri = buildDataUri(block.mimeType, block.data);
         audioMime = block.mimeType;
         break;
+      case "resource":
+        text +=
+          "text" in block.resource
+            ? block.resource.text
+            : `[resource: ${block.resource.uri}]`;
+        break;
+      case "resource_link":
+        text += `[resource: ${block.uri}]`;
+        break;
+      default:
+        text += `[${block.type}]`;
+        break;
     }
   }
 
