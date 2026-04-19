@@ -27,6 +27,7 @@ Object.defineProperty(navigator, "clipboard", {
     writeText: mockClipboardWrite,
   },
 });
+const originalExecCommand = document.execCommand;
 
 // Setup fake timers
 jest.useFakeTimers();
@@ -76,6 +77,10 @@ describe("Sidebar", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.clearAllTimers();
+    Object.defineProperty(document, "execCommand", {
+      value: originalExecCommand,
+      configurable: true,
+    });
   });
 
   describe("Command and arguments", () => {
@@ -454,6 +459,66 @@ describe("Sidebar", () => {
         title: "Config entry copied",
         description:
           "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name.",
+      });
+    });
+
+    it("should fall back when clipboard writes are rejected", async () => {
+      const mockExecCommand = jest.fn(() => true);
+      Object.defineProperty(document, "execCommand", {
+        value: mockExecCommand,
+        configurable: true,
+      });
+      mockClipboardWrite.mockRejectedValueOnce(new Error("NotAllowedError"));
+
+      renderSidebar({
+        transportType: "stdio",
+        command: "node",
+        args: "server.js",
+      });
+
+      await act(async () => {
+        const { serverEntry } = getCopyButtons();
+        fireEvent.click(serverEntry);
+        await Promise.resolve();
+        jest.runAllTimers();
+      });
+
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      expect(mockExecCommand).toHaveBeenCalledWith("copy");
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Config entry copied",
+        description:
+          "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name.",
+      });
+    });
+
+    it("should show an error when clipboard copy and fallback both fail", async () => {
+      const mockExecCommand = jest.fn(() => false);
+      Object.defineProperty(document, "execCommand", {
+        value: mockExecCommand,
+        configurable: true,
+      });
+      mockClipboardWrite.mockRejectedValueOnce(new Error("NotAllowedError"));
+
+      renderSidebar({
+        transportType: "stdio",
+        command: "node",
+        args: "server.js",
+      });
+
+      await act(async () => {
+        const { serverEntry } = getCopyButtons();
+        fireEvent.click(serverEntry);
+        await Promise.resolve();
+        jest.runAllTimers();
+      });
+
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      expect(mockExecCommand).toHaveBeenCalledWith("copy");
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Error",
+        description: "Failed to copy config: Clipboard copy failed",
+        variant: "destructive",
       });
     });
 

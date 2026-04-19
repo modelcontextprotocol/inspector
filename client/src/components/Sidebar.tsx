@@ -135,6 +135,46 @@ const Sidebar = ({
     [toast],
   );
 
+  const copyTextToClipboard = useCallback(async (text: string) => {
+    const fallbackCopy = () => {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      textarea.style.pointerEvents = "none";
+
+      document.body.appendChild(textarea);
+      let copied = false;
+      try {
+        textarea.focus();
+        textarea.select();
+        copied = document.execCommand("copy");
+      } finally {
+        document.body.removeChild(textarea);
+      }
+
+      if (!copied) {
+        throw new Error("Clipboard copy failed");
+      }
+    };
+
+    if (!navigator.clipboard?.writeText) {
+      fallbackCopy();
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (error) {
+      try {
+        fallbackCopy();
+      } catch (fallbackError) {
+        throw fallbackError instanceof Error ? fallbackError : error;
+      }
+    }
+  }, []);
+
   // Shared utility function to generate server config
   const generateServerConfig = useCallback(() => {
     if (transportType === "stdio") {
@@ -183,8 +223,7 @@ const Sidebar = ({
   const handleCopyServerEntry = useCallback(() => {
     try {
       const configJson = generateMCPServerEntry();
-      navigator.clipboard
-        .writeText(configJson)
+      void copyTextToClipboard(configJson)
         .then(() => {
           setCopiedServerEntry(true);
 
@@ -202,19 +241,22 @@ const Sidebar = ({
             setCopiedServerEntry(false);
           }, 2000);
         })
-        .catch((error) => {
-          reportError(error);
-        });
+        .catch(reportError);
     } catch (error) {
       reportError(error);
     }
-  }, [generateMCPServerEntry, transportType, toast, reportError]);
+  }, [
+    copyTextToClipboard,
+    generateMCPServerEntry,
+    transportType,
+    toast,
+    reportError,
+  ]);
 
   const handleCopyServerFile = useCallback(() => {
     try {
       const configJson = generateMCPServerFile();
-      navigator.clipboard
-        .writeText(configJson)
+      void copyTextToClipboard(configJson)
         .then(() => {
           setCopiedServerFile(true);
 
@@ -228,13 +270,11 @@ const Sidebar = ({
             setCopiedServerFile(false);
           }, 2000);
         })
-        .catch((error) => {
-          reportError(error);
-        });
+        .catch(reportError);
     } catch (error) {
       reportError(error);
     }
-  }, [generateMCPServerFile, toast, reportError]);
+  }, [copyTextToClipboard, generateMCPServerFile, toast, reportError]);
 
   return (
     <div className="bg-card border-r border-border flex flex-col h-full">
