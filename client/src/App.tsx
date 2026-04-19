@@ -404,6 +404,7 @@ const App = () => {
       if (notification.method === "notifications/tools/list_changed") {
         setNextToolCursor(undefined);
         setTools([]);
+        cacheToolOutputSchemas([]);
         void listTools();
       }
 
