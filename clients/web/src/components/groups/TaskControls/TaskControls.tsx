@@ -16,9 +16,9 @@ const ToolbarButton = Button.withProps({
 
 export interface TaskControlsProps {
   searchText: string;
-  statusFilter?: string;
+  statusFilter?: TaskStatus;
   onSearchChange: (text: string) => void;
-  onStatusFilterChange: (status: string) => void;
+  onStatusFilterChange: (status: TaskStatus | undefined) => void;
   onRefresh: () => void;
 }
 
@@ -47,7 +47,13 @@ export function TaskControls({
         placeholder="All statuses"
         data={STATUS_OPTIONS}
         value={statusFilter ?? null}
-        onChange={(value) => onStatusFilterChange(value ?? "")}
+        onChange={(value) =>
+          onStatusFilterChange(
+            value && STATUS_OPTIONS.includes(value as TaskStatus)
+              ? (value as TaskStatus)
+              : undefined,
+          )
+        }
         clearable
       />
     </Stack>

@@ -8,14 +8,17 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import type { Task, TaskStatus } from "@modelcontextprotocol/sdk/types.js";
 import { TaskCard } from "../TaskCard/TaskCard";
+import type { TaskProgress } from "../TaskCard/TaskCard";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
-import type { TaskCardProps } from "../TaskCard/TaskCard";
 
 export interface TaskListPanelProps {
-  tasks: TaskCardProps[];
+  tasks: Task[];
+  progressByTaskId?: Record<string, TaskProgress>;
   searchText: string;
-  statusFilter?: string;
+  statusFilter?: TaskStatus;
+  onCancel: (taskId: string) => void;
   onClearCompleted: () => void;
 }
 
@@ -37,10 +40,6 @@ const EmptyState = Text.withProps({
   py: "xl",
 });
 
-function taskKey(task: TaskCardProps): string {
-  return task.taskId;
-}
-
 function formatActiveTitle(count: number): string {
   return `Active (${count})`;
 }
@@ -49,20 +48,20 @@ function formatCompletedTitle(count: number): string {
   return `Completed (${count})`;
 }
 
-function isActiveStatus(status: string): boolean {
+function isActiveStatus(status: TaskStatus): boolean {
   return status === "working" || status === "input_required";
 }
 
 function matchesFilters(
-  task: TaskCardProps,
+  task: Task,
   searchText: string,
-  statusFilter?: string,
+  statusFilter?: TaskStatus,
 ): boolean {
   if (statusFilter && task.status !== statusFilter) return false;
   if (searchText) {
     const term = searchText.toLowerCase();
     const searchable =
-      `${task.taskId} ${task.method} ${task.target ?? ""} ${task.status}`.toLowerCase();
+      `${task.taskId} ${task.status} ${task.statusMessage ?? ""}`.toLowerCase();
     if (!searchable.includes(term)) return false;
   }
   return true;
@@ -70,8 +69,10 @@ function matchesFilters(
 
 export function TaskListPanel({
   tasks,
+  progressByTaskId,
   searchText,
   statusFilter,
+  onCancel,
   onClearCompleted,
 }: TaskListPanelProps) {
   const [compact, setCompact] = useState(false);
@@ -115,9 +116,11 @@ export function TaskListPanel({
                 <Title order={5}>{formatActiveTitle(activeTasks.length)}</Title>
                 {activeTasks.map((task) => (
                   <TaskCard
-                    key={taskKey(task)}
-                    {...task}
+                    key={task.taskId}
+                    task={task}
+                    progress={progressByTaskId?.[task.taskId]}
                     isListExpanded={!compact}
+                    onCancel={() => onCancel(task.taskId)}
                   />
                 ))}
               </>
@@ -135,9 +138,11 @@ export function TaskListPanel({
                 </Group>
                 {completedTasks.map((task) => (
                   <TaskCard
-                    key={taskKey(task)}
-                    {...task}
+                    key={task.taskId}
+                    task={task}
+                    progress={progressByTaskId?.[task.taskId]}
                     isListExpanded={!compact}
+                    onCancel={() => onCancel(task.taskId)}
                   />
                 ))}
               </>
