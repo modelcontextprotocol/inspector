@@ -68,6 +68,13 @@ export const ActiveOnly: Story = {
     tasks: sampleTasks.filter(
       (t) => t.status === "working" || t.status === "input_required",
     ),
+    progressByTaskId: {
+      d0b22eba71fa36229ce5c4dfadeaa7de: {
+        progress: 650,
+        total: 1000,
+        message: "Processing records 650 of 1000...",
+      },
+    },
   },
 };
 
