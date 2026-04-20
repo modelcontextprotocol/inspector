@@ -577,6 +577,13 @@ export const TasksActive: Story = {
             statusMessage: "Timeout waiting for tool response after 30s",
           },
         ]}
+        progressByTaskId={{
+          d0b22eba71fa36229ce5c4dfadeaa7de: {
+            progress: 650,
+            total: 1000,
+            message: "Processing records...",
+          },
+        }}
         onRefresh={fn()}
         onClearCompleted={fn()}
         onCancel={fn()}

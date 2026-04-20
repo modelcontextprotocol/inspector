@@ -10,10 +10,12 @@ import {
 } from "@mantine/core";
 import type { Task, TaskStatus } from "@modelcontextprotocol/sdk/types.js";
 import { TaskCard } from "../TaskCard/TaskCard";
+import type { TaskProgress } from "../TaskCard/TaskCard";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 
 export interface TaskListPanelProps {
   tasks: Task[];
+  progressByTaskId?: Record<string, TaskProgress>;
   searchText: string;
   statusFilter?: TaskStatus;
   onCancel: (taskId: string) => void;
@@ -67,6 +69,7 @@ function matchesFilters(
 
 export function TaskListPanel({
   tasks,
+  progressByTaskId,
   searchText,
   statusFilter,
   onCancel,
@@ -115,6 +118,7 @@ export function TaskListPanel({
                   <TaskCard
                     key={task.taskId}
                     task={task}
+                    progress={progressByTaskId?.[task.taskId]}
                     isListExpanded={!compact}
                     onCancel={() => onCancel(task.taskId)}
                   />
@@ -136,6 +140,7 @@ export function TaskListPanel({
                   <TaskCard
                     key={task.taskId}
                     task={task}
+                    progress={progressByTaskId?.[task.taskId]}
                     isListExpanded={!compact}
                     onCancel={() => onCancel(task.taskId)}
                   />

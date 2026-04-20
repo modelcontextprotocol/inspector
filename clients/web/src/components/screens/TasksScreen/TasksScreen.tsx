@@ -3,9 +3,11 @@ import { Card, Flex, Stack } from "@mantine/core";
 import type { Task, TaskStatus } from "@modelcontextprotocol/sdk/types.js";
 import { TaskControls } from "../../groups/TaskControls/TaskControls";
 import { TaskListPanel } from "../../groups/TaskListPanel/TaskListPanel";
+import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
 
 export interface TasksScreenProps {
   tasks: Task[];
+  progressByTaskId?: Record<string, TaskProgress>;
   onRefresh: () => void;
   onClearCompleted: () => void;
   onCancel: (taskId: string) => void;
@@ -30,6 +32,7 @@ const SidebarCard = Card.withProps({
 
 export function TasksScreen({
   tasks,
+  progressByTaskId,
   onRefresh,
   onClearCompleted,
   onCancel,
@@ -52,6 +55,7 @@ export function TasksScreen({
       </Sidebar>
       <TaskListPanel
         tasks={tasks}
+        progressByTaskId={progressByTaskId}
         searchText={searchText}
         statusFilter={statusFilter}
         onCancel={onCancel}
