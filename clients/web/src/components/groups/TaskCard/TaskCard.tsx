@@ -8,12 +8,22 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import type { Task } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  ProgressNotification,
+  Task,
+} from "@modelcontextprotocol/sdk/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { TaskStatusBadge } from "../../elements/TaskStatusBadge/TaskStatusBadge";
+
+export type TaskProgress = Pick<
+  ProgressNotification["params"],
+  "progress" | "total" | "message"
+>;
 
 export interface TaskCardProps {
   task: Task;
+  progress?: TaskProgress;
   isListExpanded: boolean;
   onCancel: () => void;
 }
@@ -91,7 +101,12 @@ function formatTtl(ttl: number): string {
   return `${ttl}ms`;
 }
 
-export function TaskCard({ task, isListExpanded, onCancel }: TaskCardProps) {
+export function TaskCard({
+  task,
+  progress,
+  isListExpanded,
+  onCancel,
+}: TaskCardProps) {
   const { taskId, status, ttl, createdAt, lastUpdatedAt, statusMessage } = task;
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
   const isActive = status === "working" || status === "input_required";
@@ -145,6 +160,8 @@ export function TaskCard({ task, isListExpanded, onCancel }: TaskCardProps) {
         {statusMessage && isActive && (
           <StatusMessageText>{statusMessage}</StatusMessageText>
         )}
+
+        {progress && isActive && <ProgressDisplay params={progress} />}
 
         {isExpanded && (
           <Collapse in={isExpanded}>
