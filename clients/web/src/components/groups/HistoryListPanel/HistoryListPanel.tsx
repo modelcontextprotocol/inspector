@@ -11,6 +11,7 @@ import {
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { HistoryEntry } from "../HistoryEntry/HistoryEntry";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
+import { extractMethod } from "../historyUtils.js";
 
 export interface HistoryListPanelProps {
   entries: MessageEntry[];
@@ -49,13 +50,6 @@ function formatHistoryTitle(count: number): string {
   return `History (${count})`;
 }
 
-function extractMethod(entry: MessageEntry): string {
-  if ("method" in entry.message) {
-    return entry.message.method;
-  }
-  return "response";
-}
-
 function matchesFilters(
   entry: MessageEntry,
   searchText: string,
@@ -65,8 +59,9 @@ function matchesFilters(
   if (methodFilter && method !== methodFilter) return false;
   if (searchText) {
     const term = searchText.toLowerCase();
+    const responseText = entry.response ? JSON.stringify(entry.response) : "";
     const searchable =
-      `${method} ${entry.id} ${JSON.stringify(entry.message)}`.toLowerCase();
+      `${method} ${entry.id} ${JSON.stringify(entry.message)} ${responseText}`.toLowerCase();
     if (!searchable.includes(term)) return false;
   }
   return true;

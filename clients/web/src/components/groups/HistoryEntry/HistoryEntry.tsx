@@ -11,6 +11,7 @@ import {
 } from "@mantine/core";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { extractMethod } from "../historyUtils.js";
 
 export interface HistoryEntryProps {
   entry: MessageEntry;
@@ -61,13 +62,6 @@ function formatTimestamp(date: Date): string {
 
 function formatPinLabel(isPinned: boolean): string {
   return isPinned ? "Unpin" : "Pin";
-}
-
-function extractMethod(entry: MessageEntry): string {
-  if ("method" in entry.message) {
-    return entry.message.method;
-  }
-  return "response";
 }
 
 function extractTarget(entry: MessageEntry): string | undefined {
@@ -147,16 +141,18 @@ export function HistoryEntry({
         <Collapse in={isExpanded}>
           <Stack gap="sm">
             <Divider />
-            <Stack gap="xs">
-              <Text size="sm">Request:</Text>
-              <ContentViewer
-                block={{
-                  type: "text",
-                  text: serializeMessage(entry.message),
-                }}
-                copyable
-              />
-            </Stack>
+            {"params" in entry.message && entry.message.params && (
+              <Stack gap="xs">
+                <Text size="sm">Parameters:</Text>
+                <ContentViewer
+                  block={{
+                    type: "text",
+                    text: serializeMessage(entry.message.params),
+                  }}
+                  copyable
+                />
+              </Stack>
+            )}
             {entry.response && (
               <Stack gap="xs">
                 <Text size="sm">Response:</Text>
