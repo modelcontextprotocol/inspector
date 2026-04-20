@@ -1,17 +1,23 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type {
+  CreateMessageRequestParams,
+  CreateMessageResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { SamplingRequestPanel } from "./SamplingRequestPanel";
+
+const defaultDraftResult: CreateMessageResult = {
+  role: "assistant",
+  content: { type: "text", text: "" },
+  model: "claude-sonnet-4-20250514",
+};
 
 const meta: Meta<typeof SamplingRequestPanel> = {
   title: "Groups/SamplingRequestPanel",
   component: SamplingRequestPanel,
   args: {
-    responseText: "",
-    modelUsed: "claude-3-sonnet",
-    stopReason: "end_turn",
-    onResponseChange: fn(),
-    onModelChange: fn(),
-    onStopReasonChange: fn(),
+    draftResult: defaultDraftResult,
+    onResultChange: fn(),
     onAutoRespond: fn(),
     onSend: fn(),
     onReject: fn(),
@@ -21,115 +27,69 @@ const meta: Meta<typeof SamplingRequestPanel> = {
 export default meta;
 type Story = StoryObj<typeof SamplingRequestPanel>;
 
-export const SimpleRequest: Story = {
-  args: {
-    messages: [
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: "What is the capital of France?",
-        },
-      },
-    ],
-  },
+const simpleRequest: CreateMessageRequestParams = {
+  messages: [
+    {
+      role: "user",
+      content: { type: "text", text: "What is the capital of France?" },
+    },
+  ],
+  maxTokens: 1024,
 };
 
-export const WithModelHints: Story = {
-  args: {
-    messages: [
-      {
-        role: "user",
-        content: { type: "text", text: "Summarize this document for me." },
-      },
-    ],
-    modelHints: ["claude-3-sonnet", "gpt-4"],
-  },
-};
-
-export const WithPriorities: Story = {
-  args: {
-    messages: [
-      {
-        role: "user",
-        content: { type: "text", text: "Translate this text to Spanish." },
-      },
-    ],
-    modelHints: ["claude-3-sonnet"],
+const withPreferencesRequest: CreateMessageRequestParams = {
+  messages: [
+    {
+      role: "user",
+      content: { type: "text", text: "Summarize this document for me." },
+    },
+  ],
+  maxTokens: 2048,
+  modelPreferences: {
+    hints: [{ name: "claude-sonnet-4-20250514" }, { name: "gpt-4" }],
     costPriority: 0.3,
     speedPriority: 0.5,
     intelligencePriority: 0.9,
   },
 };
 
-export const WithAllParams: Story = {
-  args: {
-    messages: [
-      {
-        role: "user",
-        content: { type: "text", text: "Write a haiku about programming." },
-      },
-      {
-        role: "assistant",
-        content: { type: "text", text: "Here is a haiku:" },
-      },
-    ],
-    maxTokens: 1024,
-    stopSequences: ["\n\n", "END"],
-    temperature: 0.7,
-    includeContext: "thisServer",
-  },
+const fullRequest: CreateMessageRequestParams = {
+  messages: [
+    {
+      role: "user",
+      content: { type: "text", text: "Write a haiku about programming." },
+    },
+    {
+      role: "assistant",
+      content: { type: "text", text: "Here is a haiku:" },
+    },
+  ],
+  maxTokens: 1024,
+  stopSequences: ["\n\n", "END"],
+  temperature: 0.7,
+  includeContext: "thisServer",
 };
 
-export const WithTools: Story = {
-  args: {
-    messages: [
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: "Look up the weather in San Francisco.",
-        },
-      },
-    ],
-    tools: [
-      {
-        name: "get_weather",
-        description: "Get the current weather for a given location.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            location: { type: "string", description: "City name" },
-          },
-          required: ["location"],
-        },
-      },
-      {
-        name: "search_web",
-        description: "Search the web for information.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            query: { type: "string", description: "Search query" },
-          },
-          required: ["query"],
-        },
-      },
-    ],
-    toolChoice: "auto",
-  },
+export const SimpleRequest: Story = {
+  args: { request: simpleRequest },
+};
+
+export const WithModelHints: Story = {
+  args: { request: withPreferencesRequest },
+};
+
+export const WithAllParams: Story = {
+  args: { request: fullRequest },
 };
 
 export const PrefilledResponse: Story = {
   args: {
-    messages: [
-      {
-        role: "user",
-        content: { type: "text", text: "What is 2 + 2?" },
-      },
-    ],
-    responseText: "The answer is 4.",
-    modelUsed: "claude-3-haiku",
-    stopReason: "end_turn",
+    request: simpleRequest,
+    draftResult: {
+      role: "assistant",
+      content: { type: "text", text: "The capital of France is Paris." },
+      model: "claude-haiku-4-5-20251001",
+      stopReason: "endTurn",
+    },
   },
 };

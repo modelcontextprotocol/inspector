@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { ElicitRequest } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { ElicitationFormPanel } from "./ElicitationFormPanel";
 
@@ -10,7 +11,6 @@ const meta: Meta<typeof ElicitationFormPanel> = {
     onSubmit: fn(),
     onCancel: fn(),
     serverName: "postgres-server",
-    message: "Please provide database connection details.",
     values: {},
   },
 };
@@ -18,49 +18,55 @@ const meta: Meta<typeof ElicitationFormPanel> = {
 export default meta;
 type Story = StoryObj<typeof ElicitationFormPanel>;
 
-export const SimpleForm: Story = {
-  args: {
-    schema: {
-      type: "object",
-      properties: {
-        host: { type: "string", title: "Host" },
-        port: { type: "integer", title: "Port" },
-        database: { type: "string", title: "Database" },
-      },
-      required: ["host", "port"],
+const dbRequest = {
+  message: "Please provide database connection details.",
+  requestedSchema: {
+    type: "object" as const,
+    properties: {
+      host: { type: "string" as const, title: "Host" },
+      port: { type: "string" as const, title: "Port" },
+      database: { type: "string" as const, title: "Database" },
     },
   },
+} satisfies ElicitRequest["params"];
+
+const sslRequest = {
+  message: "Please select your SSL mode preference.",
+  requestedSchema: {
+    type: "object" as const,
+    properties: {
+      sslMode: {
+        type: "string" as const,
+        title: "SSL Mode",
+        enum: ["disable", "require", "verify-full"],
+      },
+    },
+  },
+} satisfies ElicitRequest["params"];
+
+const deployRequest = {
+  message: "Please confirm the deployment.",
+  requestedSchema: {
+    type: "object" as const,
+    properties: {
+      environment: {
+        type: "string" as const,
+        title: "Environment",
+        enum: ["staging", "production"],
+      },
+      confirm: { type: "boolean" as const, title: "Confirm deployment" },
+    },
+  },
+} satisfies ElicitRequest["params"];
+
+export const SimpleForm: Story = {
+  args: { request: dbRequest },
 };
 
 export const WithEnums: Story = {
-  args: {
-    schema: {
-      type: "object",
-      properties: {
-        sslMode: {
-          type: "string",
-          title: "SSL Mode",
-          oneOf: [
-            { const: "disable", title: "Disable" },
-            { const: "require", title: "Require" },
-            { const: "verify-full", title: "Verify Full" },
-          ],
-        },
-      },
-    },
-  },
+  args: { request: sslRequest },
 };
 
-export const AllRequired: Story = {
-  args: {
-    schema: {
-      type: "object",
-      properties: {
-        host: { type: "string", title: "Host" },
-        port: { type: "integer", title: "Port" },
-        database: { type: "string", title: "Database" },
-      },
-      required: ["host", "port", "database"],
-    },
-  },
+export const BooleanField: Story = {
+  args: { request: deployRequest },
 };

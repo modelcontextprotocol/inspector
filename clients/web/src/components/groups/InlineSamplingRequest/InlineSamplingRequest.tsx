@@ -7,11 +7,11 @@ import {
   Text,
   Textarea,
 } from "@mantine/core";
+import type { CreateMessageRequestParams } from "@modelcontextprotocol/sdk/types.js";
 
 export interface InlineSamplingRequestProps {
+  request: CreateMessageRequestParams;
   queuePosition: string;
-  modelHints?: string[];
-  messagePreview: string;
   responseText: string;
   onAutoRespond: () => void;
   onEditAndSend: () => void;
@@ -56,20 +56,41 @@ const RejectButton = Button.withProps({
   color: "red",
 });
 
+function extractPreview(request: CreateMessageRequestParams): string {
+  const lastMessage = request.messages[request.messages.length - 1];
+  if (!lastMessage) return "";
+  const content = lastMessage.content;
+  if (Array.isArray(content)) {
+    const textBlock = content.find((b) => b.type === "text");
+    return textBlock && "text" in textBlock ? textBlock.text : "";
+  }
+  return content.type === "text" ? content.text : `[${content.type}]`;
+}
+
+function extractModelHints(
+  request: CreateMessageRequestParams,
+): string[] | undefined {
+  const hints = request.modelPreferences?.hints;
+  if (!hints || hints.length === 0) return undefined;
+  return hints.map((h) => h.name).filter(Boolean) as string[];
+}
+
 function formatModelHints(hints: string[]): string {
   return `Model hints: ${hints.join(", ")}`;
 }
 
 export function InlineSamplingRequest({
+  request,
   queuePosition,
-  modelHints,
-  messagePreview,
   responseText,
   onAutoRespond,
   onEditAndSend,
   onReject,
   onViewDetails,
 }: InlineSamplingRequestProps) {
+  const modelHints = extractModelHints(request);
+  const messagePreview = extractPreview(request);
+
   return (
     <RequestContainer>
       <Stack gap="sm">

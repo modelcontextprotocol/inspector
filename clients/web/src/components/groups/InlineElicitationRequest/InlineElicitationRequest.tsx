@@ -8,16 +8,14 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import type { JsonSchema } from "../SchemaForm/SchemaForm";
+import type { ElicitRequest } from "@modelcontextprotocol/sdk/types.js";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
+import type { JsonSchema } from "../SchemaForm/SchemaForm";
 
 export interface InlineElicitationRequestProps {
-  mode: "form" | "url";
-  message: string;
+  request: ElicitRequest["params"];
   queuePosition: string;
-  schema?: JsonSchema;
   values?: Record<string, unknown>;
-  url?: string;
   isWaiting?: boolean;
   onChange: (values: Record<string, unknown>) => void;
   onSubmit: () => void;
@@ -49,45 +47,52 @@ const CompactButton = Button.withProps({
   variant: "light",
 });
 
-function getBadgeLabel(mode: "form" | "url"): string {
-  return mode === "form"
+function isFormMode(
+  request: ElicitRequest["params"],
+): request is ElicitRequest["params"] & {
+  requestedSchema: Record<string, unknown>;
+} {
+  return "requestedSchema" in request;
+}
+
+function getBadgeLabel(request: ElicitRequest["params"]): string {
+  return isFormMode(request)
     ? "elicitation/create (form)"
     : "elicitation/create (url)";
 }
 
 export function InlineElicitationRequest({
-  mode,
-  message,
+  request,
   queuePosition,
-  schema,
   values,
-  url,
   isWaiting,
   onChange,
   onSubmit,
   onCancel,
 }: InlineElicitationRequestProps) {
+  const formMode = isFormMode(request);
+
   return (
     <RequestContainer>
       <Stack gap="sm">
         <Group justify="space-between">
-          <Badge color="violet">{getBadgeLabel(mode)}</Badge>
+          <Badge color="violet">{getBadgeLabel(request)}</Badge>
           <QueueLabel>{queuePosition}</QueueLabel>
         </Group>
 
-        <ItalicMessage>{message}</ItalicMessage>
+        <ItalicMessage>{request.message}</ItalicMessage>
 
-        {mode === "form" && schema && (
+        {formMode && (
           <SchemaForm
-            schema={schema}
+            schema={request.requestedSchema as JsonSchema}
             values={values ?? {}}
             onChange={onChange}
           />
         )}
 
-        {mode === "url" && url && (
+        {!formMode && "url" in request && (
           <>
-            <Code block>{url}</Code>
+            <Code block>{(request as { url: string }).url}</Code>
             {isWaiting && (
               <Group>
                 <Loader size="xs" />
@@ -99,7 +104,7 @@ export function InlineElicitationRequest({
 
         <ActionsRow>
           <CompactButton onClick={onCancel}>Cancel</CompactButton>
-          {mode === "form" && (
+          {formMode && (
             <Button size="xs" onClick={onSubmit}>
               Submit
             </Button>
