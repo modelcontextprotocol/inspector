@@ -5,12 +5,6 @@ import { HistoryControls } from "./HistoryControls";
 const meta: Meta<typeof HistoryControls> = {
   title: "Groups/HistoryControls",
   component: HistoryControls,
-};
-
-export default meta;
-type Story = StoryObj<typeof HistoryControls>;
-
-export const Default: Story = {
   args: {
     searchText: "",
     onSearchChange: fn(),
@@ -18,11 +12,14 @@ export const Default: Story = {
   },
 };
 
+export default meta;
+type Story = StoryObj<typeof HistoryControls>;
+
+export const Default: Story = {};
+
 export const WithFilters: Story = {
   args: {
     searchText: "tools",
     methodFilter: "tools/call",
-    onSearchChange: fn(),
-    onMethodFilterChange: fn(),
   },
 };

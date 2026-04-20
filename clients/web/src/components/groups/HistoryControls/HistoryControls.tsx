@@ -15,7 +15,7 @@ export interface HistoryControlsProps {
   searchText: string;
   methodFilter?: string;
   onSearchChange: (text: string) => void;
-  onMethodFilterChange: (method: string) => void;
+  onMethodFilterChange: (method: string | undefined) => void;
 }
 
 export function HistoryControls({
@@ -38,7 +38,7 @@ export function HistoryControls({
         placeholder="All methods"
         data={METHOD_OPTIONS}
         value={methodFilter ?? null}
-        onChange={(value) => onMethodFilterChange(value ?? "")}
+        onChange={(value) => onMethodFilterChange(value ?? undefined)}
         clearable
       />
     </Stack>

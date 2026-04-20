@@ -9,25 +9,11 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
+import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 
-export interface HistoryChildEntry {
-  timestamp: string;
-  method: string;
-  target?: string;
-  status: "success" | "error";
-  durationMs: number;
-}
-
 export interface HistoryEntryProps {
-  timestamp: string;
-  method: string;
-  target?: string;
-  status: "success" | "error";
-  durationMs: number;
-  parameters?: Record<string, unknown>;
-  response?: Record<string, unknown>;
-  childEntries?: HistoryChildEntry[];
+  entry: MessageEntry;
   isPinned: boolean;
   isListExpanded: boolean;
   onReplay: () => void;
@@ -65,64 +51,86 @@ const SubtleButton = Button.withProps({
   size: "xs",
 });
 
-const ChildMethodBadge = Badge.withProps({
-  color: "dark",
-  size: "sm",
-});
-
 function formatDuration(ms: number): string {
   return `${ms}ms`;
 }
 
-function formatStatusLabel(status: "success" | "error"): string {
-  return status === "success" ? "OK" : "Error";
-}
-
-function statusColor(status: "success" | "error"): string {
-  return status === "success" ? "green" : "red";
+function formatTimestamp(date: Date): string {
+  return date.toISOString();
 }
 
 function formatPinLabel(isPinned: boolean): string {
   return isPinned ? "Unpin" : "Pin";
 }
 
-function serializeJson(value: Record<string, unknown>): string {
+function extractMethod(entry: MessageEntry): string {
+  if ("method" in entry.message) {
+    return entry.message.method;
+  }
+  return "response";
+}
+
+function extractTarget(entry: MessageEntry): string | undefined {
+  const msg = entry.message;
+  if (!("params" in msg) || !msg.params) return undefined;
+  const params = msg.params as Record<string, unknown>;
+  if (typeof params.name === "string") return params.name;
+  if (typeof params.uri === "string") return params.uri;
+  return undefined;
+}
+
+function extractStatus(entry: MessageEntry): "success" | "error" | "pending" {
+  if (!entry.response) return "pending";
+  if ("error" in entry.response) return "error";
+  return "success";
+}
+
+function statusColor(status: "success" | "error" | "pending"): string {
+  if (status === "success") return "green";
+  if (status === "error") return "red";
+  return "gray";
+}
+
+function statusLabel(status: "success" | "error" | "pending"): string {
+  if (status === "success") return "OK";
+  if (status === "error") return "Error";
+  return "Pending";
+}
+
+function serializeMessage(value: unknown): string {
   return JSON.stringify(value);
 }
 
 export function HistoryEntry({
-  timestamp,
-  method,
-  target,
-  status,
-  durationMs,
-  parameters,
-  response,
-  childEntries,
+  entry,
   isPinned,
   isListExpanded,
   onReplay,
   onTogglePin,
 }: HistoryEntryProps) {
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
+  const method = extractMethod(entry);
+  const target = extractTarget(entry);
+  const status = extractStatus(entry);
 
   useEffect(() => {
     setIsExpanded(isListExpanded);
   }, [isListExpanded]);
+
   return (
     <EntryContainer>
       <Stack gap="sm">
         <HeaderRow>
           <Group gap="sm">
-            <TimestampText>{timestamp}</TimestampText>
+            <TimestampText>{formatTimestamp(entry.timestamp)}</TimestampText>
             <Badge color="dark">{method}</Badge>
             {target && <TargetText>{target}</TargetText>}
           </Group>
           <Group gap="sm">
-            <DurationText>{formatDuration(durationMs)}</DurationText>
-            <Badge color={statusColor(status)}>
-              {formatStatusLabel(status)}
-            </Badge>
+            {entry.duration != null && (
+              <DurationText>{formatDuration(entry.duration)}</DurationText>
+            )}
+            <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>
           </Group>
         </HeaderRow>
 
@@ -136,57 +144,33 @@ export function HistoryEntry({
           </SubtleButton>
         </Group>
 
-        {isExpanded && (
-          <Collapse in={isExpanded}>
-            <Stack gap="sm">
-              {parameters && (
-                <>
-                  <Divider />
-                  <Stack gap="xs">
-                    <Text size="sm">Parameters:</Text>
-                    <ContentViewer
-                      block={{
-                        type: "text",
-                        text: serializeJson(parameters),
-                      }}
-                      copyable
-                    />
-                  </Stack>
-                </>
-              )}
-              {response && (
-                <Stack gap="xs">
-                  <Text size="sm">Response:</Text>
-                  <ContentViewer
-                    block={{
-                      type: "text",
-                      text: serializeJson(response),
-                    }}
-                    copyable
-                  />
-                </Stack>
-              )}
-              {childEntries && childEntries.length > 0 && (
-                <Stack gap="xs">
-                  {childEntries.map((child, index) => (
-                    <Group key={index} pl="lg" gap="sm">
-                      <TimestampText>+-- </TimestampText>
-                      <TimestampText>{child.timestamp}</TimestampText>
-                      <ChildMethodBadge>{child.method}</ChildMethodBadge>
-                      {child.target && <Text size="sm">{child.target}</Text>}
-                      <Badge color={statusColor(child.status)} size="sm">
-                        {formatStatusLabel(child.status)}
-                      </Badge>
-                      <DurationText>
-                        {formatDuration(child.durationMs)}
-                      </DurationText>
-                    </Group>
-                  ))}
-                </Stack>
-              )}
+        <Collapse in={isExpanded}>
+          <Stack gap="sm">
+            <Divider />
+            <Stack gap="xs">
+              <Text size="sm">Request:</Text>
+              <ContentViewer
+                block={{
+                  type: "text",
+                  text: serializeMessage(entry.message),
+                }}
+                copyable
+              />
             </Stack>
-          </Collapse>
-        )}
+            {entry.response && (
+              <Stack gap="xs">
+                <Text size="sm">Response:</Text>
+                <ContentViewer
+                  block={{
+                    type: "text",
+                    text: serializeMessage(entry.response),
+                  }}
+                  copyable
+                />
+              </Stack>
+            )}
+          </Stack>
+        </Collapse>
       </Stack>
     </EntryContainer>
   );
