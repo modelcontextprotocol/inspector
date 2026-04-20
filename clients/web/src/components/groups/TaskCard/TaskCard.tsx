@@ -157,11 +157,12 @@ export function TaskCard({
           </SubtleButton>
         </SummaryRow>
 
-        {statusMessage && isActive && (
-          <StatusMessageText>{statusMessage}</StatusMessageText>
+        {progress && isActive ? (
+          <ProgressDisplay params={progress} />
+        ) : (
+          statusMessage &&
+          isActive && <StatusMessageText>{statusMessage}</StatusMessageText>
         )}
-
-        {progress && isActive && <ProgressDisplay params={progress} />}
 
         {isExpanded && (
           <Collapse in={isExpanded}>
