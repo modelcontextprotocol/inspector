@@ -63,7 +63,11 @@ const cancelledTask: Task = {
 export const Working: Story = {
   args: {
     task: workingTask,
-    progress: { progress: 650, total: 1000, message: "Processing records..." },
+    progress: {
+      progress: 650,
+      total: 1000,
+      message: "Processing records 650 of 1000...",
+    },
   },
 };
 
