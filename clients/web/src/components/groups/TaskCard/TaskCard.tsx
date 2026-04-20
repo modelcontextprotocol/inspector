@@ -8,26 +8,12 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
+import type { Task } from "@modelcontextprotocol/sdk/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
-import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { TaskStatusBadge } from "../../elements/TaskStatusBadge/TaskStatusBadge";
 
-import type { TaskStatus } from "@modelcontextprotocol/sdk/types.js";
-export type { TaskStatus };
-
 export interface TaskCardProps {
-  taskId: string;
-  status: TaskStatus;
-  method: string;
-  target?: string;
-  progress?: number;
-  progressDescription?: string;
-  startedAt?: string;
-  completedAt?: string;
-  lastUpdated?: string;
-  elapsed?: string;
-  ttl?: number;
-  error?: string;
+  task: Task;
   isListExpanded: boolean;
   onCancel: () => void;
 }
@@ -61,11 +47,6 @@ const DetailValue = Text.withProps({
 const StatusMessageText = Text.withProps({
   size: "sm",
   fs: "italic",
-});
-
-const ErrorText = Text.withProps({
-  size: "sm",
-  c: "red",
 });
 
 const SubtleButton = Button.withProps({
@@ -110,37 +91,8 @@ function formatTtl(ttl: number): string {
   return `${ttl}ms`;
 }
 
-function buildTaskObject(props: TaskCardProps): string {
-  const obj: Record<string, unknown> = {
-    taskId: props.taskId,
-    status: props.status,
-    method: props.method,
-  };
-  if (props.target) obj.target = props.target;
-  if (props.ttl !== undefined) obj.ttl = props.ttl;
-  if (props.startedAt) obj.createdAt = props.startedAt;
-  if (props.lastUpdated) obj.lastUpdatedAt = props.lastUpdated;
-  if (props.completedAt) obj.completedAt = props.completedAt;
-  if (props.progress !== undefined) obj.progress = props.progress;
-  if (props.progressDescription) obj.statusMessage = props.progressDescription;
-  if (props.error) obj.error = props.error;
-  return JSON.stringify(obj);
-}
-
-export function TaskCard(props: TaskCardProps) {
-  const {
-    taskId,
-    status,
-    progress,
-    progressDescription,
-    startedAt,
-    lastUpdated,
-    ttl,
-    error,
-    isListExpanded,
-    onCancel,
-  } = props;
-
+export function TaskCard({ task, isListExpanded, onCancel }: TaskCardProps) {
+  const { taskId, status, ttl, createdAt, lastUpdatedAt, statusMessage } = task;
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
   const isActive = status === "working" || status === "input_required";
 
@@ -170,19 +122,15 @@ export function TaskCard(props: TaskCardProps) {
               <DetailLabel>Status</DetailLabel>
               <DetailValue>{status}</DetailValue>
             </Stack>
-            {lastUpdated && (
-              <Stack gap={2}>
-                <DetailLabel>Last Updated</DetailLabel>
-                <DetailValue>{lastUpdated}</DetailValue>
-              </Stack>
-            )}
-            {startedAt && (
-              <Stack gap={2}>
-                <DetailLabel>Created At</DetailLabel>
-                <DetailValue>{startedAt}</DetailValue>
-              </Stack>
-            )}
-            {ttl !== undefined && (
+            <Stack gap={2}>
+              <DetailLabel>Last Updated</DetailLabel>
+              <DetailValue>{lastUpdatedAt}</DetailValue>
+            </Stack>
+            <Stack gap={2}>
+              <DetailLabel>Created At</DetailLabel>
+              <DetailValue>{createdAt}</DetailValue>
+            </Stack>
+            {ttl !== null && (
               <Stack gap={2}>
                 <DetailLabel>TTL</DetailLabel>
                 <DetailValue>{formatTtl(ttl)}</DetailValue>
@@ -194,36 +142,24 @@ export function TaskCard(props: TaskCardProps) {
           </SubtleButton>
         </SummaryRow>
 
-        {progress !== undefined && isActive && (
-          <ProgressDisplay
-            params={{
-              progress,
-              message: progressDescription,
-            }}
-          />
+        {statusMessage && isActive && (
+          <StatusMessageText>{statusMessage}</StatusMessageText>
         )}
 
         {isExpanded && (
           <Collapse in={isExpanded}>
             <Stack gap="sm">
-              {progressDescription && !isActive && (
+              {statusMessage && !isActive && (
                 <Stack gap={2}>
                   <DetailLabel>Status Message</DetailLabel>
-                  <StatusMessageText>{progressDescription}</StatusMessageText>
-                </Stack>
-              )}
-
-              {error && (
-                <Stack gap={2}>
-                  <DetailLabel>Error</DetailLabel>
-                  <ErrorText>{error}</ErrorText>
+                  <StatusMessageText>{statusMessage}</StatusMessageText>
                 </Stack>
               )}
 
               <Divider />
               <SectionTitle>Full Task Object</SectionTitle>
               <ContentViewer
-                block={{ type: "text", text: buildTaskObject(props) }}
+                block={{ type: "text", text: JSON.stringify(task) }}
                 copyable
               />
             </Stack>

@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
+import type { Task, TaskStatus } from "@modelcontextprotocol/sdk/types.js";
 import { TaskControls } from "../../groups/TaskControls/TaskControls";
 import { TaskListPanel } from "../../groups/TaskListPanel/TaskListPanel";
-import type { TaskCardProps } from "../../groups/TaskCard/TaskCard";
 
 export interface TasksScreenProps {
-  tasks: TaskCardProps[];
+  tasks: Task[];
   onRefresh: () => void;
   onClearCompleted: () => void;
+  onCancel: (taskId: string) => void;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -31,9 +32,10 @@ export function TasksScreen({
   tasks,
   onRefresh,
   onClearCompleted,
+  onCancel,
 }: TasksScreenProps) {
   const [searchText, setSearchText] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | undefined>();
 
   return (
     <ScreenLayout>
@@ -43,9 +45,7 @@ export function TasksScreen({
             searchText={searchText}
             statusFilter={statusFilter}
             onSearchChange={setSearchText}
-            onStatusFilterChange={(value) =>
-              setStatusFilter(value || undefined)
-            }
+            onStatusFilterChange={setStatusFilter}
             onRefresh={onRefresh}
           />
         </SidebarCard>
@@ -54,6 +54,7 @@ export function TasksScreen({
         tasks={tasks}
         searchText={searchText}
         statusFilter={statusFilter}
+        onCancel={onCancel}
         onClearCompleted={onClearCompleted}
       />
     </ScreenLayout>
