@@ -134,10 +134,6 @@ export function TaskCard({
         <SummaryRow>
           <DetailRow>
             <Stack gap={2}>
-              <DetailLabel>Status</DetailLabel>
-              <DetailValue>{status}</DetailValue>
-            </Stack>
-            <Stack gap={2}>
               <DetailLabel>Last Updated</DetailLabel>
               <DetailValue>{lastUpdatedAt}</DetailValue>
             </Stack>
@@ -145,7 +141,7 @@ export function TaskCard({
               <DetailLabel>Created At</DetailLabel>
               <DetailValue>{createdAt}</DetailValue>
             </Stack>
-            {ttl !== null && (
+            {ttl != null && (
               <Stack gap={2}>
                 <DetailLabel>TTL</DetailLabel>
                 <DetailValue>{formatTtl(ttl)}</DetailValue>
@@ -160,29 +156,21 @@ export function TaskCard({
         {progress && isActive ? (
           <ProgressDisplay params={progress} />
         ) : (
-          statusMessage &&
-          isActive && <StatusMessageText>{statusMessage}</StatusMessageText>
+          statusMessage && (
+            <StatusMessageText>{statusMessage}</StatusMessageText>
+          )
         )}
 
-        {isExpanded && (
-          <Collapse in={isExpanded}>
-            <Stack gap="sm">
-              {statusMessage && !isActive && (
-                <Stack gap={2}>
-                  <DetailLabel>Status Message</DetailLabel>
-                  <StatusMessageText>{statusMessage}</StatusMessageText>
-                </Stack>
-              )}
-
-              <Divider />
-              <SectionTitle>Full Task Object</SectionTitle>
-              <ContentViewer
-                block={{ type: "text", text: JSON.stringify(task) }}
-                copyable
-              />
-            </Stack>
-          </Collapse>
-        )}
+        <Collapse in={isExpanded}>
+          <Stack gap="sm">
+            <Divider />
+            <SectionTitle>Full Task Object</SectionTitle>
+            <ContentViewer
+              block={{ type: "text", text: JSON.stringify(task) }}
+              copyable
+            />
+          </Stack>
+        </Collapse>
       </Stack>
     </TaskContainer>
   );
