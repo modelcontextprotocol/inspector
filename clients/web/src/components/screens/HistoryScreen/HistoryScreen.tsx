@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
+import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { HistoryControls } from "../../groups/HistoryControls/HistoryControls";
 import { HistoryListPanel } from "../../groups/HistoryListPanel/HistoryListPanel.js";
-import type { HistoryEntryProps } from "../../groups/HistoryEntry/HistoryEntry";
 
 export interface HistoryScreenProps {
-  entries: HistoryEntryProps[];
-  pinnedEntries: HistoryEntryProps[];
+  entries: MessageEntry[];
+  pinnedIds: Set<string>;
   onClearAll: () => void;
   onExport: () => void;
+  onReplay: (id: string) => void;
+  onTogglePin: (id: string) => void;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -30,9 +32,11 @@ const SidebarCard = Card.withProps({
 
 export function HistoryScreen({
   entries,
-  pinnedEntries,
+  pinnedIds,
   onClearAll,
   onExport,
+  onReplay,
+  onTogglePin,
 }: HistoryScreenProps) {
   const [searchText, setSearchText] = useState("");
   const [methodFilter, setMethodFilter] = useState<string | undefined>();
@@ -45,19 +49,19 @@ export function HistoryScreen({
             searchText={searchText}
             methodFilter={methodFilter}
             onSearchChange={setSearchText}
-            onMethodFilterChange={(value) =>
-              setMethodFilter(value || undefined)
-            }
+            onMethodFilterChange={setMethodFilter}
           />
         </SidebarCard>
       </Sidebar>
       <HistoryListPanel
         entries={entries}
-        pinnedEntries={pinnedEntries}
+        pinnedIds={pinnedIds}
         searchText={searchText}
         methodFilter={methodFilter}
         onClearAll={onClearAll}
         onExport={onExport}
+        onReplay={onReplay}
+        onTogglePin={onTogglePin}
       />
     </ScreenLayout>
   );

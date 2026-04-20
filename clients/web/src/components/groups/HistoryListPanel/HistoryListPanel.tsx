@@ -8,17 +8,20 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { HistoryEntry } from "../HistoryEntry/HistoryEntry";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
-import type { HistoryEntryProps } from "../HistoryEntry/HistoryEntry";
+import { extractMethod } from "../historyUtils.js";
 
-export interface HistoryRequestsPanelProps {
-  entries: HistoryEntryProps[];
-  pinnedEntries: HistoryEntryProps[];
+export interface HistoryListPanelProps {
+  entries: MessageEntry[];
+  pinnedIds: Set<string>;
   searchText: string;
   methodFilter?: string;
   onClearAll: () => void;
   onExport: () => void;
+  onReplay: (id: string) => void;
+  onTogglePin: (id: string) => void;
 }
 
 const ToolbarButton = Button.withProps({
@@ -39,10 +42,6 @@ const EmptyState = Text.withProps({
   py: "xl",
 });
 
-function entryKey(entry: HistoryEntryProps): string {
-  return `${entry.timestamp}-${entry.method}`;
-}
-
 function formatPinnedTitle(count: number): string {
   return `Pinned Requests (${count})`;
 }
@@ -52,16 +51,17 @@ function formatHistoryTitle(count: number): string {
 }
 
 function matchesFilters(
-  entry: HistoryEntryProps,
+  entry: MessageEntry,
   searchText: string,
   methodFilter?: string,
 ): boolean {
-  if (methodFilter && entry.method !== methodFilter) return false;
+  const method = extractMethod(entry);
+  if (methodFilter && method !== methodFilter) return false;
   if (searchText) {
     const term = searchText.toLowerCase();
     const responseText = entry.response ? JSON.stringify(entry.response) : "";
     const searchable =
-      `${entry.method} ${entry.target ?? ""} ${entry.timestamp} ${responseText}`.toLowerCase();
+      `${method} ${entry.id} ${JSON.stringify(entry.message)} ${responseText}`.toLowerCase();
     if (!searchable.includes(term)) return false;
   }
   return true;
@@ -69,12 +69,14 @@ function matchesFilters(
 
 export function HistoryListPanel({
   entries,
-  pinnedEntries,
+  pinnedIds,
   searchText,
   methodFilter,
   onClearAll,
   onExport,
-}: HistoryRequestsPanelProps) {
+  onReplay,
+  onTogglePin,
+}: HistoryListPanelProps) {
   const [compact, setCompact] = useState(false);
 
   const filteredEntries = useMemo(
@@ -82,13 +84,17 @@ export function HistoryListPanel({
     [entries, searchText, methodFilter],
   );
 
-  const filteredPinned = useMemo(
-    () =>
-      pinnedEntries.filter((e) => matchesFilters(e, searchText, methodFilter)),
-    [pinnedEntries, searchText, methodFilter],
+  const pinnedEntries = useMemo(
+    () => filteredEntries.filter((e) => pinnedIds.has(e.id)),
+    [filteredEntries, pinnedIds],
   );
 
-  const hasResults = filteredEntries.length > 0 || filteredPinned.length > 0;
+  const unpinnedEntries = useMemo(
+    () => filteredEntries.filter((e) => !pinnedIds.has(e.id)),
+    [filteredEntries, pinnedIds],
+  );
+
+  const hasResults = filteredEntries.length > 0;
 
   return (
     <PanelContainer>
@@ -110,34 +116,40 @@ export function HistoryListPanel({
       ) : (
         <ScrollArea.Autosize mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)">
           <Stack gap="md">
-            {filteredPinned.length > 0 && (
+            {pinnedEntries.length > 0 && (
               <>
                 <Title order={5}>
-                  {formatPinnedTitle(filteredPinned.length)}
+                  {formatPinnedTitle(pinnedEntries.length)}
                 </Title>
-                {filteredPinned.map((entry) => (
+                {pinnedEntries.map((entry) => (
                   <HistoryEntry
-                    key={entryKey(entry)}
-                    {...entry}
+                    key={entry.id}
+                    entry={entry}
+                    isPinned={true}
                     isListExpanded={!compact}
+                    onReplay={() => onReplay(entry.id)}
+                    onTogglePin={() => onTogglePin(entry.id)}
                   />
                 ))}
               </>
             )}
 
-            {filteredEntries.length > 0 && (
+            {unpinnedEntries.length > 0 && (
               <>
                 <Group justify="space-between">
                   <Title order={5}>
-                    {formatHistoryTitle(filteredEntries.length)}
+                    {formatHistoryTitle(unpinnedEntries.length)}
                   </Title>
                   <ToolbarButton onClick={onClearAll}>Clear</ToolbarButton>
                 </Group>
-                {filteredEntries.map((entry) => (
+                {unpinnedEntries.map((entry) => (
                   <HistoryEntry
-                    key={entryKey(entry)}
-                    {...entry}
+                    key={entry.id}
+                    entry={entry}
+                    isPinned={false}
                     isListExpanded={!compact}
+                    onReplay={() => onReplay(entry.id)}
+                    onTogglePin={() => onTogglePin(entry.id)}
                   />
                 ))}
               </>

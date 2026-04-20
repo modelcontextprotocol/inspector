@@ -599,79 +599,98 @@ export const HistoryActive: Story = {
       <HistoryScreen
         entries={[
           {
-            timestamp: "2026-03-17T10:00:00Z",
-            method: "tools/call",
-            target: "send_message",
-            status: "success",
-            durationMs: 120,
-            parameters: { message: "Hello, world!" },
-            response: { result: "Message sent successfully" },
-            isPinned: false,
-            isListExpanded: false,
-            onReplay: fn(),
-            onTogglePin: fn(),
-          },
-          {
-            timestamp: "2026-03-17T10:01:00Z",
-            method: "resources/read",
-            target: "config.json",
-            status: "success",
-            durationMs: 45,
-            parameters: { uri: "file:///config.json" },
-            response: {
-              contents: [{ uri: "file:///config.json", text: "{}" }],
+            id: "req-1",
+            timestamp: new Date("2026-03-17T10:00:00Z"),
+            direction: "request" as const,
+            message: {
+              jsonrpc: "2.0" as const,
+              id: 1,
+              method: "tools/call",
+              params: {
+                name: "send_message",
+                arguments: { message: "Hello, world!" },
+              },
             },
-            isPinned: false,
-            isListExpanded: false,
-            onReplay: fn(),
-            onTogglePin: fn(),
+            response: {
+              jsonrpc: "2.0" as const,
+              id: 1,
+              result: {
+                content: [{ type: "text", text: "Message sent successfully" }],
+              },
+            },
+            duration: 120,
           },
           {
-            timestamp: "2026-03-17T10:02:00Z",
-            method: "tools/call",
-            target: "delete_records",
-            status: "error",
-            durationMs: 350,
-            parameters: { ids: [1, 2, 3] },
-            response: { error: "Permission denied" },
-            isPinned: false,
-            isListExpanded: true,
-            onReplay: fn(),
-            onTogglePin: fn(),
+            id: "req-2",
+            timestamp: new Date("2026-03-17T10:01:00Z"),
+            direction: "request" as const,
+            message: {
+              jsonrpc: "2.0" as const,
+              id: 2,
+              method: "resources/read",
+              params: { uri: "file:///config.json" },
+            },
+            response: {
+              jsonrpc: "2.0" as const,
+              id: 2,
+              result: {
+                contents: [{ uri: "file:///config.json", text: "{}" }],
+              },
+            },
+            duration: 45,
+          },
+          {
+            id: "req-3",
+            timestamp: new Date("2026-03-17T10:02:00Z"),
+            direction: "request" as const,
+            message: {
+              jsonrpc: "2.0" as const,
+              id: 3,
+              method: "tools/call",
+              params: { name: "delete_records", arguments: { ids: [1, 2, 3] } },
+            },
+            response: {
+              jsonrpc: "2.0" as const,
+              id: 3,
+              error: { code: -32000, message: "Permission denied" },
+            },
+            duration: 350,
+          },
+          {
+            id: "req-4",
+            timestamp: new Date("2026-03-17T09:30:00Z"),
+            direction: "request" as const,
+            message: { jsonrpc: "2.0" as const, id: 4, method: "tools/list" },
+            response: { jsonrpc: "2.0" as const, id: 4, result: { tools: [] } },
+            duration: 80,
+          },
+          {
+            id: "req-5",
+            timestamp: new Date("2026-03-17T09:35:00Z"),
+            direction: "request" as const,
+            message: {
+              jsonrpc: "2.0" as const,
+              id: 5,
+              method: "prompts/get",
+              params: { name: "greeting" },
+            },
+            response: {
+              jsonrpc: "2.0" as const,
+              id: 5,
+              result: {
+                messages: [
+                  { role: "user", content: { type: "text", text: "Hello!" } },
+                ],
+              },
+            },
+            duration: 60,
           },
         ]}
-        pinnedEntries={[
-          {
-            timestamp: "2026-03-17T09:30:00Z",
-            method: "tools/list",
-            status: "success",
-            durationMs: 80,
-            response: { tools: ["send_message", "list_users"] },
-            isPinned: true,
-            isListExpanded: false,
-            onReplay: fn(),
-            onTogglePin: fn(),
-          },
-          {
-            timestamp: "2026-03-17T09:35:00Z",
-            method: "prompts/get",
-            target: "greeting",
-            status: "success",
-            durationMs: 60,
-            parameters: { name: "greeting" },
-            response: {
-              messages: [
-                { role: "user", content: { type: "text", text: "Hello!" } },
-              ],
-            },
-            isPinned: true,
-            isListExpanded: false,
-            onReplay: fn(),
-            onTogglePin: fn(),
-          },
-        ]}
+        pinnedIds={new Set(["req-4", "req-5"])}
         onClearAll={fn()}
         onExport={fn()}
+        onReplay={fn()}
+        onTogglePin={fn()}
       />
     ),
   },
