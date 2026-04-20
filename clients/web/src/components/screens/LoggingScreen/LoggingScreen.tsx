@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
+import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { LogControls } from "../../groups/LogControls/LogControls";
 import { LogStreamPanel } from "../../groups/LogStreamPanel/LogStreamPanel";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 
 export interface LoggingScreenProps {
   entries: LogEntryData[];
-  currentLevel: string;
-  onSetLevel: (level: string) => void;
+  currentLevel: LoggingLevel;
+  onSetLevel: (level: LoggingLevel) => void;
   onClear: () => void;
   onExport: () => void;
   autoScroll: boolean;
@@ -15,7 +16,7 @@ export interface LoggingScreenProps {
   onCopyAll: () => void;
 }
 
-const ALL_LEVELS_VISIBLE: Record<string, boolean> = {
+const ALL_LEVELS_VISIBLE: Record<LoggingLevel, boolean> = {
   debug: true,
   info: true,
   notice: true,
@@ -24,6 +25,17 @@ const ALL_LEVELS_VISIBLE: Record<string, boolean> = {
   critical: true,
   alert: true,
   emergency: true,
+};
+
+const NO_LEVELS_VISIBLE: Record<LoggingLevel, boolean> = {
+  debug: false,
+  info: false,
+  notice: false,
+  warning: false,
+  error: false,
+  critical: false,
+  alert: false,
+  emergency: false,
 };
 
 const ScreenLayout = Flex.withProps({
@@ -55,15 +67,11 @@ export function LoggingScreen({
 }: LoggingScreenProps) {
   const [filterText, setFilterText] = useState("");
   const [visibleLevels, setVisibleLevels] =
-    useState<Record<string, boolean>>(ALL_LEVELS_VISIBLE);
+    useState<Record<LoggingLevel, boolean>>(ALL_LEVELS_VISIBLE);
 
-  function handleToggleLevel(level: string, visible: boolean) {
+  function handleToggleLevel(level: LoggingLevel, visible: boolean) {
     setVisibleLevels((prev) => ({ ...prev, [level]: visible }));
   }
-
-  const NO_LEVELS_VISIBLE: Record<string, boolean> = Object.fromEntries(
-    Object.keys(ALL_LEVELS_VISIBLE).map((k) => [k, false]),
-  );
 
   function handleToggleAllLevels() {
     const allSelected = Object.values(visibleLevels).every(Boolean);

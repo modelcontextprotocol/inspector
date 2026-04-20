@@ -9,13 +9,14 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { LogEntry } from "../../elements/LogEntry/LogEntry";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 
 export interface LogStreamPanelProps {
   entries: LogEntryData[];
   filterText: string;
-  visibleLevels: Record<string, boolean>;
+  visibleLevels: Record<LoggingLevel, boolean>;
   autoScroll: boolean;
   onToggleAutoScroll: () => void;
   onCopyAll: () => void;
@@ -50,7 +51,7 @@ function formatData(data: unknown): string {
 function matchesFilters(
   entry: LogEntryData,
   filterText: string,
-  visibleLevels: Record<string, boolean>,
+  visibleLevels: Record<LoggingLevel, boolean>,
 ): boolean {
   if (!visibleLevels[entry.params.level]) return false;
   if (filterText) {

@@ -8,8 +8,9 @@ import {
   Title,
   UnstyledButton,
 } from "@mantine/core";
+import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 
-const LOG_LEVELS = [
+const LOG_LEVELS: LoggingLevel[] = [
   "debug",
   "info",
   "notice",
@@ -18,9 +19,9 @@ const LOG_LEVELS = [
   "critical",
   "alert",
   "emergency",
-] as const;
+];
 
-const LEVEL_COLORS: Record<string, { c: string }> = {
+const LEVEL_COLORS: Record<LoggingLevel, { c: string }> = {
   debug: { c: "dimmed" },
   info: { c: "blue" },
   notice: { c: "teal" },
@@ -37,12 +38,12 @@ const SubtleButton = Button.withProps({
 });
 
 export interface LogControlsProps {
-  currentLevel: string;
+  currentLevel: LoggingLevel;
   filterText: string;
-  visibleLevels: Record<string, boolean>;
-  onSetLevel: (level: string) => void;
+  visibleLevels: Record<LoggingLevel, boolean>;
+  onSetLevel: (level: LoggingLevel) => void;
   onFilterChange: (text: string) => void;
-  onToggleLevel: (level: string, visible: boolean) => void;
+  onToggleLevel: (level: LoggingLevel, visible: boolean) => void;
   onToggleAllLevels: () => void;
 }
 
@@ -72,7 +73,9 @@ export function LogControls({
           data={LOG_LEVELS.map((level) => ({ value: level, label: level }))}
           value={currentLevel}
           onChange={(value) => {
-            if (value) onSetLevel(value);
+            if (value && LOG_LEVELS.includes(value as LoggingLevel)) {
+              onSetLevel(value as LoggingLevel);
+            }
           }}
         />
         <Button size="sm" onClick={() => onSetLevel(currentLevel)}>
