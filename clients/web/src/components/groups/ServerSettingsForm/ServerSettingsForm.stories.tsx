@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn } from "storybook/test";
 import {
   ServerSettingsForm,
   type ServerSettingsSection,
@@ -15,34 +14,75 @@ const defaultSettings: InspectorServerSettings = {
   requestTimeout: 60000,
 };
 
-const defaultHandlers = {
-  onConnectionModeChange: fn(),
-  onAddHeader: fn(),
-  onRemoveHeader: fn(),
-  onHeaderChange: fn(),
-  onAddMetadata: fn(),
-  onRemoveMetadata: fn(),
-  onMetadataChange: fn(),
-  onTimeoutChange: fn(),
-  onOAuthChange: fn(),
-};
-
 function InteractiveForm({
-  settings,
+  startSettings,
   initialSections = ["connectionMode"],
 }: {
-  settings: InspectorServerSettings;
+  startSettings: InspectorServerSettings;
   initialSections?: ServerSettingsSection[];
 }) {
   const [expandedSections, setExpandedSections] =
     useState<ServerSettingsSection[]>(initialSections);
+  const [settings, setSettings] =
+    useState<InspectorServerSettings>(startSettings);
 
   return (
     <ServerSettingsForm
       settings={settings}
       expandedSections={expandedSections}
       onExpandedSectionsChange={setExpandedSections}
-      {...defaultHandlers}
+      onConnectionModeChange={(mode) =>
+        setSettings((s) => ({ ...s, connectionMode: mode }))
+      }
+      onAddHeader={() =>
+        setSettings((s) => ({
+          ...s,
+          headers: [...s.headers, { key: "", value: "" }],
+        }))
+      }
+      onRemoveHeader={(index) =>
+        setSettings((s) => ({
+          ...s,
+          headers: s.headers.filter((_, i) => i !== index),
+        }))
+      }
+      onHeaderChange={(index, key, value) =>
+        setSettings((s) => ({
+          ...s,
+          headers: s.headers.map((h, i) => (i === index ? { key, value } : h)),
+        }))
+      }
+      onAddMetadata={() =>
+        setSettings((s) => ({
+          ...s,
+          metadata: [...s.metadata, { key: "", value: "" }],
+        }))
+      }
+      onRemoveMetadata={(index) =>
+        setSettings((s) => ({
+          ...s,
+          metadata: s.metadata.filter((_, i) => i !== index),
+        }))
+      }
+      onMetadataChange={(index, key, value) =>
+        setSettings((s) => ({
+          ...s,
+          metadata: s.metadata.map((m, i) =>
+            i === index ? { key, value } : m,
+          ),
+        }))
+      }
+      onTimeoutChange={(field, value) =>
+        setSettings((s) => ({ ...s, [field]: value }))
+      }
+      onOAuthChange={(field, value) => {
+        const fieldMap: Record<string, string> = {
+          clientId: "oauthClientId",
+          clientSecret: "oauthClientSecret",
+          scopes: "oauthScopes",
+        };
+        setSettings((s) => ({ ...s, [fieldMap[field] ?? field]: value }));
+      }}
     />
   );
 }
@@ -56,13 +96,13 @@ export default meta;
 type Story = StoryObj<typeof ServerSettingsForm>;
 
 export const DefaultSettings: Story = {
-  render: () => <InteractiveForm settings={defaultSettings} />,
+  render: () => <InteractiveForm startSettings={defaultSettings} />,
 };
 
 export const WithHeaders: Story = {
   render: () => (
     <InteractiveForm
-      settings={{
+      startSettings={{
         ...defaultSettings,
         headers: [
           { key: "Authorization", value: "Bearer token-abc-123" },
@@ -76,7 +116,7 @@ export const WithHeaders: Story = {
 export const WithOAuth: Story = {
   render: () => (
     <InteractiveForm
-      settings={{
+      startSettings={{
         ...defaultSettings,
         connectionMode: "direct",
         oauthClientId: "my-client-id",
@@ -90,7 +130,7 @@ export const WithOAuth: Story = {
 export const AllConfigured: Story = {
   render: () => (
     <InteractiveForm
-      settings={{
+      startSettings={{
         connectionMode: "proxy",
         headers: [
           { key: "Authorization", value: "Bearer token-abc-123" },
