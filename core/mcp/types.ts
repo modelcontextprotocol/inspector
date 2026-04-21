@@ -60,6 +60,16 @@ export type ConnectionStatus =
   | "connected"
   | "error";
 
+/**
+ * Snapshot of a server's connection state, used by dumb components
+ * that display status, retry count, and error details.
+ */
+export interface ConnectionState {
+  status: ConnectionStatus;
+  retryCount?: number;
+  error?: { message: string; details?: string };
+}
+
 export interface StderrLogEntry {
   timestamp: Date;
   message: string;

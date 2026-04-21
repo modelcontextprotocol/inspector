@@ -7,8 +7,8 @@ import {
   SegmentedControl,
   Text,
   Title,
+  useComputedColorScheme,
 } from "@mantine/core";
-import { useComputedColorScheme } from "@mantine/core";
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import { MdLightMode, MdDarkMode } from "react-icons/md";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";

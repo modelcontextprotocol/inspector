@@ -1,7 +1,7 @@
 import { Badge, Button, Card, Group, Menu, Stack, Text } from "@mantine/core";
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import type {
-  ConnectionStatus,
+  ConnectionState,
   MCPServerConfig,
   ServerType,
 } from "@inspector/core/mcp/types.js";
@@ -10,12 +10,6 @@ import { TransportBadge } from "../../elements/TransportBadge/TransportBadge";
 import { ConnectionToggle } from "../../elements/ConnectionToggle/ConnectionToggle";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { InlineError } from "../../elements/InlineError/InlineError";
-
-export interface ConnectionState {
-  status: ConnectionStatus;
-  retryCount?: number;
-  error?: { message: string; details?: string };
-}
 
 export interface ServerCardProps {
   name: string;

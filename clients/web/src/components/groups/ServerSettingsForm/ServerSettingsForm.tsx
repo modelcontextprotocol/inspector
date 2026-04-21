@@ -22,7 +22,7 @@ export interface ServerSettingsFormProps {
   settings: InspectorServerSettings;
   expandedSections: ServerSettingsSection[];
   onExpandedSectionsChange: (sections: ServerSettingsSection[]) => void;
-  onConnectionModeChange: (mode: string) => void;
+  onConnectionModeChange: (mode: "proxy" | "direct") => void;
   onAddHeader: () => void;
   onRemoveHeader: (index: number) => void;
   onHeaderChange: (index: number, key: string, value: string) => void;
@@ -129,7 +129,7 @@ export function ServerSettingsForm({
             data={CONNECTION_MODE_OPTIONS}
             value={settings.connectionMode}
             onChange={(value) => {
-              if (value) onConnectionModeChange(value);
+              if (value) onConnectionModeChange(value as "proxy" | "direct");
             }}
             description={
               settings.connectionMode === "proxy"

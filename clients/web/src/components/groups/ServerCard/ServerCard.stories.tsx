@@ -1,7 +1,9 @@
-import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+import type {
+  ConnectionState,
+  MCPServerConfig,
+} from "@inspector/core/mcp/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
-import type { ConnectionState } from "./ServerCard";
 import { ServerCard } from "./ServerCard";
 
 const stdioConfig: MCPServerConfig = {

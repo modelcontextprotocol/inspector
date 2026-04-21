@@ -39,12 +39,30 @@ function formatScopes(scopes: string[]): string {
   return scopes.join(", ");
 }
 
+const SERVER_CAPABILITY_KEYS: CapabilityKey[] = [
+  "tools",
+  "resources",
+  "prompts",
+  "logging",
+  "completions",
+  "tasks",
+  "experimental",
+];
+
+const CLIENT_CAPABILITY_KEYS: CapabilityKey[] = [
+  "roots",
+  "sampling",
+  "elicitation",
+  "experimental",
+];
+
 function getCapabilityEntries(
   capabilities: Record<string, unknown>,
+  knownKeys: CapabilityKey[],
 ): { capability: CapabilityKey; supported: boolean }[] {
-  return Object.entries(capabilities).map(([key, value]) => ({
-    capability: key as CapabilityKey,
-    supported: value != null,
+  return knownKeys.map((key) => ({
+    capability: key,
+    supported: key in capabilities && capabilities[key] != null,
   }));
 }
 
@@ -57,8 +75,11 @@ export function ServerInfoContent({
   const { serverInfo, protocolVersion, capabilities, instructions } =
     initializeResult;
 
-  const serverCaps = getCapabilityEntries(capabilities);
-  const clientCaps = getCapabilityEntries(clientCapabilities);
+  const serverCaps = getCapabilityEntries(capabilities, SERVER_CAPABILITY_KEYS);
+  const clientCaps = getCapabilityEntries(
+    clientCapabilities,
+    CLIENT_CAPABILITY_KEYS,
+  );
 
   return (
     <Stack gap="md">
