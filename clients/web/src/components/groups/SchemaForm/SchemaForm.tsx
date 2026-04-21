@@ -8,24 +8,7 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
-
-export interface JsonSchema {
-  type?: string;
-  properties?: Record<string, JsonSchema>;
-  required?: string[];
-  items?: JsonSchema;
-  enum?: string[];
-  oneOf?: Array<{ const: string; title?: string }>;
-  anyOf?: Array<{ const: string; title?: string }>;
-  default?: unknown;
-  description?: string;
-  title?: string;
-  minimum?: number;
-  maximum?: number;
-  minLength?: number;
-  maxLength?: number;
-  format?: string;
-}
+import type { JsonSchemaType } from "../../../utils/jsonUtils";
 
 const FieldLabel = Text.withProps({
   fw: 500,
@@ -42,20 +25,20 @@ function serializeJson(value: unknown): string {
 }
 
 export interface SchemaFormProps {
-  schema: JsonSchema;
+  schema: JsonSchemaType;
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
   disabled?: boolean;
 }
 
-function getDefaultValue(fieldSchema: JsonSchema): unknown {
+function getDefaultValue(fieldSchema: JsonSchemaType): unknown {
   if (fieldSchema.default !== undefined) {
     return fieldSchema.default;
   }
   return undefined;
 }
 
-function resolveValue(value: unknown, fieldSchema: JsonSchema): unknown {
+function resolveValue(value: unknown, fieldSchema: JsonSchemaType): unknown {
   if (value !== undefined) {
     return value;
   }
@@ -75,7 +58,7 @@ export function SchemaForm({
     onChange({ ...values, [fieldName]: fieldValue });
   }
 
-  function renderField(fieldName: string, fieldSchema: JsonSchema) {
+  function renderField(fieldName: string, fieldSchema: JsonSchemaType) {
     const isRequired = requiredFields.includes(fieldName);
     const label = fieldSchema.title ?? fieldName;
     const description = fieldSchema.description;
@@ -100,8 +83,8 @@ export function SchemaForm({
     // string with oneOf
     if (fieldSchema.type === "string" && fieldSchema.oneOf) {
       const data = fieldSchema.oneOf.map((item) => ({
-        value: item.const,
-        label: item.title ?? item.const,
+        value: String(item.const ?? ""),
+        label: item.title ?? String(item.const ?? ""),
       }));
       return (
         <Select
@@ -175,8 +158,8 @@ export function SchemaForm({
     // array with items having anyOf
     if (fieldSchema.type === "array" && fieldSchema.items?.anyOf) {
       const data = fieldSchema.items.anyOf.map((item) => ({
-        value: item.const,
-        label: item.title ?? item.const,
+        value: String(item.const ?? ""),
+        label: item.title ?? String(item.const ?? ""),
       }));
       return (
         <MultiSelect

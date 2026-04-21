@@ -1,6 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
+import type {
+  ClientExperimentalToggle,
+  RequestHistoryItem,
+} from "./ExperimentalFeaturesPanel";
 import { ExperimentalFeaturesPanel } from "./ExperimentalFeaturesPanel";
+
+const defaultClientToggles: ClientExperimentalToggle[] = [
+  { name: "experimental/customSampling", enabled: false },
+  { name: "experimental/batchRequests", enabled: true },
+];
 
 const meta: Meta<typeof ExperimentalFeaturesPanel> = {
   title: "Groups/ExperimentalFeaturesPanel",
@@ -14,13 +23,10 @@ const meta: Meta<typeof ExperimentalFeaturesPanel> = {
     onHeaderChange: fn(),
     onCopyResponse: fn(),
     onTestCapability: fn(),
-    clientCapabilities: [
-      { name: "experimental/customSampling", enabled: false },
-      { name: "experimental/batchRequests", enabled: true },
-    ],
+    clientToggles: defaultClientToggles,
     customHeaders: [],
     requestHistory: [],
-    requestJson: JSON.stringify(
+    requestDraft: JSON.stringify(
       {
         jsonrpc: "2.0",
         id: 1,
@@ -38,14 +44,12 @@ type Story = StoryObj<typeof ExperimentalFeaturesPanel>;
 
 export const WithServerCaps: Story = {
   args: {
-    serverCapabilities: [
-      {
-        name: "experimental/streaming",
+    serverExperimental: {
+      "experimental/streaming": {
         description: "Supports streaming responses for long-running operations",
         methods: ["experimental/stream.start", "experimental/stream.cancel"],
       },
-      {
-        name: "experimental/caching",
+      "experimental/caching": {
         description: "Server-side response caching with TTL support",
         methods: [
           "experimental/cache.get",
@@ -53,37 +57,31 @@ export const WithServerCaps: Story = {
           "experimental/cache.clear",
         ],
       },
-    ],
+    },
   },
 };
 
 export const NoServerCaps: Story = {
   args: {
-    serverCapabilities: [],
+    serverExperimental: undefined,
   },
 };
 
 export const WithResponse: Story = {
   args: {
-    serverCapabilities: [
-      {
-        name: "experimental/echo",
+    serverExperimental: {
+      "experimental/echo": {
         description: "Echoes back the request for testing",
-        methods: ["experimental/echo"],
       },
-    ],
-    responseJson: JSON.stringify(
-      {
-        jsonrpc: "2.0",
-        id: 1,
-        result: {
-          echo: "Hello from experimental endpoint",
-          timestamp: "2026-03-17T10:30:00Z",
-        },
+    },
+    response: {
+      jsonrpc: "2.0" as const,
+      id: 1,
+      result: {
+        echo: "Hello from experimental endpoint",
+        timestamp: "2026-03-17T10:30:00Z",
       },
-      null,
-      2,
-    ),
+    },
     customHeaders: [
       { key: "X-Custom-Auth", value: "Bearer token123" },
       { key: "X-Request-Id", value: "req-abc-456" },
@@ -91,33 +89,50 @@ export const WithResponse: Story = {
   },
 };
 
+export const WithErrorResponse: Story = {
+  args: {
+    serverExperimental: {
+      "experimental/echo": {
+        description: "Echoes back the request for testing",
+      },
+    },
+    response: {
+      jsonrpc: "2.0" as const,
+      id: 1,
+      error: {
+        code: -32601,
+        message: "Method not found",
+      },
+    },
+  },
+};
+
 export const WithHistory: Story = {
   args: {
-    serverCapabilities: [
-      {
-        name: "experimental/metrics",
+    serverExperimental: {
+      "experimental/metrics": {
         description: "Exposes server metrics",
       },
-    ],
+    },
     requestHistory: [
       {
-        timestamp: "2026-03-17 10:30:15",
+        timestamp: new Date("2026-03-17T10:30:15Z"),
         method: "experimental/metrics.get",
         status: "success",
         durationMs: 42,
       },
       {
-        timestamp: "2026-03-17 10:29:50",
+        timestamp: new Date("2026-03-17T10:29:50Z"),
         method: "experimental/echo",
         status: "success",
         durationMs: 15,
       },
       {
-        timestamp: "2026-03-17 10:28:30",
+        timestamp: new Date("2026-03-17T10:28:30Z"),
         method: "experimental/unknown",
         status: "error",
         durationMs: 120,
       },
-    ],
+    ] satisfies RequestHistoryItem[],
   },
 };

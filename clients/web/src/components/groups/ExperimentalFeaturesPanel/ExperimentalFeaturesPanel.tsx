@@ -1,6 +1,7 @@
 import {
   ActionIcon,
   Alert,
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -13,36 +14,35 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
+import type {
+  JSONRPCErrorResponse,
+  JSONRPCResponse,
+  ServerCapabilities,
+} from "@modelcontextprotocol/sdk/types.js";
 
-export interface ExperimentalCapability {
-  name: string;
-  description?: string;
-  methods?: string[];
-}
-
-export interface ClientExperimentalCapability {
+export interface ClientExperimentalToggle {
   name: string;
   enabled: boolean;
 }
 
-export interface KeyValuePair {
+export interface HeaderPair {
   key: string;
   value: string;
 }
 
 export interface RequestHistoryItem {
-  timestamp: string;
+  timestamp: Date;
   method: string;
   status: string;
   durationMs: number;
 }
 
 export interface ExperimentalFeaturesPanelProps {
-  serverCapabilities: ExperimentalCapability[];
-  clientCapabilities: ClientExperimentalCapability[];
-  requestJson: string;
-  responseJson?: string;
-  customHeaders: KeyValuePair[];
+  serverExperimental: ServerCapabilities["experimental"];
+  clientToggles: ClientExperimentalToggle[];
+  requestDraft: string;
+  response?: JSONRPCResponse | JSONRPCErrorResponse;
+  customHeaders: HeaderPair[];
   requestHistory: RequestHistoryItem[];
   onToggleClientCapability: (name: string, enabled: boolean) => void;
   onRequestChange: (json: string) => void;
@@ -79,19 +79,60 @@ const RemoveIcon = ActionIcon.withProps({
   color: "red",
 });
 
-function formatMethods(methods: string[]): string {
-  return `Methods: ${methods.join(", ")}`;
-}
-
 function formatDuration(ms: number): string {
   return `${ms}ms`;
 }
 
+function formatTimestamp(date: Date): string {
+  return date.toLocaleString();
+}
+
+function formatResponse(
+  response: JSONRPCResponse | JSONRPCErrorResponse,
+): string {
+  return JSON.stringify(response, null, 2);
+}
+
+function isErrorResponse(
+  response: JSONRPCResponse | JSONRPCErrorResponse,
+): response is JSONRPCErrorResponse {
+  return "error" in response;
+}
+
+function getCapabilityEntries(
+  experimental: ServerCapabilities["experimental"],
+): [string, object][] {
+  if (!experimental) return [];
+  return Object.entries(experimental);
+}
+
+function getCapabilityDescription(value: object): string | undefined {
+  if ("description" in value && typeof value.description === "string") {
+    return value.description;
+  }
+  return undefined;
+}
+
+function getCapabilityMethods(value: object): string[] | undefined {
+  if (
+    "methods" in value &&
+    Array.isArray(value.methods) &&
+    value.methods.every((m: unknown) => typeof m === "string")
+  ) {
+    return value.methods as string[];
+  }
+  return undefined;
+}
+
+function formatMethods(methods: string[]): string {
+  return `Methods: ${methods.join(", ")}`;
+}
+
 export function ExperimentalFeaturesPanel({
-  serverCapabilities,
-  clientCapabilities,
-  requestJson,
-  responseJson,
+  serverExperimental,
+  clientToggles,
+  requestDraft,
+  response,
   customHeaders,
   requestHistory,
   onToggleClientCapability,
@@ -103,6 +144,8 @@ export function ExperimentalFeaturesPanel({
   onCopyResponse,
   onTestCapability,
 }: ExperimentalFeaturesPanelProps) {
+  const serverEntries = getCapabilityEntries(serverExperimental);
+
   return (
     <Stack gap="md">
       <Alert color="yellow">
@@ -111,38 +154,42 @@ export function ExperimentalFeaturesPanel({
 
       <Title order={5}>Server Experimental Capabilities:</Title>
 
-      {serverCapabilities.length === 0 ? (
+      {serverEntries.length === 0 ? (
         <Text c="dimmed">No experimental capabilities</Text>
       ) : (
-        serverCapabilities.map((cap) => (
-          <CapCard key={cap.name}>
-            <Stack gap="xs">
-              <Text fw={600}>{cap.name}</Text>
-              {cap.description && <HintText>{cap.description}</HintText>}
-              {cap.methods && cap.methods.length > 0 && (
-                <MetaText>{formatMethods(cap.methods)}</MetaText>
-              )}
-              <Group>
-                <CompactButton onClick={() => onTestCapability(cap.name)}>
-                  Test →
-                </CompactButton>
-              </Group>
-            </Stack>
-          </CapCard>
-        ))
+        serverEntries.map(([name, value]) => {
+          const description = getCapabilityDescription(value);
+          const methods = getCapabilityMethods(value);
+          return (
+            <CapCard key={name}>
+              <Stack gap="xs">
+                <Text fw={600}>{name}</Text>
+                {description && <HintText>{description}</HintText>}
+                {methods && methods.length > 0 && (
+                  <MetaText>{formatMethods(methods)}</MetaText>
+                )}
+                <Group>
+                  <CompactButton onClick={() => onTestCapability(name)}>
+                    Test →
+                  </CompactButton>
+                </Group>
+              </Stack>
+            </CapCard>
+          );
+        })
       )}
 
       <Divider />
 
       <Title order={5}>Client Experimental Capabilities:</Title>
 
-      {clientCapabilities.map((clientCap) => (
+      {clientToggles.map((toggle) => (
         <Checkbox
-          key={clientCap.name}
-          label={clientCap.name}
-          checked={clientCap.enabled}
+          key={toggle.name}
+          label={toggle.name}
+          checked={toggle.enabled}
           onChange={(e) =>
-            onToggleClientCapability(clientCap.name, e.currentTarget.checked)
+            onToggleClientCapability(toggle.name, e.currentTarget.checked)
           }
         />
       ))}
@@ -182,7 +229,7 @@ export function ExperimentalFeaturesPanel({
       <Textarea
         label="Request"
         ff="monospace"
-        value={requestJson}
+        value={requestDraft}
         onChange={(e) => onRequestChange(e.currentTarget.value)}
         autosize
         minRows={6}
@@ -190,12 +237,21 @@ export function ExperimentalFeaturesPanel({
 
       <Button onClick={onSendRequest}>Send Request</Button>
 
-      {responseJson && (
+      {response && (
         <>
+          <Group gap="xs">
+            <Text fw={500} size="sm">
+              Response
+            </Text>
+            {isErrorResponse(response) && (
+              <Badge color="red" size="sm">
+                Error
+              </Badge>
+            )}
+          </Group>
           <Textarea
-            label="Response"
             ff="monospace"
-            value={responseJson}
+            value={formatResponse(response)}
             readOnly
             autosize
             minRows={4}
@@ -221,7 +277,7 @@ export function ExperimentalFeaturesPanel({
             <Table.Tbody>
               {requestHistory.map((item, index) => (
                 <Table.Tr key={index}>
-                  <Table.Td>{item.timestamp}</Table.Td>
+                  <Table.Td>{formatTimestamp(item.timestamp)}</Table.Td>
                   <Table.Td>{item.method}</Table.Td>
                   <Table.Td>{item.status}</Table.Td>
                   <Table.Td>{formatDuration(item.durationMs)}</Table.Td>
